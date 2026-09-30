@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.Streams" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Niello.Host/Niello.Host.csproj" />
+  </ItemGroup>
+
+</Project>

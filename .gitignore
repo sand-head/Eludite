@@ -1,0 +1,14 @@
+# Rust
+/target/
+**/target/
+# .NET
+bin/
+obj/
+*.user
+.vs/
+# Editors / OS
+.idea/
+.DS_Store
+*.swp
+# Local tooling
+/node_modules/

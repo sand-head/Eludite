@@ -1,0 +1,16 @@
+[package]
+name = "niello-protocol"
+description = "Wire types shared between the Niello shell, niello-host and third-party clients."
+version.workspace = true
+edition.workspace = true
+license = "MIT"
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

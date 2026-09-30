@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Niello.Host/Niello.Host.csproj" />
+    <Project Path="src/Niello.TestBridge/Niello.TestBridge.csproj" />
+    <Project Path="src/Niello.Wcf/Niello.Wcf.csproj" />
+    <Project Path="src/Niello.Web/Niello.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Niello.Host.Tests/Niello.Host.Tests.csproj" />
+    <Project Path="tests/Niello.TestBridge.Tests/Niello.TestBridge.Tests.csproj" />
+    <Project Path="tests/Niello.Wcf.Tests/Niello.Wcf.Tests.csproj" />
+    <Project Path="tests/Niello.Web.Tests/Niello.Web.Tests.csproj" />
+  </Folder>
+</Solution>
