@@ -26,9 +26,15 @@ public static class HostServer
 
         using var rpc = CreateConnection(output, input);
         rpc.AddLocalRpcTarget(target);
+        target.LanguageServer?.Attach(rpc);
         rpc.StartListening();
 
         await Task.WhenAny(target.ExitRequested, rpc.Completion).ConfigureAwait(false);
+        if (target.LanguageServer is { } languageServer)
+        {
+            await languageServer.DisposeAsync().ConfigureAwait(false);
+        }
+
         return target.ShutdownRequested && target.ExitRequested.IsCompleted ? 0 : 1;
     }
 }
