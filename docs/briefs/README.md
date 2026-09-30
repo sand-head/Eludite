@@ -29,12 +29,12 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 
 ## Index
 
-| Brief | Title | Phase |
-|---|---|---|
-| [0001](0001-gpui-shell-and-docking-spike.md) | GPUI shell and docking prototype, Zed vendoring audit | 0 |
-| [0002](0002-niello-host-roslyn-spike.md) | `niello-host` with Roslyn, time-to-IntelliSense | 0 |
-| [0003](0003-legacy-project-load-spike.md) | Legacy project load, WebForms code-behind IntelliSense | 0 |
-| [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 |
-| [0005](0005-acp-claude-code-spike.md) | Claude Code via ACP in a GPUI panel, one MCP tool | 0 |
+| Brief | Title | Phase | Result |
+|---|---|---|---|
+| [0001](0001-gpui-shell-and-docking-spike.md) | GPUI shell and docking prototype, Zed vendoring audit | 0 | [report](0001-report.md): Linux GO (provisional), Windows/macOS pending |
+| [0002](0002-niello-host-roslyn-spike.md) | `niello-host` with Roslyn, time-to-IntelliSense | 0 | [report](0002-report.md): Linux done, D2 stands, Windows pending |
+| [0003](0003-legacy-project-load-spike.md) | Legacy project load, WebForms code-behind IntelliSense | 0 | open |
+| [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 | open |
+| [0005](0005-acp-claude-code-spike.md) | Claude Code via ACP in a GPUI panel, one MCP tool | 0 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
