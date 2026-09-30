@@ -1,0 +1,633 @@
+{
+ "label": "linux-wayland-nested-kwin-virtual",
+ "time": "2026-10-01T17:36:09-0500",
+ "env": {
+  "WAYLAND_DISPLAY": "wayland-spike",
+  "DISPLAY": ":1",
+  "XDG_SESSION_TYPE": "wayland",
+  "ZED_DEVICE_ID": ""
+ },
+ "adapter": "Selected GPU adapter: \"AMD Radeon 780M Graphics (RADV PHOENIX)\" (Vulkan)",
+ "start_runs": [
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 17.25884,
+   "main_to_app_ready_ms": 36.691840000000006,
+   "main_to_window_opened_ms": 159.77187700000002,
+   "main_to_first_present_ms": 164.06190800000002,
+   "launch_to_main_ms": 1.654528,
+   "launch_to_first_present_ms": 165.716736,
+   "rss": {
+    "rss_mib": 89.164,
+    "peak_rss_mib": 89.164
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 21.522762,
+   "main_to_app_ready_ms": 39.906358000000004,
+   "main_to_window_opened_ms": 139.11642799999998,
+   "main_to_first_present_ms": 142.85143,
+   "launch_to_main_ms": 3.96928,
+   "launch_to_first_present_ms": 146.820352,
+   "rss": {
+    "rss_mib": 88.844,
+    "peak_rss_mib": 88.844
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 23.194322,
+   "main_to_app_ready_ms": 44.284915,
+   "main_to_window_opened_ms": 137.143434,
+   "main_to_first_present_ms": 140.898104,
+   "launch_to_main_ms": 2.58432,
+   "launch_to_first_present_ms": 143.482368,
+   "rss": {
+    "rss_mib": 89.289,
+    "peak_rss_mib": 89.289
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 20.039635999999998,
+   "main_to_app_ready_ms": 38.565317,
+   "main_to_window_opened_ms": 131.166705,
+   "main_to_first_present_ms": 134.81277,
+   "launch_to_main_ms": 2.884864,
+   "launch_to_first_present_ms": 137.697536,
+   "rss": {
+    "rss_mib": 89.129,
+    "peak_rss_mib": 89.129
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.552864,
+   "main_to_app_ready_ms": 37.739992,
+   "main_to_window_opened_ms": 137.551918,
+   "main_to_first_present_ms": 141.358475,
+   "launch_to_main_ms": 3.64288,
+   "launch_to_first_present_ms": 145.00096,
+   "rss": {
+    "rss_mib": 89.063,
+    "peak_rss_mib": 89.063
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 20.04223,
+   "main_to_app_ready_ms": 38.16117,
+   "main_to_window_opened_ms": 133.543745,
+   "main_to_first_present_ms": 137.183989,
+   "launch_to_main_ms": 3.496448,
+   "launch_to_first_present_ms": 140.680192,
+   "rss": {
+    "rss_mib": 89.301,
+    "peak_rss_mib": 89.301
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 20.089570000000002,
+   "main_to_app_ready_ms": 38.795910000000006,
+   "main_to_window_opened_ms": 134.84437,
+   "main_to_first_present_ms": 138.601985,
+   "launch_to_main_ms": 2.72128,
+   "launch_to_first_present_ms": 141.323264,
+   "rss": {
+    "rss_mib": 89.113,
+    "peak_rss_mib": 89.113
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.670354,
+   "main_to_app_ready_ms": 39.019207,
+   "main_to_window_opened_ms": 131.808265,
+   "main_to_first_present_ms": 135.574667,
+   "launch_to_main_ms": 3.026688,
+   "launch_to_first_present_ms": 138.601216,
+   "rss": {
+    "rss_mib": 88.992,
+    "peak_rss_mib": 88.992
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.834431,
+   "main_to_app_ready_ms": 37.721897999999996,
+   "main_to_window_opened_ms": 128.876598,
+   "main_to_first_present_ms": 132.575502,
+   "launch_to_main_ms": 3.246336,
+   "launch_to_first_present_ms": 135.821824,
+   "rss": {
+    "rss_mib": 89.23,
+    "peak_rss_mib": 89.23
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 21.397297,
+   "main_to_app_ready_ms": 39.646502,
+   "main_to_window_opened_ms": 138.70807299999998,
+   "main_to_first_present_ms": 142.526031,
+   "launch_to_main_ms": 3.282432,
+   "launch_to_first_present_ms": 145.808384,
+   "rss": {
+    "rss_mib": 88.859,
+    "peak_rss_mib": 88.859
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.666989,
+   "main_to_app_ready_ms": 39.032232,
+   "main_to_window_opened_ms": 134.642352,
+   "main_to_first_present_ms": 138.327471,
+   "launch_to_main_ms": 2.920192,
+   "launch_to_first_present_ms": 141.247744,
+   "rss": {
+    "rss_mib": 89.18,
+    "peak_rss_mib": 89.18
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 21.875042,
+   "main_to_app_ready_ms": 41.022026000000004,
+   "main_to_window_opened_ms": 144.826757,
+   "main_to_first_present_ms": 148.511065,
+   "launch_to_main_ms": 3.135744,
+   "launch_to_first_present_ms": 151.64672,
+   "rss": {
+    "rss_mib": 89.082,
+    "peak_rss_mib": 89.082
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 23.176609,
+   "main_to_app_ready_ms": 42.284861,
+   "main_to_window_opened_ms": 138.624286,
+   "main_to_first_present_ms": 142.24590600000002,
+   "launch_to_main_ms": 3.026176,
+   "launch_to_first_present_ms": 145.272064,
+   "rss": {
+    "rss_mib": 89.121,
+    "peak_rss_mib": 89.121
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.900766,
+   "main_to_app_ready_ms": 38.547254,
+   "main_to_window_opened_ms": 135.31963,
+   "main_to_first_present_ms": 139.07233499999998,
+   "launch_to_main_ms": 3.62112,
+   "launch_to_first_present_ms": 142.693376,
+   "rss": {
+    "rss_mib": 89.223,
+    "peak_rss_mib": 89.223
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 20.643075,
+   "main_to_app_ready_ms": 39.703689,
+   "main_to_window_opened_ms": 135.04460400000002,
+   "main_to_first_present_ms": 138.670252,
+   "launch_to_main_ms": 3.395584,
+   "launch_to_first_present_ms": 142.06592,
+   "rss": {
+    "rss_mib": 88.832,
+    "peak_rss_mib": 88.832
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.563514,
+   "main_to_app_ready_ms": 39.21317,
+   "main_to_window_opened_ms": 138.35395,
+   "main_to_first_present_ms": 142.741123,
+   "launch_to_main_ms": 3.899648,
+   "launch_to_first_present_ms": 146.64064,
+   "rss": {
+    "rss_mib": 88.984,
+    "peak_rss_mib": 88.984
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.081512,
+   "main_to_app_ready_ms": 37.109111,
+   "main_to_window_opened_ms": 140.744956,
+   "main_to_first_present_ms": 145.41593,
+   "launch_to_main_ms": 2.714624,
+   "launch_to_first_present_ms": 148.130816,
+   "rss": {
+    "rss_mib": 88.961,
+    "peak_rss_mib": 88.961
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.717042,
+   "main_to_app_ready_ms": 37.666093999999994,
+   "main_to_window_opened_ms": 133.42325,
+   "main_to_first_present_ms": 137.106485,
+   "launch_to_main_ms": 3.788032,
+   "launch_to_first_present_ms": 140.894464,
+   "rss": {
+    "rss_mib": 88.984,
+    "peak_rss_mib": 88.984
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 20.161734,
+   "main_to_app_ready_ms": 39.296395999999994,
+   "main_to_window_opened_ms": 134.391942,
+   "main_to_first_present_ms": 138.13324599999999,
+   "launch_to_main_ms": 3.189248,
+   "launch_to_first_present_ms": 141.322496,
+   "rss": {
+    "rss_mib": 88.926,
+    "peak_rss_mib": 88.926
+   }
+  },
+  {
+   "bench": "start",
+   "main_to_buffer_ready_ms": 19.975606,
+   "main_to_app_ready_ms": 41.133905999999996,
+   "main_to_window_opened_ms": 131.487526,
+   "main_to_first_present_ms": 135.246262,
+   "launch_to_main_ms": 2.9824,
+   "launch_to_first_present_ms": 138.228736,
+   "rss": {
+    "rss_mib": 88.98,
+    "peak_rss_mib": 88.98
+   }
+  }
+ ],
+ "start_summary": {
+  "first_run_launch_to_first_present_ms": 165.716736,
+  "warm_launch_to_first_present_ms": {
+   "n": 19,
+   "median": 142.066,
+   "min": 135.822,
+   "max": 151.647
+  },
+  "warm_main_to_first_present_ms": {
+   "n": 19,
+   "median": 138.67,
+   "min": 132.576,
+   "max": 148.511
+  },
+  "warm_rss_at_first_present_mib": {
+   "n": 19,
+   "median": 89.063,
+   "min": 88.832,
+   "max": 89.301
+  }
+ },
+ "scroll_runs": [
+  {
+   "bench": "scroll",
+   "lines": 100000,
+   "lines_per_frame": 40.0,
+   "refresh_hz": 59.853617205472915,
+   "refresh_hz_source": "estimated from p50 interval",
+   "frames": 2500,
+   "duration_ms": 41685.326,
+   "frame_interval": {
+    "n": 2499,
+    "p50_ms": 16.707,
+    "p95_ms": 17.412,
+    "p99_ms": 17.742,
+    "max_ms": 18.362,
+    "min_ms": 15.005,
+    "mean_ms": 16.667
+   },
+   "frame_work": {
+    "n": 2500,
+    "p50_ms": 4.086,
+    "p95_ms": 5.003,
+    "p99_ms": 5.444,
+    "max_ms": 11.918,
+    "min_ms": 2.562,
+    "mean_ms": 4.023
+   },
+   "intervals_over_1_5x_refresh": 0,
+   "intervals_over_2x_refresh": 0,
+   "missed_vblanks_estimate": 0.0,
+   "rss_before": {
+    "rss_mib": 91.383,
+    "peak_rss_mib": 91.383
+   },
+   "rss_after": {
+    "rss_mib": 93.664,
+    "peak_rss_mib": 93.664
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  },
+  {
+   "bench": "scroll",
+   "lines": 100000,
+   "lines_per_frame": 40.0,
+   "refresh_hz": 59.83603967751725,
+   "refresh_hz_source": "estimated from p50 interval",
+   "frames": 2500,
+   "duration_ms": 41683.815,
+   "frame_interval": {
+    "n": 2499,
+    "p50_ms": 16.712,
+    "p95_ms": 17.401,
+    "p99_ms": 17.667,
+    "max_ms": 18.63,
+    "min_ms": 14.914,
+    "mean_ms": 16.666
+   },
+   "frame_work": {
+    "n": 2500,
+    "p50_ms": 4.08,
+    "p95_ms": 4.88,
+    "p99_ms": 5.361,
+    "max_ms": 8.447,
+    "min_ms": 2.555,
+    "mean_ms": 4.001
+   },
+   "intervals_over_1_5x_refresh": 0,
+   "intervals_over_2x_refresh": 0,
+   "missed_vblanks_estimate": 0.0,
+   "rss_before": {
+    "rss_mib": 91.246,
+    "peak_rss_mib": 91.246
+   },
+   "rss_after": {
+    "rss_mib": 93.438,
+    "peak_rss_mib": 93.438
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  },
+  {
+   "bench": "scroll",
+   "lines": 100000,
+   "lines_per_frame": 40.0,
+   "refresh_hz": 59.87807387086119,
+   "refresh_hz_source": "estimated from p50 interval",
+   "frames": 2500,
+   "duration_ms": 41683.786,
+   "frame_interval": {
+    "n": 2499,
+    "p50_ms": 16.701,
+    "p95_ms": 17.448,
+    "p99_ms": 17.789,
+    "max_ms": 18.915,
+    "min_ms": 14.623,
+    "mean_ms": 16.667
+   },
+   "frame_work": {
+    "n": 2500,
+    "p50_ms": 4.076,
+    "p95_ms": 4.731,
+    "p99_ms": 5.141,
+    "max_ms": 7.877,
+    "min_ms": 2.562,
+    "mean_ms": 3.985
+   },
+   "intervals_over_1_5x_refresh": 0,
+   "intervals_over_2x_refresh": 0,
+   "missed_vblanks_estimate": 0.0,
+   "rss_before": {
+    "rss_mib": 91.191,
+    "peak_rss_mib": 91.191
+   },
+   "rss_after": {
+    "rss_mib": 94.98,
+    "peak_rss_mib": 94.98
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  },
+  {
+   "bench": "scroll",
+   "lines": 100000,
+   "lines_per_frame": 8.0,
+   "refresh_hz": 59.786256957027796,
+   "refresh_hz_source": "estimated from p50 interval",
+   "frames": 12497,
+   "duration_ms": 208315.387,
+   "frame_interval": {
+    "n": 12496,
+    "p50_ms": 16.726,
+    "p95_ms": 17.392,
+    "p99_ms": 17.724,
+    "max_ms": 26.611,
+    "min_ms": 11.57,
+    "mean_ms": 16.668
+   },
+   "frame_work": {
+    "n": 12497,
+    "p50_ms": 3.187,
+    "p95_ms": 3.864,
+    "p99_ms": 4.286,
+    "max_ms": 9.588,
+    "min_ms": 1.788,
+    "mean_ms": 3.172
+   },
+   "intervals_over_1_5x_refresh": 1,
+   "intervals_over_2x_refresh": 0,
+   "missed_vblanks_estimate": 1.0,
+   "rss_before": {
+    "rss_mib": 91.289,
+    "peak_rss_mib": 91.289
+   },
+   "rss_after": {
+    "rss_mib": 94.266,
+    "peak_rss_mib": 94.266
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  }
+ ],
+ "key_runs": [
+  {
+   "bench": "keys",
+   "method": "Window::dispatch_keystroke at random vsync phase; handler entry to end of present",
+   "keystrokes_sent": 500,
+   "samples": 500,
+   "at_line": 50000,
+   "key_to_present": {
+    "n": 500,
+    "p50_ms": 2.81,
+    "p95_ms": 6.569,
+    "p99_ms": 16.109,
+    "max_ms": 19.512,
+    "min_ms": 1.92,
+    "mean_ms": 3.337
+   },
+   "render_to_present": {
+    "n": 500,
+    "p50_ms": 2.311,
+    "p95_ms": 3.054,
+    "p99_ms": 3.35,
+    "max_ms": 14.227,
+    "min_ms": 1.65,
+    "mean_ms": 2.414
+   },
+   "rss_before": {
+    "rss_mib": 92.621,
+    "peak_rss_mib": 92.621
+   },
+   "rss_after": {
+    "rss_mib": 93.176,
+    "peak_rss_mib": 93.176
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  },
+  {
+   "bench": "keys",
+   "method": "Window::dispatch_keystroke at random vsync phase; handler entry to end of present",
+   "keystrokes_sent": 500,
+   "samples": 500,
+   "at_line": 50000,
+   "key_to_present": {
+    "n": 500,
+    "p50_ms": 2.847,
+    "p95_ms": 7.091,
+    "p99_ms": 17.613,
+    "max_ms": 18.606,
+    "min_ms": 1.92,
+    "mean_ms": 3.401
+   },
+   "render_to_present": {
+    "n": 500,
+    "p50_ms": 2.317,
+    "p95_ms": 3.095,
+    "p99_ms": 3.631,
+    "max_ms": 8.478,
+    "min_ms": 1.618,
+    "mean_ms": 2.396
+   },
+   "rss_before": {
+    "rss_mib": 92.215,
+    "peak_rss_mib": 92.215
+   },
+   "rss_after": {
+    "rss_mib": 92.781,
+    "peak_rss_mib": 92.781
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  },
+  {
+   "bench": "keys",
+   "method": "Window::dispatch_keystroke at random vsync phase; handler entry to end of present",
+   "keystrokes_sent": 500,
+   "samples": 500,
+   "at_line": 50000,
+   "key_to_present": {
+    "n": 500,
+    "p50_ms": 3.057,
+    "p95_ms": 6.996,
+    "p99_ms": 17.177,
+    "max_ms": 18.699,
+    "min_ms": 1.689,
+    "mean_ms": 3.574
+   },
+   "render_to_present": {
+    "n": 500,
+    "p50_ms": 2.464,
+    "p95_ms": 3.097,
+    "p99_ms": 3.523,
+    "max_ms": 6.686,
+    "min_ms": 1.476,
+    "mean_ms": 2.477
+   },
+   "rss_before": {
+    "rss_mib": 92.324,
+    "peak_rss_mib": 92.324
+   },
+   "rss_after": {
+    "rss_mib": 92.871,
+    "peak_rss_mib": 92.871
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-spike",
+    "display": ":1",
+    "xdg_session_type": "wayland",
+    "scale_factor": 1.0,
+    "viewport": [
+     1400.0,
+     900.0
+    ],
+    "window_active": true
+   }
+  }
+ ]
+}
