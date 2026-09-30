@@ -12,3 +12,5 @@ obj/
 *.swp
 # Local tooling
 /node_modules/
+# Agent worktrees (one per brief)
+/.worktrees/
