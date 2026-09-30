@@ -1,6 +1,6 @@
 # Brief 0002: `niello-host` with Roslyn, time-to-IntelliSense
 
-Status: open
+Status: in progress (Linux done; Windows pending). Report: [0002-report.md](0002-report.md)
 Plan reference: PLAN.md sections 3 (D2, D3), 4.3, 9, 10 (Phase 0 item 2), 13 (risk 3)
 Related ADRs: ADR-0002, ADR-0003
 

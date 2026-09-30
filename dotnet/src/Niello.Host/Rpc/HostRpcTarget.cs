@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Niello.Host.Lsp;
 using Niello.Host.Sdk;
 using StreamJsonRpc;
 
@@ -16,12 +17,16 @@ public sealed class HostRpcTarget
     private readonly TextWriter _log;
     private readonly TaskCompletionSource _exitRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null)
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        LanguageServer = languageServer;
     }
+
+    /// <summary>The forwarded Roslyn language server, or null when none is configured.</summary>
+    public LspProxy? LanguageServer { get; }
 
     public static string HostVersion { get; } =
         typeof(HostRpcTarget).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -40,6 +45,8 @@ public sealed class HostRpcTarget
         _log.WriteLine(
             $"initialize from {parameters.ClientName} {parameters.ClientVersion}" +
             (parameters.SolutionPath is null ? string.Empty : $" (solution: {parameters.SolutionPath})"));
+        // Starts the language server in the background; initialize itself does not wait for it.
+        LanguageServer?.Start(parameters.SolutionPath);
         return new InitializeResult(HostName, HostVersion, new HostCapabilities());
     }
 
