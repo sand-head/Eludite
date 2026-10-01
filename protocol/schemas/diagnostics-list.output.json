@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/diagnostics-list.output.json",
+  "title": "diagnostics.list output",
+  "description": "The Error List rows, in Error List order.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["path", "line", "column", "severity", "code", "message"],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "File path relative to the workspace root, with forward slashes.",
+        "type": "string",
+        "minLength": 1
+      },
+      "line": { "description": "1-based line.", "type": "integer", "minimum": 1 },
+      "column": { "description": "1-based column.", "type": "integer", "minimum": 1 },
+      "severity": { "enum": ["error", "warning", "message"] },
+      "code": { "description": "Diagnostic code, e.g. CS0103.", "type": "string" },
+      "message": { "type": "string" }
+    }
+  }
+}

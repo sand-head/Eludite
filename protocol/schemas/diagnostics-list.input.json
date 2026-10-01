@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/diagnostics-list.input.json",
+  "title": "diagnostics.list input",
+  "description": "List the diagnostics currently shown in the Error List: errors, warnings and messages, each with its file, line, column, code and message. Optionally filter by severity.",
+  "type": "object",
+  "properties": {
+    "severity": {
+      "description": "Only return diagnostics of this severity. Omit to return all. Names follow the Visual Studio Error List (Errors, Warnings, Messages).",
+      "enum": ["error", "warning", "message"]
+    }
+  },
+  "additionalProperties": false
+}
