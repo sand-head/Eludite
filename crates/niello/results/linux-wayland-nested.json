@@ -1,0 +1,955 @@
+{
+ "label": "linux-wayland-nested",
+ "time": "2026-10-01T22:40:24-0500",
+ "env": {
+  "WAYLAND_DISPLAY": "wayland-nb-195937",
+  "DISPLAY": ":1",
+  "XDG_SESSION_TYPE": "wayland"
+ },
+ "start_runs": [
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 113.99,
+   "launch_to_first_present_ms": 115.845888,
+   "launch_to_main_ms": 1.853696,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 71.7,
+    "peak_rss_mib": 71.7
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 5.23
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 108.916,
+   "launch_to_first_present_ms": 112.069376,
+   "launch_to_main_ms": 3.151104,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 5.23
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 100.585,
+   "launch_to_first_present_ms": 104.257792,
+   "launch_to_main_ms": 3.670528,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 101.612,
+   "launch_to_first_present_ms": 105.45536,
+   "launch_to_main_ms": 3.841024,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 101.586,
+   "launch_to_first_present_ms": 105.198848,
+   "launch_to_main_ms": 3.610368,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 103.916,
+   "launch_to_first_present_ms": 106.723072,
+   "launch_to_main_ms": 2.802944,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.0,
+    "peak_rss_mib": 72.0
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 110.022,
+   "launch_to_first_present_ms": 113.327872,
+   "launch_to_main_ms": 3.303424,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.1,
+    "peak_rss_mib": 72.1
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 102.54,
+   "launch_to_first_present_ms": 106.029824,
+   "launch_to_main_ms": 3.487744,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 103.019,
+   "launch_to_first_present_ms": 106.08512,
+   "launch_to_main_ms": 3.06176,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 71.9,
+    "peak_rss_mib": 71.9
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 107.389,
+   "launch_to_first_present_ms": 110.49472,
+   "launch_to_main_ms": 3.102464,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.0,
+    "peak_rss_mib": 72.0
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 105.759,
+   "launch_to_first_present_ms": 109.407488,
+   "launch_to_main_ms": 3.643136,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 105.801,
+   "launch_to_first_present_ms": 108.914944,
+   "launch_to_main_ms": 3.111424,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 71.9,
+    "peak_rss_mib": 71.9
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 107.296,
+   "launch_to_first_present_ms": 110.69696,
+   "launch_to_main_ms": 3.398656,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.1,
+    "peak_rss_mib": 72.1
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 103.578,
+   "launch_to_first_present_ms": 107.097344,
+   "launch_to_main_ms": 3.516416,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.1,
+    "peak_rss_mib": 72.1
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 101.181,
+   "launch_to_first_present_ms": 104.111616,
+   "launch_to_main_ms": 2.92352,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 106.888,
+   "launch_to_first_present_ms": 110.952192,
+   "launch_to_main_ms": 4.059392,
+   "layout_loader_join_wait_ms": 0.0,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 102.385,
+   "launch_to_first_present_ms": 105.367552,
+   "launch_to_main_ms": 2.980352,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 102.547,
+   "launch_to_first_present_ms": 105.449984,
+   "launch_to_main_ms": 2.900224,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 102.684,
+   "launch_to_first_present_ms": 106.80192,
+   "launch_to_main_ms": 4.115456,
+   "layout_loader_join_wait_ms": 0.0,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 103.119,
+   "launch_to_first_present_ms": 106.105344,
+   "launch_to_main_ms": 2.98368,
+   "layout_loader_join_wait_ms": 0.0,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  }
+ ],
+ "start_summary": {
+  "first_run_launch_to_first_present_ms": 115.845888,
+  "warm_launch_to_first_present_ms": {
+   "n": 19,
+   "median": 106.723,
+   "min": 104.112,
+   "max": 113.328
+  },
+  "warm_main_to_first_present_ms": {
+   "n": 19,
+   "median": 103.119,
+   "min": 100.585,
+   "max": 110.022
+  },
+  "rss_mib_at_first_present": {
+   "n": 19,
+   "median": 72.2,
+   "min": 71.9,
+   "max": 72.4
+  }
+ },
+ "drag_runs": [
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.747,
+    "p95_ms": 2.477,
+    "p99_ms": 2.617,
+    "max_ms": 2.833
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.63,
+    "p95_ms": 2.321,
+    "p99_ms": 2.443,
+    "max_ms": 2.666
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.76,
+    "p95_ms": 17.346,
+    "p99_ms": 17.512,
+    "max_ms": 17.573
+   },
+   "worst_frames": [
+    [
+     37,
+     2.833
+    ],
+    [
+     17,
+     2.705
+    ],
+    [
+     14,
+     2.687
+    ],
+    [
+     132,
+     2.685
+    ],
+    [
+     18,
+     2.673
+    ],
+    [
+     149,
+     2.663
+    ],
+    [
+     11,
+     2.617
+    ],
+    [
+     148,
+     2.612
+    ],
+    [
+     133,
+     2.599
+    ],
+    [
+     21,
+     2.591
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.6,
+    "peak_rss_mib": 74.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.58
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 2.185,
+    "p95_ms": 2.697,
+    "p99_ms": 2.956,
+    "max_ms": 3.367
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 2.055,
+    "p95_ms": 2.525,
+    "p99_ms": 2.784,
+    "max_ms": 3.213
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.706,
+    "p95_ms": 17.46,
+    "p99_ms": 17.869,
+    "max_ms": 18.618
+   },
+   "worst_frames": [
+    [
+     156,
+     3.367
+    ],
+    [
+     213,
+     3.335
+    ],
+    [
+     472,
+     3.103
+    ],
+    [
+     408,
+     3.068
+    ],
+    [
+     560,
+     3.038
+    ],
+    [
+     243,
+     2.963
+    ],
+    [
+     373,
+     2.956
+    ],
+    [
+     223,
+     2.955
+    ],
+    [
+     392,
+     2.933
+    ],
+    [
+     389,
+     2.929
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.3,
+    "peak_rss_mib": 74.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 4.18
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 2.156,
+    "p95_ms": 6.126,
+    "p99_ms": 10.053,
+    "max_ms": 11.892
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 2.018,
+    "p95_ms": 5.905,
+    "p99_ms": 9.929,
+    "max_ms": 11.759
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.682,
+    "p95_ms": 17.649,
+    "p99_ms": 21.313,
+    "max_ms": 26.177
+   },
+   "worst_frames": [
+    [
+     477,
+     11.892
+    ],
+    [
+     555,
+     11.551
+    ],
+    [
+     440,
+     11.16
+    ],
+    [
+     437,
+     11.152
+    ],
+    [
+     558,
+     11.033
+    ],
+    [
+     573,
+     10.299
+    ],
+    [
+     469,
+     10.053
+    ],
+    [
+     438,
+     9.402
+    ],
+    [
+     491,
+     9.146
+    ],
+    [
+     454,
+     8.914
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.7,
+    "peak_rss_mib": 74.7
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 3.54
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.849,
+    "p95_ms": 2.372,
+    "p99_ms": 2.664,
+    "max_ms": 6.663
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.721,
+    "p95_ms": 2.226,
+    "p99_ms": 2.55,
+    "max_ms": 6.54
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.672,
+    "p95_ms": 17.432,
+    "p99_ms": 17.817,
+    "max_ms": 20.407
+   },
+   "worst_frames": [
+    [
+     355,
+     6.663
+    ],
+    [
+     79,
+     5.477
+    ],
+    [
+     83,
+     4.401
+    ],
+    [
+     460,
+     3.717
+    ],
+    [
+     78,
+     2.968
+    ],
+    [
+     182,
+     2.84
+    ],
+    [
+     531,
+     2.664
+    ],
+    [
+     170,
+     2.639
+    ],
+    [
+     356,
+     2.629
+    ],
+    [
+     589,
+     2.609
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.6,
+    "peak_rss_mib": 74.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 7.93
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.712,
+    "p95_ms": 2.356,
+    "p99_ms": 2.895,
+    "max_ms": 6.806
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.591,
+    "p95_ms": 2.227,
+    "p99_ms": 2.765,
+    "max_ms": 6.683
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.647,
+    "p95_ms": 17.407,
+    "p99_ms": 17.706,
+    "max_ms": 20.358
+   },
+   "worst_frames": [
+    [
+     20,
+     6.806
+    ],
+    [
+     18,
+     5.628
+    ],
+    [
+     37,
+     4.626
+    ],
+    [
+     44,
+     3.257
+    ],
+    [
+     113,
+     3.135
+    ],
+    [
+     4,
+     3.035
+    ],
+    [
+     480,
+     2.895
+    ],
+    [
+     0,
+     2.815
+    ],
+    [
+     16,
+     2.742
+    ],
+    [
+     10,
+     2.674
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.4,
+    "peak_rss_mib": 74.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-nb-195937",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 7.57
+  }
+ ],
+ "drag_summary": {
+  "frame_cost_p99_ms": [
+   2.617,
+   2.956,
+   10.053,
+   2.664,
+   2.895
+  ],
+  "frame_cost_p50_ms": [
+   1.747,
+   2.185,
+   2.156,
+   1.849,
+   1.712
+  ],
+  "frame_cost_max_ms": [
+   2.833,
+   3.367,
+   11.892,
+   6.663,
+   6.806
+  ],
+  "render_to_present_p99_ms": [
+   2.443,
+   2.784,
+   9.929,
+   2.55,
+   2.765
+  ],
+  "frame_interval_p99_ms": [
+   17.512,
+   17.869,
+   21.313,
+   17.817,
+   17.706
+  ],
+  "loadavg_1min_before": [
+   4.58,
+   4.18,
+   3.54,
+   7.93,
+   7.57
+  ],
+  "guides_visible_fraction": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ]
+ }
+}

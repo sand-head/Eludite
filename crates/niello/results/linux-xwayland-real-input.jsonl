@@ -1,0 +1,20 @@
+{"step": "drag Output tab to the Dock Left guide (guides shown)", "ok": true, "error": null, "expect_present": ["head-output"], "expect_absent": ["tab-output"]}
+{"step": "drag Properties title bar onto the Error List group (tab)", "ok": true, "error": null, "expect_present": ["tab-properties", "tab-error_list"], "expect_absent": []}
+{"step": "click a tab (Error List)", "ok": true, "error": null, "expect_present": ["head-error_list"], "expect_absent": []}
+{"step": "drag the Properties tab out to the Dock Right guide (untab)", "ok": true, "error": null, "expect_present": ["head-properties"], "expect_absent": ["tab-properties"]}
+{"step": "Auto Hide Solution Explorer", "ok": true, "error": null, "expect_present": ["strip-solution_explorer"], "expect_absent": ["flyout-pin"]}
+{"step": "hover the strip: fly-out slides out", "ok": true, "error": null, "expect_present": ["flyout-pin"], "expect_absent": []}
+{"step": "click the document area: fly-out slides in", "ok": true, "error": null, "expect_present": [], "expect_absent": ["flyout-pin"]}
+{"step": "click the Toolbox strip: fly-out stays out", "ok": true, "error": null, "expect_present": ["flyout-pin"], "expect_absent": []}
+{"step": "Pin Toolbox", "ok": true, "error": null, "expect_present": ["head-toolbox"], "expect_absent": ["strip-toolbox"]}
+{"step": "drag the Git Changes tab onto the document area: floats", "ok": true, "error": null, "expect_present": ["floating/head-git_changes"], "expect_absent": []}
+{"step": "Dock button in the floating window re-docks", "ok": true, "error": null, "expect_present": [], "expect_absent": ["floating/head-git_changes"]}
+{"step": "Float button floats again", "ok": true, "error": null, "expect_present": ["floating/head-git_changes"], "expect_absent": []}
+{"step": "Close (x) Properties", "ok": true, "error": null, "expect_present": [], "expect_absent": ["head-properties"]}
+{"step": "F4 shows Properties again", "ok": true, "error": null, "expect_present": ["head-properties"], "expect_absent": []}
+{"step": "Ctrl+Alt+O activates Output", "ok": true, "error": null, "expect_present": ["head-output"], "expect_absent": []}
+{"step": "Ctrl+\\, Ctrl+E activates Error List", "ok": true, "error": null, "expect_present": ["head-error_list"], "expect_absent": []}
+{"step": "Ctrl+Alt+L shows Solution Explorer (fly-out)", "ok": true, "error": null, "expect_present": ["flyout-pin"], "expect_absent": []}
+{"step": "Pin Solution Explorer", "ok": true, "error": null, "expect_present": ["head-solution_explorer"], "expect_absent": []}
+{"step": "Ctrl+Alt+X shows Toolbox", "ok": true, "error": null, "expect_present": ["head-toolbox"], "expect_absent": []}
+{"done": true, "failed": 0}

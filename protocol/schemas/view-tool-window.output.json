@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-tool-window.output.json",
+  "title": "niello.view tool window state",
+  "description": "Output of niello.view.show, niello.view.hide, niello.view.float, niello.view.auto_hide and niello.view.dock: where the tool window (or document tab) is after the command.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "state",
+    "active"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "description": "Display title, e.g. Solution Explorer.",
+      "type": "string"
+    },
+    "state": {
+      "description": "docked: in a dock group; floating: in its own OS window; auto_hidden: on an edge strip; hidden: closed; document: a document tab.",
+      "enum": [
+        "docked",
+        "floating",
+        "auto_hidden",
+        "hidden",
+        "document"
+      ]
+    },
+    "side": {
+      "description": "Dock edge for docked and auto_hidden windows, and the edge a floating or hidden window returns to.",
+      "enum": [
+        "left",
+        "right",
+        "bottom"
+      ]
+    },
+    "group": {
+      "description": "Tool windows tabbed together with this one (including itself), in tab order. Present for docked and floating windows.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "active": {
+      "description": "Whether it is the visible tab of its group (or the active document).",
+      "type": "boolean"
+    },
+    "flyout_open": {
+      "description": "For auto_hidden windows: whether it is slid out.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-dock.input.json",
+  "title": "niello.view.dock input",
+  "description": "Dock a tool window (Window > Dock, the docking guides, or Pin on an auto-hidden window). With side, it docks as a new group on that edge. With tab_with, it becomes a tab in the group holding that tool window. With neither, a floating window returns to its last dock and an auto-hidden window is pinned back into its dock.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Tool window id. Omit to act on the active tool window.",
+      "type": "string",
+      "minLength": 1
+    },
+    "side": {
+      "description": "Dock edge, as on the docking guides.",
+      "enum": ["left", "right", "bottom"]
+    },
+    "tab_with": {
+      "description": "Id of a docked or floating tool window whose group receives this window as a tab.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "not": { "required": ["side", "tab_with"] },
+  "additionalProperties": false
+}
