@@ -1,6 +1,6 @@
 # Brief 0018: Run and debug with netcoredbg
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0018-report.md)
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3), 3 (D3, D7), 4.5, 5.1, 5.5, 8, 9
 Related ADRs: ADR-0003, ADR-0007
