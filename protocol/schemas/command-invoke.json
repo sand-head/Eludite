@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/command-invoke.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/command-invoke.json",
   "title": "Eludite command invocation",
   "description": "Envelope for invoking a command on the Eludite command bus (PLAN.md 5.1). The same envelope is used by the UI, the MCP server and ACP tool calls.",
   "type": "object",

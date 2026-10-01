@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/host-exit.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/host-exit.json",
   "title": "eludite/host/exit",
   "description": "Notification: the host process exits (0 after eludite/host/shutdown, else 1).",
   "x-eludite-method": "eludite/host/exit",

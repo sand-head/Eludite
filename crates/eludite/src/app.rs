@@ -3,16 +3,16 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui::{
-    App, AppContext as _, Bounds, Focusable as _, TitlebarOptions, WindowBounds, WindowOptions, px,
-    size,
-};
 use eludite_commands::{builtins, view};
 use eludite_docking::{
     DockController, DockHost, DockLayout, LayoutSource, LayoutStore, LayoutWriter, Persistence,
     ToolWindowRegistry,
 };
 use eludite_ui::{Theme, bind_keymap, vs_keymap};
+use gpui::{
+    App, AppContext as _, Bounds, Focusable as _, TitlebarOptions, WindowBounds, WindowOptions, px,
+    size,
+};
 
 use crate::args::Args;
 use crate::bench;

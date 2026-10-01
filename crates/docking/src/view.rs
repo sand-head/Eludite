@@ -22,6 +22,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use eludite_commands::{CommandError, CommandRegistry, view};
+use eludite_ui::elements::TabStyle;
+use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
 use futures::StreamExt as _;
 use gpui::{
     AnyElement, App, Bounds as PxBounds, Context, Entity, FontWeight, InteractiveElement,
@@ -29,9 +32,6 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
     WindowHandle, WindowOptions, canvas, div, point, prelude::*, px, size,
 };
-use eludite_commands::{CommandError, CommandRegistry, view};
-use eludite_ui::elements::TabStyle;
-use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
 use serde_json::{Value, json};
 
 use crate::controller::{DockController, Snapshot};

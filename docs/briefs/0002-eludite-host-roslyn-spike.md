@@ -6,7 +6,7 @@ Related ADRs: ADR-0002, ADR-0003
 
 ## Goal
 
-Prove that a `eludite-host` .NET process can embed the Roslyn language server built from source at a pinned commit, load a 200-project SDK-style solution, and serve IntelliSense over the shell-to-host protocol. Measure time-to-IntelliSense and report whether it is compatible with the budgets in PLAN.md section 9.
+Prove that an `eludite-host` .NET process can embed the Roslyn language server built from source at a pinned commit, load a 200-project SDK-style solution, and serve IntelliSense over the shell-to-host protocol. Measure time-to-IntelliSense and report whether it is compatible with the budgets in PLAN.md section 9.
 
 ## Files in scope
 

@@ -4,12 +4,12 @@
 
 use std::sync::Arc;
 
-use gpui::{
-    AppContext as _, Entity, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px, size,
-};
 use eludite_commands::{CommandRegistry, builtins, view};
 use eludite_docking::{DockController, DockLayout, DockSide, Place, ToolWindowRegistry, ids};
 use eludite_ui::{Theme, bind_keymap, slots, vs_keymap};
+use gpui::{
+    AppContext as _, Entity, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px, size,
+};
 
 use crate::shell::Shell;
 

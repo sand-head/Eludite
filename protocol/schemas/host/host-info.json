@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/host-info.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/host-info.json",
   "title": "eludite/host/info",
   "description": "The .NET SDKs, runtime and OS the host sees.",
   "x-eludite-method": "eludite/host/info",

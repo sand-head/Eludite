@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/language-server-status.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/language-server-status.json",
   "title": "eludite/languageServer/status",
   "description": "Host-to-shell notification: state of the language server the host supervises.",
   "x-eludite-method": "eludite/languageServer/status",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/solution-close.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-close.json",
   "title": "eludite/solution/close",
   "description": "Close the open solution. Increments the generation when a solution was open; otherwise returns the current one.",
   "x-eludite-method": "eludite/solution/close",

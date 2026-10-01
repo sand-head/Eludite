@@ -55,7 +55,7 @@ What we take from Zed and what we do not. GPL licensing (D5) makes Zed's GPL-3.0
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│ eludite (Rust, GPUI)                                           │
+│ eludite (Rust, GPUI)                                          │
 │  window · docking · editor core · command bus · settings      │
 │  tree-sitter highlighting · search · terminal · git (libgit2) │
 │  ACP client · MCP server · extension host (WASM)              │
@@ -63,9 +63,9 @@ What we take from Zed and what we do not. GPL licensing (D5) makes Zed's GPL-3.0
         │ LSP+ext    │ DAP (local  │ MTP/VSTest │ ACP / MCP
         │            │  or remote) │            │
 ┌───────▼──────┐┌────▼─────────┐┌──▼─────────┐┌──▼──────────────┐
-│ eludite-host  ││ debug adapt. ││ test hosts ││ agents          │
+│ eludite-host ││ debug adapt. ││ test hosts ││ agents          │
 │ (.NET)       ││ netcoredbg   ││ MTP server ││ Claude Code via │
-│ Roslyn LSP   ││ eludite-netfx ││ vstest.con.││ ACP adapter,    │
+│ Roslyn LSP   ││ eludite-netfx││ vstest.con.││ ACP adapter,    │
 │ project sys. ││ (Win, ICorDbg││            ││ Codex, Gemini,  │
 │ MSBuild eval ││  for .NET FX)││            ││ others          │
 │ NuGet, EnC   ││              ││            ││                 │
@@ -322,11 +322,11 @@ This is the plan's most important operational section. The architecture in secti
 ## 12. Repository layout
 
 ```
-eludite-ide/
+Eludite/
   CLAUDE.md
   LICENSE                GPL-3.0-or-later
   crates/                Rust workspace (shell)
-    eludite/              binary: entry, window, layout
+    eludite/             binary: entry, window, layout
     docking/             tool windows, document tabs, layouts
     editor/              buffer, view, input
     commands/            command bus, schemas, audit
@@ -338,9 +338,9 @@ eludite-ide/
     ui/                  widgets, themes, keymaps, icons
   vendor/                pinned Zed crates with WHY.md each
   dotnet/                .NET solution (Eludite.slnx, hosts)
-    src/Eludite.Host/     Roslyn LSP embedding, project system, NuGet, EnC
-    src/Eludite.Web/      ASPX parser, designer generator, config schemas
-    src/Eludite.Wcf/      svcutil driver, test client
+    src/Eludite.Host/    Roslyn LSP embedding, project system, NuGet, EnC
+    src/Eludite.Web/     ASPX parser, designer generator, config schemas
+    src/Eludite.Wcf/     svcutil driver, test client
     src/Eludite.TestBridge/ MTP and VSTest clients
     tests/               one xunit v3 project per src project
   debuggers/
@@ -382,9 +382,10 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 | 3 | Legacy debugging off Windows | Accepted for v1: edit and build anywhere, debug on Windows. Remote DAP (D7) is the near-term cross-platform path; Mono and Wine are later investigations. |
 | 4 | Shell | Rust + GPUI. Vendor Zed's low-level text crates if licenses permit; write all visible UI fresh against the VS model (section 8). |
 | 5 | Native agent | Pinned. Claude Code via ACP is the first hosted agent, using the owner's organization subscription. |
-| 6 | Name | Eludite. No software collisions found in a search; check crates.io, the GitHub org name and a domain before the first release. |
+| 6 | Name | Niello. No software collisions found in a search; check crates.io, the GitHub org name and a domain before the first release. |
 | 7 | Language scope (v0.3) | .NET-first, not .NET-only. All .NET languages, the web stack and Rust are first-class per section 7; Rust basics land in Phase 1 for dogfooding. Other languages via extensions in Phase 5. |
 | 8 | Vendoring policy | Vendor over own when owning is not required (D1). Brief 0001's vendor list (sum_tree, rope, text, clock, fuzzy) is accepted; its rewrite verdicts are re-examined with that bias. |
 | 9 | Themes | A user-installable theme system is in scope for Phase 2 (section 8). Our own format and defaults; Zed's theme plumbing may be vendored but its look is not. |
+| 10 | Name (v0.4) | Eludite, replacing Niello, 2026-10-02. Repository sand-head/Eludite. |
 
 **Still open.** Which Zed crates actually pass the vendoring audit (Phase 0 output), and whether the Phase 0 GPUI spike on Windows clears the bar.

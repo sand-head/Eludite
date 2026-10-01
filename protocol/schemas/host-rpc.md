@@ -69,7 +69,7 @@ Rules:
 - After the `-32800` error the host never sends a result for that id. If the result was already written when the
   cancel arrived, the shell receives that result instead of the error; the shell must discard results for ids it
   canceled.
-- `$/cancelRequest` for a Eludite method (for example `eludite/host/info`) cancels it the same way.
+- `$/cancelRequest` for an Eludite method (for example `eludite/host/info`) cancels it the same way.
 
 ## Error codes
 

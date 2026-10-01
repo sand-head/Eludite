@@ -300,13 +300,13 @@ Missing for this feature:
 2. **Project-load diagnostics** for the Error List: a notification such as `eludite/project/diagnostics` with
    project, severity, code, message, class (missing targets, COM, packages, web targets, other) and solution
    generation. Today they go only to stderr.
-3. **An Output window channel**: a `eludite/output` notification (pane, text) for the messages in exit criterion 4.
+3. **An Output window channel**: an `eludite/output` notification (pane, text) for the messages in exit criterion 4.
 4. **Project-system state**: per project, a request for loaded or failed, evaluator used, Compile item count and
    reference counts (the matrix's columns), so Solution Explorer can show "(load failed)" like Visual Studio.
 5. **Design-time settings** that are environment variables today (`ELUDITE_LEGACY*`, `ELUDITE_MONO_PREFIX`,
    `ELUDITE_CACHE_DIR`, designer mode) need a settings method or `initialize` options.
 6. **`initialize.solutionPath` accepting a bare `.csproj`**: the host does this already; the schema says "solution".
-7. **Load progress**: Roslyn's `workspace/projectInitializationComplete` is forwarded as is. A Eludite progress
+7. **Load progress**: Roslyn's `workspace/projectInitializationComplete` is forwarded as is. An Eludite progress
    notification covering the pre-launch evaluation (2.3 to 2.6 s on the 10-plus-project solutions) is missing.
 
 ## Not covered
@@ -343,7 +343,7 @@ corpus/legacy/fetch.sh                               # pinned shallow clones int
 tools/roslyn-pin/build.sh                            # Roslyn LS (brief 0002)
 # Mono without root: tools/legacy-load/README.md
 tools/legacy-load/run.sh                             # all phases -> tools/legacy-load/results/<stamp>/
-dotnet test dotnet/Eludite.slnx                       # includes the WebForms completion test when the above exist
+dotnet test dotnet/Eludite.slnx                      # includes the WebForms completion test when the above exist
 ```
 
 Raw data for this report: `tools/legacy-load/results/20261001-195344/` (gitignored). That directory holds

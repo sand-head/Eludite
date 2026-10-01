@@ -5,7 +5,7 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 ## Setup (once)
 
 1. Install: Git, Rust via rustup (the repo's `rust-toolchain.toml` picks 1.98.1), .NET SDK 10.0.302 (or let `global.json` roll forward), Visual Studio Build Tools 2022 with the ".NET Framework build tools" and "Web development build tools" workloads, Node (only to compare against the npx adapter), Claude Code (native installer) logged in.
-2. Clone `https://github.com/sand-head/eludite-ide` and run `cargo build --workspace` and `dotnet build dotnet/Eludite.slnx` from a PowerShell prompt. Record anything that fails to build; that is finding number one.
+2. Clone `https://github.com/sand-head/Eludite` and run `cargo build --workspace` and `dotnet build dotnet/Eludite.slnx` from a PowerShell prompt. Record anything that fails to build; that is finding number one.
 
 ## Brief 0001, GPUI shell and docking
 

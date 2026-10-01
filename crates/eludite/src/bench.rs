@@ -5,11 +5,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use eludite_docking::RenderProbe;
 use gpui::{
     AnyWindowHandle, App, Entity, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PlatformInput, Point, Window, point, px,
 };
-use eludite_docking::RenderProbe;
 use serde_json::{Value, json};
 
 use crate::shell::Shell;

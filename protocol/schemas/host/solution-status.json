@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/solution-status.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-status.json",
   "title": "eludite/solution/status",
   "description": "Host-to-shell notification: load state of the solution for one generation.",
   "x-eludite-method": "eludite/solution/status",

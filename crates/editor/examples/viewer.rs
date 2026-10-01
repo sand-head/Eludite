@@ -25,13 +25,13 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use eludite_editor::syntax::LanguageRegistry;
+use eludite_editor::{Buffer, EditorView, key_bindings};
 use gpui::{
     App, AppContext as _, Bounds, Context, Entity, Focusable as _, IntoElement, Keystroke,
     ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
     div, px, size,
 };
-use eludite_editor::syntax::LanguageRegistry;
-use eludite_editor::{Buffer, EditorView, key_bindings};
 use serde_json::{Value, json};
 
 #[derive(Default)]

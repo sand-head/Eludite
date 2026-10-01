@@ -339,7 +339,7 @@ realized:
 - Make the bench part of CI on the reference machine, with T3 p95 and T2 as tracked metrics.
 
 **A separate, larger item (its own brief, medium to large): project-load caching to bring T2
-toward 2 to 3 s.** It may need changes upstream in Roslyn's `LanguageServerProjectSystem`, or a
+toward 2 to 3 s.** It may need changes upstream in Roslyn's `LanguageServerProjectSystem`, or an
 eludite-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs.
 
 ## Protocol gaps (not edited; `protocol/**` is out of scope)
@@ -356,11 +356,11 @@ eludite-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs
 3. **Solution generation has no schema.** The spike uses an optional `params.eluditeGeneration`
    and error -32801. The schema needs:
    - where the generation travels (params or a JSON-RPC envelope extension);
-   - how the shell learns the current value (for example a `eludite/solution/generation`
+   - how the shell learns the current value (for example an `eludite/solution/generation`
      notification);
    - whether responses echo it.
 4. **Readiness.** The spike relays Roslyn's `workspace/projectInitializationComplete` verbatim.
-   The protocol should either adopt it or define a `eludite/solution/loaded` notification
+   The protocol should either adopt it or define an `eludite/solution/loaded` notification
    carrying the generation.
 5. **Server-to-client requests** (`workspace/configuration`, `client/registerCapability`,
    `window/workDoneProgress/create`, the `workspace/*/refresh` requests) are answered by the host.
@@ -388,6 +388,6 @@ eludite-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs
 ```
 tools/roslyn-pin/build.sh                    # ~2 min; clone + build at tools/roslyn-pin/COMMIT
 bench/roslyn-200/run.sh --prepare-only       # generate, restore (offline), build host + driver
-dotnet test dotnet/Eludite.slnx               # includes the integration test once the above exist
+dotnet test dotnet/Eludite.slnx              # includes the integration test once the above exist
 bench/roslyn-200/run.sh                      # 10 cold + 10 warm; COLD=3 WARM=3 for a quick run
 ```

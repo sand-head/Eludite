@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-show.input.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-show.input.json",
   "title": "eludite.view.show input",
   "description": "Show and activate a tool window (View menu, e.g. View > Solution Explorer) or a document tab. A closed tool window reopens where it was; an auto-hidden one slides out; a tabbed one becomes the active tab of its group.",
   "type": "object",

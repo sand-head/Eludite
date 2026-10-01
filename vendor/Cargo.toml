@@ -2,9 +2,9 @@
 #
 # It mirrors the parts of Zed's root Cargo.toml, at the GPUI pin, that these
 # crates inherit through `*.workspace = true`, including Zed's own lint table.
-# Keeping that here, rather than making the crates members of Niello's root
+# Keeping that here, rather than making the crates members of Eludite's root
 # workspace, lets the vendored manifests stay byte-identical to upstream and
-# keeps Niello's stricter lints (`clippy::all`, `unsafe_code`) off code we do
+# keeps Eludite's stricter lints (`clippy::all`, `unsafe_code`) off code we do
 # not own. The root workspace excludes `vendor/` and uses these crates by path;
 # its `[patch]` section points GPUI's git copies at them.
 #

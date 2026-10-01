@@ -27,7 +27,7 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       pointer and key events)
 
 Environment:
-  ELUDITE_CONFIG_DIR   replaces <user config dir>/eludite (layouts go in its
+  ELUDITE_CONFIG_DIR  replaces <user config dir>/eludite (layouts go in its
                       layouts/ subdirectory)
 ";
 

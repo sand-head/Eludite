@@ -8,12 +8,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eludite_commands::{CommandRegistry, view};
+use eludite_ui::Theme;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton,
     ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, div, point, px, size,
 };
-use eludite_commands::{CommandRegistry, view};
-use eludite_ui::Theme;
 use serde_json::json;
 
 use crate::controller::DockController;

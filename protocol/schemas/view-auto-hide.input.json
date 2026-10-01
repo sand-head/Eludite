@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-auto-hide.input.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-auto-hide.input.json",
   "title": "eludite.view.auto_hide input",
   "description": "Auto-hide a docked tool window to the strip on its dock's edge (Window > Auto Hide). It slides out on hover or click; eludite.view.dock pins it back. Floating windows cannot be auto-hidden.",
   "type": "object",

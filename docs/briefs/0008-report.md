@@ -253,7 +253,7 @@ Reproduce, from the repository root:
 ```
 cargo test -p eludite-docking -p eludite-ui -p eludite -p eludite-commands
 cargo build --release -p eludite
-crates/eludite/tools/manual-linux.sh /tmp/eludite-0008        # screenshots + real-input run (needs python-xlib)
+crates/eludite/tools/manual-linux.sh /tmp/eludite-0008       # screenshots + real-input run (needs python-xlib)
 # inside a nested KWin (see manual-linux.sh), or on a real display:
 python3 crates/eludite/tools/bench.py --label linux-wayland --drags 5 --out /tmp/wl.json
 env -u WAYLAND_DISPLAY python3 crates/eludite/tools/bench.py --label linux-xwayland --drags 5 --out /tmp/x11.json

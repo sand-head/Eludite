@@ -8,11 +8,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use eludite_commands::CommandError;
 use eludite_commands::view::{
     DockEdge, DockTarget, ToolWindowState, ViewOutput, ViewRequest, ViewTarget, WindowState,
 };
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 use crate::model::{Bounds, DockLayout, DockSide, LayoutError, Place, ToolWindowRegistry};
 
