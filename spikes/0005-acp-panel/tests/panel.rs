@@ -8,11 +8,11 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use eludite_acp::AgentDescriptor;
+use eludite_acp::fake_agent::{DIAGNOSTICS_TOOL, SHELL_TOOL};
+use eludite_acp::protocol::ToolCallStatus;
+use eludite_commands::diagnostics::{self, DIAGNOSTICS_LIST};
 use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
-use niello_acp::AgentDescriptor;
-use niello_acp::fake_agent::{DIAGNOSTICS_TOOL, SHELL_TOOL};
-use niello_acp::protocol::ToolCallStatus;
-use niello_commands::diagnostics::{self, DIAGNOSTICS_LIST};
 use serde_json::Value;
 use spike_acp_panel::panel::Panel;
 use spike_acp_panel::session::{AgentStatus, SessionConfig, auto_allow, spike_registry};
@@ -98,7 +98,7 @@ fn pending_key(p: &Panel) -> Option<u64> {
     p.transcript.pending_permissions().first().copied()
 }
 
-/// The proving flow: type the prompt, Send; the agent calls Niello's read
+/// The proving flow: type the prompt, Send; the agent calls Eludite's read
 /// tool (no prompt shown, answered by policy), receives the fixture through
 /// MCP, answers; then asks to run a shell command, which shows a prompt that
 /// the user denies by clicking "No"; the call fails and the agent says so.
@@ -155,7 +155,7 @@ fn diagnostics_read_runs_without_prompt_and_shell_is_denied(cx: &mut TestAppCont
             .unwrap();
         assert_eq!(diag.status, Some(ToolCallStatus::Completed));
         assert_eq!(diag.raw_input.as_ref().unwrap()["severity"], "error");
-        // The result came through Niello's MCP endpoint, from the command bus.
+        // The result came through Eludite's MCP endpoint, from the command bus.
         assert_eq!(p.mcp_calls.len(), 1, "{:?}", p.mcp_calls);
         assert!(p.mcp_calls[0].starts_with("diagnostics.list (read)"));
         // Served on the MCP endpoint's connection thread, not the UI thread.
@@ -240,8 +240,8 @@ fn stop_cancels_a_pending_prompt(cx: &mut TestAppContext) {
 }
 
 #[test]
-fn policy_only_auto_allows_niello_read_tools() {
-    use niello_acp::protocol::ToolCall;
+fn policy_only_auto_allows_eludite_read_tools() {
+    use eludite_acp::protocol::ToolCall;
     let reg = spike_registry();
     let call = |name: &str, server: Option<&str>| ToolCall {
         tool_call_id: "x".into(),
@@ -255,7 +255,7 @@ fn policy_only_auto_allows_niello_read_tools() {
         ..Default::default()
     };
     assert_eq!(
-        auto_allow(&call(DIAGNOSTICS_TOOL, Some("niello")), &reg)
+        auto_allow(&call(DIAGNOSTICS_TOOL, Some("eludite")), &reg)
             .unwrap()
             .as_str(),
         DIAGNOSTICS_LIST
@@ -269,8 +269,8 @@ fn policy_only_auto_allows_niello_read_tools() {
     for (name, server) in [
         (DIAGNOSTICS_TOOL, Some("other")), // same tool name from another server
         ("mcp__other__diagnostics-list", None), // another server
-        ("mcp__niello__niello-help-about", None), // registered but not exposed
-        ("mcp__niello__nope", None),
+        ("mcp__eludite__eludite-help-about", None), // registered but not exposed
+        ("mcp__eludite__nope", None),
         ("Bash", None),
         ("Read", None),
         ("Write", None),

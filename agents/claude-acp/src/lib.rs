@@ -1,4 +1,4 @@
-//! `niello-claude-acp`: an Agent Client Protocol (ACP) agent for Claude Code
+//! `eludite-claude-acp`: an Agent Client Protocol (ACP) agent for Claude Code
 //! that drives the user's installed `claude` executable directly over its
 //! headless stream-json protocol. No Node, npm or npx is involved, and no
 //! credential is read: the child inherits the user's own Claude Code login.

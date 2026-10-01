@@ -26,7 +26,7 @@ pub struct LanguageConfig {
     pub highlights_query: &'static str,
 }
 
-/// The C# registration: `tree-sitter-c-sharp` with Niello's highlight query.
+/// The C# registration: `tree-sitter-c-sharp` with Eludite's highlight query.
 pub const CSHARP: LanguageConfig = LanguageConfig {
     id: "csharp",
     name: "C#",
@@ -35,7 +35,7 @@ pub const CSHARP: LanguageConfig = LanguageConfig {
     highlights_query: include_str!("../../queries/csharp/highlights.scm"),
 };
 
-/// The Rust registration: `tree-sitter-rust` with Niello's highlight query.
+/// The Rust registration: `tree-sitter-rust` with Eludite's highlight query.
 pub const RUST: LanguageConfig = LanguageConfig {
     id: "rust",
     name: "Rust",

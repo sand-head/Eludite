@@ -348,7 +348,7 @@ pub enum LayoutError {
     Closed(String),
 }
 
-/// A tool window's full state, as the `niello.view.*` commands report it.
+/// A tool window's full state, as the `eludite.view.*` commands report it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolWindowInfo {
     pub id: String,

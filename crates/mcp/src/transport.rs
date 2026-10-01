@@ -18,7 +18,7 @@ use std::thread;
 use crate::server::McpServer;
 
 /// Environment variable carrying the token from the IDE to the relay process.
-pub const TOKEN_ENV: &str = "NIELLO_MCP_TOKEN";
+pub const TOKEN_ENV: &str = "ELUDITE_MCP_TOKEN";
 
 /// Serve newline-delimited JSON-RPC until `reader` reaches EOF.
 pub fn serve_lines(

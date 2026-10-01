@@ -1,6 +1,6 @@
 # Contributing
 
-Niello is built by one person directing agents, but outside contributions are welcome. Read [CLAUDE.md](CLAUDE.md) first; it is the rulebook for humans and agents alike.
+Eludite is built by one person directing agents, but outside contributions are welcome. Read [CLAUDE.md](CLAUDE.md) first; it is the rulebook for humans and agents alike.
 
 ## Picking work
 

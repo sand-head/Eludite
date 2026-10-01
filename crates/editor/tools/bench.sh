@@ -17,7 +17,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 out=$(mkdir -p "${1:-$root/target/bench-0009}" && cd "${1:-$root/target/bench-0009}" && pwd)
 runs=${RUNS:-3}
 cd "$root"
-cargo build --release -p niello-editor --example viewer
+cargo build --release -p eludite-editor --example viewer
 viewer=$root/target/release/examples/viewer
 cs=$out/Generated100k.cs rs=$out/generated20k.rs big=$out/Generated10MB.cs
 [[ -f $cs ]] || "$viewer" --generate csharp 100000 "$cs"

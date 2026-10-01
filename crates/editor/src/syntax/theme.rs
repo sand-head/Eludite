@@ -1,16 +1,16 @@
 //! Colors for highlight kinds.
 
+use eludite_ui::Theme;
 use gpui::{Rgba, rgb};
-use niello_ui::Theme;
 
 use super::HighlightKind;
 
 /// Maps each [`HighlightKind`] to a color.
 ///
-/// Built from a `niello_ui::Theme`: text with no syntax color, punctuation and
+/// Built from an `eludite_ui::Theme`: text with no syntax color, punctuation and
 /// variables use the theme's `text` token. `crates/ui` has no syntax tokens
 /// yet, so the syntax colors themselves are defined here, matching Visual
-/// Studio's Dark theme; they move into `niello_ui::Theme` when that crate
+/// Studio's Dark theme; they move into `eludite_ui::Theme` when that crate
 /// grows syntax tokens (a later brief).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SyntaxTheme {

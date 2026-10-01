@@ -1,14 +1,14 @@
 //! DAP client and transports (PLAN.md D3, D7, 4.5).
 //!
-//! Debug adapters (netcoredbg, `niello-dbg-netfx`) are reached through a
+//! Debug adapters (netcoredbg, `eludite-dbg-netfx`) are reached through a
 //! transport abstraction so a local stdio child and a remote TCP/SSH adapter look
 //! the same to the debugger UI. DAP is not JSON-RPC; it has its own envelope,
-//! but shares `Content-Length` framing with LSP (`niello_protocol::framing`).
+//! but shares `Content-Length` framing with LSP (`eludite_protocol::framing`).
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use niello_protocol::framing;
+pub use eludite_protocol::framing;
 
 /// How to reach a debug adapter (D7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

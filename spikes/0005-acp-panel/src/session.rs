@@ -1,9 +1,9 @@
 //! The agent session, entirely off the UI thread (CLAUDE.md invariant 1).
 //!
 //! One driver thread spawns the agent and runs `initialize`, `session/new` and
-//! each `session/prompt` (blocking calls). `niello-acp`'s reader thread
+//! each `session/prompt` (blocking calls). `eludite-acp`'s reader thread
 //! delivers updates; the permission policy runs there too, so a read-class
-//! Niello tool is approved without a UI round trip. Everything the UI needs
+//! Eludite tool is approved without a UI round trip. Everything the UI needs
 //! arrives as a [`Tagged`] event on an `async_channel`, stamped with the
 //! session generation so the panel can drop events from a session it already
 //! replaced (invariant 12).
@@ -16,20 +16,20 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use niello_acp::fake_agent::SENT_AT_META;
-use niello_acp::protocol::{
+use eludite_acp::fake_agent::SENT_AT_META;
+use eludite_acp::protocol::{
     AuthMethod, EnvVariable, Implementation, McpServer as AcpMcpServer, RequestPermissionOutcome,
     RequestPermissionRequest, SessionUpdate, StopReason, ToolCall,
 };
-use niello_acp::{AcpClient, AcpError, AgentDescriptor, ClientEvent, Id};
-use niello_commands::diagnostics::{self, DIAGNOSTICS_LIST};
-use niello_commands::{CommandId, CommandRegistry, PermissionClass};
-use niello_mcp::transport::{TOKEN_ENV, listen_local};
-use niello_mcp::{McpServer, command_id_from_tool_name};
+use eludite_acp::{AcpClient, AcpError, AgentDescriptor, ClientEvent, Id};
+use eludite_commands::diagnostics::{self, DIAGNOSTICS_LIST};
+use eludite_commands::{CommandId, CommandRegistry, PermissionClass};
+use eludite_mcp::transport::{TOKEN_ENV, listen_local};
+use eludite_mcp::{McpServer, command_id_from_tool_name};
 
-/// The MCP server name Niello registers with the agent. Claude prefixes tool
-/// names with it: `mcp__niello__diagnostics-list`.
-pub const MCP_SERVER_NAME: &str = "niello";
+/// The MCP server name Eludite registers with the agent. Claude prefixes tool
+/// names with it: `mcp__eludite__diagnostics-list`.
+pub const MCP_SERVER_NAME: &str = "eludite";
 
 const INIT_TIMEOUT: Option<Duration> = Some(Duration::from_secs(120));
 
@@ -76,7 +76,7 @@ pub enum PanelEvent {
         request: RequestPermissionRequest,
         command: String,
     },
-    /// One `tools/call` served by Niello's MCP endpoint (the audit line).
+    /// One `tools/call` served by Eludite's MCP endpoint (the audit line).
     McpCall {
         command: String,
         permission: String,
@@ -97,12 +97,12 @@ pub struct Tagged {
 
 pub type Sink = async_channel::Sender<Tagged>;
 
-/// What a session needs: which agent, where, and how the agent reaches Niello.
+/// What a session needs: which agent, where, and how the agent reaches Eludite.
 #[derive(Clone)]
 pub struct SessionConfig {
     pub agent: AgentDescriptor,
     pub cwd: PathBuf,
-    /// Executable launched by the agent as Niello's stdio MCP server, with
+    /// Executable launched by the agent as Eludite's stdio MCP server, with
     /// `--mcp-relay ADDR` (this spike's own binary).
     pub relay_exe: PathBuf,
     pub registry: Arc<CommandRegistry>,
@@ -119,7 +119,7 @@ impl std::fmt::Debug for SessionConfig {
 
 /// The registry the spike serves: built-ins plus `diagnostics.list` over the fixture.
 pub fn spike_registry() -> Arc<CommandRegistry> {
-    let mut r = niello_commands::builtins::default_registry();
+    let mut r = eludite_commands::builtins::default_registry();
     diagnostics::register(&mut r, Arc::new(diagnostics::fixture))
         .expect("register diagnostics.list");
     Arc::new(r)
@@ -131,7 +131,7 @@ pub fn exposed_commands() -> Vec<CommandId> {
 }
 
 /// Policy (PLAN.md 5.3, brief 0005): a permission request for one of
-/// Niello's own MCP tools whose command is class read is allowed without a
+/// Eludite's own MCP tools whose command is class read is allowed without a
 /// prompt. Returns that command id. Everything else must be asked.
 pub fn auto_allow(tool_call: &ToolCall, registry: &CommandRegistry) -> Option<CommandId> {
     let name = tool_call.agent_tool_name().or(tool_call.title.as_deref())?;
@@ -272,7 +272,7 @@ fn drive(
     };
     emit(PanelEvent::Status(AgentStatus::Starting));
 
-    // Niello's MCP endpoint: the command bus, read-only subset.
+    // Eludite's MCP endpoint: the command bus, read-only subset.
     let mcp_sink = sink.clone();
     let server = McpServer::new(config.registry.clone(), exposed_commands()).with_observer(
         Arc::new(move |r| {
@@ -329,7 +329,7 @@ fn drive(
     let cb_client = client_cell.clone();
     let cb_pending = pending.clone();
     let cb_auth = auth_label.clone();
-    let events: niello_acp::EventSink = Arc::new(move |ev| {
+    let events: eludite_acp::EventSink = Arc::new(move |ev| {
         let send = |event| {
             let _ = cb_sink.send_blocking(Tagged { generation, event });
         };
@@ -411,8 +411,8 @@ fn drive(
     });
 
     let info = Implementation {
-        name: "niello-spike-0005".into(),
-        title: Some("Niello".into()),
+        name: "eludite-spike-0005".into(),
+        title: Some("Eludite".into()),
         version: "0.0.0".into(),
     };
     let init = match client.initialize(info, INIT_TIMEOUT) {

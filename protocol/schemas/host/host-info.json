@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-info.json",
-  "title": "niello/host/info",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/host-info.json",
+  "title": "eludite/host/info",
   "description": "The .NET SDKs, runtime and OS the host sees.",
-  "x-niello-method": "niello/host/info",
-  "x-niello-kind": "request",
-  "x-niello-direction": "shellToHost",
+  "x-eludite-method": "eludite/host/info",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "params": {
       "description": "No params: omitted, null, or an empty object/array.",

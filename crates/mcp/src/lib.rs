@@ -3,20 +3,20 @@
 //! Exposes the command bus to hosted agents: every exposed `CommandSpec`
 //! becomes an MCP tool with the same input/output schemas, so there is no
 //! feature the human can use that an agent cannot. Transport is JSON-RPC 2.0
-//! (`niello-protocol`), newline-delimited as in MCP's stdio transport.
+//! (`eludite-protocol`), newline-delimited as in MCP's stdio transport.
 //!
 //! Public API: the tool mapping in this module ([`tool_from_command`],
 //! [`tool_name`], [`mcp_output_schema`]), [`McpServer`] (the protocol), and
 //! [`transport`] (stdio serving, the IDE's local TCP endpoint and the stdio
 //! relay an agent launches). Hand-written rather than built on `rmcp`: three
-//! methods over the existing `niello-protocol` types, no async runtime, and the
+//! methods over the existing `eludite-protocol` types, no async runtime, and the
 //! schemas come from `protocol/` rather than being derived from Rust types.
 
-use niello_commands::{CommandId, CommandSpec, PermissionClass};
+use eludite_commands::{CommandId, CommandSpec, PermissionClass};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use niello_protocol::jsonrpc::{
+pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
 
@@ -126,7 +126,7 @@ mod tests;
 #[cfg(test)]
 mod mapping_tests {
     use super::*;
-    use niello_commands::builtins;
+    use eludite_commands::builtins;
     use serde_json::json;
 
     #[test]
@@ -134,7 +134,7 @@ mod mapping_tests {
         let registry = builtins::default_registry();
         let spec = registry.lookup(builtins::FILE_OPEN).unwrap();
         let tool = tool_from_command(spec);
-        assert_eq!(tool.name, "niello-file-open");
+        assert_eq!(tool.name, "eludite-file-open");
         assert_eq!(tool.title, "File: Open");
         assert_eq!(tool.input_schema, spec.input_schema);
         assert!(tool.annotations.read_only_hint);
@@ -149,7 +149,7 @@ mod mapping_tests {
     #[test]
     fn dangerous_is_destructive() {
         let spec = CommandSpec {
-            id: CommandId::new("niello.git.push").unwrap(),
+            id: CommandId::new("eludite.git.push").unwrap(),
             title: "Git: Push".into(),
             input_schema: json!({"type": "object", "properties": {}}),
             output_schema: json!({}),

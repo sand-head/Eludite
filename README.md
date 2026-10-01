@@ -1,6 +1,8 @@
-# Niello
+# Eludite
 
-Niello is a native, cross-platform, agent-first IDE. It is .NET-first, not .NET-only: the first-class workloads are .NET in all its languages (C#, F#, VB.NET) including .NET Framework, WebForms and WCF; modern web development (TypeScript, JavaScript and the front-end stack); and Rust. The goal is feature parity with Visual Studio Community and JetBrains Rider for the .NET workload, with the responsiveness and restraint of Zed, a layout and keymap a Visual Studio user recognizes on day one, and agents as a peer of the human at every surface of the product.
+Eludite is a native, cross-platform, agent-first IDE. It is .NET-first, not .NET-only: the first-class workloads are .NET in all its languages (C#, F#, VB.NET) including .NET Framework, WebForms and WCF; modern web development (TypeScript, JavaScript and the front-end stack); and Rust. The goal is feature parity with Visual Studio Community and JetBrains Rider for the .NET workload, with the responsiveness and restraint of Zed, a layout and keymap a Visual Studio user recognizes on day one, and agents as a peer of the human at every surface of the product.
+
+Eludite was called Niello until 2026-10-02.
 
 It is built by one person directing many agents. The shell is Rust on GPUI and draws its own UI. Roslyn, MSBuild, debuggers, test runners and agents each run in their own process, so a hung analyzer cannot freeze the editor. Every action is a command on one bus that both the UI and agents call, and the shell speaks open protocols (LSP, DAP, MTP, ACP, MCP) instead of hosting a VS Code extension runtime.
 
@@ -11,10 +13,10 @@ Pre-alpha scaffold. Nothing is usable yet. The repository currently holds the pl
 Phase 0 spikes (each has a brief in [docs/briefs/](docs/briefs/)):
 
 - [ ] 0001: GPUI shell and docking prototype on three OSes, plus the Zed crate vendoring audit
-- [ ] 0002: `niello-host` embedding the Roslyn language server, time-to-IntelliSense on a 200-project solution
+- [ ] 0002: `eludite-host` embedding the Roslyn language server, time-to-IntelliSense on a 200-project solution
 - [ ] 0003: legacy project load with Mono MSBuild (Linux) and Build Tools (Windows), WebForms code-behind IntelliSense
 - [ ] 0004: ICorDebug proof on Windows from Rust over a TCP DAP transport
-- [ ] 0005: Claude Code hosted via ACP in a GPUI panel, calling one Niello MCP tool
+- [ ] 0005: Claude Code hosted via ACP in a GPUI panel, calling one Eludite MCP tool
 
 ## Build
 
@@ -32,8 +34,8 @@ cargo fmt --check
 Host (.NET):
 
 ```
-dotnet build dotnet/Niello.slnx
-dotnet test dotnet/Niello.slnx
+dotnet build dotnet/Eludite.slnx
+dotnet test dotnet/Eludite.slnx
 ```
 
 GPUI is a git dependency on zed-industries/zed at a pinned revision, so the first build downloads it.
@@ -49,12 +51,12 @@ Windows and macOS need no extra system packages beyond the Rust and .NET toolcha
 
 ```
 crates/            Rust workspace (shell)
-  niello/          binary: entry, window, layout
+  eludite/         binary: entry, window, layout
   docking/ ui/ editor/ commands/ workspace/
   lsp/ dap/ acp/ mcp/ git/ terminal/ extensions/
 vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), each with WHY.md
 dotnet/            .NET solution (hosts)
-debuggers/netfx/   niello-dbg-netfx (Rust, Windows)
+debuggers/netfx/   eludite-dbg-netfx (Rust, Windows)
 protocol/          MIT: schemas, generated bindings
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
@@ -73,5 +75,5 @@ docs/              PLAN.md, adr/, briefs/
 ## License
 
 - Product (shell, hosts, debuggers, web tooling): GPL-3.0-or-later, see [LICENSE](LICENSE).
-- `protocol/` and `extension-sdk/`: MIT, so anyone can write an agent, extension or alternative host against Niello under any license.
+- `protocol/` and `extension-sdk/`: MIT, so anyone can write an agent, extension or alternative host against Eludite under any license.
 - Contributions are accepted under the Developer Certificate of Origin. There is no CLA.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/command-result.json",
-  "title": "Niello command result",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/command-result.json",
+  "title": "Eludite command result",
   "description": "Result of a command invocation. Exactly one of output or error is present.",
   "type": "object",
   "required": ["command", "ok"],

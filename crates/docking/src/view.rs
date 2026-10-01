@@ -1,15 +1,15 @@
 //! [`DockHost`]: the GPUI view that draws a [`DockController`]'s layout and
-//! turns pointer input into `niello.view.*` commands.
+//! turns pointer input into `eludite.view.*` commands.
 //!
 //! - Drag a tool window's title bar or tab. While dragging, docking guides
 //!   appear on the left, right and bottom of the document area; drop on one to
-//!   dock there (`niello.view.dock {side}`). Drop on another group to tab into
-//!   it (`{tab_with}`). Drop anywhere else to float (`niello.view.float`).
+//!   dock there (`eludite.view.dock {side}`). Drop on another group to tab into
+//!   it (`{tab_with}`). Drop anywhere else to float (`eludite.view.float`).
 //! - Title bar buttons: Float, Auto Hide, Close. A floating window has Dock and
 //!   Close; closing its OS window closes (hides) its tool windows, as in VS.
 //! - Auto-hidden windows sit on edge strips; hovering or clicking one slides it
-//!   out (`niello.view.show`); clicking elsewhere slides it back in; Pin docks
-//!   it again (`niello.view.dock`).
+//!   out (`eludite.view.show`); clicking elsewhere slides it back in; Pin docks
+//!   it again (`eludite.view.dock`).
 //!
 //! Every one of those goes through the command bus. The view re-renders when
 //! the controller reports a change, whoever made it (an agent included), and
@@ -22,6 +22,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use eludite_commands::{CommandError, CommandRegistry, view};
+use eludite_ui::elements::TabStyle;
+use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
 use futures::StreamExt as _;
 use gpui::{
     AnyElement, App, Bounds as PxBounds, Context, Entity, FontWeight, InteractiveElement,
@@ -29,9 +32,6 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
     WindowHandle, WindowOptions, canvas, div, point, prelude::*, px, size,
 };
-use niello_commands::{CommandError, CommandRegistry, view};
-use niello_ui::elements::TabStyle;
-use niello_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
 use serde_json::{Value, json};
 
 use crate::controller::{DockController, Snapshot};
@@ -75,7 +75,7 @@ pub struct Persistence {
     pub writer: LayoutWriter,
 }
 
-/// Timing and element bounds for the harness (`niello --bench-drag`). Off by
+/// Timing and element bounds for the harness (`eludite --bench-drag`). Off by
 /// default; costs nothing when unset.
 #[derive(Default, Debug)]
 pub struct RenderProbe {
@@ -196,7 +196,7 @@ impl DockHost {
         match &result {
             Ok(_) => self.last_error = None,
             Err(e) => {
-                eprintln!("niello: {command}: {e}");
+                eprintln!("eludite: {command}: {e}");
                 self.last_error = Some(e.to_string());
             }
         }
@@ -280,7 +280,7 @@ impl DockHost {
                     title: Some(title.into()),
                     ..Default::default()
                 }),
-                app_id: Some("niello".into()),
+                app_id: Some("eludite".into()),
                 ..Default::default()
             };
             let opened = cx.open_window(options, |window, cx| {
@@ -309,7 +309,7 @@ impl DockHost {
                 Ok(handle) => host.update(cx, |h, _| {
                     h.floating_windows.insert(gid, handle);
                 }),
-                Err(e) => eprintln!("niello: failed to open a floating window: {e:#}"),
+                Err(e) => eprintln!("eludite: failed to open a floating window: {e:#}"),
             }
         }
     }

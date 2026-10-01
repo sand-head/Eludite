@@ -1,6 +1,6 @@
 [package]
-name = "niello-mcp"
-description = "Niello MCP server: the command bus exposed to agents."
+name = "eludite-mcp"
+description = "Eludite MCP server: the command bus exposed to agents."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,8 +9,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-niello-commands.workspace = true
-niello-protocol.workspace = true
+eludite-commands.workspace = true
+eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

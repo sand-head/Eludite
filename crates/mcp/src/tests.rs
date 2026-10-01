@@ -3,8 +3,8 @@
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
-use niello_commands::diagnostics::{self, DIAGNOSTICS_LIST};
-use niello_commands::{CommandId, CommandRegistry, CommandSpec, PermissionClass, builtins};
+use eludite_commands::diagnostics::{self, DIAGNOSTICS_LIST};
+use eludite_commands::{CommandId, CommandRegistry, CommandSpec, PermissionClass, builtins};
 use serde_json::{Value, json};
 
 use crate::transport::{listen_local, relay, serve_lines};
@@ -154,7 +154,7 @@ fn initialize_negotiates_version() {
     ));
     assert_eq!(r["protocolVersion"], "2025-06-18");
     assert_eq!(r["capabilities"]["tools"]["listChanged"], false);
-    assert_eq!(r["serverInfo"]["name"], "niello");
+    assert_eq!(r["serverInfo"]["name"], "eludite");
     let r = result(call(
         &s,
         "initialize",
@@ -245,7 +245,7 @@ fn bad_calls() {
             .contains("invalid input")
     );
     // Registered but not exposed, unknown, and malformed names are protocol errors.
-    for name in [json!("niello-help-about"), json!("nope"), json!(3)] {
+    for name in [json!("eludite-help-about"), json!("nope"), json!(3)] {
         assert_eq!(
             error_code(call(&s, "tools/call", json!({"name": name}))),
             -32602,

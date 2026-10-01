@@ -8,7 +8,7 @@
 //!   [`ToolWindowRegistry`] lists the tool windows a build knows; later briefs
 //!   register theirs.
 //! - [`controller`]: [`DockController`], the shared owner of the layout and the
-//!   `niello_commands::view::ViewTarget` that the `niello.view.*` commands act
+//!   `eludite_commands::view::ViewTarget` that the `eludite.view.*` commands act
 //!   on. Every layout change goes through those commands.
 //! - [`persist`]: [`LayoutStore`] (per-solution, default and named layout
 //!   files under the user config directory) and [`LayoutWriter`] (debounced
@@ -18,7 +18,7 @@
 //!
 //! Known limit (brief 0001 report, section 4): GPUI drag and drop stays inside
 //! one window, so a floating window re-docks through its Dock button or the
-//! `niello.view.dock` command, not by dragging it back onto the guides.
+//! `eludite.view.dock` command, not by dragging it back onto the guides.
 
 pub mod controller;
 pub mod model;
@@ -31,7 +31,7 @@ pub use model::{
     HiddenWindow, LAYOUT_SCHEMA_VERSION, Layout, LayoutError, Place, ToolWindowDescriptor,
     ToolWindowInfo, ToolWindowRegistry, ids,
 };
-pub use persist::{LayoutSource, LayoutStore, LayoutWriter, niello_config_dir};
+pub use persist::{LayoutSource, LayoutStore, LayoutWriter, eludite_config_dir};
 pub use view::{
     DockHost, DocumentBody, DraggedTool, FloatingView, Persistence, Probe, RenderProbe, ToolBody,
 };

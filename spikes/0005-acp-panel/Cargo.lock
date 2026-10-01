@@ -1440,6 +1440,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
+name = "eludite-acp"
+version = "0.1.0"
+dependencies = [
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-commands"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "eludite-mcp"
+version = "0.1.0"
+dependencies = [
+ "eludite-commands",
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "email_address"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3363,42 +3399,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "niello-acp"
-version = "0.1.0"
-dependencies = [
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-commands"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "niello-mcp"
-version = "0.1.0"
-dependencies = [
- "niello-commands",
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "no_std_io2"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5264,12 +5264,12 @@ name = "spike-acp-panel"
 version = "0.0.0"
 dependencies = [
  "async-channel",
+ "eludite-acp",
+ "eludite-commands",
+ "eludite-mcp",
  "gpui",
  "gpui_platform",
  "jsonschema",
- "niello-acp",
- "niello-commands",
- "niello-mcp",
  "serde_json",
 ]
 

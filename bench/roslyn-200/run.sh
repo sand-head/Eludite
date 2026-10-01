@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Brief 0002 bench: time-to-IntelliSense of niello-host + Roslyn LS on the generated 200-project solution.
+# Brief 0002 bench: time-to-IntelliSense of eludite-host + Roslyn LS on the generated 200-project solution.
 #
 #   bench/roslyn-200/run.sh                 # 10 cold + 10 warm runs, 1000 completions each (T3)
 #   COLD=3 WARM=3 T3=1000 bench/roslyn-200/run.sh
 #   bench/roslyn-200/run.sh --prepare-only  # generate + restore + build, no measurement (used by the integration test)
 #
-# Needs: tools/roslyn-pin/build.sh run first (ROSLYN_SRC_DIR, default ~/.cache/niello/roslyn), python3, the
+# Needs: tools/roslyn-pin/build.sh run first (ROSLYN_SRC_DIR, default ~/.cache/eludite/roslyn), python3, the
 # .NET SDK from global.json, and the NuGet packages listed in generate.py already in ~/.nuget/packages
 # (restore uses only that folder as a source, so the run is offline).
 #
@@ -16,9 +16,9 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-src="${ROSLYN_SRC_DIR:-$HOME/.cache/niello/roslyn}"
+src="${ROSLYN_SRC_DIR:-$HOME/.cache/eludite/roslyn}"
 ls_dir="$src/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0"
-ls_dll="${NIELLO_ROSLYN_LS:-$ls_dir/Microsoft.CodeAnalysis.LanguageServer.dll}"
+ls_dll="${ELUDITE_ROSLYN_LS:-$ls_dir/Microsoft.CodeAnalysis.LanguageServer.dll}"
 cold="${COLD:-10}"; warm="${WARM:-10}"; t3="${T3:-1000}"; cancel="${CANCEL_TRIALS:-50}"
 
 if [[ ! -f "$ls_dll" ]]; then
@@ -30,7 +30,7 @@ if [[ ! -f "$here/out/probe.json" || "${REGENERATE:-0}" == "1" ]]; then
   python3 "$here/generate.py" --out "$here/out" > /dev/null
 fi
 dotnet restore "$here/out/Bench200.slnx" -v q
-dotnet build "$repo/dotnet/src/Niello.Host/Niello.Host.csproj" -c Release -v q -nologo
+dotnet build "$repo/dotnet/src/Eludite.Host/Eludite.Host.csproj" -c Release -v q -nologo
 dotnet build "$here/driver/Bench.Driver.csproj" -c Release -v q -nologo
 [[ "${1:-}" == "--prepare-only" ]] && exit 0
 
@@ -54,7 +54,7 @@ mkdir -p "$results"
 
 reset_paths="$ls_dir/cache:/tmp/roslyn-canonical-misc"
 dotnet "$here/driver/bin/Release/net10.0/Bench.Driver.dll" \
-  --host "$repo/dotnet/src/Niello.Host/bin/Release/net10.0/niello-host.dll" \
+  --host "$repo/dotnet/src/Eludite.Host/bin/Release/net10.0/eludite-host.dll" \
   --roslyn-ls "$ls_dll" \
   --probe "$here/out/probe.json" \
   --results "$results" \

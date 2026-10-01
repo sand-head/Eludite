@@ -2,8 +2,8 @@
 
 use std::io::{self, BufRead, Write};
 
-use niello_protocol::Message;
-use niello_protocol::framing;
+use eludite_protocol::Message;
+use eludite_protocol::framing;
 
 /// A bidirectional JSON-RPC message channel.
 pub trait Transport {
@@ -42,7 +42,7 @@ impl<R: BufRead, W: Write> Transport for FramedTransport<R, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use niello_protocol::{Notification, Request};
+    use eludite_protocol::{Notification, Request};
     use serde_json::json;
 
     #[test]
@@ -52,22 +52,22 @@ mod tests {
             let mut t = FramedTransport::new(io::empty(), &mut wire);
             t.send(&Message::Request(Request::new(
                 1,
-                "niello/host/initialize",
-                Some(json!({"clientName": "niello", "clientVersion": "0.1.0"})),
+                "eludite/host/initialize",
+                Some(json!({"clientName": "eludite", "clientVersion": "0.1.0"})),
             )))
             .unwrap();
             t.send(&Message::Notification(Notification::new(
-                "niello/host/exit",
+                "eludite/host/exit",
                 None,
             )))
             .unwrap();
         }
         let mut t = FramedTransport::new(io::Cursor::new(wire), io::sink());
         assert!(
-            matches!(t.recv().unwrap(), Some(Message::Request(r)) if r.method == "niello/host/initialize")
+            matches!(t.recv().unwrap(), Some(Message::Request(r)) if r.method == "eludite/host/initialize")
         );
         assert!(
-            matches!(t.recv().unwrap(), Some(Message::Notification(n)) if n.method == "niello/host/exit")
+            matches!(t.recv().unwrap(), Some(Message::Notification(n)) if n.method == "eludite/host/exit")
         );
         assert!(t.recv().unwrap().is_none());
     }

@@ -1,4 +1,4 @@
-; Rust highlight query for niello-editor.
+; Rust highlight query for eludite-editor.
 ;
 ; Copied from queries/highlights.scm in tree-sitter-rust 0.24.2 (MIT,
 ; Copyright (c) 2017 Maxim Sokolov). Changes: the all-caps constant pattern's

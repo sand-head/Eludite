@@ -6,13 +6,13 @@ conformance fixture. Uses the real model and your login: keep prompts few.
 
 PROMPTS_JSON is a list of [text, mode]; mode "interrupt" sends an interrupt
 control request 0.5 s after the first streamed text. Permission requests for
-`mcp__niello__*` tools are allowed, all others denied. Then run redact.py on
+`mcp__eludite__*` tools are allowed, all others denied. Then run redact.py on
 the output. The brief 0006 fixture came from:
 
   record.py WS raw.jsonl mcp.json '[["List the current errors in the Error List and tell me which file has the most.","normal"],["Create a file named notes.txt in the current directory containing the word hello.","normal"],["Count from 1 to 300, one number per line, with no other text.","interrupt"]]'
 
-with mcp.json naming `cargo run -p niello-mcp --example fixture_stdio_server`'s
-binary as the stdio server "niello".
+with mcp.json naming `cargo run -p eludite-mcp --example fixture_stdio_server`'s
+binary as the stdio server "eludite".
 """
 import json, os, shutil, subprocess, sys, threading, time, uuid
 
@@ -57,7 +57,7 @@ def reader():
         log("out", m)
         if m.get("type") == "control_request" and m["request"].get("subtype") == "can_use_tool":
             r = m["request"]
-            if r.get("tool_name", "").startswith("mcp__niello__"):
+            if r.get("tool_name", "").startswith("mcp__eludite__"):
                 resp = {"behavior": "allow", "updatedInput": r.get("input", {})}
             else:
                 resp = {"behavior": "deny", "message": "The user denied this tool call."}

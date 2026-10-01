@@ -1,28 +1,28 @@
-//! `niello-claude-acp`: ACP on stdin/stdout, Claude Code as the agent.
+//! `eludite-claude-acp`: ACP on stdin/stdout, Claude Code as the agent.
 //!
 //! Usage:
-//!   niello-claude-acp [--claude PATH] [--model MODEL]   serve ACP on stdio
-//!   niello-claude-acp auth login                        run `claude auth login` (the ACP terminal login method)
-//!   niello-claude-acp --version | --help
+//!   eludite-claude-acp [--claude PATH] [--model MODEL]   serve ACP on stdio
+//!   eludite-claude-acp auth login                        run `claude auth login` (the ACP terminal login method)
+//!   eludite-claude-acp --version | --help
 //!
-//! Environment: NIELLO_CLAUDE_PATH (the `claude` executable), NIELLO_CLAUDE_MODEL
-//! (`--model` for new sessions), NIELLO_CLAUDE_ACP_LOG (`stderr` or a file: verbose log).
+//! Environment: ELUDITE_CLAUDE_PATH (the `claude` executable), ELUDITE_CLAUDE_MODEL
+//! (`--model` for new sessions), ELUDITE_CLAUDE_ACP_LOG (`stderr` or a file: verbose log).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use niello_claude_acp::agent::{self, Config};
-use niello_claude_acp::discovery;
+use eludite_claude_acp::agent::{self, Config};
+use eludite_claude_acp::discovery;
 
-const HELP: &str = "niello-claude-acp: Agent Client Protocol (stdio) adapter for Claude Code.
+const HELP: &str = "eludite-claude-acp: Agent Client Protocol (stdio) adapter for Claude Code.
 
 Usage:
-  niello-claude-acp [--claude PATH] [--model MODEL]
-  niello-claude-acp auth login
-  niello-claude-acp --version
+  eludite-claude-acp [--claude PATH] [--model MODEL]
+  eludite-claude-acp auth login
+  eludite-claude-acp --version
 
-Finds `claude` via --claude, $NIELLO_CLAUDE_PATH, $PATH, then ~/.local/bin.
-Uses your existing Claude Code login. Logs go to stderr ($NIELLO_CLAUDE_ACP_LOG
+Finds `claude` via --claude, $ELUDITE_CLAUDE_PATH, $PATH, then ~/.local/bin.
+Uses your existing Claude Code login. Logs go to stderr ($ELUDITE_CLAUDE_ACP_LOG
 for verbose output); stdout carries ACP only.";
 
 fn main() -> ExitCode {
@@ -44,7 +44,7 @@ fn main() -> ExitCode {
                 None => return usage("--model needs a value"),
             },
             "--version" | "-V" => {
-                println!("niello-claude-acp {}", env!("CARGO_PKG_VERSION"));
+                println!("eludite-claude-acp {}", env!("CARGO_PKG_VERSION"));
                 return ExitCode::SUCCESS;
             }
             "--help" | "-h" => {
@@ -58,23 +58,23 @@ fn main() -> ExitCode {
     match agent::run_stdio(config) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("niello-claude-acp: {e:?}");
+            eprintln!("eludite-claude-acp: {e:?}");
             ExitCode::FAILURE
         }
     }
 }
 
 fn usage(msg: &str) -> ExitCode {
-    eprintln!("niello-claude-acp: {msg}\n\n{HELP}");
+    eprintln!("eludite-claude-acp: {msg}\n\n{HELP}");
     ExitCode::from(2)
 }
 
-/// `niello-claude-acp auth ...` runs `claude auth ...` in this terminal.
+/// `eludite-claude-acp auth ...` runs `claude auth ...` in this terminal.
 fn passthrough(args: Vec<String>) -> ExitCode {
     let claude = match discovery::discover_from_env(None) {
         Ok((p, _)) => p,
         Err(e) => {
-            eprintln!("niello-claude-acp: {e}");
+            eprintln!("eludite-claude-acp: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -87,7 +87,7 @@ fn passthrough(args: Vec<String>) -> ExitCode {
         Ok(s) if s.success() => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(e) => {
-            eprintln!("niello-claude-acp: {e}");
+            eprintln!("eludite-claude-acp: {e}");
             ExitCode::FAILURE
         }
     }

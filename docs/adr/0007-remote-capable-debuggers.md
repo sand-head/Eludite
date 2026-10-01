@@ -12,14 +12,14 @@ Linux and macOS users with .NET Framework code still expect to debug it. There i
 ## Decision
 
 - Reach every debug adapter through one transport abstraction in the `dap` crate: stdio child process, TCP, or SSH-forwarded connection. The shell does not care which one is in use.
-- Write `niello-dbg-netfx` (`debuggers/netfx`, GPL) as a DAP server over ICorDebug, in Rust with the `windows` crate. It is Windows-only at runtime and compiles on every OS so CI covers it everywhere.
-- Do not let `niello-dbg-netfx` assume its client is on the same machine: no shared paths, no local pipes by default, source and symbol mapping is explicit.
+- Write `eludite-dbg-netfx` (`debuggers/netfx`, GPL) as a DAP server over ICorDebug, in Rust with the `windows` crate. It is Windows-only at runtime and compiles on every OS so CI covers it everywhere.
+- Do not let `eludite-dbg-netfx` assume its client is on the same machine: no shared paths, no local pipes by default, source and symbol mapping is explicit.
 - Cross-platform .NET Framework debugging, in order of likelihood:
-  1. Remote DAP from Niello on Linux or macOS to the adapter on a Windows box, VM or CI runner. It ships with the adapter and costs only the transport.
+  1. Remote DAP from Eludite on Linux or macOS to the adapter on a Windows box, VM or CI runner. It ships with the adapter and costs only the transport.
   2. A Mono soft debugger adapter for apps that run under Mono. Real but narrow.
   3. ICorDebug under Wine with .NET Framework in the prefix. Investigate after (1) and (2) exist. Expected to be fragile.
 - Debugger windows are identical for local and remote sessions.
-- v1 scope for `niello-dbg-netfx`: launch and attach, breakpoints, stepping, locals, watch and exceptions. Edit and Continue and mixed-mode debugging are deferred.
+- v1 scope for `eludite-dbg-netfx`: launch and attach, breakpoints, stepping, locals, watch and exceptions. Edit and Continue and mixed-mode debugging are deferred.
 - Fixes to netcoredbg go upstream, not into a fork.
 
 ## Alternatives considered
@@ -41,7 +41,7 @@ Positive:
 Negative:
 - Users need a Windows machine reachable over the network for off-Windows .NET Framework debugging. That is a setup burden and a security surface (authentication, encrypted transport).
 - Remote debugging needs path mapping and source transfer rules, which are easy to get wrong.
-- `niello-dbg-netfx` is the largest single piece of new systems work in the plan (PLAN.md section 4.5), and the ICorDebug COM surface is intricate.
+- `eludite-dbg-netfx` is the largest single piece of new systems work in the plan (PLAN.md section 4.5), and the ICorDebug COM surface is intricate.
 - Latency over a network makes stepping and variable expansion feel slower.
 
 ## Revisit when

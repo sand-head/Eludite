@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/solution-status.json",
-  "title": "niello/solution/status",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-status.json",
+  "title": "eludite/solution/status",
   "description": "Host-to-shell notification: load state of the solution for one generation.",
-  "x-niello-method": "niello/solution/status",
-  "x-niello-kind": "notification",
-  "x-niello-direction": "hostToShell",
+  "x-eludite-method": "eludite/solution/status",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
   "$defs": {
     "params": {
       "type": "object",
@@ -21,7 +21,7 @@
           "minimum": 0
         },
         "path": {
-          "description": "Full path given to niello/solution/open.",
+          "description": "Full path given to eludite/solution/open.",
           "type": "string"
         },
         "state": {
@@ -92,7 +92,7 @@
               ]
             },
             "source": {
-              "description": "How it was located (PATH, NIELLO_MONO_PREFIX, vswhere, ...).",
+              "description": "How it was located (PATH, ELUDITE_MONO_PREFIX, vswhere, ...).",
               "type": [
                 "string",
                 "null"
@@ -147,7 +147,7 @@
                 ]
               },
               "code": {
-                "description": "NIELLO0001..; see host-rpc.md.",
+                "description": "ELUDITE0001..; see host-rpc.md.",
                 "type": "string"
               },
               "message": {

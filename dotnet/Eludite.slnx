@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Eludite.Host/Eludite.Host.csproj" />
+    <Project Path="src/Eludite.TestBridge/Eludite.TestBridge.csproj" />
+    <Project Path="src/Eludite.Wcf/Eludite.Wcf.csproj" />
+    <Project Path="src/Eludite.Web/Eludite.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Eludite.Host.Tests/Eludite.Host.Tests.csproj" />
+    <Project Path="tests/Eludite.TestBridge.Tests/Eludite.TestBridge.Tests.csproj" />
+    <Project Path="tests/Eludite.Wcf.Tests/Eludite.Wcf.Tests.csproj" />
+    <Project Path="tests/Eludite.Web.Tests/Eludite.Web.Tests.csproj" />
+  </Folder>
+</Solution>

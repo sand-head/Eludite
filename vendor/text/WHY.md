@@ -10,7 +10,7 @@
 
 ## Why vendored
 
-The buffer: edits, transactions, undo and redo, selections and the **anchor** model that diagnostics, breakpoints and agent edits attach to. `niello-editor::Buffer` wraps `text::Buffer`. The replica-id and Lamport machinery for collaboration stays, because removing it would fork the anchor code.
+The buffer: edits, transactions, undo and redo, selections and the **anchor** model that diagnostics, breakpoints and agent edits attach to. `eludite-editor::Buffer` wraps `text::Buffer`. The replica-id and Lamport machinery for collaboration stays, because removing it would fork the anchor code.
 
 ## Local changes
 

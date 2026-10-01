@@ -624,7 +624,7 @@ mod tests {
 
     #[test]
     fn save_and_load_preserve_bytes() {
-        let dir = std::env::temp_dir().join(format!("niello-editor-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("eludite-editor-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("a.cs");
         let bytes = b"\xEF\xBB\xBFusing System;\r\nclass A {}\n";

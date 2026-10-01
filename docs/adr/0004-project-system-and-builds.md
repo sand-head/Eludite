@@ -15,8 +15,8 @@ The plan also states plainly that building legacy projects off Windows is partia
 
 ## Decision
 
-- SDK-style projects: evaluate and build with the user's installed .NET SDK through the MSBuild APIs inside `niello-host`.
-- Legacy projects on Windows: locate MSBuild from Visual Studio Build Tools, which is a free installer on the user's machine. Niello never ships those binaries (CLAUDE.md invariant 9).
+- SDK-style projects: evaluate and build with the user's installed .NET SDK through the MSBuild APIs inside `eludite-host`.
+- Legacy projects on Windows: locate MSBuild from Visual Studio Build Tools, which is a free installer on the user's machine. Eludite never ships those binaries (CLAUDE.md invariant 9).
 - Legacy projects on Linux and macOS: locate or bundle Mono's MSBuild.
 - Design-time analysis uses reference assemblies from the `Microsoft.NETFramework.ReferenceAssemblies` NuGet packages, so analysis works everywhere even where building does not.
 - Design-time evaluation never blocks on a full build. A fast, cached evaluation pass feeds Roslyn. MSBuild runs for real only on a build command.

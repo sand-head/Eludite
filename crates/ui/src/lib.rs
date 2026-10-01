@@ -1,4 +1,4 @@
-//! Niello's widget layer (PLAN.md D1, section 8, section 12 `crates/ui`).
+//! Eludite's widget layer (PLAN.md D1, section 8, section 12 `crates/ui`).
 //!
 //! Public API:
 //! - [`Theme`]: color tokens and typography; `vs_dark()` (default),
@@ -11,7 +11,7 @@
 //! - [`elements`]: small stateless elements (tab strips, panels, buttons).
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
-//! are deliberately not used so Niello cannot look like Zed by construction.
+//! are deliberately not used so Eludite cannot look like Zed by construction.
 
 pub mod elements;
 pub mod keymap;

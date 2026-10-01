@@ -5,7 +5,7 @@ Plan reference: PLAN.md section 3 (D6), section 7
 
 ## Context
 
-Niello is not a VS Code extension host (PLAN.md section 1). Third parties still need to add themes, grammars, small commands and language or debugger registrations. Adding a language costs a tree-sitter grammar, an LSP registration, a DAP registration and test-runner glue, all of which can be declared rather than coded (PLAN.md section 7).
+Eludite is not a VS Code extension host (PLAN.md section 1). Third parties still need to add themes, grammars, small commands and language or debugger registrations. Adding a language costs a tree-sitter grammar, an LSP registration, a DAP registration and test-runner glue, all of which can be declared rather than coded (PLAN.md section 7).
 
 Extensions run inside a product that must never freeze (ADR-0001 and ADR-0002) and that exposes powerful commands to agents. An in-process native plugin could crash or stall the shell, and gives unsandboxed access to the user's machine.
 
@@ -15,7 +15,7 @@ The extension surface is a contract that outsiders link against, so it must be p
 
 - Version 1 extensions are WASM components run by wasmtime in the `extensions` crate.
 - Each extension ships a capability manifest. Capabilities are granted explicitly and the sandbox denies everything else.
-- The extension API lives in `extension-sdk/` (crate `niello-extension-sdk`), licensed MIT.
+- The extension API lives in `extension-sdk/` (crate `eludite-extension-sdk`), licensed MIT.
 - In v1 an extension can contribute: themes, grammars, small commands, and language and debugger registrations (LSP, DAP, tree-sitter, test-runner glue).
 - Extension commands register on the same command bus as built-ins, with the same schemas and permission classes. Agents see them like any other command.
 - Heavyweight integrations move to out-of-process .NET or native tool hosts later, speaking the protocols from ADR-0003.
@@ -27,7 +27,7 @@ The extension surface is a contract that outsiders link against, so it must be p
 - VS Code extension compatibility: would pull in a Node runtime and a very large, moving API. Excluded by the non-goals.
 - In-process native plugins (dynamic libraries): fast and flexible, but a crash or stall hits the UI thread and there is no sandbox.
 - Embedded scripting (Lua, JavaScript): easy to write, but sandboxing and a typed API are weaker than the component model, and it adds a second runtime.
-- .NET plugin assemblies loaded into `niello-host`: natural for C# authors, but couples extensions to host internals and risks Roslyn stability.
+- .NET plugin assemblies loaded into `eludite-host`: natural for C# authors, but couples extensions to host internals and risks Roslyn stability.
 - No extension system before 1.0: simplest, but themes, grammars and language registrations are the cheapest way to reach the polylingual goal.
 
 ## Consequences

@@ -1,6 +1,6 @@
-//! Client tests against a scripted fake `niello-host` process.
+//! Client tests against a scripted fake `eludite-host` process.
 //!
-//! This test binary is both the fake host (when `NIELLO_FAKE_HOST=1`) and the test runner: it re-executes itself as
+//! This test binary is both the fake host (when `ELUDITE_FAKE_HOST=1`) and the test runner: it re-executes itself as
 //! the host, so the client is exercised over a real child process's stdio. It has no libtest harness because the
 //! harness would print to stdout, which is the protocol stream.
 
@@ -12,21 +12,21 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use niello_lsp::host::{self, LanguageServerState, SolutionState, error_codes};
-use niello_lsp::lsp::{
+use eludite_lsp::host::{self, LanguageServerState, SolutionState, error_codes};
+use eludite_lsp::lsp::{
     self, CompletionContext, CompletionParams, DidOpenTextDocumentParams, Position,
     TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
 };
-use niello_lsp::{
+use eludite_lsp::{
     ClientInfo, Error, Event, HostClient, HostCommand, HostEvent, RestartPolicy, StderrMode,
 };
-use niello_protocol::framing;
+use eludite_protocol::framing;
 use serde_json::{Value, json};
 
 const T: Duration = Duration::from_secs(10);
 
 fn main() {
-    if std::env::var_os("NIELLO_FAKE_HOST").is_some() {
+    if std::env::var_os("ELUDITE_FAKE_HOST").is_some() {
         fake_host();
         return;
     }
@@ -110,12 +110,12 @@ fn main() {
 fn start_with(policy: RestartPolicy, stderr: StderrMode) -> (HostClient, Receiver<Event>) {
     let exe = std::env::current_exe().unwrap();
     let command = HostCommand::new(exe)
-        .env("NIELLO_FAKE_HOST", "1")
+        .env("ELUDITE_FAKE_HOST", "1")
         .stderr(stderr);
     HostClient::start(
         command,
         ClientInfo {
-            name: "niello-test".into(),
+            name: "eludite-test".into(),
             version: "0".into(),
         },
         policy,
@@ -238,7 +238,7 @@ fn forwarded_requests_carry_the_current_generation() {
         .unwrap();
     let item = &result.items()[0];
     assert_eq!(item.label, "Compute");
-    // The fake echoes the nielloGeneration it received.
+    // The fake echoes the eluditeGeneration it received.
     assert_eq!(item.detail.as_deref(), Some("generation 1"));
     // Untyped forwarded requests are pinned too.
     let sig = client
@@ -258,7 +258,7 @@ fn host_rejects_stale_generation() {
     client.open_solution("/src/App.sln", T).unwrap();
     // The fake bumps its generation without telling the client.
     client
-        .request_untyped("niello/solution/open", json!({"path": "/src/silent.sln"}))
+        .request_untyped("eludite/solution/open", json!({"path": "/src/silent.sln"}))
         .unwrap()
         .wait_timeout(T)
         .unwrap();
@@ -444,7 +444,7 @@ fn stderr_is_captured_not_mixed_into_protocol() {
 fn unknown_method_is_an_rpc_error() {
     let (client, _rx) = start();
     let err = client
-        .request_untyped("niello/nope", Value::Null)
+        .request_untyped("eludite/nope", Value::Null)
         .unwrap()
         .wait_timeout(T)
         .unwrap_err();
@@ -500,7 +500,7 @@ fn fake_host() {
         let Some(id) = id else {
             // Notifications.
             match method.as_str() {
-                "niello/host/exit" => std::process::exit(if shutdown { 0 } else { 1 }),
+                "eludite/host/exit" => std::process::exit(if shutdown { 0 } else { 1 }),
                 "$/cancelRequest" => {
                     let key = params["id"].to_string();
                     if let Some(parked_id) = parked.remove(&key) {
@@ -517,7 +517,7 @@ fn fake_host() {
                     let uri = params["textDocument"]["uri"].clone();
                     let version = params["textDocument"]["version"].clone();
                     let diag = |message: &str, g: u64| {
-                        json!({"uri": uri, "version": version, "nielloGeneration": g, "diagnostics": [
+                        json!({"uri": uri, "version": version, "eluditeGeneration": g, "diagnostics": [
                             {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "message": message}]})
                     };
                     if generation > 0 {
@@ -538,51 +538,51 @@ fn fake_host() {
             continue;
         };
         match method.as_str() {
-            "niello/host/initialize" => {
+            "eludite/host/initialize" => {
                 reply(
                     &out,
                     &id,
-                    json!({"hostName": "niello-host", "hostVersion": "fake", "capabilities": {"languageServer": true}}),
+                    json!({"hostName": "eludite-host", "hostVersion": "fake", "capabilities": {"languageServer": true}}),
                 );
                 notify(
                     &out,
-                    "niello/languageServer/status",
+                    "eludite/languageServer/status",
                     json!({"state": "running", "serverInfo": {"name": "fake-ls"}}),
                 );
             }
-            "niello/ping" => reply(
+            "eludite/ping" => reply(
                 &out,
                 &id,
                 json!({"pong": true, "timestamp": "2026-10-01T00:00:00Z"}),
             ),
-            "niello/host/shutdown" => {
+            "eludite/host/shutdown" => {
                 shutdown = true;
                 reply(&out, &id, Value::Null);
             }
-            "niello/solution/open" => {
+            "eludite/solution/open" => {
                 generation += 1;
                 let path = params["path"].as_str().unwrap_or_default().to_owned();
                 reply(&out, &id, json!({"generation": generation}));
                 if !path.contains("silent") {
                     notify(
                         &out,
-                        "niello/solution/status",
+                        "eludite/solution/status",
                         json!({"generation": generation, "path": path, "state": "loading", "phase": "projectLoad"}),
                     );
                     notify(
                         &out,
-                        "niello/solution/status",
+                        "eludite/solution/status",
                         json!({"generation": generation, "path": path, "state": "loaded",
                                "counts": {"projects": 3, "legacyProjects": 0, "legacyEvaluationFailures": 0}}),
                     );
                 }
             }
-            "niello/solution/close" => {
+            "eludite/solution/close" => {
                 generation += 1;
                 reply(&out, &id, json!({"generation": generation}));
                 notify(
                     &out,
-                    "niello/solution/status",
+                    "eludite/solution/status",
                     json!({"generation": generation, "path": "/src/App.sln", "state": "closed"}),
                 );
             }
@@ -590,7 +590,7 @@ fn fake_host() {
                 || host::methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>
             {
                 let Some(g) = params[host::GENERATION_FIELD].as_u64() else {
-                    error(&out, &id, -32602, "nielloGeneration is required", None);
+                    error(&out, &id, -32602, "eluditeGeneration is required", None);
                     continue;
                 };
                 if g != generation {

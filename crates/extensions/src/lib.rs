@@ -2,11 +2,11 @@
 //!
 //! Will load sandboxed WASM component extensions via wasmtime. wasmtime is not a
 //! dependency yet to keep builds fast; for now this crate only parses manifests,
-//! whose types live in the MIT `niello-extension-sdk` crate.
+//! whose types live in the MIT `eludite-extension-sdk` crate.
 
 use std::path::Path;
 
-pub use niello_extension_sdk::ExtensionManifest;
+pub use eludite_extension_sdk::ExtensionManifest;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManifestError {

@@ -1,6 +1,6 @@
 //! A fake `claude` for tests: it replays a recorded, redacted stream-json
 //! session (see `tools/record.py` and `tools/redact.py`), built as the
-//! `niello-fake-claude` binary. Not used by the adapter itself.
+//! `eludite-fake-claude` binary. Not used by the adapter itself.
 //!
 //! Fixture lines are `{"t_ms", "dir": "in"|"out"|"exit", "m"|"code"}`. The
 //! fake writes `out` messages in order. At each `in` it reads one line from
@@ -82,7 +82,7 @@ fn emit(out: &mut impl Write, v: &Value) -> io::Result<()> {
     out.flush()
 }
 
-/// Entry point of `niello-fake-claude`. Returns the process exit code.
+/// Entry point of `eludite-fake-claude`. Returns the process exit code.
 pub fn main(args: Vec<String>) -> i32 {
     if args.iter().any(|a| a == "--version") {
         let v = std::env::var(VERSION_ENV).unwrap_or_else(|_| "2.1.287 (Claude Code)".into());
@@ -120,7 +120,7 @@ pub fn main(args: Vec<String>) -> i32 {
         match std::env::var_os(FIXTURE_ENV) {
             Some(path) => replay(Path::new(&path), &mut input, &mut out, &mut log, &sid, &cwd),
             None => {
-                eprintln!("niello-fake-claude: set {FIXTURE_ENV}");
+                eprintln!("eludite-fake-claude: set {FIXTURE_ENV}");
                 Ok(2)
             }
         }

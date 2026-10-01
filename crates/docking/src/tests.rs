@@ -8,12 +8,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use eludite_commands::{CommandRegistry, view};
+use eludite_ui::Theme;
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton,
     ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, div, point, px, size,
 };
-use niello_commands::{CommandRegistry, view};
-use niello_ui::Theme;
 use serde_json::json;
 
 use crate::controller::DockController;
@@ -43,7 +43,7 @@ fn body(id: &str, _: &Theme) -> AnyElement {
 fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persistence>) -> Harness {
     let registry = ToolWindowRegistry::vs_default();
     let controller = DockController::new(layout, registry);
-    let mut commands = niello_commands::builtins::default_registry();
+    let mut commands = eludite_commands::builtins::default_registry();
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
     let commands = Arc::new(commands);
     let mut host_out = None;
@@ -290,7 +290,7 @@ fn auto_hide_fly_out_and_pin(cx: &mut TestAppContext) {
     let audit = h.audit();
     assert_eq!(audit.first().map(String::as_str), Some(view::AUTO_HIDE));
     assert!(audit.contains(&view::DOCK.to_owned()));
-    assert!(audit.iter().all(|c| c.starts_with("niello.view.")));
+    assert!(audit.iter().all(|c| c.starts_with("eludite.view.")));
 }
 
 #[gpui::test]

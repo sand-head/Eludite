@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-shutdown.json",
-  "title": "niello/host/shutdown",
-  "description": "Stop accepting work; the host stays alive until niello/host/exit.",
-  "x-niello-method": "niello/host/shutdown",
-  "x-niello-kind": "request",
-  "x-niello-direction": "shellToHost",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/host-shutdown.json",
+  "title": "eludite/host/shutdown",
+  "description": "Stop accepting work; the host stays alive until eludite/host/exit.",
+  "x-eludite-method": "eludite/host/shutdown",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "params": {
       "description": "No params: omitted, null, or an empty object/array.",
