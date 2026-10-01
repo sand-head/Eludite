@@ -23,3 +23,4 @@ One line, plain, direct, active voice. No body, no trailers, no co-author or sig
 
 - The product (shell, hosts, debuggers, web tooling) is GPL-3.0-or-later. `protocol/`, `extension-sdk/` and `agents/claude-acp/` are MIT.
 - By submitting a contribution you agree it is licensed under the license of the directory it lands in. There is no CLA.
+- Opening a pull request constitutes agreement to the [Developer Certificate of Origin](https://developercertificate.org/) for every commit in it. No `Signed-off-by` line is needed.
