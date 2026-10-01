@@ -96,6 +96,11 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 item("Find and Replace", "eludite.editor.find"),
                 item("Go To All", "eludite.edit.go_to_all"),
+                Separator,
+                // Visual Studio's Edit > IntelliSense items.
+                item("Complete Word", "eludite.editor.complete"),
+                item("Parameter Info", "eludite.editor.signature_help"),
+                item("Quick Info", "eludite.editor.hover"),
             ],
         ),
         menu(

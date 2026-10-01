@@ -36,6 +36,13 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       arrive while typing; with --solution, once it has
                       loaded) and report the keystroke frame cost; the file
                       is not saved
+  --bench-complete N  with --solution and --open-file: once loaded, open a new
+                      line after the first line containing `_sdkDiscoverer.`
+                      (or ELUDITE_BENCH_COMPLETE_AFTER), type that word, then N
+                      times: `.` (completion from the language server), two
+                      filter keys, Escape and three Backspaces; report the
+                      host and UI latency to the visible list, the keystroke
+                      frame cost with the list open and resident memory
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -60,6 +67,7 @@ pub struct Args {
     pub open_file: Option<PathBuf>,
     pub timings_out: Option<PathBuf>,
     pub bench_type: Option<usize>,
+    pub bench_complete: Option<usize>,
 }
 
 impl Args {
@@ -96,14 +104,21 @@ impl Args {
                     let n = value("--bench-type")?;
                     a.bench_type = Some(n.parse().map_err(|_| format!("bad key count `{n}`"))?);
                 }
+                "--bench-complete" => {
+                    let n = value("--bench-complete")?;
+                    a.bench_complete =
+                        Some(n.parse().map_err(|_| format!("bad trigger count `{n}`"))?);
+                }
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
         Ok(a)
     }
 
+    /// Measurement runs: no saved layout, and no frame-rate limit when the compositor withholds focus (a nested
+    /// session gives the window none, and GPUI would then draw at most every 33 ms).
     pub fn benching(&self) -> bool {
-        self.bench_start || self.bench_drag.is_some()
+        self.bench_start || self.bench_drag.is_some() || self.bench_complete.is_some()
     }
 }
 
@@ -156,5 +171,10 @@ mod tests {
             Some(std::path::Path::new("/tmp/t.json"))
         );
         assert!(parse(&["--open-file"]).is_err());
+        assert_eq!(
+            parse(&["--bench-complete", "200"]).unwrap().bench_complete,
+            Some(200)
+        );
+        assert!(parse(&["--bench-complete", "x"]).is_err());
     }
 }

@@ -46,6 +46,23 @@
 //! that is not in the buffer, which this view does not model yet (no display
 //! map); see `docs/briefs/0009-report.md`.
 //!
+//! # IntelliSense (brief 0013)
+//!
+//! [`intellisense`] holds the completion list, Quick Info and Parameter Info
+//! layers. The view decides when a feature is wanted (typing an identifier
+//! character at the start of a word, `.`, `(`, `<`, `,`, the keys
+//! Ctrl+Space, Ctrl+Shift+Space and Ctrl+K, Ctrl+I, the mouse resting over a
+//! word for [`intellisense::HOVER_DELAY`]) and emits an [`EditorEvent`]; the
+//! owner fetches the answer off the UI thread and hands it back with
+//! [`EditorView::open_completion`] / [`EditorView::set_completions`],
+//! [`EditorView::open_hover`] / [`EditorView::set_hover`] and
+//! [`EditorView::open_signature_help`] / [`EditorView::set_signature_help`],
+//! quoting the id `open_*` returned, so superseded answers are ignored. The
+//! list is filtered with the vendored `fuzzy` crate as the user types, and
+//! [`EditorView::complete_from_syntax`] fills it from the identifiers of the
+//! buffer's tree-sitter tree while no server can answer. Nothing here is
+//! specific to a language or to LSP.
+//!
 //! # Known gaps
 //!
 //! No IME composition (composed text is inserted as typed), no soft wrap,
@@ -57,18 +74,31 @@
 mod buffer;
 pub mod display;
 mod editor;
+pub mod intellisense;
+mod popups;
 pub mod syntax;
 mod view;
 
 pub use buffer::{Buffer, LARGE_FILE_THRESHOLD, LineEnding, LoadError};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
+pub use eludite_ui::CompletionKind;
+pub use intellisense::{
+    AcceptedCompletion, CompletionEdit, CompletionItem, CompletionRequest, CompletionSnapshot,
+    CompletionSource, CompletionTrigger, EditorEvent, HoverSnapshot, SignatureHelpData,
+    SignatureInfo, SignatureSnapshot, SignatureTrigger,
+};
 pub use text;
 pub use view::{
-    Decoration, DecorationStyle, EditorStyle, EditorView, KEY_CONTEXT, default_font_family,
-    key_bindings,
+    COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
+    EditorView, KEY_CONTEXT, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
 /// Editor actions, for binding keys and dispatching from commands.
 pub mod actions {
+    pub use crate::view::{
+        AcceptCompletion, CompletionPageDown, CompletionPageUp, NextSignature, PreviousSignature,
+        SelectNextCompletion, SelectPreviousCompletion, ShowCompletions, ShowHover,
+        ShowSignatureHelp,
+    };
     pub use crate::view::{
         AddCaretAbove, AddCaretBelow, Backspace, Cancel, Copy, Cut, Delete, DeleteWordLeft,
         DeleteWordRight, Find, FindNext, FindPrevious, MoveDown, MoveLeft, MoveRight, MoveToEnd,

@@ -52,6 +52,7 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/completion",
         "completionItem/resolve",
         "textDocument/hover",
+        "textDocument/signatureHelp",
         "textDocument/definition",
         "textDocument/references",
         "textDocument/documentSymbol",
@@ -62,7 +63,6 @@ public sealed class LspProxy : IAsyncDisposable
     /// <summary>Forwarded requests passed through untyped (still generation-checked).</summary>
     public static IReadOnlyList<string> UntypedRequests { get; } =
     [
-        "textDocument/signatureHelp",
         "textDocument/typeDefinition",
         "textDocument/implementation",
         "textDocument/documentHighlight",

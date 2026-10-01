@@ -1,0 +1,1151 @@
+{
+ "brief": "0013",
+ "date": "2026-10-02",
+ "manual_run_x11_real_input": {
+  "edit": {
+   "mode": "edit",
+   "loaded_ms": 1790927756141,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+   "completion": "completion reply 3: 922 items (host 50.5 ms)",
+   "shot_completion": "/tmp/claude-1000/-home-sand-head-Source-Repos-sand-head-niello-ide/df2e64f2-a14a-4572-bb22-1988b88dc75b/scratchpad/final/completion.png",
+   "signature_trace": [
+    "signature help reply 18: 13 signatures, active parameter Some(0)",
+    "signature help reply 20: 13 signatures, active parameter Some(1)",
+    "signature help reply 21: 13 signatures, active parameter Some(1)"
+   ],
+   "shot_signature": "/tmp/claude-1000/-home-sand-head-Source-Repos-sand-head-niello-ide/df2e64f2-a14a-4572-bb22-1988b88dc75b/scratchpad/final/signature-help.png"
+  },
+  "hover": {
+   "mode": "hover",
+   "loaded_ms": 1790927773699,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostServer.cs version Some(1): 0 (0 errors)",
+   "pointer": [
+    239,
+    380
+   ],
+   "hover_trace": [
+    "hover reply 1: 119 chars"
+   ],
+   "shot_hover": "/tmp/claude-1000/-home-sand-head-Source-Repos-sand-head-niello-ide/df2e64f2-a14a-4572-bb22-1988b88dc75b/scratchpad/final/quick-info.png"
+  },
+  "loadavg": [
+   [
+    "x11-edit",
+    "2.52",
+    "3.52",
+    "2.98"
+   ],
+   [
+    "x11-hover",
+    "2.26",
+    "3.41",
+    "2.95"
+   ]
+  ]
+ },
+ "bench_user_kwin_config": {
+  "how": "spikes/0005-acp-panel/tools/nested.sh (nested KWin with the user's kwinrc), Wayland backend",
+  "complete": [
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.699,
+     "p95_ms": 17.814,
+     "p99_ms": 20.31,
+     "max_ms": 66.773
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.149,
+     "p95_ms": 5.413,
+     "p99_ms": 6.021,
+     "max_ms": 6.319
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 2.479,
+     "p95_ms": 14.196,
+     "p99_ms": 14.549,
+     "max_ms": 15.384
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.458,
+     "p95_ms": 29.331,
+     "p99_ms": 30.668,
+     "max_ms": 69.181
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.834,
+     "p95_ms": 3.609,
+     "p99_ms": 4.091,
+     "max_ms": 5.582
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.992,
+     "p95_ms": 3.584,
+     "p99_ms": 4.169,
+     "max_ms": 4.204
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 93.8,
+       "peak_rss_mib": 93.8
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.0,
+       "peak_rss_mib": 94.0
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.3,
+       "peak_rss_mib": 94.3
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.5,
+       "peak_rss_mib": 94.5
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 94.8,
+       "peak_rss_mib": 94.8
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 94.8,
+     "peak_rss_mib": 94.8
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-spike5-785672",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.548,
+     "p95_ms": 16.8,
+     "p99_ms": 18.267,
+     "max_ms": 20.082
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.147,
+     "p95_ms": 5.529,
+     "p99_ms": 6.019,
+     "max_ms": 6.119
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 3.013,
+     "p95_ms": 14.296,
+     "p99_ms": 15.147,
+     "max_ms": 15.31
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.562,
+     "p95_ms": 29.543,
+     "p99_ms": 30.343,
+     "max_ms": 30.727
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.908,
+     "p95_ms": 3.646,
+     "p99_ms": 4.222,
+     "max_ms": 4.703
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.97,
+     "p95_ms": 3.53,
+     "p99_ms": 3.699,
+     "max_ms": 3.764
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 94.1,
+       "peak_rss_mib": 94.1
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.3,
+       "peak_rss_mib": 94.3
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.5,
+       "peak_rss_mib": 94.5
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.8,
+       "peak_rss_mib": 94.8
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 95.0,
+       "peak_rss_mib": 95.0
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 95.0,
+     "peak_rss_mib": 95.0
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-spike5-785672",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.487,
+     "p95_ms": 17.178,
+     "p99_ms": 19.586,
+     "max_ms": 20.034
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.2,
+     "p95_ms": 4.843,
+     "p99_ms": 6.132,
+     "max_ms": 6.411
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 2.765,
+     "p95_ms": 14.232,
+     "p99_ms": 15.047,
+     "max_ms": 15.219
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.432,
+     "p95_ms": 29.225,
+     "p99_ms": 31.078,
+     "max_ms": 31.197
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.925,
+     "p95_ms": 3.682,
+     "p99_ms": 3.947,
+     "max_ms": 4.575
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.942,
+     "p95_ms": 3.433,
+     "p99_ms": 3.695,
+     "max_ms": 4.351
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 94.4,
+       "peak_rss_mib": 94.4
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.5,
+       "peak_rss_mib": 94.5
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.6,
+       "peak_rss_mib": 94.6
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 95.0,
+       "peak_rss_mib": 95.0
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 95.2,
+       "peak_rss_mib": 95.2
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 95.2,
+     "peak_rss_mib": 95.2
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-spike5-785672",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   }
+  ],
+  "memory_500": [
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 500,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 500,
+     "p50_ms": 6.6,
+     "p95_ms": 10.352,
+     "p99_ms": 18.659,
+     "max_ms": 36.784
+    },
+    "ui_latency": {
+     "n": 500,
+     "p50_ms": 3.309,
+     "p95_ms": 5.684,
+     "p99_ms": 6.391,
+     "max_ms": 7.025
+    },
+    "wait_for_next_frame": {
+     "n": 500,
+     "p50_ms": 2.233,
+     "p95_ms": 14.248,
+     "p99_ms": 14.552,
+     "max_ms": 16.93
+    },
+    "trigger_to_visible": {
+     "n": 500,
+     "p50_ms": 12.193,
+     "p95_ms": 28.832,
+     "p99_ms": 30.437,
+     "max_ms": 39.302
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 1000,
+     "p50_ms": 2.992,
+     "p95_ms": 3.669,
+     "p99_ms": 4.166,
+     "max_ms": 5.177
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 500,
+     "p50_ms": 3.057,
+     "p95_ms": 3.577,
+     "p99_ms": 3.735,
+     "max_ms": 3.934
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 93.7,
+       "peak_rss_mib": 93.7
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.1,
+       "peak_rss_mib": 94.1
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.1,
+       "peak_rss_mib": 94.1
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.3,
+       "peak_rss_mib": 94.3
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 94.7,
+       "peak_rss_mib": 94.7
+      }
+     },
+     {
+      "cycle": 250,
+      "rss": {
+       "rss_mib": 95.1,
+       "peak_rss_mib": 95.1
+      }
+     },
+     {
+      "cycle": 300,
+      "rss": {
+       "rss_mib": 95.3,
+       "peak_rss_mib": 95.3
+      }
+     },
+     {
+      "cycle": 350,
+      "rss": {
+       "rss_mib": 95.5,
+       "peak_rss_mib": 95.5
+      }
+     },
+     {
+      "cycle": 400,
+      "rss": {
+       "rss_mib": 96.0,
+       "peak_rss_mib": 96.0
+      }
+     },
+     {
+      "cycle": 450,
+      "rss": {
+       "rss_mib": 96.2,
+       "peak_rss_mib": 96.2
+      }
+     },
+     {
+      "cycle": 500,
+      "rss": {
+       "rss_mib": 96.5,
+       "peak_rss_mib": 96.5
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 96.5,
+     "peak_rss_mib": 96.5
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-spike5-785672",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   }
+  ],
+  "loadavg": [
+   [
+    "complete-1",
+    "2.50",
+    "2.97",
+    "2.90"
+   ],
+   [
+    "complete-2",
+    "1.99",
+    "2.78",
+    "2.84"
+   ],
+   [
+    "complete-3",
+    "2.22",
+    "2.73",
+    "2.82"
+   ],
+   [
+    "memory",
+    "1.91",
+    "2.58",
+    "2.76"
+   ]
+  ]
+ },
+ "bench_fresh_kwin_config": {
+  "how": "crates/eludite/tools/intellisense-linux.sh (nested KWin with a fresh XDG_CONFIG_HOME), Wayland backend",
+  "complete": [
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.177,
+     "p95_ms": 17.091,
+     "p99_ms": 19.617,
+     "max_ms": 29.508
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.05,
+     "p95_ms": 4.818,
+     "p99_ms": 5.848,
+     "max_ms": 5.969
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 3.752,
+     "p95_ms": 37.297,
+     "p99_ms": 56.742,
+     "max_ms": 62.96
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.79,
+     "p95_ms": 45.595,
+     "p99_ms": 69.874,
+     "max_ms": 80.907
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.84,
+     "p95_ms": 3.991,
+     "p99_ms": 5.698,
+     "max_ms": 6.467
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.769,
+     "p95_ms": 3.483,
+     "p99_ms": 3.852,
+     "max_ms": 3.95
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 93.6,
+       "peak_rss_mib": 93.6
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 93.9,
+       "peak_rss_mib": 93.9
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.1,
+       "peak_rss_mib": 94.1
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.4,
+       "peak_rss_mib": 94.4
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 94.8,
+       "peak_rss_mib": 94.8
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 94.8,
+     "peak_rss_mib": 94.8
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.204,
+     "p95_ms": 17.129,
+     "p99_ms": 19.74,
+     "max_ms": 20.161
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.026,
+     "p95_ms": 4.903,
+     "p99_ms": 5.632,
+     "max_ms": 6.654
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 3.314,
+     "p95_ms": 22.482,
+     "p99_ms": 52.754,
+     "max_ms": 54.297
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.57,
+     "p95_ms": 30.884,
+     "p99_ms": 64.278,
+     "max_ms": 65.18
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.891,
+     "p95_ms": 4.274,
+     "p99_ms": 5.743,
+     "max_ms": 8.241
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.809,
+     "p95_ms": 3.475,
+     "p99_ms": 3.706,
+     "max_ms": 3.743
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 94.0,
+       "peak_rss_mib": 94.0
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.2,
+       "peak_rss_mib": 94.2
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.6,
+       "peak_rss_mib": 94.6
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.9,
+       "peak_rss_mib": 94.9
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 95.2,
+       "peak_rss_mib": 95.2
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 95.2,
+     "peak_rss_mib": 95.2
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 200,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 200,
+     "p50_ms": 6.282,
+     "p95_ms": 16.558,
+     "p99_ms": 19.577,
+     "max_ms": 21.651
+    },
+    "ui_latency": {
+     "n": 200,
+     "p50_ms": 3.023,
+     "p95_ms": 4.598,
+     "p99_ms": 5.3,
+     "max_ms": 5.866
+    },
+    "wait_for_next_frame": {
+     "n": 200,
+     "p50_ms": 3.137,
+     "p95_ms": 34.739,
+     "p99_ms": 58.311,
+     "max_ms": 69.774
+    },
+    "trigger_to_visible": {
+     "n": 200,
+     "p50_ms": 12.437,
+     "p95_ms": 45.564,
+     "p99_ms": 68.595,
+     "max_ms": 81.208
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 400,
+     "p50_ms": 2.857,
+     "p95_ms": 4.111,
+     "p99_ms": 6.2,
+     "max_ms": 7.118
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 200,
+     "p50_ms": 2.756,
+     "p95_ms": 3.602,
+     "p99_ms": 3.746,
+     "max_ms": 3.938
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 94.2,
+       "peak_rss_mib": 94.2
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.4,
+       "peak_rss_mib": 94.4
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.4,
+       "peak_rss_mib": 94.4
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.7,
+       "peak_rss_mib": 94.7
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 95.1,
+       "peak_rss_mib": 95.3
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 95.1,
+     "peak_rss_mib": 95.3
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   }
+  ],
+  "memory_500": [
+   {
+    "bench": "complete_in_shell",
+    "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+    "triggers": 500,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 500,
+     "p50_ms": 6.257,
+     "p95_ms": 10.174,
+     "p99_ms": 17.387,
+     "max_ms": 39.544
+    },
+    "ui_latency": {
+     "n": 500,
+     "p50_ms": 3.094,
+     "p95_ms": 4.895,
+     "p99_ms": 5.776,
+     "max_ms": 6.888
+    },
+    "wait_for_next_frame": {
+     "n": 500,
+     "p50_ms": 2.987,
+     "p95_ms": 38.091,
+     "p99_ms": 56.121,
+     "max_ms": 68.809
+    },
+    "trigger_to_visible": {
+     "n": 500,
+     "p50_ms": 12.274,
+     "p95_ms": 46.41,
+     "p99_ms": 65.607,
+     "max_ms": 82.665
+    },
+    "keystroke_frame_cost_filtering": {
+     "n": 1000,
+     "p50_ms": 2.938,
+     "p95_ms": 4.016,
+     "p99_ms": 5.951,
+     "max_ms": 17.01
+    },
+    "keystroke_frame_cost_trigger": {
+     "n": 500,
+     "p50_ms": 2.843,
+     "p95_ms": 3.524,
+     "p99_ms": 3.736,
+     "max_ms": 4.186
+    },
+    "rss_by_cycle": [
+     {
+      "cycle": 0,
+      "rss": {
+       "rss_mib": 94.1,
+       "peak_rss_mib": 94.1
+      }
+     },
+     {
+      "cycle": 50,
+      "rss": {
+       "rss_mib": 94.4,
+       "peak_rss_mib": 94.4
+      }
+     },
+     {
+      "cycle": 100,
+      "rss": {
+       "rss_mib": 94.5,
+       "peak_rss_mib": 94.5
+      }
+     },
+     {
+      "cycle": 150,
+      "rss": {
+       "rss_mib": 94.9,
+       "peak_rss_mib": 94.9
+      }
+     },
+     {
+      "cycle": 200,
+      "rss": {
+       "rss_mib": 95.1,
+       "peak_rss_mib": 95.1
+      }
+     },
+     {
+      "cycle": 250,
+      "rss": {
+       "rss_mib": 95.6,
+       "peak_rss_mib": 95.6
+      }
+     },
+     {
+      "cycle": 300,
+      "rss": {
+       "rss_mib": 95.6,
+       "peak_rss_mib": 95.6
+      }
+     },
+     {
+      "cycle": 350,
+      "rss": {
+       "rss_mib": 96.2,
+       "peak_rss_mib": 96.2
+      }
+     },
+     {
+      "cycle": 400,
+      "rss": {
+       "rss_mib": 96.3,
+       "peak_rss_mib": 96.3
+      }
+     },
+     {
+      "cycle": 450,
+      "rss": {
+       "rss_mib": 96.5,
+       "peak_rss_mib": 96.5
+      }
+     },
+     {
+      "cycle": 500,
+      "rss": {
+       "rss_mib": 96.9,
+       "peak_rss_mib": 96.9
+      }
+     }
+    ],
+    "rss_settled": {
+     "rss_mib": 96.9,
+     "peak_rss_mib": 96.9
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   }
+  ],
+  "type_500_lspproxy": [
+   {
+    "bench": "type_in_shell",
+    "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+    "with_host": true,
+    "lines": 1068,
+    "keystrokes": 500,
+    "samples": 500,
+    "diagnostics_events_during_run": 13,
+    "keystroke_frame_cost": {
+     "n": 500,
+     "p50_ms": 2.396,
+     "p95_ms": 4.046,
+     "p99_ms": 5.351,
+     "max_ms": 5.884
+    },
+    "key_handler": {
+     "n": 500,
+     "p50_ms": 0.169,
+     "p95_ms": 1.914,
+     "p99_ms": 2.412,
+     "max_ms": 3.847
+    },
+    "all_frames_render_to_present": {
+     "n": 827,
+     "p50_ms": 2.163,
+     "p95_ms": 2.734,
+     "p99_ms": 3.46,
+     "max_ms": 3.749
+    },
+    "rss": {
+     "rss_mib": 99.6,
+     "peak_rss_mib": 99.6
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "type_in_shell",
+    "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+    "with_host": true,
+    "lines": 1068,
+    "keystrokes": 500,
+    "samples": 500,
+    "diagnostics_events_during_run": 12,
+    "keystroke_frame_cost": {
+     "n": 500,
+     "p50_ms": 2.408,
+     "p95_ms": 4.163,
+     "p99_ms": 5.893,
+     "max_ms": 6.158
+    },
+    "key_handler": {
+     "n": 500,
+     "p50_ms": 0.171,
+     "p95_ms": 1.979,
+     "p99_ms": 2.73,
+     "max_ms": 3.702
+    },
+    "all_frames_render_to_present": {
+     "n": 813,
+     "p50_ms": 2.17,
+     "p95_ms": 2.833,
+     "p99_ms": 3.624,
+     "max_ms": 3.884
+    },
+    "rss": {
+     "rss_mib": 98.2,
+     "peak_rss_mib": 98.2
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   },
+   {
+    "bench": "type_in_shell",
+    "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+    "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0013-completion-and-hover/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+    "with_host": true,
+    "lines": 1068,
+    "keystrokes": 500,
+    "samples": 500,
+    "diagnostics_events_during_run": 14,
+    "keystroke_frame_cost": {
+     "n": 500,
+     "p50_ms": 2.43,
+     "p95_ms": 4.262,
+     "p99_ms": 5.834,
+     "max_ms": 6.777
+    },
+    "key_handler": {
+     "n": 500,
+     "p50_ms": 0.171,
+     "p95_ms": 1.924,
+     "p99_ms": 2.369,
+     "max_ms": 2.768
+    },
+    "all_frames_render_to_present": {
+     "n": 826,
+     "p50_ms": 2.182,
+     "p95_ms": 2.867,
+     "p99_ms": 3.68,
+     "max_ms": 4.52
+    },
+    "rss": {
+     "rss_mib": 99.2,
+     "peak_rss_mib": 99.2
+    },
+    "platform": {
+     "os": "linux",
+     "wayland_display": "wayland-eludite-771211",
+     "display": ":1",
+     "scale_factor": 1.0,
+     "viewport": [
+      1280.0,
+      800.0
+     ]
+    }
+   }
+  ],
+  "loadavg": [
+   [
+    "complete-1",
+    "2.38",
+    "3.18",
+    "2.98"
+   ],
+   [
+    "complete-2",
+    "2.00",
+    "2.96",
+    "2.92"
+   ],
+   [
+    "complete-3",
+    "2.72",
+    "3.00",
+    "2.93"
+   ],
+   [
+    "memory",
+    "2.24",
+    "2.85",
+    "2.88"
+   ],
+   [
+    "type-1",
+    "2.00",
+    "2.65",
+    "2.81"
+   ],
+   [
+    "type-2",
+    "2.35",
+    "2.68",
+    "2.82"
+   ],
+   [
+    "type-3",
+    "2.42",
+    "2.67",
+    "2.81"
+   ]
+  ]
+ }
+}

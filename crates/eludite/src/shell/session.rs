@@ -10,9 +10,15 @@
 //! the worker diffs it against the text it last sent and sends one incremental `textDocument/didChange` (UTF-16
 //! positions, as LSP requires). After a host restart the worker reopens the solution and replays every open
 //! document, because the generation and the host's copies are gone.
+//!
+//! Requests (brief 0013: completion, resolve, hover, signature help) go through the same worker, so each one is
+//! written after every document notification queued before it and sees the text the user sees. The worker sends
+//! it and a waiter thread blocks on the reply; the UI gets a [`Reply`] on a oneshot channel and never waits.
+//! [`RequestHandle::cancel`] sends `$/cancelRequest` for it.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
@@ -27,9 +33,11 @@ use eludite_lsp::lsp::{
     VersionedTextDocumentIdentifier,
 };
 use eludite_lsp::{
-    ClientInfo, Connector, Event, HostClient, HostCommand, HostEvent, RestartPolicy,
+    ClientInfo, Connector, Event, HostClient, HostCommand, HostEvent, Id, RestartPolicy,
 };
+use eludite_protocol::RequestType;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::oneshot;
 use serde_json::json;
 
 /// How long the worker waits for the host's reply to `eludite/solution/open` and `close`.
@@ -159,6 +167,10 @@ enum Cmd {
     },
     /// The host restarted on its own: reopen and replay.
     Replay,
+    /// Send a request (after the notifications queued before it).
+    Request(RequestJob),
+    /// Cancel the request with this ticket if it is still in flight.
+    Cancel(u64),
     Shutdown(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -176,6 +188,55 @@ pub struct Shared {
 pub struct HostSession {
     tx: Arc<Mutex<Sender<Cmd>>>,
     shared: Arc<Mutex<Shared>>,
+    tickets: Arc<AtomicU64>,
+}
+
+/// Why a request has no result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestError {
+    /// No host is running (no solution was opened, or it failed to start).
+    NoHost,
+    /// Canceled (by the shell, or the host answered RequestCancelled).
+    Canceled,
+    /// Computed under a solution generation that is no longer current.
+    Stale,
+    Failed(String),
+}
+
+/// The answer to [`HostSession::request`], with when the request was written and answered (for the latency
+/// measurements). A result computed under an older solution generation is already [`RequestError::Stale`].
+#[derive(Debug)]
+pub struct Reply<T> {
+    pub result: Result<T, RequestError>,
+    pub sent: Option<Instant>,
+    pub received: Instant,
+}
+
+impl<T> Reply<T> {
+    fn err(e: RequestError) -> Self {
+        Self {
+            result: Err(e),
+            sent: None,
+            received: Instant::now(),
+        }
+    }
+}
+
+/// Request ticket to request id, while in flight.
+type Inflight = Arc<Mutex<HashMap<u64, Id>>>;
+type RequestJob = Box<dyn FnOnce(Option<&HostClient>, &Inflight) + Send>;
+
+/// A request in flight; [`RequestHandle::cancel`] cancels it. Dropping it does not.
+#[derive(Debug, Clone)]
+pub struct RequestHandle {
+    ticket: u64,
+    session: HostSession,
+}
+
+impl RequestHandle {
+    pub fn cancel(&self) {
+        self.session.send(Cmd::Cancel(self.ticket));
+    }
 }
 
 impl std::fmt::Debug for HostSession {
@@ -199,6 +260,7 @@ impl HostSession {
             shared: shared.clone(),
             docs: HashMap::new(),
             tx: tx.clone(),
+            inflight: Inflight::default(),
         };
         thread::Builder::new()
             .name("eludite-host-session".into())
@@ -208,8 +270,63 @@ impl HostSession {
             Self {
                 tx: Arc::new(Mutex::new(tx)),
                 shared,
+                tickets: Arc::new(AtomicU64::new(1)),
             },
             events_rx,
+        )
+    }
+
+    /// Send forwarded request `R` after the document notifications already queued. The reply arrives on the returned
+    /// receiver; the UI awaits it and never blocks.
+    pub fn request<R>(
+        &self,
+        params: R::Params,
+    ) -> (RequestHandle, oneshot::Receiver<Reply<R::Result>>)
+    where
+        R: RequestType + 'static,
+        R::Params: Send + 'static,
+        R::Result: Send + 'static,
+    {
+        let ticket = self.tickets.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        let job: RequestJob = Box::new(move |client, inflight| {
+            let Some(client) = client else {
+                let _ = tx.send(Reply::err(RequestError::NoHost));
+                return;
+            };
+            let sent = Instant::now();
+            let pending = match client.request::<R>(params) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(Reply::err(request_error(e)));
+                    return;
+                }
+            };
+            lock(inflight).insert(ticket, pending.id());
+            let inflight = inflight.clone();
+            let spawned = thread::Builder::new()
+                .name("eludite-lsp-reply".into())
+                .spawn(move || {
+                    let result = pending.wait().map_err(request_error);
+                    let received = Instant::now();
+                    lock(&inflight).remove(&ticket);
+                    let _ = tx.send(Reply {
+                        result,
+                        sent: Some(sent),
+                        received,
+                    });
+                });
+            if spawned.is_err() {
+                eprintln!("eludite: cannot start a request waiter thread");
+            }
+        });
+        self.send(Cmd::Request(job));
+        (
+            RequestHandle {
+                ticket,
+                session: self.clone(),
+            },
+            rx,
         )
     }
 
@@ -277,6 +394,16 @@ struct Worker {
     shared: Arc<Mutex<Shared>>,
     docs: HashMap<String, Doc>,
     tx: Sender<Cmd>,
+    inflight: Inflight,
+}
+
+fn request_error(e: eludite_lsp::Error) -> RequestError {
+    match e {
+        eludite_lsp::Error::Canceled => RequestError::Canceled,
+        eludite_lsp::Error::Stale { .. } => RequestError::Stale,
+        eludite_lsp::Error::HostExited => RequestError::NoHost,
+        other => RequestError::Failed(other.to_string()),
+    }
 }
 
 impl Worker {
@@ -352,6 +479,13 @@ impl Worker {
                     }
                     for (uri, d) in &self.docs {
                         self.send_open(uri, &d.language_id, d.version, &d.text);
+                    }
+                }
+                Cmd::Request(job) => job(self.client.as_ref(), &self.inflight),
+                Cmd::Cancel(ticket) => {
+                    let id = lock(&self.inflight).remove(&ticket);
+                    if let (Some(id), Some(c)) = (id, &self.client) {
+                        let _ = c.notify::<lsp::Cancel>(lsp::CancelParams { id });
                     }
                 }
                 Cmd::Shutdown(done) => {

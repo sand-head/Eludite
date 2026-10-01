@@ -23,6 +23,7 @@ use eludite_lsp::lsp;
 use gpui::{AppContext as _, Context, Entity, Focusable as _, Subscription, Task, Window, rgb};
 
 use super::Shell;
+use super::intellisense::{DocIntellisense, Provider};
 
 /// Quiet time after the last edit before `textDocument/didChange` is sent.
 pub const DIDCHANGE_DEBOUNCE: Duration = Duration::from_millis(50);
@@ -39,12 +40,15 @@ pub struct Document {
     /// The LSP version last sent (`didOpen` is 1).
     pub lsp_version: i32,
     /// The text as of `lsp_version`, to anchor diagnostics computed on it.
-    sent: text::BufferSnapshot,
+    pub(super) sent: text::BufferSnapshot,
     saved: clock::Global,
     seen: clock::Global,
     pub dirty: bool,
     debounce: Option<Task<()>>,
+    /// IntelliSense requests in flight (brief 0013).
+    pub(super) intellisense: DocIntellisense,
     _observe: Subscription,
+    _events: Subscription,
 }
 
 impl Document {
@@ -192,7 +196,7 @@ fn title(path: &Path) -> String {
 }
 
 /// Byte offset of a 1-based line and character column, clipped to the text.
-fn offset_of(buffer: &Buffer, line: u32, column: u32) -> usize {
+pub(super) fn offset_of(buffer: &Buffer, line: u32, column: u32) -> usize {
     let row = line
         .saturating_sub(1)
         .min(buffer.line_count().saturating_sub(1));
@@ -213,9 +217,8 @@ impl Shell {
     ) -> Option<futures::channel::oneshot::Receiver<()>> {
         use eludite_commands::workspace::WorkspaceRequest::*;
         let path = match request {
-            Save { path } | Undo { path } | Redo { path } | Find { path, .. } => path.clone(),
-            FileClose { path, .. } => Some(path.clone()),
-            _ => return None,
+            SolutionOpen { .. } | SolutionClose | FileOpen { .. } => return None,
+            other => other.path().map(str::to_owned),
         };
         let id = match path {
             Some(p) => self.resolve_file(&p).to_string_lossy().into_owned(),
@@ -244,7 +247,7 @@ impl Shell {
     }
 
     /// The document `path` names, or the active one.
-    fn document_id(&self, path: Option<&str>) -> Result<String, CommandError> {
+    pub(super) fn document_id(&self, path: Option<&str>) -> Result<String, CommandError> {
         let id = match path {
             Some(p) => self.resolve_file(p).to_string_lossy().into_owned(),
             None => self
@@ -359,6 +362,10 @@ impl Shell {
         let observe = cx.observe(&view, move |shell, _, cx| {
             shell.on_editor_changed(&observe_id, cx)
         });
+        let events_id = id.clone();
+        let events = cx.subscribe_in(&view, window, move |shell, _, event, window, cx| {
+            shell.on_editor_event(&events_id, event, window, cx)
+        });
         self.views.borrow_mut().insert(id.clone(), view.clone());
         self.documents.insert(
             id.clone(),
@@ -373,9 +380,19 @@ impl Shell {
                 seen: version,
                 dirty: false,
                 debounce: None,
+                intellisense: DocIntellisense::default(),
                 _observe: observe,
+                _events: events,
             },
         );
+        // Read the fallback identifiers now if the language server cannot answer yet.
+        if self
+            .documents
+            .get(&id)
+            .is_some_and(|d| self.provider(d) != Provider::Server)
+        {
+            view.update(cx, |v, cx| v.prefetch_identifiers(cx));
+        }
         // Diagnostics that arrived before the editor existed.
         if let Some(diags) = self.diagnostics.get(&uri)
             && let Some(doc) = self.documents.get(&id)
@@ -403,6 +420,7 @@ impl Shell {
     }
 
     fn on_editor_changed(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.wake_intellisense_waiters();
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -426,8 +444,8 @@ impl Shell {
         }));
     }
 
-    /// Send the document's text now (the debounce expired, or a save needs the host up to date).
-    fn flush_change(&mut self, id: &str, cx: &mut Context<Self>) {
+    /// Send the document's text now (the debounce expired, or a save or a request needs the host up to date).
+    pub(super) fn flush_change(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -573,7 +591,8 @@ impl Shell {
         self.loading.remove(&id);
         self.load_waiters.remove(&id);
         let had = match self.documents.remove(&id) {
-            Some(doc) => {
+            Some(mut doc) => {
+                doc.intellisense.cancel_all();
                 self.views.borrow_mut().remove(&id);
                 if doc.language_id.is_some() {
                     self.session.did_close(doc.uri.clone());
@@ -594,7 +613,7 @@ impl Shell {
     }
 }
 
-fn move_caret(view: &Entity<EditorView>, line: u32, column: u32, cx: &mut gpui::App) {
+pub(super) fn move_caret(view: &Entity<EditorView>, line: u32, column: u32, cx: &mut gpui::App) {
     view.update(cx, |v, cx| {
         let offset = v.update_editor(cx, |e| {
             let offset = offset_of(e.buffer(), line, column);

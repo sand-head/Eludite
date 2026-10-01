@@ -68,12 +68,28 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("ctrl-z", "Ctrl+Z", "eludite.editor.undo"),
         command("ctrl-y", "Ctrl+Y", "eludite.editor.redo"),
         command("ctrl-f", "Ctrl+F", "eludite.editor.find"),
+        // Edit > IntelliSense (brief 0013).
+        command("ctrl-space", "Ctrl+Space", "eludite.editor.complete"),
+        command(
+            "ctrl-shift-space",
+            "Ctrl+Shift+Space",
+            "eludite.editor.signature_help",
+        ),
+        command("ctrl-k ctrl-i", "Ctrl+K, Ctrl+I", "eludite.editor.hover"),
     ]
 }
 
-/// The editor actions that are commands (brief 0012): the shell binds these keys in the editor's own key context
-/// too, so they reach the command bus instead of the editor's built-in actions.
-pub const EDITOR_COMMAND_KEYS: [&str; 4] = ["ctrl-z", "ctrl-y", "ctrl-shift-z", "ctrl-f"];
+/// The editor actions that are commands (briefs 0012 and 0013): the shell binds these keys in the editor's own key
+/// context too, so they reach the command bus instead of the editor's built-in actions.
+pub const EDITOR_COMMAND_KEYS: [&str; 7] = [
+    "ctrl-z",
+    "ctrl-y",
+    "ctrl-shift-z",
+    "ctrl-f",
+    "ctrl-space",
+    "ctrl-shift-space",
+    "ctrl-k ctrl-i",
+];
 
 fn command(
     keystrokes: &'static str,
@@ -131,6 +147,18 @@ mod tests {
         assert_eq!(
             shortcut_for(&k, "eludite.solution.open", &json!({})),
             Some("Ctrl+Shift+O")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.complete", &json!({})),
+            Some("Ctrl+Space")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.signature_help", &json!({})),
+            Some("Ctrl+Shift+Space")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.hover", &json!({})),
+            Some("Ctrl+K, Ctrl+I")
         );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();

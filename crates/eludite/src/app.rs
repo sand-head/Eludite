@@ -20,14 +20,21 @@ use crate::bench;
 use crate::shell::Shell;
 use crate::shell::session::HostLaunch;
 
-/// The editor's key bindings, except the keys whose actions are commands (`eludite.editor.undo`, `redo`, `find`):
-/// those keys dispatch `RunCommand` in the editor's context, so they reach the command bus first.
+/// The editor's key bindings, except the keys whose actions are commands (`eludite.editor.undo`, `redo`, `find`,
+/// and IntelliSense's `complete`, `signature_help`, `hover` and `accept_completion`): those keys dispatch
+/// `RunCommand` in the editor's context, so they reach the command bus first.
 pub fn bind_editor_keys(cx: &mut App) {
     let commands = vs_keymap();
     cx.bind_keys(eludite_editor::key_bindings().into_iter().filter(|b| {
         !matches!(
             b.action().name(),
-            "editor::Undo" | "editor::Redo" | "editor::Find"
+            "editor::Undo"
+                | "editor::Redo"
+                | "editor::Find"
+                | "editor::ShowCompletions"
+                | "editor::ShowSignatureHelp"
+                | "editor::ShowHover"
+                | "editor::AcceptCompletion"
         )
     }));
     cx.bind_keys(EDITOR_COMMAND_KEYS.iter().filter_map(|keys| {
@@ -41,6 +48,16 @@ pub fn bind_editor_keys(cx: &mut App) {
             Some(eludite_editor::KEY_CONTEXT),
         ))
     }));
+    // Committing a completion item: Tab, and Enter on a selected (not soft-selected) item, while the list shows.
+    let accept = || RunCommand::new(workspace::EDITOR_ACCEPT_COMPLETION, json!({}));
+    cx.bind_keys([
+        KeyBinding::new("tab", accept(), Some(eludite_editor::COMPLETION_CONTEXT)),
+        KeyBinding::new(
+            "enter",
+            accept(),
+            Some(eludite_editor::COMPLETION_SELECTED_CONTEXT),
+        ),
+    ]);
 }
 
 /// What the loader thread hands back.
@@ -199,6 +216,7 @@ pub fn run(args: Args, t_main: Instant) {
             let open_file = args.open_file.clone();
             let timings_out = args.timings_out.clone();
             let bench_type = args.bench_type;
+            let bench_complete = args.bench_complete;
             let _ = window.update(cx, |shell, window, cx| {
                 if let Some(solution) = &solution {
                     shell.run(
@@ -219,9 +237,12 @@ pub fn run(args: Args, t_main: Instant) {
                 if let Some(path) = timings_out {
                     bench::timings_out(cx.entity(), path, window, cx);
                 }
-                if let (Some(count), Some(file)) = (bench_type, open_file) {
+                if let (Some(count), Some(file)) = (bench_type, open_file.clone()) {
                     let with_host = solution.is_some();
                     bench::type_keys(cx.entity(), file, count, with_host, window, cx);
+                }
+                if let (Some(count), Some(file)) = (bench_complete, open_file) {
+                    bench::complete(cx.entity(), file, count, window, cx);
                 }
             });
         }

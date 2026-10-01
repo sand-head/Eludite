@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 clock.workspace = true
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
+# Fuzzy filtering of the completion list (vendored from Zed, GPL-3.0-or-later; brief 0013).
+fuzzy.workspace = true
 gpui.workspace = true
 eludite-ui.workspace = true
 # tree-sitter's allocator (src/syntax/alloc.rs); MIT.

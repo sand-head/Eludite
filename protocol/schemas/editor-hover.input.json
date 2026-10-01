@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-hover.input.json",
+  "title": "eludite.editor.hover input",
+  "description": "Show Quick Info for a position (Edit > IntelliSense > Quick Info, Ctrl+K, Ctrl+I at the caret; resting the mouse over an identifier runs it with the mouse position). The tooltip shows the language server's hover text; it moves with scrolling and closes when the mouse leaves the word, on typing or on Escape.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line to describe; the caret's line when omitted. The caret does not move.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) to describe; the caret's column when `line` is omitted, else 1.",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-signature-help.input.json",
+  "title": "eludite.editor.signature_help input",
+  "description": "Show Parameter Info for the call around the caret (Edit > IntelliSense > Parameter Info, Ctrl+Shift+Space; typing '(' or ',' runs it with `trigger`). The tooltip shows the active signature with the active parameter highlighted, follows the caret between arguments and closes on ')' or Escape.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line to move the caret to first.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) to move the caret to first; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "trigger": {
+      "description": "The character just typed that triggered Parameter Info. Omit for an explicit request.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4
+    }
+  },
+  "additionalProperties": false
+}

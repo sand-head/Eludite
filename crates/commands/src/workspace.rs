@@ -1,6 +1,7 @@
 //! Solution, file and editor commands (PLAN.md 4.1, 4.2, 5.1; brief 0012): `eludite.solution.open` and `close`,
 //! `eludite.file.open` and `close`, and the editor actions that must be commands, `eludite.editor.save`, `undo`,
-//! `redo` and `find`.
+//! `redo` and `find`. Brief 0013 adds IntelliSense: `eludite.editor.complete`, `accept_completion`, `hover` and
+//! `signature_help`, which the keys, typing and the mouse run too, so an agent can drive and observe them.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
@@ -22,9 +23,13 @@ pub const EDITOR_SAVE: &str = "eludite.editor.save";
 pub const EDITOR_UNDO: &str = "eludite.editor.undo";
 pub const EDITOR_REDO: &str = "eludite.editor.redo";
 pub const EDITOR_FIND: &str = "eludite.editor.find";
+pub const EDITOR_COMPLETE: &str = "eludite.editor.complete";
+pub const EDITOR_ACCEPT_COMPLETION: &str = "eludite.editor.accept_completion";
+pub const EDITOR_HOVER: &str = "eludite.editor.hover";
+pub const EDITOR_SIGNATURE_HELP: &str = "eludite.editor.signature_help";
 
 /// Every command this module registers.
-pub const ALL: [&str; 8] = [
+pub const ALL: [&str; 12] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -33,6 +38,10 @@ pub const ALL: [&str; 8] = [
     EDITOR_UNDO,
     EDITOR_REDO,
     EDITOR_FIND,
+    EDITOR_COMPLETE,
+    EDITOR_ACCEPT_COMPLETION,
+    EDITOR_HOVER,
+    EDITOR_SIGNATURE_HELP,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
@@ -91,6 +100,31 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/editor-find.output.json"),
             Read,
         ),
+        EDITOR_COMPLETE => (
+            "Edit: IntelliSense: Complete Word",
+            include_str!("../../../protocol/schemas/editor-complete.input.json"),
+            include_str!("../../../protocol/schemas/editor-complete.output.json"),
+            Read,
+        ),
+        // Committing an item edits the document.
+        EDITOR_ACCEPT_COMPLETION => (
+            "Edit: IntelliSense: Commit Completion",
+            include_str!("../../../protocol/schemas/editor-accept-completion.input.json"),
+            include_str!("../../../protocol/schemas/editor-accept-completion.output.json"),
+            EditBuffer,
+        ),
+        EDITOR_HOVER => (
+            "Edit: IntelliSense: Quick Info",
+            include_str!("../../../protocol/schemas/editor-hover.input.json"),
+            include_str!("../../../protocol/schemas/editor-hover.output.json"),
+            Read,
+        ),
+        EDITOR_SIGNATURE_HELP => (
+            "Edit: IntelliSense: Parameter Info",
+            include_str!("../../../protocol/schemas/editor-signature-help.input.json"),
+            include_str!("../../../protocol/schemas/editor-signature-help.output.json"),
+            Read,
+        ),
         other => unreachable!("not a workspace command: {other}"),
     }
 }
@@ -135,6 +169,29 @@ pub enum WorkspaceRequest {
         query: Option<String>,
         case_sensitive: bool,
     },
+    /// Completion at the caret (after moving it to `line`, `column`); `trigger` is the character just typed.
+    Complete {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+        trigger: Option<char>,
+    },
+    AcceptCompletion {
+        path: Option<String>,
+        label: Option<String>,
+    },
+    /// Quick Info at `line`, `column` (the caret when `line` is `None`).
+    Hover {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+    },
+    SignatureHelp {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+        trigger: Option<char>,
+    },
 }
 
 impl WorkspaceRequest {
@@ -149,6 +206,28 @@ impl WorkspaceRequest {
             WorkspaceRequest::Undo { .. } => EDITOR_UNDO,
             WorkspaceRequest::Redo { .. } => EDITOR_REDO,
             WorkspaceRequest::Find { .. } => EDITOR_FIND,
+            WorkspaceRequest::Complete { .. } => EDITOR_COMPLETE,
+            WorkspaceRequest::AcceptCompletion { .. } => EDITOR_ACCEPT_COMPLETION,
+            WorkspaceRequest::Hover { .. } => EDITOR_HOVER,
+            WorkspaceRequest::SignatureHelp { .. } => EDITOR_SIGNATURE_HELP,
+        }
+    }
+
+    /// The document an editor command names (`None`: the active one), for commands that have a path.
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            WorkspaceRequest::Save { path }
+            | WorkspaceRequest::Undo { path }
+            | WorkspaceRequest::Redo { path }
+            | WorkspaceRequest::Find { path, .. }
+            | WorkspaceRequest::Complete { path, .. }
+            | WorkspaceRequest::AcceptCompletion { path, .. }
+            | WorkspaceRequest::Hover { path, .. }
+            | WorkspaceRequest::SignatureHelp { path, .. } => path.as_deref(),
+            WorkspaceRequest::FileOpen { path, .. } | WorkspaceRequest::FileClose { path, .. } => {
+                Some(path)
+            }
+            WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => None,
         }
     }
 }
@@ -219,6 +298,98 @@ pub struct FindOutput {
     pub find_bar_open: Option<bool>,
 }
 
+/// The state of an IntelliSense popup in the `eludite.editor.*` outputs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PopupState {
+    Loading,
+    Open,
+    Closed,
+}
+
+/// One row of `editor-complete.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompletionRow {
+    pub label: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// `editor-complete.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompleteOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: PopupState,
+    /// `languageServer` or `syntax`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub filter: String,
+    pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    /// At most [`MAX_COMPLETION_ROWS`].
+    pub items: Vec<CompletionRow>,
+}
+
+/// Rows `eludite.editor.complete` reports at most.
+pub const MAX_COMPLETION_ROWS: usize = 100;
+
+/// `editor-accept-completion.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptCompletionOutput {
+    pub path: String,
+    pub accepted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    pub line: u32,
+    pub column: u32,
+}
+
+/// `editor-hover.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HoverOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: PopupState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// One overload in `editor-signature-help.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignatureRow {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<String>,
+    pub parameters: Vec<String>,
+}
+
+/// `editor-signature-help.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignatureHelpOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: PopupState,
+    pub signatures: Vec<SignatureRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_signature: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_parameter: Option<u32>,
+}
+
 /// The typed result of a workspace command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceOutput {
@@ -229,6 +400,10 @@ pub enum WorkspaceOutput {
     Save(SaveOutput),
     History(HistoryOutput),
     Find(FindOutput),
+    Complete(CompleteOutput),
+    AcceptCompletion(AcceptCompletionOutput),
+    Hover(HoverOutput),
+    SignatureHelp(SignatureHelpOutput),
 }
 
 impl WorkspaceOutput {
@@ -241,8 +416,29 @@ impl WorkspaceOutput {
             WorkspaceOutput::Save(o) => serde_json::to_value(o),
             WorkspaceOutput::History(o) => serde_json::to_value(o),
             WorkspaceOutput::Find(o) => serde_json::to_value(o),
+            WorkspaceOutput::Complete(o) => serde_json::to_value(o),
+            WorkspaceOutput::AcceptCompletion(o) => serde_json::to_value(o),
+            WorkspaceOutput::Hover(o) => serde_json::to_value(o),
+            WorkspaceOutput::SignatureHelp(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
+    }
+
+    /// True for an IntelliSense output still waiting for its answer.
+    pub fn is_loading(&self) -> bool {
+        matches!(
+            self,
+            WorkspaceOutput::Complete(CompleteOutput {
+                state: PopupState::Loading,
+                ..
+            }) | WorkspaceOutput::Hover(HoverOutput {
+                state: PopupState::Loading,
+                ..
+            }) | WorkspaceOutput::SignatureHelp(SignatureHelpOutput {
+                state: PopupState::Loading,
+                ..
+            })
+        )
     }
 }
 
@@ -285,6 +481,30 @@ struct DocIn {
 
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PositionIn {
+    path: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+    trigger: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HoverIn {
+    path: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AcceptIn {
+    path: Option<String>,
+    label: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FindIn {
     path: Option<String>,
     query: Option<String>,
@@ -309,6 +529,33 @@ fn non_empty(field: &str, s: &str) -> Result<(), CommandError> {
         )))
     } else {
         Ok(())
+    }
+}
+
+fn position(line: Option<u32>, column: Option<u32>) -> Result<(), CommandError> {
+    if line == Some(0) || column == Some(0) {
+        return Err(CommandError::InvalidInput(
+            "`line` and `column` are 1-based".into(),
+        ));
+    }
+    if line.is_none() && column.is_some() {
+        return Err(CommandError::InvalidInput("`column` needs `line`".into()));
+    }
+    Ok(())
+}
+
+fn one_char(trigger: Option<String>) -> Result<Option<char>, CommandError> {
+    match trigger {
+        None => Ok(None),
+        Some(t) => {
+            let mut chars = t.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => Ok(Some(c)),
+                _ => Err(CommandError::InvalidInput(
+                    "`trigger` is one character".into(),
+                )),
+            }
+        }
     }
 }
 
@@ -371,6 +618,50 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
                 path: optional_path(i.path)?,
                 query: i.query,
                 case_sensitive: i.case_sensitive.unwrap_or(false),
+            }
+        }
+        EDITOR_COMPLETE | EDITOR_SIGNATURE_HELP => {
+            let i: PositionIn = input(value)?;
+            position(i.line, i.column)?;
+            let (path, line, column, trigger) = (
+                optional_path(i.path)?,
+                i.line,
+                i.column,
+                one_char(i.trigger)?,
+            );
+            if id == EDITOR_COMPLETE {
+                WorkspaceRequest::Complete {
+                    path,
+                    line,
+                    column,
+                    trigger,
+                }
+            } else {
+                WorkspaceRequest::SignatureHelp {
+                    path,
+                    line,
+                    column,
+                    trigger,
+                }
+            }
+        }
+        EDITOR_HOVER => {
+            let i: HoverIn = input(value)?;
+            position(i.line, i.column)?;
+            WorkspaceRequest::Hover {
+                path: optional_path(i.path)?,
+                line: i.line,
+                column: i.column,
+            }
+        }
+        EDITOR_ACCEPT_COMPLETION => {
+            let i: AcceptIn = input(value)?;
+            if let Some(l) = &i.label {
+                non_empty("label", l)?;
+            }
+            WorkspaceRequest::AcceptCompletion {
+                path: optional_path(i.path)?,
+                label: i.label,
             }
         }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
@@ -533,6 +824,47 @@ mod tests {
                 case_sensitive: true
             }
         );
+        assert_eq!(
+            p(EDITOR_COMPLETE, json!({"trigger": ".", "line": 3})),
+            WorkspaceRequest::Complete {
+                path: None,
+                line: Some(3),
+                column: None,
+                trigger: Some('.')
+            }
+        );
+        assert_eq!(
+            p(EDITOR_SIGNATURE_HELP, Value::Null),
+            WorkspaceRequest::SignatureHelp {
+                path: None,
+                line: None,
+                column: None,
+                trigger: None
+            }
+        );
+        assert_eq!(
+            p(
+                EDITOR_HOVER,
+                json!({"path": "/a.cs", "line": 2, "column": 9})
+            ),
+            WorkspaceRequest::Hover {
+                path: Some("/a.cs".into()),
+                line: Some(2),
+                column: Some(9)
+            }
+        );
+        assert_eq!(
+            p(EDITOR_ACCEPT_COMPLETION, json!({"label": "WriteLine"})),
+            WorkspaceRequest::AcceptCompletion {
+                path: None,
+                label: Some("WriteLine".into())
+            }
+        );
+        assert_eq!(
+            p(EDITOR_HOVER, json!({})).path(),
+            None,
+            "the active document"
+        );
         for id in ALL {
             assert!(parse(id, json!({"bogus": 1})).is_err(), "{id}");
         }
@@ -550,6 +882,12 @@ mod tests {
             (EDITOR_SAVE, json!({"path": ""})),
             (EDITOR_FIND, json!({"query": ""})),
             (EDITOR_UNDO, json!("x")),
+            (EDITOR_COMPLETE, json!({"trigger": ".."})),
+            (EDITOR_COMPLETE, json!({"trigger": ""})),
+            (EDITOR_COMPLETE, json!({"column": 3})),
+            (EDITOR_SIGNATURE_HELP, json!({"line": 0})),
+            (EDITOR_HOVER, json!({"trigger": "."})),
+            (EDITOR_ACCEPT_COMPLETION, json!({"label": ""})),
         ] {
             assert!(
                 matches!(parse(id, bad.clone()), Err(CommandError::InvalidInput(_))),
@@ -616,9 +954,85 @@ mod tests {
                 }),
             ),
         ];
-        for (id, out) in cases {
+        let intellisense = [
+            (
+                EDITOR_COMPLETE,
+                WorkspaceOutput::Complete(CompleteOutput {
+                    path: "/a.cs".into(),
+                    line: 4,
+                    column: 9,
+                    state: PopupState::Open,
+                    source: Some("languageServer".into()),
+                    filter: "Wr".into(),
+                    total: 1,
+                    selected: Some("WriteLine".into()),
+                    items: vec![CompletionRow {
+                        label: "WriteLine".into(),
+                        kind: "method".into(),
+                        detail: Some("void Console.WriteLine()".into()),
+                    }],
+                }),
+            ),
+            (
+                EDITOR_ACCEPT_COMPLETION,
+                WorkspaceOutput::AcceptCompletion(AcceptCompletionOutput {
+                    path: "/a.cs".into(),
+                    accepted: true,
+                    label: Some("WriteLine".into()),
+                    text: Some("WriteLine".into()),
+                    line: 4,
+                    column: 16,
+                }),
+            ),
+            (
+                EDITOR_HOVER,
+                WorkspaceOutput::Hover(HoverOutput {
+                    path: "/a.cs".into(),
+                    line: 1,
+                    column: 1,
+                    state: PopupState::Loading,
+                    text: None,
+                }),
+            ),
+            (
+                EDITOR_SIGNATURE_HELP,
+                WorkspaceOutput::SignatureHelp(SignatureHelpOutput {
+                    path: "/a.cs".into(),
+                    line: 2,
+                    column: 3,
+                    state: PopupState::Open,
+                    signatures: vec![SignatureRow {
+                        label: "void M(int a)".into(),
+                        documentation: None,
+                        parameters: vec!["int a".into()],
+                    }],
+                    active_signature: Some(0),
+                    active_parameter: Some(0),
+                }),
+            ),
+        ];
+        for (id, out) in cases.into_iter().chain(intellisense) {
             conforms(&spec(id).output_schema, &out.to_json());
         }
+        let state = |s: PopupState| serde_json::to_value(s).unwrap();
+        let schema = spec(EDITOR_COMPLETE).output_schema;
+        for s in [PopupState::Loading, PopupState::Open, PopupState::Closed] {
+            assert!(
+                schema["properties"]["state"]["enum"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&state(s))
+            );
+        }
+        assert_eq!(
+            schema["properties"]["items"]["maxItems"],
+            json!(MAX_COMPLETION_ROWS)
+        );
+        assert_eq!(
+            spec(EDITOR_ACCEPT_COMPLETION).permission,
+            PermissionClass::EditBuffer
+        );
+        assert_eq!(spec(EDITOR_HOVER).permission, PermissionClass::Read);
     }
 
     #[test]
