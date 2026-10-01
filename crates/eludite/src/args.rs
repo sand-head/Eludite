@@ -6,13 +6,17 @@ pub const USAGE: &str = "\
 Usage: eludite [OPTIONS]
 
 Options:
-  --solution PATH     use the window layout saved for this solution path
-                      (layouts persist per solution; no solution is loaded yet)
+  --solution PATH     open this .sln, .slnx or project file at startup (as
+                      File > Open > Project/Solution does) and use the window
+                      layout saved for it
   --theme NAME        dark (default), light or blue
   --reset-layout      start from the default layout (the saved file is kept
                       until the layout changes)
   --no-persist        neither load nor save layouts
   -h, --help          print this help
+
+Opening a solution starts eludite-host, found beside this executable, else
+at ELUDITE_HOST (an eludite-host executable or eludite-host.dll), else on PATH.
 
 Measurement harness (prints one JSON line to stdout, then exits):
   --bench-start       time from process start to the first presented frame;
@@ -21,6 +25,12 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --bench-drag N      drag the Output tab over the document area with the
                       docking guides visible for N frames; per-frame cost
   --exit-after-ms N   quit after N ms (smoke runs, screenshots)
+  --open-file PATH    with --solution: open this file right after the solution
+                      open command (eludite.file.open)
+  --timings-out PATH  with --solution: write the times from the open command
+                      to editable text, to the Solution Explorer tree and to
+                      the first diagnostics as JSON to PATH (once all arrived,
+                      or after 180 s); does not exit
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -42,6 +52,8 @@ pub struct Args {
     pub bench_drag: Option<usize>,
     pub exit_after_ms: Option<u64>,
     pub bounds_out: Option<PathBuf>,
+    pub open_file: Option<PathBuf>,
+    pub timings_out: Option<PathBuf>,
 }
 
 impl Args {
@@ -72,6 +84,8 @@ impl Args {
                     a.exit_after_ms = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);
                 }
                 "--bounds-out" => a.bounds_out = Some(value("--bounds-out")?.into()),
+                "--open-file" => a.open_file = Some(value("--open-file")?.into()),
+                "--timings-out" => a.timings_out = Some(value("--timings-out")?.into()),
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
@@ -114,5 +128,23 @@ mod tests {
         assert!(parse(&["--solution"]).is_err());
         assert!(parse(&["--bogus"]).is_err());
         assert!(parse(&["--bench-drag", "x"]).is_err());
+        let a = parse(&[
+            "--solution",
+            "/w/App.slnx",
+            "--open-file",
+            "/w/A.cs",
+            "--timings-out",
+            "/tmp/t.json",
+        ])
+        .unwrap();
+        assert_eq!(
+            a.open_file.as_deref(),
+            Some(std::path::Path::new("/w/A.cs"))
+        );
+        assert_eq!(
+            a.timings_out.as_deref(),
+            Some(std::path::Path::new("/tmp/t.json"))
+        );
+        assert!(parse(&["--open-file"]).is_err());
     }
 }

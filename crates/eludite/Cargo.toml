@@ -14,15 +14,22 @@ name = "eludite"
 path = "src/main.rs"
 
 [dependencies]
+clock.workspace = true
+futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
 gpui_platform.workspace = true
 eludite-commands.workspace = true
 eludite-docking.workspace = true
+eludite-editor.workspace = true
+eludite-lsp.workspace = true
 eludite-ui.workspace = true
+eludite-workspace.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+# The in-process fake eludite-host (crates/lsp, feature `fake`) for the open-solution tests.
+eludite-lsp = { workspace = true, features = ["fake"] }
 tempfile.workspace = true
 
 [lints]
