@@ -1,0 +1,35 @@
+# Fetch dotnet/roslyn at the commit pinned in tools/roslyn-pin/COMMIT and build
+# Microsoft.CodeAnalysis.LanguageServer from source (brief 0002).
+# UNTESTED: written on Linux; not yet run on Windows.
+#
+#   pwsh tools/roslyn-pin/build.ps1
+#   $env:ROSLYN_SRC_DIR = 'D:\roslyn'; pwsh tools/roslyn-pin/build.ps1
+$ErrorActionPreference = 'Stop'
+
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$commit = (Get-Content (Join-Path $here 'COMMIT') -Raw).Trim()
+$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '.cache/niello/roslyn' }
+$config = if ($env:ROSLYN_CONFIGURATION) { $env:ROSLYN_CONFIGURATION } else { 'Release' }
+$project = 'src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj'
+
+if (-not (Test-Path (Join-Path $src '.git'))) {
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $src) | Out-Null
+  git clone --filter=blob:none --no-checkout https://github.com/dotnet/roslyn.git $src
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
+}
+git -C $src cat-file -e "$commit^{commit}" 2>$null
+if ($LASTEXITCODE) { git -C $src fetch origin $commit; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+git -C $src checkout -q --detach $commit
+if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+Push-Location $src
+try {
+  & .\Build.cmd -restore -build -configuration $config -solution $project -nodeReuse:$false
+  if ($LASTEXITCODE) { exit $LASTEXITCODE }
+} finally { Pop-Location }
+$sw.Stop()
+Write-Host "roslyn-pin: built in $([int]$sw.Elapsed.TotalSeconds) s"
+$out = Join-Path $src "artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/$config/net10.0/Microsoft.CodeAnalysis.LanguageServer.dll"
+if (-not (Test-Path $out)) { throw "expected output not found: $out" }
+Write-Output $out
