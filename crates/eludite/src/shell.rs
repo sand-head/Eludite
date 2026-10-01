@@ -270,9 +270,22 @@ impl Shell {
                 {
                     let _ = loaded.await;
                 }
-                let outcome = this
-                    .update_in(cx, |shell, window, cx| shell.apply(request, window, cx))
+                let mut outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply(request.clone(), window, cx)
+                    })
                     .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                // An agent asking for IntelliSense gets the answer, not the request: wait for it (up to 5 s).
+                let deadline = Instant::now() + intellisense::AGENT_WAIT;
+                while outcome.as_ref().is_ok_and(|o| o.is_loading()) && Instant::now() < deadline {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(10))
+                        .await;
+                    match this.update(cx, |shell, cx| shell.intellisense_state(&request, cx)) {
+                        Ok(Some(o)) => outcome = o,
+                        _ => break,
+                    }
+                }
                 let _ = reply.send(outcome);
             }
         });
@@ -505,6 +518,34 @@ impl Shell {
                 query,
                 case_sensitive,
             } => self.find(path.as_deref(), query, case_sensitive, window, cx),
+            WorkspaceRequest::Complete {
+                path,
+                line,
+                column,
+                trigger,
+            } => self.complete_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                trigger,
+                cx,
+            ),
+            WorkspaceRequest::AcceptCompletion { path, label } => {
+                self.accept_completion_command(path.as_deref(), label.as_deref(), cx)
+            }
+            WorkspaceRequest::Hover { path, line, column } => {
+                self.hover_command(path.as_deref(), line.map(|l| (l, column.unwrap_or(1))), cx)
+            }
+            WorkspaceRequest::SignatureHelp {
+                path,
+                line,
+                column,
+                trigger,
+            } => self.signature_help_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                trigger,
+                cx,
+            ),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),

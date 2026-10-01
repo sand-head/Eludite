@@ -196,7 +196,7 @@ fn title(path: &Path) -> String {
 }
 
 /// Byte offset of a 1-based line and character column, clipped to the text.
-fn offset_of(buffer: &Buffer, line: u32, column: u32) -> usize {
+pub(super) fn offset_of(buffer: &Buffer, line: u32, column: u32) -> usize {
     let row = line
         .saturating_sub(1)
         .min(buffer.line_count().saturating_sub(1));
@@ -217,9 +217,8 @@ impl Shell {
     ) -> Option<futures::channel::oneshot::Receiver<()>> {
         use eludite_commands::workspace::WorkspaceRequest::*;
         let path = match request {
-            Save { path } | Undo { path } | Redo { path } | Find { path, .. } => path.clone(),
-            FileClose { path, .. } => Some(path.clone()),
-            _ => return None,
+            SolutionOpen { .. } | SolutionClose | FileOpen { .. } => return None,
+            other => other.path().map(str::to_owned),
         };
         let id = match path {
             Some(p) => self.resolve_file(&p).to_string_lossy().into_owned(),
@@ -248,7 +247,7 @@ impl Shell {
     }
 
     /// The document `path` names, or the active one.
-    fn document_id(&self, path: Option<&str>) -> Result<String, CommandError> {
+    pub(super) fn document_id(&self, path: Option<&str>) -> Result<String, CommandError> {
         let id = match path {
             Some(p) => self.resolve_file(p).to_string_lossy().into_owned(),
             None => self
@@ -613,7 +612,7 @@ impl Shell {
     }
 }
 
-fn move_caret(view: &Entity<EditorView>, line: u32, column: u32, cx: &mut gpui::App) {
+pub(super) fn move_caret(view: &Entity<EditorView>, line: u32, column: u32, cx: &mut gpui::App) {
     view.update(cx, |v, cx| {
         let offset = v.update_editor(cx, |e| {
             let offset = offset_of(e.buffer(), line, column);

@@ -13,7 +13,13 @@
 //! - **Resolve**: completion documentation is fetched lazily, for the selected item only.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use eludite_commands::CommandError;
+use eludite_commands::workspace::{
+    self, AcceptCompletionOutput, CompleteOutput, CompletionRow, HoverOutput, MAX_COMPLETION_ROWS,
+    PopupState, SignatureHelpOutput, SignatureRow, WorkspaceOutput, WorkspaceRequest,
+};
 
 use eludite_editor::intellisense::snippet_to_plain;
 use eludite_editor::text::{self, PointUtf16, Unclipped};
@@ -23,11 +29,15 @@ use eludite_editor::{
 };
 use eludite_lsp::host::{LanguageServerState, SolutionState};
 use eludite_lsp::lsp;
-use gpui::{Context, Task, Window};
-use serde_json::Value;
+use gpui::{Context, Entity, Task, Window};
+use serde_json::{Value, json};
 
-use super::Shell;
-use super::documents::{Document, trace};
+use super::documents::{Document, move_caret, offset_of, trace};
+use super::{Caret, Shell};
+use eludite_editor::EditorView;
+
+/// How long an agent's `eludite.editor.complete`, `hover` or `signature_help` waits for the answer.
+pub const AGENT_WAIT: Duration = Duration::from_secs(5);
 use super::session::{Reply, RequestError, RequestHandle};
 
 /// A request in flight for one document.
@@ -677,17 +687,31 @@ impl Shell {
         });
     }
 
-    /// What an editor asks for.
+    /// What an editor asks for. Triggers run the IntelliSense commands, so typing, the keys, the mouse and agents
+    /// go through the same commands (and the audit log); closing a popup cancels its request.
     pub(super) fn on_editor_event(
         &mut self,
         id: &str,
         event: &EditorEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let run = |shell: &mut Self,
+                   command: &str,
+                   args: Value,
+                   window: &mut Window,
+                   cx: &mut Context<Self>| {
+            if let Err(e) = shell.invoke(command, args, window, cx) {
+                eprintln!("eludite: {command}: {e}");
+            }
+        };
         match event {
             EditorEvent::CompletionTriggered(trigger) => {
-                self.request_completion(id, Some(*trigger), cx)
+                let mut args = json!({ "path": id });
+                if let CompletionTrigger::Typing(c) | CompletionTrigger::Character(c) = trigger {
+                    args["trigger"] = json!(c.to_string());
+                }
+                run(self, workspace::EDITOR_COMPLETE, args, window, cx);
             }
             EditorEvent::ResolveCompletion { id: list, index } => {
                 self.resolve_completion(id, *list, *index, cx)
@@ -698,14 +722,30 @@ impl Shell {
                     cancel(&mut doc.intellisense.resolve);
                 }
             }
-            EditorEvent::HoverTriggered { offset } => self.request_hover(id, *offset, cx),
+            EditorEvent::HoverTriggered { offset } => {
+                let Some(doc) = self.documents.get(id) else {
+                    return;
+                };
+                let (line, column) = line_column(&doc.view, *offset, cx);
+                run(
+                    self,
+                    workspace::EDITOR_HOVER,
+                    json!({ "path": id, "line": line, "column": column }),
+                    window,
+                    cx,
+                );
+            }
             EditorEvent::HoverClosed => {
                 if let Some(doc) = self.documents.get_mut(id) {
                     cancel(&mut doc.intellisense.hover);
                 }
             }
             EditorEvent::SignatureHelpTriggered(trigger) => {
-                self.request_signature_help(id, Some(*trigger), cx)
+                let mut args = json!({ "path": id });
+                if let SignatureTrigger::Character(c) = trigger {
+                    args["trigger"] = json!(c.to_string());
+                }
+                run(self, workspace::EDITOR_SIGNATURE_HELP, args, window, cx);
             }
             EditorEvent::SignatureHelpClosed => {
                 if let Some(doc) = self.documents.get_mut(id) {
@@ -713,6 +753,225 @@ impl Shell {
                     doc.intellisense.last_signature = None;
                 }
             }
+        }
+    }
+
+    // ----- the commands (brief 0013) -----
+
+    /// `eludite.editor.complete`.
+    pub(super) fn complete_command(
+        &mut self,
+        path: Option<&str>,
+        caret: Option<Caret>,
+        trigger: Option<char>,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        if let Some((line, column)) = caret {
+            move_caret(&self.documents[&id].view, line, column, cx);
+        }
+        let trigger = trigger.map(|c| {
+            if eludite_editor::intellisense::is_identifier_char(c) {
+                CompletionTrigger::Typing(c)
+            } else {
+                CompletionTrigger::Character(c)
+            }
+        });
+        self.request_completion(&id, trigger, cx);
+        Ok(WorkspaceOutput::Complete(self.completion_output(&id, cx)))
+    }
+
+    /// `eludite.editor.accept_completion`.
+    pub(super) fn accept_completion_command(
+        &mut self,
+        path: Option<&str>,
+        label: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        let view = self.documents[&id].view.clone();
+        let accepted = view.update(cx, |v, cx| v.accept_completion(label, cx));
+        let caret = view.read(cx).editor().primary_selection().head;
+        let (line, column) = line_column(&view, caret, cx);
+        Ok(WorkspaceOutput::AcceptCompletion(AcceptCompletionOutput {
+            path: id,
+            accepted: accepted.is_some(),
+            label: accepted.as_ref().map(|a| a.label.clone()),
+            text: accepted.map(|a| a.text),
+            line,
+            column,
+        }))
+    }
+
+    /// `eludite.editor.hover`.
+    pub(super) fn hover_command(
+        &mut self,
+        path: Option<&str>,
+        at: Option<Caret>,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        let view = self.documents[&id].view.clone();
+        let offset = match at {
+            Some((line, column)) => offset_of(view.read(cx).editor().buffer(), line, column),
+            None => view.read(cx).editor().primary_selection().head,
+        };
+        self.request_hover(&id, offset, cx);
+        Ok(WorkspaceOutput::Hover(self.hover_output(&id, cx)))
+    }
+
+    /// `eludite.editor.signature_help`.
+    pub(super) fn signature_help_command(
+        &mut self,
+        path: Option<&str>,
+        caret: Option<Caret>,
+        trigger: Option<char>,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        let view = self.documents[&id].view.clone();
+        if let Some((line, column)) = caret {
+            move_caret(&view, line, column, cx);
+        }
+        let open = view.read(cx).signature_help().is_some_and(|s| s.visible);
+        let trigger = match trigger {
+            Some(c) => SignatureTrigger::Character(c),
+            None if open => SignatureTrigger::Retrigger,
+            None => SignatureTrigger::Invoked,
+        };
+        self.request_signature_help(&id, Some(trigger), cx);
+        Ok(WorkspaceOutput::SignatureHelp(
+            self.signature_output(&id, cx),
+        ))
+    }
+
+    /// The current state of the popup an IntelliSense command shows, for an agent waiting for the answer.
+    pub(super) fn intellisense_state(
+        &self,
+        request: &WorkspaceRequest,
+        cx: &Context<Self>,
+    ) -> Option<Result<WorkspaceOutput, CommandError>> {
+        let id = match self.document_id(request.path()) {
+            Ok(id) => id,
+            Err(e) => return Some(Err(e)),
+        };
+        Some(Ok(match request {
+            WorkspaceRequest::Complete { .. } => {
+                WorkspaceOutput::Complete(self.completion_output(&id, cx))
+            }
+            WorkspaceRequest::Hover { .. } => WorkspaceOutput::Hover(self.hover_output(&id, cx)),
+            WorkspaceRequest::SignatureHelp { .. } => {
+                WorkspaceOutput::SignatureHelp(self.signature_output(&id, cx))
+            }
+            _ => return None,
+        }))
+    }
+
+    fn completion_output(&self, id: &str, cx: &gpui::App) -> CompleteOutput {
+        let view = &self.documents[id].view;
+        let caret = view.read(cx).editor().primary_selection().head;
+        let (line, column) = line_column(view, caret, cx);
+        let snapshot = view.read(cx).completion();
+        let state = match &snapshot {
+            Some(s) if s.visible => PopupState::Open,
+            Some(s) if s.loading => PopupState::Loading,
+            _ => PopupState::Closed,
+        };
+        let snapshot = snapshot.filter(|s| s.visible);
+        CompleteOutput {
+            path: id.to_owned(),
+            line,
+            column,
+            state,
+            source: snapshot
+                .as_ref()
+                .and_then(|s| s.source)
+                .map(|s| s.name().to_owned()),
+            filter: snapshot
+                .as_ref()
+                .map(|s| s.filter.clone())
+                .unwrap_or_default(),
+            total: snapshot.as_ref().map_or(0, |s| s.items.len() as u64),
+            selected: snapshot
+                .as_ref()
+                .and_then(|s| s.selected.and_then(|i| s.items.get(i)))
+                .map(|i| i.0.clone()),
+            items: snapshot
+                .map(|s| {
+                    s.items
+                        .into_iter()
+                        .take(MAX_COMPLETION_ROWS)
+                        .map(|(label, kind, detail)| CompletionRow {
+                            label,
+                            kind: kind.name().to_owned(),
+                            detail,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn hover_output(&self, id: &str, cx: &gpui::App) -> HoverOutput {
+        let view = &self.documents[id].view;
+        let hover = view.read(cx).hover();
+        let offset = hover.as_ref().map_or_else(
+            || view.read(cx).editor().primary_selection().head,
+            |h| h.offset,
+        );
+        let (line, column) = line_column(view, offset, cx);
+        HoverOutput {
+            path: id.to_owned(),
+            line,
+            column,
+            state: match &hover {
+                Some(h) if h.visible => PopupState::Open,
+                Some(h) if h.loading => PopupState::Loading,
+                _ => PopupState::Closed,
+            },
+            text: hover.and_then(|h| h.text),
+        }
+    }
+
+    fn signature_output(&self, id: &str, cx: &gpui::App) -> SignatureHelpOutput {
+        let view = &self.documents[id].view;
+        let caret = view.read(cx).editor().primary_selection().head;
+        let (line, column) = line_column(view, caret, cx);
+        let help = view.read(cx).signature_help();
+        let state = match &help {
+            Some(h) if h.visible => PopupState::Open,
+            Some(h) if h.loading => PopupState::Loading,
+            _ => PopupState::Closed,
+        };
+        let visible = help.filter(|h| h.visible);
+        SignatureHelpOutput {
+            path: id.to_owned(),
+            line,
+            column,
+            state,
+            signatures: visible
+                .as_ref()
+                .and_then(|h| h.data.as_ref())
+                .map(|d| {
+                    d.signatures
+                        .iter()
+                        .map(|s| SignatureRow {
+                            label: s.label.clone(),
+                            documentation: s.documentation.clone(),
+                            parameters: s
+                                .parameters
+                                .iter()
+                                .map(|r| s.label.get(r.clone()).unwrap_or_default().to_owned())
+                                .collect(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            active_signature: visible.as_ref().map(|h| h.active_signature as u32),
+            active_parameter: visible
+                .as_ref()
+                .and_then(|h| h.active_parameter)
+                .map(|p| p as u32),
         }
     }
 
@@ -733,6 +992,15 @@ impl Shell {
             self.request_completion(&id, None, cx);
         }
     }
+}
+
+/// 1-based line and character column of `offset`.
+fn line_column(view: &Entity<EditorView>, offset: usize, cx: &gpui::App) -> (u32, u32) {
+    let buffer = view.read(cx).editor().buffer();
+    let p = buffer.offset_to_point(offset.min(buffer.len()));
+    let line = buffer.line(p.row);
+    let column = line[..(p.column as usize).min(line.len())].chars().count() as u32 + 1;
+    (p.row + 1, column)
 }
 
 #[cfg(test)]
