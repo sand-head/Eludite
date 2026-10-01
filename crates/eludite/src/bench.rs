@@ -99,6 +99,7 @@ pub fn start(shell: &Entity<Shell>, t_main: Instant, join_wait: Duration, cx: &m
 pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App) {
     let probe = Rc::new(RefCell::new(RenderProbe::default()));
     shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx));
+    let shell = shell.clone();
     cx.spawn(async move |cx| {
         let mut last = String::new();
         loop {
@@ -124,6 +125,24 @@ pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App)
                 }
                 // Elements not drawn any more drop out on the next frame.
                 p.bounds.clear();
+                drop(p);
+                // Where the active editor's caret is drawn, for pointing at text (brief 0013's hover run).
+                let caret = cx.update(|cx| {
+                    let s = shell.read(cx);
+                    let id = s.active_document()?;
+                    let editor = s.editor(std::path::Path::new(&id))?;
+                    let v = editor.read(cx);
+                    let at = v.pixel_position_for_offset(v.editor().primary_selection().head)?;
+                    Some(json!([
+                        f32::from(at.x),
+                        f32::from(at.y),
+                        2.0,
+                        f32::from(v.line_height())
+                    ]))
+                });
+                if let Some(c) = caret {
+                    map.insert("editor-caret".into(), c);
+                }
                 Value::Object(map).to_string()
             };
             if text != "{}" && text != last {
@@ -479,6 +498,218 @@ pub fn type_keys(
                 "key_handler": summarize(&handler),
                 "all_frames_render_to_present": summarize(&all),
                 "rss": rss_mib(),
+                "platform": platform(window),
+            });
+            println!("{out}");
+            cx.quit();
+        });
+    })
+    .detach();
+}
+
+/// `--bench-complete N` (brief 0013): completion latency, keystroke frame cost with the list open, and memory over
+/// N completion cycles in the real app against the real host. One cycle types `.` after a member-access target,
+/// waits for the language server's list to be drawn, types two filter keys, then Escape and three Backspaces.
+///
+/// Per trigger: host latency = request written to the host until its reply was read (the session's waiter thread);
+/// UI latency = the shell's own work in trigger-to-pixels: the key handler, flush and hand-off to the worker before
+/// the request is written, applying the items, and rendering and presenting the frame that shows the list. The idle
+/// wait for that frame (the display refresh) is reported separately; trigger-to-visible is the whole interval.
+/// Keystroke frame cost is brief 0009's method (key handler + the next frame's render to end of present).
+pub fn complete(
+    shell: Entity<Shell>,
+    file: std::path::PathBuf,
+    count: usize,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    const WARMUP: usize = 10;
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    let needle =
+        std::env::var("ELUDITE_BENCH_COMPLETE_AFTER").unwrap_or_else(|_| "_sdkDiscoverer".into());
+    cx.spawn_in(window, async move |_, cx| {
+        // The solution loaded and the file's semantics warmed, as a user would have it.
+        loop {
+            executor.timer(Duration::from_millis(20)).await;
+            let Ok(ready) = cx.update(|_, cx| {
+                let t = shell.read(cx).timings();
+                t.loaded.is_some() && t.first_diagnostics.is_some()
+            }) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(2000)).await;
+        let Ok(Some(editor)) = cx.update(|window, cx| {
+            let editor = shell.read(cx).editor(&file)?;
+            let found = editor.update(cx, |v, cx| {
+                v.update_editor(cx, |e| {
+                    let b = e.buffer();
+                    // A statement that already uses the target as `target.Member`, so the new line is in a body.
+                    let access = format!("{needle}.");
+                    let row = (0..b.line_count()).find(|r| b.line(*r).contains(access.as_str()))?;
+                    let indent: String = b.line(row).chars().take_while(|c| c.is_whitespace()).collect();
+                    e.set_caret(b.point_to_offset(eludite_editor::text::Point::new(row, b.line_len(row))));
+                    e.insert(&format!("\n{indent}{needle}"));
+                    Some(())
+                })
+            });
+            if found.is_none() {
+                eprintln!("eludite bench: no line contains {needle}");
+                std::process::exit(1);
+            }
+            window.focus(&editor.focus_handle(cx), cx);
+            Some(editor)
+        }) else {
+            eprintln!("eludite bench: {} is not open", file.display());
+            std::process::exit(1);
+        };
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        let key = |cx: &mut gpui::AsyncWindowContext, k: &str| -> (Instant, Instant) {
+            let ks = Keystroke::parse(k).expect("keystroke");
+            let mut out = (Instant::now(), Instant::now());
+            let _ = cx.update(|window, cx| {
+                let t0 = Instant::now();
+                window.dispatch_keystroke(ks, cx);
+                out = (t0, Instant::now());
+            });
+            out
+        };
+        let mut host = Vec::new();
+        let mut ui = Vec::new();
+        let mut total = Vec::new();
+        let mut frame_wait = Vec::new();
+        let mut filter_keys: Vec<(Instant, Instant)> = Vec::new();
+        let mut dot_keys: Vec<(Instant, Instant)> = Vec::new();
+        let mut timeouts = 0;
+        let mut rss = Vec::new();
+        for i in 0..(WARMUP + count) {
+            if i == WARMUP || (i > WARMUP && (i - WARMUP).is_multiple_of(50)) {
+                rss.push(json!({"cycle": i - WARMUP, "rss": rss_mib()}));
+            }
+            let before = cx
+                .update(|_, cx| shell.read(cx).completion_timings().len())
+                .unwrap_or_default();
+            let dot = key(cx, ".");
+            // Wait for the server's list to be applied, then for the frame that shows it.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut applied = None;
+            while Instant::now() < deadline {
+                executor.timer(Duration::from_micros(500)).await;
+                let found = cx
+                    .update(|_, cx| {
+                        let s = shell.read(cx);
+                        let visible = editor.read(cx).completion().is_some_and(|c| c.visible);
+                        s.completion_timings()[before.min(s.completion_timings().len())..]
+                            .iter()
+                            .find(|t| !t.dropped && t.applied.is_some() && t.items > 0)
+                            .cloned()
+                            .filter(|_| visible)
+                    })
+                    .ok()
+                    .flatten();
+                if let Some(t) = found {
+                    applied = Some(t);
+                    break;
+                }
+            }
+            let Some(t) = applied else {
+                timeouts += 1;
+                let _ = key(cx, "escape");
+                let _ = key(cx, "backspace");
+                executor.timer(Duration::from_millis(200)).await;
+                continue;
+            };
+            let applied_at = t.applied.expect("checked");
+            // The first frame rendered after the items were applied, and its present.
+            let mut frame = None;
+            while frame.is_none() && Instant::now() < deadline {
+                executor.timer(Duration::from_micros(500)).await;
+                let p = probe.borrow();
+                frame = p
+                    .renders
+                    .iter()
+                    .copied()
+                    .zip(p.presents.iter().copied())
+                    .find(|(r, _)| *r >= applied_at);
+            }
+            let presented = frame.map(|(_, p)| p);
+            if i >= WARMUP
+                && let (Some(p), Some(sent), Some(received)) = (presented, t.sent, t.received)
+            {
+                if std::env::var_os("ELUDITE_BENCH_SAMPLES").is_some() {
+                    eprintln!(
+                        "[bench] sent +{:.3} received +{:.3} applied +{:.3} presented +{:.3} ms after the key",
+                        ms(sent.saturating_duration_since(dot.0)),
+                        ms(received.saturating_duration_since(dot.0)),
+                        ms(applied_at.saturating_duration_since(dot.0)),
+                        ms(p.saturating_duration_since(dot.0))
+                    );
+                }
+                let (render, _) = frame.expect("presented implies a frame");
+                host.push(ms(received - sent));
+                // The shell's own work: before the request is written, applying the reply, and drawing the frame
+                // that shows the list. The idle wait from applying to that frame's start (the display's refresh)
+                // is reported separately.
+                ui.push(
+                    ms(sent.saturating_duration_since(dot.0))
+                        + ms(applied_at.saturating_duration_since(received))
+                        + ms(p.saturating_duration_since(render)),
+                );
+                frame_wait.push(ms(render.saturating_duration_since(applied_at)));
+                total.push(ms(p.saturating_duration_since(dot.0)));
+                dot_keys.push(dot);
+            }
+            // Filter with the list open.
+            for k in ["d", "i"] {
+                executor.timer(Duration::from_millis(25)).await;
+                let t = key(cx, k);
+                if i >= WARMUP {
+                    filter_keys.push(t);
+                }
+            }
+            executor.timer(Duration::from_millis(30)).await;
+            let _ = key(cx, "escape");
+            for _ in 0..3 {
+                executor.timer(Duration::from_millis(8)).await;
+                let _ = key(cx, "backspace");
+            }
+            executor.timer(Duration::from_millis(60)).await;
+        }
+        rss.push(json!({"cycle": count, "rss": rss_mib()}));
+        executor.timer(Duration::from_millis(2000)).await;
+        let settled = rss_mib();
+        let _ = cx.update(|window, cx| {
+            let p = probe.borrow();
+            let frames: Vec<(Instant, Instant)> =
+                p.renders.iter().copied().zip(p.presents.iter().copied()).collect();
+            let frame_cost = |keys: &[(Instant, Instant)]| {
+                let mut cost = Vec::new();
+                for (t0, t1) in keys {
+                    if let Some((r, pr)) = frames.iter().find(|(r, _)| r >= t1) {
+                        cost.push(ms(*t1 - *t0) + ms(pr.saturating_duration_since(*r)));
+                    }
+                }
+                cost
+            };
+            let out = json!({
+                "bench": "complete_in_shell",
+                "method": "per cycle: `.` after the target, wait for the language server's list to be drawn, two filter keys 25 ms apart, Escape, three Backspaces; host = request written to reply read (includes decoding the reply); ui = key to request written + reply read to items applied + render to end of present of the frame showing the list; wait_for_next_frame = items applied to that frame's render start (idle, the display refresh); trigger_to_visible = key to end of that present",
+                "file": file.to_string_lossy(),
+                "triggers": count,
+                "timeouts": timeouts,
+                "host_latency": summarize(&host),
+                "ui_latency": summarize(&ui),
+                "wait_for_next_frame": summarize(&frame_wait),
+                "trigger_to_visible": summarize(&total),
+                "keystroke_frame_cost_filtering": summarize(&frame_cost(&filter_keys)),
+                "keystroke_frame_cost_trigger": summarize(&frame_cost(&dot_keys)),
+                "rss_by_cycle": rss,
+                "rss_settled": settled,
                 "platform": platform(window),
             });
             println!("{out}");

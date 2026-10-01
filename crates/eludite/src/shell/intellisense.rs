@@ -124,10 +124,7 @@ pub enum Provider {
 
 /// When the steps of one completion happened (the `--bench-complete` harness and the report).
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)] // Read by the measurement harness.
 pub struct CompletionTiming {
-    /// The shell handled the trigger.
-    pub trigger: Option<Instant>,
     /// The request was written to the host.
     pub sent: Option<Instant>,
     /// The reply was read.
@@ -317,7 +314,6 @@ impl Shell {
         trigger: Option<CompletionTrigger>,
         cx: &mut Context<Self>,
     ) {
-        let t0 = Instant::now();
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -372,7 +368,7 @@ impl Shell {
             };
             let _ = this.update(cx, |shell, cx| {
                 shell.on_completion_reply(
-                    &doc_id, editor_id, version, generation, snapshot, reply, t0, cx,
+                    &doc_id, editor_id, version, generation, snapshot, reply, cx,
                 )
             });
         });
@@ -392,11 +388,9 @@ impl Shell {
         generation: u64,
         snapshot: text::BufferSnapshot,
         reply: Reply<Option<lsp::CompletionResponse>>,
-        t0: Instant,
         cx: &mut Context<Self>,
     ) {
         let mut timing = CompletionTiming {
-            trigger: Some(t0),
             sent: reply.sent,
             received: Some(reply.received),
             ..Default::default()
@@ -586,6 +580,10 @@ impl Shell {
                     Err(RequestError::Canceled | RequestError::Stale) => return,
                     Err(_) => (None, None),
                 };
+                trace(format_args!(
+                    "hover reply {editor_id}: {} chars",
+                    text.as_ref().map_or(0, String::len)
+                ));
                 doc.view.update(cx, |v, cx| {
                     v.set_hover(editor_id, text.as_deref(), range, cx)
                 });
@@ -675,6 +673,11 @@ impl Shell {
                     Err(_) => None,
                 };
                 let data = help.as_ref().map(signature_data);
+                trace(format_args!(
+                    "signature help reply {editor_id}: {} signatures, active parameter {:?}",
+                    data.as_ref().map_or(0, |d| d.signatures.len()),
+                    data.as_ref().and_then(|d| d.active_parameter)
+                ));
                 doc.intellisense.last_signature = help;
                 doc.view
                     .update(cx, |v, cx| v.set_signature_help(editor_id, data, cx));
