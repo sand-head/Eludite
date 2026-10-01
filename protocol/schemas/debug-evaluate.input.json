@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-evaluate.input.json",
+  "title": "eludite.debug.evaluate input",
+  "description": "Evaluate a C# expression in the stopped debuggee, in the selected stack frame or a given one, as the Watch window, data tips and the Debug Console do. With `expand`, also list one level of the result's members (fields, properties, elements), which is how the Locals and Watch windows expand a value.",
+  "type": "object",
+  "required": [
+    "expression"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "expression": {
+      "description": "The expression.",
+      "type": "string",
+      "minLength": 1
+    },
+    "frame": {
+      "description": "Index in the call stack (0 is the top). Default: the selected frame.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "context": {
+      "description": "`watch` (default), `hover` (a data tip) or `repl` (the Debug Console).",
+      "enum": [
+        "watch",
+        "hover",
+        "repl"
+      ]
+    },
+    "expand": {
+      "description": "Also list the result's members (one level, at most 500).",
+      "type": "boolean"
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

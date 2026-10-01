@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-step-out.input.json",
+  "title": "eludite.debug.step_out input",
+  "description": "Debug > Step Out (Shift+F11): run until the current method returns and break in its caller. Refused unless the debuggee is in break mode: a step issued while it runs is never queued.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "description": "The thread to step (a DAP thread id from `threads`). Default: the selected thread.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "wait_ms": {
+      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    }
+  }
+}

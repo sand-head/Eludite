@@ -736,6 +736,10 @@ impl Shell {
                 eprintln!("eludite: {command}: {e}");
             }
         };
+        // The debugger's margin and data tips first (brief 0018).
+        if self.debug_on_editor_event(id, event, window, cx) {
+            return;
+        }
         match event {
             EditorEvent::CompletionTriggered(trigger) => {
                 let mut args = json!({ "path": id });
@@ -793,6 +797,8 @@ impl Shell {
                 window,
                 cx,
             ),
+            // Handled by the debugger above (brief 0018).
+            EditorEvent::BreakpointMarginClicked { .. } => {}
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {

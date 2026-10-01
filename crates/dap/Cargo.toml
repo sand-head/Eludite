@@ -13,5 +13,19 @@ eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+# fake: a scripted fake debug adapter for the client's and the shell's tests.
+fake = []
+
+[dev-dependencies]
+eludite-dap = { path = ".", features = ["fake"] }
+tempfile.workspace = true
+
 [lints]
 workspace = true
+
+# The client against the fake adapter as a child process over stdio. The binary serves the fake when
+# ELUDITE_FAKE_DAP is set and runs the tests otherwise, so it has its own main (no libtest harness on stdout).
+[[test]]
+name = "stdio"
+harness = false

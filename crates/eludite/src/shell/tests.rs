@@ -58,6 +58,17 @@ pub(super) fn setup_full(
     script: impl FnOnce(&FakeHost),
     agents: Option<super::agents::AgentsSetup>,
 ) -> Ws {
+    setup_debug(cx, script, agents, None)
+}
+
+/// As [`setup_full`], with how debugging sessions reach their adapter (by default none: tests never search the machine
+/// for netcoredbg, and breakpoints do not persist).
+pub(super) fn setup_debug(
+    cx: &mut TestAppContext,
+    script: impl FnOnce(&FakeHost),
+    agents: Option<super::agents::AgentsSetup>,
+    debug: Option<super::debug::DebugSetup>,
+) -> Ws {
     cx.executor().allow_parking();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -103,6 +114,12 @@ pub(super) fn setup_full(
         s.agents = agents.unwrap_or_else(|| super::agents::AgentsSetup {
             registry: Some(Vec::new()),
             ..super::agents::AgentsSetup::from_env()
+        });
+        s.debug = debug.unwrap_or_else(|| super::debug::DebugSetup {
+            connect: None,
+            search: eludite_dap::discovery::AdapterSearch::default(),
+            store_dir: None,
+            dotnet: "dotnet".into(),
         });
     }
     let commands = Arc::new(commands);

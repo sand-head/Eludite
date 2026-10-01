@@ -1919,3 +1919,287 @@ pub fn build_keys(
     })
     .detach();
 }
+
+/// Write an `eludite/ping` JSON-RPC request into process `pid`'s stdin (Linux: through `/proc/<pid>/fd/0`, the pipe
+/// netcoredbg holds), as a second terminal would.
+fn write_ping(pid: i64, id: usize) -> std::io::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Write as _;
+        let body = format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"eludite/ping"}}"#);
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(format!("/proc/{pid}/fd/0"))?;
+        write!(f, "Content-Length: {}\r\n\r\n{body}", body.len())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (pid, id);
+        Err(std::io::Error::other(
+            "writing to another process's stdin needs Linux",
+        ))
+    }
+}
+
+/// `--bench-debug N` (brief 0018), in the real app with the real netcoredbg and `eludite-host` as the debuggee:
+///
+/// 1. A breakpoint on the first line of the opened file containing `ELUDITE_BENCH_BREAK` (default
+///    `var timestamp = _timeProvider`, Ping's first statement), through `eludite.debug.toggle_breakpoint`.
+/// 2. N sessions. Each: F5; once the program runs and the breakpoint is bound, `ELUDITE_BENCH_PINGS` (default 20)
+///    times write an `eludite/ping` into the debuggee's stdin, wait for the break (locals loaded), F10 twice, F5.
+///    Then Shift+F5. F5 to the first break covers the launch, the adapter's handshake, binding the breakpoint, the
+///    ping and the stop; the first session of the process is reported apart from the others.
+/// 3. Step round trip: F10 to the break shown (locals loaded and given to the windows), and to the end of the
+///    present of the first frame rendered after it. Frame cost while stepping: render to end of present of every
+///    frame drawn from an F10 to its break shown.
+/// 4. The Locals window drawing 200 variables: rows given to the window to the end of the present of the frame that
+///    draws them, 20 times.
+pub fn debug(
+    shell: Entity<Shell>,
+    file: std::path::PathBuf,
+    sessions: usize,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    use crate::shell::debug::state::{FlatRow, Mode};
+    use eludite_commands::debug as cmds;
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    let needle = std::env::var("ELUDITE_BENCH_BREAK")
+        .unwrap_or_else(|_| "var timestamp = _timeProvider".into());
+    let pings: usize = std::env::var("ELUDITE_BENCH_PINGS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    let fail = |m: String| -> ! {
+        eprintln!("eludite bench: {m}");
+        std::process::exit(1)
+    };
+    cx.spawn_in(window, async move |_, cx| {
+        loop {
+            executor.timer(Duration::from_millis(20)).await;
+            let Ok(ready) = cx.update(|_, cx| {
+                let t = shell.read(cx).timings();
+                t.loaded.is_some() && t.tree.is_some()
+            }) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(2000)).await;
+        let text = std::fs::read_to_string(&file).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())));
+        let line = text
+            .lines()
+            .position(|l| l.contains(needle.as_str()))
+            .unwrap_or_else(|| fail(format!("`{needle}` is not in {}", file.display())))
+            + 1;
+        let set = cx.update(|window, cx| {
+            shell.update(cx, |s, cx| {
+                s.invoke(
+                    cmds::TOGGLE_BREAKPOINT,
+                    // `set`, not a toggle: the breakpoint persists per solution, so a second run would delete it.
+                    json!({"path": file.to_string_lossy(), "line": line, "action": "set", "enabled": true}),
+                    window,
+                    cx,
+                )
+            })
+        });
+        if !matches!(set, Ok(Ok(_))) {
+            fail(format!("cannot set the breakpoint: {set:?}"));
+        }
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        let key = |cx: &mut gpui::AsyncWindowContext, k: &str| -> Instant {
+            let ks = Keystroke::parse(k).expect("keystroke");
+            let mut t0 = Instant::now();
+            let _ = cx.update(|window, cx| {
+                t0 = Instant::now();
+                window.dispatch_keystroke(ks, cx);
+            });
+            t0
+        };
+        let model = |cx: &mut gpui::AsyncWindowContext| {
+            cx.update(|_, cx| {
+                let d = shell.read(cx).debugger();
+                let bound = d.model.breakpoints.all().iter().all(|b| b.verified);
+                (
+                    d.model.mode,
+                    d.model.stop,
+                    d.model.locals_loading,
+                    bound,
+                    d.model.session.as_ref().and_then(|s| s.process_id),
+                    d.timings.clone(),
+                )
+            })
+            .expect("window")
+        };
+        let mut first = Vec::new();
+        let mut later = Vec::new();
+        let (mut step_state, mut step_visible, mut windows) = (Vec::new(), Vec::new(), Vec::new());
+        let mut timeouts = 0;
+        let mut ping_id = 0;
+        for session in 0..sessions {
+            let f5 = key(cx, "f5");
+            let shell2 = shell.clone();
+            let ready = until(cx, &executor, move |cx| {
+                let d = shell2.read(cx).debugger();
+                let bps = d.model.breakpoints.all();
+                d.model.mode == Mode::Running
+                    && d.model.session.as_ref().and_then(|s| s.process_id).is_some()
+                    && !bps.is_empty()
+                    && bps.iter().all(|b| b.verified)
+            })
+            .await;
+            if !ready {
+                fail(format!("session {session} did not start: {:?}", model(cx).0));
+            }
+            let (_, _, _, _, pid, timings) = model(cx);
+            let running = Instant::now();
+            let pid = pid.expect("checked");
+            for p in 0..pings {
+                let (_, stop0, ..) = model(cx);
+                ping_id += 1;
+                let ping_at = Instant::now();
+                if let Err(e) = write_ping(pid, ping_id) {
+                    fail(format!("cannot write the ping to process {pid}: {e}"));
+                }
+                let shell2 = shell.clone();
+                if !until(cx, &executor, move |cx| {
+                    let m = &shell2.read(cx).debugger().model;
+                    m.mode == Mode::Break && m.stop > stop0 && !m.locals_loading
+                })
+                .await
+                {
+                    timeouts += 1;
+                    break;
+                }
+                let (.., t) = model(cx);
+                let shown = t.locals_shown.expect("locals shown");
+                if p == 0 {
+                    let frame = frame_after(&probe, &executor, shown).await;
+                    let row = json!({
+                        "f5_to_break_shown_ms": ms(shown - f5),
+                        "f5_to_break_visible_ms": frame.map(|(_, pr)| ms(pr.saturating_duration_since(f5))),
+                        "f5_to_running_ms": ms(running.saturating_duration_since(f5)),
+                        "ping_to_break_shown_ms": ms(shown.saturating_duration_since(ping_at)),
+                        "start_to_first_break_ms": timings.start.zip(t.first_break).map(|(a, b)| ms(b - a)),
+                    });
+                    if session == 0 {
+                        first.push(row);
+                    } else {
+                        later.push(row);
+                    }
+                }
+                for _ in 0..2 {
+                    let (_, stop0, ..) = model(cx);
+                    let t0 = key(cx, "f10");
+                    let shell2 = shell.clone();
+                    if !until(cx, &executor, move |cx| {
+                        let m = &shell2.read(cx).debugger().model;
+                        m.mode == Mode::Break && m.stop > stop0 && !m.locals_loading
+                    })
+                    .await
+                    {
+                        timeouts += 1;
+                        break;
+                    }
+                    let (.., t) = model(cx);
+                    let shown = t.locals_shown.expect("locals shown");
+                    let frame = frame_after(&probe, &executor, shown).await;
+                    step_state.push(ms(shown.saturating_duration_since(t0)));
+                    if let Some((_, present)) = frame {
+                        step_visible.push(ms(present.saturating_duration_since(t0)));
+                        windows.push((t0, present));
+                    }
+                }
+                let _ = key(cx, "f5");
+                let shell2 = shell.clone();
+                until(cx, &executor, move |cx| {
+                    shell2.read(cx).debugger().model.mode == Mode::Running
+                })
+                .await;
+                executor.timer(Duration::from_millis(30)).await;
+            }
+            let _ = key(cx, "shift-f5");
+            let shell2 = shell.clone();
+            until(cx, &executor, move |cx| {
+                shell2.read(cx).debugger().model.mode == Mode::Design
+            })
+            .await;
+            executor.timer(Duration::from_millis(300)).await;
+        }
+        // Frame cost while stepping.
+        let frame_cost: Vec<f64> = {
+            let p = probe.borrow();
+            p.renders
+                .iter()
+                .copied()
+                .zip(p.presents.iter().copied())
+                .filter(|(r, _)| windows.iter().any(|(a, b)| r >= a && r <= b))
+                .map(|(r, pr)| ms(pr.saturating_duration_since(r)))
+                .collect()
+        };
+        // The Locals window drawing 200 variables.
+        let _ = cx.update(|window, cx| {
+            shell.update(cx, |s, cx| {
+                s.invoke("eludite.view.show", json!({"id": "locals"}), window, cx)
+            })
+        });
+        executor.timer(Duration::from_millis(300)).await;
+        let mut locals_render = Vec::new();
+        let mut locals_visible = Vec::new();
+        for i in 0..20usize {
+            let n = 200 - (i % 2);
+            let rows: Vec<FlatRow> = (0..n)
+                .map(|k| FlatRow {
+                    path: vec![k],
+                    depth: 0,
+                    name: format!("local{k}"),
+                    value: format!("\"value {k} of run {i}\""),
+                    type_name: "string".into(),
+                    expanded: (k % 10 == 0).then_some(false),
+                    error: false,
+                })
+                .collect();
+            let t = cx
+                .update(|_, cx| {
+                    let w = shell.read(cx).debugger().windows.locals.clone();
+                    let t = Instant::now();
+                    w.update(cx, |w, cx| w.set_rows(rows, None, cx));
+                    t
+                })
+                .expect("window");
+            if let Some((r, pr)) = frame_after(&probe, &executor, t).await {
+                locals_render.push(ms(pr.saturating_duration_since(r)));
+                locals_visible.push(ms(pr.saturating_duration_since(t)));
+            }
+            executor.timer(Duration::from_millis(50)).await;
+        }
+        let _ = cx.update(|window, cx| {
+            let out = json!({
+                "bench": "debug_in_shell",
+                "method": "F5 with a breakpoint on Ping's first statement in the real eludite-host under netcoredbg; once running and bound, eludite/ping written to the debuggee's stdin; break shown = locals loaded and given to the windows; visible = end of the present of the first frame rendered after that. Steps: F10 twice per break; step state = key to break shown, step visible = key to end of that present. Frame cost = render to end of present of each frame drawn between an F10 and its present. Locals: 200 rows given to the Locals window to the end of the present of the frame drawing them",
+                "file": file.to_string_lossy(),
+                "line": line,
+                "sessions": sessions,
+                "pings_per_session": pings,
+                "timeouts": timeouts,
+                "first_session": first,
+                "later_sessions": later,
+                "f5_to_break_shown_later": summarize(&later.iter().filter_map(|r| r["f5_to_break_shown_ms"].as_f64()).collect::<Vec<_>>()),
+                "step_to_shown": summarize(&step_state),
+                "step_to_visible": summarize(&step_visible),
+                "frame_cost_while_stepping": summarize(&frame_cost),
+                "locals_200_render_to_present": summarize(&locals_render),
+                "locals_200_set_to_present": summarize(&locals_visible),
+                "rss": rss_mib(),
+                "platform": platform(window),
+            });
+            println!("{out}");
+            cx.quit();
+        });
+    })
+    .detach();
+}

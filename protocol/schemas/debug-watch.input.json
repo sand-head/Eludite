@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-watch.input.json",
+  "title": "eludite.debug.watch input",
+  "description": "Add an expression to the Watch window or remove one. Watch values are evaluated in the selected frame at every break.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "add": {
+      "description": "The expression to add.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remove": {
+      "description": "The index of the watch to remove (0 is the first row).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
