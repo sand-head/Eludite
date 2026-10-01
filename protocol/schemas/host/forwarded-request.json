@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/forwarded-request.json",
+  "title": "Forwarded LSP request params",
+  "description": "Every forwarded LSP request (typed or untyped) is an LSP 3.17 params object plus nielloGeneration. The host removes the member before forwarding.",
+  "x-niello-method": "*",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "nielloGeneration"
+      ],
+      "properties": {
+        "nielloGeneration": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

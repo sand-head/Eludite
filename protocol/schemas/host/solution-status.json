@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/solution-status.json",
+  "title": "niello/solution/status",
+  "description": "Host-to-shell notification: load state of the solution for one generation.",
+  "x-niello-method": "niello/solution/status",
+  "x-niello-kind": "notification",
+  "x-niello-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "path",
+        "state"
+      ],
+      "properties": {
+        "generation": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "Full path given to niello/solution/open.",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "loading",
+            "loaded",
+            "failed",
+            "closed"
+          ]
+        },
+        "phase": {
+          "description": "Only with state loading.",
+          "enum": [
+            "legacyEvaluation",
+            "projectLoad",
+            null
+          ]
+        },
+        "counts": {
+          "description": "Only with state loaded.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "projects",
+            "legacyProjects",
+            "legacyEvaluationFailures"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "projects": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "legacyProjects": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "legacyEvaluationFailures": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "msbuild": {
+          "description": "MSBuild used for legacy (non-SDK) projects; null when there are none.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "mono",
+                "buildTools",
+                "sdk"
+              ]
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "description": "How it was located (PATH, NIELLO_MONO_PREFIX, vswhere, ...).",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "corrections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "project",
+              "count"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "designerPartials",
+                  "caseFixups",
+                  "comReferencesRemoved"
+                ]
+              },
+              "project": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "severity",
+              "code",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning",
+                  "info"
+                ]
+              },
+              "code": {
+                "description": "NIELLO0001..; see host-rpc.md.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "project": {
+                "description": "Full path of the project the diagnostic is about, when there is one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "class": {
+                "description": "Brief 0003 failure class: missingTargets, com, packages, webTargets, other.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "elapsedMs": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

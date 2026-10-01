@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-initialize.json",
+  "title": "niello/host/initialize",
+  "description": "The niello handshake. Renamed from `initialize` in brief 0007; plain LSP names belong to the forwarded language server.",
+  "x-niello-method": "niello/host/initialize",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "clientName",
+        "clientVersion"
+      ],
+      "properties": {
+        "clientName": {
+          "type": "string"
+        },
+        "clientVersion": {
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "hostName",
+        "hostVersion",
+        "capabilities"
+      ],
+      "properties": {
+        "hostName": {
+          "const": "niello-host"
+        },
+        "hostVersion": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "languageServer"
+          ],
+          "properties": {
+            "languageServer": {
+              "description": "True when a language server is configured; niello/languageServer/status reports whether it started.",
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}
