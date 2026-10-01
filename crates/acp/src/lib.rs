@@ -2,9 +2,12 @@
 //!
 //! Niello hosts any ACP-speaking agent in its Agents tool window. Agents run as
 //! child processes speaking JSON-RPC 2.0, newline-delimited, over stdio; Claude
-//! Code (through its ACP adapter, [`default_agents`]) is the first one.
+//! Code (through its ACP adapter, [`default_agents`]) is the first one: the
+//! native `niello-claude-acp` adapter when it is installed (brief 0006), else
+//! the Node adapter through `npx`.
 //!
-//! Public API: [`AgentDescriptor`] and [`default_agents`] (what to launch),
+//! Public API: [`AgentDescriptor`], [`default_agents`] and
+//! [`find_native_claude_adapter`] (what to launch),
 //! [`AcpClient`] with [`ClientEvent`] (the connection: `initialize`,
 //! `session/new`, `session/prompt`, `session/cancel`, streamed
 //! `session/update`, `session/request_permission`), [`protocol`] (the typed
@@ -19,6 +22,9 @@
 mod client;
 pub mod fake_agent;
 pub mod protocol;
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -63,15 +69,113 @@ pub const CLAUDE_SESSION_ENV: &[&str] = &[
     "CLAUDE_PID",
 ];
 
-/// Agents offered out of the box.
-pub fn default_agents() -> Vec<AgentDescriptor> {
-    vec![AgentDescriptor {
+/// The native Claude Code adapter's executable name (brief 0006): a Rust
+/// binary that drives the user's `claude` CLI directly, with no Node.
+pub const NATIVE_CLAUDE_ADAPTER: &str = if cfg!(windows) {
+    "niello-claude-acp.exe"
+} else {
+    "niello-claude-acp"
+};
+
+/// Environment variable naming the native adapter explicitly (the configured
+/// path, until Niello has settings).
+pub const NATIVE_CLAUDE_ADAPTER_ENV: &str = "NIELLO_CLAUDE_ACP";
+
+/// Where to look for the native adapter: the configured path, the directory
+/// of the IDE's own executable (where it ships), then `PATH`.
+#[derive(Debug, Clone, Default)]
+pub struct AdapterSearch {
+    pub configured: Option<PathBuf>,
+    pub exe_dir: Option<PathBuf>,
+    pub path: Option<OsString>,
+}
+
+impl AdapterSearch {
+    /// From `$NIELLO_CLAUDE_ACP`, the current executable and `$PATH`.
+    pub fn from_env() -> Self {
+        Self {
+            configured: std::env::var_os(NATIVE_CLAUDE_ADAPTER_ENV)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
+            exe_dir: std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(Path::to_path_buf)),
+            path: std::env::var_os("PATH"),
+        }
+    }
+}
+
+fn is_executable_file(p: &Path) -> bool {
+    let Ok(meta) = p.metadata() else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        meta.is_file() && meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        meta.is_file()
+    }
+}
+
+/// Find the native adapter: the configured path (if it exists), beside the
+/// IDE's executable, then on `PATH`.
+pub fn find_native_claude_adapter(search: &AdapterSearch) -> Option<PathBuf> {
+    if let Some(p) = &search.configured
+        && is_executable_file(p)
+    {
+        return Some(p.clone());
+    }
+    if let Some(dir) = &search.exe_dir {
+        let p = dir.join(NATIVE_CLAUDE_ADAPTER);
+        if is_executable_file(&p) {
+            return Some(p);
+        }
+    }
+    std::env::split_paths(search.path.as_deref()?)
+        .map(|d| d.join(NATIVE_CLAUDE_ADAPTER))
+        .find(|p| is_executable_file(p))
+}
+
+/// Claude Code through the native adapter at `path`.
+pub fn native_claude_agent(path: &Path) -> AgentDescriptor {
+    AgentDescriptor {
         name: "Claude Code".into(),
+        command: path.to_string_lossy().into_owned(),
+        args: Vec::new(),
+        env: Vec::new(),
+        env_remove: CLAUDE_SESSION_ENV.iter().map(|s| (*s).to_owned()).collect(),
+    }
+}
+
+/// Claude Code through the Node adapter, `npx -y` with the pinned version
+/// (brief 0005). Needs Node.
+pub fn npx_claude_agent() -> AgentDescriptor {
+    AgentDescriptor {
+        name: "Claude Code (Node adapter)".into(),
         command: "npx".into(),
         args: vec!["-y".into(), CLAUDE_ADAPTER_PACKAGE.into()],
         env: Vec::new(),
         env_remove: CLAUDE_SESSION_ENV.iter().map(|s| (*s).to_owned()).collect(),
-    }]
+    }
+}
+
+/// Agents offered out of the box, preferred first: the native Claude Code
+/// adapter when it is found (see [`find_native_claude_adapter`]), then the
+/// npx adapter as the fallback.
+pub fn default_agents() -> Vec<AgentDescriptor> {
+    default_agents_with(&AdapterSearch::from_env())
+}
+
+/// [`default_agents`] with an explicit search (for tests and settings).
+pub fn default_agents_with(search: &AdapterSearch) -> Vec<AgentDescriptor> {
+    find_native_claude_adapter(search)
+        .map(|p| native_claude_agent(&p))
+        .into_iter()
+        .chain(std::iter::once(npx_claude_agent()))
+        .collect()
 }
 
 impl AgentDescriptor {
@@ -90,10 +194,36 @@ impl AgentDescriptor {
 mod tests {
     use super::*;
 
+    fn temp_dir(name: &str) -> PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("niello-acp-agents-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn make_exe(dir: &Path) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let p = dir.join(NATIVE_CLAUDE_ADAPTER);
+        std::fs::write(&p, "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        p
+    }
+
     #[test]
-    fn claude_code_is_default() {
-        let agents = default_agents();
-        assert_eq!(agents[0].name, "Claude Code");
+    fn npx_adapter_is_the_fallback() {
+        let root = temp_dir("fallback");
+        let agents = default_agents_with(&AdapterSearch {
+            configured: Some(root.join("missing")),
+            exe_dir: Some(root.clone()),
+            path: Some(root.clone().into()),
+        });
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0], npx_claude_agent());
         assert_eq!(agents[0].command, "npx");
         // Verified by brief 0005: the official adapter, pinned.
         assert_eq!(
@@ -105,6 +235,57 @@ mod tests {
             agents[0].env.is_empty(),
             "no key or token is passed to the agent"
         );
+        assert!(default_agents_with(&AdapterSearch::default()) == vec![npx_claude_agent()]);
+    }
+
+    #[test]
+    fn native_adapter_is_preferred_when_found() {
+        let root = temp_dir("native");
+        let on_path = make_exe(&root.join("pathdir"));
+        let beside = make_exe(&root.join("ide"));
+        let configured = make_exe(&root.join("configured"));
+        let path = std::env::join_paths([root.join("empty"), root.join("pathdir")]).unwrap();
+        let search = |configured: Option<PathBuf>, exe_dir: Option<PathBuf>| AdapterSearch {
+            configured,
+            exe_dir,
+            path: Some(path.clone()),
+        };
+
+        // Order: configured path, beside the IDE, then PATH.
+        let all = search(Some(configured.clone()), Some(root.join("ide")));
+        assert_eq!(find_native_claude_adapter(&all), Some(configured.clone()));
+        let beside_first = search(Some(root.join("missing")), Some(root.join("ide")));
+        assert_eq!(
+            find_native_claude_adapter(&beside_first),
+            Some(beside.clone())
+        );
+        let path_only = search(None, Some(root.join("empty")));
+        assert_eq!(
+            find_native_claude_adapter(&path_only),
+            Some(on_path.clone())
+        );
+
+        let agents = default_agents_with(&beside_first);
+        assert_eq!(agents.len(), 2);
+        assert_eq!(agents[0].name, "Claude Code");
+        assert_eq!(agents[0].command, beside.to_string_lossy());
+        assert!(agents[0].args.is_empty());
+        assert!(agents[0].env.is_empty(), "no key or token is passed");
+        assert!(agents[0].env_remove.iter().any(|v| v == "CLAUDECODE"));
+        assert_eq!(agents[1], npx_claude_agent(), "npx stays as the fallback");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_executable_files_are_skipped() {
+        let root = temp_dir("noexec");
+        std::fs::write(root.join(NATIVE_CLAUDE_ADAPTER), "x").unwrap();
+        let s = AdapterSearch {
+            configured: None,
+            exe_dir: Some(root.clone()),
+            path: Some(root.clone().into()),
+        };
+        assert_eq!(find_native_claude_adapter(&s), None);
     }
 
     #[test]
@@ -122,8 +303,21 @@ mod tests {
             ],
         };
         assert_eq!(
-            default_agents()[0].terminal_auth_command(&m),
+            npx_claude_agent().terminal_auth_command(&m),
             "npx -y @agentclientprotocol/claude-agent-acp@0.85.0 --cli auth login --claudeai"
+        );
+        // The native adapter's login method is `auth login` on its own command.
+        let native = protocol::AuthMethod {
+            id: "claude-login".into(),
+            name: "Log in to Claude Code".into(),
+            description: None,
+            kind: Some("terminal".into()),
+            args: vec!["auth".into(), "login".into()],
+        };
+        assert_eq!(
+            native_claude_agent(Path::new("/opt/niello/niello-claude-acp"))
+                .terminal_auth_command(&native),
+            "/opt/niello/niello-claude-acp auth login"
         );
     }
 }
