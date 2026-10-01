@@ -6,7 +6,7 @@ use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionCla
 
 pub const ABOUT: &str = "eludite.help.about";
 pub const TOGGLE_TOOL_WINDOW: &str = "eludite.view.toggle_tool_window";
-pub const FILE_OPEN: &str = "eludite.file.open";
+pub const FILE_OPEN: &str = crate::workspace::FILE_OPEN;
 
 /// The Eludite version reported by `eludite.help.about`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -23,8 +23,8 @@ fn required_string(input: &Value, field: &str) -> Result<String, CommandError> {
         .ok_or_else(|| CommandError::InvalidInput(format!("`{field}` must be a string")))
 }
 
-/// Register the built-in commands. UI-bound behaviour (actually toggling a tool
-/// window, opening an editor) is stubbed until the shell wires real handlers.
+/// Register the built-in commands. UI-bound behaviour (toggling a tool window,
+/// opening an editor) is stubbed until the shell wires real handlers.
 pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandError> {
     registry.register(
         CommandSpec {
@@ -64,28 +64,20 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
         },
     )?;
 
-    registry.register(
-        CommandSpec {
-            id: id(FILE_OPEN),
-            title: "File: Open".into(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {"path": {"type": "string", "description": "Absolute or workspace-relative path"}},
-                "required": ["path"],
-                "additionalProperties": false
-            }),
-            output_schema: json!({
-                "type": "object",
-                "properties": {"opened": {"type": "boolean"}},
-                "required": ["opened"]
-            }),
-            permission: PermissionClass::Read,
-        },
-        |input| {
-            required_string(&input, "path")?;
-            Ok(json!({"opened": true}))
-        },
-    )?;
+    // A placeholder with the real `eludite.file.open` spec until the shell attaches its workspace
+    // (`workspace::register` replaces it). It opens nothing.
+    let mut placeholder = crate::workspace::spec(FILE_OPEN);
+    if let Some(schema) = placeholder.input_schema.as_object_mut() {
+        // The schema body without the file's identity: this registration is not the protocol's command.
+        schema.remove("$schema");
+        schema.remove("$id");
+    }
+    registry.register(placeholder, |input| {
+        crate::workspace::parse(FILE_OPEN, input)?;
+        Err(CommandError::Failed(
+            "no workspace is attached to open files".into(),
+        ))
+    })?;
 
     Ok(())
 }
@@ -171,11 +163,14 @@ mod tests {
             r.invoke(TOGGLE_TOOL_WINDOW, json!({})),
             Err(CommandError::InvalidInput(_))
         ));
-        assert_eq!(
-            r.invoke(FILE_OPEN, json!({"path": "/tmp/a.cs"})).unwrap(),
-            json!({"opened": true})
-        );
-        assert!(r.invoke(FILE_OPEN, json!({"path": 3})).is_err());
+        assert!(matches!(
+            r.invoke(FILE_OPEN, json!({"path": "/tmp/a.cs"})),
+            Err(CommandError::Failed(_))
+        ));
+        assert!(matches!(
+            r.invoke(FILE_OPEN, json!({"path": 3})),
+            Err(CommandError::InvalidInput(_))
+        ));
         assert_eq!(r.audit_log().len(), 4);
     }
 }

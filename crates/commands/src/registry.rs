@@ -86,6 +86,23 @@ impl CommandRegistry {
         Ok(())
     }
 
+    /// Register `spec`, replacing a command already registered under its id (a placeholder). Returns the
+    /// replaced spec.
+    pub fn replace<F>(&mut self, spec: CommandSpec, handler: F) -> Option<CommandSpec>
+    where
+        F: Fn(Value) -> Result<Value, CommandError> + Send + Sync + 'static,
+    {
+        self.commands
+            .insert(
+                spec.id.clone(),
+                Entry {
+                    spec,
+                    handler: Box::new(handler),
+                },
+            )
+            .map(|e| e.spec)
+    }
+
     pub fn lookup(&self, id: &str) -> Option<&CommandSpec> {
         let id = CommandId::new(id).ok()?;
         self.commands.get(&id).map(|e| &e.spec)
@@ -155,6 +172,21 @@ mod tests {
         assert!(r.lookup("Not An Id").is_none());
         let ids: Vec<_> = r.list().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["test.a", "test.b"]);
+    }
+
+    #[test]
+    fn replace_swaps_the_handler() {
+        let mut r = CommandRegistry::new();
+        r.register(spec("test.a", PermissionClass::Read), |_| Ok(json!(1)))
+            .unwrap();
+        let old = r.replace(spec("test.a", PermissionClass::Execute), |_| Ok(json!(2)));
+        assert_eq!(old.unwrap().permission, PermissionClass::Read);
+        assert_eq!(r.invoke("test.a", Value::Null).unwrap(), json!(2));
+        assert!(
+            r.replace(spec("test.b", PermissionClass::Read), Ok)
+                .is_none()
+        );
+        assert_eq!(r.list().count(), 2);
     }
 
     #[test]
