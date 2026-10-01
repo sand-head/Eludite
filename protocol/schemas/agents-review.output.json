@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-review.output.json",
+  "title": "eludite.agents.review output",
+  "description": "The changes decided and what the applier did. Accepting a change to a closed file writes it off the UI thread, so from the UI thread a change can still be `applying`; from another thread the call waits up to 5 s for the outcome.",
+  "type": "object",
+  "required": [
+    "decision",
+    "changes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "accept",
+        "reject"
+      ]
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "state",
+          "edits"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "path": {
+            "description": "Absolute path of the file.",
+            "type": "string"
+          },
+          "state": {
+            "description": "`applying`: accepted, being written; `accepted`: applied; `rejected`: discarded; `failed`: the applier refused it (the document changed since the agent proposed it, see `message`).",
+            "enum": [
+              "pending",
+              "applying",
+              "accepted",
+              "rejected",
+              "failed"
+            ]
+          },
+          "edits": {
+            "description": "Text edits in the change.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "tool_call": {
+            "description": "The agent's tool call that proposed it (the ACP toolCallId when known).",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "message": {
+      "description": "Why nothing was decided (no such change, nothing pending).",
+      "type": "string"
+    }
+  }
+}

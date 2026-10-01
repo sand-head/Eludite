@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-state.output.json",
+  "title": "eludite.agents.start, prompt and cancel output",
+  "description": "The Agents window's agent and session state.",
+  "type": "object",
+  "required": [
+    "agent",
+    "state",
+    "generation",
+    "agents",
+    "pending_permissions",
+    "pending_changes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "agent": {
+      "description": "The selected agent's name.",
+      "type": "string"
+    },
+    "state": {
+      "description": "`stopped`: no session; `starting`: spawning, initialize or session/new in flight; `ready`: waiting for a prompt; `needs_login`: the agent reported no login (see `login`); `running`: a turn is in progress; `error`: the agent failed or exited (see `message`).",
+      "enum": [
+        "stopped",
+        "starting",
+        "ready",
+        "needs_login",
+        "running",
+        "error"
+      ]
+    },
+    "generation": {
+      "description": "The session generation: it grows on every start or restart. Events of an older generation are dropped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "session_id": {
+      "description": "The ACP session id, once session/new answered.",
+      "type": "string"
+    },
+    "agent_info": {
+      "description": "The agent's own name and version from ACP initialize (`agentInfo`).",
+      "type": "string"
+    },
+    "protocol_version": {
+      "description": "The ACP protocol version negotiated.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "Why the agent is in `error`, or what it is doing.",
+      "type": "string"
+    },
+    "login": {
+      "description": "In `needs_login`: the agent's login methods, each with the command to run in a terminal.",
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "command": {
+            "description": "The command line to run in a terminal.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "last_stop_reason": {
+      "description": "How the last turn ended.",
+      "enum": [
+        "end_turn",
+        "max_tokens",
+        "max_turn_requests",
+        "refusal",
+        "cancelled",
+        "error"
+      ]
+    },
+    "agents": {
+      "description": "The agent registry, preferred first.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "command": {
+            "description": "The executable and its arguments.",
+            "type": "string"
+          },
+          "source": {
+            "description": "`native`: the eludite-claude-acp adapter (beside the executable, ELUDITE_CLAUDE_ACP or PATH); `npx`: the Node adapter; `settings`: added by the user in agents.json.",
+            "enum": [
+              "native",
+              "npx",
+              "settings"
+            ]
+          }
+        }
+      }
+    },
+    "pending_permissions": {
+      "description": "Permission requests waiting for an answer (eludite.agents.permission).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "pending_changes": {
+      "description": "Agent edits waiting for review (eludite.agents.review).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
