@@ -43,6 +43,13 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       filter keys, Escape and three Backspaces; report the
                       host and UI latency to the visible list, the keystroke
                       frame cost with the list open and resident memory
+  --bench-navigate N  with --solution and --open-file: once loaded, N times F12
+                      on the first `ISdkDiscoverer` in the file (or
+                      ELUDITE_BENCH_DEFINITION) and Ctrl+- back, then N/4 (at
+                      least 10) times Shift+F12 on `HostRpcTarget` (or
+                      ELUDITE_BENCH_REFERENCES), then 300 keys with the Find
+                      All References window holding 1000 rows; report host
+                      and UI latency and the keystroke frame cost
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -68,6 +75,7 @@ pub struct Args {
     pub timings_out: Option<PathBuf>,
     pub bench_type: Option<usize>,
     pub bench_complete: Option<usize>,
+    pub bench_navigate: Option<usize>,
 }
 
 impl Args {
@@ -109,6 +117,10 @@ impl Args {
                     a.bench_complete =
                         Some(n.parse().map_err(|_| format!("bad trigger count `{n}`"))?);
                 }
+                "--bench-navigate" => {
+                    let n = value("--bench-navigate")?;
+                    a.bench_navigate = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
@@ -118,7 +130,10 @@ impl Args {
     /// Measurement runs: no saved layout, and no frame-rate limit when the compositor withholds focus (a nested
     /// session gives the window none, and GPUI would then draw at most every 33 ms).
     pub fn benching(&self) -> bool {
-        self.bench_start || self.bench_drag.is_some() || self.bench_complete.is_some()
+        self.bench_start
+            || self.bench_drag.is_some()
+            || self.bench_complete.is_some()
+            || self.bench_navigate.is_some()
     }
 }
 
@@ -176,5 +191,9 @@ mod tests {
             Some(200)
         );
         assert!(parse(&["--bench-complete", "x"]).is_err());
+        let a = parse(&["--bench-navigate", "100"]).unwrap();
+        assert_eq!(a.bench_navigate, Some(100));
+        assert!(a.benching());
+        assert!(parse(&["--bench-navigate", "x"]).is_err());
     }
 }

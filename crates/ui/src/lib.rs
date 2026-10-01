@@ -27,7 +27,7 @@ pub mod status;
 mod theme;
 pub mod tree;
 
-pub use elements::{icon_button, tab};
+pub use elements::{highlighted_code, icon_button, tab, text_box, toggle_button};
 pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
     vs_keymap,

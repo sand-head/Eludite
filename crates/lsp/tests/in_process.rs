@@ -253,3 +253,64 @@ fn held_load_stays_loading_until_finished() {
         |e| matches!(e, Event::SolutionStatus(s) if s.state == SolutionState::Loaded),
     );
 }
+
+#[test]
+fn typed_definition_and_references_through_the_fake_host() {
+    use eludite_lsp::fake::FakeReply;
+    use eludite_lsp::lsp::{
+        Position, ReferenceContext, ReferenceParams, TextDocumentIdentifier,
+        TextDocumentPositionParams,
+    };
+    let fake = FakeHost::new();
+    let metadata =
+        "file:///tmp/MetadataAsSource/1/DecompilationMetadataAsSourceFileProvider/2/JsonRpc.cs";
+    fake.respond("textDocument/definition", move |_| {
+        FakeReply::Result(json!([{"uri": metadata,
+            "range": {"start": {"line": 30, "character": 13}, "end": {"line": 30, "character": 20}}}]))
+    });
+    fake.respond("textDocument/references", |p| {
+        assert_eq!(p["context"]["includeDeclaration"], true);
+        let at = |line| json!({"uri": "file:///a.cs", "range": {"start": {"line": line, "character": 4}, "end": {"line": line, "character": 9}}});
+        FakeReply::Result(json!([at(1), at(7)]))
+    });
+    let (client, _rx) = start(&fake, 0);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let doc = TextDocumentIdentifier {
+        uri: "file:///a.cs".into(),
+    };
+    let position = Position {
+        line: 1,
+        character: 5,
+    };
+    let targets = client
+        .request::<lsp::GotoDefinition>(TextDocumentPositionParams {
+            text_document: doc.clone(),
+            position,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("a definition")
+        .into_locations();
+    assert_eq!(targets[0].uri, metadata);
+    assert_eq!(targets[0].range.start.line, 30);
+    let refs = client
+        .request::<lsp::References>(ReferenceParams {
+            text_document: doc,
+            position,
+            context: ReferenceContext {
+                include_declaration: true,
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("references");
+    assert_eq!(
+        refs.iter().map(|l| l.range.start.line).collect::<Vec<_>>(),
+        [1, 7]
+    );
+    for method in ["textDocument/definition", "textDocument/references"] {
+        assert_eq!(fake.received_params(method)[0]["eluditeGeneration"], 1);
+    }
+}

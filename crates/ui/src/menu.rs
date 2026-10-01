@@ -96,6 +96,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 item("Find and Replace", "eludite.editor.find"),
                 item("Go To All", "eludite.edit.go_to_all"),
+                item("Go To Definition", "eludite.editor.go_to_definition"),
+                item("Find All References", "eludite.editor.find_references"),
                 Separator,
                 // Visual Studio's Edit > IntelliSense items.
                 item("Complete Word", "eludite.editor.complete"),
@@ -113,6 +115,9 @@ pub fn vs_menus() -> Vec<Menu> {
                 show("Output", "output"),
                 show("Properties Window", "properties"),
                 show("Toolbox", "toolbox"),
+                Separator,
+                item("Navigate Backward", "eludite.navigation.back"),
+                item("Navigate Forward", "eludite.navigation.forward"),
                 Separator,
                 item("Command Palette", "eludite.view.command_palette"),
             ],

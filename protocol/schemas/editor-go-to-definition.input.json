@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-go-to-definition.input.json",
+  "title": "eludite.editor.go_to_definition input",
+  "description": "Go To Definition (F12, Ctrl+click): ask the language server where the symbol at `line`, `column` (or the caret) is defined. The current position is pushed on the navigation history first. One target opens its file at the definition; a symbol defined in a referenced assembly opens a read-only tab titled like Visual Studio's (`JsonRpc [from metadata]`) with the language server's metadata-as-source text; several targets (partial types, for example) show a picker. A new call cancels the previous request; a result for an older document version or solution generation is dropped.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the symbol; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the symbol; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "description": "Choose target `target` (0-based, in the order of the output's `targets`) of the picker the previous call opened, instead of asking the language server again.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

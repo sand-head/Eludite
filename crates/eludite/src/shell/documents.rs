@@ -8,6 +8,9 @@
 //! - **Diagnostics** become wavy underlines in the `diagnostics` decoration layer, anchored in the text as it was
 //!   when its version was sent, so they follow later edits.
 //! - **Close** sends `textDocument/didClose`; a dirty document needs an answer (save or discard) first.
+//! - **Metadata as source** (brief 0014): a decompiled type from a referenced assembly (a file under
+//!   `<temp>/MetadataAsSource/`, host-rpc.md) opens read-only, titled `Type [from metadata]`, and sends no document
+//!   notifications; the language server answers requests in it from its own metadata workspace.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -36,6 +39,8 @@ pub struct Document {
     pub uri: String,
     /// `Some("csharp")` for files the language server handles; others get no LSP traffic.
     pub language_id: Option<&'static str>,
+    /// Metadata as source: read-only, and no `didOpen`, `didChange`, `didSave` or `didClose`.
+    pub read_only: bool,
     pub view: Entity<EditorView>,
     /// The LSP version last sent (`didOpen` is 1).
     pub lsp_version: i32,
@@ -190,9 +195,7 @@ fn language_id(path: &Path) -> Option<&'static str> {
 }
 
 fn title(path: &Path) -> String {
-    path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_string_lossy().into_owned())
+    super::navigation::document_title(path)
 }
 
 /// Byte offset of a 1-based line and character column, clipped to the text.
@@ -354,7 +357,10 @@ impl Shell {
         };
         let uri = super::documents::path_to_uri(&path);
         let language_id = language_id(&path);
-        if let Some(lang) = language_id {
+        let read_only = super::navigation::is_metadata_path(&path);
+        if read_only {
+            view.update(cx, |v, cx| v.set_read_only(true, cx));
+        } else if let Some(lang) = language_id {
             trace(format_args!("didOpen {uri} version 1"));
             self.session.did_open(uri.clone(), lang, 1, text);
         }
@@ -373,6 +379,7 @@ impl Shell {
                 path: path.clone(),
                 uri: uri.clone(),
                 language_id,
+                read_only,
                 view: view.clone(),
                 lsp_version: 1,
                 sent,
@@ -434,7 +441,7 @@ impl Shell {
             doc.dirty = dirty;
             self.controller.set_document_dirty(id, dirty);
         }
-        if doc.language_id.is_none() {
+        if doc.language_id.is_none() || doc.read_only {
             return;
         }
         let task_id = id.to_owned();
@@ -451,7 +458,7 @@ impl Shell {
         };
         doc.debounce = None;
         let buffer = doc.view.read(cx).editor().buffer();
-        if buffer.snapshot().version() == doc.sent.version() {
+        if doc.read_only || buffer.snapshot().version() == doc.sent.version() {
             return;
         }
         let text = buffer.text();
@@ -471,6 +478,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Result<WorkspaceOutput, CommandError> {
         let id = self.document_id(path)?;
+        if self.documents[&id].read_only {
+            return Err(CommandError::Failed(format!("{id} is read-only")));
+        }
         if self.documents[&id].debounce.is_some() {
             self.flush_change(&id, cx);
         }
@@ -503,6 +513,13 @@ impl Shell {
     ) -> Result<WorkspaceOutput, CommandError> {
         let id = self.document_id(path)?;
         let view = self.documents[&id].view.clone();
+        if self.documents[&id].read_only {
+            return Ok(WorkspaceOutput::History(HistoryOutput {
+                path: id,
+                applied: false,
+                dirty: false,
+            }));
+        }
         let applied = view.update(cx, |v, cx| {
             v.update_editor(cx, |e| if undo { e.undo() } else { e.redo() })
         });
@@ -594,7 +611,7 @@ impl Shell {
             Some(mut doc) => {
                 doc.intellisense.cancel_all();
                 self.views.borrow_mut().remove(&id);
-                if doc.language_id.is_some() {
+                if doc.language_id.is_some() && !doc.read_only {
                     self.session.did_close(doc.uri.clone());
                 }
                 self.diagnostics.remove(&doc.uri);

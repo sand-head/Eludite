@@ -210,6 +210,27 @@ see the text the user sees. A newer request of the same kind for a document canc
 `$/cancelRequest`; a result is dropped when it is not the newest request's, or when the generation or the document
 version it was computed for is no longer current. Completion documentation is resolved lazily, for the selected item.
 
+How the shell uses `textDocument/definition` and `textDocument/references` (brief 0014): both are sent after a
+pending `didChange` for the document, as above. The shell keeps one of each in flight per window; a new Go To
+Definition or Find All References cancels the previous one with `$/cancelRequest`, and a result is dropped when it is
+not the newest request's, or when the generation or the document version it was computed for is no longer current.
+`references` is sent with `context.includeDeclaration: true`. The shell reads `Location` and `Location[]` (and
+`LocationLink[]`, using `targetUri` and `targetSelectionRange`).
+
+**Metadata as source.** For a symbol defined in a referenced assembly (no source in the solution), the pinned
+Roslyn language server decompiles the type with ICSharpCode.Decompiler into a real file under its own temporary
+directory and answers `textDocument/definition` with a plain `file://` URI to it:
+`<temp>/MetadataAsSource/<session id>/DecompilationMetadataAsSourceFileProvider/<id>/<Type>.cs`, where `<temp>` is
+the language server's `Path.GetTempPath()` (the host passes its environment on, so it is the shell's temporary
+directory too). The file starts with a `#region Assembly <name>, Version=...` header naming the assembly and its
+path. The host forwards the result unchanged and serves no text: the file is on the machine the shell runs on, so
+the shell reads it from disk like any file. The shell recognizes a target under `<temp>/MetadataAsSource/`, opens
+it in a read-only tab titled `<Type> [from metadata]` (Visual Studio's wording), and sends no `didOpen`,
+`didChange` or `didClose` for it: Roslyn tracks these files in its own metadata workspace, so `hover` and
+`definition` requests made inside the file are answered without them. A definition URI with another scheme (none
+with the pinned server) is reported to the user as not navigable; serving such a document's text would need a new
+host request with a schema here.
+
 ### Forwarded LSP methods, untyped
 
 Forwarded verbatim (after the generation check) with no Eludite typing. `eludite-protocol` exposes them only as raw

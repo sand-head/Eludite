@@ -756,6 +756,20 @@ impl Shell {
                     doc.intellisense.last_signature = None;
                 }
             }
+            // Ctrl+click: Go To Definition, through the same command as F12.
+            EditorEvent::GoToDefinition { offset } => {
+                let Some(doc) = self.documents.get(id) else {
+                    return;
+                };
+                let (line, column) = line_column(&doc.view, *offset, cx);
+                run(
+                    self,
+                    workspace::EDITOR_GO_TO_DEFINITION,
+                    json!({ "path": id, "line": line, "column": column }),
+                    window,
+                    cx,
+                );
+            }
         }
     }
 
@@ -878,6 +892,12 @@ impl Shell {
             WorkspaceRequest::Hover { .. } => WorkspaceOutput::Hover(self.hover_output(&id, cx)),
             WorkspaceRequest::SignatureHelp { .. } => {
                 WorkspaceOutput::SignatureHelp(self.signature_output(&id, cx))
+            }
+            WorkspaceRequest::GoToDefinition { .. } => {
+                WorkspaceOutput::GoToDefinition(self.definition_output())
+            }
+            WorkspaceRequest::FindReferences { .. } => {
+                WorkspaceOutput::FindReferences(self.references_output(cx))
             }
             _ => return None,
         }))
@@ -1011,7 +1031,7 @@ impl Shell {
 }
 
 /// 1-based line and character column of `offset`.
-fn line_column(view: &Entity<EditorView>, offset: usize, cx: &gpui::App) -> (u32, u32) {
+pub(super) fn line_column(view: &Entity<EditorView>, offset: usize, cx: &gpui::App) -> (u32, u32) {
     let buffer = view.read(cx).editor().buffer();
     let p = buffer.offset_to_point(offset.min(buffer.len()));
     let line = buffer.line(p.row);

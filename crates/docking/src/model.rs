@@ -53,6 +53,8 @@ pub mod ids {
     pub const ERROR_LIST: &str = "error_list";
     pub const OUTPUT: &str = "output";
     pub const TOOLBOX: &str = "toolbox";
+    /// Find All References (brief 0014): closed until a search shows it, then tabbed with the Error List.
+    pub const FIND_ALL_REFERENCES: &str = "find_all_references";
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
@@ -95,6 +97,11 @@ impl ToolWindowRegistry {
             (ids::ERROR_LIST, "Error List", DockSide::Bottom),
             (ids::OUTPUT, "Output", DockSide::Bottom),
             (ids::TOOLBOX, "Toolbox", DockSide::Left),
+            (
+                ids::FIND_ALL_REFERENCES,
+                "Find All References",
+                DockSide::Bottom,
+            ),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -885,7 +892,21 @@ mod tests {
         assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(l.bottom.groups[0].tabs, [ids::ERROR_LIST, ids::OUTPUT]);
         assert_eq!(l.bottom.groups[0].active_id(), Some(ids::ERROR_LIST));
-        assert!(l.hidden.is_empty() && l.floating.is_empty());
+        // Find All References starts closed and opens beside the Error List (brief 0014).
+        assert_eq!(
+            l.hidden,
+            [HiddenWindow {
+                id: ids::FIND_ALL_REFERENCES.into(),
+                side: DockSide::Bottom
+            }]
+        );
+        assert!(l.floating.is_empty());
+        let mut shown = l.clone();
+        shown.show(ids::FIND_ALL_REFERENCES).unwrap();
+        assert_eq!(
+            shown.bottom.groups[0].tabs,
+            [ids::ERROR_LIST, ids::OUTPUT, ids::FIND_ALL_REFERENCES]
+        );
         assert_eq!(l.documents.active_tab().unwrap().title, "Welcome");
     }
 
