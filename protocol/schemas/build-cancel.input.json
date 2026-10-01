@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-cancel.input.json",
+  "title": "eludite.build.cancel input",
+  "description": "Cancel the running build (Build > Cancel, Ctrl+Break): eludite-host kills the MSBuild process tree and the build ends as canceled within 2 s. Does nothing when no build runs.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

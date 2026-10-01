@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-start.json",
+  "title": "eludite/build/start",
+  "description": "Start a build of the open solution, or of one of its projects, out of process: `dotnet build` (or `dotnet clean`) for SDK-style solutions, the located MSBuild (Mono's, or Build Tools' on Windows) when the solution has legacy (non-SDK) projects. The host answers at once; the build streams eludite/build/output and eludite/build/progress and ends with exactly one eludite/build/finished. One build at a time per host: a second start while one runs fails with -32010 (BuildInProgress).",
+  "x-eludite-method": "eludite/build/start",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "description": "build: an incremental build (restore included). rebuild: clean, then build. clean: delete the outputs.",
+          "enum": [
+            "build",
+            "rebuild",
+            "clean"
+          ]
+        },
+        "project": {
+          "description": "Absolute path of one project file of the open solution to build alone (with its project references). Omitted: the whole solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "The solution configuration, for example Debug or Release. Omitted: Debug.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The solution platform as the solution file lists it, for example Any CPU or x64. Omitted: the solution's default.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "buildId",
+        "generation",
+        "path",
+        "target",
+        "configuration",
+        "toolchain",
+        "commandLine"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "description": "The solution generation the build runs under. A new generation (another solution opened, or this one closed) cancels the build.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "Absolute path of the solution or project file being built.",
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "description": "build: an incremental build (restore included). rebuild: clean, then build. clean: delete the outputs.",
+          "enum": [
+            "build",
+            "rebuild",
+            "clean"
+          ]
+        },
+        "configuration": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "toolchain": {
+          "$ref": "#/$defs/toolchain"
+        },
+        "binlog": {
+          "description": "Where the binary log (-bl) is written; null when the toolchain cannot write one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commandLine": {
+          "description": "The command line run, for the Output window and the log.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "dotnet: the .NET SDK's `dotnet build`. mono: Mono's MSBuild (located, brief 0003). buildTools: MSBuild.exe from Visual Studio Build Tools (located with vswhere, Windows).",
+          "enum": [
+            "dotnet",
+            "mono",
+            "buildTools"
+          ]
+        },
+        "path": {
+          "description": "The MSBuild or dotnet executable or assembly used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "How it was located (PATH, ELUDITE_MONO_PREFIX, vswhere, ...).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

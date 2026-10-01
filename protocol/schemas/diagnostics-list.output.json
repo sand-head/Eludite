@@ -6,7 +6,14 @@
   "type": "array",
   "items": {
     "type": "object",
-    "required": ["path", "line", "column", "severity", "code", "message"],
+    "required": [
+      "path",
+      "line",
+      "column",
+      "severity",
+      "code",
+      "message"
+    ],
     "additionalProperties": false,
     "properties": {
       "path": {
@@ -14,15 +21,42 @@
         "type": "string",
         "minLength": 1
       },
-      "line": { "description": "1-based line.", "type": "integer", "minimum": 1 },
-      "column": { "description": "1-based column.", "type": "integer", "minimum": 1 },
-      "severity": { "enum": ["error", "warning", "message"] },
-      "code": { "description": "Diagnostic code, e.g. CS0103.", "type": "string" },
-      "message": { "type": "string" },
+      "line": {
+        "description": "1-based line.",
+        "type": "integer",
+        "minimum": 1
+      },
+      "column": {
+        "description": "1-based column.",
+        "type": "integer",
+        "minimum": 1
+      },
+      "severity": {
+        "enum": [
+          "error",
+          "warning",
+          "message"
+        ]
+      },
+      "code": {
+        "description": "Diagnostic code, e.g. CS0103.",
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      },
       "project": {
         "description": "Name of the project the file belongs to, as Workspace shows it; omitted when the file is in no loaded project.",
         "type": "string",
         "minLength": 1
+      },
+      "source": {
+        "description": "Where the row comes from, as the Error List's Build + IntelliSense filter names it: build (the last build only), live (the language server or the solution load only), or both (the build reported the same file, position and code as a live diagnostic, so the row is shown once). Omitted means live.",
+        "enum": [
+          "build",
+          "live",
+          "both"
+        ]
       }
     }
   }
