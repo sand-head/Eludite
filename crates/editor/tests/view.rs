@@ -273,6 +273,47 @@ fn highlighting_runs_off_thread_and_stale_highlights_follow_edits(cx: &mut TestA
 }
 
 #[gpui::test]
+fn highlighting_over_the_tree_limit_follows_edits(cx: &mut TestAppContext) {
+    let src = "class A\n{\n    int x = 1;\n}\n";
+    let (view, mut cx) = open(cx, src, Some("csharp"));
+    view.update(&mut cx, |v, _| v.set_syntax_tree_limit(0));
+    let kind = |cx: &mut VisualTestContext, row: u32, col: u32| {
+        view.read_with(cx, |v, _| {
+            v.highlights()
+                .kind_at(eludite_editor::text::Point::new(row, col))
+        })
+    };
+    // The first edit re-parses from the tree kept by the initial pass and
+    // then drops it; the second has no tree and parses from scratch.
+    for (needle, insert, number) in [("int", "static ", 19), ("x =", "y, ", 22)] {
+        view.update(&mut cx, |v, cx| {
+            v.update_editor(cx, |e| {
+                let at = e.text().find(needle).unwrap();
+                e.set_caret(at);
+                e.insert(insert);
+            })
+        });
+        wait_for_highlights(&view, &mut cx);
+        assert!(view.read_with(&cx, |v, _| v.highlight_progress().1.dropped_tree));
+        assert_eq!(
+            kind(&mut cx, 2, 4),
+            Some(HighlightKind::Keyword),
+            "{insert}"
+        );
+        assert_eq!(kind(&mut cx, 2, 11), Some(HighlightKind::TypeBuiltin));
+        assert_eq!(
+            kind(&mut cx, 2, number),
+            Some(HighlightKind::Number),
+            "{insert}"
+        );
+    }
+    assert_eq!(
+        text(&view, &mut cx),
+        "class A\n{\n    static int y, x = 1;\n}\n"
+    );
+}
+
+#[gpui::test]
 fn decorations_follow_edits(cx: &mut TestAppContext) {
     use eludite_editor::{Decoration, DecorationStyle};
     let (view, mut cx) = open(cx, "let a = b;", None);

@@ -85,6 +85,7 @@ impl std::error::Error for LanguageError {}
 impl Language {
     /// Compile a registration. Fails if the query does not match the grammar.
     pub fn new(config: LanguageConfig) -> Result<Self, LanguageError> {
+        super::alloc::install();
         let grammar = (config.grammar)();
         // Probe the ABI the same way a parser would.
         tree_sitter::Parser::new()
