@@ -1,8 +1,8 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Workspace,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
-//! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), and builds with the Output window
-//! and the build's rows in the Error List (brief 0017).
+//! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), builds with the Output window and
+//! the build's rows in the Error List (brief 0017), and run and debug (brief 0018).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -13,6 +13,7 @@ pub mod build;
 #[cfg(test)]
 mod build_tests;
 pub mod code_actions;
+pub mod debug;
 pub mod documents;
 pub mod error_list;
 pub mod explorer;
@@ -107,6 +108,10 @@ pub struct Services {
     pub build_jobs: UnboundedReceiver<BuildJob>,
     /// Where waiting build commands read finished builds.
     pub build_shared: Arc<BuildShared>,
+    /// `eludite.debug.*` from other threads, for the UI thread to apply (brief 0018).
+    pub debug_jobs: UnboundedReceiver<debug::DebugJob>,
+    /// How debugging sessions reach their adapter.
+    pub debug: debug::DebugSetup,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
@@ -159,6 +164,7 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
             shared: build_shared.clone(),
         }),
     );
+    let debug_jobs = debug::register(commands);
     Services {
         session,
         events,
@@ -169,6 +175,8 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         tree,
         build_jobs,
         build_shared,
+        debug_jobs,
+        debug: debug::DebugSetup::from_env(),
     }
 }
 
@@ -246,6 +254,8 @@ pub struct Shell {
     tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
     /// The build (brief 0017).
     builds: Builds,
+    /// Run and debug (brief 0018).
+    debug: debug::Debugger,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -256,6 +266,7 @@ fn tool_body(
     references: Entity<ReferencesWindow>,
     agents: Entity<agents::window::AgentsWindow>,
     output: Entity<OutputWindow>,
+    debug: debug::windows::DebugWindows,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -279,8 +290,8 @@ fn tool_body(
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
-        // Titled empty panels until later briefs fill them.
-        _ => div().into_any_element(),
+        // The debugger's windows (brief 0018); titled empty panels for the rest until later briefs fill them.
+        _ => debug.body(id).unwrap_or_else(|| div().into_any_element()),
     }
 }
 
@@ -361,8 +372,11 @@ impl Shell {
             tree,
             mut build_jobs,
             build_shared,
+            debug_jobs,
+            debug: debug_setup,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
+        let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
@@ -374,6 +388,7 @@ impl Shell {
                     references_window.clone(),
                     agents.window.clone(),
                     output.clone(),
+                    debugger.windows.clone(),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -400,9 +415,22 @@ impl Shell {
         .detach();
         cx.subscribe_in(&agents.window, window, Self::on_agents_window_event)
             .detach();
+        for (vars, watch) in [
+            (debugger.windows.locals.clone(), false),
+            (debugger.windows.watch.clone(), true),
+        ] {
+            cx.subscribe(
+                &vars,
+                move |shell, _, e: &debug::windows::ToggleVariable, cx| {
+                    shell.debug_toggle_variable(watch, &e.0, cx)
+                },
+            )
+            .detach();
+        }
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(build::BUILD_SLOT, SlotAlign::Left);
+        status.add_slot(debug::DEBUG_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
         status.add_slot(agents::AGENTS_SLOT, SlotAlign::Right);
         // The status bar reads the version through the command bus, like an agent would.
@@ -522,6 +550,7 @@ impl Shell {
                 }
             }
         });
+        let debug_task = Self::debug_tasks(debug_msgs, debug_jobs, window, cx);
         Self {
             theme,
             commands,
@@ -560,6 +589,7 @@ impl Shell {
             capture_next: None,
             tree,
             builds: Builds::new(building, build_shared),
+            debug: debugger,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -567,6 +597,8 @@ impl Shell {
                 agent_task,
                 agent_job_task,
                 build_job_task,
+                debug_task.0,
+                debug_task.1,
             ],
         }
     }
@@ -652,6 +684,14 @@ impl Shell {
     /// Invoke a command from the UI: the File > Open Project/Solution dialog and the unsaved-changes question come
     /// first, then the bus. The result goes to the status bar.
     pub fn run(&mut self, command: &str, args: Value, window: &mut Window, cx: &mut Context<Self>) {
+        // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
+        if command == eludite_commands::debug::START
+            && args.get("debug") != Some(&Value::Bool(false))
+            && self.debug.model.mode == debug::state::Mode::Break
+        {
+            self.run(eludite_commands::debug::CONTINUE, json!({}), window, cx);
+            return;
+        }
         if command == workspace::SOLUTION_OPEN && args.get("path").is_none() {
             self.prompt_open_solution(window, cx);
             return;
@@ -708,6 +748,14 @@ impl Shell {
         {
             let (outcome, _) = self.apply_build(request, window, cx);
             build::stage(outcome);
+        }
+        if eludite_commands::debug::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::debug::parse(command, args.clone())
+        {
+            let outcome = self
+                .apply_debug(request, &eludite_commands::Caller::User, false, window, cx)
+                .map(|(out, _)| out);
+            debug::stage(outcome);
         }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
@@ -929,6 +977,7 @@ impl Shell {
                     self.timings.open = Some(Instant::now());
                 }
                 self.solution = Some(path.clone());
+                self.debug_solution_opened(&path, cx);
                 let name = self.solution_name();
                 window.set_window_title(&format!(
                     "{} - Eludite",

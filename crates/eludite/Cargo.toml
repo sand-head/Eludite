@@ -20,6 +20,8 @@ gpui.workspace = true
 gpui_platform.workspace = true
 eludite-acp.workspace = true
 eludite-commands.workspace = true
+# The DAP client, netcoredbg discovery and launch configuration (brief 0018).
+eludite-dap.workspace = true
 eludite-docking.workspace = true
 eludite-editor.workspace = true
 eludite-lsp.workspace = true
@@ -28,9 +30,12 @@ eludite-mcp.workspace = true
 eludite-protocol.workspace = true
 eludite-ui.workspace = true
 eludite-workspace.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The scripted fake debug adapter (crates/dap, feature `fake`) for the debugger tests.
+eludite-dap = { workspace = true, features = ["fake"] }
 gpui = { workspace = true, features = ["test-support"] }
 # The in-process fake eludite-host (crates/lsp, feature `fake`) for the open-solution tests.
 eludite-lsp = { workspace = true, features = ["fake"] }
