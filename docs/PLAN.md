@@ -49,6 +49,7 @@ What we take from Zed and what we do not. GPL licensing (D5) makes Zed's GPL-3.0
 - **Take, after a per-crate license audit:** GPUI, and the low-level text infrastructure (rope/sum-tree, buffer and anchor model, fuzzy matcher, tree-sitter glue) if their licenses are Apache or GPL-3.0-compatible. These are months of subtle work that have nothing to do with how the product looks.
 - **Do not take:** the `editor`, `workspace`, `ui`, `theme`, `project`, `terminal_view`, agent panel or any crate that decides what a user sees or how panels behave. Those are written fresh against the Visual Studio model (docking, tool windows, menus, status bar) so the result cannot look like Zed by construction.
 - Vendored crates live under `vendor/` with a pinned upstream commit and a `WHY.md` explaining what we changed. Upstream drift is a cost we accept knowingly, per crate.
+- **Vendor over own.** When a non-visual crate does what we need, vendoring beats rewriting; we only own code we must own (owner's decision, 2026-10-01). The brief 0001 audit's "rewrite" verdicts for the tree-sitter and language layers are therefore provisional: the follow-up is to check whether vendoring `language_core` behind a thin theme abstraction is cheaper than porting it, and to rewrite only what is genuinely coupled to Zed's visuals.
 
 ### D2. Process topology
 
@@ -242,6 +243,7 @@ Niello should be recognizable to a VS user in the first five seconds and never m
 - **Default layout.** Solution Explorer right, Properties below it, Error List and Output bottom, Toolbox collapsed left.
 - **Keymap.** VS on Windows and Linux; VS for Mac mapping on macOS with Rider as an option. F5, F9, F10, F11, Ctrl+T, Ctrl+Q, Ctrl+Shift+B, Ctrl+K Ctrl+D and the rest.
 - **Themes and type.** Our own VS Dark, Light and Blue defaults with VS's token colors, our own UI font stack and iconography. No Zed themes or icons are vendored.
+- **Theme system.** User-installable themes are a planned feature, not just built-in defaults: a documented theme format covering UI chrome and editor token colors, loadable from a file or an extension, with VS and VS Code theme import as a stretch goal. The format is ours; it is not required to be Zed's, though Zed's `theme` crate may be vendored as plumbing if the audit finds it worth it (D1). Lands with the extension system in Phase 2.
 - **Dialogs.** New Project backed by `dotnet new` templates, Add Reference, Project Properties, Options, Exception Settings, Attach to Process; same organization as VS.
 - **Deliberate divergences.** No modal dialogs during load, no blocking design-time builds, no "busy" banner; a command palette on Ctrl+Shift+P alongside Ctrl+Q; multibuffers for search results and references; inline agent prompts; a project graph view.
 
@@ -382,5 +384,7 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 | 5 | Native agent | Pinned. Claude Code via ACP is the first hosted agent, using the owner's organization subscription. |
 | 6 | Name | Niello. No software collisions found in a search; check crates.io, the GitHub org name and a domain before the first release. |
 | 7 | Language scope (v0.3) | .NET-first, not .NET-only. All .NET languages, the web stack and Rust are first-class per section 7; Rust basics land in Phase 1 for dogfooding. Other languages via extensions in Phase 5. |
+| 8 | Vendoring policy | Vendor over own when owning is not required (D1). Brief 0001's vendor list (sum_tree, rope, text, clock, fuzzy) is accepted; its rewrite verdicts are re-examined with that bias. |
+| 9 | Themes | A user-installable theme system is in scope for Phase 2 (section 8). Our own format and defaults; Zed's theme plumbing may be vendored but its look is not. |
 
 **Still open.** Which Zed crates actually pass the vendoring audit (Phase 0 output), and whether the Phase 0 GPUI spike on Windows clears the bar.
