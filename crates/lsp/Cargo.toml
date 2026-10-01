@@ -15,3 +15,9 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+# A scripted fake niello-host and the client tests that drive it. The binary runs as the fake host when
+# NIELLO_FAKE_HOST=1 and as the test runner otherwise, so it has its own main (no libtest harness writing to stdout).
+[[test]]
+name = "fake_host"
+harness = false
