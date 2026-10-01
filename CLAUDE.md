@@ -119,7 +119,7 @@ Per-crate `CLAUDE.md` files exist only where rules are non-obvious (editor core,
 - No telemetry, ever, by default.
 - No network calls at startup. Everything works offline except model calls the user chooses to make.
 - No new dependency without a license check; put the SPDX id in the PR. It must be compatible with GPL-3.0-or-later, and with MIT for `protocol/` and `extension-sdk/`.
-- Do not edit `vendor/` by hand. Changes go through the sync script (not written yet), and each vendored crate keeps a `WHY.md`.
+- Do not edit `vendor/` by hand. Changes go through `vendor/sync.sh`, which re-fetches at the pinned Zed commit and reports drift; each vendored crate keeps a `WHY.md`. `vendor/` is its own cargo workspace under Zed's lint rules, used by path from the root workspace.
 - Do not edit generated protocol bindings by hand.
 - Do not add features absent from PLAN.md. Propose them through an ADR or a brief.
 - Do not modify `docs/PLAN.md` unless a brief says so.
