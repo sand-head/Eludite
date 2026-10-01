@@ -1,4 +1,4 @@
-//! `eludite.solution.tree` (brief 0016): the open solution's projects and files, as Solution Explorer shows them, for
+//! `eludite.solution.tree` (brief 0016): the open solution's projects and files, as the Workspace window shows them, for
 //! agents (PLAN.md 5.4, the solution graph). Read from a caller-supplied source, like `diagnostics.list`, so it runs on
 //! whichever thread invokes it.
 
@@ -64,7 +64,7 @@ struct Input {
 pub fn spec() -> CommandSpec {
     CommandSpec {
         id: CommandId::new(SOLUTION_TREE).expect("valid id"),
-        title: "Solution Explorer: List Projects and Files".into(),
+        title: "Workspace: List Projects and Files".into(),
         input_schema: serde_json::from_str(INPUT).expect("valid schema"),
         output_schema: serde_json::from_str(OUTPUT).expect("valid schema"),
         permission: PermissionClass::Read,

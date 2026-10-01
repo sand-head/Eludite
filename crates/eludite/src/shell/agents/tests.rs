@@ -167,7 +167,7 @@ impl Ws {
 #[gpui::test]
 fn start_prompt_stream_read_without_prompt_and_deny_the_shell(cx: &mut TestAppContext) {
     let mut w = setup(cx);
-    // View > Agents shows the window, tabbed with Solution Explorer.
+    // View > Agents shows the window, tabbed with Workspace.
     w.commands
         .invoke("eludite.view.show", json!({"id": ids::AGENTS}))
         .unwrap();
