@@ -7,7 +7,11 @@
 //!   until fresh ones arrive.
 //! - [`Highlighter`]: owns the parser and tree; [`Highlighter::step`] does an
 //!   incremental re-parse and highlights dirty rows. `EditorView` runs it on
-//!   the [`SyntaxThread`], never on the UI thread.
+//!   the [`SyntaxThread`], never on the UI thread. Buffers over
+//!   [`TREE_RETAIN_LIMIT`] drop their tree after each highlight pass and
+//!   parse from scratch on the next edit.
+//! - [`alloc`]: tree-sitter's C allocations go through Rust's global
+//!   allocator, and [`alloc::live_bytes`] reports how much they hold.
 //! - [`SyntaxTheme`]: maps [`HighlightKind`] to colors.
 //!
 //! The tree-sitter glue is written for Eludite, following the approach of
@@ -15,13 +19,14 @@
 //! `changed_ranges` to find rows to re-highlight) without porting its
 //! injection layers, which C# and Rust do not need yet.
 
+pub mod alloc;
 mod highlighter;
 mod highlights;
 pub mod language;
 mod theme;
 mod worker;
 
-pub use highlighter::{HighlightStats, HighlightUpdate, Highlighter};
+pub use highlighter::{HighlightStats, HighlightUpdate, Highlighter, TREE_RETAIN_LIMIT};
 pub use highlights::{LineHighlights, Span};
 pub use language::{Language, LanguageConfig, LanguageError, LanguageRegistry};
 pub use theme::SyntaxTheme;
