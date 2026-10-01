@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/command-result.json",
+  "title": "Niello command result",
+  "description": "Result of a command invocation. Exactly one of output or error is present.",
+  "type": "object",
+  "required": ["command", "ok"],
+  "properties": {
+    "command": { "type": "string" },
+    "invocationId": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "output": {
+      "description": "Present when ok is true; validates against the command's output_schema."
+    },
+    "error": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": { "enum": ["unknown_command", "invalid_input", "permission_denied", "failed"] },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "oneOf": [
+    { "properties": { "ok": { "const": true } }, "required": ["output"] },
+    { "properties": { "ok": { "const": false } }, "required": ["error"] }
+  ]
+}

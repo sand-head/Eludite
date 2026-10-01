@@ -1,0 +1,78 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/niello",
+    "crates/docking",
+    "crates/ui",
+    "crates/editor",
+    "crates/commands",
+    "crates/workspace",
+    "crates/lsp",
+    "crates/dap",
+    "crates/acp",
+    "crates/mcp",
+    "crates/git",
+    "crates/terminal",
+    "crates/extensions",
+    "protocol/rust",
+    "extension-sdk",
+    "debuggers/netfx",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/sand-head/niello-ide"
+rust-version = "1.98"
+publish = false
+
+[workspace.dependencies]
+# Internal crates
+niello-acp = { path = "crates/acp" }
+niello-commands = { path = "crates/commands" }
+niello-dap = { path = "crates/dap" }
+niello-docking = { path = "crates/docking" }
+niello-editor = { path = "crates/editor" }
+niello-extensions = { path = "crates/extensions" }
+niello-extension-sdk = { path = "extension-sdk" }
+niello-git = { path = "crates/git" }
+niello-lsp = { path = "crates/lsp" }
+niello-mcp = { path = "crates/mcp" }
+niello-protocol = { path = "protocol/rust" }
+niello-terminal = { path = "crates/terminal" }
+niello-ui = { path = "crates/ui" }
+niello-workspace = { path = "crates/workspace" }
+
+# GPUI only (Apache-2.0). Do not add Zed's ui/theme/editor/workspace crates (PLAN.md D1).
+gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8" }
+# GPUI's platform backends live in a separate Apache-2.0 crate at this rev; it provides `application()`.
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["wayland", "x11", "font-kit"] }
+
+# Third-party
+git2 = { version = "0.20", default-features = false }
+ropey = "1.6"
+roxmltree = "0.20"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+toml = "0.8"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "allow"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+
+[profile.dev.package."*"]
+# Optimize dependencies (GPUI in particular) so debug builds stay usable.
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 16

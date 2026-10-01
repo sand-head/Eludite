@@ -1,0 +1,40 @@
+# Briefs
+
+A brief is the unit of delegated work. Work is issued as briefs so that one agent, in one worktree, can finish a task without reading the rest of the repo, and so the human can review a diff and a benchmark delta instead of a transcript (PLAN.md section 11).
+
+## Format
+
+Every brief is `docs/briefs/NNNN-short-slug.md` and has these sections, in this order:
+
+1. **Goal.** One paragraph. What exists when the brief is done that does not exist now.
+2. **Files in scope.** The paths the agent owns. The agent edits nothing outside this list.
+3. **Contract.** The interfaces, schemas, protocols and versions the work must satisfy. Link to the schema in `protocol/` or the ADR.
+4. **Proving test.** The test, command or procedure that demonstrates the goal, and how to run it.
+5. **Budget.** The performance and resource limits the work must not regress, from PLAN.md section 9, plus any brief-specific limits.
+6. **Exit criterion.** Measurable conditions, each checkable as pass or fail. Include the deliverables to hand back.
+7. **Out of scope.** An explicit list of things the agent must not do, even if they look useful.
+
+Optional header lines: Status (open, in progress, done), Plan reference, Depends on.
+
+## Rules
+
+- One brief per git worktree. Name the branch after the brief, for example `brief/0002-niello-host-roslyn`.
+- Briefs are written so a fresh agent with no other context can execute them. Name commands, versions, paths and thresholds.
+- A brief that cannot be stated this precisely is not ready to be delegated. It goes back to design, and the result is an ADR or a sharper brief.
+- Exit criteria are measurable. "Works well" is not one. "p95 under 50 ms over 1000 runs on the reference machine" is.
+- Spike briefs produce throwaway code plus a written report. Production code lands through a later brief.
+- If the agent finds the brief cannot be satisfied as written, it stops and reports. It does not widen scope.
+- When a brief is done, mark its status and link the PR. Do not delete briefs.
+- Follow CLAUDE.md for the definition of done, except where a spike brief says throwaway code is exempt from tests it would not need.
+
+## Index
+
+| Brief | Title | Phase |
+|---|---|---|
+| [0001](0001-gpui-shell-and-docking-spike.md) | GPUI shell and docking prototype, Zed vendoring audit | 0 |
+| [0002](0002-niello-host-roslyn-spike.md) | `niello-host` with Roslyn, time-to-IntelliSense | 0 |
+| [0003](0003-legacy-project-load-spike.md) | Legacy project load, WebForms code-behind IntelliSense | 0 |
+| [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 |
+| [0005](0005-acp-claude-code-spike.md) | Claude Code via ACP in a GPUI panel, one MCP tool | 0 |
+
+The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.

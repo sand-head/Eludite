@@ -1,0 +1,76 @@
+# Niello
+
+Niello is a native, cross-platform, agent-first IDE. It is .NET-first, not .NET-only: the first-class workloads are .NET in all its languages (C#, F#, VB.NET) including .NET Framework, WebForms and WCF; modern web development (TypeScript, JavaScript and the front-end stack); and Rust. The goal is feature parity with Visual Studio Community and JetBrains Rider for the .NET workload, with the responsiveness and restraint of Zed, a layout and keymap a Visual Studio user recognizes on day one, and agents as a peer of the human at every surface of the product.
+
+It is built by one person directing many agents. The shell is Rust on GPUI and draws its own UI. Roslyn, MSBuild, debuggers, test runners and agents each run in their own process, so a hung analyzer cannot freeze the editor. Every action is a command on one bus that both the UI and agents call, and the shell speaks open protocols (LSP, DAP, MTP, ACP, MCP) instead of hosting a VS Code extension runtime.
+
+## Status
+
+Pre-alpha scaffold. Nothing is usable yet. The repository currently holds the plan, the architecture decisions, the crate skeletons and the Phase 0 briefs.
+
+Phase 0 spikes (each has a brief in [docs/briefs/](docs/briefs/)):
+
+- [ ] 0001: GPUI shell and docking prototype on three OSes, plus the Zed crate vendoring audit
+- [ ] 0002: `niello-host` embedding the Roslyn language server, time-to-IntelliSense on a 200-project solution
+- [ ] 0003: legacy project load with Mono MSBuild (Linux) and Build Tools (Windows), WebForms code-behind IntelliSense
+- [ ] 0004: ICorDebug proof on Windows from Rust over a TCP DAP transport
+- [ ] 0005: Claude Code hosted via ACP in a GPUI panel, calling one Niello MCP tool
+
+## Build
+
+Toolchains are pinned: Rust 1.98.1 by `rust-toolchain.toml`, .NET SDK 10.0.302 by `global.json`.
+
+Shell (Rust workspace):
+
+```
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --check
+```
+
+Host (.NET):
+
+```
+dotnet build dotnet/Niello.slnx
+dotnet test dotnet/Niello.slnx
+```
+
+GPUI is a git dependency on zed-industries/zed at a pinned revision, so the first build downloads it.
+
+Linux system packages for the GPUI build:
+
+- Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`
+- Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`
+
+Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows.
+
+## Repository layout
+
+```
+crates/            Rust workspace (shell)
+  niello/          binary: entry, window, layout
+  docking/ ui/ editor/ commands/ workspace/
+  lsp/ dap/ acp/ mcp/ git/ terminal/ extensions/
+vendor/            pinned Zed crates, each with WHY.md (after the audit)
+dotnet/            .NET solution (hosts)
+debuggers/netfx/   niello-dbg-netfx (Rust, Windows)
+protocol/          MIT: schemas, generated bindings
+extension-sdk/     MIT: WASM extension API
+corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
+docs/              PLAN.md, adr/, briefs/
+```
+
+## Documents
+
+- [docs/PLAN.md](docs/PLAN.md): the master plan, source of truth for scope and phases
+- [docs/adr/](docs/adr/): architecture decision records, one per decision D1 to D7
+- [docs/briefs/](docs/briefs/): units of delegable work, starting with the Phase 0 spikes
+- [CLAUDE.md](CLAUDE.md): rules for every agent working in this repo
+- [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute
+
+## License
+
+- Product (shell, hosts, debuggers, web tooling): GPL-3.0-or-later, see [LICENSE](LICENSE).
+- `protocol/` and `extension-sdk/`: MIT, so anyone can write an agent, extension or alternative host against Niello under any license.
+- Contributions are accepted under the Developer Certificate of Origin. There is no CLA.
