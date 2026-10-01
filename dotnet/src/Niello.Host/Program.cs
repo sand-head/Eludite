@@ -36,8 +36,12 @@ internal static class Program
 
         await using var input = Console.OpenStandardInput();
         await using var output = Console.OpenStandardOutput();
+        // stdout is protocol only (CLAUDE.md invariant 10). Anything that writes to Console.Out (MSBuild loggers,
+        // libraries) lands in the log instead of corrupting the JSON-RPC stream.
+        Console.SetOut(log);
 
-        LspProxy? languageServer = null;
+        ILanguageServerLauncher? launcher = null;
+        ISolutionPreparer? preparer = null;
         if (!noRoslyn)
         {
             var located = RoslynProcessLauncher.Locate(roslynPath);
@@ -45,27 +49,23 @@ internal static class Program
             {
                 await log.WriteLineAsync("Roslyn language server not found (see tools/roslyn-pin); LSP forwarding disabled").ConfigureAwait(false);
             }
+            else if (Environment.GetEnvironmentVariable("NIELLO_LEGACY") == "0")
+            {
+                // Brief 0003: NIELLO_LEGACY=0 turns the legacy preparation and the extra environment off.
+                launcher = new RoslynProcessLauncher(located, log);
+            }
             else
             {
-                // Brief 0003: legacy projects. NIELLO_LEGACY=0 turns the preparation and the extra environment off.
-                if (Environment.GetEnvironmentVariable("NIELLO_LEGACY") == "0")
-                {
-                    languageServer = new LspProxy(new RoslynProcessLauncher(located, log), log);
-                }
-                else
-                {
-                    var legacy = new LegacyDesignTime(log);
-                    await log.WriteLineAsync(legacy.Mono is { } mono
-                        ? $"[legacy] Mono MSBuild: {mono.MsBuildDll} ({mono.Source})"
-                        : "[legacy] Mono MSBuild not found; non-SDK projects load with the .NET SDK's MSBuild").ConfigureAwait(false);
-                    languageServer = new LspProxy(
-                        new RoslynProcessLauncher(located, log, environment: legacy.RoslynEnvironment()),
-                        log,
-                        legacy.PrepareAsync);
-                }
+                var legacy = new LegacyDesignTime(log);
+                await log.WriteLineAsync(legacy.Mono is { } mono
+                    ? $"[legacy] Mono MSBuild: {mono.MsBuildDll} ({mono.Source})"
+                    : "[legacy] Mono MSBuild not found; non-SDK projects load with the .NET SDK's MSBuild").ConfigureAwait(false);
+                launcher = new RoslynProcessLauncher(located, log, environment: legacy.RoslynEnvironment());
+                preparer = legacy;
             }
         }
 
+        var languageServer = new LspProxy(launcher, log, preparer);
         var target = new HostRpcTarget(new DotnetCliSdkDiscoverer(), log, languageServer: languageServer);
         await log.WriteLineAsync($"{HostRpcTarget.HostName} {HostRpcTarget.HostVersion} listening on stdio").ConfigureAwait(false);
         return await HostServer.RunAsync(output, input, target).ConfigureAwait(false);

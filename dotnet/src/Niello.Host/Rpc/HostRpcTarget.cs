@@ -7,7 +7,10 @@ using StreamJsonRpc;
 
 namespace Niello.Host.Rpc;
 
-/// <summary>The JSON-RPC method surface of niello-host.</summary>
+/// <summary>
+/// The Niello method surface of niello-host (protocol/schemas/host-rpc.md, "Niello methods"). Forwarded LSP methods
+/// are registered by <see cref="LspProxy.Attach"/>.
+/// </summary>
 public sealed class HostRpcTarget
 {
     public const string HostName = "niello-host";
@@ -17,37 +20,41 @@ public sealed class HostRpcTarget
     private readonly TextWriter _log;
     private readonly TaskCompletionSource _exitRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <param name="languageServer">The LSP bridge; when null, one without a language server is created, so
+    /// <c>niello/solution/*</c> and forwarded requests answer with documented failures instead of MethodNotFound.</param>
     public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        LanguageServer = languageServer;
+        LanguageServer = languageServer ?? new LspProxy(null, log);
     }
 
-    /// <summary>The forwarded Roslyn language server, or null when none is configured.</summary>
-    public LspProxy? LanguageServer { get; }
+    /// <summary>The LSP bridge.</summary>
+    public LspProxy LanguageServer { get; }
 
     public static string HostVersion { get; } =
         typeof(HostRpcTarget).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? "0.0.0";
 
-    /// <summary>True once the client has sent <c>shutdown</c>.</summary>
+    /// <summary>True once the client has sent <c>niello/host/initialize</c>.</summary>
+    public bool Initialized { get; private set; }
+
+    /// <summary>True once the client has sent <c>niello/host/shutdown</c>.</summary>
     public bool ShutdownRequested { get; private set; }
 
-    /// <summary>Completes when the client sends the <c>exit</c> notification.</summary>
+    /// <summary>Completes when the client sends the <c>niello/host/exit</c> notification.</summary>
     public Task ExitRequested => _exitRequested.Task;
 
-    [JsonRpcMethod("initialize", UseSingleObjectParameterDeserialization = true)]
+    [JsonRpcMethod("niello/host/initialize", UseSingleObjectParameterDeserialization = true)]
     public InitializeResult Initialize(InitializeParams parameters)
     {
         ArgumentNullException.ThrowIfNull(parameters);
-        _log.WriteLine(
-            $"initialize from {parameters.ClientName} {parameters.ClientVersion}" +
-            (parameters.SolutionPath is null ? string.Empty : $" (solution: {parameters.SolutionPath})"));
+        _log.WriteLine($"niello/host/initialize from {parameters.ClientName} {parameters.ClientVersion}");
+        Initialized = true;
         // Starts the language server in the background; initialize itself does not wait for it.
-        LanguageServer?.Start(parameters.SolutionPath);
-        return new InitializeResult(HostName, HostVersion, new HostCapabilities());
+        LanguageServer.Start();
+        return new InitializeResult(HostName, HostVersion, new HostCapabilities(LanguageServer.IsConfigured));
     }
 
     [JsonRpcMethod("niello/ping")]
@@ -67,17 +74,39 @@ public sealed class HostRpcTarget
             RuntimeInformation.OSDescription);
     }
 
-    [JsonRpcMethod("shutdown")]
+    [JsonRpcMethod("niello/solution/open", UseSingleObjectParameterDeserialization = true)]
+    public GenerationResult OpenSolution(SolutionOpenParams parameters)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return new GenerationResult(LanguageServer.OpenSolution(parameters?.Path));
+    }
+
+    [JsonRpcMethod("niello/solution/close")]
+    public GenerationResult CloseSolution()
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return new GenerationResult(LanguageServer.CloseSolution());
+    }
+
+    [JsonRpcMethod("niello/host/shutdown")]
     public void Shutdown()
     {
-        _log.WriteLine("shutdown requested");
+        _log.WriteLine("niello/host/shutdown requested");
         ShutdownRequested = true;
     }
 
-    [JsonRpcMethod("exit")]
+    [JsonRpcMethod("niello/host/exit")]
     public void Exit()
     {
-        _log.WriteLine("exit requested");
+        _log.WriteLine("niello/host/exit requested");
         _exitRequested.TrySetResult();
     }
 }

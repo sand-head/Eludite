@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Nerdbank.Streams" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
   </ItemGroup>
 
   <ItemGroup>

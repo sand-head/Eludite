@@ -108,13 +108,29 @@ public sealed class LegacyWebFormsCompletionTests
         var stderr = host.StandardError.ReadToEndAsync(Ct);
         try
         {
-            using var rpc = HostServer.CreateConnection(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
-            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            rpc.AddLocalRpcMethod("workspace/projectInitializationComplete", new Action(() => loaded.TrySetResult()));
+            using var rpc = TestRpc.Create(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
+            var loaded = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TestRpc.On(rpc, "niello/solution/status", s =>
+            {
+                if (s.GetProperty("state").GetString() is "loaded" or "failed")
+                {
+                    loaded.TrySetResult(s.Clone());
+                }
+            });
             rpc.StartListening();
 
-            await rpc.InvokeWithParameterObjectAsync<JsonElement>("initialize", new { clientName = "legacy-webforms-test", clientVersion = "0", solutionPath = project }, Ct);
-            await loaded.Task.WaitAsync(TimeSpan.FromMinutes(5), Ct);
+            await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "legacy-webforms-test", clientVersion = "0" }, Ct);
+            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = project }, Ct);
+            var generation = opened.GetProperty("generation").GetInt64();
+            var status = await loaded.Task.WaitAsync(TimeSpan.FromMinutes(5), Ct);
+
+            // The status says which MSBuild evaluated the legacy project and which corrections were applied.
+            Assert.Equal("loaded", status.GetProperty("state").GetString());
+            Assert.Equal(1, status.GetProperty("counts").GetProperty("legacyProjects").GetInt32());
+            Assert.Equal(msbuild, status.GetProperty("msbuild").GetProperty("kind").GetString());
+            Assert.Contains(
+                status.GetProperty("corrections").EnumerateArray(),
+                c => c.GetProperty("kind").GetString() == "designerPartials" && c.GetProperty("count").GetInt32() > 0);
 
             // The generated partial (not the checked-in .designer.cs) declares the probe fields.
             var generated = Directory.GetFiles(Path.Combine(cacheDir, "designtime", "generated"), "Login.aspx.g.cs", SearchOption.AllDirectories);
@@ -133,7 +149,7 @@ public sealed class LegacyWebFormsCompletionTests
 
             await rpc.NotifyWithParameterObjectAsync("textDocument/didOpen", new { textDocument = new { uri, languageId = "csharp", version = 1, text } });
             // Full semantics for the document version (see the brief 0002 report on frozen-partial completion).
-            var diagnostics = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri } }, Ct);
+            var diagnostics = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation }, Ct);
             var probeErrors = diagnostics.GetProperty("items").EnumerateArray()
                 .Where(d => d.GetProperty("severity").GetInt32() == 1)
                 .Select(d => d.GetProperty("message").GetString() ?? string.Empty)
@@ -141,17 +157,17 @@ public sealed class LegacyWebFormsCompletionTests
                 .ToList();
             Assert.Empty(probeErrors);
 
-            var buttonMembers = await CompleteAfterAsync(rpc, uri, text, $"{ProbeButton}.");
+            var buttonMembers = await CompleteAfterAsync(rpc, uri, text, $"{ProbeButton}.", generation);
             Assert.Contains("Text", buttonMembers);
             Assert.Contains("OnClientClick", buttonMembers);
             Assert.Contains("CommandName", buttonMembers);
 
-            var labelMembers = await CompleteAfterAsync(rpc, uri, text, $"{ProbeLabel}.");
+            var labelMembers = await CompleteAfterAsync(rpc, uri, text, $"{ProbeLabel}.", generation);
             Assert.Contains("Text", labelMembers);
             Assert.Contains("AssociatedControlID", labelMembers);
 
-            await rpc.InvokeWithCancellationAsync<JsonElement>("shutdown", [], Ct);
-            await rpc.NotifyAsync("exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
+            await rpc.NotifyAsync("niello/host/exit");
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             Assert.Equal(0, host.ExitCode);
         }
@@ -167,7 +183,7 @@ public sealed class LegacyWebFormsCompletionTests
         }
     }
 
-    private static async Task<List<string?>> CompleteAfterAsync(StreamJsonRpc.JsonRpc rpc, string uri, string text, string probe)
+    private static async Task<List<string?>> CompleteAfterAsync(StreamJsonRpc.JsonRpc rpc, string uri, string text, string probe, long generation)
     {
         var offset = text.IndexOf(probe, StringComparison.Ordinal) + probe.Length;
         var before = text[..offset];
@@ -180,6 +196,7 @@ public sealed class LegacyWebFormsCompletionTests
                 textDocument = new { uri },
                 position = new { line, character },
                 context = new { triggerKind = 1 },
+                nielloGeneration = generation,
             },
             Ct);
         Assert.Equal(JsonValueKind.Object, completion.ValueKind);
