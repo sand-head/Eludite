@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Answers "does this type exist" for control type resolution.</summary>
 public interface IControlTypeCatalog

@@ -21,7 +21,7 @@ From the repository root, `cargo run --manifest-path spikes/0001-gpui-shell/Carg
 - One window: document tabs (a generated 100,000-line C#-like file, and a Welcome page), Solution Explorer and Git Changes tabbed over Properties on the right, Error List and Output tabbed at the bottom, Toolbox auto-hidden on the left.
 - Drag a tool window's title bar or tab. Guides appear on the left, right and bottom of the document area: drop on one to dock there. Drop on another tool window group to tab into it. Drop anywhere else to float it in its own OS window.
 - Group header buttons: Float, Auto Hide. Auto-hidden windows sit on the edge strip; click to slide out, Pin to dock again. A floating window has Dock; closing it also docks it back.
-- The layout is saved as JSON on every change to `$XDG_CONFIG_HOME/niello-spike/layout.json` (or `%APPDATA%\niello-spike\layout.json`, or `--layout PATH`) and restored at startup, including floating windows. `--reset-layout` starts from the default.
+- The layout is saved as JSON on every change to `$XDG_CONFIG_HOME/eludite-spike/layout.json` (or `%APPDATA%\eludite-spike\layout.json`, or `--layout PATH`) and restored at startup, including floating windows. `--reset-layout` starts from the default.
 - The text view types, deletes, splits and joins lines, and moves the cursor with the arrow keys, Home, End, Page Up and Page Down.
 
 Benchmark modes use the default layout and never write the layout file.

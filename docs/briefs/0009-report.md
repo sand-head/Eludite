@@ -38,12 +38,12 @@ All commits are the GPUI pin `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`. The non
 
 **Packaging difference (not a code change).** Upstream's `LICENSE-GPL` and `LICENSE-APACHE` are symlinks to Zed's root license files. Here they are the dereferenced files, so each license travels with its crate. `sync.sh` diffs through the symlinks.
 
-**Wiring, and the deviation from the brief.** The brief asked for `vendor/*` as root workspace members, with any lint exception scoped to `vendor/*` in the root manifest. Cargo cannot scope lints per member from the root manifest. A member either inherits `[workspace.lints]` (`clippy::all` and `unsafe_code`) or carries its own `[lints]` table, and adding one would be a local change to upstream manifests. Under Niello's lints the vendored code fails `-D warnings`: it uses `unsafe`, and Zed allows clippy's `style` group. Membership would also pull Zed's dev-dependencies into the root workspace: proptest from git, criterion, gpui test-support. So:
+**Wiring, and the deviation from the brief.** The brief asked for `vendor/*` as root workspace members, with any lint exception scoped to `vendor/*` in the root manifest. Cargo cannot scope lints per member from the root manifest. A member either inherits `[workspace.lints]` (`clippy::all` and `unsafe_code`) or carries its own `[lints]` table, and adding one would be a local change to upstream manifests. Under Eludite's lints the vendored code fails `-D warnings`: it uses `unsafe`, and Zed allows clippy's `style` group. Membership would also pull Zed's dev-dependencies into the root workspace: proptest from git, criterion, gpui test-support. So:
 
 - `vendor/Cargo.toml` is a separate workspace holding the five crates. It mirrors the parts of Zed's root manifest they inherit: dependency versions and Zed's own lint table. The vendored manifests stay byte-identical to upstream.
 - The root `Cargo.toml` has `exclude = ["vendor"]`. It uses the crates by path (`text = { path = "vendor/text" }`) and has `[patch."https://github.com/zed-industries/zed"] sum_tree = { path = "vendor/sum_tree" }`. GPUI depends on no other crate in the list, so `sum_tree` is the only patch.
 - Upstream's tests run with `cargo test --manifest-path vendor/Cargo.toml --workspace --all-features`: 81 pass (fuzzy 9, rope 24, sum_tree 10, text 38). Clippy under Zed's lints with `-D warnings` is clean.
-- `fuzzy` is vendored and tested but no Niello crate depends on it yet, so the root build has zero copies of it.
+- `fuzzy` is vendored and tested but no Eludite crate depends on it yet, so the root build has zero copies of it.
 
 The root `Cargo.lock` gains Zed's `util` crate (Apache-2.0), which `rope` and `text` need, plus its dependencies. New third-party licenses in the lockfile: Zlib, MIT, Apache-2.0, BSD-3-Clause (`zstd-safe`, `zstd-sys`) and Unlicense OR MIT. All are GPL-3.0-compatible. `ropey` and `str_indices` are gone, and the `ropey` workspace dependency is removed.
 
@@ -78,20 +78,20 @@ Public API, documented in the `crates/editor/src/lib.rs` crate docs:
 
 **Off the UI thread.** Highlight steps run on `SyntaxThread`, one OS thread per process. The first version used GPUI's background pool. glibc's per-thread malloc arenas then fragmented: RSS grew 150 MB over 300 keystrokes in the 100k-line file, against 14 MB with `MALLOC_ARENA_MAX=1`. Keystroke frame cost p99 also fell from 6.5 ms to 2.1 ms after the change. The UI thread only interpolates spans through edits and swaps in results. Dropping old maps also happens on the syntax thread.
 
-**Highlight queries.** These are Niello's own files in `crates/editor/queries/`:
+**Highlight queries.** These are Eludite's own files in `crates/editor/queries/`:
 
 - **C#:** adapted from tree-sitter-c-sharp 0.23.5's query (MIT). The catch-all identifier and punctuation captures are dropped, and captures are added for invocations, object creation, properties, using directives, preprocessor directives and interpolated string text.
 - **Rust:** tree-sitter-rust 0.24.2's query (MIT) with a regex bug fixed (`"...+$'"` never matched) and the doc-comment patterns moved before the plain comment patterns.
 - **Precedence rule:** the earlier pattern wins for the same node, and inner captures paint over outer ones.
-- **Color mapping:** `SyntaxTheme::vs_dark(&niello_ui::Theme)` uses the theme's `text` token for uncolored kinds. `crates/ui` has no syntax tokens, and this brief may not edit it, so the Visual Studio Dark syntax colors live in `crates/editor` for now. They should move into `niello_ui::Theme`.
+- **Color mapping:** `SyntaxTheme::vs_dark(&eludite_ui::Theme)` uses the theme's `text` token for uncolored kinds. `crates/ui` has no syntax tokens, and this brief may not edit it, so the Visual Studio Dark syntax colors live in `crates/editor` for now. They should move into `eludite_ui::Theme`.
 
-New direct dependencies: `tree-sitter` 0.27 (MIT), `tree-sitter-c-sharp` 0.23 (MIT), `tree-sitter-rust` 0.24 (MIT), and `futures` 0.3 (MIT OR Apache-2.0, already in the build through GPUI). `clock`, `text` and `niello-ui` are also direct dependencies.
+New direct dependencies: `tree-sitter` 0.27 (MIT), `tree-sitter-c-sharp` 0.23 (MIT), `tree-sitter-rust` 0.24 (MIT), and `futures` 0.3 (MIT OR Apache-2.0, already in the build through GPUI). `clock`, `text` and `eludite-ui` are also direct dependencies.
 
 Screenshots, taken in the nested KWin, show both fixtures with highlighting. They were checked visually and are not committed (outside the brief's file list).
 
 ## 4. Tests
 
-`cargo test -p niello-editor` runs 51 tests, all passing, and they passed on 6 repeated runs.
+`cargo test -p eludite-editor` runs 51 tests, all passing, and they passed on 6 repeated runs.
 
 **Unit tests (43):**
 - **Buffer:** edits and undo, transactions, grouping interval, anchors through edits and undo, CRLF, mixed endings through edits, inserted CRLF, BOM, invalid UTF-8, save and load bytes, large-file threshold, lines and points, find across chunks and case.
@@ -158,7 +158,7 @@ Options for the human:
 - **Decorations.** `EditorView::set_decorations(layer, Vec<Decoration>)` takes anchor ranges with one of three styles: `Background`, `Underline { wavy }` or `Foreground`. These are drawn now and covered by a test. Diagnostics map to wavy underlines, semantic tokens to foreground, and document highlights to background. Producers stamp results with `Buffer::version()` and drop stale ones (invariant 12).
 - **Popups.** `pixel_position_for_offset` anchors completion and hover popups to the text.
 - **Inlay hints** need text that is not in the buffer. That needs a display map, a coordinate layer between buffer and screen, which this view lacks.
-- **Commands.** Editor actions are GPUI actions with stable names (`editor::MoveLeft` and so on, exported in `niello_editor::actions`). They are not yet registered on the command bus (invariant 3). That belongs to the next brief, with the document-area wiring.
+- **Commands.** Editor actions are GPUI actions with stable names (`editor::MoveLeft` and so on, exported in `eludite_editor::actions`). They are not yet registered on the command bus (invariant 3). That belongs to the next brief, with the document-area wiring.
 - **Sizing the next brief.** Wire into the document area: open from Solution Explorer, tabs, dirty state and save. Map editor actions to command-bus commands with schemas. Feed decorations from the 0007 LSP bridge: diagnostics and semantic tokens, with generation and version checks. Add the display map for inlay hints. Estimate: one brief of the size of this one for document area, commands, diagnostics and semantic tokens. A second, smaller brief covers the display map and inlay hints, and should also settle the memory option from section 6.
 
 ## 8. Known gaps (all out of scope or noted in the crate docs)
@@ -181,10 +181,10 @@ Options for the human:
 ## 10. How to reproduce
 
 ```
-cargo test -p niello-editor
+cargo test -p eludite-editor
 cargo test --manifest-path vendor/Cargo.toml --workspace --all-features
 vendor/sync.sh                     # or: vendor/sync.sh --from ~/.cargo/git/checkouts/zed-*/20d29fc
 cargo tree -d --workspace          # no sum_tree/rope/text/clock/fuzzy/tree-sitter entries
 RUNS=3 LOAD_MAX=3 crates/editor/tools/bench.sh [OUT_DIR]     # results in OUT_DIR/results.jsonl
-cargo run -p niello-editor --release --example viewer -- path/to/File.cs
+cargo run -p eludite-editor --release --example viewer -- path/to/File.cs
 ```

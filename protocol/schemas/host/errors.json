@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/errors.json",
-  "title": "niello-host error data",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/errors.json",
+  "title": "eludite-host error data",
   "description": "The data member of host error responses.",
-  "x-niello-method": "*",
-  "x-niello-kind": "error",
-  "x-niello-direction": "shellToHost",
+  "x-eludite-method": "*",
+  "x-eludite-kind": "error",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "contentModified": {
       "description": "Error -32801.",

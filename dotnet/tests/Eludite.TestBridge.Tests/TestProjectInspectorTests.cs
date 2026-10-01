@@ -1,4 +1,4 @@
-namespace Niello.TestBridge.Tests;
+namespace Eludite.TestBridge.Tests;
 
 public sealed class TestProjectInspectorTests
 {

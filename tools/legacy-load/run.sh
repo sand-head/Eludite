@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Brief 0003: load every corpus project through niello-host's legacy evaluators and the Roslyn language server,
+# Brief 0003: load every corpus project through eludite-host's legacy evaluators and the Roslyn language server,
 # and write a JSON result per project plus results/<stamp>/matrix.md.
 #
 #   tools/legacy-load/run.sh                  # fetch corpus, restore, all phases
@@ -15,8 +15,8 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-src="${ROSLYN_SRC_DIR:-$HOME/.cache/niello/roslyn}"
-ls_dll="${NIELLO_ROSLYN_LS:-$src/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0/Microsoft.CodeAnalysis.LanguageServer.dll}"
+src="${ROSLYN_SRC_DIR:-$HOME/.cache/eludite/roslyn}"
+ls_dll="${ELUDITE_ROSLYN_LS:-$src/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0/Microsoft.CodeAnalysis.LanguageServer.dll}"
 
 "$repo/corpus/legacy/fetch.sh"
 
@@ -42,7 +42,7 @@ bin="$here/runner/bin/Release/net10.0"
 results="${RESULTS:-$here/results/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$results"
 args=(run --manifest "$repo/corpus/legacy/manifest.json" --checkout "$repo/corpus/legacy/.checkout"
-      --results "$results" --host "$bin/niello-host.dll")
+      --results "$results" --host "$bin/eludite-host.dll")
 [[ -f "$ls_dll" ]] && args+=(--roslyn-ls "$ls_dll") || echo "Roslyn LS not found at $ls_dll; skipping the roslyn phase" >&2
 [[ -n "${PHASES:-}" ]] && args+=(--phases "$PHASES")
 [[ -n "${ENTRIES:-}" ]] && args+=(--entries "$ENTRIES")

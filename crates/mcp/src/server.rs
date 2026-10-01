@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use niello_commands::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
+use eludite_commands::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 use serde_json::{Value, json};
 
 use crate::{
@@ -72,7 +72,7 @@ impl McpServer {
             exposed,
             gate: Arc::new(|_, _| false),
             observer: None,
-            name: "niello".into(),
+            name: "eludite".into(),
             version: env!("CARGO_PKG_VERSION").into(),
         }
     }
@@ -155,8 +155,8 @@ impl McpServer {
         json!({
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": false}},
-            "serverInfo": {"name": self.name, "title": "Niello", "version": self.version},
-            "instructions": "Niello IDE tools. Each tool is a Niello command with the same id, schemas and permission class as in the IDE."
+            "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
+            "instructions": "Eludite IDE tools. Each tool is a Eludite command with the same id, schemas and permission class as in the IDE."
         })
     }
 

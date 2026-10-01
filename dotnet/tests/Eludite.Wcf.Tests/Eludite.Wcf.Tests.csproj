@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Niello.Wcf/Niello.Wcf.csproj" />
+    <ProjectReference Include="../../src/Eludite.Wcf/Eludite.Wcf.csproj" />
   </ItemGroup>
 
 </Project>

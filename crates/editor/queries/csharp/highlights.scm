@@ -1,8 +1,8 @@
-; C# highlight query for niello-editor.
+; C# highlight query for eludite-editor.
 ;
 ; Adapted from queries/highlights.scm in tree-sitter-c-sharp 0.23.5
 ; (MIT, Copyright (c) 2014-2023 Max Brunsfeld, Damien Guard, Amaan Qureshi,
-; and contributors). Changes: patterns reordered for Niello's precedence rule
+; and contributors). Changes: patterns reordered for Eludite's precedence rule
 ; (when two patterns capture the same node, the earlier one wins; a capture
 ; inside another capture's node paints over it), the catch-all
 ; `(identifier) @variable` and punctuation captures dropped (both render in the

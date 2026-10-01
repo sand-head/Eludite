@@ -1,6 +1,6 @@
 using System.Xml.Linq;
 
-namespace Niello.Wcf;
+namespace Eludite.Wcf;
 
 /// <summary>Reads WCF endpoints out of an <c>app.config</c> or <c>web.config</c>.</summary>
 public static class ServiceModelConfigReader

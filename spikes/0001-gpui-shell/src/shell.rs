@@ -163,7 +163,7 @@ impl Shell {
                     title: Some(title_text.into()),
                     ..Default::default()
                 }),
-                app_id: Some("niello-spike".into()),
+                app_id: Some("eludite-spike".into()),
                 ..Default::default()
             };
             let opened = cx.open_window(opts, |window, cx| {
@@ -349,7 +349,7 @@ impl Shell {
         } else {
             div()
                 .p_4()
-                .child("Niello spike 0001. Drag tool window title bars or tabs to dock, tab or float them.")
+                .child("Eludite spike 0001. Drag tool window title bars or tabs to dock, tab or float them.")
                 .into_any_element()
         };
         div()

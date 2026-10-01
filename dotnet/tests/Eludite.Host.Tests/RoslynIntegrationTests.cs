@@ -1,14 +1,14 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
-using Niello.Host.Lsp;
-using Niello.Host.Rpc;
+using Eludite.Host.Lsp;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>
-/// Brief 0002 and 0007 proving test: drives the real niello-host process, with the Roslyn language server built by
+/// Brief 0002 and 0007 proving test: drives the real eludite-host process, with the Roslyn language server built by
 /// tools/roslyn-pin, against the generated 200-project solution from bench/roslyn-200, through the bridge contract
 /// (protocol/schemas/host-rpc.md): renamed lifecycle, solution generations, host-side semantics warming.
 /// Skipped (with a message) when either is absent, so a fresh clone stays green.
@@ -21,9 +21,9 @@ public sealed class RoslynIntegrationTests
     public async Task Host_LoadsGeneratedSolution_AndServesCompletionSixLayersDeep()
     {
         var roslyn = RoslynProcessLauncher.Locate(null);
-        Assert.SkipWhen(roslyn is null, "Roslyn language server not built; run tools/roslyn-pin/build.sh (or set NIELLO_ROSLYN_LS).");
+        Assert.SkipWhen(roslyn is null, "Roslyn language server not built; run tools/roslyn-pin/build.sh (or set ELUDITE_ROSLYN_LS).");
         var probePath = FindProbe();
-        Assert.SkipWhen(probePath is null, "Generated solution not found; run bench/roslyn-200/run.sh --prepare-only (or set NIELLO_BENCH_PROBE).");
+        Assert.SkipWhen(probePath is null, "Generated solution not found; run bench/roslyn-200/run.sh --prepare-only (or set ELUDITE_BENCH_PROBE).");
         using var probe = JsonDocument.Parse(await File.ReadAllTextAsync(probePath!, Ct));
         var p = probe.RootElement;
         var file = p.GetProperty("file").GetString()!;
@@ -37,7 +37,7 @@ public sealed class RoslynIntegrationTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "niello-host.dll"));
+        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "eludite-host.dll"));
         psi.ArgumentList.Add("--stdio");
         psi.ArgumentList.Add("--roslyn-ls");
         psi.ArgumentList.Add(roslyn!);
@@ -48,7 +48,7 @@ public sealed class RoslynIntegrationTests
             using var rpc = TestRpc.Create(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
             var loaded = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
             var published = Channel.CreateUnbounded<(JsonElement Params, bool AfterLoad)>();
-            TestRpc.On(rpc, "niello/solution/status", s =>
+            TestRpc.On(rpc, "eludite/solution/status", s =>
             {
                 if (s.GetProperty("state").GetString() is "loaded" or "failed")
                 {
@@ -59,15 +59,15 @@ public sealed class RoslynIntegrationTests
             rpc.StartListening();
 
             var init = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
-                "niello/host/initialize", new { clientName = "integration-test", clientVersion = "0" }, Ct);
-            Assert.Equal("niello-host", init.GetProperty("hostName").GetString());
+                "eludite/host/initialize", new { clientName = "integration-test", clientVersion = "0" }, Ct);
+            Assert.Equal("eludite-host", init.GetProperty("hostName").GetString());
             Assert.True(init.GetProperty("capabilities").GetProperty("languageServer").GetBoolean());
-            var ping = await rpc.InvokeWithCancellationAsync<JsonElement>("niello/ping", [], Ct);
+            var ping = await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/ping", [], Ct);
             Assert.True(ping.GetProperty("pong").GetBoolean());
-            var info = await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/info", [], Ct);
+            var info = await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/host/info", [], Ct);
             Assert.Equal(JsonValueKind.Array, info.GetProperty("dotnetSdks").ValueKind);
             var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
-                "niello/solution/open", new { path = p.GetProperty("solution").GetString() }, Ct);
+                "eludite/solution/open", new { path = p.GetProperty("solution").GetString() }, Ct);
             var generation = opened.GetProperty("generation").GetInt64();
             Assert.Equal(1, generation);
 
@@ -92,7 +92,7 @@ public sealed class RoslynIntegrationTests
                     if (afterLoad && d.GetProperty("uri").GetString() == uri)
                     {
                         Assert.Equal(1, d.GetProperty("version").GetInt32());
-                        Assert.Equal(generation, d.GetProperty("nielloGeneration").GetInt64());
+                        Assert.Equal(generation, d.GetProperty("eluditeGeneration").GetInt64());
                         break;
                     }
                 }
@@ -113,14 +113,14 @@ public sealed class RoslynIntegrationTests
             // A canceled request (a diagnostic pull on a new document version) comes back within 50 ms, as an error.
             await rpc.NotifyWithParameterObjectAsync("textDocument/didChange", new { textDocument = new { uri, version = 3 }, contentChanges = new[] { new { text = text + "// edit 2\n" } } });
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-            var slow = rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation }, cts.Token);
+            var slow = rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, eluditeGeneration = generation }, cts.Token);
             var sw = Stopwatch.StartNew();
             await cts.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slow);
             Assert.True(sw.ElapsedMilliseconds < 50, $"cancellation took {sw.ElapsedMilliseconds} ms");
 
-            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
-            await rpc.NotifyAsync("niello/host/exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], Ct);
+            await rpc.NotifyAsync("eludite/host/exit");
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             Assert.Equal(0, host.ExitCode);
         }
@@ -145,7 +145,7 @@ public sealed class RoslynIntegrationTests
                 textDocument = new { uri },
                 position = new { line = probe.GetProperty("line").GetInt32(), character = probe.GetProperty("character").GetInt32() },
                 context = new { triggerKind = 2, triggerCharacter = "." },
-                nielloGeneration = generation,
+                eluditeGeneration = generation,
             },
             Ct);
         Assert.Equal(JsonValueKind.Object, completion.ValueKind);
@@ -154,7 +154,7 @@ public sealed class RoslynIntegrationTests
 
     private static string? FindProbe()
     {
-        var fromEnv = Environment.GetEnvironmentVariable("NIELLO_BENCH_PROBE");
+        var fromEnv = Environment.GetEnvironmentVariable("ELUDITE_BENCH_PROBE");
         if (!string.IsNullOrEmpty(fromEnv))
         {
             return File.Exists(fromEnv) ? fromEnv : null;

@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Finds server controls in WebForms markup without building a full HTML tree.</summary>
 public static partial class ServerControlScanner

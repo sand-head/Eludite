@@ -4,7 +4,7 @@ Instructions for every agent working in this repository. Read this file, then th
 
 ## Purpose
 
-Niello is a native, cross-platform, agent-first IDE, .NET-first but also first-class for the web stack and Rust (PLAN.md section 7), built by one person directing many agents. The master plan is [docs/PLAN.md](docs/PLAN.md). This file restates what an agent must check on every task. If this file and PLAN.md disagree, PLAN.md wins and this file has a bug to fix.
+Eludite is a native, cross-platform, agent-first IDE, .NET-first but also first-class for the web stack and Rust (PLAN.md section 7), built by one person directing many agents. The master plan is [docs/PLAN.md](docs/PLAN.md). This file restates what an agent must check on every task. If this file and PLAN.md disagree, PLAN.md wins and this file has a bug to fix.
 
 ## Build and test commands
 
@@ -15,8 +15,8 @@ cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --check
-dotnet build dotnet/Niello.slnx
-dotnet test dotnet/Niello.slnx
+dotnet build dotnet/Eludite.slnx
+dotnet test dotnet/Eludite.slnx
 ```
 
 Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`. On Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`.
@@ -25,7 +25,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 
 | Path | Role | PLAN.md |
 |---|---|---|
-| `crates/niello` | App binary: entry, window, layout | 3 (D1), 8 |
+| `crates/eludite` | App binary: entry, window, layout | 3 (D1), 8 |
 | `crates/docking` | Tool windows, document tabs, layouts | 8 |
 | `crates/ui` | Widgets, themes, keymaps, icons | 8 |
 | `crates/editor` | Buffer, view, input | 4.1 |
@@ -38,11 +38,11 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/git` | libgit2 wrapper | 4.8 |
 | `crates/terminal` | Integrated terminal | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
-| `protocol/` | MIT schemas and generated bindings (crate `niello-protocol`) | 3 (D3), 11 |
-| `extension-sdk/` | MIT WASM extension API (crate `niello-extension-sdk`) | 3 (D6) |
-| `agents/claude-acp/` | `niello-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
-| `debuggers/netfx` | `niello-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
-| `dotnet/` | `niello-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
+| `protocol/` | MIT schemas and generated bindings (crate `eludite-protocol`) | 3 (D3), 11 |
+| `extension-sdk/` | MIT WASM extension API (crate `eludite-extension-sdk`) | 3 (D6) |
+| `agents/claude-acp/` | `eludite-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
+| `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
+| `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
 
 GPUI is a git dependency on zed-industries/zed at rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`, as the `gpui` and `gpui_platform` crates (both Apache-2.0; `gpui_platform` holds the window backends at this rev). Do not bump it without an ADR note.

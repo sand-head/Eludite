@@ -1,4 +1,4 @@
-# Brief 0007 report: production LSP bridge between the shell and niello-host
+# Brief 0007 report: production LSP bridge between the shell and eludite-host
 
 Status: done on Linux. Windows: not run on this machine. CI: not run yet (nothing pushed).
 Branch: `brief/0007-host-lsp-bridge`. Date: 2026-10-01. Brief: [0007-host-lsp-bridge.md](0007-host-lsp-bridge.md).
@@ -6,20 +6,20 @@ Branch: `brief/0007-host-lsp-bridge`. Date: 2026-10-01. Brief: [0007-host-lsp-br
 ## Summary
 
 - **Contract first.** `protocol/schemas/host-rpc.md` was rewritten method by method and committed alone, before any
-  code. It has a JSON schema per Niello message in `protocol/schemas/host/`, and links the LSP 3.17 spec for each
+  code. It has a JSON schema per Eludite message in `protocol/schemas/host/`, and links the LSP 3.17 spec for each
   forwarded method.
-- **Renames.** The host's own handshake is now `niello/host/initialize`, `niello/host/shutdown` and
-  `niello/host/exit`. Plain `initialize`, `shutdown` and `exit` return MethodNotFound. The host performs the LSP
+- **Renames.** The host's own handshake is now `eludite/host/initialize`, `eludite/host/shutdown` and
+  `eludite/host/exit`. Plain `initialize`, `shutdown` and `exit` return MethodNotFound. The host performs the LSP
   handshake with Roslyn itself.
 - **Solution lifecycle.**
-  - `niello/solution/open` (a `.sln`, `.slnx`, `.csproj` or `.vbproj`) returns the new generation.
-  - `niello/solution/close` closes the solution.
-  - `niello/solution/status` reports `loading` (phase `legacyEvaluation` or `projectLoad`), `loaded` (with project
+  - `eludite/solution/open` (a `.sln`, `.slnx`, `.csproj` or `.vbproj`) returns the new generation.
+  - `eludite/solution/close` closes the solution.
+  - `eludite/solution/status` reports `loading` (phase `legacyEvaluation` or `projectLoad`), `loaded` (with project
     counts, the MSBuild used for legacy projects and the corrections applied), `failed` (with a diagnostic) and
     `closed`.
   - Legacy projects go through the brief 0003 evaluator automatically.
 - **Generations.**
-  - Every forwarded request must carry `nielloGeneration`. A missing value gets -32602, and a stale one gets -32801
+  - Every forwarded request must carry `eluditeGeneration`. A missing value gets -32602, and a stale one gets -32801
     with `{requestedGeneration, currentGeneration}`. Neither is forwarded.
   - If the generation changes while a request is in flight, the host cancels it upstream and answers -32801.
   - The Rust client also drops results and diagnostics that belong to an old generation.
@@ -30,7 +30,7 @@ Branch: `brief/0007-host-lsp-bridge`. Date: 2026-10-01. Brief: [0007-host-lsp-br
 - **Rust client.** `crates/lsp` has a `HostClient` that:
   - supervises the host process (restart policy, exit events, stderr kept off the protocol stream);
   - frames messages with `Content-Length` and correlates requests with responses;
-  - sends typed requests through `niello-protocol` marker types;
+  - sends typed requests through `eludite-protocol` marker types;
   - cancels with `$/cancelRequest`;
   - tracks the solution generation.
 
@@ -55,20 +55,20 @@ much of that load.
 
 | Method | Kind | Schema |
 |---|---|---|
-| `niello/host/initialize` | request | `host/host-initialize.json` |
-| `niello/ping` | request | `host/ping.json` |
-| `niello/host/info` | request | `host/host-info.json` |
-| `niello/host/shutdown` | request | `host/host-shutdown.json` |
-| `niello/host/exit` | notification | `host/host-exit.json` |
-| `niello/solution/open` | request | `host/solution-open.json` |
-| `niello/solution/close` | request | `host/solution-close.json` |
-| `niello/solution/status` | host to shell | `host/solution-status.json` |
-| `niello/languageServer/status` | host to shell | `host/language-server-status.json` (`starting`, `running` with Roslyn's `serverInfo` and `capabilities`, `restarting`, `unavailable`, `exited`) |
-| `textDocument/publishDiagnostics` | host to shell | `host/publish-diagnostics.json` (LSP shape plus `nielloGeneration`) |
-| `nielloGeneration` on every forwarded request | rule | `host/forwarded-request.json` |
+| `eludite/host/initialize` | request | `host/host-initialize.json` |
+| `eludite/ping` | request | `host/ping.json` |
+| `eludite/host/info` | request | `host/host-info.json` |
+| `eludite/host/shutdown` | request | `host/host-shutdown.json` |
+| `eludite/host/exit` | notification | `host/host-exit.json` |
+| `eludite/solution/open` | request | `host/solution-open.json` |
+| `eludite/solution/close` | request | `host/solution-close.json` |
+| `eludite/solution/status` | host to shell | `host/solution-status.json` |
+| `eludite/languageServer/status` | host to shell | `host/language-server-status.json` (`starting`, `running` with Roslyn's `serverInfo` and `capabilities`, `restarting`, `unavailable`, `exited`) |
+| `textDocument/publishDiagnostics` | host to shell | `host/publish-diagnostics.json` (LSP shape plus `eluditeGeneration`) |
+| `eluditeGeneration` on every forwarded request | rule | `host/forwarded-request.json` |
 | Error `data` for -32801 and -32803 | | `host/errors.json` |
 
-**Forwarded LSP, typed** (in `niello-protocol::lsp`, with shape checks in the host):
+**Forwarded LSP, typed** (in `eludite-protocol::lsp`, with shape checks in the host):
 - requests: `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/definition`,
   `textDocument/references`, `textDocument/documentSymbol`, `workspace/symbol`, `textDocument/diagnostic`;
 - notifications: `textDocument/didOpen`, `didChange`, `didClose`, `$/cancelRequest`.
@@ -87,30 +87,30 @@ may still pull.
 
 | Code | Name | Meaning here |
 |---|---|---|
-| -32002 | ServerNotInitialized | A request arrived before `niello/host/initialize` |
+| -32002 | ServerNotInitialized | A request arrived before `eludite/host/initialize` |
 | -32800 | RequestCancelled | The request was canceled |
 | -32801 | ContentModified | Stale generation |
 | -32803 | RequestFailed | The language server is unavailable |
 
-**Drift tests.** `niello-protocol` has tests that keep the Rust method lists, the tables in host-rpc.md and the
-schema files in step. They also check every Niello message type against its schema with a small validator.
+**Drift tests.** `eludite-protocol` has tests that keep the Rust method lists, the tables in host-rpc.md and the
+schema files in step. They also check every Eludite message type against its schema with a small validator.
 
 ## Gaps from briefs 0002 and 0003
 
 | Gap | Resolution |
 |---|---|
 | 0002-1 LSP forwarding undocumented | Documented method by method (typed and untyped tables) |
-| 0002-2 `initialize`/`shutdown`/`exit` collide with LSP | Renamed under `niello/host/`. The shell cannot send its own LSP ClientCapabilities: the host advertises a documented fixed set, and Roslyn's ServerCapabilities reach the shell in `niello/languageServer/status` |
+| 0002-2 `initialize`/`shutdown`/`exit` collide with LSP | Renamed under `eludite/host/`. The shell cannot send its own LSP ClientCapabilities: the host advertises a documented fixed set, and Roslyn's ServerCapabilities reach the shell in `eludite/languageServer/status` |
 | 0002-3 Generation has no schema | Specified: where it travels, how the shell learns it, no echo in results, and the error data |
-| 0002-4 Readiness | `niello/solution/status` `loaded`; `workspace/projectInitializationComplete` is no longer relayed |
+| 0002-4 Readiness | `eludite/solution/status` `loaded`; `workspace/projectInitializationComplete` is no longer relayed |
 | 0002-5 Server-to-client requests | Table of the host's answers. `workspace/diagnostic/refresh` re-warms. The semanticTokens, codeLens and inlayHint refreshes are answered and not relayed (no consumer yet) |
 | 0002-6 Diagnostics-pull contract | Host-side warming, documented in host-rpc.md and HOST.md |
 | 0002-7 Bulk data on stdio | Noted in host-rpc.md; side channel still out of scope |
-| 0003-2 Project-load diagnostics | `diagnostics` in `niello/solution/status` (NIELLO0001 to 0004, NIELLO0106) |
-| 0003-6 Bare `.csproj` | `niello/solution/open` accepts project files |
+| 0003-2 Project-load diagnostics | `diagnostics` in `eludite/solution/status` (ELUDITE0001 to 0004, ELUDITE0106) |
+| 0003-6 Bare `.csproj` | `eludite/solution/open` accepts project files |
 | 0003-7 Load progress | `loading` with phase `legacyEvaluation`, then `projectLoad` |
-| 0003-1 Toolchain discovery in `niello/host/info` | Partly: the status reports the MSBuild actually used (kind, path, source). `niello/host/info` is unchanged |
-| 0003-3 Output window channel (`niello/output`) | **Not done**: belongs with the build brief |
+| 0003-1 Toolchain discovery in `eludite/host/info` | Partly: the status reports the MSBuild actually used (kind, path, source). `eludite/host/info` is unchanged |
+| 0003-3 Output window channel (`eludite/output`) | **Not done**: belongs with the build brief |
 | 0003-4 Per-project state request | **Not done** |
 | 0003-5 Design-time settings over the protocol | **Not done**: still environment variables |
 
@@ -121,7 +121,7 @@ schema files in step. They also check every Niello message type against its sche
 **When the host pulls:**
 - on `didOpen`, at once;
 - on `didChange`, 150 ms after the last change to that document (debounced per document;
-  `NIELLO_DIAGNOSTICS_DEBOUNCE_MS` overrides the interval);
+  `ELUDITE_DIAGNOSTICS_DEBOUNCE_MS` overrides the interval);
 - for every open document when the solution reaches `loaded`, and on `workspace/diagnostic/refresh`.
 
 **How a pull runs:**
@@ -159,7 +159,7 @@ not the page cache (no root), as in brief 0002. The table shows medians, with mi
 
 | Metric | 0007 cold | 0002 cold | 0007 warm | 0002 warm |
 |---|---|---|---|---|
-| T0 start to `niello/host/initialize` | 119 ms | 104 ms | 112 ms | 104 ms |
+| T0 start to `eludite/host/initialize` | 119 ms | 104 ms | 112 ms | 104 ms |
 | T1 initialize to documentSymbol | 1,211 ms | 1,218 ms | 971 ms | 1,012 ms |
 | **T2** initialize to completion with `Compute` | **9,545 ms** (9,275 to 16,495) | 9,623 ms (9,405 to 15,505) | **9,435 ms** (9,345 to 9,811) | 9,643 ms (9,296 to 9,918) |
 | Tload initialize to loaded | 9,330 ms | 9,631 ms | 9,052 ms | 9,211 ms |
@@ -168,7 +168,7 @@ not the page cache (no root), as in brief 0002. The table shows medians, with mi
 | T3 p99 | 7.4 ms | 8.5 ms | 12.4 ms | 8.1 ms |
 | T3-typing (didChange, then completion) p95 | 9.6 ms | 34.9 ms | 22.2 ms | 36.5 ms |
 | Completion during a warming pull, p95 | 3.4 ms | n/a | 3.2 ms | n/a |
-| niello-host peak RSS | 78 MB | 72 MB | 78 MB | 72 MB |
+| eludite-host peak RSS | 78 MB | 72 MB | 78 MB | 72 MB |
 | Host tree peak RSS | 2,612 MB | 2,575 MB | 2,525 MB | 2,544 MB |
 
 **Run-to-run variance:**
@@ -210,29 +210,29 @@ Other measurements:
 
 | Suite | Tests |
 |---|---|
-| `cargo test -p niello-protocol` | 32 |
-| `cargo test -p niello-lsp` | 14 |
+| `cargo test -p eludite-protocol` | 32 |
+| `cargo test -p eludite-lsp` | 14 |
 | `cargo test --workspace` | 109 passed, 0 failed |
 
-- `niello-protocol` (32):
+- `eludite-protocol` (32):
   - typed round trips for every host message and every typed LSP message, including generation flattening;
   - 4 drift and conformance tests against host-rpc.md and the schema files.
-- `niello-lsp` (14):
+- `eludite-lsp` (14):
   - 1 framing test;
   - 12 cases against the fake host: lifecycle, status notifications and generation tracking, generation injection,
     host-side stale rejection, client-side drop of a late result from an old generation, cancel latency, a result
     discarded after cancel, stale diagnostics dropped, crash restart with generation reset, restart budget, stderr
     capture and MethodNotFound;
   - 1 test against the real host built with `--no-roslyn`, which skips when the host is not built.
-- The fake host is the test binary itself, re-executed with `NIELLO_FAKE_HOST=1`. That test target has
+- The fake host is the test binary itself, re-executed with `ELUDITE_FAKE_HOST=1`. That test target has
   `harness = false`, because libtest output would corrupt the protocol stream.
 
 **.NET**
 
-`dotnet test dotnet/Niello.slnx`: 113 tests, 113 passed, 0 skipped. Brief 0003 reported 82, with 1 skipped.
+`dotnet test dotnet/Eludite.slnx`: 113 tests, 113 passed, 0 skipped. Brief 0003 reported 82, with 1 skipped.
 `dotnet build` reports 0 warnings.
 
-- **The 14 scaffold tests are kept and updated.** These are the 7 `HostRpcTargetTests` (now on `niello/host/*`) and
+- **The 14 scaffold tests are kept and updated.** These are the 7 `HostRpcTargetTests` (now on `eludite/host/*`) and
   the 7 `DotnetCliSdkDiscovererTests`, which are unchanged.
 - **New host tests:**
   - **Renames and error codes:** plain LSP lifecycle names give MethodNotFound; ServerNotInitialized,
@@ -247,7 +247,7 @@ Other measurements:
     - restart with replay of incrementally edited documents;
     - warming: on open, debounce under `FakeTimeProvider`, rewarm on load and on refresh;
     - non-blocking completion during a pull, and empty diagnostics on close;
-    - server crash, giving `exited` and `failed` (NIELLO0002) and -32803.
+    - server crash, giving `exited` and `failed` (ELUDITE0002) and -32803.
   - **`DiagnosticsWarmerTests` (6):** debounce, per-document timers, cancellation of superseded pulls, close.
   - **`OpenDocumentsTests` (3):** incremental edits, UTF-16 and CRLF positions.
   - **`HostProcessTests`:** every byte of the real host's stdout parses as a frame.
@@ -264,9 +264,9 @@ New dependency: `Microsoft.Extensions.TimeProvider.Testing` 10.10.0 (SPDX: MIT),
 ## Commits
 
 1. `868d627` Specify the host LSP bridge contract in protocol/schemas
-2. `aa91860` Type the host bridge messages in niello-protocol
+2. `aa91860` Type the host bridge messages in eludite-protocol
 3. `3b053d4` Implement the host LSP bridge with generations, solution lifecycle and semantics warming
-4. `7f57500` Add the niello-host client to niello-lsp with supervision, cancellation and generation tracking
+4. `7f57500` Add the eludite-host client to eludite-lsp with supervision, cancellation and generation tracking
 5. `d17376a` Drive the roslyn-200 bench through the bridge contract and measure completion during warming
 6. This report and the brief's Status line
 
@@ -278,18 +278,18 @@ The branch was rebased onto `main` at `31f2282`.
   against the host.
 - **CI:** not run. Nothing was pushed.
 - **Bindings are hand-written.** CLAUDE.md says bindings in `protocol/` are generated, but no generator exists yet.
-  `niello-protocol` follows the existing hand-written convention and is held to the schemas by the drift and
+  `eludite-protocol` follows the existing hand-written convention and is held to the schemas by the drift and
   conformance tests.
 - **`tools/legacy-load/runner` (outside this brief's scope) still sends plain `initialize`/`shutdown`/`exit` and
   waits for `workspace/projectInitializationComplete`.** Its roslyn phase will fail against this host until it moves
-  to `niello/host/initialize`, `niello/solution/open` and `niello/solution/status`. That is a three-line change in a
+  to `eludite/host/initialize`, `eludite/solution/open` and `eludite/solution/status`. That is a three-line change in a
   file this brief does not own.
 - **The `docs/briefs/README.md` index row is not updated**, because that file is outside this brief's scope.
-- **The host does not restart Roslyn by itself after a crash.** It reports `exited`, fails the load with NIELLO0002,
-  and answers -32803. The next `niello/solution/open` restarts the server and replays the open documents. The Rust
+- **The host does not restart Roslyn by itself after a crash.** It reports `exited`, fails the load with ELUDITE0002,
+  and answers -32803. The next `eludite/solution/open` restarts the server and replays the open documents. The Rust
   client does restart a crashed host, under its `RestartPolicy`.
 - **Gaps from brief 0003 that remain open:** an Output window channel, a per-project state request, design-time
-  settings over the protocol, toolchain discovery in `niello/host/info`, and shell-supplied `workspace/configuration`
+  settings over the protocol, toolchain discovery in `eludite/host/info`, and shell-supplied `workspace/configuration`
   settings.
 - **Not measured: the side channel.** Statement-level completion lists of 64 to 123 KB still travel on stdio. That
   causes no problem at these latencies. Semantic tokens and a symbol index will need the side channel.
@@ -308,7 +308,7 @@ The branch was rebased onto `main` at `31f2282`.
   `formatting`, `documentHighlight` and `typeDefinition`/`implementation`.
 - Relay the refresh requests once the shell has consumers for them.
 - Feed shell settings into `workspace/configuration` through a settings method.
-- Add `niello/output` and per-project load state for Solution Explorer and the Error List.
+- Add `eludite/output` and per-project load state for Solution Explorer and the Error List.
 - Have the host restart Roslyn by itself when it crashes.
 - Run the Windows pass.
 

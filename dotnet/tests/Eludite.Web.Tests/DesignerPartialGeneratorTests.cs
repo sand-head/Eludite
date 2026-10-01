@@ -1,4 +1,4 @@
-namespace Niello.Web.Tests;
+namespace Eludite.Web.Tests;
 
 public sealed class DesignerPartialGeneratorTests
 {
@@ -160,13 +160,13 @@ public sealed class DesignerPartialGeneratorTests
         var catalog = new MetadataTypeCatalog([typeof(ServerControl).Assembly.Location]);
         var resolver = new ControlTypeResolver(catalog, [
             new ControlRegistration("cc1", "umbraco.uicontrols", "controls", null, null),
-            new ControlRegistration("nw", "Niello.Web", "Niello.Web", null, null),
+            new ControlRegistration("nw", "Eludite.Web", "Eludite.Web", null, null),
         ]);
 
         // "controls" is a project reference that is not built: unverifiable, so trusted.
         Assert.Equal("umbraco.uicontrols.Pane", resolver.Resolve(Control("cc1", "Pane")));
-        // Niello.Web is indexed: verified match, and a miss stays a miss.
-        Assert.Equal("Niello.Web.ServerControl", resolver.Resolve(Control("nw", "servercontrol")));
+        // Eludite.Web is indexed: verified match, and a miss stays a miss.
+        Assert.Equal("Eludite.Web.ServerControl", resolver.Resolve(Control("nw", "servercontrol")));
         Assert.Null(resolver.Resolve(Control("nw", "NoSuchType")));
     }
 
@@ -179,8 +179,8 @@ public sealed class DesignerPartialGeneratorTests
     {
         var catalog = new MetadataTypeCatalog([typeof(ServerControl).Assembly.Location, "/nonexistent/assembly.dll"]);
 
-        Assert.Equal("Niello.Web.ServerControl", catalog.Find("niello.web.servercontrol"));
-        Assert.Null(catalog.Find("Niello.Web.AspxMarkup")); // internal
+        Assert.Equal("Eludite.Web.ServerControl", catalog.Find("eludite.web.servercontrol"));
+        Assert.Null(catalog.Find("Eludite.Web.AspxMarkup")); // internal
         Assert.Single(catalog.Skipped);
     }
 

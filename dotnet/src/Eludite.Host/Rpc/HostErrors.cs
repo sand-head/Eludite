@@ -1,26 +1,26 @@
 using StreamJsonRpc;
 
-namespace Niello.Host.Rpc;
+namespace Eludite.Host.Rpc;
 
 /// <summary>Error codes and error responses of the host contract (protocol/schemas/host-rpc.md, "Error codes").</summary>
 public static class HostErrors
 {
     public const int InvalidParams = -32602;
 
-    /// <summary>LSP ServerNotInitialized: <c>niello/host/initialize</c> has not been received.</summary>
+    /// <summary>LSP ServerNotInitialized: <c>eludite/host/initialize</c> has not been received.</summary>
     public const int ServerNotInitialized = -32002;
 
     /// <summary>LSP RequestCancelled.</summary>
     public const int RequestCancelled = -32800;
 
-    /// <summary>LSP ContentModified: stale <c>nielloGeneration</c>.</summary>
+    /// <summary>LSP ContentModified: stale <c>eluditeGeneration</c>.</summary>
     public const int ContentModified = -32801;
 
     /// <summary>LSP RequestFailed: the language server is unavailable.</summary>
     public const int RequestFailed = -32803;
 
     public static LocalRpcException NotInitialized() =>
-        new("niello/host/initialize has not been received") { ErrorCode = ServerNotInitialized };
+        new("eludite/host/initialize has not been received") { ErrorCode = ServerNotInitialized };
 
     public static LocalRpcException BadParams(string message) => new(message) { ErrorCode = InvalidParams };
 

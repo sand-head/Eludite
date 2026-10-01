@@ -8,14 +8,14 @@ Depends on: brief 0001 (report and `spikes/0001-gpui-shell`)
 
 ## Goal
 
-Replace the static layout in `crates/niello` with real Visual Studio-style docking in `crates/docking` and `crates/ui`, carried over from the brief 0001 prototype and made production-grade: drag to dock with docking guides, tab with another window, float, auto-hide, pin, per-solution layout persistence, named layouts, and the menu bar and status bar as reusable components. After this brief the app binary is a working, empty IDE frame that any later brief can add tool windows to by registering them.
+Replace the static layout in `crates/eludite` with real Visual Studio-style docking in `crates/docking` and `crates/ui`, carried over from the brief 0001 prototype and made production-grade: drag to dock with docking guides, tab with another window, float, auto-hide, pin, per-solution layout persistence, named layouts, and the menu bar and status bar as reusable components. After this brief the app binary is a working, empty IDE frame that any later brief can add tool windows to by registering them.
 
 ## Files in scope
 
 - `crates/docking/**`
 - `crates/ui/**`
-- `crates/niello/**` (wiring only: register the default tool windows and document area; keep `main.rs` small)
-- `crates/commands/src/**` only to add `niello.view.*` commands for show, hide, float, auto-hide and reset layout, with schemas added to `protocol/schemas/` first in their own commit
+- `crates/eludite/**` (wiring only: register the default tool windows and document area; keep `main.rs` small)
+- `crates/commands/src/**` only to add `eludite.view.*` commands for show, hide, float, auto-hide and reset layout, with schemas added to `protocol/schemas/` first in their own commit
 - `protocol/schemas/` for those command schemas only
 - `docs/briefs/0008-report.md` (new)
 
@@ -36,7 +36,7 @@ Do not touch `crates/editor`, `vendor/**`, `spikes/**`, `docs/adr/**`, the host,
 
 - Headless GPUI tests (as the prototype did) for: dock to each side, tab and untab, float and re-dock, auto-hide and pin, layout save and load round trip, reset, keyboard bindings dispatch the right command, menu items dispatch commands and disabled items do not.
 - `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` green.
-- Manual: run `niello`, exercise each interaction on Linux, and record two screenshots (default layout; a customized layout after restart). Use the nested-compositor method from `spikes/0005-acp-panel/tools/nested.sh` if the session is locked.
+- Manual: run `eludite`, exercise each interaction on Linux, and record two screenshots (default layout; a customized layout after restart). Use the nested-compositor method from `spikes/0005-acp-panel/tools/nested.sh` if the session is locked.
 
 ## Budget
 

@@ -6,9 +6,9 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 ## Summary
 
 - **Mono's MSBuild works without root.** Arch's `mono` 6.12.0 and `mono-msbuild` 16.10.1 packages, extracted into
-  `~/.local/opt/mono-root`, evaluate legacy projects once four environment variables are set. niello-host finds that
+  `~/.local/opt/mono-root`, evaluate legacy projects once four environment variables are set. eludite-host finds that
   layout (and system installs) on its own.
-- **Linux matrix (Mono MSBuild plus niello-host's design-time corrections):** 27 of 29 corpus projects load in the
+- **Linux matrix (Mono MSBuild plus eludite-host's design-time corrections):** 27 of 29 corpus projects load in the
   Roslyn language server. 23 have zero Roslyn compilation errors. The errors in 2 more come from a broken upstream
   commit (`packages.config` bumped without updating `HintPath`s), so Windows MSBuild would hit them too. By the
   brief's rule that makes **25 of 29 (86 %)**. On Windows this is inferred from reading the project files, not
@@ -20,7 +20,7 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
   prefix is registered only in `web.config` `<pages><controls>` lists `Text` and `AssociatedControlID`.
 - **Budgets hold.** The slowest single-project evaluation in a cold process is 2.1 s (budget 5 s). A whole solution
   in one cold Mono process takes 2.1 s for 11 projects and 2.5 s for 15 (budget 15 s). Roslyn reports every project
-  loaded 4.5 s after `initialize`, or 6.8 to 7.4 s with niello-host's preparation in front.
+  loaded 4.5 s after `initialize`, or 6.8 to 7.4 s with eludite-host's preparation in front.
 - **Recommendations:** **locate** Mono, do not bundle it. A **from-scratch evaluator fallback is not needed**: the
   fallback should be the .NET SDK's MSBuild in-process plus a small set of corrections. See below for both.
 - Windows: **not run on this machine.** `run.ps1` and `BuildToolsInstallation` (vswhere) are written but untested.
@@ -35,7 +35,7 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 | OS | CachyOS, kernel 7.2.8-2-cachyos, rebooted shortly before the run |
 | .NET | SDK 10.0.302, runtime 10.0.10 |
 | Mono | 6.12.0.206 with Mono MSBuild 16.10.1.36301, user-space extract of the Arch packages (see `tools/legacy-load/README.md`) |
-| Roslyn LS | brief 0002 pin, `~/.cache/niello/roslyn/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0/` |
+| Roslyn LS | brief 0002 pin, `~/.cache/eludite/roslyn/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0/` |
 | Reference assemblies | `Microsoft.NETFramework.ReferenceAssemblies.net40` through `net481`, 1.0.3 (MIT), in `~/.nuget/packages` |
 
 **Measurement caveats.**
@@ -49,23 +49,23 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 
 | Path | What |
 |---|---|
-| `dotnet/src/Niello.Host/Legacy/MonoInstallation.cs` | Finds Mono and its `MSBuild.dll`: `NIELLO_MONO_PREFIX`, then `mono` on `PATH`, then `~/.local/opt/mono-root/usr`, `/usr`, `/usr/local`, the macOS framework. Supplies the environment a relocated Mono needs. |
+| `dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs` | Finds Mono and its `MSBuild.dll`: `ELUDITE_MONO_PREFIX`, then `mono` on `PATH`, then `~/.local/opt/mono-root/usr`, `/usr`, `/usr/local`, the macOS framework. Supplies the environment a relocated Mono needs. |
 | `Legacy/BuildToolsInstallation.cs` | `vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe` (Windows; untested) |
-| `Legacy/CommandLineMsBuildEvaluator.cs` | Runs a located MSBuild (Mono, Build Tools, or `dotnet msbuild`) once per batch. It uses a generated traversal project and an injected `NielloDesignTimeDump` target that runs `ResolveReferences` with `ContinueOnError` and writes Compile items, resolved references, defines, TFM, project references and markup items. It never compiles. |
+| `Legacy/CommandLineMsBuildEvaluator.cs` | Runs a located MSBuild (Mono, Build Tools, or `dotnet msbuild`) once per batch. It uses a generated traversal project and an injected `EluditeDesignTimeDump` target that runs `ResolveReferences` with `ContinueOnError` and writes Compile items, resolved references, defines, TFM, project references and markup items. It never compiles. |
 | `Legacy/InProcessMsBuildEvaluator.cs` | Same through the .NET SDK's MSBuild in-process (Microsoft.Build.Locator), optionally ignoring missing imports |
 | `Legacy/ReferenceAssemblies.cs` | `TargetFrameworkRootPath` from the reference-assembly packages, with a merged symlink root covering every version |
 | `Legacy/DesignTimeProperties.cs` | Design-time global properties (`DesignTimeBuild`, `BuildingProject=false`, `SkipCompilerExecution`, ...) |
 | `Legacy/FailureClassifier.cs` | Sorts failures into missing targets, COM, packages, web targets and other |
 | `Legacy/PathCaseFixups.cs` | Finds Compile items whose letter case differs from the file on disk |
-| `Legacy/WebFormsDesignerService.cs` | Generates designer partials (Niello.Web) and writes the injected targets file: designer partials, case fixups, and `COMReference` removal off Windows |
+| `Legacy/WebFormsDesignerService.cs` | Generates designer partials (Eludite.Web) and writes the injected targets file: designer partials, case fixups, and `COMReference` removal off Windows |
 | `Legacy/LegacyDesignTime.cs`, `SolutionProjects.cs` | Runs before Roslyn starts: evaluates the solution's legacy projects, writes the targets, and gives Roslyn's process the environment (Mono on `PATH`, `TargetFrameworkRootPath`, `CustomAfterMicrosoftCommonTargets`) |
 | `Lsp/LspProxy.cs`, `Lsp/RoslynProcessLauncher.cs`, `Program.cs` | Pre-launch hook, extra child environment, `project/open` when `solutionPath` is a bare `.csproj` |
-| `dotnet/src/Niello.Web/{ControlRegistration, ControlTypeResolver, DesignerControlScanner, DesignerPartialGenerator, MetadataTypeCatalog, RegisterDirectiveParser, WebConfigControls}.cs` | Designer-partial prototype: finds server controls (skipping templates and `asp:Content`), reads `Register` directives and `web.config` `<pages><controls>` (plus the framework defaults), resolves control types against the referenced assemblies' metadata, and renders the partial class |
+| `dotnet/src/Eludite.Web/{ControlRegistration, ControlTypeResolver, DesignerControlScanner, DesignerPartialGenerator, MetadataTypeCatalog, RegisterDirectiveParser, WebConfigControls}.cs` | Designer-partial prototype: finds server controls (skipping templates and `asp:Content`), reads `Register` directives and `web.config` `<pages><controls>` (plus the framework defaults), resolves control types against the referenced assemblies' metadata, and renders the partial class |
 | `corpus/legacy/manifest.json`, `fetch.sh` | Corpus manifest (SPDX id, pinned commit) and a shallow, idempotent fetch into `.checkout/` (gitignored) |
 | `tools/legacy-load/run.sh`, `run.ps1`, `runner/` | Matrix runner. Phases: restore, eval, getitem, compile, roslyn, designer. Writes a JSON file per project and per phase, plus `matrix.md`, to `results/<stamp>/` (gitignored). `run.ps1` is untested. |
-| `dotnet/tests/Niello.Host.Tests/LegacyEvaluatorTests.cs` | Unit and integration tests for the evaluators, injection, case fixups, classifier, solution parsing and designer modes |
-| `dotnet/tests/Niello.Host.Tests/LegacyWebFormsCompletionTests.cs` | Proving test for WebForms completion. It skips when the Roslyn build, the corpus checkout or the reference packages are absent. |
-| `dotnet/tests/Niello.Web.Tests/DesignerPartialGeneratorTests.cs` | Generator and resolver tests |
+| `dotnet/tests/Eludite.Host.Tests/LegacyEvaluatorTests.cs` | Unit and integration tests for the evaluators, injection, case fixups, classifier, solution parsing and designer modes |
+| `dotnet/tests/Eludite.Host.Tests/LegacyWebFormsCompletionTests.cs` | Proving test for WebForms completion. It skips when the Roslyn build, the corpus checkout or the reference packages are absent. |
+| `dotnet/tests/Eludite.Web.Tests/DesignerPartialGeneratorTests.cs` | Generator and resolver tests |
 
 Two agents wrote most of this before an interruption (WIP commit). This pass verified it builds, re-measured
 everything, and changed three things:
@@ -79,10 +79,10 @@ everything, and changed three things:
    across runs.
 3. `run.ps1` no longer assigns PowerShell's automatic `$args`.
 
-Tests: `dotnet test dotnet/Niello.slnx` runs 82 tests: 81 pass and 1 is skipped (brief 0002's 200-project
+Tests: `dotnet test dotnet/Eludite.slnx` runs 82 tests: 81 pass and 1 is skipped (brief 0002's 200-project
 integration test, whose generated solution is not present). On this machine that includes the two WebForms
 completion cases and the Mono evaluator test. On a fresh clone the corpus, Roslyn and Mono tests skip with a message.
-`dotnet build dotnet/Niello.slnx` reports 0 warnings.
+`dotnet build dotnet/Eludite.slnx` reports 0 warnings.
 
 New dependencies (central pins in `dotnet/Directory.Packages.props`), all MIT:
 - `Microsoft.Build` 17.11.48 and `Microsoft.Build.Framework` 17.11.48: compile-time only; the SDK's copies are
@@ -114,7 +114,7 @@ non-SDK project. Nothing third-party is committed.
 ### 1. Matrix of corpus project by OS
 
 Columns:
-- **Linux Mono**: Roslyn LS through niello-host with Mono on `PATH`, so Roslyn loads non-SDK projects with its Mono
+- **Linux Mono**: Roslyn LS through eludite-host with Mono on `PATH`, so Roslyn loads non-SDK projects with its Mono
   build host. The host's corrections are on (mode `mono-fixed`).
 - **as written**: the same without corrections (mode `mono`).
 - **Linux SDK**: Mono hidden, so Roslyn uses its .NET SDK build host; corrections on (mode `sdk-fixed`).
@@ -167,13 +167,13 @@ Failure reasons and classes:
 | umbraco7 / Umbraco.Web.UI | web targets | `umbraco.presentation.targets` has `<UsingTask AssemblyFile="$(WebPublishingTasks)">`. That property comes from Visual Studio's `Microsoft.Web.Publishing.targets`, which Mono does not ship (MSB4022). | No (needs the VS web workload or Build Tools' web targets) |
 | changepk, sqlmembership (errors, not a load failure) | packages | The upstream commit bumped `packages.config` (Microsoft.Owin 4.2.2, Newtonsoft.Json 13.0.1) without updating the `HintPath`s (2.1.0 / 2.0.0, 6.0 / 4.5.11), so `Microsoft.Owin`, `Microsoft.Owin.Security.Cookies` and `Newtonsoft.Json` do not resolve after a correct restore | Yes, by reading the project files (not verified) |
 | sharex / ShareX (errors) | packages | `Microsoft.Windows.SDK.Contracts` WinRT metadata needs the `System.Runtime` facade (CS0012 in `OCRHelper.cs`), which reference resolution does not add on Linux | Probably not (not verified) |
-| sharex / ShareX.HelpersLib (errors) | COM | `COMReference` IWshRuntimeLibrary. `ResolveComReference` needs `AxImp.exe`/tlbimp and the registry; niello-host drops COM references off Windows, so code using the type library shows CS0246 | No |
-| (as written) Umbraco.Core, .Web, .cms, .businesslogic, .editorControls, .Tests, .Tests.Benchmarks | other: file-name case | 9 Compile items differ in case from the files on disk (for example `LazyManyObjectsResolverBase.cs` vs `LazyManyObjectsResolverbase.cs`); the missing types cascade into 341 errors | No. Fixed by niello-host's case fixups. |
+| sharex / ShareX.HelpersLib (errors) | COM | `COMReference` IWshRuntimeLibrary. `ResolveComReference` needs `AxImp.exe`/tlbimp and the registry; eludite-host drops COM references off Windows, so code using the type library shows CS0246 | No |
+| (as written) Umbraco.Core, .Web, .cms, .businesslogic, .editorControls, .Tests, .Tests.Benchmarks | other: file-name case | 9 Compile items differ in case from the files on disk (for example `LazyManyObjectsResolverBase.cs` vs `LazyManyObjectsResolverbase.cs`); the missing types cascade into 341 errors | No. Fixed by eludite-host's case fixups. |
 | (Linux SDK) 7 ShareX projects | packages | The .NET SDK's MSBuild does not resolve `PackageReference` assets for non-SDK projects (Newtonsoft.Json, ImageListView and so on are missing); Mono's MSBuild does | No |
 
 ### 2. At least 80 percent load with zero errors not also present on Windows
 
-**Linux: pass, with caveats.** 25 of 29 (86 %) with Mono plus niello-host's corrections:
+**Linux: pass, with caveats.** 25 of 29 (86 %) with Mono plus eludite-host's corrections:
 - 23 load with zero errors.
 - ChangePK and SQLMembership have errors only from the upstream package/HintPath mismatch, which Windows MSBuild
   would also hit. This is judged from the project files; it was not verified on Windows.
@@ -191,7 +191,7 @@ Windows Build Tools: not run on this machine.
 **Evaluator versus Roslyn.** The runner's `compile` phase feeds the evaluator's Compile items and resolved
 references straight into a `CSharpCompilation`. For 25 of the 27 loaded projects, that gives exactly the same error
 count as the Roslyn language server in the same configuration (`compile.json` against `roslyn.json`, as-written
-modes), so Roslyn's build host and niello-host's evaluator agree. The two WebForms samples are the exception: Roslyn
+modes), so Roslyn's build host and eludite-host's evaluator agree. The two WebForms samples are the exception: Roslyn
 reports more errors (54 against 35, 21 against 16), all from the same unresolved OWIN and Newtonsoft references
 (Roslyn reports more CS0012 occurrences).
 
@@ -209,18 +209,18 @@ the WCF service, ShareX.HelpersLib and Umbraco.Core), untested.
 
 `LegacyWebFormsCompletionTests.CodeBehind_CompletionOnMarkupOnlyField_ListsControlMembers(mono|sdk)`:
 1. Copies the ChangePK project to a temp directory.
-2. Gives the "Log in" `asp:Button` an `ID="NielloProbeButton"`, which the checked-in `.designer.cs` lacks.
-3. Adds `<niello:Label ID="NielloProbeLabel">`, whose `niello` prefix is registered only in `web.config`
+2. Gives the "Log in" `asp:Button` an `ID="EluditeProbeButton"`, which the checked-in `.designer.cs` lacks.
+3. Adds `<eludite:Label ID="EluditeProbeLabel">`, whose `eludite` prefix is registered only in `web.config`
    `<pages><controls>`.
-4. Starts the real niello-host with the Roslyn LS on the bare `.csproj`.
-5. niello-host evaluates the project (Mono: 562 ms; SDK in-process: 274 ms), generates 16 designer partials, and
+4. Starts the real eludite-host with the Roslyn LS on the bare `.csproj`.
+5. eludite-host evaluates the project (Mono: 562 ms; SDK in-process: 274 ms), generates 16 designer partials, and
    injects them.
 6. The test asserts the generated `Login.aspx.g.cs` declares `global::System.Web.UI.WebControls.Button
-   NielloProbeButton` and `...Label NielloProbeLabel`.
+   EluditeProbeButton` and `...Label EluditeProbeLabel`.
 7. It edits `Login.aspx.cs` in memory, pulls `textDocument/diagnostic` (full semantics; see the brief 0002 report),
    and asserts no error mentions the probes.
-8. It asserts completion after `NielloProbeButton.` contains `Text`, `OnClientClick` and `CommandName`, and
-   completion after `NielloProbeLabel.` contains `Text` and `AssociatedControlID`.
+8. It asserts completion after `EluditeProbeButton.` contains `Text`, `OnClientClick` and `CommandName`, and
+   completion after `EluditeProbeLabel.` contains `Text` and `AssociatedControlID`.
 
 Both cases together take under 10 s. The test skips with a message when the Roslyn build, the corpus checkout or the
 `net45` reference package is absent. The `mono` case also skips without Mono.
@@ -243,15 +243,15 @@ Observed in the corpus, plus the two the plan names that the corpus did not exer
 
 | Target or feature | Seen in | Failure off Windows | Output window message (proposed) |
 |---|---|---|---|
-| `ResolveComReference` (tlbimp, AxImp; `COMReference` items) | ShareX.HelpersLib | Mono: `Task could not find "AxImp.exe" using the SdkToolsPath ...`; .NET SDK: MSB4803 | `warning NIELLO0101: COM reference 'IWshRuntimeLibrary' was skipped: resolving COM type libraries (ResolveComReference) runs only on Windows. Code that uses it shows errors here. Build on Windows, or reference a checked-in interop assembly.` |
-| `Microsoft.Web.Publishing.targets` (`WebPublishingTasks`, Web Publishing Pipeline) | Umbraco.Web.UI | MSB4022 on `$(WebPublishingTasks)`; the project does not load | `error NIELLO0102: Umbraco.Web.UI needs Visual Studio's web publishing targets (Microsoft.Web.Publishing.targets), which are not available on Linux/macOS. The project is shown but not analyzed. Open it on Windows with Build Tools' web workload, or remove the publishing import from design-time builds.` |
-| `Microsoft.WebApplication.targets` (`$(VSToolsPath)\WebApplications`) | ChangePK, SQLMembership, Umbraco | Present in Mono (`lib/mono/xbuild/Microsoft/VisualStudio/v*`); missing in the .NET SDK (MSB4019) | Only without Mono: `warning NIELLO0103: Web application targets (Microsoft.WebApplication.targets) not found; loading without them. Install Mono (Linux/macOS) or Build Tools (Windows) for full web project support.` |
-| Windows SDK / WinRT contracts (`Microsoft.Windows.SDK.Contracts`) | ShareX | CS0012: `System.Runtime` facade not referenced | `warning NIELLO0104: ShareX references Windows Runtime APIs (Microsoft.Windows.SDK.Contracts). They are only partly available off Windows; errors in files that use them are expected.` |
-| Case-insensitive file names (imports and Compile items) | wcf/service (import), Umbraco (9 Compile items) | Import: MSB4019, the project does not load. Compile items: silently dropped. | Import: `error NIELLO0105: service.csproj imports '$(MSBuildBinPath)\Microsoft.CSHARP.Targets', which exists only as 'Microsoft.CSharp.targets' on this case-sensitive file system.` Compile item (niello-host already logs this): `warning NIELLO0106: Compile item 'ObjectResolution\LazyManyObjectsResolverBase.cs' differs in case from 'LazyManyObjectsResolverbase.cs' on disk; using the file on disk.` |
-| Visual Studio code-analysis rule sets (`CodeAnalysisRuleSet`) | ShareX, Umbraco | Warning: `Could not find rule set file "MinimumRecommendedRules.ruleset"` | `info NIELLO0107: Code-analysis rule set 'MinimumRecommendedRules.ruleset' ships with Visual Studio and is not available; analyzers use their defaults.` |
-| `cmd.exe` build events (`PreBuildEvent`) | ShareX.UploadersLib (creates `APIKeysLocal.cs`) | Not run at design time; the generated file is missing (no errors in this case) | On build: `error NIELLO0108: The pre-build event of ShareX.UploadersLib is a Windows command script (cmd.exe) and cannot run on Linux.` |
-| SGen (`GenerateSerializationAssemblies`) | not in corpus | (PLAN.md section 6) | On build: `warning NIELLO0109: XML serialization assemblies (SGen) can only be generated on Windows; skipped.` |
-| IIS/`aspnet_compiler` (`MvcBuildViews`, `PrecompileBeforePublish`) | not in corpus | (PLAN.md section 6) | On build: `warning NIELLO0110: ASP.NET precompilation (aspnet_compiler) runs only on Windows; skipped.` |
+| `ResolveComReference` (tlbimp, AxImp; `COMReference` items) | ShareX.HelpersLib | Mono: `Task could not find "AxImp.exe" using the SdkToolsPath ...`; .NET SDK: MSB4803 | `warning ELUDITE0101: COM reference 'IWshRuntimeLibrary' was skipped: resolving COM type libraries (ResolveComReference) runs only on Windows. Code that uses it shows errors here. Build on Windows, or reference a checked-in interop assembly.` |
+| `Microsoft.Web.Publishing.targets` (`WebPublishingTasks`, Web Publishing Pipeline) | Umbraco.Web.UI | MSB4022 on `$(WebPublishingTasks)`; the project does not load | `error ELUDITE0102: Umbraco.Web.UI needs Visual Studio's web publishing targets (Microsoft.Web.Publishing.targets), which are not available on Linux/macOS. The project is shown but not analyzed. Open it on Windows with Build Tools' web workload, or remove the publishing import from design-time builds.` |
+| `Microsoft.WebApplication.targets` (`$(VSToolsPath)\WebApplications`) | ChangePK, SQLMembership, Umbraco | Present in Mono (`lib/mono/xbuild/Microsoft/VisualStudio/v*`); missing in the .NET SDK (MSB4019) | Only without Mono: `warning ELUDITE0103: Web application targets (Microsoft.WebApplication.targets) not found; loading without them. Install Mono (Linux/macOS) or Build Tools (Windows) for full web project support.` |
+| Windows SDK / WinRT contracts (`Microsoft.Windows.SDK.Contracts`) | ShareX | CS0012: `System.Runtime` facade not referenced | `warning ELUDITE0104: ShareX references Windows Runtime APIs (Microsoft.Windows.SDK.Contracts). They are only partly available off Windows; errors in files that use them are expected.` |
+| Case-insensitive file names (imports and Compile items) | wcf/service (import), Umbraco (9 Compile items) | Import: MSB4019, the project does not load. Compile items: silently dropped. | Import: `error ELUDITE0105: service.csproj imports '$(MSBuildBinPath)\Microsoft.CSHARP.Targets', which exists only as 'Microsoft.CSharp.targets' on this case-sensitive file system.` Compile item (eludite-host already logs this): `warning ELUDITE0106: Compile item 'ObjectResolution\LazyManyObjectsResolverBase.cs' differs in case from 'LazyManyObjectsResolverbase.cs' on disk; using the file on disk.` |
+| Visual Studio code-analysis rule sets (`CodeAnalysisRuleSet`) | ShareX, Umbraco | Warning: `Could not find rule set file "MinimumRecommendedRules.ruleset"` | `info ELUDITE0107: Code-analysis rule set 'MinimumRecommendedRules.ruleset' ships with Visual Studio and is not available; analyzers use their defaults.` |
+| `cmd.exe` build events (`PreBuildEvent`) | ShareX.UploadersLib (creates `APIKeysLocal.cs`) | Not run at design time; the generated file is missing (no errors in this case) | On build: `error ELUDITE0108: The pre-build event of ShareX.UploadersLib is a Windows command script (cmd.exe) and cannot run on Linux.` |
+| SGen (`GenerateSerializationAssemblies`) | not in corpus | (PLAN.md section 6) | On build: `warning ELUDITE0109: XML serialization assemblies (SGen) can only be generated on Windows; skipped.` |
+| IIS/`aspnet_compiler` (`MvcBuildViews`, `PrecompileBeforePublish`) | not in corpus | (PLAN.md section 6) | On build: `warning ELUDITE0110: ASP.NET precompilation (aspnet_compiler) runs only on Windows; skipped.` |
 
 The message ids are placeholders. Error List and Output wiring are protocol gaps (below). Today these appear only as
 `[legacy] warning: ...` lines in the host's stderr log.
@@ -260,7 +260,7 @@ The message ids are placeholders. Error List and Output wiring are protocol gaps
 
 **Locate, do not bundle.** Evidence:
 - Locating works without root. The Arch packages are 63 MB compressed and 311 MB extracted, and run relocated with
-  `PATH`, `LD_LIBRARY_PATH`, `MONO_CFG_DIR` and `MONO_GAC_PREFIX`, which niello-host sets itself
+  `PATH`, `LD_LIBRARY_PATH`, `MONO_CFG_DIR` and `MONO_GAC_PREFIX`, which eludite-host sets itself
   (`MonoInstallation.EnvironmentFor`). `MonoInstallation.Locate()` finds a system install (`/usr`), a `PATH` install
   and this user-space layout with no configuration.
 - Mono buys a lot. With it, 25 of 29 projects pass; with only the .NET SDK, 20. All 7 ShareX projects that use
@@ -268,9 +268,9 @@ The message ids are placeholders. Error List and Output wiring are protocol gaps
   Mono build host (`mono Microsoft.CodeAnalysis.Workspaces.MSBuild.BuildHost.exe`, seen in `/proc` during every
   `mono` run) picks up a located Mono from `PATH` with no Roslyn changes. Mono also supplies
   `Microsoft.WebApplication.targets`.
-- Bundling costs about 311 MB on disk, ties Niello to a toolchain whose MSBuild froze at 16.10 (2021), and adds a
+- Bundling costs about 311 MB on disk, ties Eludite to a toolchain whose MSBuild froze at 16.10 (2021), and adds a
   native-library redistribution and update burden.
-- Product shape: detect Mono at startup without blocking (`niello/host/info` should report it). When it is missing,
+- Product shape: detect Mono at startup without blocking (`eludite/host/info` should report it). When it is missing,
   show one non-modal notice ("Install Mono for full .NET Framework project support: `sudo pacman -S mono
   mono-msbuild` / your distribution's packages") and fall back to the SDK's MSBuild. An opt-in "download Mono into
   ~/.local" action is a reasonable later convenience (user-initiated, never at startup, no network by default). It
@@ -293,20 +293,20 @@ What the fallback needs is a correction layer in front of whichever MSBuild runs
 
 ## Protocol gaps (not edited; `protocol/**` is out of scope)
 
-`protocol/schemas/host-rpc.md` has only `initialize`, `niello/ping`, `niello/host/info`, `shutdown` and `exit`.
+`protocol/schemas/host-rpc.md` has only `initialize`, `eludite/ping`, `eludite/host/info`, `shutdown` and `exit`.
 Missing for this feature:
-1. **Toolchain discovery** in `niello/host/info`: located Mono (prefix, MSBuild version, source), Build Tools
+1. **Toolchain discovery** in `eludite/host/info`: located Mono (prefix, MSBuild version, source), Build Tools
    (vswhere result), and the reference-assembly packages found.
-2. **Project-load diagnostics** for the Error List: a notification such as `niello/project/diagnostics` with
+2. **Project-load diagnostics** for the Error List: a notification such as `eludite/project/diagnostics` with
    project, severity, code, message, class (missing targets, COM, packages, web targets, other) and solution
    generation. Today they go only to stderr.
-3. **An Output window channel**: a `niello/output` notification (pane, text) for the messages in exit criterion 4.
+3. **An Output window channel**: a `eludite/output` notification (pane, text) for the messages in exit criterion 4.
 4. **Project-system state**: per project, a request for loaded or failed, evaluator used, Compile item count and
    reference counts (the matrix's columns), so Solution Explorer can show "(load failed)" like Visual Studio.
-5. **Design-time settings** that are environment variables today (`NIELLO_LEGACY*`, `NIELLO_MONO_PREFIX`,
-   `NIELLO_CACHE_DIR`, designer mode) need a settings method or `initialize` options.
+5. **Design-time settings** that are environment variables today (`ELUDITE_LEGACY*`, `ELUDITE_MONO_PREFIX`,
+   `ELUDITE_CACHE_DIR`, designer mode) need a settings method or `initialize` options.
 6. **`initialize.solutionPath` accepting a bare `.csproj`**: the host does this already; the schema says "solution".
-7. **Load progress**: Roslyn's `workspace/projectInitializationComplete` is forwarded as is. A Niello progress
+7. **Load progress**: Roslyn's `workspace/projectInitializationComplete` is forwarded as is. A Eludite progress
    notification covering the pre-launch evaluation (2.3 to 2.6 s on the 10-plus-project solutions) is missing.
 
 ## Not covered
@@ -326,7 +326,7 @@ Missing for this feature:
 ## Size of the follow-up brief
 
 **Medium**, about the size of brief 0002's follow-up. It covers:
-- promoting `Legacy/` into a cached, cancellable project-system service in niello-host (evaluation alongside Roslyn
+- promoting `Legacy/` into a cached, cancellable project-system service in eludite-host (evaluation alongside Roslyn
   startup, invalidation on project-file change, solution generation numbers);
 - the protocol additions above (schema first), with the Error List and Output wiring;
 - case-insensitive import resolution;
@@ -343,7 +343,7 @@ corpus/legacy/fetch.sh                               # pinned shallow clones int
 tools/roslyn-pin/build.sh                            # Roslyn LS (brief 0002)
 # Mono without root: tools/legacy-load/README.md
 tools/legacy-load/run.sh                             # all phases -> tools/legacy-load/results/<stamp>/
-dotnet test dotnet/Niello.slnx                       # includes the WebForms completion test when the above exist
+dotnet test dotnet/Eludite.slnx                       # includes the WebForms completion test when the above exist
 ```
 
 Raw data for this report: `tools/legacy-load/results/20261001-195344/` (gitignored). That directory holds

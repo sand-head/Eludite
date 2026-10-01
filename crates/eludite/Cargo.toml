@@ -1,24 +1,24 @@
 [package]
-name = "niello"
-description = "Niello: a native, agent-first IDE for .NET."
+name = "eludite"
+description = "Eludite: a native, agent-first IDE for .NET."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-default-run = "niello"
+default-run = "eludite"
 
 [[bin]]
-name = "niello"
+name = "eludite"
 path = "src/main.rs"
 
 [dependencies]
 gpui.workspace = true
 gpui_platform.workspace = true
-niello-commands.workspace = true
-niello-docking.workspace = true
-niello-ui.workspace = true
+eludite-commands.workspace = true
+eludite-docking.workspace = true
+eludite-ui.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

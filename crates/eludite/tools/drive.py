@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive a running `niello --bounds-out FILE` with real X11 pointer and key
+"""Drive a running `eludite --bounds-out FILE` with real X11 pointer and key
 events (XTest, through the X server like a physical device), checking each
 step against the element bounds the app reports.
 
@@ -7,7 +7,7 @@ Run against the X11 backend (WAYLAND_DISPLAY unset), for example inside a
 nested KWin's Xwayland (tools/manual-linux.sh). Writes one JSON line per step
 to stdout and exits non-zero if a step fails.
 
-Usage: drive.py --bounds FILE --title "Demo - Niello" [--shots DIR]
+Usage: drive.py --bounds FILE --title "Demo - Eludite" [--shots DIR]
 """
 import argparse, json, os, subprocess, sys, time
 

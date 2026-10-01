@@ -1,4 +1,4 @@
-namespace Niello.Wcf.Tests;
+namespace Eludite.Wcf.Tests;
 
 public sealed class ServiceModelConfigReaderTests
 {

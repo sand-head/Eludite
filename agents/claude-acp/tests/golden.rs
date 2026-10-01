@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use niello_claude_acp::translate::{Translator, TurnEnd};
+use eludite_claude_acp::translate::{Translator, TurnEnd};
 use serde_json::{Value, json};
 
 const CWD: &str = "/work";

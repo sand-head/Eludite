@@ -1,11 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Niello.Host.Legacy;
-using Niello.Host.Rpc;
+using Eludite.Host.Legacy;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>
 /// The LSP bridge between the shell connection and an upstream language server (the Roslyn language server,
@@ -13,9 +13,9 @@ namespace Niello.Host.Lsp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Lifecycle: <see cref="Start"/> (on <c>niello/host/initialize</c>) launches the server in the background and performs
+/// Lifecycle: <see cref="Start"/> (on <c>eludite/host/initialize</c>) launches the server in the background and performs
 /// the LSP handshake with it. <see cref="OpenSolution"/> and <see cref="CloseSolution"/> implement
-/// <c>niello/solution/open</c> and <c>close</c>; a second open (or a close) restarts the server, because Roslyn cannot
+/// <c>eludite/solution/open</c> and <c>close</c>; a second open (or a close) restarts the server, because Roslyn cannot
 /// unload a solution, and replays the shell's open documents into it.
 /// </para>
 /// <para>
@@ -24,7 +24,7 @@ namespace Niello.Host.Lsp;
 /// after a <c>didChange</c> always sees the new text.
 /// </para>
 /// <para>
-/// Generations: every forwarded request must carry <c>params.nielloGeneration</c>; the host strips it. A missing value
+/// Generations: every forwarded request must carry <c>params.eluditeGeneration</c>; the host strips it. A missing value
 /// is -32602, a stale one -32801 and is never forwarded, and a generation change while the request is in flight
 /// cancels it upstream and answers -32801.
 /// </para>
@@ -44,9 +44,9 @@ public sealed class LspProxy : IAsyncDisposable
     public const int ContentModified = HostErrors.ContentModified;
 
     /// <summary>Member every forwarded request carries in its params.</summary>
-    public const string GenerationProperty = "nielloGeneration";
+    public const string GenerationProperty = "eluditeGeneration";
 
-    /// <summary>Forwarded requests typed in niello-protocol and validated before forwarding.</summary>
+    /// <summary>Forwarded requests typed in eludite-protocol and validated before forwarding.</summary>
     public static IReadOnlyList<string> TypedRequests { get; } =
     [
         "textDocument/completion",
@@ -172,7 +172,7 @@ public sealed class LspProxy : IAsyncDisposable
         }
     }
 
-    /// <summary>Starts the language server in the background (called on <c>niello/host/initialize</c>).</summary>
+    /// <summary>Starts the language server in the background (called on <c>eludite/host/initialize</c>).</summary>
     public void Start()
     {
         lock (_lock)
@@ -191,13 +191,13 @@ public sealed class LspProxy : IAsyncDisposable
             }
         }
 
-        _ = NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("unavailable")
+        _ = NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("unavailable")
         {
             Message = "No language server is configured (build it with tools/roslyn-pin/build.sh, or pass --roslyn-ls).",
         });
     }
 
-    /// <summary><c>niello/solution/open</c>: bumps the generation, returns it, and loads in the background.</summary>
+    /// <summary><c>eludite/solution/open</c>: bumps the generation, returns it, and loads in the background.</summary>
     public long OpenSolution(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -242,7 +242,7 @@ public sealed class LspProxy : IAsyncDisposable
         return load.Generation;
     }
 
-    /// <summary><c>niello/solution/close</c>: bumps the generation when a solution is open and returns the current one.</summary>
+    /// <summary><c>eludite/solution/close</c>: bumps the generation when a solution is open and returns the current one.</summary>
     public long CloseSolution()
     {
         SolutionLoad? closed;
@@ -272,7 +272,7 @@ public sealed class LspProxy : IAsyncDisposable
         if (stale is not null)
         {
             CancelStale(stale);
-            _ = NotifyShellAsync("niello/solution/status", new SolutionStatus(generation, closed!.Path, SolutionStates.Closed));
+            _ = NotifyShellAsync("eludite/solution/status", new SolutionStatus(generation, closed!.Path, SolutionStates.Closed));
         }
 
         return generation;
@@ -434,7 +434,7 @@ public sealed class LspProxy : IAsyncDisposable
         if (uri is not null)
         {
             _warmer.Closed(uri);
-            _ = NotifyShellAsync("textDocument/publishDiagnostics", new { uri, diagnostics = Array.Empty<object>(), nielloGeneration = generation });
+            _ = NotifyShellAsync("textDocument/publishDiagnostics", new { uri, diagnostics = Array.Empty<object>(), eluditeGeneration = generation });
         }
     }
 
@@ -450,7 +450,7 @@ public sealed class LspProxy : IAsyncDisposable
     {
         if (!_started)
         {
-            _log.WriteLine($"dropping {method}: niello/host/initialize has not been received");
+            _log.WriteLine($"dropping {method}: eludite/host/initialize has not been received");
             return;
         }
 
@@ -500,7 +500,7 @@ public sealed class LspProxy : IAsyncDisposable
             // The chain never faults; be defensive anyway.
         }
 
-        await NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("restarting")).ConfigureAwait(false);
+        await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("restarting")).ConfigureAwait(false);
         if (await old.ConfigureAwait(false) is { } session)
         {
             await DisposeSessionAsync(session).ConfigureAwait(false);
@@ -522,7 +522,7 @@ public sealed class LspProxy : IAsyncDisposable
 
             if (_launcher is null)
             {
-                await FailAsync(load, "NIELLO0001", "No language server is configured; the solution is shown without semantic features.").ConfigureAwait(false);
+                await FailAsync(load, "ELUDITE0001", "No language server is configured; the solution is shown without semantic features.").ConfigureAwait(false);
                 return;
             }
 
@@ -555,7 +555,7 @@ public sealed class LspProxy : IAsyncDisposable
             var session = await sessionTask.ConfigureAwait(false);
             if (session is null || session.Exited)
             {
-                await FailAsync(load, "NIELLO0001", "The language server failed to start; see the host log.").ConfigureAwait(false);
+                await FailAsync(load, "ELUDITE0001", "The language server failed to start; see the host log.").ConfigureAwait(false);
                 return;
             }
 
@@ -585,7 +585,7 @@ public sealed class LspProxy : IAsyncDisposable
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             await _log.WriteLineAsync($"loading {load.Path} failed: {ex}").ConfigureAwait(false);
-            await FailAsync(load, "NIELLO0001", $"Loading failed: {ex.GetBaseException().Message}").ConfigureAwait(false);
+            await FailAsync(load, "ELUDITE0001", $"Loading failed: {ex.GetBaseException().Message}").ConfigureAwait(false);
         }
     }
 
@@ -637,7 +637,7 @@ public sealed class LspProxy : IAsyncDisposable
             Diagnostics = diagnostics ?? (state == SolutionStates.Loaded && prep.Diagnostics.Count > 0 ? prep.Diagnostics : null),
             ElapsedMs = Math.Round(load.Elapsed.Elapsed.TotalMilliseconds, 1),
         };
-        return NotifyShellAsync("niello/solution/status", status);
+        return NotifyShellAsync("eludite/solution/status", status);
     }
 
     private async Task OnProjectsLoadedAsync(UpstreamSession session)
@@ -711,25 +711,25 @@ public sealed class LspProxy : IAsyncDisposable
             }
         }
 
-        await NotifyShellAsync("textDocument/publishDiagnostics", new { uri, version, diagnostics = items, nielloGeneration = generation }).ConfigureAwait(false);
+        await NotifyShellAsync("textDocument/publishDiagnostics", new { uri, version, diagnostics = items, eluditeGeneration = generation }).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------ server -> host
 
     private async Task<UpstreamSession?> LaunchSessionAsync(string? solutionPath, IReadOnlyList<OpenDocument> replay)
     {
-        // Run off the caller's thread: niello/host/initialize must not wait for the child process.
+        // Run off the caller's thread: eludite/host/initialize must not wait for the child process.
         await Task.Yield();
-        await NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("starting")).ConfigureAwait(false);
+        await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("starting")).ConfigureAwait(false);
         LanguageServerConnection? connection = null;
         try
         {
             connection = await _launcher!.LaunchAsync(CancellationToken.None).ConfigureAwait(false);
             var rpc = HostServer.CreateConnection(connection.ToServer, connection.FromServer);
             var session = new UpstreamSession(rpc, connection);
-            // NIELLO_LSP_TRACE=1 traces every upstream message to the host log; =warn only warnings. Off by default
+            // ELUDITE_LSP_TRACE=1 traces every upstream message to the host log; =warn only warnings. Off by default
             // because StreamJsonRpc's built-in $/progress handling logs an error for every LSP string progress token.
-            rpc.TraceSource = new TraceSource("roslyn-ls-rpc", Environment.GetEnvironmentVariable("NIELLO_LSP_TRACE") switch
+            rpc.TraceSource = new TraceSource("roslyn-ls-rpc", Environment.GetEnvironmentVariable("ELUDITE_LSP_TRACE") switch
             {
                 "1" => SourceLevels.Verbose,
                 "warn" => SourceLevels.Warning,
@@ -763,7 +763,7 @@ public sealed class LspProxy : IAsyncDisposable
             }
 
             await _log.WriteLineAsync($"roslyn-ls initialized ({replay.Count} document(s) replayed)").ConfigureAwait(false);
-            await NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("running")
+            await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("running")
             {
                 ServerInfo = init.TryGetProperty("serverInfo", out var info) ? info.Clone() : null,
                 Capabilities = init.TryGetProperty("capabilities", out var caps) ? caps.Clone() : null,
@@ -778,7 +778,7 @@ public sealed class LspProxy : IAsyncDisposable
                 await connection.Lifetime.DisposeAsync().ConfigureAwait(false);
             }
 
-            await NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("unavailable")
+            await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("unavailable")
             {
                 Message = $"The language server failed to start: {ex.GetBaseException().Message}",
             }).ConfigureAwait(false);
@@ -804,10 +804,10 @@ public sealed class LspProxy : IAsyncDisposable
         }
 
         await _log.WriteLineAsync($"roslyn-ls exited: {description}").ConfigureAwait(false);
-        await NotifyShellAsync("niello/languageServer/status", new LanguageServerStatus("exited") { Message = description }).ConfigureAwait(false);
+        await NotifyShellAsync("eludite/languageServer/status", new LanguageServerStatus("exited") { Message = description }).ConfigureAwait(false);
         if (failed is not null)
         {
-            await FailAsync(failed, "NIELLO0002", $"The language server exited while the solution was loading: {description}").ConfigureAwait(false);
+            await FailAsync(failed, "ELUDITE0002", $"The language server exited while the solution was loading: {description}").ConfigureAwait(false);
         }
     }
 
@@ -945,7 +945,7 @@ public sealed class LspProxy : IAsyncDisposable
         }
     }
 
-    /// <summary>Splits <c>nielloGeneration</c> off request params. The returned params are a detached copy.</summary>
+    /// <summary>Splits <c>eluditeGeneration</c> off request params. The returned params are a detached copy.</summary>
     internal static (JsonElement Forwarded, long? Generation) ExtractGeneration(JsonElement parameters)
     {
         if (parameters.ValueKind != JsonValueKind.Object)
@@ -960,7 +960,7 @@ public sealed class LspProxy : IAsyncDisposable
         return (StripGeneration(parameters), generation);
     }
 
-    /// <summary>A detached copy of <paramref name="parameters"/> without <c>nielloGeneration</c>.</summary>
+    /// <summary>A detached copy of <paramref name="parameters"/> without <c>eluditeGeneration</c>.</summary>
     internal static JsonElement StripGeneration(JsonElement parameters)
     {
         if (parameters.ValueKind != JsonValueKind.Object || !parameters.TryGetProperty(GenerationProperty, out _))

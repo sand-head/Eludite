@@ -1,9 +1,9 @@
-// Brief 0003 runner. Throwaway spike code: loads each corpus project through niello-host's legacy evaluators
+// Brief 0003 runner. Throwaway spike code: loads each corpus project through eludite-host's legacy evaluators
 // (cold, one process per project and per solution), compiles the evaluator output with Roslyn, loads the corpus in
-// the Roslyn language server through niello-host, and compares generated WebForms designer partials with the
+// the Roslyn language server through eludite-host, and compares generated WebForms designer partials with the
 // checked-in .designer.cs files. Writes one JSON file per phase plus matrix.md.
 //
-//   legacy-load run --manifest <manifest.json> --checkout <dir> --results <dir> --host <niello-host.dll>
+//   legacy-load run --manifest <manifest.json> --checkout <dir> --results <dir> --host <eludite-host.dll>
 //                   [--roslyn-ls <dll>] [--evaluators k1,k2] [--phases restore,eval,getitem,compile,roslyn,designer]
 //                   [--entries id1,id2] [--roslyn-modes mono,sdk,mono-fixed,sdk-fixed] [--max-docs N]
 //   legacy-load eval --evaluator <kind> --work <dir> --out <file.json> <project>...   (internal: one cold process)
@@ -15,8 +15,8 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Niello.Host.Legacy;
-using Niello.Host.Rpc;
+using Eludite.Host.Legacy;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 
 namespace LegacyLoad;
@@ -509,7 +509,7 @@ internal static partial class Program
         return node;
     }
 
-    // ---------------------------------------------------------------- roslyn phase (through niello-host)
+    // ---------------------------------------------------------------- roslyn phase (through eludite-host)
 
     [GeneratedRegex(@"Successfully completed load of (?<p>.+?\.csproj)")]
     private static partial Regex LoadOk();
@@ -521,13 +521,13 @@ internal static partial class Program
     {
         var open = entry.Solution ?? entry.Path;
         // Modes: "mono" and "sdk" load projects exactly as written (no designer partials, no case fixups);
-        // "mono-fixed" and "sdk-fixed" add niello-host's design-time corrections (LegacyDesignTime.PrepareAsync).
+        // "mono-fixed" and "sdk-fixed" add eludite-host's design-time corrections (LegacyDesignTime.PrepareAsync).
         var env = new Dictionary<string, string>
         {
-            ["NIELLO_CACHE_DIR"] = Path.Combine(results, "cache-" + mode),
-            ["NIELLO_LEGACY_MONO"] = mode.StartsWith("mono", StringComparison.Ordinal) ? "1" : "0",
-            ["NIELLO_LSP_TRACE"] = "0",
-            ["NIELLO_LEGACY_DESIGNERS"] = mode.EndsWith("-fixed", StringComparison.Ordinal) ? "1" : "0",
+            ["ELUDITE_CACHE_DIR"] = Path.Combine(results, "cache-" + mode),
+            ["ELUDITE_LEGACY_MONO"] = mode.StartsWith("mono", StringComparison.Ordinal) ? "1" : "0",
+            ["ELUDITE_LSP_TRACE"] = "0",
+            ["ELUDITE_LEGACY_DESIGNERS"] = mode.EndsWith("-fixed", StringComparison.Ordinal) ? "1" : "0",
         };
         var psi = new ProcessStartInfo("dotnet")
         {
@@ -606,10 +606,10 @@ internal static partial class Program
                     loadedAt.TrySetResult();
                 }
             });
-            rpc.AddLocalRpcMethod(onStatus.Method, onStatus.Target, new JsonRpcMethodAttribute("niello/solution/status") { UseSingleObjectParameterDeserialization = true });
+            rpc.AddLocalRpcMethod(onStatus.Method, onStatus.Target, new JsonRpcMethodAttribute("eludite/solution/status") { UseSingleObjectParameterDeserialization = true });
             rpc.StartListening();
-            await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "legacy-load", clientVersion = "0" });
-            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = open });
+            await rpc.InvokeWithParameterObjectAsync<JsonElement>("eludite/host/initialize", new { clientName = "legacy-load", clientVersion = "0" });
+            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path = open });
             var generation = opened.GetProperty("generation").GetInt32();
             var finished = await Task.WhenAny(loadedAt.Task, Task.Delay(TimeSpan.FromMinutes(10)));
             node["projectInitializationCompleteMs"] = finished == loadedAt.Task ? Math.Round(sw.Elapsed.TotalMilliseconds) : null;
@@ -637,7 +637,7 @@ internal static partial class Program
                     {
                         var uri = new Uri(file).AbsoluteUri;
                         await rpc.NotifyWithParameterObjectAsync("textDocument/didOpen", new { textDocument = new { uri, languageId = "csharp", version = 1, text = await File.ReadAllTextAsync(file) } });
-                        var r = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation });
+                        var r = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, eluditeGeneration = generation });
                         await rpc.NotifyWithParameterObjectAsync("textDocument/didClose", new { textDocument = new { uri } });
                         if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("items", out var items))
                         {
@@ -679,8 +679,8 @@ internal static partial class Program
 
             node["projects"] = perProject;
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], cts.Token);
-            await rpc.NotifyAsync("niello/host/exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], cts.Token);
+            await rpc.NotifyAsync("eludite/host/exit");
             await host.WaitForExitAsync(cts.Token);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

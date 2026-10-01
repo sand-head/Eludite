@@ -5,7 +5,7 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 ## Setup (once)
 
 1. Install: Git, Rust via rustup (the repo's `rust-toolchain.toml` picks 1.98.1), .NET SDK 10.0.302 (or let `global.json` roll forward), Visual Studio Build Tools 2022 with the ".NET Framework build tools" and "Web development build tools" workloads, Node (only to compare against the npx adapter), Claude Code (native installer) logged in.
-2. Clone `https://github.com/sand-head/niello-ide` and run `cargo build --workspace` and `dotnet build dotnet/Niello.slnx` from a PowerShell prompt. Record anything that fails to build; that is finding number one.
+2. Clone `https://github.com/sand-head/eludite-ide` and run `cargo build --workspace` and `dotnet build dotnet/Eludite.slnx` from a PowerShell prompt. Record anything that fails to build; that is finding number one.
 
 ## Brief 0001, GPUI shell and docking
 
@@ -13,7 +13,7 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 - `python tools/bench_all.py --label windows --refresh-hz <monitor Hz>` and `python tools/inject_keys.py` (check its Windows notes first). Record cold start, frame cost p99, keystroke to pixel p99, scroll frame intervals, RSS. GPU, driver and refresh rate go in the report.
 - Exit: GO or NO-GO for Windows in `docs/briefs/0001-report.md` section 8.
 
-## Brief 0002, niello-host with Roslyn
+## Brief 0002, eludite-host with Roslyn
 
 - `tools/roslyn-pin/build.ps1` (untested) must build the language server; fix the script if it does not.
 - `bench/roslyn-200/run.ps1` (untested) with 3 cold and 3 warm runs. Record T0 to T3 and peak memory.
@@ -30,7 +30,7 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 
 ## Briefs 0005 and 0006, agents
 
-- `cargo build --release -p niello-claude-acp` under `agents/claude-acp`; run the 0005 panel against it; confirm `claude.exe` discovery and that no Node is needed.
+- `cargo build --release -p eludite-claude-acp` under `agents/claude-acp`; run the 0005 panel against it; confirm `claude.exe` discovery and that no Node is needed.
 
 ## Briefs 0007 to 0009, Phase 1
 

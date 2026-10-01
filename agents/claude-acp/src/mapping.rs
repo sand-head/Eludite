@@ -152,7 +152,7 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
     info
 }
 
-/// The `_meta` Niello's panel (and other clients of the Node adapter) read the
+/// The `_meta` Eludite's panel (and other clients of the Node adapter) read the
 /// agent's own tool name from: `_meta.claudeCode.toolName`.
 pub fn tool_meta(name: &str, mcp_server: Option<&Value>) -> Meta {
     let mut cc = Map::new();
@@ -425,12 +425,12 @@ mod tests {
         assert_eq!(k("Task", json!({"description": "d"})).kind, ToolKind::Think);
         assert_eq!(k("ExitPlanMode", json!({})).kind, ToolKind::SwitchMode);
         let mcp = k(
-            "mcp__niello__diagnostics-list",
+            "mcp__eludite__diagnostics-list",
             json!({"severity": "error"}),
         );
         assert_eq!(
             (mcp.title.as_str(), mcp.kind),
-            ("mcp__niello__diagnostics-list", ToolKind::Other)
+            ("mcp__eludite__diagnostics-list", ToolKind::Other)
         );
         // Streaming start: no input yet, the title is the tool name.
         assert_eq!(k("Write", json!({})).title, "Write");
@@ -507,16 +507,16 @@ mod tests {
     fn mcp_servers_become_a_strict_config() {
         let servers = vec![
             McpServer::Stdio(
-                McpServerStdio::new("niello", "/opt/niello")
+                McpServerStdio::new("eludite", "/opt/eludite")
                     .args(vec!["--mcp-relay".into(), "127.0.0.1:1".into()])
-                    .env(vec![EnvVariable::new("NIELLO_MCP_TOKEN", "t")]),
+                    .env(vec![EnvVariable::new("ELUDITE_MCP_TOKEN", "t")]),
             ),
             McpServer::Http(McpServerHttp::new("web", "http://127.0.0.1:2/mcp")),
         ];
         assert_eq!(
             mcp_config(&servers),
             json!({"mcpServers": {
-                "niello": {"type": "stdio", "command": "/opt/niello", "args": ["--mcp-relay", "127.0.0.1:1"], "env": {"NIELLO_MCP_TOKEN": "t"}},
+                "eludite": {"type": "stdio", "command": "/opt/eludite", "args": ["--mcp-relay", "127.0.0.1:1"], "env": {"ELUDITE_MCP_TOKEN": "t"}},
                 "web": {"type": "http", "url": "http://127.0.0.1:2/mcp", "headers": {}},
             }})
         );

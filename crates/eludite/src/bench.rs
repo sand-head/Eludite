@@ -9,7 +9,7 @@ use gpui::{
     AnyWindowHandle, App, Entity, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, PlatformInput, Point, Window, point, px,
 };
-use niello_docking::RenderProbe;
+use eludite_docking::RenderProbe;
 use serde_json::{Value, json};
 
 use crate::shell::Shell;
@@ -69,14 +69,14 @@ fn platform(window: &Window) -> Value {
     })
 }
 
-/// `--bench-start`: process start (or `NIELLO_LAUNCH_WALL_NS`) to the end of
+/// `--bench-start`: process start (or `ELUDITE_LAUNCH_WALL_NS`) to the end of
 /// the first frame's present. The window accepts input from then on.
 pub fn start(shell: &Entity<Shell>, t_main: Instant, join_wait: Duration, cx: &mut App) {
     let t_main_wall = SystemTime::now() - t_main.elapsed();
     shell.update(cx, |shell, _| {
         shell.after_first_present(move |window, _| {
             let now = Instant::now();
-            let launch: Option<u128> = std::env::var("NIELLO_LAUNCH_WALL_NS")
+            let launch: Option<u128> = std::env::var("ELUDITE_LAUNCH_WALL_NS")
                 .ok()
                 .and_then(|v| v.parse().ok());
             let out = json!({
@@ -216,7 +216,7 @@ fn tick(st: Rc<RefCell<DragBench>>, window: &mut Window, cx: &mut App) {
                     mouse_move(window, cx, start + point(px(40.), px(-40.)));
                     b.warmup = 10;
                 } else {
-                    eprintln!("niello bench: Output tab not found");
+                    eprintln!("eludite bench: Output tab not found");
                     std::process::exit(1);
                 }
                 drop(b);

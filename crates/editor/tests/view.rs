@@ -5,8 +5,8 @@ use gpui::{
     AppContext as _, Entity, Focusable as _, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
     Point, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
-use niello_editor::syntax::{HighlightKind, LanguageRegistry};
-use niello_editor::{Buffer, EditorView, SelectionRange, key_bindings};
+use eludite_editor::syntax::{HighlightKind, LanguageRegistry};
+use eludite_editor::{Buffer, EditorView, SelectionRange, key_bindings};
 
 fn open(
     cx: &mut TestAppContext,
@@ -249,7 +249,7 @@ fn highlighting_runs_off_thread_and_stale_highlights_follow_edits(cx: &mut TestA
     let kind = |cx: &mut VisualTestContext, row: u32, col: u32| {
         view.read_with(cx, |v, _| {
             v.highlights()
-                .kind_at(niello_editor::text::Point::new(row, col))
+                .kind_at(eludite_editor::text::Point::new(row, col))
         })
     };
     assert_eq!(kind(&mut cx, 0, 0), Some(HighlightKind::Keyword));
@@ -274,7 +274,7 @@ fn highlighting_runs_off_thread_and_stale_highlights_follow_edits(cx: &mut TestA
 
 #[gpui::test]
 fn decorations_follow_edits(cx: &mut TestAppContext) {
-    use niello_editor::{Decoration, DecorationStyle};
+    use eludite_editor::{Decoration, DecorationStyle};
     let (view, mut cx) = open(cx, "let a = b;", None);
     view.update(&mut cx, |v, cx| {
         let buffer = v.editor().buffer();

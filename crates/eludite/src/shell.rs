@@ -10,9 +10,9 @@ use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
     IntoElement, ParentElement, Render, Styled, Window, div,
 };
-use niello_commands::{CommandRegistry, builtins};
-use niello_docking::{DockController, DockHost, DocumentTab, Persistence, Probe};
-use niello_ui::{
+use eludite_commands::{CommandRegistry, builtins};
+use eludite_docking::{DockController, DockHost, DocumentTab, Persistence, Probe};
+use eludite_ui::{
     MenuBar, RunCommand, SHELL_CONTEXT, StatusBar, Theme, menu_bar_with, slots, vs_keymap,
 };
 
@@ -79,7 +79,7 @@ impl Shell {
             .ok()
             .and_then(|v| v["version"].as_str().map(str::to_owned))
             .unwrap_or_else(|| builtins::VERSION.to_owned());
-        status.set(slots::VERSION, format!("Niello {version}"));
+        status.set(slots::VERSION, format!("Eludite {version}"));
         Self {
             theme,
             menu,
@@ -120,7 +120,7 @@ impl Shell {
         let text = match (&result, action.command.as_ref()) {
             (Ok(v), builtins::ABOUT) => format!(
                 "{} {}",
-                v["name"].as_str().unwrap_or("Niello"),
+                v["name"].as_str().unwrap_or("Eludite"),
                 v["version"].as_str().unwrap_or_default()
             ),
             (Ok(_), _) => "Ready".to_owned(),

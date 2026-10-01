@@ -2,12 +2,12 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Nerdbank.Streams;
-using Niello.Host.Rpc;
-using Niello.Host.Sdk;
+using Eludite.Host.Rpc;
+using Eludite.Host.Sdk;
 using StreamJsonRpc;
 using StreamJsonRpc.Protocol;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 public sealed class HostRpcTargetTests : IAsyncDisposable
 {
@@ -28,7 +28,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
         _server = HostServer.RunAsync(serverStream, serverStream, _target);
         _client = TestRpc.Create(clientStream);
         var onStatus = new Action<JsonElement>(p => _solutionStatuses.Writer.TryWrite(p.Clone()));
-        _client.AddLocalRpcMethod(onStatus.Method, onStatus.Target, new JsonRpcMethodAttribute("niello/solution/status") { UseSingleObjectParameterDeserialization = true });
+        _client.AddLocalRpcMethod(onStatus.Method, onStatus.Target, new JsonRpcMethodAttribute("eludite/solution/status") { UseSingleObjectParameterDeserialization = true });
         _client.StartListening();
     }
 
@@ -40,11 +40,11 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task HostInitialize_ReturnsHostIdentityAndCapabilities()
     {
         var result = await _client.InvokeWithParameterObjectAsync<JsonElement>(
-            "niello/host/initialize",
-            new { clientName = "niello", clientVersion = "0.1.0" },
+            "eludite/host/initialize",
+            new { clientName = "eludite", clientVersion = "0.1.0" },
             Ct);
 
-        Assert.Equal("niello-host", result.GetProperty("hostName").GetString());
+        Assert.Equal("eludite-host", result.GetProperty("hostName").GetString());
         Assert.False(string.IsNullOrEmpty(result.GetProperty("hostVersion").GetString()));
         Assert.Equal(JsonValueKind.Object, result.GetProperty("capabilities").ValueKind);
         Assert.False(result.GetProperty("capabilities").GetProperty("languageServer").GetBoolean());
@@ -54,7 +54,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task HostInitialize_IgnoresUnknownMembers()
     {
         var result = await _client.InvokeWithParameterObjectAsync<InitializeResult>(
-            "niello/host/initialize", new { clientName = "niello", clientVersion = "0.1.0", solutionPath = "/src/App.slnx" }, Ct);
+            "eludite/host/initialize", new { clientName = "eludite", clientVersion = "0.1.0", solutionPath = "/src/App.slnx" }, Ct);
 
         Assert.Equal(HostRpcTarget.HostName, result.HostName);
         Assert.Equal(HostRpcTarget.HostVersion, result.HostVersion);
@@ -64,7 +64,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     [Fact]
     public async Task Ping_ReturnsPongWithIso8601UtcTimestamp()
     {
-        var result = await _client.InvokeWithCancellationAsync<JsonElement>("niello/ping", [], Ct);
+        var result = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/ping", [], Ct);
 
         Assert.True(result.GetProperty("pong").GetBoolean());
         var timestamp = result.GetProperty("timestamp").GetString();
@@ -76,7 +76,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     [Fact]
     public async Task HostInfo_ReportsSdksFromDiscovererAndRuntime()
     {
-        var result = await _client.InvokeWithCancellationAsync<JsonElement>("niello/host/info", [], Ct);
+        var result = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/host/info", [], Ct);
 
         var sdks = result.GetProperty("dotnetSdks").EnumerateArray().ToList();
         Assert.Equal(2, sdks.Count);
@@ -90,11 +90,11 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     [Fact]
     public async Task HostShutdownThenExit_ReturnsNullAndStopsServerWithExitCodeZero()
     {
-        var result = await _client.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
+        var result = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], Ct);
         Assert.Equal(JsonValueKind.Null, result.ValueKind);
         Assert.True(_target.ShutdownRequested);
 
-        await _client.NotifyAsync("niello/host/exit");
+        await _client.NotifyAsync("eludite/host/exit");
 
         Assert.Equal(0, await _server.WaitAsync(TimeSpan.FromSeconds(10), Ct));
     }
@@ -102,7 +102,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     [Fact]
     public async Task ExitWithoutShutdown_StopsServerWithExitCodeOne()
     {
-        await _client.NotifyAsync("niello/host/exit");
+        await _client.NotifyAsync("eludite/host/exit");
 
         Assert.Equal(1, await _server.WaitAsync(TimeSpan.FromSeconds(10), Ct));
     }
@@ -111,7 +111,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task UnknownMethod_ReturnsMethodNotFound()
     {
         var ex = await Assert.ThrowsAsync<RemoteMethodNotFoundException>(
-            () => _client.InvokeWithCancellationAsync<JsonElement>("niello/nope", [], Ct));
+            () => _client.InvokeWithCancellationAsync<JsonElement>("eludite/nope", [], Ct));
 
         Assert.Equal(JsonRpcErrorCode.MethodNotFound, ex.ErrorCode);
     }
@@ -122,7 +122,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task PlainLspLifecycleNames_AreNotHostMethods(string method)
     {
         var ex = await Assert.ThrowsAsync<RemoteMethodNotFoundException>(
-            () => _client.InvokeWithParameterObjectAsync<JsonElement>(method, new { clientName = "niello", clientVersion = "0.1.0" }, Ct));
+            () => _client.InvokeWithParameterObjectAsync<JsonElement>(method, new { clientName = "eludite", clientVersion = "0.1.0" }, Ct));
 
         Assert.Equal(JsonRpcErrorCode.MethodNotFound, ex.ErrorCode);
         Assert.False(_target.Initialized);
@@ -135,7 +135,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
         try
         {
             var ex = await Assert.ThrowsAsync<RemoteInvocationException>(
-                () => _client.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path }, Ct));
+                () => _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path }, Ct));
             Assert.Equal(HostErrors.ServerNotInitialized, ex.ErrorCode);
         }
         finally
@@ -152,7 +152,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
         await InitializeAsync();
 
         var (code, _) = await TestRpc.ErrorOfAsync(
-            () => _client.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path }, Ct));
+            () => _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path }, Ct));
 
         Assert.Equal(HostErrors.InvalidParams, code);
     }
@@ -161,13 +161,13 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task SolutionOpen_WithoutLanguageServer_ReturnsNewGenerationThenFailedStatus()
     {
         await InitializeAsync();
-        var dir = Directory.CreateTempSubdirectory("niello-0007-");
+        var dir = Directory.CreateTempSubdirectory("eludite-0007-");
         try
         {
             var sln = Path.Combine(dir.FullName, "App.slnx");
             await File.WriteAllTextAsync(sln, "<Solution />", Ct);
 
-            var opened = await _client.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = sln }, Ct);
+            var opened = await _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path = sln }, Ct);
             Assert.Equal(1, opened.GetProperty("generation").GetInt64());
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
@@ -178,14 +178,14 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
             Assert.Equal("failed", status.GetProperty("state").GetString());
             Assert.Equal(1, status.GetProperty("generation").GetInt64());
             Assert.Equal(sln, status.GetProperty("path").GetString());
-            Assert.Equal("NIELLO0001", status.GetProperty("diagnostics")[0].GetProperty("code").GetString());
+            Assert.Equal("ELUDITE0001", status.GetProperty("diagnostics")[0].GetProperty("code").GetString());
             Assert.Equal("error", status.GetProperty("diagnostics")[0].GetProperty("severity").GetString());
-            var closed = await _client.InvokeWithCancellationAsync<JsonElement>("niello/solution/close", [], Ct);
+            var closed = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/solution/close", [], Ct);
             Assert.Equal(2, closed.GetProperty("generation").GetInt64());
             var closedStatus = await _solutionStatuses.Reader.ReadAsync(timeout.Token);
             Assert.Equal("closed", closedStatus.GetProperty("state").GetString());
             Assert.Equal(2, closedStatus.GetProperty("generation").GetInt64());
-            var again = await _client.InvokeWithCancellationAsync<JsonElement>("niello/solution/close", [], Ct);
+            var again = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/solution/close", [], Ct);
             Assert.Equal(2, again.GetProperty("generation").GetInt64());
         }
         finally
@@ -201,7 +201,7 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
 
         var ex = await Assert.ThrowsAsync<RemoteInvocationException>(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
             "textDocument/hover",
-            new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 0, character = 0 }, nielloGeneration = 0 },
+            new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 0, character = 0 }, eluditeGeneration = 0 },
             Ct));
 
         Assert.Equal(HostErrors.RequestFailed, ex.ErrorCode);
@@ -213,13 +213,13 @@ public sealed class HostRpcTargetTests : IAsyncDisposable
     public async Task ForwardedRequest_BeforeInitialize_IsServerNotInitialized()
     {
         var ex = await Assert.ThrowsAsync<RemoteInvocationException>(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
-            "workspace/symbol", new { query = "W", nielloGeneration = 0 }, Ct));
+            "workspace/symbol", new { query = "W", eluditeGeneration = 0 }, Ct));
 
         Assert.Equal(HostErrors.ServerNotInitialized, ex.ErrorCode);
     }
 
     private Task InitializeAsync() =>
-        _client.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "t", clientVersion = "0" }, Ct);
+        _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/host/initialize", new { clientName = "t", clientVersion = "0" }, Ct);
 
     public async ValueTask DisposeAsync()
     {

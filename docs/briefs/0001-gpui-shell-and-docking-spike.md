@@ -6,7 +6,7 @@ Related ADR: ADR-0001
 
 ## Goal
 
-Decide whether GPUI is fit to build Niello's shell on Windows, Linux and macOS, and decide which Zed crates may be vendored. Produce a throwaway prototype window with a docking layout and a large text buffer, a measured frame-rate report on all three OSes, and a crate-by-crate license and fitness audit.
+Decide whether GPUI is fit to build Eludite's shell on Windows, Linux and macOS, and decide which Zed crates may be vendored. Produce a throwaway prototype window with a docking layout and a large text buffer, a measured frame-rate report on all three OSes, and a crate-by-crate license and fitness audit.
 
 ## Files in scope
 

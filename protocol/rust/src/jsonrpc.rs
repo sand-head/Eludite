@@ -160,11 +160,11 @@ mod tests {
 
     #[test]
     fn request_round_trip() {
-        let r = Request::new(1, "niello/ping", None);
+        let r = Request::new(1, "eludite/ping", None);
         let s = serde_json::to_value(&r).unwrap();
         assert_eq!(
             s,
-            json!({"jsonrpc": "2.0", "id": 1, "method": "niello/ping"})
+            json!({"jsonrpc": "2.0", "id": 1, "method": "eludite/ping"})
         );
         assert_eq!(serde_json::from_value::<Request>(s).unwrap(), r);
     }

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Niello.Host.Sdk;
+namespace Eludite.Host.Sdk;
 
 /// <summary>Discovers SDKs by running <c>dotnet --list-sdks</c> and parsing its output.</summary>
 public sealed class DotnetCliSdkDiscoverer : ISdkDiscoverer

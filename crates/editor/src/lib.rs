@@ -1,4 +1,4 @@
-//! Niello's editor core (PLAN.md 4.1): text buffer, editing model, syntax
+//! Eludite's editor core (PLAN.md 4.1): text buffer, editing model, syntax
 //! highlighting and the GPUI editor view.
 //!
 //! # Public API
@@ -6,7 +6,7 @@
 //! Embedding an editor takes three calls:
 //!
 //! ```ignore
-//! cx.bind_keys(niello_editor::key_bindings());          // once per app
+//! cx.bind_keys(eludite_editor::key_bindings());          // once per app
 //! let registry = LanguageRegistry::with_builtins();       // once per app
 //! let view = cx.new(|cx| EditorView::new(Buffer::load(path)?, registry.for_path(path), cx));
 //! ```

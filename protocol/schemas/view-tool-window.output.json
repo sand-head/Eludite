@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-tool-window.output.json",
-  "title": "niello.view tool window state",
-  "description": "Output of niello.view.show, niello.view.hide, niello.view.float, niello.view.auto_hide and niello.view.dock: where the tool window (or document tab) is after the command.",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-tool-window.output.json",
+  "title": "eludite.view tool window state",
+  "description": "Output of eludite.view.show, eludite.view.hide, eludite.view.float, eludite.view.auto_hide and eludite.view.dock: where the tool window (or document tab) is after the command.",
   "type": "object",
   "required": [
     "id",

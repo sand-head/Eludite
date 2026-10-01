@@ -4,11 +4,11 @@ use serde_json::{Value, json};
 
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
-pub const ABOUT: &str = "niello.help.about";
-pub const TOGGLE_TOOL_WINDOW: &str = "niello.view.toggle_tool_window";
-pub const FILE_OPEN: &str = "niello.file.open";
+pub const ABOUT: &str = "eludite.help.about";
+pub const TOGGLE_TOOL_WINDOW: &str = "eludite.view.toggle_tool_window";
+pub const FILE_OPEN: &str = "eludite.file.open";
 
-/// The Niello version reported by `niello.help.about`.
+/// The Eludite version reported by `eludite.help.about`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn id(s: &str) -> CommandId {
@@ -29,7 +29,7 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
     registry.register(
         CommandSpec {
             id: id(ABOUT),
-            title: "Help: About Niello".into(),
+            title: "Help: About Eludite".into(),
             input_schema: json!({"type": "object", "properties": {}, "additionalProperties": false}),
             output_schema: json!({
                 "type": "object",
@@ -38,7 +38,7 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
             }),
             permission: PermissionClass::Read,
         },
-        |_| Ok(json!({"name": "Niello", "version": VERSION})),
+        |_| Ok(json!({"name": "Eludite", "version": VERSION})),
     )?;
 
     registry.register(

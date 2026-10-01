@@ -1,6 +1,6 @@
-using Niello.Host.Sdk;
+using Eludite.Host.Sdk;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 public sealed class DotnetCliSdkDiscovererTests
 {

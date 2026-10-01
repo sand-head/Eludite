@@ -129,7 +129,7 @@ fn rejects(file: &str, def: &str, value: Value) {
 
 #[test]
 fn every_schema_file_names_a_documented_method() {
-    let mut documented: BTreeSet<&str> = methods::NIELLO_ACCEPTED.iter().copied().collect();
+    let mut documented: BTreeSet<&str> = methods::ELUDITE_ACCEPTED.iter().copied().collect();
     documented.extend(methods::HOST_TO_SHELL);
     let mut seen = BTreeSet::new();
     for entry in std::fs::read_dir(schemas_dir().join("host")).unwrap() {
@@ -139,11 +139,11 @@ fn every_schema_file_names_a_documented_method() {
         assert_eq!(
             schema["$id"],
             json!(format!(
-                "https://github.com/sand-head/niello-ide/protocol/schemas/host/{name}"
+                "https://github.com/sand-head/eludite-ide/protocol/schemas/host/{name}"
             )),
             "$id of {name}"
         );
-        let method = schema["x-niello-method"].as_str().unwrap();
+        let method = schema["x-eludite-method"].as_str().unwrap();
         if method != "*" {
             assert!(
                 documented.contains(method),
@@ -152,8 +152,8 @@ fn every_schema_file_names_a_documented_method() {
             seen.insert(method.to_owned());
         }
     }
-    // Every Niello-specific message has its own schema file.
-    for m in methods::NIELLO_ACCEPTED
+    // Every Eludite-specific message has its own schema file.
+    for m in methods::ELUDITE_ACCEPTED
         .iter()
         .chain(&[methods::SOLUTION_STATUS, methods::LANGUAGE_SERVER_STATUS])
     {
@@ -176,7 +176,7 @@ fn host_rpc_md_lists_exactly_the_rust_method_sets() {
     }
     let mut rust: BTreeSet<String> = BTreeSet::new();
     for set in [
-        methods::NIELLO_ACCEPTED,
+        methods::ELUDITE_ACCEPTED,
         methods::FORWARDED_TYPED_REQUESTS,
         methods::FORWARDED_TYPED_NOTIFICATIONS,
         methods::FORWARDED_UNTYPED_REQUESTS,
@@ -210,12 +210,12 @@ fn host_rpc_md_lists_exactly_the_rust_method_sets() {
 }
 
 #[test]
-fn niello_messages_conform_to_their_schemas() {
+fn eludite_messages_conform_to_their_schemas() {
     conforms(
         "host-initialize.json",
         "params",
         &host::InitializeParams {
-            client_name: "niello".into(),
+            client_name: "eludite".into(),
             client_version: "0.1.0".into(),
         },
     );
@@ -304,7 +304,7 @@ fn niello_messages_conform_to_their_schemas() {
             }],
             diagnostics: vec![host::HostDiagnostic {
                 severity: host::HostDiagnosticSeverity::Warning,
-                code: "NIELLO0106".into(),
+                code: "ELUDITE0106".into(),
                 message: "case".into(),
                 project: Some("/src/Core.csproj".into()),
                 class: None,
@@ -357,7 +357,7 @@ fn niello_messages_conform_to_their_schemas() {
     rejects(
         "forwarded-request.json",
         "params",
-        json!({"query": "W", "nielloGeneration": -1}),
+        json!({"query": "W", "eluditeGeneration": -1}),
     );
     conforms(
         "publish-diagnostics.json",
@@ -409,7 +409,7 @@ fn typed_marker_methods_match_the_method_lists() {
     assert_eq!(names, listed);
     assert!(typed.iter().all(|(_, g)| *g));
 
-    let niello = [
+    let eludite = [
         req::<host::HostInitialize>(),
         req::<host::Ping>(),
         req::<host::HostInfo>(),
@@ -418,9 +418,9 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::SolutionClose>(),
     ];
     assert!(
-        niello
+        eludite
             .iter()
-            .all(|(m, g)| !*g && methods::NIELLO_ACCEPTED.contains(m))
+            .all(|(m, g)| !*g && methods::ELUDITE_ACCEPTED.contains(m))
     );
     assert_eq!(host::HostExit::METHOD, methods::HOST_EXIT);
 

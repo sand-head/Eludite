@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json;
 
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>An open document as the shell last described it.</summary>
 public sealed record OpenDocument(string Uri, string LanguageId, int Version, string Text);

@@ -1,7 +1,7 @@
 using System.Xml;
 using System.Xml.Linq;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Reads <c>system.web/pages/controls/add</c> registrations from a <c>web.config</c>.</summary>
 public static class WebConfigControls

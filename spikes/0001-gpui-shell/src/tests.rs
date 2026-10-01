@@ -28,7 +28,7 @@ fn open_shell(
 /// layout (and the floating OS windows) come back identical.
 #[gpui::test]
 fn layout_save_restore_roundtrip(cx: &mut TestAppContext) {
-    let dir = std::env::temp_dir().join(format!("niello-spike-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("eludite-spike-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("layout.json");
     let _ = std::fs::remove_file(&path);

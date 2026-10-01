@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-dock.input.json",
-  "title": "niello.view.dock input",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-dock.input.json",
+  "title": "eludite.view.dock input",
   "description": "Dock a tool window (Window > Dock, the docking guides, or Pin on an auto-hidden window). With side, it docks as a new group on that edge. With tab_with, it becomes a tab in the group holding that tool window. With neither, a floating window returns to its last dock and an auto-hidden window is pinned back into its dock.",
   "type": "object",
   "properties": {

@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Time.Testing;
-using Niello.Host.Lsp;
+using Eludite.Host.Lsp;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>The warming scheduler: immediate pulls on open, debounced pulls on change, newest pull wins.</summary>
 public sealed class DiagnosticsWarmerTests : IDisposable

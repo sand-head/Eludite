@@ -1,22 +1,22 @@
 using System.Diagnostics;
 using System.Text.Json;
-using Niello.Host.Legacy;
-using Niello.Host.Lsp;
-using Niello.Host.Rpc;
+using Eludite.Host.Legacy;
+using Eludite.Host.Lsp;
+using Eludite.Host.Rpc;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>
 /// Brief 0003 proving test: WebForms code-behind IntelliSense for a field declared only in markup. Drives the real
-/// niello-host process with the Roslyn language server against a copy of a corpus WebForms project
+/// eludite-host process with the Roslyn language server against a copy of a corpus WebForms project
 /// (corpus/legacy, aspnet/samples ChangePK). The copy gets one extra <c>asp:Button</c> in markup (absent from the
 /// checked-in .designer.cs) and one control whose tag prefix is registered only in web.config
 /// <c>&lt;pages&gt;&lt;controls&gt;</c>. Skips with a message when Roslyn or the corpus checkout is absent.
 /// </summary>
 public sealed class LegacyWebFormsCompletionTests
 {
-    private const string ProbeButton = "NielloProbeButton";
-    private const string ProbeLabel = "NielloProbeLabel";
+    private const string ProbeButton = "EluditeProbeButton";
+    private const string ProbeLabel = "EluditeProbeLabel";
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -26,13 +26,13 @@ public sealed class LegacyWebFormsCompletionTests
     public async Task CodeBehind_CompletionOnMarkupOnlyField_ListsControlMembers(string msbuild)
     {
         var roslyn = RoslynProcessLauncher.Locate(null);
-        Assert.SkipWhen(roslyn is null, "Roslyn language server not built; run tools/roslyn-pin/build.sh (or set NIELLO_ROSLYN_LS).");
+        Assert.SkipWhen(roslyn is null, "Roslyn language server not built; run tools/roslyn-pin/build.sh (or set ELUDITE_ROSLYN_LS).");
         var source = FindCorpusProject();
-        Assert.SkipWhen(source is null, "Corpus checkout not found; run corpus/legacy/fetch.sh (or set NIELLO_LEGACY_CORPUS).");
+        Assert.SkipWhen(source is null, "Corpus checkout not found; run corpus/legacy/fetch.sh (or set ELUDITE_LEGACY_CORPUS).");
         Assert.SkipWhen(msbuild == "mono" && (OperatingSystem.IsWindows() || MonoInstallation.Locate() is null), "Mono MSBuild not found; see tools/legacy-load/README.md.");
         Assert.SkipWhen(new ReferenceAssemblies().RootFor("v4.5") is null, "Microsoft.NETFramework.ReferenceAssemblies.net45 is not in the NuGet cache; run tools/legacy-load/run.sh --prepare-only.");
 
-        var work = Directory.CreateTempSubdirectory("niello-0003-");
+        var work = Directory.CreateTempSubdirectory("eludite-0003-");
         try
         {
             var project = PrepareCopy(source!, work.FullName);
@@ -73,7 +73,7 @@ public sealed class LegacyWebFormsCompletionTests
         const string button = """<asp:Button runat="server" OnClick="LogIn" """;
         Assert.Contains(button, markup, StringComparison.Ordinal);
         markup = markup.Replace(button, $"""<asp:Button runat="server" ID="{ProbeButton}" OnClick="LogIn" """, StringComparison.Ordinal);
-        markup = markup.Replace("</asp:Content>", $"""    <niello:Label runat="server" ID="{ProbeLabel}" />{Environment.NewLine}</asp:Content>""", StringComparison.Ordinal);
+        markup = markup.Replace("</asp:Content>", $"""    <eludite:Label runat="server" ID="{ProbeLabel}" />{Environment.NewLine}</asp:Content>""", StringComparison.Ordinal);
         File.WriteAllText(login, markup);
         Assert.DoesNotContain(ProbeButton, File.ReadAllText(login + ".designer.cs"), StringComparison.Ordinal);
 
@@ -81,7 +81,7 @@ public sealed class LegacyWebFormsCompletionTests
         var config = File.ReadAllText(webConfig);
         const string controls = "<controls>";
         Assert.Contains(controls, config, StringComparison.Ordinal);
-        File.WriteAllText(webConfig, config.Replace(controls, controls + """<add tagPrefix="niello" namespace="System.Web.UI.WebControls" assembly="System.Web" />""", StringComparison.Ordinal));
+        File.WriteAllText(webConfig, config.Replace(controls, controls + """<add tagPrefix="eludite" namespace="System.Web.UI.WebControls" assembly="System.Web" />""", StringComparison.Ordinal));
         return Path.Combine(dest, "PrimaryKeysConfigTest.csproj");
     }
 
@@ -94,12 +94,12 @@ public sealed class LegacyWebFormsCompletionTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "niello-host.dll"));
+        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "eludite-host.dll"));
         psi.ArgumentList.Add("--roslyn-ls");
         psi.ArgumentList.Add(roslyn);
-        psi.Environment["NIELLO_CACHE_DIR"] = cacheDir;
-        psi.Environment["NIELLO_LEGACY_MONO"] = msbuild == "mono" ? "1" : "0";
-        psi.Environment.Remove("NIELLO_LEGACY_DESIGNERS");
+        psi.Environment["ELUDITE_CACHE_DIR"] = cacheDir;
+        psi.Environment["ELUDITE_LEGACY_MONO"] = msbuild == "mono" ? "1" : "0";
+        psi.Environment.Remove("ELUDITE_LEGACY_DESIGNERS");
         foreach (var name in DesignTimeProperties.LocatorVariables)
         {
             psi.Environment.Remove(name);
@@ -110,7 +110,7 @@ public sealed class LegacyWebFormsCompletionTests
         {
             using var rpc = TestRpc.Create(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
             var loaded = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
-            TestRpc.On(rpc, "niello/solution/status", s =>
+            TestRpc.On(rpc, "eludite/solution/status", s =>
             {
                 if (s.GetProperty("state").GetString() is "loaded" or "failed")
                 {
@@ -119,8 +119,8 @@ public sealed class LegacyWebFormsCompletionTests
             });
             rpc.StartListening();
 
-            await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "legacy-webforms-test", clientVersion = "0" }, Ct);
-            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = project }, Ct);
+            await rpc.InvokeWithParameterObjectAsync<JsonElement>("eludite/host/initialize", new { clientName = "legacy-webforms-test", clientVersion = "0" }, Ct);
+            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path = project }, Ct);
             var generation = opened.GetProperty("generation").GetInt64();
             var status = await loaded.Task.WaitAsync(TimeSpan.FromMinutes(5), Ct);
 
@@ -149,11 +149,11 @@ public sealed class LegacyWebFormsCompletionTests
 
             await rpc.NotifyWithParameterObjectAsync("textDocument/didOpen", new { textDocument = new { uri, languageId = "csharp", version = 1, text } });
             // Full semantics for the document version (see the brief 0002 report on frozen-partial completion).
-            var diagnostics = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation }, Ct);
+            var diagnostics = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, eluditeGeneration = generation }, Ct);
             var probeErrors = diagnostics.GetProperty("items").EnumerateArray()
                 .Where(d => d.GetProperty("severity").GetInt32() == 1)
                 .Select(d => d.GetProperty("message").GetString() ?? string.Empty)
-                .Where(m => m.Contains("NielloProbe", StringComparison.Ordinal))
+                .Where(m => m.Contains("EluditeProbe", StringComparison.Ordinal))
                 .ToList();
             Assert.Empty(probeErrors);
 
@@ -166,8 +166,8 @@ public sealed class LegacyWebFormsCompletionTests
             Assert.Contains("Text", labelMembers);
             Assert.Contains("AssociatedControlID", labelMembers);
 
-            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
-            await rpc.NotifyAsync("niello/host/exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], Ct);
+            await rpc.NotifyAsync("eludite/host/exit");
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             Assert.Equal(0, host.ExitCode);
         }
@@ -196,7 +196,7 @@ public sealed class LegacyWebFormsCompletionTests
                 textDocument = new { uri },
                 position = new { line, character },
                 context = new { triggerKind = 1 },
-                nielloGeneration = generation,
+                eluditeGeneration = generation,
             },
             Ct);
         Assert.Equal(JsonValueKind.Object, completion.ValueKind);
@@ -206,7 +206,7 @@ public sealed class LegacyWebFormsCompletionTests
     private static string? FindCorpusProject()
     {
         const string relative = "aspnet-samples/samples/aspnet/Identity/ChangePK/PrimaryKeysConfigTest";
-        var fromEnv = Environment.GetEnvironmentVariable("NIELLO_LEGACY_CORPUS");
+        var fromEnv = Environment.GetEnvironmentVariable("ELUDITE_LEGACY_CORPUS");
         if (!string.IsNullOrEmpty(fromEnv))
         {
             var p = Path.Combine(fromEnv, relative);

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>
 /// MSBuild.exe from Visual Studio Build Tools (or any VS edition), located with <c>vswhere</c>. Never bundled
@@ -16,9 +16,9 @@ public sealed record BuildToolsInstallation(string MsBuildExe, string Source)
             return null;
         }
 
-        if (Environment.GetEnvironmentVariable("NIELLO_MSBUILD_EXE") is { Length: > 0 } explicitExe && File.Exists(explicitExe))
+        if (Environment.GetEnvironmentVariable("ELUDITE_MSBUILD_EXE") is { Length: > 0 } explicitExe && File.Exists(explicitExe))
         {
-            return new BuildToolsInstallation(explicitExe, "NIELLO_MSBUILD_EXE");
+            return new BuildToolsInstallation(explicitExe, "ELUDITE_MSBUILD_EXE");
         }
 
         var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);

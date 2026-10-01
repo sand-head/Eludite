@@ -1,14 +1,14 @@
 //! Serve `diagnostics.list` over MCP stdio with the brief 0005 fixture Error
 //! List, for attaching any MCP client (or an ACP agent's `mcpServers`) without
-//! the IDE: `cargo run -p niello-mcp --example fixture_stdio_server`.
+//! the IDE: `cargo run -p eludite-mcp --example fixture_stdio_server`.
 
 use std::io;
 use std::sync::Arc;
 
-use niello_commands::diagnostics::{self, DIAGNOSTICS_LIST};
-use niello_commands::{CommandId, CommandRegistry};
-use niello_mcp::McpServer;
-use niello_mcp::transport::serve_lines;
+use eludite_commands::diagnostics::{self, DIAGNOSTICS_LIST};
+use eludite_commands::{CommandId, CommandRegistry};
+use eludite_mcp::McpServer;
+use eludite_mcp::transport::serve_lines;
 
 fn main() -> io::Result<()> {
     let mut registry = CommandRegistry::new();

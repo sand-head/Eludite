@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 /// The one action every key binding and menu item dispatches.
 #[derive(Debug, Clone, PartialEq, gpui::Action)]
-#[action(namespace = niello, no_json)]
+#[action(namespace = eludite, no_json)]
 pub struct RunCommand {
     pub command: SharedString,
     pub args: Value,
@@ -38,9 +38,9 @@ pub struct KeyBindingSpec {
 }
 
 /// GPUI key context the bindings are scoped to; the shell's root element sets it.
-pub const SHELL_CONTEXT: &str = "NielloShell";
+pub const SHELL_CONTEXT: &str = "EluditeShell";
 
-const SHOW: &str = "niello.view.show";
+const SHOW: &str = "eludite.view.show";
 
 /// Visual Studio's default bindings for the commands that exist.
 pub fn vs_keymap() -> Vec<KeyBindingSpec> {
@@ -60,7 +60,7 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         KeyBindingSpec {
             keystrokes: "shift-escape",
             display: "Shift+Esc",
-            command: "niello.view.hide",
+            command: "eludite.view.hide",
             args: json!({}),
         },
     ]

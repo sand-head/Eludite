@@ -1,5 +1,5 @@
-niello-claude-acp
-Copyright (c) 2026 The Niello Authors. Licensed under the MIT License (LICENSE).
+eludite-claude-acp
+Copyright (c) 2026 The Eludite Authors. Licensed under the MIT License (LICENSE).
 
 The presentation of Claude Code tool calls and permission prompts over the
 Agent Client Protocol (tool titles and kinds, diff content for edits, the

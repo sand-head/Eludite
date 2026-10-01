@@ -1,4 +1,4 @@
-namespace Niello.Web.Tests;
+namespace Eludite.Web.Tests;
 
 public sealed class ServerControlScannerTests
 {

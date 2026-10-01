@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>How to start a command-line MSBuild.</summary>
 /// <param name="Kind">An <see cref="EvaluatorKind"/> name.</param>
@@ -58,30 +58,30 @@ public sealed partial class CommandLineMsBuildEvaluator
 
     private const string DumpTargets = """
         <Project>
-          <Import Project="$(NielloExtraTargets)" Condition="'$(NielloExtraTargets)' != '' and Exists('$(NielloExtraTargets)')" />
+          <Import Project="$(EluditeExtraTargets)" Condition="'$(EluditeExtraTargets)' != '' and Exists('$(EluditeExtraTargets)')" />
           <!-- ResolveReferences as Visual Studio's design-time pass runs it (assembly, project and COM references,
                design-time facades). A failing step (COM off Windows) is logged as a warning, and the dump still runs. -->
-          <Target Name="NielloTryResolve">
+          <Target Name="EluditeTryResolve">
             <CallTarget Targets="ResolveReferences" ContinueOnError="true" />
           </Target>
-          <Target Name="NielloDesignTimeDump" DependsOnTargets="NielloTryResolve">
+          <Target Name="EluditeDesignTimeDump" DependsOnTargets="EluditeTryResolve">
             <ItemGroup>
-              <_NielloLine Include="project&#9;$([MSBuild]::Escape($(MSBuildProjectFullPath)))" />
-              <_NielloLine Include="prop&#9;TargetFrameworkVersion&#9;$(TargetFrameworkVersion)" />
-              <_NielloLine Include="prop&#9;TargetFrameworkMoniker&#9;$([MSBuild]::Escape($(TargetFrameworkMoniker)))" />
-              <_NielloLine Include="prop&#9;AssemblyName&#9;$(AssemblyName)" />
-              <_NielloLine Include="prop&#9;OutputType&#9;$(OutputType)" />
-              <_NielloLine Include="prop&#9;LangVersion&#9;$(LangVersion)" />
-              <_NielloLine Include="prop&#9;AllowUnsafeBlocks&#9;$(AllowUnsafeBlocks)" />
-              <_NielloLine Include="prop&#9;DefineConstants&#9;$([MSBuild]::Escape($(DefineConstants)))" />
-              <_NielloLine Include="compile&#9;%(Compile.FullPath)" Condition="'@(Compile)' != ''" />
-              <_NielloLine Include="refpath&#9;%(ReferencePath.FullPath)&#9;%(ReferencePath.OriginalItemSpec)" Condition="'@(ReferencePath)' != ''" />
-              <_NielloLine Include="reference&#9;%(Reference.Identity)" Condition="'@(Reference)' != ''" />
-              <_NielloLine Include="projectref&#9;%(ProjectReference.FullPath)" Condition="'@(ProjectReference)' != ''" />
-              <_NielloLine Include="package&#9;%(PackageReference.Identity)" Condition="'@(PackageReference)' != ''" />
-              <_NielloLine Include="content&#9;%(Content.FullPath)" Condition="'@(Content)' != ''" />
+              <_EluditeLine Include="project&#9;$([MSBuild]::Escape($(MSBuildProjectFullPath)))" />
+              <_EluditeLine Include="prop&#9;TargetFrameworkVersion&#9;$(TargetFrameworkVersion)" />
+              <_EluditeLine Include="prop&#9;TargetFrameworkMoniker&#9;$([MSBuild]::Escape($(TargetFrameworkMoniker)))" />
+              <_EluditeLine Include="prop&#9;AssemblyName&#9;$(AssemblyName)" />
+              <_EluditeLine Include="prop&#9;OutputType&#9;$(OutputType)" />
+              <_EluditeLine Include="prop&#9;LangVersion&#9;$(LangVersion)" />
+              <_EluditeLine Include="prop&#9;AllowUnsafeBlocks&#9;$(AllowUnsafeBlocks)" />
+              <_EluditeLine Include="prop&#9;DefineConstants&#9;$([MSBuild]::Escape($(DefineConstants)))" />
+              <_EluditeLine Include="compile&#9;%(Compile.FullPath)" Condition="'@(Compile)' != ''" />
+              <_EluditeLine Include="refpath&#9;%(ReferencePath.FullPath)&#9;%(ReferencePath.OriginalItemSpec)" Condition="'@(ReferencePath)' != ''" />
+              <_EluditeLine Include="reference&#9;%(Reference.Identity)" Condition="'@(Reference)' != ''" />
+              <_EluditeLine Include="projectref&#9;%(ProjectReference.FullPath)" Condition="'@(ProjectReference)' != ''" />
+              <_EluditeLine Include="package&#9;%(PackageReference.Identity)" Condition="'@(PackageReference)' != ''" />
+              <_EluditeLine Include="content&#9;%(Content.FullPath)" Condition="'@(Content)' != ''" />
             </ItemGroup>
-            <WriteLinesToFile File="$(NielloDumpDir)/$(MSBuildProjectFullPath.Replace('/', '_').Replace('\', '_').Replace(':', '_')).dump" Lines="@(_NielloLine)" Overwrite="true" />
+            <WriteLinesToFile File="$(EluditeDumpDir)/$(MSBuildProjectFullPath.Replace('/', '_').Replace('\', '_').Replace(':', '_')).dump" Lines="@(_EluditeLine)" Overwrite="true" />
           </Target>
         </Project>
         """;
@@ -93,7 +93,7 @@ public sealed partial class CommandLineMsBuildEvaluator
         var run = Path.Combine(_workDirectory, "run-" + Guid.NewGuid().ToString("N")[..12]);
         var dumpDir = Path.Combine(run, "dump");
         Directory.CreateDirectory(dumpDir);
-        var targets = Path.Combine(run, "niello.designtime.targets");
+        var targets = Path.Combine(run, "eludite.designtime.targets");
         await File.WriteAllTextAsync(targets, DumpTargets, cancellationToken).ConfigureAwait(false);
 
         // One TargetFrameworkRootPath for the batch: the merged symlink root, else the first project's package root.
@@ -107,7 +107,7 @@ public sealed partial class CommandLineMsBuildEvaluator
             sb.Append(CultureInfo.InvariantCulture, $"    <P Include=\"{System.Security.SecurityElement.Escape(Path.GetFullPath(p))}\" />\n");
         }
 
-        sb.Append("  </ItemGroup>\n  <Target Name=\"Dump\">\n    <MSBuild Projects=\"@(P)\" Targets=\"NielloDesignTimeDump\" BuildInParallel=\"true\" ContinueOnError=\"true\" />\n  </Target>\n</Project>\n");
+        sb.Append("  </ItemGroup>\n  <Target Name=\"Dump\">\n    <MSBuild Projects=\"@(P)\" Targets=\"EluditeDesignTimeDump\" BuildInParallel=\"true\" ContinueOnError=\"true\" />\n  </Target>\n</Project>\n");
         await File.WriteAllTextAsync(traversal, sb.ToString(), cancellationToken).ConfigureAwait(false);
 
         var psi = new ProcessStartInfo(_command.FileName)
@@ -143,11 +143,11 @@ public sealed partial class CommandLineMsBuildEvaluator
         var props = new Dictionary<string, string>(DesignTimeProperties.Create(root), StringComparer.OrdinalIgnoreCase)
         {
             ["CustomAfterMicrosoftCommonTargets"] = targets,
-            ["NielloDumpDir"] = dumpDir,
+            ["EluditeDumpDir"] = dumpDir,
         };
         if (ExtraTargets is not null)
         {
-            props["NielloExtraTargets"] = ExtraTargets;
+            props["EluditeExtraTargets"] = ExtraTargets;
         }
 
         foreach (var (k, v) in props)

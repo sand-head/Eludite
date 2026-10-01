@@ -1,6 +1,6 @@
 using System.Xml.Linq;
 
-namespace Niello.TestBridge;
+namespace Eludite.TestBridge;
 
 /// <summary>Decides which test protocol a project will speak by reading its project file.</summary>
 public static class TestProjectInspector

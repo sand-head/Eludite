@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.VisualStudio.Threading;
 using StreamJsonRpc;
 
-namespace Niello.Host.Rpc;
+namespace Eludite.Host.Rpc;
 
 /// <summary>Wires a <see cref="HostRpcTarget"/> to a pair of streams using LSP-style Content-Length framing.</summary>
 public static class HostServer
@@ -23,7 +23,7 @@ public static class HostServer
     }
 
     /// <summary>
-    /// Serves <paramref name="target"/> until the client sends <c>niello/host/exit</c> or disconnects.
+    /// Serves <paramref name="target"/> until the client sends <c>eludite/host/exit</c> or disconnects.
     /// Returns the process exit code: 0 after a clean shutdown/exit sequence, 1 otherwise.
     /// </summary>
     public static async Task<int> RunAsync(Stream output, Stream input, HostRpcTarget target)

@@ -1,4 +1,4 @@
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>A warning or error reported while evaluating a project. Failures are diagnostics, never dialogs.</summary>
 public sealed record EvaluationDiagnostic(string Severity, string? Code, string Message, string? File = null);

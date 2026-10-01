@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
-/// Command id. Exposed over MCP as the tool `diagnostics-list` (see `niello-mcp`).
+/// Command id. Exposed over MCP as the tool `diagnostics-list` (see `eludite-mcp`).
 pub const DIAGNOSTICS_LIST: &str = "diagnostics.list";
 
 /// `protocol/schemas/diagnostics-list.input.json`.

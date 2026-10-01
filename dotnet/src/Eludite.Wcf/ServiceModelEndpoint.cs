@@ -1,4 +1,4 @@
-namespace Niello.Wcf;
+namespace Eludite.Wcf;
 
 /// <summary>Where in <c>system.serviceModel</c> an endpoint was declared.</summary>
 public enum EndpointSource

@@ -1,4 +1,4 @@
-//! Niello extension SDK (PLAN.md D5, D6).
+//! Eludite extension SDK (PLAN.md D5, D6).
 //!
 //! MIT-licensed and free of GPL dependencies so extensions can be written under
 //! any license. Today it only defines the extension manifest; the WASM component

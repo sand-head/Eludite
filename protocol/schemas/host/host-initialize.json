@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-initialize.json",
-  "title": "niello/host/initialize",
-  "description": "The niello handshake. Renamed from `initialize` in brief 0007; plain LSP names belong to the forwarded language server.",
-  "x-niello-method": "niello/host/initialize",
-  "x-niello-kind": "request",
-  "x-niello-direction": "shellToHost",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/host-initialize.json",
+  "title": "eludite/host/initialize",
+  "description": "The eludite handshake. Renamed from `initialize` in brief 0007; plain LSP names belong to the forwarded language server.",
+  "x-eludite-method": "eludite/host/initialize",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "params": {
       "type": "object",
@@ -31,7 +31,7 @@
       ],
       "properties": {
         "hostName": {
-          "const": "niello-host"
+          "const": "eludite-host"
         },
         "hostVersion": {
           "type": "string"
@@ -43,7 +43,7 @@
           ],
           "properties": {
             "languageServer": {
-              "description": "True when a language server is configured; niello/languageServer/status reports whether it started.",
+              "description": "True when a language server is configured; eludite/languageServer/status reports whether it started.",
               "type": "boolean"
             }
           }

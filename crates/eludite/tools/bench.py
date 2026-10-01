@@ -3,8 +3,8 @@
 
 Usage: bench.py --label NAME --out FILE [--bin PATH] [--starts 20] [--drags 3] [--frames 600]
 
-Runs `niello --bench-start` STARTS times (0.3 s apart; the first run is
-reported separately) and `niello --bench-drag FRAMES` DRAGS times, and writes
+Runs `eludite --bench-start` STARTS times (0.3 s apart; the first run is
+reported separately) and `eludite --bench-drag FRAMES` DRAGS times, and writes
 every raw JSON line plus a summary to FILE. Run it inside the display you want
 to measure (tools/manual-linux.sh shows how to start a nested KWin).
 """
@@ -12,7 +12,7 @@ import argparse, json, os, statistics, subprocess, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BIN = os.path.join(os.environ.get("CARGO_TARGET_DIR", os.path.join(HERE, "..", "..", "..", "target")),
-                           "release", "niello")
+                           "release", "eludite")
 
 
 def run(binary, args, env=None):
@@ -46,7 +46,7 @@ def main():
            "env": {k: os.environ.get(k, "") for k in ("WAYLAND_DISPLAY", "DISPLAY", "XDG_SESSION_TYPE")}}
     starts = []
     for _ in range(a.starts):
-        starts.append(run(a.bin, ["--bench-start"], {"NIELLO_LAUNCH_WALL_NS": str(time.time_ns())}))
+        starts.append(run(a.bin, ["--bench-start"], {"ELUDITE_LAUNCH_WALL_NS": str(time.time_ns())}))
         time.sleep(0.3)
     res["start_runs"] = starts
     warm = starts[1:] or starts

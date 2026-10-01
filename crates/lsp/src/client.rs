@@ -1,4 +1,4 @@
-//! The shell's client of `niello-host`: process supervision, framing, request correlation, cancellation and
+//! The shell's client of `eludite-host`: process supervision, framing, request correlation, cancellation and
 //! solution-generation tracking (protocol/schemas/host-rpc.md).
 
 use std::collections::HashMap;
@@ -13,20 +13,20 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use niello_protocol::host::{
+use eludite_protocol::host::{
     self, ContentModifiedData, Generation, GenerationResult, InitializeParams, InitializeResult,
     LanguageServerStatus, SolutionOpenParams, SolutionStatus, WithGeneration, error_codes, methods,
 };
-use niello_protocol::jsonrpc::ResponsePayload;
-use niello_protocol::lsp::{CancelParams, PublishDiagnosticsParams};
-use niello_protocol::{
+use eludite_protocol::jsonrpc::ResponsePayload;
+use eludite_protocol::lsp::{CancelParams, PublishDiagnosticsParams};
+use eludite_protocol::{
     ErrorObject, Id, Message, Notification, NotificationType, Request, RequestType, Response,
     framing,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-/// How to start `niello-host`.
+/// How to start `eludite-host`.
 #[derive(Debug, Clone)]
 pub struct HostCommand {
     pub program: OsString,
@@ -57,7 +57,7 @@ impl HostCommand {
         }
     }
 
-    /// `dotnet <niello-host.dll> --stdio`.
+    /// `dotnet <eludite-host.dll> --stdio`.
     pub fn dotnet_host(dll: &Path) -> Self {
         Self::new("dotnet").arg(dll.as_os_str()).arg("--stdio")
     }
@@ -78,7 +78,7 @@ impl HostCommand {
     }
 }
 
-/// What the client sends in `niello/host/initialize`.
+/// What the client sends in `eludite/host/initialize`.
 #[derive(Debug, Clone)]
 pub struct ClientInfo {
     pub name: String,
@@ -155,8 +155,8 @@ impl std::fmt::Display for Error {
                 f,
                 "result for solution generation {requested} is stale (current {current})"
             ),
-            Error::HostExited => f.write_str("niello-host exited"),
-            Error::Timeout => f.write_str("timed out waiting for niello-host"),
+            Error::HostExited => f.write_str("eludite-host exited"),
+            Error::Timeout => f.write_str("timed out waiting for eludite-host"),
             Error::Decode(e) => write!(f, "unexpected message shape: {e}"),
             Error::NotAnObject => f.write_str("params must be a JSON object"),
         }
@@ -208,7 +208,7 @@ struct Inner {
     exit_code: Mutex<Option<i32>>,
 }
 
-/// A running `niello-host` and the connection to it. Cheap to clone; all methods are thread-safe and never block on
+/// A running `eludite-host` and the connection to it. Cheap to clone; all methods are thread-safe and never block on
 /// the host except the `wait` calls of [`PendingRequest`].
 #[derive(Clone)]
 pub struct HostClient {
@@ -224,11 +224,11 @@ impl std::fmt::Debug for HostClient {
     }
 }
 
-/// How long [`HostClient::start`] waits for the `niello/host/initialize` reply.
+/// How long [`HostClient::start`] waits for the `eludite/host/initialize` reply.
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl HostClient {
-    /// Spawns the host, sends `niello/host/initialize` and waits for its reply. Host events arrive on the returned
+    /// Spawns the host, sends `eludite/host/initialize` and waits for its reply. Host events arrive on the returned
     /// receiver.
     pub fn start(
         command: HostCommand,
@@ -278,7 +278,7 @@ impl HostClient {
         if let Some(stderr) = child.stderr.take() {
             let events = inner.events.clone();
             thread::Builder::new()
-                .name("niello-host-stderr".into())
+                .name("eludite-host-stderr".into())
                 .spawn(move || {
                     for line in BufReader::new(stderr).lines() {
                         let Ok(line) = line else { break };
@@ -293,7 +293,7 @@ impl HostClient {
         *lock(&inner.process) = Some(Process { child, stdin });
         let reader = self.clone();
         thread::Builder::new()
-            .name("niello-host-reader".into())
+            .name("eludite-host-reader".into())
             .spawn(move || reader.read_loop(BufReader::new(stdout), epoch))?;
 
         let init = self
@@ -306,7 +306,7 @@ impl HostClient {
         Ok(pid)
     }
 
-    /// The host's `niello/host/initialize` result.
+    /// The host's `eludite/host/initialize` result.
     pub fn initialize_result(&self) -> Option<InitializeResult> {
         lock(&self.inner.initialize).clone()
     }
@@ -328,7 +328,7 @@ impl HostClient {
     }
 
     /// Sends a typed request. Forwarded LSP requests ([`RequestType::GENERATIONAL`]) are pinned to the current
-    /// generation: `nielloGeneration` is added to their params and a result that arrives after the generation moved
+    /// generation: `eluditeGeneration` is added to their params and a result that arrives after the generation moved
     /// is dropped ([`Error::Stale`]).
     pub fn request<R: RequestType>(
         &self,
@@ -400,7 +400,7 @@ impl HostClient {
         self.write(&Message::Notification(Notification::new(method, params)))
     }
 
-    /// `niello/solution/open`: returns the new generation, which becomes current at once.
+    /// `eludite/solution/open`: returns the new generation, which becomes current at once.
     pub fn open_solution(&self, path: &str, timeout: Duration) -> Result<Generation, Error> {
         let r: GenerationResult = self
             .request::<host::SolutionOpen>(SolutionOpenParams { path: path.into() })?
@@ -409,7 +409,7 @@ impl HostClient {
         Ok(r.generation)
     }
 
-    /// `niello/solution/close`: returns the current generation after the close.
+    /// `eludite/solution/close`: returns the current generation after the close.
     pub fn close_solution(&self, timeout: Duration) -> Result<Generation, Error> {
         let r: GenerationResult = self
             .request::<host::SolutionClose>(())?
@@ -418,7 +418,7 @@ impl HostClient {
         Ok(r.generation)
     }
 
-    /// `niello/host/shutdown`, `niello/host/exit`, then waits for the process to exit (killing it after `timeout`).
+    /// `eludite/host/shutdown`, `eludite/host/exit`, then waits for the process to exit (killing it after `timeout`).
     /// Disables restarts. Returns the exit code.
     pub fn shutdown(&self, timeout: Duration) -> Result<Option<i32>, Error> {
         self.inner.stopping.store(true, Ordering::SeqCst);
@@ -614,7 +614,7 @@ impl HostClient {
         let attempt = self.inner.restarts.fetch_add(1, Ordering::SeqCst) + 1;
         if attempt > self.inner.restart.max_restarts {
             let _ = self.inner.events.send(Event::Host(HostEvent::GaveUp {
-                reason: format!("niello-host exited {} times; restart budget spent", attempt),
+                reason: format!("eludite-host exited {} times; restart budget spent", attempt),
             }));
             return;
         }

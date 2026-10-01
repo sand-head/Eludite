@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/niello",
+    "crates/eludite",
     "crates/docking",
     "crates/ui",
     "crates/editor",
@@ -26,26 +26,26 @@ exclude = ["vendor"]
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/sand-head/niello-ide"
+repository = "https://github.com/sand-head/eludite-ide"
 rust-version = "1.98"
 publish = false
 
 [workspace.dependencies]
 # Internal crates
-niello-acp = { path = "crates/acp" }
-niello-commands = { path = "crates/commands" }
-niello-dap = { path = "crates/dap" }
-niello-docking = { path = "crates/docking" }
-niello-editor = { path = "crates/editor" }
-niello-extensions = { path = "crates/extensions" }
-niello-extension-sdk = { path = "extension-sdk" }
-niello-git = { path = "crates/git" }
-niello-lsp = { path = "crates/lsp" }
-niello-mcp = { path = "crates/mcp" }
-niello-protocol = { path = "protocol/rust" }
-niello-terminal = { path = "crates/terminal" }
-niello-ui = { path = "crates/ui" }
-niello-workspace = { path = "crates/workspace" }
+eludite-acp = { path = "crates/acp" }
+eludite-commands = { path = "crates/commands" }
+eludite-dap = { path = "crates/dap" }
+eludite-docking = { path = "crates/docking" }
+eludite-editor = { path = "crates/editor" }
+eludite-extensions = { path = "crates/extensions" }
+eludite-extension-sdk = { path = "extension-sdk" }
+eludite-git = { path = "crates/git" }
+eludite-lsp = { path = "crates/lsp" }
+eludite-mcp = { path = "crates/mcp" }
+eludite-protocol = { path = "protocol/rust" }
+eludite-terminal = { path = "crates/terminal" }
+eludite-ui = { path = "crates/ui" }
+eludite-workspace = { path = "crates/workspace" }
 
 # GPUI only (Apache-2.0). Do not add Zed's ui/theme/editor/workspace crates (PLAN.md D1).
 gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8" }

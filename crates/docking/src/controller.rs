@@ -1,5 +1,5 @@
 //! [`DockController`]: the shared, thread-safe owner of the layout, and the
-//! [`ViewTarget`] the `niello.view.*` commands act on.
+//! [`ViewTarget`] the `eludite.view.*` commands act on.
 //!
 //! Menus, keys, docking-guide drops and agents all change the layout by
 //! invoking a command; the command handler runs here under a short mutex and
@@ -9,8 +9,8 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use niello_commands::CommandError;
-use niello_commands::view::{
+use eludite_commands::CommandError;
+use eludite_commands::view::{
     DockEdge, DockTarget, ToolWindowState, ViewOutput, ViewRequest, ViewTarget, WindowState,
 };
 
@@ -41,7 +41,7 @@ impl From<DockSide> for DockEdge {
 pub struct Snapshot {
     pub layout: DockLayout,
     pub registry: Arc<ToolWindowRegistry>,
-    /// The tool window `niello.view.*` acts on when no id is given (last shown
+    /// The tool window `eludite.view.*` acts on when no id is given (last shown
     /// or clicked). Not persisted.
     pub active_tool: Option<String>,
     /// The auto-hidden window currently slid out. Not persisted.
@@ -310,7 +310,7 @@ impl ViewTarget for DockController {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use niello_commands::{CommandRegistry, view};
+    use eludite_commands::{CommandRegistry, view};
     use serde_json::json;
 
     fn setup() -> (DockController, CommandRegistry) {

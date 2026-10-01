@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/command-invoke.json",
-  "title": "Niello command invocation",
-  "description": "Envelope for invoking a command on the Niello command bus (PLAN.md 5.1). The same envelope is used by the UI, the MCP server and ACP tool calls.",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/command-invoke.json",
+  "title": "Eludite command invocation",
+  "description": "Envelope for invoking a command on the Eludite command bus (PLAN.md 5.1). The same envelope is used by the UI, the MCP server and ACP tool calls.",
   "type": "object",
   "required": ["command", "input"],
   "additionalProperties": false,
   "properties": {
     "command": {
-      "description": "Dotted lowercase command id, e.g. niello.file.open.",
+      "description": "Dotted lowercase command id, e.g. eludite.file.open.",
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
     },

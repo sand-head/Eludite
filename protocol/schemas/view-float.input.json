@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-float.input.json",
-  "title": "niello.view.float input",
-  "description": "Float a tool window in its own OS window (Window > Float). It re-docks with niello.view.dock or by closing the floating window. On Wayland the compositor chooses the window position; the size is kept.",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-float.input.json",
+  "title": "eludite.view.float input",
+  "description": "Float a tool window in its own OS window (Window > Float). It re-docks with eludite.view.dock or by closing the floating window. On Wayland the compositor chooses the window position; the size is kept.",
   "type": "object",
   "properties": {
     "id": {

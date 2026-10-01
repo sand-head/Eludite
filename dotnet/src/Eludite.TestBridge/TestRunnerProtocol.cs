@@ -1,4 +1,4 @@
-namespace Niello.TestBridge;
+namespace Eludite.TestBridge;
 
 /// <summary>How the Test Explorer talks to a test project (PLAN.md 4.6).</summary>
 public enum TestRunnerProtocol
