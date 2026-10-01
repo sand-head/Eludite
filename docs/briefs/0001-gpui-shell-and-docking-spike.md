@@ -1,6 +1,6 @@
 # Brief 0001: GPUI shell and docking prototype, Zed vendoring audit
 
-Status: open
+Status: in progress (Linux measured; real-display Wayland re-run owed; Windows/macOS pending). Report: [0001-report.md](0001-report.md)
 Plan reference: PLAN.md sections 3 (D1), 8, 9, 10 (Phase 0 item 1), 13 (risk 1)
 Related ADR: ADR-0001
 

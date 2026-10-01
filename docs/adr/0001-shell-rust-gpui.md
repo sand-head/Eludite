@@ -51,3 +51,5 @@ Negative:
 - The vendoring audit shows no low-level text crate is license-compatible or maintainable.
 - GPUI is published as a stable release, at which point replace the git revision with a version.
 - Keystroke-to-pixel p99 cannot be brought under 8 ms with the editor core on GPUI.
+
+Note, 2026-10-01 (brief 0001, [report](../briefs/0001-report.md) section 3.4): GPUI draws only when the platform asks for a frame, so measured keystroke-to-present includes a wait of up to one refresh interval (16.7 ms at 60 Hz). Read the keystroke trigger above as input-to-frame-submitted *excluding* that wait (measured at 3.4 to 4.9 ms p99 on Linux), or restate the budget against a named reference refresh rate. Until that is decided, a keystroke result over 8 ms does not by itself trigger this ADR.
