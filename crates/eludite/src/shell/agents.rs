@@ -8,13 +8,20 @@
 //!   one channel, are applied in batches (a burst of streamed chunks costs one frame), and carry the session's
 //!   generation so a restarted session never shows the old one's events (CLAUDE.md invariant 12).
 //! - **MCP.** The endpoint starts with the first session ([`endpoint`]).
+//! - **Permissions** (PLAN.md 5.3). Every tool call is classed read, edit_buffer, execute or dangerous: an Eludite
+//!   tool by its command's class, an agent's own tool by its ACP kind ([`class_of_kind`]). The solution's committable
+//!   policy file (`eludite_commands::policy`) decides; what it leaves open is asked in the window's permission
+//!   prompt, whose Always Allow writes a rule into that file. Eludite's own tools are judged once, at the MCP
+//!   boundary (the gate), never twice; the agent's own tools at its `session/request_permission`.
 
 pub mod endpoint;
 pub mod transcript;
 pub mod window;
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use eludite_acp::protocol::{Implementation, PermissionOptionKind, RequestPermissionRequest};
@@ -23,10 +30,12 @@ use eludite_acp::{
     AdapterSearch, AgentSession, AgentSettings, AgentState, LoginMethod, PermissionPolicy,
     PolicyAnswer, RegisteredAgent, SessionConfig, SessionEvent,
 };
+use eludite_commands::policy::{AgentPolicy, Verdict};
 use eludite_commands::{CommandRegistry, PermissionClass};
-use eludite_mcp::{GateDecision, ToolCallRecord, command_id_from_tool_name};
+use eludite_mcp::{GateDecision, ToolCallRecord, command_id_from_tool_name, tool_name};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use gpui::{AppContext as _, Context, Entity, Window};
+use serde_json::{Value, json};
 
 use self::endpoint::{EndpointHooks, MCP_SERVER_NAME, McpEndpoint};
 use self::transcript::{McpLink, Permission};
@@ -75,11 +84,115 @@ fn search_registry() -> (Vec<RegisteredAgent>, Option<String>) {
     )
 }
 
+/// The solution's permission policy, read lazily off the UI thread (by the first agent request that needs it).
+#[derive(Debug, Default)]
+pub struct PolicyStore {
+    /// `None` without a solution: the defaults, and Always Allow cannot persist.
+    path: Option<PathBuf>,
+    policy: Mutex<Option<AgentPolicy>>,
+}
+
+impl PolicyStore {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            path,
+            policy: Mutex::new(None),
+        }
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// The policy (a malformed file is reported on stderr and the defaults apply).
+    pub fn get(&self) -> AgentPolicy {
+        let mut p = self.policy.lock().unwrap_or_else(|e| e.into_inner());
+        p.get_or_insert_with(|| match self.path.as_deref().map(AgentPolicy::load) {
+            Some(Ok(p)) => p,
+            Some(Err(e)) => {
+                eprintln!("eludite: agents policy: {e}");
+                AgentPolicy::default()
+            }
+            None => AgentPolicy::default(),
+        })
+        .clone()
+    }
+
+    /// Change the policy; returns what to write and where.
+    fn update(&self, f: impl FnOnce(&mut AgentPolicy)) -> Option<(PathBuf, AgentPolicy)> {
+        let mut current = self.get();
+        f(&mut current);
+        *self.policy.lock().unwrap_or_else(|e| e.into_inner()) = Some(current.clone());
+        self.path.clone().map(|p| (p, current))
+    }
+}
+
+/// The current solution's store, shared with the agents' and the endpoint's threads.
+pub type SharedPolicy = Arc<Mutex<Arc<PolicyStore>>>;
+
+fn current_policy(shared: &SharedPolicy) -> Arc<PolicyStore> {
+    shared.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The class of an agent's own tool by its ACP `kind` (PLAN.md 5.3): reading and searching are read; edits and
+/// moves are edit_buffer; deleting and fetching from the network are dangerous; running commands, switching modes and
+/// anything unknown are execute.
+pub fn class_of_kind(kind: Option<&str>) -> PermissionClass {
+    match kind {
+        Some("read" | "search" | "think") => PermissionClass::Read,
+        Some("edit" | "move") => PermissionClass::EditBuffer,
+        Some("delete" | "fetch") => PermissionClass::Dangerous,
+        _ => PermissionClass::Execute,
+    }
+}
+
+/// The Eludite commands whose edits go through the workspace-edit applier, so they can be held as pending changes.
+pub const REVIEWED_COMMANDS: [&str; 3] = [
+    eludite_commands::workspace::WORKSPACE_APPLY_EDIT,
+    eludite_commands::workspace::EDITOR_RENAME,
+    eludite_commands::workspace::EDITOR_APPLY_CODE_ACTION,
+];
+
+/// Keys of the endpoint's own permission requests (Eludite commands of class execute and dangerous), kept apart from
+/// the agent's.
+static NEXT_ASK: AtomicU64 = AtomicU64::new(1 << 40);
+
 /// What reaches the UI thread from the agents' and the endpoint's threads.
 pub enum HostMsg {
     Session(u64, Box<SessionEvent>),
     Mcp(Box<ToolCallRecord>),
     Registry(Vec<RegisteredAgent>, Option<String>),
+    /// The MCP gate asks the user about an Eludite command; the answer goes to `reply`.
+    Ask(Box<GateAsk>),
+}
+
+pub struct GateAsk {
+    pub key: u64,
+    /// `mcp__eludite__<tool>`.
+    pub tool: String,
+    pub class: PermissionClass,
+    pub input: Value,
+    pub tool_call: Option<String>,
+    pub reply: mpsc::Sender<bool>,
+}
+
+/// A permission request waiting in the window.
+struct Waiting {
+    tool: String,
+    class: PermissionClass,
+    input: Value,
+    /// The MCP gate's reply; `None` for the agent's own requests (answered through ACP).
+    reply: Option<mpsc::Sender<bool>>,
+}
+
+/// What `eludite.agents.permission` answered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answered {
+    pub request: u64,
+    pub tool: String,
+    pub class: PermissionClass,
+    pub persisted: bool,
+    pub policy_path: Option<PathBuf>,
 }
 
 pub struct Agents {
@@ -105,6 +218,10 @@ pub struct Agents {
     pub timings: Vec<(&'static str, f64)>,
     /// When the session became ready, since `started`.
     pub ready_ms: Option<f64>,
+    /// The solution's policy.
+    policy: SharedPolicy,
+    /// Permission requests waiting for the user, by key.
+    waiting: HashMap<u64, Waiting>,
 }
 
 impl Agents {
@@ -150,6 +267,8 @@ impl Agents {
                 started: None,
                 timings: Vec::new(),
                 ready_ms: None,
+                policy: Arc::new(Mutex::new(Arc::new(PolicyStore::default()))),
+                waiting: HashMap::new(),
             },
             rx,
         )
@@ -162,6 +281,12 @@ impl Agents {
     #[allow(dead_code)]
     pub fn session(&self) -> Option<&AgentSession> {
         self.session.as_ref()
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub fn endpoint(&self) -> Option<&McpEndpoint> {
+        self.endpoint.as_ref()
     }
 
     fn header(&self) -> HeaderState {
@@ -204,23 +329,52 @@ pub fn eludite_tool(request: &RequestPermissionRequest) -> Option<eludite_comman
     command_id_from_tool_name(tool)
 }
 
-/// The ACP-side policy (runs on the agent's reader thread): Eludite's own tools are allowed here, because the MCP
+/// The agent's name for a tool call (`Bash`, `mcp__eludite__diagnostics-list`), else its title.
+fn tool_of(request: &RequestPermissionRequest) -> String {
+    let tc = &request.tool_call;
+    tc.agent_tool_name()
+        .map(str::to_owned)
+        .or_else(|| tc.title.clone())
+        .unwrap_or_else(|| tc.tool_call_id.clone())
+}
+
+/// The class of an agent's permission request: an Eludite tool's command class, else by the call's ACP kind.
+fn class_of(commands: &CommandRegistry, request: &RequestPermissionRequest) -> PermissionClass {
+    if let Some(id) = eludite_tool(request)
+        && let Some(spec) = commands.lookup(id.as_str())
+    {
+        return spec.permission;
+    }
+    class_of_kind(request.tool_call.kind.as_deref())
+}
+
+/// The ACP-side policy (runs on the agent's reader thread). Eludite's own tools are allowed here, because the MCP
 /// boundary applies the command's class to the call itself (read runs, edits are reviewed, the rest may prompt), so
-/// the user is never asked twice; everything else is asked.
-fn acp_policy(commands: Arc<CommandRegistry>) -> PermissionPolicy {
+/// the user is never asked twice. The agent's own tools are judged by the solution's policy.
+fn acp_policy(commands: Arc<CommandRegistry>, policy: SharedPolicy) -> PermissionPolicy {
     Arc::new(move |request| {
-        let Some(id) = eludite_tool(request) else {
-            return PolicyAnswer::Ask;
-        };
-        match commands.lookup(id.as_str()) {
-            Some(spec) if spec.agent_visible && spec.permission == PermissionClass::Read => {
-                PolicyAnswer::Allow(format!("{id} is class read"))
-            }
-            Some(spec) if spec.agent_visible => PolicyAnswer::Allow(format!(
-                "Eludite checks {id} (class {}) at its MCP boundary",
-                spec.permission.as_str()
-            )),
-            _ => PolicyAnswer::Ask,
+        if let Some(id) = eludite_tool(request) {
+            return match commands.lookup(id.as_str()) {
+                Some(spec) if spec.agent_visible && spec.permission == PermissionClass::Read => {
+                    PolicyAnswer::Allow(format!("{id} is class read"))
+                }
+                Some(spec) if spec.agent_visible => PolicyAnswer::Allow(format!(
+                    "Eludite checks {id} (class {}) at its MCP boundary",
+                    spec.permission.as_str()
+                )),
+                _ => PolicyAnswer::Ask,
+            };
+        }
+        let class = class_of(&commands, request);
+        let input = request.tool_call.raw_input.clone().unwrap_or(Value::Null);
+        match current_policy(&policy)
+            .get()
+            .decide(class, &tool_of(request), &input)
+        {
+            Verdict::Allow(r) => PolicyAnswer::Allow(r),
+            Verdict::Deny(r) => PolicyAnswer::Deny(r),
+            // An edit is reviewed in the window: the Agents window holds it as a pending change.
+            Verdict::Ask | Verdict::Review => PolicyAnswer::Ask,
         }
     })
 }
@@ -279,6 +433,10 @@ impl Shell {
             .solution_dir()
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+        // The policy of the solution open now; read when the first request needs it, off the UI thread.
+        *self.agents.policy.lock().unwrap_or_else(|e| e.into_inner()) = Arc::new(PolicyStore::new(
+            self.solution_dir().map(|d| AgentPolicy::path_for(&d)),
+        ));
         self.agents.generation += 1;
         let generation = self.agents.generation;
         *self
@@ -297,7 +455,7 @@ impl Shell {
                 version: eludite_commands::builtins::VERSION.into(),
             },
             handshake_timeout: HANDSHAKE_TIMEOUT,
-            policy: acp_policy(self.commands.clone()),
+            policy: acp_policy(self.commands.clone(), self.agents.policy.clone()),
         };
         let tx = self.agents.tx.clone();
         let sink = Arc::new(move |g, e| {
@@ -355,10 +513,20 @@ impl Shell {
 
     /// Cancel the turn: `session/cancel`, and every pending request answered `cancelled`.
     pub fn agents_cancel(&mut self, cx: &mut Context<Self>) {
-        let Some(session) = &self.agents.session else {
-            return;
-        };
-        let keys = session.cancel();
+        let mut keys = self
+            .agents
+            .session
+            .as_ref()
+            .map(AgentSession::cancel)
+            .unwrap_or_default();
+        // The endpoint's own requests are denied too, so the agent's tool calls return.
+        for (key, w) in &self.agents.waiting {
+            if let Some(reply) = &w.reply {
+                let _ = reply.send(false);
+                keys.push(*key);
+            }
+        }
+        self.agents.waiting.clear();
         self.agents.window.update(cx, |w, cx| {
             for key in keys {
                 w.transcript.answer(
@@ -374,47 +542,103 @@ impl Shell {
         self.after_permission_change(cx);
     }
 
-    /// Answer permission request `key` of the agent.
+    /// Answer permission request `key`: the agent's (through ACP) or the MCP gate's. Always Allow adds a rule to the
+    /// solution's policy file (written off the UI thread) and allows this call.
     pub fn agents_answer(
         &mut self,
         key: u64,
         decision: Decision,
         cx: &mut Context<Self>,
-    ) -> Result<String, String> {
-        let session = self.agents.session.as_ref().ok_or("no agent is running")?;
-        // Always Allow is Eludite's own rule (the policy file); the agent is told to allow once, so it keeps asking.
-        let kind = match decision {
-            Decision::Allow | Decision::AlwaysAllow => PermissionOptionKind::AllowOnce,
-            Decision::Deny => PermissionOptionKind::RejectOnce,
-        };
-        let option = session
-            .answer(key, kind)
+    ) -> Result<Answered, String> {
+        let waiting = self
+            .agents
+            .waiting
+            .remove(&key)
             .ok_or_else(|| format!("no pending permission request {key}"))?;
         let allowed = decision != Decision::Deny;
+        let label = match &waiting.reply {
+            Some(reply) => {
+                let _ = reply.send(allowed);
+                if allowed { "Allowed" } else { "Denied" }.to_owned()
+            }
+            None => {
+                let session = self.agents.session.as_ref().ok_or("no agent is running")?;
+                // Always Allow is Eludite's own rule (the policy file); the agent is told to allow once, so it
+                // keeps asking and the policy keeps deciding.
+                let kind = if allowed {
+                    PermissionOptionKind::AllowOnce
+                } else {
+                    PermissionOptionKind::RejectOnce
+                };
+                session
+                    .answer(key, kind)
+                    .map(|o| o.name)
+                    .ok_or_else(|| format!("no pending permission request {key}"))?
+            }
+        };
+        let mut persisted = false;
+        let store = current_policy(&self.agents.policy);
+        if decision == Decision::AlwaysAllow
+            && let Some((path, policy)) =
+                store.update(|p| drop(p.allow_always(&waiting.tool, &waiting.input)))
+        {
+            persisted = true;
+            cx.background_spawn(async move {
+                if let Err(e) = policy.save(&path) {
+                    eprintln!("eludite: {}: {e}", path.display());
+                }
+            })
+            .detach();
+        }
+        let reason = match decision {
+            Decision::AlwaysAllow if persisted => {
+                format!("{label}, and always for this solution")
+            }
+            _ => label,
+        };
         self.agents.window.update(cx, |w, cx| {
             w.transcript.answer(
                 key,
                 if allowed {
                     Permission::Allowed {
                         auto: false,
-                        reason: option.name.clone(),
+                        reason,
                     }
                 } else {
                     Permission::Denied {
                         auto: false,
-                        reason: option.name.clone(),
+                        reason,
                     }
                 },
             );
             w.sync(cx);
         });
         self.after_permission_change(cx);
-        Ok(option.name)
+        Ok(Answered {
+            request: key,
+            tool: waiting.tool,
+            class: waiting.class,
+            persisted,
+            policy_path: store.path().map(Path::to_path_buf).filter(|_| persisted),
+        })
+    }
+
+    /// The oldest waiting request, for `eludite.agents.permission` without a request id.
+    #[allow(dead_code)]
+    pub fn agents_oldest_request(&self, cx: &gpui::App) -> Option<u64> {
+        self.agents
+            .window
+            .read(cx)
+            .transcript
+            .asked()
+            .first()
+            .copied()
     }
 
     /// Show the oldest pending request in the window's prompt.
     pub(super) fn after_permission_change(&mut self, cx: &mut Context<Self>) {
         let window = self.agents.window.clone();
+        let can_persist = current_policy(&self.agents.policy).path().is_some();
         window.update(cx, |w, cx| {
             let oldest = w.transcript.asked().first().copied();
             w.prompt = oldest.and_then(|key| {
@@ -435,7 +659,7 @@ impl Shell {
                         .as_ref()
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
-                    can_persist: false,
+                    can_persist,
                 })
             });
             cx.notify();
@@ -445,9 +669,42 @@ impl Shell {
     fn endpoint_hooks(&self) -> EndpointHooks {
         let current = self.agents.current.clone();
         let tx = self.agents.tx.clone();
+        let gate_tx = tx.clone();
+        let policy = self.agents.policy.clone();
         EndpointHooks {
             agent: Arc::new(move || current.lock().map(|c| c.clone()).unwrap_or_default()),
-            gate: Arc::new(|_, _, _| GateDecision::Deny("no one is there to allow it".into())),
+            // On the endpoint's call thread: the policy, else ask the user and wait for the answer.
+            gate: Arc::new(move |spec, args, ctx| {
+                let tool = format!("mcp__{MCP_SERVER_NAME}__{}", tool_name(&spec.id));
+                let verdict = current_policy(&policy)
+                    .get()
+                    .decide(spec.permission, &tool, args);
+                match verdict {
+                    Verdict::Allow(_) => return GateDecision::Allow,
+                    Verdict::Deny(r) => return GateDecision::Deny(r),
+                    // Edits through the applier are held as pending changes, reviewed after the call runs.
+                    Verdict::Review if REVIEWED_COMMANDS.contains(&spec.id.as_str()) => {
+                        return GateDecision::Allow;
+                    }
+                    Verdict::Review | Verdict::Ask => {}
+                }
+                let (reply, answer) = mpsc::channel();
+                let ask = GateAsk {
+                    key: NEXT_ASK.fetch_add(1, Ordering::Relaxed),
+                    tool,
+                    class: spec.permission,
+                    input: args.clone(),
+                    tool_call: ctx.tool_call.clone(),
+                    reply,
+                };
+                if gate_tx.unbounded_send(HostMsg::Ask(Box::new(ask))).is_err() {
+                    return GateDecision::Deny("the window is closed".into());
+                }
+                match answer.recv() {
+                    Ok(true) => GateDecision::Allow,
+                    _ => GateDecision::Deny("the user denied it".into()),
+                }
+            }),
             invoker: None,
             observer: Some(Arc::new(move |record| {
                 let _ = tx.unbounded_send(HostMsg::Mcp(Box::new(record.clone())));
@@ -522,6 +779,35 @@ impl Shell {
                             .link_mcp(record.tool_call.as_deref(), &record.tool, link)
                     });
                 }
+                HostMsg::Ask(ask) => {
+                    permissions = true;
+                    let GateAsk {
+                        key,
+                        tool,
+                        class,
+                        input,
+                        tool_call,
+                        reply,
+                    } = *ask;
+                    let bare = tool.rsplit("__").next().unwrap_or_default().to_owned();
+                    window.update(cx, |w, _| {
+                        w.transcript.ask_mcp(
+                            tool_call.as_deref(),
+                            &bare,
+                            &input,
+                            Permission::Asked { key, class },
+                        )
+                    });
+                    self.agents.waiting.insert(
+                        key,
+                        Waiting {
+                            tool,
+                            class,
+                            input,
+                            reply: Some(reply),
+                        },
+                    );
+                }
                 HostMsg::Session(g, _) if g != generation => {}
                 HostMsg::Session(_, event) => match *event {
                     SessionEvent::State(s) => {
@@ -556,7 +842,16 @@ impl Shell {
                     SessionEvent::Update(u) => window.update(cx, |w, _| w.transcript.apply(&u)),
                     SessionEvent::Permission { key, request } => {
                         permissions = true;
-                        let class = self.classify(&request);
+                        let class = class_of(&self.commands, &request);
+                        self.agents.waiting.insert(
+                            key,
+                            Waiting {
+                                tool: tool_of(&request),
+                                class,
+                                input: request.tool_call.raw_input.clone().unwrap_or(json!({})),
+                                reply: None,
+                            },
+                        );
                         window.update(cx, |w, _| {
                             w.transcript
                                 .permission(&request, Permission::Asked { key, class })
@@ -637,15 +932,5 @@ impl Shell {
                 }
             }
         }
-    }
-
-    /// The permission class of an agent's request (PLAN.md 5.3).
-    fn classify(&self, request: &RequestPermissionRequest) -> PermissionClass {
-        if let Some(id) = eludite_tool(request)
-            && let Some(spec) = self.commands.lookup(id.as_str())
-        {
-            return spec.permission;
-        }
-        PermissionClass::Execute
     }
 }

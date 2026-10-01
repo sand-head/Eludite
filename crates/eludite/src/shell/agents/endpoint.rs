@@ -68,6 +68,12 @@ impl McpEndpoint {
         }
     }
 
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub fn token(&self) -> &str {
+        &self.local.token
+    }
+
     /// The text the window shows for it.
     pub fn describe(&self) -> String {
         format!("{MCP_SERVER_NAME} via stdio relay to {}", self.local.addr)

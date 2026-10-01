@@ -349,6 +349,48 @@ impl Transcript {
         Some(row.call.tool_call_id.clone())
     }
 
+    /// The MCP gate asks about an Eludite command: attach the request to the call's row (named in the call's `_meta`,
+    /// else the newest unanswered call of `mcp__eludite__<tool>`), or add a row when the agent did not announce it.
+    pub fn ask_mcp(
+        &mut self,
+        tool_call: Option<&str>,
+        tool: &str,
+        input: &Value,
+        state: Permission,
+    ) {
+        let full = format!("mcp__{}__{tool}", super::endpoint::MCP_SERVER_NAME);
+        let ix = tool_call
+            .and_then(|id| self.tools.get(id).copied())
+            .or_else(|| {
+                self.rows.iter().rposition(|r| {
+                    matches!(r, Row::Tool(t) if t.mcp.is_none()
+                        && !matches!(t.permission, Some(Permission::Asked { .. }))
+                        && t.call.agent_tool_name() == Some(full.as_str()))
+                })
+            });
+        let ix = match ix {
+            Some(ix) => ix,
+            None => {
+                let key = match state {
+                    Permission::Asked { key, .. } => key,
+                    _ => 0,
+                };
+                self.tool_index(&ToolCall {
+                    tool_call_id: tool_call
+                        .map_or_else(|| format!("eludite-ask-{key}"), str::to_owned),
+                    title: Some(full.clone()),
+                    kind: Some("other".into()),
+                    raw_input: Some(input.clone()),
+                    meta: Some(json!({"claudeCode": {"toolName": full}})),
+                    ..Default::default()
+                })
+            }
+        };
+        if let Some(row) = self.tool_mut(ix) {
+            row.permission = Some(state);
+        }
+    }
+
     /// Record a pending change (or its new state) on its tool call's row.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn change(&mut self, tool_call: &str, id: u64, path: &str, state: &str) {
