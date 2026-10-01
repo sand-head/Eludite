@@ -95,6 +95,7 @@ A PR is done when all of these hold:
 
 - Work arrives as a brief in `docs/briefs/NNNN-name.md`: goal, files in scope, contract, proving test, budget, exit criterion, out of scope. See `docs/briefs/README.md`.
 - One brief per git worktree. Do not work on two briefs in one tree.
+- Each worktree builds into its own `target/`. Never point `CARGO_TARGET_DIR` at another checkout's target directory: workspace crates with the same name from different trees overwrite each other's artifacts there, and a test binary can link against a library built from a different branch. The merge check on `main` is the authoritative one.
 - The brief declares which files you own. Do not edit files outside that list. If you need a change elsewhere, stop and say so in the PR.
 - If a brief is ambiguous or cannot be satisfied as written, report that instead of guessing. Imprecise briefs go back to design.
 - Run `git fetch origin` before starting and rebase if `main` has moved.
