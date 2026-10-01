@@ -1,0 +1,728 @@
+//! The typed subset of LSP 3.17 that `niello-host` forwards (host-rpc.md, "Forwarded LSP methods, typed").
+//!
+//! Only the members Niello reads are typed. Every response type keeps the members it does not name in an `extra`
+//! map, so a message survives a decode and re-encode unchanged. Requests carry `nielloGeneration` on the wire; the
+//! marker types here mark them [`RequestType::GENERATIONAL`] and a client adds the member (see
+//! [`crate::host::WithGeneration`]).
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::host::{WithGeneration, methods};
+use crate::jsonrpc::Id;
+use crate::typed::{NotificationType, RequestType};
+
+/// Zero-based line and UTF-16 code unit offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Position {
+    pub line: u32,
+    pub character: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Location {
+    pub uri: String,
+    pub range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationLink {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_selection_range: Option<Range>,
+    pub target_uri: String,
+    pub target_range: Range,
+    pub target_selection_range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextDocumentIdentifier {
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionedTextDocumentIdentifier {
+    pub uri: String,
+    pub version: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentItem {
+    pub uri: String,
+    pub language_id: String,
+    pub version: i32,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidOpenTextDocumentParams {
+    pub text_document: TextDocumentItem,
+}
+
+/// A full replacement when `range` is `None`, else an incremental edit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentContentChangeEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<Range>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_length: Option<u32>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeTextDocumentParams {
+    pub text_document: VersionedTextDocumentIdentifier,
+    pub content_changes: Vec<TextDocumentContentChangeEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidCloseTextDocumentParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentPositionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+/// 1 = invoked, 2 = trigger character, 3 = re-trigger for incomplete results.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionContext {
+    pub trigger_kind: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_character: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<CompletionContext>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionItem {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// `string` or `MarkupContent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_text: Option<String>,
+    /// `TextEdit` or `InsertReplaceEdit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_edit: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    /// Members not typed above (labelDetails, commitCharacters, additionalTextEdits, ...).
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionList {
+    pub is_incomplete: bool,
+    pub items: Vec<CompletionItem>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CompletionResponse {
+    List(CompletionList),
+    Items(Vec<CompletionItem>),
+}
+
+impl CompletionResponse {
+    pub fn items(&self) -> &[CompletionItem] {
+        match self {
+            CompletionResponse::List(l) => &l.items,
+            CompletionResponse::Items(i) => i,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hover {
+    /// `MarkupContent`, `MarkedString` or `MarkedString[]`.
+    pub contents: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<Range>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DefinitionResponse {
+    Scalar(Location),
+    Array(Vec<Location>),
+    Links(Vec<LocationLink>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceContext {
+    pub include_declaration: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+    pub context: ReferenceContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSymbolParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentSymbol {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    pub kind: u32,
+    pub range: Range,
+    pub selection_range: Range,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<DocumentSymbol>>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolInformation {
+    pub name: String,
+    pub kind: u32,
+    pub location: Location,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DocumentSymbolResponse {
+    Nested(Vec<DocumentSymbol>),
+    Flat(Vec<SymbolInformation>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSymbolParams {
+    pub query: String,
+}
+
+/// LSP 3.17 `WorkspaceSymbol`: `location` may be a `Location` or `{ uri }` (resolved later).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: u32,
+    pub location: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WorkspaceSymbolResponse {
+    Flat(Vec<SymbolInformation>),
+    Nested(Vec<WorkspaceSymbol>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    pub range: Range,
+    /// 1 error, 2 warning, 3 information, 4 hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<u8>,
+    /// Integer or string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub message: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentDiagnosticParams {
+    pub text_document: TextDocumentIdentifier,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_result_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DocumentDiagnosticReport {
+    #[serde(rename_all = "camelCase")]
+    Full {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result_id: Option<String>,
+        items: Vec<Diagnostic>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        related_documents: Option<Value>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Unchanged {
+        result_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        related_documents: Option<Value>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PublishDiagnosticsParams {
+    pub uri: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<i32>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CancelParams {
+    pub id: Id,
+}
+
+macro_rules! forwarded_request {
+    ($(#[$m:meta])* $name:ident, $method:expr, $params:ty, $result:ty) => {
+        $(#[$m])*
+        #[derive(Debug)]
+        pub enum $name {}
+        impl RequestType for $name {
+            const METHOD: &'static str = $method;
+            const GENERATIONAL: bool = true;
+            type Params = $params;
+            type Result = $result;
+        }
+    };
+}
+
+macro_rules! notification {
+    ($(#[$m:meta])* $name:ident, $method:expr, $params:ty) => {
+        $(#[$m])*
+        #[derive(Debug)]
+        pub enum $name {}
+        impl NotificationType for $name {
+            const METHOD: &'static str = $method;
+            type Params = $params;
+        }
+    };
+}
+
+forwarded_request!(
+    /// `textDocument/completion`.
+    Completion,
+    "textDocument/completion",
+    CompletionParams,
+    Option<CompletionResponse>
+);
+forwarded_request!(
+    /// `completionItem/resolve`.
+    ResolveCompletionItem,
+    "completionItem/resolve",
+    CompletionItem,
+    CompletionItem
+);
+forwarded_request!(
+    /// `textDocument/hover`.
+    HoverRequest,
+    "textDocument/hover",
+    TextDocumentPositionParams,
+    Option<Hover>
+);
+forwarded_request!(
+    /// `textDocument/definition`.
+    GotoDefinition,
+    "textDocument/definition",
+    TextDocumentPositionParams,
+    Option<DefinitionResponse>
+);
+forwarded_request!(
+    /// `textDocument/references`.
+    References,
+    "textDocument/references",
+    ReferenceParams,
+    Option<Vec<Location>>
+);
+forwarded_request!(
+    /// `textDocument/documentSymbol`.
+    DocumentSymbolRequest,
+    "textDocument/documentSymbol",
+    DocumentSymbolParams,
+    Option<DocumentSymbolResponse>
+);
+forwarded_request!(
+    /// `workspace/symbol`.
+    WorkspaceSymbolRequest,
+    "workspace/symbol",
+    WorkspaceSymbolParams,
+    Option<WorkspaceSymbolResponse>
+);
+forwarded_request!(
+    /// `textDocument/diagnostic` (pull).
+    DocumentDiagnosticRequest,
+    "textDocument/diagnostic",
+    DocumentDiagnosticParams,
+    DocumentDiagnosticReport
+);
+
+notification!(
+    /// `textDocument/didOpen`.
+    DidOpenTextDocument,
+    "textDocument/didOpen",
+    DidOpenTextDocumentParams
+);
+notification!(
+    /// `textDocument/didChange`.
+    DidChangeTextDocument,
+    "textDocument/didChange",
+    DidChangeTextDocumentParams
+);
+notification!(
+    /// `textDocument/didClose`.
+    DidCloseTextDocument,
+    "textDocument/didClose",
+    DidCloseTextDocumentParams
+);
+notification!(
+    /// `$/cancelRequest`.
+    Cancel,
+    methods::CANCEL_REQUEST,
+    CancelParams
+);
+notification!(
+    /// `textDocument/publishDiagnostics` from the host: LSP params plus the generation the pull ran under.
+    PublishDiagnostics,
+    methods::PUBLISH_DIAGNOSTICS,
+    WithGeneration<PublishDiagnosticsParams>
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::round_trip;
+    use serde_json::json;
+
+    fn pos(line: u32, character: u32) -> Position {
+        Position { line, character }
+    }
+
+    fn range() -> Range {
+        Range {
+            start: pos(1, 2),
+            end: pos(1, 9),
+        }
+    }
+
+    fn doc() -> TextDocumentIdentifier {
+        TextDocumentIdentifier {
+            uri: "file:///a.cs".into(),
+        }
+    }
+
+    #[test]
+    fn text_sync() {
+        round_trip(
+            &DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: "file:///a.cs".into(),
+                    language_id: "csharp".into(),
+                    version: 1,
+                    text: "class A {}".into(),
+                },
+            },
+            json!({"textDocument": {"uri": "file:///a.cs", "languageId": "csharp", "version": 1, "text": "class A {}"}}),
+        );
+        round_trip(
+            &DidChangeTextDocumentParams {
+                text_document: VersionedTextDocumentIdentifier {
+                    uri: "file:///a.cs".into(),
+                    version: 2,
+                },
+                content_changes: vec![
+                    TextDocumentContentChangeEvent {
+                        range: Some(range()),
+                        range_length: None,
+                        text: "x".into(),
+                    },
+                    TextDocumentContentChangeEvent {
+                        range: None,
+                        range_length: None,
+                        text: "full".into(),
+                    },
+                ],
+            },
+            json!({"textDocument": {"uri": "file:///a.cs", "version": 2}, "contentChanges": [
+                {"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}, "text": "x"},
+                {"text": "full"}
+            ]}),
+        );
+        round_trip(
+            &DidCloseTextDocumentParams {
+                text_document: doc(),
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}}),
+        );
+    }
+
+    #[test]
+    fn completion_request_with_generation() {
+        round_trip(
+            &WithGeneration {
+                params: CompletionParams {
+                    text_document: doc(),
+                    position: pos(3, 7),
+                    context: Some(CompletionContext {
+                        trigger_kind: 2,
+                        trigger_character: Some(".".into()),
+                    }),
+                },
+                generation: 1,
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 3, "character": 7},
+                   "context": {"triggerKind": 2, "triggerCharacter": "."}, "nielloGeneration": 1}),
+        );
+    }
+
+    #[test]
+    fn completion_responses() {
+        let list = json!({"isIncomplete": false, "itemDefaults": {"editRange": null},
+            "items": [{"label": "Compute", "kind": 2, "sortText": "a", "data": {"id": 1}, "labelDetails": {"detail": "()"}}]});
+        let parsed: Option<CompletionResponse> = serde_json::from_value(list.clone()).unwrap();
+        let parsed = parsed.unwrap();
+        assert!(matches!(parsed, CompletionResponse::List(_)));
+        assert_eq!(parsed.items()[0].label, "Compute");
+        assert_eq!(parsed.items()[0].extra["labelDetails"]["detail"], "()");
+        round_trip(&Some(parsed), list);
+
+        let items = json!([{"label": "a"}, {"label": "b", "documentation": {"kind": "markdown", "value": "x"}}]);
+        let parsed: CompletionResponse = serde_json::from_value(items.clone()).unwrap();
+        assert!(matches!(parsed, CompletionResponse::Items(ref v) if v.len() == 2));
+        round_trip(&parsed, items);
+        round_trip(&None::<CompletionResponse>, Value::Null);
+    }
+
+    #[test]
+    fn resolve_item_with_generation() {
+        round_trip(
+            &WithGeneration {
+                params: CompletionItem {
+                    label: "Compute".into(),
+                    data: Some(json!({"k": 1})),
+                    ..Default::default()
+                },
+                generation: 2,
+            },
+            json!({"label": "Compute", "data": {"k": 1}, "nielloGeneration": 2}),
+        );
+    }
+
+    #[test]
+    fn hover() {
+        round_trip(
+            &WithGeneration {
+                params: TextDocumentPositionParams {
+                    text_document: doc(),
+                    position: pos(0, 1),
+                },
+                generation: 0,
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 1}, "nielloGeneration": 0}),
+        );
+        round_trip(
+            &Some(Hover {
+                contents: json!({"kind": "markdown", "value": "int x"}),
+                range: Some(range()),
+            }),
+            json!({"contents": {"kind": "markdown", "value": "int x"},
+                   "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}}),
+        );
+    }
+
+    #[test]
+    fn definition_shapes() {
+        let loc = json!({"uri": "file:///b.cs", "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}});
+        let one: DefinitionResponse = serde_json::from_value(loc.clone()).unwrap();
+        assert!(matches!(one, DefinitionResponse::Scalar(_)));
+        round_trip(&one, loc.clone());
+        let many: DefinitionResponse = serde_json::from_value(json!([loc])).unwrap();
+        assert!(matches!(many, DefinitionResponse::Array(_)));
+        let r = range();
+        let links = DefinitionResponse::Links(vec![LocationLink {
+            origin_selection_range: None,
+            target_uri: "file:///b.cs".into(),
+            target_range: r,
+            target_selection_range: r,
+        }]);
+        let v = serde_json::to_value(&links).unwrap();
+        assert_eq!(v[0]["targetUri"], "file:///b.cs");
+        round_trip(&links, v);
+    }
+
+    #[test]
+    fn references() {
+        round_trip(
+            &ReferenceParams {
+                text_document: doc(),
+                position: pos(2, 3),
+                context: ReferenceContext {
+                    include_declaration: true,
+                },
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 2, "character": 3},
+                   "context": {"includeDeclaration": true}}),
+        );
+        round_trip(
+            &Some(vec![Location {
+                uri: "file:///a.cs".into(),
+                range: range(),
+            }]),
+            json!([{"uri": "file:///a.cs", "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}}]),
+        );
+    }
+
+    #[test]
+    fn document_symbols() {
+        round_trip(
+            &DocumentSymbolParams {
+                text_document: doc(),
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}}),
+        );
+        let r = json!({"start": {"line": 0, "character": 0}, "end": {"line": 9, "character": 1}});
+        let nested = json!([{"name": "A", "kind": 5, "range": r, "selectionRange": r,
+                             "children": [{"name": "M", "kind": 6, "detail": "void M()", "range": r, "selectionRange": r}]}]);
+        let parsed: DocumentSymbolResponse = serde_json::from_value(nested.clone()).unwrap();
+        assert!(
+            matches!(parsed, DocumentSymbolResponse::Nested(ref v) if v[0].children.as_ref().unwrap()[0].name == "M")
+        );
+        round_trip(&parsed, nested);
+        let flat = json!([{"name": "A", "kind": 5, "location": {"uri": "file:///a.cs", "range": r}, "containerName": "N"}]);
+        let parsed: DocumentSymbolResponse = serde_json::from_value(flat.clone()).unwrap();
+        assert!(matches!(parsed, DocumentSymbolResponse::Flat(_)));
+        round_trip(&parsed, flat);
+    }
+
+    #[test]
+    fn workspace_symbols() {
+        round_trip(
+            &WithGeneration {
+                params: WorkspaceSymbolParams {
+                    query: "Widget".into(),
+                },
+                generation: 5,
+            },
+            json!({"query": "Widget", "nielloGeneration": 5}),
+        );
+        let r = json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}});
+        let flat = json!([{"name": "Widget00", "kind": 5, "location": {"uri": "file:///w.cs", "range": r}}]);
+        let parsed: WorkspaceSymbolResponse = serde_json::from_value(flat.clone()).unwrap();
+        assert!(matches!(parsed, WorkspaceSymbolResponse::Flat(_)));
+        round_trip(&parsed, flat);
+        let nested = json!([{"name": "Widget00", "kind": 5, "location": {"uri": "file:///w.cs"}, "data": 1}]);
+        let parsed: WorkspaceSymbolResponse = serde_json::from_value(nested.clone()).unwrap();
+        assert!(matches!(parsed, WorkspaceSymbolResponse::Nested(_)));
+        round_trip(&parsed, nested);
+    }
+
+    #[test]
+    fn pull_diagnostics() {
+        round_trip(
+            &DocumentDiagnosticParams {
+                text_document: doc(),
+                identifier: None,
+                previous_result_id: Some("r1".into()),
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "previousResultId": "r1"}),
+        );
+        let full = json!({"kind": "full", "resultId": "r2", "items": [
+            {"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}},
+             "severity": 1, "code": "CS0103", "source": "csharp", "message": "nope", "tags": [1]}]});
+        let parsed: DocumentDiagnosticReport = serde_json::from_value(full.clone()).unwrap();
+        assert!(
+            matches!(parsed, DocumentDiagnosticReport::Full { ref items, .. } if items[0].extra["tags"] == json!([1]))
+        );
+        round_trip(&parsed, full);
+        round_trip(
+            &DocumentDiagnosticReport::Unchanged {
+                result_id: "r2".into(),
+                related_documents: None,
+            },
+            json!({"kind": "unchanged", "resultId": "r2"}),
+        );
+    }
+
+    #[test]
+    fn publish_diagnostics_from_host() {
+        round_trip(
+            &WithGeneration {
+                params: PublishDiagnosticsParams {
+                    uri: "file:///a.cs".into(),
+                    version: Some(3),
+                    diagnostics: vec![Diagnostic {
+                        range: range(),
+                        severity: Some(2),
+                        code: Some(json!("CS0168")),
+                        source: None,
+                        message: "unused".into(),
+                        extra: Map::new(),
+                    }],
+                },
+                generation: 1,
+            },
+            json!({"uri": "file:///a.cs", "version": 3, "nielloGeneration": 1, "diagnostics": [
+                {"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}},
+                 "severity": 2, "code": "CS0168", "message": "unused"}]}),
+        );
+    }
+
+    #[test]
+    fn cancel() {
+        round_trip(&CancelParams { id: Id::Number(7) }, json!({"id": 7}));
+        round_trip(
+            &CancelParams {
+                id: Id::String("x".into()),
+            },
+            json!({"id": "x"}),
+        );
+    }
+}
