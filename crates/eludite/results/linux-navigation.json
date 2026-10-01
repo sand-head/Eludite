@@ -1,0 +1,330 @@
+{
+ "brief": "0014",
+ "manual_run": {
+  "definition": {
+   "mode": "definition",
+   "loaded_ms": 1790933685423,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0014-navigation/dotnet/src/Eludite.Host/Rpc/HostServer.cs version Some(1): 0 (0 errors)",
+   "definition": "definition reply 1: 1 locations (host 1370.6 ms)",
+   "definition_ms": 1386,
+   "trace": [
+    "definition request 1 at 17:18 version 1",
+    "definition reply 1: 1 locations (host 1370.6 ms)"
+   ],
+   "shot_definition": "definition-metadata.png",
+   "back_trace": [],
+   "shot_back": "definition-back.png"
+  },
+  "references": {
+   "mode": "references",
+   "loaded_ms": 1790933699287,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0014-navigation/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+   "references": "references reply 1: 18 locations (host 662.1 ms)",
+   "references_ms": 678,
+   "trace": [
+    "references request 1 at 14:32 version 1",
+    "references reply 1: 18 locations (host 662.1 ms)"
+   ],
+   "shot_references": "find-all-references.png"
+  },
+  "errors": {
+   "mode": "errors",
+   "loaded_ms": 1790933711552,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0014-navigation/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+   "diagnostics": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0014-navigation/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(53): 5 (1 errors)",
+   "shot_before": "error-list-all.png",
+   "shot_warnings": "error-list-warnings.png"
+  }
+ },
+ "loadavg": {
+  "manual_run": [
+   "x11-definition 1.29 1.36 1.72",
+   "x11-references 1.36 1.38 1.72",
+   "x11-errors 1.46 1.40 1.73",
+   ""
+  ],
+  "benchmarks": [
+   "navigate-1 1.24 1.16 1.74",
+   "navigate-2 1.75 1.35 1.78",
+   "navigate-3 1.86 1.44 1.79"
+  ]
+ },
+ "navigate": [
+  {
+   "bench": "navigate_in_shell",
+   "method": "definition: F12 on the symbol, wait for the caret at the definition in the other file and the frame showing it, Ctrl+- back; host = request written to reply read; ui = key to request written + reply read to caret placed + that frame's render to end of present; f12_to_caret = key to caret placed; f12_to_visible = key to end of that present. references: Shift+F12, same split, rows in the window (lines read off the UI thread). typing: 300 keys in a comment with the Find All References window showing 1000 rows; frame cost = key handler + the next frame's render to end of present",
+   "file": "dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+   "definition": {
+    "symbol": "ISdkDiscoverer",
+    "target": "dotnet/src/Eludite.Host/Sdk/ISdkDiscoverer.cs",
+    "runs": 100,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 1.495,
+     "p95_ms": 2.317,
+     "p99_ms": 2.727,
+     "max_ms": 2.954
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.438,
+     "p95_ms": 5.664,
+     "p99_ms": 6.176,
+     "max_ms": 6.232
+    },
+    "f12_to_caret": {
+     "n": 100,
+     "p50_ms": 2.975,
+     "p95_ms": 4.096,
+     "p99_ms": 4.376,
+     "max_ms": 4.57
+    },
+    "f12_to_visible": {
+     "n": 100,
+     "p50_ms": 19.763,
+     "p95_ms": 53.228,
+     "p99_ms": 66.117,
+     "max_ms": 72.786
+    }
+   },
+   "references": {
+    "symbol": "HostRpcTarget",
+    "count": 18,
+    "runs": 25,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 25,
+     "p50_ms": 502.74,
+     "p95_ms": 503.602,
+     "p99_ms": 503.655,
+     "max_ms": 503.655
+    },
+    "ui_latency": {
+     "n": 25,
+     "p50_ms": 3.743,
+     "p95_ms": 3.993,
+     "p99_ms": 4.043,
+     "max_ms": 4.043
+    },
+    "key_to_populated_visible": {
+     "n": 25,
+     "p50_ms": 506.593,
+     "p95_ms": 507.657,
+     "p99_ms": 507.744,
+     "max_ms": 507.744
+    }
+   },
+   "typing_with_1000_rows": {
+    "rows": 1000,
+    "fill_render_to_present_ms": 3.448,
+    "keystrokes": 300,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.462,
+     "p95_ms": 4.489,
+     "p99_ms": 5.468,
+     "max_ms": 6.354
+    }
+   },
+   "rss": {
+    "rss_mib": 96.2,
+    "peak_rss_mib": 96.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-879933",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "navigate_in_shell",
+   "method": "definition: F12 on the symbol, wait for the caret at the definition in the other file and the frame showing it, Ctrl+- back; host = request written to reply read; ui = key to request written + reply read to caret placed + that frame's render to end of present; f12_to_caret = key to caret placed; f12_to_visible = key to end of that present. references: Shift+F12, same split, rows in the window (lines read off the UI thread). typing: 300 keys in a comment with the Find All References window showing 1000 rows; frame cost = key handler + the next frame's render to end of present",
+   "file": "dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+   "definition": {
+    "symbol": "ISdkDiscoverer",
+    "target": "dotnet/src/Eludite.Host/Sdk/ISdkDiscoverer.cs",
+    "runs": 100,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 1.528,
+     "p95_ms": 2.572,
+     "p99_ms": 3.612,
+     "max_ms": 34.155
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.568,
+     "p95_ms": 5.591,
+     "p99_ms": 5.974,
+     "max_ms": 6.423
+    },
+    "f12_to_caret": {
+     "n": 100,
+     "p50_ms": 3.075,
+     "p95_ms": 4.12,
+     "p99_ms": 4.9,
+     "max_ms": 34.428
+    },
+    "f12_to_visible": {
+     "n": 100,
+     "p50_ms": 19.818,
+     "p95_ms": 42.051,
+     "p99_ms": 54.953,
+     "max_ms": 71.238
+    }
+   },
+   "references": {
+    "symbol": "HostRpcTarget",
+    "count": 18,
+    "runs": 25,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 25,
+     "p50_ms": 502.141,
+     "p95_ms": 503.043,
+     "p99_ms": 503.875,
+     "max_ms": 503.875
+    },
+    "ui_latency": {
+     "n": 25,
+     "p50_ms": 3.826,
+     "p95_ms": 6.004,
+     "p99_ms": 6.13,
+     "max_ms": 6.13
+    },
+    "key_to_populated_visible": {
+     "n": 25,
+     "p50_ms": 506.071,
+     "p95_ms": 508.43,
+     "p99_ms": 508.567,
+     "max_ms": 508.567
+    }
+   },
+   "typing_with_1000_rows": {
+    "rows": 1000,
+    "fill_render_to_present_ms": 4.101,
+    "keystrokes": 300,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.504,
+     "p95_ms": 4.252,
+     "p99_ms": 5.217,
+     "max_ms": 6.49
+    }
+   },
+   "rss": {
+    "rss_mib": 96.2,
+    "peak_rss_mib": 96.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-879933",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "navigate_in_shell",
+   "method": "definition: F12 on the symbol, wait for the caret at the definition in the other file and the frame showing it, Ctrl+- back; host = request written to reply read; ui = key to request written + reply read to caret placed + that frame's render to end of present; f12_to_caret = key to caret placed; f12_to_visible = key to end of that present. references: Shift+F12, same split, rows in the window (lines read off the UI thread). typing: 300 keys in a comment with the Find All References window showing 1000 rows; frame cost = key handler + the next frame's render to end of present",
+   "file": "dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+   "definition": {
+    "symbol": "ISdkDiscoverer",
+    "target": "dotnet/src/Eludite.Host/Sdk/ISdkDiscoverer.cs",
+    "runs": 100,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 1.477,
+     "p95_ms": 2.293,
+     "p99_ms": 3.329,
+     "max_ms": 33.854
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.541,
+     "p95_ms": 5.584,
+     "p99_ms": 6.685,
+     "max_ms": 7.707
+    },
+    "f12_to_caret": {
+     "n": 100,
+     "p50_ms": 3.002,
+     "p95_ms": 3.646,
+     "p99_ms": 5.872,
+     "max_ms": 34.075
+    },
+    "f12_to_visible": {
+     "n": 100,
+     "p50_ms": 19.749,
+     "p95_ms": 52.431,
+     "p99_ms": 55.954,
+     "max_ms": 64.1
+    }
+   },
+   "references": {
+    "symbol": "HostRpcTarget",
+    "count": 18,
+    "runs": 25,
+    "timeouts": 0,
+    "host_latency": {
+     "n": 25,
+     "p50_ms": 502.427,
+     "p95_ms": 503.145,
+     "p99_ms": 503.333,
+     "max_ms": 503.333
+    },
+    "ui_latency": {
+     "n": 25,
+     "p50_ms": 3.762,
+     "p95_ms": 5.99,
+     "p99_ms": 6.323,
+     "max_ms": 6.323
+    },
+    "key_to_populated_visible": {
+     "n": 25,
+     "p50_ms": 506.515,
+     "p95_ms": 509.214,
+     "p99_ms": 509.231,
+     "max_ms": 509.231
+    }
+   },
+   "typing_with_1000_rows": {
+    "rows": 1000,
+    "fill_render_to_present_ms": 3.079,
+    "keystrokes": 300,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.453,
+     "p95_ms": 4.13,
+     "p99_ms": 5.813,
+     "max_ms": 6.308
+    }
+   },
+   "rss": {
+    "rss_mib": 96.4,
+    "peak_rss_mib": 96.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-879933",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ ]
+}
