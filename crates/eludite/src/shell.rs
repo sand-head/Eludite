@@ -188,6 +188,8 @@ pub struct Shell {
     apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
     /// The Agents window and its sessions (brief 0016).
     agents: agents::Agents,
+    /// An agent's edit command is running: the applier's next edit is held as pending changes for review.
+    capture_next: Option<eludite_commands::Caller>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -223,10 +225,24 @@ fn tool_body(
 
 fn document_body(
     views: Rc<RefCell<HashMap<String, Entity<EditorView>>>>,
+    reviews: agents::Reviews,
+    gutters: agents::Gutters,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
         if let Some(view) = views.borrow().get(&tab.id) {
+            // An agent's pending change marks the lines it touches in the gutter (brief 0016).
+            if let Some(marks) = gutters.borrow().get(&tab.id) {
+                return div()
+                    .relative()
+                    .size_full()
+                    .child(view.clone())
+                    .child(marks.clone())
+                    .into_any_element();
+            }
             return view.clone().into_any_element();
+        }
+        if let Some(review) = reviews.borrow().get(&tab.id) {
+            return review.clone().into_any_element();
         }
         let text = if tab.id == WELCOME {
             "Open a solution with File > Open > Project/Solution (Ctrl+Shift+O)."
@@ -285,7 +301,11 @@ impl Shell {
                     references_window.clone(),
                     agents.window.clone(),
                 )),
-                Rc::new(document_body(views.clone())),
+                Rc::new(document_body(
+                    views.clone(),
+                    agents.reviews.clone(),
+                    agents.gutters.clone(),
+                )),
                 persistence,
                 cx,
             )
@@ -331,7 +351,15 @@ impl Shell {
         });
         let job_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(job) = jobs.next().await {
-                let UiJob { request, reply } = job;
+                let UiJob {
+                    request,
+                    reply,
+                    caller,
+                } = job;
+                // An agent's edit through the applier is held for review (brief 0016).
+                let _ = this.update(cx, |shell, _| {
+                    shell.capture_next = shell.reviews_edit(&request, &caller).then_some(caller);
+                });
                 // An agent may name a file it opened a moment ago: wait until it is loaded.
                 if let Ok(Some(loaded)) = this.update(cx, |shell, _| shell.wait_for_load(&request))
                 {
@@ -360,19 +388,22 @@ impl Shell {
                         _ => break,
                     }
                 }
+                let _ = this.update(cx, |shell, _| shell.capture_next = None);
                 let _ = reply.send(outcome);
             }
         });
         // Agent events arrive from the agents' threads; everything queued is applied as one batch, so a burst of
         // streamed chunks costs one frame.
-        let agent_task = cx.spawn(async move |this, cx| {
+        let agent_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = agent_msgs.next().await {
                 let mut batch = vec![first];
                 while let Ok(more) = agent_msgs.try_recv() {
                     batch.push(more);
                 }
                 if this
-                    .update(cx, |shell, cx| shell.on_agent_batch(batch, cx))
+                    .update_in(cx, |shell, window, cx| {
+                        shell.on_agent_batch(batch, window, cx)
+                    })
                     .is_err()
                 {
                     break;
@@ -413,6 +444,7 @@ impl Shell {
             code_actions: code_actions::CodeActions::default(),
             apply_edit: None,
             agents,
+            capture_next: None,
             timings: Timings::default(),
             _tasks: vec![event_task, job_task, agent_task],
         }

@@ -15,6 +15,7 @@
 //!   icons ([`CompletionKind`]) and the tooltip frame.
 //! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
 //! - [`dialog`]: the frame of a modal dialog, push buttons, and the light bulb menu's rows and glyphs.
+//! - [`diff`]: the line diff, its hunks and the inline diff rows of the pending-change review view.
 //! - [`transcript`]: the Agents window's transcript rows: prompts, agent text, thinking, tool call cards with their
 //!   status, plans and notices.
 //!
@@ -22,6 +23,7 @@
 //! are deliberately not used so Eludite cannot look like Zed by construction.
 
 pub mod dialog;
+pub mod diff;
 pub mod elements;
 pub mod keymap;
 pub mod markdown;

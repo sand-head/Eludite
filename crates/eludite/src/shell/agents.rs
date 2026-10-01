@@ -15,11 +15,14 @@
 //!   boundary (the gate), never twice; the agent's own tools at its `session/request_permission`.
 
 pub mod endpoint;
+pub mod review;
 pub mod transcript;
 pub mod window;
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -38,6 +41,7 @@ use gpui::{AppContext as _, Context, Entity, Window};
 use serde_json::{Value, json};
 
 use self::endpoint::{EndpointHooks, MCP_SERVER_NAME, McpEndpoint};
+use self::review::{DiffView, GutterMarkers, PendingChange, ReviewBoard};
 use self::transcript::{McpLink, Permission};
 use self::window::{AgentsWindow, AgentsWindowEvent, Decision, HeaderState, StateKind};
 use super::Shell;
@@ -126,6 +130,11 @@ impl PolicyStore {
         self.path.clone().map(|p| (p, current))
     }
 }
+
+/// Review views by document tab id, drawn by the document area.
+pub type Reviews = Rc<RefCell<HashMap<String, Entity<DiffView>>>>;
+/// Pending-change gutter marks by document id.
+pub type Gutters = Rc<RefCell<HashMap<String, Entity<GutterMarkers>>>>;
 
 /// The current solution's store, shared with the agents' and the endpoint's threads.
 pub type SharedPolicy = Arc<Mutex<Arc<PolicyStore>>>;
@@ -222,6 +231,15 @@ pub struct Agents {
     policy: SharedPolicy,
     /// Permission requests waiting for the user, by key.
     waiting: HashMap<u64, Waiting>,
+    /// Pending changes by id (decided ones stay, for the transcript's links).
+    pub changes: BTreeMap<u64, PendingChange>,
+    next_change: u64,
+    /// Where the endpoint's call threads wait for the review.
+    pub board: Arc<ReviewBoard>,
+    pub reviews: Reviews,
+    pub gutters: Gutters,
+    /// Changes whose review view was opened once by itself.
+    pub opened_once: Vec<u64>,
 }
 
 impl Agents {
@@ -269,9 +287,26 @@ impl Agents {
                 ready_ms: None,
                 policy: Arc::new(Mutex::new(Arc::new(PolicyStore::default()))),
                 waiting: HashMap::new(),
+                changes: BTreeMap::new(),
+                next_change: 1,
+                board: Arc::default(),
+                reviews: Rc::default(),
+                gutters: Rc::default(),
+                opened_once: Vec::new(),
             },
             rx,
         )
+    }
+
+    pub fn next_change(&mut self) -> u64 {
+        let id = self.next_change;
+        self.next_change += 1;
+        id
+    }
+
+    /// The running agent's name.
+    pub fn current_name(&self) -> String {
+        self.current.lock().map(|c| c.clone()).unwrap_or_default()
     }
 
     pub fn selected_agent(&self) -> Option<&RegisteredAgent> {
@@ -511,8 +546,9 @@ impl Shell {
         Ok(())
     }
 
-    /// Cancel the turn: `session/cancel`, and every pending request answered `cancelled`.
-    pub fn agents_cancel(&mut self, cx: &mut Context<Self>) {
+    /// Cancel the turn: `session/cancel`, every pending request answered `cancelled`, every pending change rejected.
+    pub fn agents_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.reject_pending(window, cx);
         let mut keys = self
             .agents
             .session
@@ -705,11 +741,47 @@ impl Shell {
                     _ => GateDecision::Deny("the user denied it".into()),
                 }
             }),
-            invoker: None,
+            // The call runs as the agent; an edit it proposed is answered once the user has reviewed it.
+            invoker: Some({
+                let commands = self.commands.clone();
+                let board = self.agents.board.clone();
+                Arc::new(move |spec, args, ctx| {
+                    let out = eludite_commands::with_caller(ctx.caller(), || {
+                        commands.invoke(spec.id.as_str(), args)
+                    })?;
+                    if !REVIEWED_COMMANDS.contains(&spec.id.as_str()) {
+                        return Ok(out);
+                    }
+                    let decided = board.wait_decided(ctx.call);
+                    if decided.is_empty() {
+                        return Ok(out);
+                    }
+                    Ok(review::amend_output(spec.id.as_str(), out, &decided))
+                })
+            }),
             observer: Some(Arc::new(move |record| {
                 let _ = tx.unbounded_send(HostMsg::Mcp(Box::new(record.clone())));
             })),
         }
+    }
+
+    /// Whether `request` from `caller` is an agent's edit to hold for review (the solution's policy says review).
+    pub(super) fn reviews_edit(
+        &self,
+        request: &eludite_commands::workspace::WorkspaceRequest,
+        caller: &eludite_commands::Caller,
+    ) -> bool {
+        use eludite_commands::workspace::WorkspaceRequest as R;
+        let edit = matches!(
+            request,
+            R::ApplyEdit { .. } | R::ApplyCodeAction { .. } | R::Rename { apply: true, .. }
+        );
+        edit && caller.is_agent()
+            && current_policy(&self.agents.policy)
+                .get()
+                .edit_buffer
+                .unwrap_or_default()
+                == eludite_commands::policy::EditPolicy::Review
     }
 
     /// Window events: the user's actions.
@@ -717,7 +789,7 @@ impl Shell {
         &mut self,
         _: &Entity<AgentsWindow>,
         event: &AgentsWindowEvent,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let result = match event {
@@ -726,13 +798,20 @@ impl Shell {
             }
             AgentsWindowEvent::Prompt(text) => self.agents_prompt(text, cx),
             AgentsWindowEvent::Cancel => {
-                self.agents_cancel(cx);
+                self.agents_cancel(window, cx);
                 Ok(())
             }
             AgentsWindowEvent::Answer { request, decision } => {
                 self.agents_answer(*request, *decision, cx).map(|_| ())
             }
-            AgentsWindowEvent::Review { .. } | AgentsWindowEvent::OpenChange(_) => Ok(()),
+            AgentsWindowEvent::Review { change, accept } => {
+                let ids = self.changes_for(*change, None);
+                self.decide(&ids, *accept, window, cx)
+            }
+            AgentsWindowEvent::OpenChange(id) => {
+                self.open_review(*id, window, cx);
+                Ok(())
+            }
         };
         if let Err(e) = result {
             self.status.set(eludite_ui::slots::STATE, e);
@@ -741,7 +820,12 @@ impl Shell {
     }
 
     /// Apply a batch of agent events (everything queued since the last frame).
-    pub(super) fn on_agent_batch(&mut self, batch: Vec<HostMsg>, cx: &mut Context<Self>) {
+    pub(super) fn on_agent_batch(
+        &mut self,
+        batch: Vec<HostMsg>,
+        window_: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let generation = self.agents.generation;
         let mut header = false;
         let mut permissions = false;
@@ -841,8 +925,21 @@ impl Shell {
                     SessionEvent::Timing { name, ms } => self.agents.timings.push((name, ms)),
                     SessionEvent::Update(u) => window.update(cx, |w, _| w.transcript.apply(&u)),
                     SessionEvent::Permission { key, request } => {
-                        permissions = true;
                         let class = class_of(&self.commands, &request);
+                        // The agent's own file tool with a diff: a pending change, reviewed like Eludite's edits.
+                        if class == PermissionClass::EditBuffer
+                            && current_policy(&self.agents.policy)
+                                .get()
+                                .edit_buffer
+                                .unwrap_or_default()
+                                == eludite_commands::policy::EditPolicy::Review
+                        {
+                            window.update(cx, |w, _| w.transcript.ensure_tool(&request.tool_call));
+                            if self.capture_tool_edit(key, &request, window_, cx) {
+                                continue;
+                            }
+                        }
+                        permissions = true;
                         self.agents.waiting.insert(
                             key,
                             Waiting {
