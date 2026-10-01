@@ -57,6 +57,7 @@ dotnet/            .NET solution (hosts)
 debuggers/netfx/   niello-dbg-netfx (Rust, Windows)
 protocol/          MIT: schemas, generated bindings
 extension-sdk/     MIT: WASM extension API
+agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
 corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
 docs/              PLAN.md, adr/, briefs/
 ```

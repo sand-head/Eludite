@@ -40,6 +40,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
 | `protocol/` | MIT schemas and generated bindings (crate `niello-protocol`) | 3 (D3), 11 |
 | `extension-sdk/` | MIT WASM extension API (crate `niello-extension-sdk`) | 3 (D6) |
+| `agents/claude-acp/` | `niello-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
 | `debuggers/netfx` | `niello-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
 | `dotnet/` | `niello-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
