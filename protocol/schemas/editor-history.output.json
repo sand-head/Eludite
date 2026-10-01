@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-history.output.json",
+  "title": "eludite.editor.undo and eludite.editor.redo output",
+  "description": "Whether there was an edit to undo or redo.",
+  "type": "object",
+  "required": [
+    "path",
+    "applied",
+    "dirty"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "applied": {
+      "description": "False when there was nothing to undo or redo.",
+      "type": "boolean"
+    },
+    "dirty": {
+      "description": "Whether the document now has unsaved changes.",
+      "type": "boolean"
+    }
+  }
+}

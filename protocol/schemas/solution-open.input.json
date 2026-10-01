@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-open.input.json",
+  "title": "eludite.solution.open input",
+  "description": "Open a solution (File > Open > Project/Solution, Ctrl+Shift+O). Starts eludite-host if it is not running and loads the solution in it. Returns once the request is handed to the host; loading, the Solution Explorer tree and diagnostics stream in afterwards (see eludite/solution/status in host-rpc.md). Opening a solution closes the one that is open. The UI shows a file dialog first and passes the chosen path.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Absolute path of a .sln, .slnx, .csproj or .vbproj file.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

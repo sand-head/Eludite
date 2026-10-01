@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-find.output.json",
+  "title": "eludite.editor.find output",
+  "description": "The find bar state or the match found.",
+  "type": "object",
+  "required": [
+    "path",
+    "found"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "found": {
+      "description": "True when a match was selected; false when there is no match or no query was given.",
+      "type": "boolean"
+    },
+    "line": {
+      "description": "1-based line of the selected match.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column of the selected match.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "find_bar_open": {
+      "description": "True when the call opened the find bar (no query).",
+      "type": "boolean"
+    }
+  }
+}

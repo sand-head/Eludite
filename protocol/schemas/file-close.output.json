@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-close.output.json",
+  "title": "eludite.file.close output",
+  "description": "What closing did.",
+  "type": "object",
+  "required": [
+    "path",
+    "closed",
+    "saved"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "closed": {
+      "description": "False when no such document was open.",
+      "type": "boolean"
+    },
+    "saved": {
+      "description": "True when the document was saved before closing.",
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-open.output.json",
+  "title": "eludite.file.open output",
+  "description": "The document opened or activated.",
+  "type": "object",
+  "required": [
+    "path",
+    "already_open"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of the document; also its document tab id.",
+      "type": "string",
+      "minLength": 1
+    },
+    "already_open": {
+      "description": "True when the file was already open and its tab was activated.",
+      "type": "boolean"
+    }
+  }
+}
