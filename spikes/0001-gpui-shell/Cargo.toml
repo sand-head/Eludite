@@ -1,0 +1,35 @@
+# Throwaway spike for brief 0001 (docs/briefs/0001-gpui-shell-and-docking-spike.md).
+# Its own workspace root, so the production workspace does not claim it.
+[workspace]
+
+[package]
+name = "spike-gpui-shell"
+description = "Brief 0001 spike: GPUI shell, VS-style docking, 100k-line text view, frame-time harness."
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.98"
+publish = false
+
+[[bin]]
+name = "spike-gpui-shell"
+path = "src/main.rs"
+
+[dependencies]
+# Same pin and features as the root Cargo.toml (both Apache-2.0).
+gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["wayland", "x11", "font-kit"] }
+serde = { version = "1", features = ["derive"] } # MIT OR Apache-2.0
+serde_json = "1" # MIT OR Apache-2.0
+log = "0.4" # MIT OR Apache-2.0; a tiny stderr logger surfaces GPUI's GPU adapter selection
+
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["test-support"] }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
