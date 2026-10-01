@@ -98,6 +98,7 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
 
         Add(rpc, "textDocument/completion", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => CompletionAsync(launch, p, ct)));
         Add(rpc, "textDocument/signatureHelp", new Func<JsonElement, object>(p => Record(launch, "textDocument/signatureHelp", p, new { signatures = new[] { new { label = "M(int x)" } } })));
+        Add(rpc, "textDocument/typeDefinition", new Func<JsonElement, object>(p => Record(launch, "textDocument/typeDefinition", p, new[] { new { uri = "file:///b.cs", range = new { start = new { line = 0, character = 0 }, end = new { line = 0, character = 1 } } } })));
         Add(rpc, "workspace/symbol", new Func<JsonElement, object>(p => Record(launch, "workspace/symbol", p, Array.Empty<object>())));
         Add(rpc, "textDocument/diagnostic", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => DiagnosticAsync(launch, p, ct)));
         Add(rpc, "shutdown", new Func<object?>(() => Record<object?>(launch, "shutdown", default, null)));

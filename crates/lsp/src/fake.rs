@@ -5,7 +5,14 @@
 //! `close` with the generation rule and status notifications, `eludite/solution/tree` (from [`FakeHost::set_tree`]),
 //! generation checks on forwarded requests, and it records every message it receives. Tests inject host-to-shell
 //! notifications with [`FakeHost::publish_diagnostics`] and make it unresponsive with [`FakeHost::stall_for`].
+//!
+//! Forwarded requests answer `null` unless a test scripts them with [`FakeHost::respond`]: a result at once, after a
+//! delay, or never ([`FakeReply::Hold`]) until the shell cancels it. `$/cancelRequest` answers a request still in
+//! flight with -32800 (RequestCancelled), as the real host does, unless [`FakeHost::set_ignore_cancel`] makes the fake
+//! deliver late results anyway (to test that the shell drops them). [`FakeHost::set_hold_load`] keeps an opened
+//! solution `loading` until [`FakeHost::finish_load`].
 
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
@@ -28,6 +35,21 @@ pub struct Received {
 
 type Writer = Arc<Mutex<Box<dyn Write + Send>>>;
 
+/// How the fake answers a forwarded request (see [`FakeHost::respond`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum FakeReply {
+    /// This result, at once.
+    Result(Value),
+    /// This result after a delay (unless canceled first).
+    After(Duration, Value),
+    /// No answer until the request is canceled.
+    Hold,
+    /// An error response.
+    Error(i64, String),
+}
+
+type Responder = Arc<dyn Fn(&Value) -> FakeReply + Send + Sync>;
+
 #[derive(Default)]
 struct State {
     received: Vec<Received>,
@@ -40,6 +62,11 @@ struct State {
     stall_until: Option<Instant>,
     writer: Option<Writer>,
     connections: u32,
+    responders: HashMap<String, Responder>,
+    /// Forwarded requests not answered yet, by JSON id.
+    inflight: HashMap<String, Writer>,
+    ignore_cancel: bool,
+    hold_load: bool,
 }
 
 struct Shared {
@@ -127,6 +154,50 @@ impl FakeHost {
 
     pub fn generation(&self) -> Generation {
         self.lock().generation
+    }
+
+    /// Script the answers to forwarded request `method` (for example `textDocument/completion`). `reply` gets the
+    /// request's params (with `eluditeGeneration`).
+    pub fn respond(
+        &self,
+        method: &str,
+        reply: impl Fn(&Value) -> FakeReply + Send + Sync + 'static,
+    ) {
+        self.lock()
+            .responders
+            .insert(method.to_owned(), Arc::new(reply));
+    }
+
+    /// When true, `$/cancelRequest` is recorded but ignored: delayed results are still delivered (a host whose
+    /// result was already on the wire).
+    pub fn set_ignore_cancel(&self, ignore: bool) {
+        self.lock().ignore_cancel = ignore;
+    }
+
+    /// When true, `eludite/solution/open` reports `loading` and stops there until [`FakeHost::finish_load`].
+    pub fn set_hold_load(&self, hold: bool) {
+        self.lock().hold_load = hold;
+    }
+
+    /// Send `loaded` for the open solution (after [`FakeHost::set_hold_load`]).
+    pub fn finish_load(&self) {
+        let (generation, path) = {
+            let s = self.lock();
+            (s.generation, s.solution.clone())
+        };
+        if let Some(path) = path {
+            let projects = self.lock().tree.as_array().map_or(0, Vec::len);
+            self.notify(
+                methods::SOLUTION_STATUS,
+                json!({"generation": generation, "path": path, "state": "loaded", "elapsedMs": 1.0,
+                       "counts": {"projects": projects, "legacyProjects": 0, "legacyEvaluationFailures": 0}}),
+            );
+        }
+    }
+
+    /// Requests received but not answered yet (held or delayed).
+    pub fn inflight(&self) -> usize {
+        self.lock().inflight.len()
     }
 
     /// Sessions started (1 plus restarts).
@@ -235,6 +306,9 @@ impl FakeHost {
                 if method == methods::HOST_EXIT {
                     return;
                 }
+                if method == methods::CANCEL_REQUEST {
+                    self.cancel(&params["id"]);
+                }
                 continue;
             };
             self.answer(out, &id, &method, &params);
@@ -281,6 +355,9 @@ impl FakeHost {
                     methods::SOLUTION_STATUS,
                     json!({"generation": generation, "path": path, "state": "loading", "phase": "projectLoad"}),
                 );
+                if self.lock().hold_load {
+                    return;
+                }
                 let projects = self.lock().tree.as_array().map_or(0, Vec::len);
                 notify(
                     methods::SOLUTION_STATUS,
@@ -337,10 +414,68 @@ impl FakeHost {
                         "stale",
                         Some(json!({"requestedGeneration": g, "currentGeneration": current})),
                     ),
-                    Some(_) => reply(Value::Null),
+                    Some(_) => self.forwarded(out, id, m, params),
                 }
             }
             other => error(-32601, &format!("{other} not found"), None),
+        }
+    }
+}
+
+impl FakeHost {
+    fn forwarded(&self, out: &Writer, id: &Value, method: &str, params: &Value) {
+        let responder = self.lock().responders.get(method).cloned();
+        let reply = responder.map_or(FakeReply::Result(Value::Null), |r| r(params));
+        let key = id.to_string();
+        match reply {
+            FakeReply::Result(v) => {
+                send(out, json!({"jsonrpc": "2.0", "id": id, "result": v}));
+            }
+            FakeReply::Error(code, message) => send(
+                out,
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}),
+            ),
+            FakeReply::Hold => {
+                self.lock().inflight.insert(key, out.clone());
+            }
+            FakeReply::After(delay, v) => {
+                self.lock().inflight.insert(key.clone(), out.clone());
+                let this = self.clone();
+                let id = id.clone();
+                thread::spawn(move || {
+                    thread::sleep(delay);
+                    // Still in flight (not canceled), or canceled while the fake ignores cancels.
+                    let w = {
+                        let mut s = this.lock();
+                        let w = s.inflight.remove(&key);
+                        if w.is_none() && !s.ignore_cancel {
+                            return;
+                        }
+                        w.or_else(|| s.writer.clone())
+                    };
+                    if let Some(w) = w {
+                        send(&w, json!({"jsonrpc": "2.0", "id": id, "result": v}));
+                    }
+                });
+            }
+        }
+    }
+
+    fn cancel(&self, id: &Value) {
+        let key = id.to_string();
+        let w = {
+            let mut s = self.lock();
+            if s.ignore_cancel {
+                // The delayed result stays scheduled; a held request stays held.
+                return;
+            }
+            s.inflight.remove(&key)
+        };
+        if let Some(w) = w {
+            send(
+                &w,
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": host::error_codes::REQUEST_CANCELLED, "message": "canceled"}}),
+            );
         }
     }
 }
