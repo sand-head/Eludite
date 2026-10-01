@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using Niello.Host.Lsp;
+using Niello.Host.Rpc;
 
 namespace Niello.Host.Legacy;
 
@@ -9,7 +11,7 @@ namespace Niello.Host.Legacy;
 /// an injected targets file. Everything here reaches Roslyn through environment variables on its process, which
 /// MSBuild reads as properties; Roslyn itself is unchanged.
 /// </summary>
-public sealed class LegacyDesignTime
+public sealed class LegacyDesignTime : ISolutionPreparer
 {
     private readonly TextWriter _log;
     private readonly string _cacheDirectory;
@@ -142,6 +144,99 @@ public sealed class LegacyDesignTime
             $"[legacy] {Evaluations.Count} legacy project(s) evaluated with {Evaluations.FirstOrDefault()?.Evaluator}; " +
             $"{byProject.Values.Sum(d => d.Count)} designer partial(s), {fixups.Values.Sum(f => f.Count)} case fixup(s) in {sw.ElapsedMilliseconds} ms").ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The MSBuild that evaluates legacy projects, in the order <see cref="EvaluateAsync"/> tries them: Mono's, then
+    /// Build Tools' (Windows), then the .NET SDK's in-process.
+    /// </summary>
+    public MsBuildInfo SelectedMsBuild()
+    {
+        if (Mono is not null)
+        {
+            return new MsBuildInfo("mono", Mono.MsBuildDll, Mono.Source);
+        }
+
+        if (BuildToolsInstallation.Locate() is { } tools)
+        {
+            return new MsBuildInfo("buildTools", tools.MsBuildExe, tools.Source);
+        }
+
+        return new MsBuildInfo("sdk", null, "Microsoft.Build.Locator");
+    }
+
+    /// <summary>
+    /// <see cref="ISolutionPreparer"/>: runs <see cref="PrepareAsync"/> and reports the MSBuild used, the corrections
+    /// applied and the evaluation problems for <c>niello/solution/status</c>.
+    /// </summary>
+    public async Task<SolutionPreparation> PrepareSolutionAsync(string solutionPath, CancellationToken cancellationToken)
+    {
+        if (!SolutionProjects.Read(solutionPath).Any(SolutionProjects.IsLegacy))
+        {
+            return SolutionPreparation.None;
+        }
+
+        var msbuild = SelectedMsBuild();
+        Evaluations = [];
+        Designers = new Dictionary<string, IReadOnlyList<GeneratedDesigner>>();
+        CaseFixups = new Dictionary<string, IReadOnlyList<PathCaseFixup>>();
+        try
+        {
+            await PrepareAsync(solutionPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+        {
+            await _log.WriteLineAsync($"[legacy] preparation failed (projects load as written): {ex}").ConfigureAwait(false);
+            return new SolutionPreparation(msbuild, [], [new HostDiagnostic("warning", "NIELLO0004", $"Legacy project preparation failed; projects load as written: {ex.Message}")], 0);
+        }
+
+        var corrections = new List<Correction>();
+        var diagnostics = new List<HostDiagnostic>();
+        foreach (var (project, designers) in Designers)
+        {
+            corrections.Add(new Correction("designerPartials", project, designers.Count));
+        }
+
+        foreach (var (project, fixups) in CaseFixups)
+        {
+            corrections.Add(new Correction("caseFixups", project, fixups.Count));
+            diagnostics.AddRange(fixups.Select(f => new HostDiagnostic(
+                "warning", "NIELLO0106", $"Compile item '{f.Declared}' differs in case from '{f.OnDisk}' on disk; using the file on disk.") { Project = project }));
+        }
+
+        foreach (var evaluation in Evaluations)
+        {
+            if (!evaluation.Loaded)
+            {
+                diagnostics.Add(new HostDiagnostic("warning", "NIELLO0003", $"{Path.GetFileName(evaluation.ProjectPath)} did not evaluate: {evaluation.FailureReason}")
+                {
+                    Project = evaluation.ProjectPath,
+                    Class = WireClass(evaluation.FailureClass),
+                });
+            }
+
+            var com = evaluation.Diagnostics.Count(d => FailureClassifier.Classify(d.Code, d.Message) == FailureClassifier.Com);
+            if (com > 0 && !OperatingSystem.IsWindows())
+            {
+                corrections.Add(new Correction("comReferencesRemoved", evaluation.ProjectPath, com));
+            }
+        }
+
+        return new SolutionPreparation(msbuild, corrections, diagnostics, Evaluations.Count(e => !e.Loaded));
+    }
+
+    Task<SolutionPreparation> ISolutionPreparer.PrepareAsync(string solutionPath, CancellationToken cancellationToken) =>
+        PrepareSolutionAsync(solutionPath, cancellationToken);
+
+    /// <summary>Maps a <see cref="FailureClassifier"/> class to its wire name.</summary>
+    internal static string? WireClass(string? failureClass) => failureClass switch
+    {
+        null => null,
+        FailureClassifier.MissingTargets => "missingTargets",
+        FailureClassifier.Com => "com",
+        FailureClassifier.Packages => "packages",
+        FailureClassifier.WebTargets => "webTargets",
+        _ => "other",
+    };
 
     /// <summary>Evaluates with Mono's MSBuild when located, else the SDK's MSBuild in-process.</summary>
     public async Task<IReadOnlyList<LegacyProjectEvaluation>> EvaluateAsync(IReadOnlyList<string> projects, CancellationToken cancellationToken)
