@@ -9,15 +9,22 @@
 //! by whoever owns the layout through a [`view::ViewTarget`]. `workspace` holds
 //! the solution, file and editor commands (brief 0012), registered by the shell
 //! through a [`workspace::WorkspaceTarget`].
+//!
+//! Commands can be registered at any time from any thread. Each spec says whether agents see it
+//! ([`CommandSpec::agent_visible`]); the caller of each invocation ([`Caller`], set by the MCP boundary with
+//! [`with_caller`]) is recorded in the [`AuditLog`] with an agent's arguments, and the edits an agent's call produced
+//! are joined to its entry when they are accepted or rejected.
 
 mod audit;
 pub mod builtins;
+mod caller;
 pub mod diagnostics;
 mod id;
 mod registry;
 pub mod view;
 pub mod workspace;
 
-pub use audit::{AuditEntry, AuditLog, Outcome};
+pub use audit::{AuditEntry, AuditLog, EditRecord, EditState, Outcome};
+pub use caller::{Caller, current_caller, next_call_id, with_caller};
 pub use id::{CommandId, InvalidCommandId};
 pub use registry::{CommandError, CommandRegistry, CommandSpec, Handler, PermissionClass};

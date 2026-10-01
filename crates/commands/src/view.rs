@@ -295,6 +295,8 @@ pub fn spec(id: &str) -> CommandSpec {
         output_schema: parse_schema(output),
         // Moving windows around changes no file and runs nothing (PLAN.md 5.3).
         permission: PermissionClass::Read,
+        // Window layout is the user's; agents read and edit code, not the docking layout.
+        agent_visible: false,
     }
 }
 

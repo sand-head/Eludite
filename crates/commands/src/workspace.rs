@@ -1316,6 +1316,20 @@ fn parse_schema(text: &str) -> Value {
     serde_json::from_str(text).expect("protocol schemas are valid JSON")
 }
 
+/// Whether agents see workspace command `id` as an MCP tool: the code-reading and code-editing commands. Navigation
+/// history, the Error List's view filter, committing the completion popup's selection and closing the solution act on
+/// the user's view of the IDE, not on the code, so they stay UI-only.
+pub fn agent_visible(id: &str) -> bool {
+    !matches!(
+        id,
+        NAVIGATION_BACK
+            | NAVIGATION_FORWARD
+            | ERROR_LIST_FILTER
+            | EDITOR_ACCEPT_COMPLETION
+            | SOLUTION_CLOSE
+    )
+}
+
 /// The public description of workspace command `id` (one of [`ALL`]).
 pub fn spec(id: &str) -> CommandSpec {
     let (title, input, output, permission) = schemas(id);
@@ -1325,6 +1339,7 @@ pub fn spec(id: &str) -> CommandSpec {
         input_schema: parse_schema(input),
         output_schema: parse_schema(output),
         permission,
+        agent_visible: agent_visible(id),
     }
 }
 
@@ -2092,6 +2107,12 @@ mod tests {
         assert!(r.invoke(FILE_OPEN, json!({})).is_err());
         assert_eq!(target.0.lock().unwrap().len(), 2);
         assert_eq!(r.lookup(FILE_OPEN).unwrap().title, "File: Open");
-        assert_eq!(r.list().filter(|s| s.id.as_str() == FILE_OPEN).count(), 1);
+        assert_eq!(
+            r.list()
+                .iter()
+                .filter(|s| s.id.as_str() == FILE_OPEN)
+                .count(),
+            1
+        );
     }
 }
