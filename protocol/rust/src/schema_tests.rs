@@ -155,10 +155,13 @@ fn every_schema_file_names_a_documented_method() {
         }
     }
     // Every Eludite-specific message has its own schema file.
-    for m in methods::ELUDITE_ACCEPTED
-        .iter()
-        .chain(&[methods::SOLUTION_STATUS, methods::LANGUAGE_SERVER_STATUS])
-    {
+    for m in methods::ELUDITE_ACCEPTED.iter().chain(&[
+        methods::SOLUTION_STATUS,
+        methods::LANGUAGE_SERVER_STATUS,
+        methods::BUILD_OUTPUT,
+        methods::BUILD_PROGRESS,
+        methods::BUILD_FINISHED,
+    ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
 }
@@ -542,6 +545,8 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::SolutionOpen>(),
         req::<host::SolutionClose>(),
         req::<host::SolutionTreeRequest>(),
+        req::<host::BuildStart>(),
+        req::<host::BuildCancel>(),
     ];
     assert!(
         eludite
@@ -562,6 +567,168 @@ fn typed_marker_methods_match_the_method_lists() {
     assert_eq!(methods::HOST_TO_SHELL_REQUESTS, [lsp::ApplyEdit::METHOD]);
     assert!(methods::HOST_TO_SHELL.contains(&host::SolutionStatusNotification::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&host::LanguageServerStatusNotification::METHOD));
+    for m in [
+        host::BuildOutputNotification::METHOD,
+        host::BuildProgressNotification::METHOD,
+        host::BuildFinishedNotification::METHOD,
+    ] {
+        assert!(methods::HOST_TO_SHELL.contains(&m), "{m}");
+    }
+}
+
+#[test]
+fn build_messages_conform_to_their_schemas() {
+    use host::*;
+    conforms(
+        "build-start.json",
+        "params",
+        &BuildStartParams {
+            target: BuildTarget::Build,
+            project: None,
+            configuration: None,
+            platform: None,
+        },
+    );
+    conforms(
+        "build-start.json",
+        "params",
+        &BuildStartParams {
+            target: BuildTarget::Clean,
+            project: Some("/s/A/A.csproj".into()),
+            configuration: Some("Release".into()),
+            platform: Some("Any CPU".into()),
+        },
+    );
+    rejects("build-start.json", "params", json!({}));
+    rejects("build-start.json", "params", json!({"target": "publish"}));
+    rejects(
+        "build-start.json",
+        "params",
+        json!({"target": "build", "solution": "/a.sln"}),
+    );
+    let toolchain = Toolchain {
+        kind: ToolchainKind::Dotnet,
+        path: Some("dotnet".into()),
+        source: None,
+    };
+    conforms("build-start.json", "toolchain", &toolchain);
+    conforms(
+        "build-start.json",
+        "result",
+        &BuildStartResult {
+            build_id: 1,
+            generation: 2,
+            path: "/s/A.slnx".into(),
+            target: BuildTarget::Build,
+            configuration: "Debug".into(),
+            platform: None,
+            toolchain,
+            binlog: None,
+            command_line: "dotnet build /s/A.slnx".into(),
+        },
+    );
+    rejects(
+        "build-start.json",
+        "result",
+        json!({"buildId": 0, "generation": 0, "path": "/a", "target": "build", "configuration": "Debug",
+               "toolchain": {"kind": "dotnet"}, "commandLine": "x"}),
+    );
+    conforms(
+        "errors.json",
+        "buildInProgress",
+        &BuildInProgressData { build_id: 4 },
+    );
+    conforms("build-cancel.json", "params", &BuildCancelParams::default());
+    conforms(
+        "build-cancel.json",
+        "params",
+        &BuildCancelParams { build_id: Some(2) },
+    );
+    conforms(
+        "build-cancel.json",
+        "result",
+        &BuildCancelResult {
+            canceled: false,
+            build_id: None,
+        },
+    );
+    conforms(
+        "build-output.json",
+        "params",
+        &BuildOutput {
+            build_id: 1,
+            seq: 0,
+            text: "a\nb\n".into(),
+        },
+    );
+    rejects(
+        "build-output.json",
+        "params",
+        json!({"buildId": 1, "text": "a\n"}),
+    );
+    conforms(
+        "build-progress.json",
+        "params",
+        &BuildProgress {
+            build_id: 1,
+            elapsed_ms: 10.0,
+            projects_total: 8,
+            projects_completed: 1,
+            errors: 0,
+            warnings: 2,
+            current_project: Some("A".into()),
+        },
+    );
+    let diagnostic = BuildDiagnostic {
+        severity: BuildDiagnosticSeverity::Warning,
+        code: "ELUDITE0101".into(),
+        message: "COM reference skipped".into(),
+        file: None,
+        line: None,
+        column: None,
+        end_line: None,
+        end_column: None,
+        project: Some("/s/A/A.csproj".into()),
+    };
+    conforms("build-finished.json", "diagnostic", &diagnostic);
+    let project = BuildProjectResult {
+        name: "A".into(),
+        path: "/s/A/A.csproj".into(),
+        result: BuildResult::Succeeded,
+        elapsed_ms: Some(10.0),
+        errors: 0,
+        warnings: 1,
+    };
+    conforms("build-finished.json", "project", &project);
+    conforms(
+        "build-finished.json",
+        "params",
+        &BuildFinished {
+            build_id: 1,
+            generation: 2,
+            target: BuildTarget::Rebuild,
+            path: "/s/A.slnx".into(),
+            result: BuildResult::Canceled,
+            exit_code: None,
+            elapsed_ms: 1200.0,
+            summary: BuildSummary::default(),
+            projects: vec![project],
+            diagnostics: vec![diagnostic],
+            diagnostics_truncated: true,
+            binlog: None,
+            message: Some("canceled".into()),
+        },
+    );
+    rejects(
+        "build-finished.json",
+        "project",
+        json!({"name": "A", "path": "/a", "result": "skipped", "errors": 0, "warnings": 0}),
+    );
+    rejects(
+        "build-finished.json",
+        "diagnostic",
+        json!({"severity": "fatal", "code": "", "message": ""}),
+    );
 }
 
 fn sample_edit() -> lsp::WorkspaceEdit {

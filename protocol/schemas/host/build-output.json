@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-output.json",
+  "title": "eludite/build/output",
+  "description": "Host-to-shell notification: the next chunk of the build log, as the Output window shows it. Chunks are sent in order (seq 0, 1, 2, ...) and each holds whole lines. The host flushes a chunk when it reaches 16 KiB or 16 ms after its first line, whichever comes first; while the shell reads slowly, lines accumulate into larger chunks rather than more messages (see host-rpc.md, Build).",
+  "x-eludite-method": "eludite/build/output",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "buildId",
+        "seq",
+        "text"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "seq": {
+          "description": "0 for the build's first chunk, then consecutive.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "text": {
+          "description": "One or more lines, each ending with \\n. MSBuild's stdout and stderr in arrival order; the host's own lines (the start line, the brief 0003 Windows-only messages, the summary) are interleaved where they happen. May contain ANSI escape sequences, which the shell strips.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -40,6 +40,20 @@
           ]
         }
       }
+    },
+    "buildInProgress": {
+      "description": "Error -32010: eludite/build/start while a build runs.",
+      "type": "object",
+      "required": [
+        "buildId"
+      ],
+      "properties": {
+        "buildId": {
+          "description": "The running build.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
     }
   }
 }

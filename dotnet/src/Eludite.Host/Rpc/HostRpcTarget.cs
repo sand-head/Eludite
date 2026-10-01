@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Eludite.Host.Build;
 using Eludite.Host.Lsp;
 using Eludite.Host.Projects;
 using Eludite.Host.Sdk;
@@ -24,14 +25,19 @@ public sealed class HostRpcTarget
     /// <param name="languageServer">The LSP bridge; when null, one without a language server is created, so
     /// <c>eludite/solution/*</c> and forwarded requests answer with documented failures instead of MethodNotFound.</param>
     /// <param name="tree">Answers <c>eludite/solution/tree</c>; when null, one backed by the in-process MSBuild evaluator.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null)
+    /// <param name="build">Runs <c>eludite/build/*</c>; when null, one that locates the MSBuilds on its first build.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
         _timeProvider = timeProvider ?? TimeProvider.System;
         LanguageServer = languageServer ?? new LspProxy(null, log);
         Tree = tree ?? new SolutionTreeProvider(new MsBuildProjectTreeEvaluator(), log);
+        Build = build ?? new BuildService(LanguageServer.CurrentSolution, log);
     }
+
+    /// <summary>The <c>eludite/build/*</c> service (brief 0017).</summary>
+    public BuildService Build { get; }
 
     /// <summary>The <c>eludite/solution/tree</c> provider.</summary>
     public SolutionTreeProvider Tree { get; }
@@ -112,6 +118,28 @@ public sealed class HostRpcTarget
 
         var (generation, path, changed) = LanguageServer.CurrentSolution();
         return Tree.GetAsync(generation, path, changed, () => LanguageServer.Generation, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/build/start", UseSingleObjectParameterDeserialization = true)]
+    public BuildStartResult StartBuild(BuildStartParams parameters)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Build.Start(parameters);
+    }
+
+    [JsonRpcMethod("eludite/build/cancel", UseSingleObjectParameterDeserialization = true)]
+    public BuildCancelResult CancelBuild(BuildCancelParams? parameters = null)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Build.Cancel(parameters);
     }
 
     [JsonRpcMethod("eludite/host/shutdown")]

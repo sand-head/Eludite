@@ -1723,3 +1723,199 @@ pub fn diff(shell: &Entity<Shell>, runs: usize, cx: &mut App) {
         });
     });
 }
+
+/// `--bench-output SECS` (brief 0017): stream 10,000 lines a second into the Output window for SECS seconds, as a
+/// build's output arrives (160-line chunks every 16 ms: the host's 16 ms flush with ~100-byte lines), through the
+/// shell's build-output handler, with the window following. Reports each frame's cost while streaming (render to end
+/// of present, the brief 0009 method without a key), the append cost per chunk, the final line count and RSS.
+pub fn output_stream(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
+    let shell2 = shell.clone();
+    shell.update(cx, |s, _| {
+        s.after_first_present(move |window, cx| {
+            let shell = shell2.clone();
+            let platform = platform(window);
+            let probe = Rc::new(RefCell::new(RenderProbe::default()));
+            shell.update(cx, |s, cx| {
+                s.bench_stream_begin(cx);
+                s.set_probe(Some(probe.clone()), cx);
+            });
+            cx.spawn(async move |cx| {
+                let executor = cx.background_executor().clone();
+                executor.timer(Duration::from_millis(500)).await;
+                probe.borrow_mut().renders.clear();
+                probe.borrow_mut().presents.clear();
+                let chunk_lines = 160usize;
+                let interval = Duration::from_millis(16);
+                let chunks = (secs * 1000 / 16) as usize;
+                let mut apply = Vec::with_capacity(chunks);
+                let started = Instant::now();
+                let mut n = 0usize;
+                for c in 0..chunks {
+                    let due = started + interval * c as u32;
+                    if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                        executor.timer(wait).await;
+                    }
+                    let text: String = (0..chunk_lines)
+                        .map(|i| {
+                            let k = n + i;
+                            format!(
+                                "  Restored /src/Project{:03}/Project{:03}.csproj (in {} ms). CSC : warning CS{:04}: line {k} of the bench\n",
+                                k % 1000,
+                                k % 1000,
+                                k % 97,
+                                k % 9999
+                            )
+                        })
+                        .collect();
+                    n += chunk_lines;
+                    cx.update(|cx| {
+                        shell.update(cx, |s, cx| {
+                            let t0 = Instant::now();
+                            s.bench_stream_chunk(&text, cx);
+                            apply.push(ms(t0.elapsed()));
+                        })
+                    });
+                }
+                let streamed = started.elapsed();
+                executor.timer(Duration::from_millis(300)).await;
+                let out = cx.update(|cx| {
+                    let p = probe.borrow();
+                    let frames: Vec<f64> = p
+                        .renders
+                        .iter()
+                        .copied()
+                        .zip(p.presents.iter().copied())
+                        .map(|(r, pr)| ms(pr.saturating_duration_since(r)))
+                        .collect();
+                    let lines = shell.read(cx).output_lines(cx);
+                    json!({
+                        "bench": "output_stream",
+                        "method": "160-line chunks every 16 ms through the shell's build-output handler, the Output window following; frame cost = render to end of present for every frame while streaming",
+                        "seconds": ms(streamed) / 1e3,
+                        "lines": lines,
+                        "chunks": apply.len(),
+                        "frames": frames.len(),
+                        "frame_cost": summarize(&frames),
+                        "append_per_chunk": summarize(&apply),
+                        "rss": rss_mib(),
+                        "platform": platform,
+                        "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+                    })
+                });
+                println!("{out}");
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        });
+    });
+}
+
+/// `--bench-build N` (brief 0017), in the real app against the real host: once the solution has loaded, N times
+/// press Ctrl+Shift+B (`Window::dispatch_keystroke`) and wait for the build to finish. Reports key to the first Output
+/// line applied and presented (PLAN.md 9: under 100 ms), the host's finished notification (as the pump received it)
+/// to the Error List rows set and presented (brief 0017: under 200 ms), the build times and the frame cost while the
+/// output streamed.
+pub fn build_keys(
+    shell: Entity<Shell>,
+    count: usize,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    cx.spawn_in(window, async move |_, cx| {
+        loop {
+            executor.timer(Duration::from_millis(50)).await;
+            let Ok(ready) = cx.update(|_, cx| shell.read(cx).timings().loaded.is_some()) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(1500)).await;
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        let mut first_line = Vec::new();
+        let mut first_line_shown = Vec::new();
+        let mut rows = Vec::new();
+        let mut rows_shown = Vec::new();
+        let mut builds = Vec::new();
+        let mut frames = Vec::new();
+        let mut results = Vec::new();
+        for _ in 0..count {
+            {
+                let mut p = probe.borrow_mut();
+                p.renders.clear();
+                p.presents.clear();
+            }
+            let ks = Keystroke::parse("ctrl-shift-b").expect("keystroke");
+            let t0 = Instant::now();
+            let _ = cx.update(|window, cx| window.dispatch_keystroke(ks, cx));
+            let deadline = Instant::now() + Duration::from_secs(600);
+            loop {
+                executor.timer(Duration::from_millis(5)).await;
+                let Ok((building, t)) = cx.update(|_, cx| {
+                    let s = shell.read(cx);
+                    (s.builds().is_building(), s.builds().timings.clone())
+                }) else {
+                    return;
+                };
+                if (!building && t.rows_set.is_some()) || Instant::now() > deadline {
+                    break;
+                }
+            }
+            executor.timer(Duration::from_millis(200)).await;
+            let Ok((t, result)) = cx.update(|_, cx| {
+                let s = shell.read(cx);
+                (
+                    s.builds().timings.clone(),
+                    s.builds().last.as_ref().map(|f| format!("{:?}", f.result)),
+                )
+            }) else {
+                return;
+            };
+            results.push(result);
+            let pairs: Vec<(Instant, Instant)> = {
+                let p = probe.borrow();
+                p.renders.iter().copied().zip(p.presents.iter().copied()).collect()
+            };
+            let shown = |at: Instant| pairs.iter().find(|(r, _)| *r >= at).map(|(_, pr)| *pr);
+            if let Some(first) = t.first_output {
+                first_line.push(ms(first.saturating_duration_since(t0)));
+                if let Some(pr) = shown(first) {
+                    first_line_shown.push(ms(pr.saturating_duration_since(t0)));
+                }
+            }
+            if let (Some(received), Some(set)) = (t.finished_received, t.rows_set) {
+                rows.push(ms(set.saturating_duration_since(received)));
+                if let Some(pr) = shown(set) {
+                    rows_shown.push(ms(pr.saturating_duration_since(received)));
+                }
+                builds.push(ms(received.saturating_duration_since(t0)));
+            }
+            frames.extend(pairs.iter().map(|(r, pr)| ms(pr.saturating_duration_since(*r))));
+            executor.timer(Duration::from_millis(1000)).await;
+        }
+        let _ = cx.update(|window, cx| {
+            let out = json!({
+                "bench": "build_keys",
+                "method": "Window::dispatch_keystroke(ctrl-shift-b); first line = key to the host's first eludite/build/output chunk appended (and to the end of the present of the frame that shows it); rows = the pump receiving eludite/build/finished to the Error List rows set (and to the present showing them)",
+                "builds": count,
+                "results": results,
+                "key_to_first_output_line": summarize(&first_line),
+                "key_to_first_output_line_presented": summarize(&first_line_shown),
+                "finished_to_error_list_rows": summarize(&rows),
+                "finished_to_error_list_rows_presented": summarize(&rows_shown),
+                "key_to_finished": summarize(&builds),
+                "frame_cost_while_building": summarize(&frames),
+                "rss": rss_mib(),
+                "platform": platform(window),
+                "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+            });
+            println!("{out}");
+            cx.quit();
+        });
+    })
+    .detach();
+}

@@ -77,6 +77,14 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --bench-diff N      N times, hold a 20-edit change to a 2000-line file as a
                       pending change and open its review view; report the
                       time to the first frame showing the diff
+  --bench-output SECS stream 10,000 lines a second for SECS seconds into the
+                      Output window (as build output, 160-line chunks every
+                      16 ms, the host's chunking) and report the frame cost
+                      and the append cost per chunk (brief 0017)
+  --bench-build N     with --solution: once loaded, N times press
+                      Ctrl+Shift+B, wait for the build to finish; report key
+                      to the first Output line on screen and the host's
+                      finished notification to the Error List rows on screen
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -111,6 +119,10 @@ pub struct Args {
     pub bench_agent_ready: Option<usize>,
     pub bench_agent_stream: Option<PathBuf>,
     pub bench_diff: Option<usize>,
+    /// `--bench-output SECS` (brief 0017).
+    pub bench_output: Option<u64>,
+    /// `--bench-build N` (brief 0017).
+    pub bench_build: Option<usize>,
 }
 
 impl Args {
@@ -174,6 +186,14 @@ impl Args {
                     let n = value("--bench-diff")?;
                     a.bench_diff = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
                 }
+                "--bench-output" => {
+                    let n = value("--bench-output")?;
+                    a.bench_output = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);
+                }
+                "--bench-build" => {
+                    let n = value("--bench-build")?;
+                    a.bench_build = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
                 "--mcp-relay" => {
                     let addr = value("--mcp-relay")?;
                     a.mcp_relay = Some(
@@ -198,6 +218,8 @@ impl Args {
             || self.bench_agent_ready.is_some()
             || self.bench_agent_stream.is_some()
             || self.bench_diff.is_some()
+            || self.bench_output.is_some()
+            || self.bench_build.is_some()
     }
 }
 
@@ -281,5 +303,10 @@ mod tests {
         assert!(a.benching());
         assert!(parse(&["--bench-agent-ready", "x"]).is_err());
         assert!(parse(&["--bench-agent-stream", "/f"]).unwrap().benching());
+        let a = parse(&["--bench-output", "10"]).unwrap();
+        assert_eq!(a.bench_output, Some(10));
+        assert!(a.benching());
+        assert_eq!(parse(&["--bench-build", "5"]).unwrap().bench_build, Some(5));
+        assert!(parse(&["--bench-build", "x"]).is_err());
     }
 }

@@ -18,6 +18,12 @@
 //!
 //! The host's one request to the shell, `workspace/applyEdit` (brief 0015), arrives as [`SessionEvent::ApplyEdit`];
 //! the shell answers it with [`HostSession::respond_apply_edit`], through the worker like everything else.
+//!
+//! Builds (brief 0017): [`HostSession::build_start`] and [`HostSession::build_cancel`] go through the worker too; the
+//! host's reply arrives as [`SessionEvent::BuildStarted`] (or `BuildRefused`), and the build's streamed output,
+//! progress and result as `BuildOutput`, `BuildProgress` and `BuildFinished`. The host's stderr is captured and
+//! arrives line by line as [`SessionEvent::HostLog`] (the Output window's Host source) as well as on the shell's
+//! stderr.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -90,7 +96,8 @@ impl HostLaunch {
             } else {
                 HostCommand::new(p.as_os_str())
             };
-            HostLaunch::Process(cmd.arg("--stdio"))
+            // The host's log is captured for the Output window (and still copied to stderr).
+            HostLaunch::Process(cmd.arg("--stdio").stderr(eludite_lsp::StderrMode::Capture))
         };
         if let Some(dir) = beside {
             for name in [exe.as_str(), "eludite-host.dll"] {
@@ -153,6 +160,25 @@ pub enum SessionEvent {
         generation: Generation,
         params: lsp::ApplyWorkspaceEditParams,
     },
+    /// The host accepted the build started with [`HostSession::build_start`] `ticket`.
+    BuildStarted {
+        ticket: u64,
+        result: host::BuildStartResult,
+    },
+    /// The host refused it (no solution, a build already running) or could not be asked.
+    BuildRefused {
+        ticket: u64,
+        message: String,
+    },
+    BuildOutput(host::BuildOutput),
+    BuildProgress(host::BuildProgress),
+    /// `eludite/build/finished`, with when the pump received it (the Error List budget is measured from there).
+    BuildFinished {
+        finished: Box<host::BuildFinished>,
+        received: Instant,
+    },
+    /// A line of the host's own log (stderr).
+    HostLog(String),
 }
 
 enum Cmd {
@@ -185,6 +211,8 @@ enum Cmd {
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
     /// An untyped forwarded notification (`workspace/didChangeWatchedFiles`).
     Notify(String, serde_json::Value),
+    BuildStart(u64, host::BuildStartParams),
+    BuildCancel,
     Shutdown(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -397,6 +425,17 @@ impl HostSession {
         self.send(Cmd::Notify(method.to_owned(), params));
     }
 
+    /// Ask the host to start a build; the answer arrives as [`SessionEvent::BuildStarted`] or `BuildRefused` with
+    /// `ticket`.
+    pub fn build_start(&self, ticket: u64, params: host::BuildStartParams) {
+        self.send(Cmd::BuildStart(ticket, params));
+    }
+
+    /// Ask the host to cancel the running build (its `eludite/build/finished` follows).
+    pub fn build_cancel(&self) {
+        self.send(Cmd::BuildCancel);
+    }
+
     /// Shuts the host down; the returned receiver fires when done (or the worker is gone).
     pub fn shutdown(&self) -> Receiver<()> {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -522,6 +561,21 @@ impl Worker {
                         let _ = c.notify_untyped(&method, params);
                     }
                 }
+                Cmd::BuildStart(ticket, params) => self.build_start(ticket, params),
+                Cmd::BuildCancel => {
+                    if let Some(c) = &self.client
+                        && let Ok(pending) =
+                            c.request::<host::BuildCancel>(host::BuildCancelParams::default())
+                    {
+                        let _ = thread::Builder::new()
+                            .name("eludite-build-cancel".into())
+                            .spawn(move || {
+                                if let Err(e) = pending.wait_timeout(Duration::from_secs(10)) {
+                                    eprintln!("eludite: eludite/build/cancel: {e}");
+                                }
+                            });
+                    }
+                }
                 Cmd::Shutdown(done) => {
                     if let Some(c) = self.client.take() {
                         let _ = c.shutdown(Duration::from_secs(5));
@@ -531,6 +585,38 @@ impl Worker {
                 }
             }
         }
+    }
+
+    fn build_start(&self, ticket: u64, params: host::BuildStartParams) {
+        let refuse = |message: String| {
+            let _ = self
+                .events
+                .unbounded_send(SessionEvent::BuildRefused { ticket, message });
+        };
+        let Some(client) = &self.client else {
+            return refuse("eludite-host is not running; open a solution first".into());
+        };
+        let pending = match client.request::<host::BuildStart>(params) {
+            Ok(p) => p,
+            Err(e) => return refuse(format!("eludite/build/start: {e}")),
+        };
+        let events = self.events.clone();
+        let _ = thread::Builder::new()
+            .name("eludite-build-start".into())
+            .spawn(move || {
+                let event = match pending.wait_timeout(Duration::from_secs(30)) {
+                    Ok(result) => SessionEvent::BuildStarted { ticket, result },
+                    Err(eludite_lsp::Error::Rpc(e)) => SessionEvent::BuildRefused {
+                        ticket,
+                        message: e.message,
+                    },
+                    Err(e) => SessionEvent::BuildRefused {
+                        ticket,
+                        message: e.to_string(),
+                    },
+                };
+                let _ = events.unbounded_send(event);
+            });
     }
 
     fn send_open(&self, uri: &str, language_id: &str, version: i32, text: &str) {
@@ -696,9 +782,15 @@ impl Pump {
                 }) => SessionEvent::HostRestarting,
                 Event::Host(HostEvent::GaveUp { reason }) => SessionEvent::HostFailed { reason },
                 Event::Host(HostEvent::Exited { .. }) | Event::Notification(_) => continue,
+                Event::BuildOutput(o) => SessionEvent::BuildOutput(o),
+                Event::BuildProgress(p) => SessionEvent::BuildProgress(p),
+                Event::BuildFinished(f) => SessionEvent::BuildFinished {
+                    finished: Box::new(f),
+                    received: Instant::now(),
+                },
                 Event::Log(line) => {
                     eprintln!("[eludite-host] {line}");
-                    continue;
+                    SessionEvent::HostLog(line)
                 }
             };
             if self.events.unbounded_send(out).is_err() {
@@ -833,6 +925,10 @@ mod tests {
         let (p, args) = program(HostLaunch::locate_in(Some(&beside), None, path_var.clone()));
         assert_eq!(p, path_dir.join(&exe));
         assert_eq!(args, ["--stdio"]);
+        assert!(matches!(
+            HostLaunch::locate_in(Some(&beside), None, path_var.clone()),
+            HostLaunch::Process(c) if c.stderr == eludite_lsp::StderrMode::Capture
+        ));
 
         let dll = env_dir.join("eludite-host.dll");
         std::fs::write(&dll, "").unwrap();

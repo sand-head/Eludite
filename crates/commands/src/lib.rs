@@ -15,10 +15,12 @@
 //! [`with_caller`]) is recorded in the [`AuditLog`] with an agent's arguments, and the edits an agent's call produced
 //! are joined to its entry when they are accepted or rejected. [`policy`] is the per-solution permission policy file
 //! the MCP boundary applies to agents' calls (PLAN.md 5.3). [`agents`] holds the Agents window's `eludite.agents.*`
-//! commands and [`solution`] `eludite.solution.tree` (brief 0016).
+//! commands and [`solution`] `eludite.solution.tree` (brief 0016). [`build`] holds the Build menu's `eludite.build.*`
+//! commands and the Output window's `eludite.output.*` (brief 0017).
 
 pub mod agents;
 mod audit;
+pub mod build;
 pub mod builtins;
 mod caller;
 pub mod diagnostics;

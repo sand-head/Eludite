@@ -1,6 +1,6 @@
 # Brief 0017: Build with Output and Error List
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0017-report.md)
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3), 3 (D4), 4.4, 5.1, 8, 9
 Related ADRs: ADR-0002, ADR-0004

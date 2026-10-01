@@ -232,6 +232,9 @@ pub fn run(args: Args, t_main: Instant) {
         if let Some(n) = args.bench_diff {
             bench::diff(&shell, n, cx);
         }
+        if let Some(secs) = args.bench_output {
+            bench::output_stream(&shell, secs, cx);
+        }
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);
         }
@@ -244,6 +247,7 @@ pub fn run(args: Args, t_main: Instant) {
             let bench_complete = args.bench_complete;
             let bench_navigate = args.bench_navigate;
             let bench_refactor = args.bench_refactor;
+            let bench_build = args.bench_build;
             let _ = window.update(cx, |shell, window, cx| {
                 if let Some(solution) = &solution {
                     shell.run(
@@ -276,6 +280,9 @@ pub fn run(args: Args, t_main: Instant) {
                 }
                 if let (Some(count), Some(file)) = (bench_refactor, open_file) {
                     bench::refactor(cx.entity(), file, count, window, cx);
+                }
+                if let Some(count) = bench_build {
+                    bench::build_keys(cx.entity(), count, window, cx);
                 }
             });
         }
