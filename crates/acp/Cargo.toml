@@ -15,3 +15,9 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+# Scripted ACP agent for tests and benchmarks (see `fake_agent`). Not under
+# `src/bin/`: the repository's .gitignore ignores `bin/` for .NET output.
+[[bin]]
+name = "niello-fake-acp-agent"
+path = "src/fake_agent_main.rs"
