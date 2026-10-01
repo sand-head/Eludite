@@ -37,8 +37,8 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 | open |
 | [0005](0005-acp-claude-code-spike.md) | Claude Code via ACP in a GPUI panel, one MCP tool | 0 | [report](0005-report.md): Linux pass end to end; adapter is @agentclientprotocol/claude-agent-acp |
 | [0006](0006-native-claude-acp-adapter.md) | Native Rust ACP adapter for Claude Code (no Node) | 0/1 | [report](0006-report.md): done on Linux; no Node, 0005 panel unchanged, 2.3 MB binary |
-| [0007](0007-host-lsp-bridge.md) | Production LSP bridge between the shell and niello-host | 1 | open |
-| [0008](0008-docking-production.md) | Docking and tool windows in the production shell | 1 | open |
+| [0007](0007-host-lsp-bridge.md) | Production LSP bridge between the shell and niello-host | 1 | [report](0007-report.md): done on Linux; lifecycle under niello/host/*, warming fixes referenced-project completion |
+| [0008](0008-docking-production.md) | Docking and tool windows in the production shell | 1 | [report](0008-report.md): done on Linux; cold start ~100 ms, 19/19 real-input steps |
 | [0009](0009-editor-core.md) | Vendor Zed's text crates and build the editor core | 1 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.

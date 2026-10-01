@@ -599,9 +599,18 @@ internal static partial class Program
         try
         {
             using var rpc = HostServer.CreateConnection(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
-            rpc.AddLocalRpcMethod("workspace/projectInitializationComplete", new Action(() => loadedAt.TrySetResult()));
+            var onStatus = new Action<JsonElement>(st =>
+            {
+                if (st.GetProperty("state").GetString() is "loaded" or "failed")
+                {
+                    loadedAt.TrySetResult();
+                }
+            });
+            rpc.AddLocalRpcMethod(onStatus.Method, onStatus.Target, new JsonRpcMethodAttribute("niello/solution/status") { UseSingleObjectParameterDeserialization = true });
             rpc.StartListening();
-            await rpc.InvokeWithParameterObjectAsync<JsonElement>("initialize", new { clientName = "legacy-load", clientVersion = "0", solutionPath = open });
+            await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "legacy-load", clientVersion = "0" });
+            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = open });
+            var generation = opened.GetProperty("generation").GetInt32();
             var finished = await Task.WhenAny(loadedAt.Task, Task.Delay(TimeSpan.FromMinutes(10)));
             node["projectInitializationCompleteMs"] = finished == loadedAt.Task ? Math.Round(sw.Elapsed.TotalMilliseconds) : null;
             await sampling.CancelAsync();
@@ -628,7 +637,7 @@ internal static partial class Program
                     {
                         var uri = new Uri(file).AbsoluteUri;
                         await rpc.NotifyWithParameterObjectAsync("textDocument/didOpen", new { textDocument = new { uri, languageId = "csharp", version = 1, text = await File.ReadAllTextAsync(file) } });
-                        var r = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri } });
+                        var r = await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation });
                         await rpc.NotifyWithParameterObjectAsync("textDocument/didClose", new { textDocument = new { uri } });
                         if (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("items", out var items))
                         {
@@ -670,8 +679,8 @@ internal static partial class Program
 
             node["projects"] = perProject;
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await rpc.InvokeWithCancellationAsync<JsonElement>("shutdown", [], cts.Token);
-            await rpc.NotifyAsync("exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], cts.Token);
+            await rpc.NotifyAsync("niello/host/exit");
             await host.WaitForExitAsync(cts.Token);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
