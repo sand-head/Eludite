@@ -102,6 +102,16 @@ fn real_host_without_language_server() {
         HostDiagnosticSeverity::Error
     );
 
+    // The tree is the host's own evaluation and needs no language server; this solution lists no projects.
+    let tree = client
+        .request::<host::SolutionTreeRequest>(())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(tree.generation, 1);
+    assert_eq!(tree.path.as_deref(), sln.to_str());
+    assert!(tree.projects.is_empty());
+
     let err = client
         .request::<lsp::HoverRequest>(TextDocumentPositionParams {
             text_document: TextDocumentIdentifier {

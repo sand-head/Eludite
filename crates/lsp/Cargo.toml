@@ -13,6 +13,10 @@ eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[features]
+# fake::FakeHost, a scripted in-process eludite-host for tests of the client and the shell.
+fake = []
+
 [lints]
 workspace = true
 
@@ -21,3 +25,7 @@ workspace = true
 [[test]]
 name = "fake_host"
 harness = false
+
+[dev-dependencies]
+# The in_process tests use the fake host from this crate's own `fake` feature.
+eludite-lsp = { path = ".", features = ["fake"] }

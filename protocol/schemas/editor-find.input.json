@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-find.input.json",
+  "title": "eludite.editor.find input",
+  "description": "Find in a document (Edit > Find and Replace > Quick Find, Ctrl+F). Without a query, opens the find bar. With a query, selects the next match after the caret, wrapping at the end.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "query": {
+      "description": "Text to find.",
+      "type": "string",
+      "minLength": 1
+    },
+    "case_sensitive": {
+      "description": "Match case (Alt+C in the find bar). Default false.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

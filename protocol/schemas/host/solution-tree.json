@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-tree.json",
+  "title": "eludite/solution/tree",
+  "description": "The projects of the open solution and their source files, from the host's MSBuild evaluation (SDK-style and legacy projects alike). Feeds Solution Explorer. Computed once per generation, in the background; the request may be sent right after eludite/solution/open and is answered when the evaluation finishes.",
+  "x-eludite-method": "eludite/solution/tree",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "projects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the tree was computed under (see host-rpc.md). The shell drops a tree whose generation is no longer current.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "Absolute path of the open .sln, .slnx or project file; null when no solution is open (projects is then empty).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projects": {
+          "description": "C# projects in solution order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project"
+          }
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "targetFrameworks",
+        "files"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Project file name without extension, as Solution Explorer shows it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "sdk: an SDK-style project. legacy: a non-SDK (MSBuild 2003) project, evaluated as in brief 0003.",
+          "enum": [
+            "sdk",
+            "legacy"
+          ]
+        },
+        "web": {
+          "description": "True for web projects (Microsoft.NET.Sdk.Web, a WebForms or MVC project type, or WebForms markup items); their content files are listed.",
+          "type": "boolean"
+        },
+        "targetFrameworks": {
+          "description": "Short target framework monikers, for example [\"net10.0\"], [\"net8.0\", \"net10.0\"] or [\"net48\"]. Empty when evaluation failed.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "files": {
+          "description": "Compile items, plus Content items for web projects, as absolute paths in evaluation order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "error": {
+          "description": "Why the project could not be evaluated; files is then empty. Solution Explorer shows the project as unavailable.",
+          "type": "string"
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "itemType"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Absolute path of the item.",
+          "type": "string",
+          "minLength": 1
+        },
+        "itemType": {
+          "description": "The MSBuild item type.",
+          "enum": [
+            "compile",
+            "content"
+          ]
+        },
+        "dependentUpon": {
+          "description": "Absolute path of the file this one nests under (DependentUpon metadata), when set.",
+          "type": "string",
+          "minLength": 1
+        },
+        "link": {
+          "description": "The Link metadata (project-relative display path) for a file outside the project directory, when set.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

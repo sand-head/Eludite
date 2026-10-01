@@ -1,6 +1,6 @@
 # Brief 0012: Open a solution end to end
 
-Status: open
+Status: done on Linux ([report](0012-report.md)); Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3), 4.2, 5.1, 8, 9, 10 (Phase 1)
 Related ADRs: ADR-0002, ADR-0003

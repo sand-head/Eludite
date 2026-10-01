@@ -96,6 +96,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/host/exit` | notification | [host-exit.json](host/host-exit.json) | none | (none) |
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
+| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], error? }] }` |
 
 #### `eludite/host/initialize`
 
@@ -149,6 +150,30 @@ Errors: -32602 when `path` is missing, does not exist or has another extension; 
 Closes the open solution: increments the generation, replies `{ generation }`, sends `eludite/solution/status`
 `closed`, and restarts the language server without a solution (open documents are replayed as miscellaneous files).
 When no solution is open it changes nothing and returns the current generation.
+
+#### `eludite/solution/tree`
+
+The projects of the open solution with their source files, for Solution Explorer (brief 0012). The host computes it
+from its own MSBuild evaluation, in the background and once per generation, so the shell can send the request right
+after `eludite/solution/open` and get the answer when the evaluation finishes. It does not wait for the language
+server's load.
+
+- Projects are the `.csproj` files the solution lists, in solution order (a project file opened directly is a
+  one-project tree). Each has `name` (the file name without extension), `path`, `kind` (`sdk` or `legacy`), `web`,
+  `targetFrameworks` (short monikers: `net10.0`; `net48` for a legacy `TargetFrameworkVersion` of `v4.8`) and `files`.
+- `files` are the `Compile` items, plus the `Content` items of web projects (`Microsoft.NET.Sdk.Web`, a WebForms or
+  MVC project type GUID, or WebForms markup items), as absolute paths. `dependentUpon` is the `DependentUpon`
+  metadata resolved to an absolute path; `link` is the `Link` metadata of a file outside the project directory.
+  Generated files under `obj/` are not listed.
+- Evaluation: the .NET SDK's MSBuild in-process (`Microsoft.Build.Locator`), evaluation only (no targets run), with
+  missing imports ignored. Legacy projects get the brief 0003 design-time properties (`TargetFrameworkRootPath` from
+  the reference-assembly packages); the designer partials and case fixups of the preparation are not part of the
+  tree. A project that does not evaluate is listed with `error` and no files.
+- `generation` is the generation the tree was computed under; `path` is `null` and `projects` empty when no
+  solution is open.
+
+Errors: -32002 before `eludite/host/initialize`; -32801 (ContentModified, with the usual `data`) when the
+generation changes before the tree is ready; -32800 when canceled.
 
 ### Forwarded LSP methods, typed
 

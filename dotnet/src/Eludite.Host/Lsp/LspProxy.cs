@@ -143,6 +143,18 @@ public sealed class LspProxy : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The current generation, the open solution or project file (null when none is open), and a token that is
+    /// canceled when the generation moves on.
+    /// </summary>
+    public (long Generation, string? Path, CancellationToken GenerationChanged) CurrentSolution()
+    {
+        lock (_lock)
+        {
+            return (_generation, _load?.Path, _generationCts.Token);
+        }
+    }
+
     /// <summary>Completes when the upstream server first reports that projects are loaded.</summary>
     public Task ProjectsLoaded => _projectsLoaded.Task;
 

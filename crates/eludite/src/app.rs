@@ -3,20 +3,45 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eludite_commands::{builtins, view};
+use eludite_commands::{builtins, view, workspace};
 use eludite_docking::{
     DockController, DockHost, DockLayout, LayoutSource, LayoutStore, LayoutWriter, Persistence,
     ToolWindowRegistry,
 };
-use eludite_ui::{Theme, bind_keymap, vs_keymap};
+use eludite_ui::{EDITOR_COMMAND_KEYS, RunCommand, Theme, bind_keymap, vs_keymap};
 use gpui::{
-    App, AppContext as _, Bounds, Focusable as _, TitlebarOptions, WindowBounds, WindowOptions, px,
-    size,
+    App, AppContext as _, Bounds, Focusable as _, KeyBinding, TitlebarOptions, WindowBounds,
+    WindowOptions, px, size,
 };
+use serde_json::json;
 
 use crate::args::Args;
 use crate::bench;
 use crate::shell::Shell;
+use crate::shell::session::HostLaunch;
+
+/// The editor's key bindings, except the keys whose actions are commands (`eludite.editor.undo`, `redo`, `find`):
+/// those keys dispatch `RunCommand` in the editor's context, so they reach the command bus first.
+pub fn bind_editor_keys(cx: &mut App) {
+    let commands = vs_keymap();
+    cx.bind_keys(eludite_editor::key_bindings().into_iter().filter(|b| {
+        !matches!(
+            b.action().name(),
+            "editor::Undo" | "editor::Redo" | "editor::Find"
+        )
+    }));
+    cx.bind_keys(EDITOR_COMMAND_KEYS.iter().filter_map(|keys| {
+        let command = match *keys {
+            "ctrl-shift-z" => "eludite.editor.redo",
+            other => commands.iter().find(|k| k.keystrokes == other)?.command,
+        };
+        Some(KeyBinding::new(
+            keys,
+            RunCommand::new(command, json!({})),
+            Some(eludite_editor::KEY_CONTEXT),
+        ))
+    }));
+}
 
 /// What the loader thread hands back.
 struct Loaded {
@@ -69,6 +94,9 @@ pub fn run(args: Args, t_main: Instant) {
         let mut commands = builtins::default_registry();
         view::register(&mut commands, Arc::new(controller.clone()))
             .expect("view commands register once");
+        // The host starts on the first solution open, never at startup.
+        let services = crate::shell::register_workspace(&mut commands, HostLaunch::locate());
+        let session = services.session.clone();
         let commands = Arc::new(commands);
         let persistence = store.map(|s| Persistence {
             path: s.path_for(args.solution.as_deref()),
@@ -76,6 +104,7 @@ pub fn run(args: Args, t_main: Instant) {
         });
 
         bind_keymap(cx, &vs_keymap());
+        bind_editor_keys(cx);
         let title = match &args.solution {
             Some(s) => format!(
                 "{} - Eludite",
@@ -102,7 +131,17 @@ pub fn run(args: Args, t_main: Instant) {
         };
         let window = cx
             .open_window(options, |window, cx| {
-                let shell = cx.new(|cx| Shell::new(commands, controller, theme, persistence, cx));
+                let shell = cx.new(|cx| {
+                    Shell::new(
+                        commands,
+                        controller,
+                        theme,
+                        persistence,
+                        services,
+                        window,
+                        cx,
+                    )
+                });
                 shell.focus_handle(cx).focus(window, cx);
                 shell
             })
@@ -116,6 +155,19 @@ pub fn run(args: Args, t_main: Instant) {
                 true
             });
         });
+        // Stop eludite-host on exit, off the UI thread; GPUI waits for quit handlers up to its shutdown timeout.
+        cx.on_app_quit(move |_| {
+            let done = session.shutdown();
+            let (tx, rx) = futures::channel::oneshot::channel();
+            std::thread::spawn(move || {
+                let _ = done.recv_timeout(Duration::from_secs(5));
+                let _ = tx.send(());
+            });
+            async move {
+                let _ = rx.await;
+            }
+        })
+        .detach();
         // Save on exit: flush the writer thread; GPUI waits for quit handlers
         // (up to its shutdown timeout) without blocking a frame.
         dock.update(cx, |_, cx| {
@@ -140,6 +192,38 @@ pub fn run(args: Args, t_main: Instant) {
         }
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);
+        }
+        if args.solution.is_some() || args.open_file.is_some() {
+            // Open the solution once the window is up, as File > Open > Project/Solution would, then the file.
+            let solution = args.solution.clone();
+            let open_file = args.open_file.clone();
+            let timings_out = args.timings_out.clone();
+            let bench_type = args.bench_type;
+            let _ = window.update(cx, |shell, window, cx| {
+                if let Some(solution) = &solution {
+                    shell.run(
+                        workspace::SOLUTION_OPEN,
+                        json!({ "path": solution.to_string_lossy() }),
+                        window,
+                        cx,
+                    );
+                }
+                if let Some(file) = &open_file {
+                    shell.run(
+                        workspace::FILE_OPEN,
+                        json!({ "path": file.to_string_lossy() }),
+                        window,
+                        cx,
+                    );
+                }
+                if let Some(path) = timings_out {
+                    bench::timings_out(cx.entity(), path, window, cx);
+                }
+                if let (Some(count), Some(file)) = (bench_type, open_file) {
+                    let with_host = solution.is_some();
+                    bench::type_keys(cx.entity(), file, count, with_host, window, cx);
+                }
+            });
         }
         if let Some(after) = args.exit_after_ms {
             cx.spawn(async move |cx| {

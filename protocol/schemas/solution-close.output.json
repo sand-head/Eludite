@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-close.output.json",
+  "title": "eludite.solution.close output",
+  "description": "Whether a solution was open and is now closed.",
+  "type": "object",
+  "required": [
+    "closed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "closed": {
+      "description": "True when a solution was open.",
+      "type": "boolean"
+    },
+    "path": {
+      "description": "The solution that was closed.",
+      "type": "string"
+    }
+  }
+}

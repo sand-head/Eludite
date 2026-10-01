@@ -76,3 +76,27 @@ public sealed record LanguageServerStatus(string State)
 
     public string? Message { get; init; }
 }
+
+/// <summary><c>eludite/solution/tree</c> result (protocol/schemas/host/solution-tree.json).</summary>
+public sealed record SolutionTree(long Generation, string? Path, IReadOnlyList<TreeProject> Projects);
+
+/// <summary>One project of <see cref="SolutionTree"/>. <see cref="Kind"/> is <c>sdk</c> or <c>legacy</c>.</summary>
+public sealed record TreeProject(string Name, string Path, string Kind, IReadOnlyList<string> TargetFrameworks, IReadOnlyList<TreeFile> Files)
+{
+    /// <summary>True for web projects; their Content items are listed. Omitted when false.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Web { get; init; }
+
+    /// <summary>Why the project did not evaluate; <see cref="Files"/> is then empty.</summary>
+    public string? Error { get; init; }
+}
+
+/// <summary>A source file of a <see cref="TreeProject"/>. <see cref="ItemType"/> is <c>compile</c> or <c>content</c>.</summary>
+public sealed record TreeFile(string Path, string ItemType)
+{
+    /// <summary>Absolute path of the file this one nests under (DependentUpon metadata).</summary>
+    public string? DependentUpon { get; init; }
+
+    /// <summary>Link metadata of a file outside the project directory.</summary>
+    public string? Link { get; init; }
+}
