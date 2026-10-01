@@ -29,21 +29,26 @@ use super::explorer::row_selector;
 use super::session::HostLaunch;
 use super::{SOLUTION_SLOT, Shell};
 
-const T: Duration = Duration::from_secs(10);
+pub(super) const T: Duration = Duration::from_secs(10);
 
-const PROGRAM: &str = "class Program\n{\n    static void Main() { }\n}\n";
+pub(super) const PROGRAM: &str = "class Program\n{\n    static void Main() { }\n}\n";
 
-struct Ws {
-    shell: Entity<Shell>,
-    vcx: VisualTestContext,
-    commands: Arc<CommandRegistry>,
-    controller: DockController,
-    fake: FakeHost,
-    dir: TempDir,
+pub(super) struct Ws {
+    pub shell: Entity<Shell>,
+    pub vcx: VisualTestContext,
+    pub commands: Arc<CommandRegistry>,
+    pub controller: DockController,
+    pub fake: FakeHost,
+    pub dir: TempDir,
 }
 
 /// A one-project solution on disk, its tree in the fake host, and the shell.
-fn setup(cx: &mut TestAppContext) -> Ws {
+pub(super) fn setup(cx: &mut TestAppContext) -> Ws {
+    setup_with(cx, |_| {})
+}
+
+/// As [`setup`], scripting the fake host before the shell starts it.
+pub(super) fn setup_with(cx: &mut TestAppContext, script: impl FnOnce(&FakeHost)) -> Ws {
     cx.executor().allow_parking();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -66,6 +71,7 @@ fn setup(cx: &mut TestAppContext) -> Ws {
     let aspx = write("src/App/Default.aspx", "<%@ Page %>\n");
     let code_behind = write("src/App/Default.aspx.cs", "partial class Default { }\n");
     let fake = FakeHost::new();
+    script(&fake);
     fake.set_tree(json!([{
         "name": "App", "path": project, "kind": "sdk", "targetFrameworks": ["net10.0"],
         "files": [
@@ -120,12 +126,12 @@ fn setup(cx: &mut TestAppContext) -> Ws {
 }
 
 impl Ws {
-    fn path(&self, rel: &str) -> PathBuf {
+    pub(super) fn path(&self, rel: &str) -> PathBuf {
         self.dir.path().join(rel)
     }
 
     /// Run the UI until `done` holds, letting the host and worker threads run in real time.
-    fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
+    pub(super) fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
         let deadline = Instant::now() + T;
         loop {
             self.vcx.run_until_parked();
@@ -137,7 +143,7 @@ impl Ws {
         }
     }
 
-    fn audit(&self) -> Vec<String> {
+    pub(super) fn audit(&self) -> Vec<String> {
         self.commands
             .audit_log()
             .entries()
@@ -146,20 +152,20 @@ impl Ws {
             .collect()
     }
 
-    fn bounds(&mut self, sel: &str) -> gpui::Bounds<gpui::Pixels> {
+    pub(super) fn bounds(&mut self, sel: &str) -> gpui::Bounds<gpui::Pixels> {
         let sel: &'static str = Box::leak(sel.to_owned().into_boxed_str());
         self.vcx
             .debug_bounds(sel)
             .unwrap_or_else(|| panic!("no element {sel}"))
     }
 
-    fn click(&mut self, sel: &str) {
+    pub(super) fn click(&mut self, sel: &str) {
         let c = self.bounds(sel).center();
         self.vcx.simulate_click(c, Modifiers::none());
         self.vcx.run_until_parked();
     }
 
-    fn double_click(&mut self, sel: &str) {
+    pub(super) fn double_click(&mut self, sel: &str) {
         let position = self.bounds(sel).center();
         for click_count in [1, 2] {
             self.vcx.simulate_event(MouseDownEvent {
@@ -179,7 +185,7 @@ impl Ws {
         self.vcx.run_until_parked();
     }
 
-    fn open_solution(&mut self) {
+    pub(super) fn open_solution(&mut self) {
         let sln = self.path("App.slnx");
         let out = self
             .commands
@@ -198,7 +204,7 @@ impl Ws {
         });
     }
 
-    fn row_labels(&self) -> Vec<String> {
+    pub(super) fn row_labels(&self) -> Vec<String> {
         self.shell.read_with(&self.vcx, |s, cx| {
             s.explorer()
                 .read(cx)
@@ -209,7 +215,7 @@ impl Ws {
         })
     }
 
-    fn editor(&mut self, path: &Path) -> Entity<EditorView> {
+    pub(super) fn editor(&mut self, path: &Path) -> Entity<EditorView> {
         let path = path.to_path_buf();
         self.wait("the editor", |w| {
             w.shell.read_with(&w.vcx, |s, _| s.editor(&path).is_some())
@@ -219,25 +225,25 @@ impl Ws {
             .unwrap()
     }
 
-    fn text(&self, view: &Entity<EditorView>) -> String {
+    pub(super) fn text(&self, view: &Entity<EditorView>) -> String {
         view.read_with(&self.vcx, |v, _| v.editor().text())
     }
 
-    fn caret(&self, view: &Entity<EditorView>) -> usize {
+    pub(super) fn caret(&self, view: &Entity<EditorView>) -> usize {
         view.read_with(&self.vcx, |v, _| v.editor().primary_selection().head)
     }
 
-    fn error_rows(&self) -> Vec<super::error_list::ErrorRow> {
+    pub(super) fn error_rows(&self) -> Vec<super::error_list::ErrorRow> {
         self.shell
             .read_with(&self.vcx, |s, cx| s.error_list().read(cx).rows().to_vec())
     }
 
-    fn dirty(&self, id: &str) -> bool {
+    pub(super) fn dirty(&self, id: &str) -> bool {
         self.controller.snapshot().dirty.contains(id)
     }
 
     /// Open the solution, expand the project and double-click Program.cs.
-    fn open_program(&mut self) -> (PathBuf, Entity<EditorView>) {
+    pub(super) fn open_program(&mut self) -> (PathBuf, Entity<EditorView>) {
         self.open_solution();
         let project = self.path("src/App/App.csproj");
         self.click(&format!(

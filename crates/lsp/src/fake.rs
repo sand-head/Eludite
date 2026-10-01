@@ -29,6 +29,8 @@ use crate::client::Connector;
 pub struct Received {
     pub method: String,
     pub params: Value,
+    /// The JSON-RPC id of a request (`None` for a notification).
+    pub id: Option<Value>,
     /// When it was read (after any stall).
     pub at: Instant,
 }
@@ -67,6 +69,9 @@ struct State {
     inflight: HashMap<String, Writer>,
     ignore_cancel: bool,
     hold_load: bool,
+    /// `eludite/languageServer/status` after initialize: state (default `running`) and capabilities.
+    server_state: Option<String>,
+    capabilities: Option<Value>,
 }
 
 struct Shared {
@@ -172,6 +177,14 @@ impl FakeHost {
     /// result was already on the wire).
     pub fn set_ignore_cancel(&self, ignore: bool) {
         self.lock().ignore_cancel = ignore;
+    }
+
+    /// The `eludite/languageServer/status` the fake sends after `eludite/host/initialize`: `state` (`running` by
+    /// default, or `starting` to keep IntelliSense on its fallback) and the server's LSP `capabilities`.
+    pub fn set_language_server(&self, state: &str, capabilities: Option<Value>) {
+        let mut s = self.lock();
+        s.server_state = Some(state.to_owned());
+        s.capabilities = capabilities;
     }
 
     /// When true, `eludite/solution/open` reports `loading` and stops there until [`FakeHost::finish_load`].
@@ -298,6 +311,7 @@ impl FakeHost {
                 s.received.push(Received {
                     method: method.clone(),
                     params: params.clone(),
+                    id: msg.get("id").cloned(),
                     at: Instant::now(),
                 });
             }
@@ -335,10 +349,18 @@ impl FakeHost {
             methods::HOST_INITIALIZE => {
                 reply(json!({"hostName": host::HOST_NAME, "hostVersion": "fake",
                              "capabilities": {"languageServer": true}}));
-                notify(
-                    methods::LANGUAGE_SERVER_STATUS,
-                    json!({"state": "running", "serverInfo": {"name": "fake-ls"}}),
-                );
+                let (state, capabilities) = {
+                    let s = self.lock();
+                    (
+                        s.server_state.clone().unwrap_or_else(|| "running".into()),
+                        s.capabilities.clone(),
+                    )
+                };
+                let mut status = json!({"state": state, "serverInfo": {"name": "fake-ls"}});
+                if let Some(c) = capabilities {
+                    status["capabilities"] = c;
+                }
+                notify(methods::LANGUAGE_SERVER_STATUS, status);
             }
             methods::PING => reply(json!({"pong": true, "timestamp": "2026-10-01T00:00:00Z"})),
             methods::HOST_SHUTDOWN => reply(Value::Null),

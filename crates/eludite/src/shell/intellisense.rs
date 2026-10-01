@@ -758,6 +758,19 @@ impl Shell {
 
     // ----- the commands (brief 0013) -----
 
+    /// Fires the next time an editor changes (an answer arrived, a list was filtered).
+    pub(super) fn intellisense_waiter(&mut self) -> futures::channel::oneshot::Receiver<()> {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        self.intellisense_waiters.push(tx);
+        rx
+    }
+
+    pub(super) fn wake_intellisense_waiters(&mut self) {
+        for w in self.intellisense_waiters.drain(..) {
+            let _ = w.send(());
+        }
+    }
+
     /// `eludite.editor.complete`.
     pub(super) fn complete_command(
         &mut self,
