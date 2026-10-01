@@ -16,6 +16,7 @@ pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
 pub mod references;
+pub mod rename;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -171,6 +172,8 @@ pub struct Shell {
     navigation: Navigation,
     /// Find All References in flight (brief 0014).
     references: References,
+    /// Rename and its dialog (brief 0015).
+    rename: rename::Rename,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -365,6 +368,7 @@ impl Shell {
             intellisense_waiters: Vec::new(),
             navigation: Navigation::default(),
             references: References::default(),
+            rename: rename::Rename::default(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -734,6 +738,8 @@ impl Shell {
                         doc.intellisense.cancel_all();
                     }
                     self.navigation.cancel();
+                    self.rename.cancel();
+                    self.close_rename_dialog(window, cx);
                     if self.references.cancel() {
                         // Never show results computed for the old solution.
                         self.references_window
@@ -1017,6 +1023,7 @@ impl Render for Shell {
             .child(self.dock.clone())
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())
+            .children(self.rename.dialog.clone())
     }
 }
 

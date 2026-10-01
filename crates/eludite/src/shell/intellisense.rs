@@ -172,7 +172,7 @@ fn hover_markdown(contents: &Value) -> Option<String> {
     }
 }
 
-fn offset_in(snapshot: &text::BufferSnapshot, p: lsp::Position) -> usize {
+pub(super) fn offset_in(snapshot: &text::BufferSnapshot, p: lsp::Position) -> usize {
     let point = snapshot.clip_point_utf16(
         Unclipped(PointUtf16::new(p.line, p.character)),
         text::Bias::Left,
