@@ -859,6 +859,7 @@ impl Shell {
         let view = self.documents[&id].view.clone();
         let accepted = view.update(cx, |v, cx| v.accept_completion(label, cx));
         if let Some(a) = &accepted {
+            trace(format_args!("accept completion {:?}", a.label));
             self.apply_additional_edits(&id, a.list, a.index, cx);
         }
         let caret = view.read(cx).editor().primary_selection().head;

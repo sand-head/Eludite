@@ -605,16 +605,17 @@ impl Shell {
         cx: &mut Context<Self>,
         done: ApplyDone,
     ) {
+        let started = std::time::Instant::now();
         match self.prepare_workspace_edit(edit, &options) {
             Err(message) => {
                 trace(format_args!("workspace edit refused: {message}"));
                 let summary = ApplySummary::refused(message);
-                self.report_apply(&options, &summary);
+                self.report_apply(&options, &summary, started);
                 done(self, summary, window, cx);
             }
             Ok((buffers, disk, _)) if disk.is_empty() => {
                 let summary = self.complete_apply(buffers, DiskOutcome::default(), cx);
-                self.report_apply(&options, &summary);
+                self.report_apply(&options, &summary, started);
                 done(self, summary, window, cx);
             }
             Ok((buffers, disk, managed)) => {
@@ -629,7 +630,7 @@ impl Shell {
                                 shell.complete_apply(buffers, outcome, cx)
                             }
                         };
-                        shell.report_apply(&options, &summary);
+                        shell.report_apply(&options, &summary, started);
                         done(shell, summary, window, cx);
                     });
                 })
@@ -814,10 +815,16 @@ impl Shell {
         }
     }
 
-    fn report_apply(&mut self, options: &ApplyOptions, summary: &ApplySummary) {
+    fn report_apply(
+        &mut self,
+        options: &ApplyOptions,
+        summary: &ApplySummary,
+        started: std::time::Instant,
+    ) {
         trace(format_args!(
-            "workspace edit {:?}: applied {}, {} edits in {} files ({} open, {} on disk) {:?}",
+            "workspace edit {:?} in {:.1} ms: applied {}, {} edits in {} files ({} open, {} on disk) {:?}",
             options.label,
+            started.elapsed().as_secs_f64() * 1e3,
             summary.applied,
             summary.edits,
             summary.files,
@@ -869,7 +876,7 @@ impl Shell {
         ))
     }
 
-    pub(super) fn apply_edit_output(&self) -> eludite_commands::workspace::ApplyEditOutput {
+    pub fn apply_edit_output(&self) -> eludite_commands::workspace::ApplyEditOutput {
         use eludite_commands::workspace::{ApplyEditOutput, ApplyEditState};
         match &self.apply_edit {
             Some((state, summary)) => ApplyEditOutput::new(*state, summary.output()),

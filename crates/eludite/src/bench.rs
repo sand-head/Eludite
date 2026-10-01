@@ -1109,3 +1109,370 @@ fn synthetic_references(
     sort_references(&mut refs);
     refs
 }
+
+/// `--bench-refactor N` (brief 0015), in the real app against the real host:
+///
+/// 1. **The light bulb**, N times: the caret moves alternately to the first `ELUDITE_BENCH_BULB_A` (default
+///    `DotnetCliSdkDiscoverer(`, a constructor Roslyn offers "Use primary constructor" for) and the first
+///    `ELUDITE_BENCH_BULB_B` (default `DiscoverAsync`) in the opened file; wait for the bulb's answer and the frame that
+///    shows it. Caret-stop-to-visible = caret moved to the end of that frame's present (it includes the
+///    [`crate::shell::code_actions::LIGHTBULB_DEBOUNCE`]); host = request written to reply read; UI = (caret moved to
+///    request written, less the debounce) + reply read to bulb set + that frame's render to end of present.
+/// 2. **Typing with the light bulb active**: 300 keys in a comment at the end of a line in the middle of the file,
+///    as `--bench-type` types them (each key moves the caret, so the bulb's debounce restarts; its requests run in the
+///    pauses); keystroke frame cost = key handler + the next frame's render to end of present.
+/// 3. **Rename preview**, N times: the Rename dialog on the first `ELUDITE_BENCH_RENAME` (default `_dotnetPath`),
+///    one letter typed per run; name change to preview shown = key to the end of the present of the frame showing the
+///    preview (includes [`crate::shell::rename::RENAME_PREVIEW_DEBOUNCE`]); host = `textDocument/rename` written to
+///    reply read; UI = (key to request written, less the debounce) + reply read to preview handed to the dialog (the
+///    changed lines are computed off the UI thread) + that frame's render to present.
+/// 4. **Apply to 10 closed files**, 20 times: `eludite.workspace.apply_edit` with three empty inserts in each of the
+///    first 10 `.cs` files of the solution's folder that are not open (the files are rewritten with the same bytes):
+///    command invoked to the applier's summary (read, edit and atomic write off the UI thread).
+pub fn refactor(
+    shell: Entity<Shell>,
+    file: std::path::PathBuf,
+    count: usize,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    use crate::shell::code_actions::LIGHTBULB_DEBOUNCE;
+    use crate::shell::rename::RENAME_PREVIEW_DEBOUNCE;
+    use eludite_commands::workspace;
+    const WARMUP: usize = 3;
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.into());
+    let bulb_a = env("ELUDITE_BENCH_BULB_A", "DotnetCliSdkDiscoverer(");
+    let bulb_b = env("ELUDITE_BENCH_BULB_B", "DiscoverAsync");
+    let rename_symbol = env("ELUDITE_BENCH_RENAME", "_dotnetPath");
+    let id = file.to_string_lossy().into_owned();
+    cx.spawn_in(window, async move |_, cx| {
+        loop {
+            executor.timer(Duration::from_millis(20)).await;
+            let Ok(ready) = cx.update(|_, cx| {
+                let t = shell.read(cx).timings();
+                t.loaded.is_some() && t.first_diagnostics.is_some()
+            }) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(3000)).await;
+        let Ok(Some(editor)) = cx.update(|_, cx| shell.read(cx).editor(&file)) else {
+            eprintln!("eludite bench: {} is not open", file.display());
+            std::process::exit(1);
+        };
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        let offset_of = |cx: &mut gpui::AsyncWindowContext, needle: &str| -> usize {
+            let needle = needle.to_owned();
+            cx.update(|_, cx| editor.read(cx).editor().text().find(&needle))
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| {
+                    eprintln!("eludite bench: `{needle}` is not in the file");
+                    std::process::exit(1);
+                })
+        };
+        let set_caret = |cx: &mut gpui::AsyncWindowContext, at: usize| -> Instant {
+            let mut t = Instant::now();
+            let _ = cx.update(|window, cx| {
+                window.focus(&editor.focus_handle(cx), cx);
+                t = Instant::now();
+                editor.update(cx, |v, cx| v.update_editor(cx, |e| e.set_caret(at)));
+            });
+            t
+        };
+        let key = |cx: &mut gpui::AsyncWindowContext, k: &str| -> (Instant, Instant) {
+            let ks = Keystroke::parse(k).expect("keystroke");
+            let mut out = (Instant::now(), Instant::now());
+            let _ = cx.update(|window, cx| {
+                let t0 = Instant::now();
+                window.dispatch_keystroke(ks, cx);
+                out = (t0, Instant::now());
+            });
+            out
+        };
+        let debounce = ms(LIGHTBULB_DEBOUNCE);
+
+        // 1. The light bulb.
+        let a = offset_of(cx, &bulb_a);
+        let b = offset_of(cx, &bulb_b);
+        let (mut l_host, mut l_ui, mut l_total, mut l_actions) = (vec![], vec![], vec![], vec![]);
+        let mut l_probe = vec![];
+        let mut r_files = 0usize;
+        let mut l_timeouts = 0;
+        for i in 0..(WARMUP + count) {
+            executor.timer(Duration::from_millis(200)).await;
+            let before = cx
+                .update(|_, cx| shell.read(cx).lightbulb_timings().len())
+                .unwrap_or_default();
+            let moved = set_caret(cx, if i % 2 == 0 { a } else { b });
+            let shell2 = shell.clone();
+            let shown = until(cx, &executor, move |cx| {
+                shell2.read(cx).lightbulb_timings()[before..]
+                    .iter()
+                    .any(|t| t.shown.is_some())
+            })
+            .await;
+            let timing = cx
+                .update(|_, cx| {
+                    shell.read(cx).lightbulb_timings()[before..]
+                        .iter()
+                        .find(|t| t.shown.is_some())
+                        .cloned()
+                })
+                .ok()
+                .flatten();
+            let Some(t) = timing.filter(|_| shown) else {
+                l_timeouts += 1;
+                continue;
+            };
+            let applied = t.shown.expect("found");
+            let frame = frame_after(&probe, &executor, applied).await;
+            if i >= WARMUP
+                && let (Some(sent), Some(received), Some((render, present))) = (t.sent, t.received, frame)
+            {
+                l_host.push(ms(received - sent));
+                l_ui.push(
+                    (ms(sent.saturating_duration_since(moved)) - debounce).max(0.)
+                        + ms(applied.saturating_duration_since(received))
+                        + ms(present.saturating_duration_since(render)),
+                );
+                l_total.push(ms(present.saturating_duration_since(moved)));
+                l_actions.push(t.actions as f64);
+                if let Some(m) = t.moved {
+                    l_probe.push(ms(m.saturating_duration_since(moved)));
+                }
+            }
+        }
+        let bulb_kind = cx
+            .update(|_, cx| editor.read(cx).lightbulb().map(|(_, k)| format!("{k:?}")))
+            .ok()
+            .flatten();
+
+        // 2. Typing with the light bulb active.
+        let _ = cx.update(|window, cx| {
+            editor.update(cx, |v, cx| {
+                v.update_editor(cx, |e| {
+                    let b = e.buffer();
+                    let row = b.line_count() / 2;
+                    let at = b.point_to_offset(eludite_editor::text::Point::new(row, b.line_len(row)));
+                    e.set_caret(at);
+                })
+            });
+            window.focus(&editor.focus_handle(cx), cx);
+        });
+        let bulbs_before = cx
+            .update(|_, cx| shell.read(cx).lightbulb_timings().len())
+            .unwrap_or_default();
+        let mut typed: Vec<(Instant, Instant)> = Vec::new();
+        for i in 0..300usize {
+            let pause = if i % 25 == 24 { 250 } else { 0 };
+            executor
+                .timer(Duration::from_millis(pause + 15 + (i as u64 * 7) % 30))
+                .await;
+            let k = if i % 17 == 16 {
+                "backspace".to_owned()
+            } else {
+                ((b'a' + (i % 26) as u8) as char).to_string()
+            };
+            if i == 0 {
+                let _ = key(cx, "space");
+                let _ = key(cx, "/");
+                let _ = key(cx, "/");
+            }
+            typed.push(key(cx, &k));
+        }
+        executor.timer(Duration::from_millis(500)).await;
+        let bulb_requests_while_typing = cx
+            .update(|_, cx| shell.read(cx).lightbulb_timings().len() - bulbs_before)
+            .unwrap_or_default();
+        let cost: Vec<f64> = {
+            let p = probe.borrow();
+            let frames: Vec<(Instant, Instant)> =
+                p.renders.iter().copied().zip(p.presents.iter().copied()).collect();
+            typed
+                .iter()
+                .filter_map(|(t0, t1)| {
+                    frames
+                        .iter()
+                        .find(|(r, _)| r >= t1)
+                        .map(|(r, pr)| ms(*t1 - *t0) + ms(pr.saturating_duration_since(*r)))
+                })
+                .collect()
+        };
+        // Undo the typing (one step per burst) so the rename sees the file as it was.
+        for _ in 0..40 {
+            let _ = cx.update(|_, cx| editor.update(cx, |v, cx| v.update_editor(cx, |e| e.undo())));
+        }
+        executor.timer(Duration::from_millis(1000)).await;
+
+        // 3. Rename preview through the dialog.
+        let at = offset_of(cx, &rename_symbol);
+        set_caret(cx, at + 1);
+        let _ = cx.update(|window, cx| {
+            shell.update(cx, |s, cx| {
+                s.run(workspace::EDITOR_RENAME, json!({ "path": id }), window, cx)
+            })
+        });
+        let shell2 = shell.clone();
+        let opened = until(cx, &executor, move |cx| shell2.read(cx).rename_dialog().is_some()).await;
+        let (mut r_host, mut r_ui, mut r_total, mut r_edits) = (vec![], vec![], vec![], 0usize);
+        let mut r_timeouts = 0;
+        let rename_debounce = ms(RENAME_PREVIEW_DEBOUNCE);
+        if opened {
+            for i in 0..(WARMUP + count) {
+                executor.timer(Duration::from_millis(100)).await;
+                let before = cx
+                    .update(|_, cx| shell.read(cx).rename_timings().len())
+                    .unwrap_or_default();
+                let letter = ((b'a' + (i % 26) as u8) as char).to_string();
+                let (k0, _) = key(cx, &letter);
+                let shell2 = shell.clone();
+                if !until(cx, &executor, move |cx| shell2.read(cx).rename_timings().len() > before).await {
+                    r_timeouts += 1;
+                    continue;
+                }
+                let t = cx
+                    .update(|_, cx| shell.read(cx).rename_timings()[before].clone())
+                    .expect("window");
+                let shown = t.shown.expect("set with the preview");
+                let frame = frame_after(&probe, &executor, shown).await;
+                r_edits = t.edits;
+                r_files = t.files;
+                if i >= WARMUP
+                    && let (Some(sent), Some(received), Some((render, present))) = (t.sent, t.received, frame)
+                {
+                    r_host.push(ms(received - sent));
+                    r_ui.push(
+                        (ms(sent.saturating_duration_since(k0)) - rename_debounce).max(0.)
+                            + ms(shown.saturating_duration_since(received))
+                            + ms(present.saturating_duration_since(render)),
+                    );
+                    r_total.push(ms(present.saturating_duration_since(k0)));
+                }
+            }
+            let _ = key(cx, "escape");
+        }
+
+        // 4. Apply a no-op edit to 10 closed files.
+        let root = cx
+            .update(|_, cx| shell.read(cx).solution_dir())
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| file.parent().unwrap_or(&file).to_path_buf());
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        let mut stack = vec![root.join("src")];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+            entries.sort();
+            for p in entries {
+                let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if p.is_dir() && name != "bin" && name != "obj" {
+                    stack.push(p);
+                } else if name.ends_with(".cs") && p != file {
+                    files.push(p);
+                }
+            }
+        }
+        files.sort();
+        files.truncate(10);
+        let mut changes = serde_json::Map::new();
+        for f in &files {
+            let insert = json!({"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": ""});
+            changes.insert(
+                crate::shell::documents::path_to_uri(f),
+                json!([insert.clone(), insert.clone(), insert]),
+            );
+        }
+        let edit = json!({ "changes": changes });
+        let mut apply = vec![];
+        let mut a_failed = 0;
+        for _ in 0..20 {
+            executor.timer(Duration::from_millis(200)).await;
+            let t0 = Instant::now();
+            let out = cx
+                .update(|window, cx| {
+                    shell.update(cx, |s, cx| {
+                        s.invoke(
+                            workspace::WORKSPACE_APPLY_EDIT,
+                            json!({"edit": edit.clone(), "label": "bench"}),
+                            window,
+                            cx,
+                        )
+                    })
+                })
+                .ok()
+                .and_then(Result::ok);
+            if out.is_none() {
+                a_failed += 1;
+                continue;
+            }
+            let shell2 = shell.clone();
+            let done = until(cx, &executor, move |cx| {
+                shell2.read(cx).apply_edit_output().state != workspace::ApplyEditState::Applying
+            })
+            .await;
+            let applied = cx
+                .update(|_, cx| shell.read(cx).apply_edit_output())
+                .ok();
+            match applied {
+                Some(o) if done && o.applied => apply.push(ms(t0.elapsed())),
+                _ => a_failed += 1,
+            }
+        }
+        let _ = cx.update(|window, cx| {
+            let out = json!({
+                "bench": "refactor_in_shell",
+                "method": "light bulb: the caret moves between two positions with code actions; caret_stop_to_visible = caret moved to the end of the present of the frame showing the bulb (includes the 50 ms debounce); host = request written to reply read; ui = caret moved to request written less the debounce + reply read to bulb set + render to present. typing: 300 keys in a comment with the bulb active; frame cost = key handler + next frame's render to present. rename preview: one letter typed per run in the Rename dialog; name_change_to_visible includes the 150 ms debounce; host = textDocument/rename written to reply read; ui = key to request written less the debounce + reply read to preview handed to the dialog + render to present. apply: eludite.workspace.apply_edit of three empty inserts into each of 10 closed files (rewritten atomically with the same bytes); invoke to summary",
+                "file": file.to_string_lossy(),
+                "lightbulb": {
+                    "positions": [bulb_a, bulb_b],
+                    "runs": count,
+                    "timeouts": l_timeouts,
+                    "debounce_ms": debounce,
+                    "kind_at_end": bulb_kind,
+                    "actions": summarize(&l_actions),
+                    "caret_moved_to_probe": summarize(&l_probe),
+                    "host_latency": summarize(&l_host),
+                    "ui_latency": summarize(&l_ui),
+                    "caret_stop_to_visible": summarize(&l_total),
+                },
+                "typing_with_lightbulb": {
+                    "keystrokes": typed.len(),
+                    "lightbulb_requests": bulb_requests_while_typing,
+                    "keystroke_frame_cost": summarize(&cost),
+                },
+                "rename_preview": {
+                    "symbol": rename_symbol,
+                    "dialog_opened": opened,
+                    "edits": r_edits,
+                    "files": r_files,
+                    "runs": count,
+                    "timeouts": r_timeouts,
+                    "debounce_ms": rename_debounce,
+                    "host_latency": summarize(&r_host),
+                    "ui_latency": summarize(&r_ui),
+                    "name_change_to_visible": summarize(&r_total),
+                },
+                "apply_10_closed_files": {
+                    "files": files.iter().map(|f| f.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+                    "failed": a_failed,
+                    "invoke_to_summary": summarize(&apply),
+                },
+                "rss": rss_mib(),
+                "platform": platform(window),
+            });
+            println!("{out}");
+            cx.quit();
+        });
+    })
+    .detach();
+}

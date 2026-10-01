@@ -8,7 +8,7 @@
 //! them (see `target`).
 
 pub mod code_actions;
-mod documents;
+pub mod documents;
 pub mod error_list;
 pub mod explorer;
 pub mod intellisense;
@@ -390,6 +390,14 @@ impl Shell {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
+    }
+
+    /// The folder of the open solution.
+    pub fn solution_dir(&self) -> Option<PathBuf> {
+        self.solution
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
     }
 
     /// The active document tab's id (its path).

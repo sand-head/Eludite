@@ -50,6 +50,13 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       ELUDITE_BENCH_REFERENCES), then 300 keys with the Find
                       All References window holding 1000 rows; report host
                       and UI latency and the keystroke frame cost
+  --bench-refactor N  with --solution and --open-file: once loaded, N times
+                      move the caret between the first `ELUDITE_BENCH_BULB_A`
+                      and `ELUDITE_BENCH_BULB_B` and wait for the light bulb;
+                      300 keys with the light bulb active; N name changes in
+                      the Rename dialog on `ELUDITE_BENCH_RENAME` (preview
+                      latency); 20 applies of a no-op edit to 10 closed files
+                      of the solution; report host and UI latency
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -76,6 +83,7 @@ pub struct Args {
     pub bench_type: Option<usize>,
     pub bench_complete: Option<usize>,
     pub bench_navigate: Option<usize>,
+    pub bench_refactor: Option<usize>,
 }
 
 impl Args {
@@ -121,6 +129,10 @@ impl Args {
                     let n = value("--bench-navigate")?;
                     a.bench_navigate = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
                 }
+                "--bench-refactor" => {
+                    let n = value("--bench-refactor")?;
+                    a.bench_refactor = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
@@ -134,6 +146,7 @@ impl Args {
             || self.bench_drag.is_some()
             || self.bench_complete.is_some()
             || self.bench_navigate.is_some()
+            || self.bench_refactor.is_some()
     }
 }
 
@@ -195,5 +208,9 @@ mod tests {
         assert_eq!(a.bench_navigate, Some(100));
         assert!(a.benching());
         assert!(parse(&["--bench-navigate", "x"]).is_err());
+        let a = parse(&["--bench-refactor", "50"]).unwrap();
+        assert_eq!(a.bench_refactor, Some(50));
+        assert!(a.benching());
+        assert!(parse(&["--bench-refactor"]).is_err());
     }
 }
