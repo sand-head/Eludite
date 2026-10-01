@@ -42,6 +42,7 @@ fn start(agent: AgentDescriptor, cwd: &std::path::Path, policy: PermissionPolicy
     let session = AgentSession::start(
         SessionConfig {
             agent,
+            connect: None,
             cwd: cwd.to_owned(),
             mcp_servers: Vec::new(),
             client_info: Implementation {

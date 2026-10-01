@@ -49,6 +49,7 @@ impl McpEndpoint {
         })
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn addr(&self) -> std::net::SocketAddr {
         self.local.addr
     }

@@ -55,6 +55,8 @@ pub mod ids {
     pub const TOOLBOX: &str = "toolbox";
     /// Find All References (brief 0014): closed until a search shows it, then tabbed with the Error List.
     pub const FIND_ALL_REFERENCES: &str = "find_all_references";
+    /// The Agents window (brief 0016): docked right, tabbed with Workspace.
+    pub const AGENTS: &str = "agents";
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
@@ -102,6 +104,7 @@ impl ToolWindowRegistry {
                 "Find All References",
                 DockSide::Bottom,
             ),
+            (ids::AGENTS, "Agents", DockSide::Right),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -410,7 +413,7 @@ impl DockLayout {
             active: 0,
         };
         l.right.groups = vec![
-            group(1, &[ids::WORKSPACE, ids::GIT_CHANGES]),
+            group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]),
             group(2, &[ids::PROPERTIES]),
         ];
         l.bottom.groups = vec![group(3, &[ids::ERROR_LIST, ids::OUTPUT])];
@@ -921,7 +924,10 @@ mod tests {
         assert!(l.left.groups.is_empty());
         assert_eq!(l.left.auto_hidden, [ids::TOOLBOX]);
         assert_eq!(l.right.groups.len(), 2);
-        assert_eq!(l.right.groups[0].tabs, [ids::WORKSPACE, ids::GIT_CHANGES]);
+        assert_eq!(
+            l.right.groups[0].tabs,
+            [ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]
+        );
         assert_eq!(l.right.groups[0].active_id(), Some(ids::WORKSPACE));
         assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(l.bottom.groups[0].tabs, [ids::ERROR_LIST, ids::OUTPUT]);
@@ -1024,10 +1030,13 @@ mod tests {
                 side: DockSide::Right
             })
         );
-        assert_eq!(l.right.groups[0].tabs, [ids::GIT_CHANGES]);
+        assert_eq!(l.right.groups[0].tabs, [ids::GIT_CHANGES, ids::AGENTS]);
         l.pin(ids::WORKSPACE).unwrap();
         assert_eq!(docked_side(&l, ids::WORKSPACE), Some(DockSide::Right));
-        assert_eq!(l.right.groups[0].tabs, [ids::GIT_CHANGES, ids::WORKSPACE]);
+        assert_eq!(
+            l.right.groups[0].tabs,
+            [ids::GIT_CHANGES, ids::AGENTS, ids::WORKSPACE]
+        );
         // Toolbox: left dock has no groups, so pinning makes one.
         l.dock_home(ids::TOOLBOX).unwrap();
         assert_eq!(l.left.groups[0].tabs, [ids::TOOLBOX]);
