@@ -158,6 +158,11 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     } else {
         s
     };
+    // Documents are keyed by the path string the tree or dialog produced, which uses the
+    // native separator; a URI always uses `/`, so restore `\` on Windows or the lookup
+    // in `Shell::on_diagnostics` misses and squiggles never appear.
+    #[cfg(windows)]
+    let s = s.replace('/', "\\");
     Some(PathBuf::from(s))
 }
 
@@ -616,6 +621,15 @@ mod tests {
         }
         assert_eq!(path_to_uri(Path::new("/a b/c.cs")), "file:///a%20b/c.cs");
         assert!(uri_to_path("untitled:1").is_none());
+    }
+
+    /// The round trip must reproduce the native path *string*, not just an equal `Path`,
+    /// because documents are keyed by that string (the Windows CI failure after brief 0012).
+    #[test]
+    fn uri_round_trip_keeps_the_native_path_string() {
+        let native = std::env::temp_dir().join("eludite uri").join("Program.cs");
+        let back = uri_to_path(&path_to_uri(&native)).unwrap();
+        assert_eq!(back.to_string_lossy(), native.to_string_lossy());
     }
 
     #[test]
