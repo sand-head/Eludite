@@ -10,7 +10,7 @@
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
-//! [`WorkspaceOutput`]; the shell implements [`WorkspaceTarget`]. File > Open Project/Solution, Solution Explorer,
+//! [`WorkspaceOutput`]; the shell implements [`WorkspaceTarget`]. File > Open Project/Solution, Workspace,
 //! the document tabs, the Error List, Ctrl+S and agents all reach the workspace through these commands.
 
 use std::sync::Arc;

@@ -273,19 +273,19 @@ fn float_and_redock(cx: &mut TestAppContext) {
 #[gpui::test]
 fn auto_hide_fly_out_and_pin(cx: &mut TestAppContext) {
     let mut h = open(cx, default_layout(), None);
-    h.click("hide-solution_explorer");
+    h.click("hide-workspace");
     assert_eq!(
-        h.place(ids::SOLUTION_EXPLORER),
+        h.place(ids::WORKSPACE),
         Some(Place::AutoHidden {
             side: DockSide::Right
         })
     );
     assert!(h.vcx.debug_bounds("flyout").is_none());
     // Hovering the strip tab slides it out.
-    h.hover("strip-solution_explorer");
+    h.hover("strip-workspace");
     assert_eq!(
         h.controller.snapshot().flyout.as_deref(),
-        Some(ids::SOLUTION_EXPLORER)
+        Some(ids::WORKSPACE)
     );
     assert!(h.vcx.debug_bounds("flyout").is_some());
     // Clicking in the document area slides it back in.
@@ -294,13 +294,13 @@ fn auto_hide_fly_out_and_pin(cx: &mut TestAppContext) {
     assert!(h.vcx.debug_bounds("flyout").is_none());
     // Clicking the strip tab slides it out, and clicking again keeps it out
     // (the hover that precedes a real click has usually opened it already).
-    h.click("strip-solution_explorer");
+    h.click("strip-workspace");
     assert!(h.vcx.debug_bounds("flyout").is_some());
-    h.click("strip-solution_explorer");
+    h.click("strip-workspace");
     assert!(h.vcx.debug_bounds("flyout").is_some());
     // Pin docks it.
     h.click("flyout-pin");
-    assert_eq!(h.side(ids::SOLUTION_EXPLORER), Some(DockSide::Right));
+    assert_eq!(h.side(ids::WORKSPACE), Some(DockSide::Right));
     assert!(h.vcx.debug_bounds("flyout").is_none());
     // Toolbox starts auto-hidden on the left (VS default).
     h.click("strip-toolbox");
@@ -372,7 +372,7 @@ fn layout_save_and_load_round_trip(cx: &mut TestAppContext) {
     h.drag("tab-output", "guide-left");
     h.drag("head-properties", "group-error_list");
     h.drag("tab-git_changes", "documents");
-    h.click("hide-solution_explorer");
+    h.click("hide-workspace");
     h.click("close-properties");
     let saved = h.layout();
     let flushed = h.host.read_with(&h.vcx, |h, _| h.flush()).unwrap();

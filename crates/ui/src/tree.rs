@@ -1,4 +1,4 @@
-//! Tree rows (Solution Explorer and later tree views): indentation by depth, a disclosure triangle for nodes with
+//! Tree rows (Workspace and later tree views): indentation by depth, a disclosure triangle for nodes with
 //! children, an optional glyph and the label, at a fixed height so a virtualized list can lay them out. The caller
 //! keeps the expanded set and adds ids and handlers.
 
@@ -12,7 +12,7 @@ use crate::Theme;
 /// Height of one row; lists of rows can be virtualized with it.
 pub const TREE_ROW_HEIGHT: f32 = 20.;
 
-/// Indentation per level, as in Visual Studio's Solution Explorer.
+/// Indentation per level, as in Visual Studio's Workspace.
 const INDENT: f32 = 14.;
 
 /// How a row is drawn.

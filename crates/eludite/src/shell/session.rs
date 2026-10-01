@@ -1,5 +1,5 @@
 //! The shell's side of `eludite-host` (brief 0012): starts and supervises the host through `eludite-lsp`, opens and
-//! closes solutions, asks for the Solution Explorer tree, and sends the editors' LSP document notifications.
+//! closes solutions, asks for the Workspace tree, and sends the editors' LSP document notifications.
 //!
 //! Nothing here runs on the UI thread. The UI hands work to a worker thread through a channel ([`HostSession`]'s
 //! methods never block), and a pump thread turns the host's notifications into [`SessionEvent`]s on a `futures`
@@ -141,7 +141,7 @@ pub enum SessionEvent {
     HostRestarting,
     LanguageServer(LanguageServerStatus),
     Solution(SolutionStatus),
-    /// The Solution Explorer tree for the current generation.
+    /// The Workspace tree for the current generation.
     Tree(SolutionTree),
     /// `textDocument/publishDiagnostics` for the current generation.
     Diagnostics(lsp::PublishDiagnosticsParams),

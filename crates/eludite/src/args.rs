@@ -28,7 +28,7 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --open-file PATH    open this file at startup (eludite.file.open), after the
                       solution when --solution is given
   --timings-out PATH  with --solution: write the times from the open command
-                      to editable text, to the Solution Explorer tree and to
+                      to editable text, to the Workspace tree and to
                       the first diagnostics of the opened file as JSON to PATH
                       (once all arrived, or after 180 s); does not exit
   --bench-type N      with --open-file: type N keys into the file (bursts of

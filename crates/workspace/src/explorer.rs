@@ -1,4 +1,4 @@
-//! Solution Explorer's model, fed from the host's `eludite/solution/tree` answer (brief 0012).
+//! Workspace's model, fed from the host's `eludite/solution/tree` answer (brief 0012).
 //!
 //! Visual Studio semantics, as far as this brief goes:
 //! - the solution node reads `Solution 'Name' (N of M projects)`;
@@ -60,7 +60,7 @@ pub struct Row {
     pub expanded: bool,
 }
 
-/// Solution Explorer's tree for one solution generation.
+/// Workspace's tree for one solution generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SolutionModel {
     pub generation: Generation,

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-tree.json",
   "title": "eludite/solution/tree",
-  "description": "The projects of the open solution and their source files, from the host's MSBuild evaluation (SDK-style and legacy projects alike). Feeds Solution Explorer. Computed once per generation, in the background; the request may be sent right after eludite/solution/open and is answered when the evaluation finishes.",
+  "description": "The projects of the open solution and their source files, from the host's MSBuild evaluation (SDK-style and legacy projects alike). Feeds Workspace. Computed once per generation, in the background; the request may be sent right after eludite/solution/open and is answered when the evaluation finishes.",
   "x-eludite-method": "eludite/solution/tree",
   "x-eludite-kind": "request",
   "x-eludite-direction": "shellToHost",
@@ -58,7 +58,7 @@
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "Project file name without extension, as Solution Explorer shows it.",
+          "description": "Project file name without extension, as Workspace shows it.",
           "type": "string",
           "minLength": 1
         },
@@ -94,7 +94,7 @@
           }
         },
         "error": {
-          "description": "Why the project could not be evaluated; files is then empty. Solution Explorer shows the project as unavailable.",
+          "description": "Why the project could not be evaluated; files is then empty. Workspace shows the project as unavailable.",
           "type": "string"
         }
       }

@@ -175,9 +175,9 @@ def main():
     s("click a tab (Error List)", lambda: dr.click("tab-error_list"), present=["head-error_list"])
     s("drag the Properties tab out to the Dock Right guide (untab)",
       lambda: dr.drag("tab-properties", "guide-right"), present=["head-properties"], absent=["tab-properties"])
-    s("Auto Hide Solution Explorer", lambda: dr.click("hide-solution_explorer"),
-      present=["strip-solution_explorer"], absent=["flyout-pin"])
-    s("hover the strip: fly-out slides out", lambda: dr.hover("strip-solution_explorer"), present=["flyout-pin"])
+    s("Auto Hide Workspace", lambda: dr.click("hide-workspace"),
+      present=["strip-workspace"], absent=["flyout-pin"])
+    s("hover the strip: fly-out slides out", lambda: dr.hover("strip-workspace"), present=["flyout-pin"])
     s("click the document area: fly-out slides in", lambda: dr.click("documents"), absent=["flyout-pin"])
     s("click the Toolbox strip: fly-out stays out", lambda: dr.click("strip-toolbox"), present=["flyout-pin"])
     s("Pin Toolbox", lambda: dr.click("flyout-pin"), present=["head-toolbox"], absent=["strip-toolbox"])
@@ -191,8 +191,8 @@ def main():
     s("Ctrl+Alt+O activates Output", lambda: dr.keys("Control_L+Alt_L+o"), present=["head-output"])
     s("Ctrl+\\, Ctrl+E activates Error List",
       lambda: dr.keys("Control_L+backslash", "Control_L+e"), present=["head-error_list"])
-    s("Ctrl+Alt+L shows Solution Explorer (fly-out)", lambda: dr.keys("Control_L+Alt_L+l"), present=["flyout-pin"])
-    s("Pin Solution Explorer", lambda: dr.click("flyout-pin"), present=["head-solution_explorer"])
+    s("Ctrl+Alt+L shows Workspace (fly-out)", lambda: dr.keys("Control_L+Alt_L+l"), present=["flyout-pin"])
+    s("Pin Workspace", lambda: dr.click("flyout-pin"), present=["head-workspace"])
     s("Ctrl+Alt+X shows Toolbox", lambda: dr.keys("Control_L+Alt_L+x"), present=["head-toolbox"])
     dr.click("documents")
     dr.shot("customized-before-exit")

@@ -15,7 +15,7 @@
       "type": "string"
     },
     "title": {
-      "description": "Display title, e.g. Solution Explorer.",
+      "description": "Display title, e.g. Workspace.",
       "type": "string"
     },
     "state": {

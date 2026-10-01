@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-open.input.json",
   "title": "eludite.file.open input",
-  "description": "Open a file in an editor tab, or activate its tab if it is open (double-click in Solution Explorer, a click on an Error List row). Optionally move the caret to a 1-based line and column and scroll it into view.",
+  "description": "Open a file in an editor tab, or activate its tab if it is open (double-click in Workspace, a click on an Error List row). Optionally move the caret to a 1-based line and column and scroll it into view.",
   "type": "object",
   "required": [
     "path"

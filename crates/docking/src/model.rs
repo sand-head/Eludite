@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current layout file schema version.
-pub const LAYOUT_SCHEMA_VERSION: u32 = 1;
+pub const LAYOUT_SCHEMA_VERSION: u32 = 2;
 
 /// A dock edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,7 +47,7 @@ impl DockSide {
 
 /// Well-known tool window ids (Visual Studio's windows, snake_case).
 pub mod ids {
-    pub const SOLUTION_EXPLORER: &str = "solution_explorer";
+    pub const WORKSPACE: &str = "workspace";
     pub const GIT_CHANGES: &str = "git_changes";
     pub const PROPERTIES: &str = "properties";
     pub const ERROR_LIST: &str = "error_list";
@@ -91,7 +91,7 @@ impl ToolWindowRegistry {
     pub fn vs_default() -> Self {
         let mut r = Self::new();
         for (id, title, side) in [
-            (ids::SOLUTION_EXPLORER, "Solution Explorer", DockSide::Right),
+            (ids::WORKSPACE, "Workspace", DockSide::Right),
             (ids::GIT_CHANGES, "Git Changes", DockSide::Right),
             (ids::PROPERTIES, "Properties", DockSide::Right),
             (ids::ERROR_LIST, "Error List", DockSide::Bottom),
@@ -398,7 +398,7 @@ impl DockLayout {
         }
     }
 
-    /// Visual Studio's default (PLAN.md 8): Solution Explorer with Git Changes
+    /// Visual Studio's default (PLAN.md 8): Workspace with Git Changes
     /// tabbed on the right above Properties, Error List and Output tabbed at the
     /// bottom, Toolbox auto-hidden on the left, a Welcome document. Any other
     /// registered window starts closed.
@@ -410,7 +410,7 @@ impl DockLayout {
             active: 0,
         };
         l.right.groups = vec![
-            group(1, &[ids::SOLUTION_EXPLORER, ids::GIT_CHANGES]),
+            group(1, &[ids::WORKSPACE, ids::GIT_CHANGES]),
             group(2, &[ids::PROPERTIES]),
         ];
         l.bottom.groups = vec![group(3, &[ids::ERROR_LIST, ids::OUTPUT])];
@@ -857,8 +857,23 @@ pub fn migrate(mut value: Value) -> Result<Value, String> {
         ));
     }
     // Migration steps go here, oldest first.
+    if version < 2 {
+        // Version 2 renamed the Solution Explorer window to Workspace (PLAN.md section 8).
+        rename_id(&mut value, "solution_explorer", "workspace");
+    }
     value["version"] = Value::from(LAYOUT_SCHEMA_VERSION);
     Ok(value)
+}
+
+/// Replace every string equal to `from` anywhere in `value` with `to`. Tool window ids
+/// appear as strings in tab lists, auto-hide strips, active fields and floating windows.
+fn rename_id(value: &mut Value, from: &str, to: &str) {
+    match value {
+        Value::String(s) if s == from => *s = to.to_owned(),
+        Value::Array(items) => items.iter_mut().for_each(|v| rename_id(v, from, to)),
+        Value::Object(map) => map.values_mut().for_each(|v| rename_id(v, from, to)),
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -877,6 +892,28 @@ mod tests {
     }
 
     #[test]
+    fn version_1_layouts_rename_solution_explorer_to_workspace() {
+        // Take the real current shape, mark it version 1 and give it the old id.
+        let r = reg();
+        let mut v: Value = serde_json::from_str(&DockLayout::default_vs(&r).to_json()).unwrap();
+        v["version"] = Value::from(1);
+        rename_id(&mut v, ids::WORKSPACE, "solution_explorer");
+        assert!(
+            serde_json::to_string(&v)
+                .unwrap()
+                .contains("solution_explorer")
+        );
+        let migrated = migrate(v).unwrap();
+        assert_eq!(migrated["version"], LAYOUT_SCHEMA_VERSION);
+        let text = serde_json::to_string(&migrated).unwrap();
+        assert!(!text.contains("solution_explorer"));
+        let mut layout = DockLayout::from_json(&text).unwrap();
+        layout.normalize(&r);
+        assert!(layout.find(ids::WORKSPACE).is_some());
+        assert!(layout.find("solution_explorer").is_none());
+    }
+
+    #[test]
     fn default_vs_layout() {
         let r = reg();
         let l = DockLayout::default_vs(&r);
@@ -884,11 +921,8 @@ mod tests {
         assert!(l.left.groups.is_empty());
         assert_eq!(l.left.auto_hidden, [ids::TOOLBOX]);
         assert_eq!(l.right.groups.len(), 2);
-        assert_eq!(
-            l.right.groups[0].tabs,
-            [ids::SOLUTION_EXPLORER, ids::GIT_CHANGES]
-        );
-        assert_eq!(l.right.groups[0].active_id(), Some(ids::SOLUTION_EXPLORER));
+        assert_eq!(l.right.groups[0].tabs, [ids::WORKSPACE, ids::GIT_CHANGES]);
+        assert_eq!(l.right.groups[0].active_id(), Some(ids::WORKSPACE));
         assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(l.bottom.groups[0].tabs, [ids::ERROR_LIST, ids::OUTPUT]);
         assert_eq!(l.bottom.groups[0].active_id(), Some(ids::ERROR_LIST));
@@ -983,23 +1017,17 @@ mod tests {
     fn auto_hide_and_pin() {
         let r = reg();
         let mut l = DockLayout::default_vs(&r);
-        l.auto_hide(ids::SOLUTION_EXPLORER).unwrap();
+        l.auto_hide(ids::WORKSPACE).unwrap();
         assert_eq!(
-            l.find(ids::SOLUTION_EXPLORER),
+            l.find(ids::WORKSPACE),
             Some(Place::AutoHidden {
                 side: DockSide::Right
             })
         );
         assert_eq!(l.right.groups[0].tabs, [ids::GIT_CHANGES]);
-        l.pin(ids::SOLUTION_EXPLORER).unwrap();
-        assert_eq!(
-            docked_side(&l, ids::SOLUTION_EXPLORER),
-            Some(DockSide::Right)
-        );
-        assert_eq!(
-            l.right.groups[0].tabs,
-            [ids::GIT_CHANGES, ids::SOLUTION_EXPLORER]
-        );
+        l.pin(ids::WORKSPACE).unwrap();
+        assert_eq!(docked_side(&l, ids::WORKSPACE), Some(DockSide::Right));
+        assert_eq!(l.right.groups[0].tabs, [ids::GIT_CHANGES, ids::WORKSPACE]);
         // Toolbox: left dock has no groups, so pinning makes one.
         l.dock_home(ids::TOOLBOX).unwrap();
         assert_eq!(l.left.groups[0].tabs, [ids::TOOLBOX]);

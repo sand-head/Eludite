@@ -16,7 +16,7 @@
       "minLength": 1
     },
     "state": {
-      "description": "Always loading: the load continues in eludite-host. Solution Explorer and the status bar show its progress.",
+      "description": "Always loading: the load continues in eludite-host. Workspace and the status bar show its progress.",
       "const": "loading"
     }
   }

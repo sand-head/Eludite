@@ -47,7 +47,7 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
             title: "View: Toggle Tool Window".into(),
             input_schema: json!({
                 "type": "object",
-                "properties": {"id": {"type": "string", "description": "Tool window id, e.g. solution_explorer"}},
+                "properties": {"id": {"type": "string", "description": "Tool window id, e.g. workspace"}},
                 "required": ["id"],
                 "additionalProperties": false
             }),

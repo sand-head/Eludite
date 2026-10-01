@@ -1,4 +1,5 @@
-//! Solution Explorer (PLAN.md 4.2, brief 0012): the tree from `eludite-workspace`'s [`SolutionModel`], drawn as
+//! The Workspace window (PLAN.md 4.2, brief 0012; Visual Studio's Solution Explorer, renamed so Cargo and npm
+//! workspaces fit the same window later): the tree from `eludite-workspace`'s [`SolutionModel`], drawn as
 //! virtualized rows. Click selects; the triangle or a double-click expands and collapses; double-clicking a file
 //! opens it through `eludite.file.open`. No context menus yet.
 

@@ -9,7 +9,7 @@
 //! - [`menu`]: Visual Studio's menus ([`vs_menus`]) and the [`MenuBar`] view.
 //! - [`status`]: the [`StatusBar`] with named slots.
 //! - [`elements`]: small stateless elements (tab strips, panels, buttons).
-//! - [`tree`]: tree rows for Solution Explorer and other tree views (indent,
+//! - [`tree`]: tree rows for Workspace and other tree views (indent,
 //!   disclosure triangle, label), drawn by the caller's list.
 //! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
 //!   icons ([`CompletionKind`]) and the tooltip frame.

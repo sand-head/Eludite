@@ -1,4 +1,4 @@
-//! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Solution Explorer,
+//! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Workspace,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
 //! and the workspace-edit applier (brief 0015).
@@ -193,7 +193,7 @@ fn tool_body(
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
-        ids::SOLUTION_EXPLORER => explorer
+        ids::WORKSPACE => explorer
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),

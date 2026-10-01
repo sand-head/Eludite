@@ -115,7 +115,7 @@ pub fn vs_menus() -> Vec<Menu> {
         menu(
             "View",
             vec![
-                show("Solution Explorer", "solution_explorer"),
+                show("Workspace", "workspace"),
                 show("Git Changes", "git_changes"),
                 Separator,
                 show("Error List", "error_list"),
@@ -522,7 +522,7 @@ mod tests {
                 MenuEntry::Separator => None,
             })
             .collect();
-        assert!(shortcuts.contains(&("Solution Explorer", Some("Ctrl+Alt+L"))));
+        assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
         assert!(shortcuts.contains(&("Error List", Some("Ctrl+\\, Ctrl+E"))));
         assert!(shortcuts.contains(&("Command Palette", None)));
     }
