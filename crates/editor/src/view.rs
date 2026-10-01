@@ -7,11 +7,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui::{
     App, Bounds, ClipboardItem, ContentMask, Context, CursorStyle, Element, ElementId,
-    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla,
-    InspectorElementId, IntoElement, KeyBinding, LayoutId, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point, Render, Rgba, ScrollWheelEvent,
-    ShapedLine, SharedString, Size, Style, Styled, Task, TextAlign, TextRun, UTF16Selection,
-    UnderlineStyle, Window, actions, div, fill, point, prelude::*, px, relative, rgb, size,
+    ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
+    GlobalElementId, Hsla, InspectorElementId, IntoElement, KeyBinding, KeyContext, LayoutId,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Pixels, Point,
+    Render, Rgba, ScrollWheelEvent, ShapedLine, SharedString, Size, Style, Styled, Task, TextAlign,
+    TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, point, prelude::*, px,
+    relative, rgb, size,
 };
 use text::{Anchor, BufferSnapshot, OffsetUtf16};
 
@@ -20,6 +21,8 @@ use crate::display::{
     byte_for_visual_column, expand_tabs, from_display, to_display, visual_column,
 };
 use crate::editor::{ClickKind, Editor, FindQuery, SelectionRange};
+use crate::intellisense::{CompletionTrigger, EditorEvent, SignatureTrigger};
+use crate::popups::Popups;
 use crate::syntax::{
     HighlightStats, HighlightUpdate, Highlighter, Language, LineHighlights, Span, SyntaxTheme,
     SyntaxThread, TREE_RETAIN_LIMIT,
@@ -72,11 +75,28 @@ actions!(
         FindPrevious,
         ToggleFindCaseSensitive,
         Cancel,
+        ShowCompletions,
+        ShowSignatureHelp,
+        ShowHover,
+        AcceptCompletion,
+        SelectPreviousCompletion,
+        SelectNextCompletion,
+        CompletionPageUp,
+        CompletionPageDown,
+        PreviousSignature,
+        NextSignature,
     ]
 );
 
 /// The key context the bindings below are scoped to.
 pub const KEY_CONTEXT: &str = "Editor";
+
+/// Added to [`KEY_CONTEXT`] while the completion list is shown.
+pub const COMPLETION_CONTEXT: &str = "Editor && showing_completions";
+/// Added while the completion list has a (hard) selection that Enter commits.
+pub const COMPLETION_SELECTED_CONTEXT: &str = "Editor && completion_selected";
+/// Added while Parameter Info shows more than one overload.
+pub const SIGNATURES_CONTEXT: &str = "Editor && showing_signatures";
 
 /// Visual Studio's default editor bindings. `secondary` is Ctrl on Windows
 /// and Linux and Cmd on macOS.
@@ -129,6 +149,20 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("shift-f3", FindPrevious, c),
         KeyBinding::new("alt-c", ToggleFindCaseSensitive, c),
         KeyBinding::new("escape", Cancel, c),
+        // IntelliSense (Edit > IntelliSense in Visual Studio).
+        KeyBinding::new("ctrl-space", ShowCompletions, c),
+        KeyBinding::new("ctrl-shift-space", ShowSignatureHelp, c),
+        KeyBinding::new("ctrl-k ctrl-i", ShowHover, c),
+        // Up and Down cycle overloads while Parameter Info shows several, unless the completion list is open
+        // (bound after these, so it wins).
+        KeyBinding::new("up", PreviousSignature, Some(SIGNATURES_CONTEXT)),
+        KeyBinding::new("down", NextSignature, Some(SIGNATURES_CONTEXT)),
+        KeyBinding::new("up", SelectPreviousCompletion, Some(COMPLETION_CONTEXT)),
+        KeyBinding::new("down", SelectNextCompletion, Some(COMPLETION_CONTEXT)),
+        KeyBinding::new("pageup", CompletionPageUp, Some(COMPLETION_CONTEXT)),
+        KeyBinding::new("pagedown", CompletionPageDown, Some(COMPLETION_CONTEXT)),
+        KeyBinding::new("tab", AcceptCompletion, Some(COMPLETION_CONTEXT)),
+        KeyBinding::new("enter", AcceptCompletion, Some(COMPLETION_SELECTED_CONTEXT)),
     ]
 }
 
@@ -217,13 +251,13 @@ struct SyntaxState {
 
 /// What the last paint laid out; used to map mouse positions and IME
 /// queries back to buffer positions.
-struct LastLayout {
-    bounds: Bounds<Pixels>,
-    text_left: Pixels,
-    line_height: Pixels,
-    char_width: Pixels,
-    scroll: Point<Pixels>,
-    rows: Vec<(u32, String, ShapedLine)>,
+pub(crate) struct LastLayout {
+    pub bounds: Bounds<Pixels>,
+    pub text_left: Pixels,
+    pub line_height: Pixels,
+    pub char_width: Pixels,
+    pub scroll: Point<Pixels>,
+    pub rows: Vec<(u32, String, ShapedLine)>,
 }
 
 /// A GPUI view showing one [`Editor`].
@@ -234,12 +268,13 @@ struct LastLayout {
 /// Highlighting runs on the [`SyntaxThread`]; until a step finishes,
 /// the last highlights are shown, moved through any edits made since.
 pub struct EditorView {
-    editor: Editor,
+    pub(crate) editor: Editor,
     focus: FocusHandle,
     style: EditorStyle,
     scroll: Point<Pixels>,
     autoscroll: bool,
-    layout: Option<LastLayout>,
+    pub(crate) layout: Option<LastLayout>,
+    pub(crate) popups: Popups,
     syntax: SyntaxState,
     decorations: BTreeMap<&'static str, Vec<Decoration>>,
     find_bar_open: bool,
@@ -273,6 +308,7 @@ impl EditorView {
                 tree_retain_limit: TREE_RETAIN_LIMIT,
             },
             decorations: BTreeMap::new(),
+            popups: Popups::default(),
             find_bar_open: false,
             find_match_count: 0,
             dragging: false,
@@ -294,6 +330,7 @@ impl EditorView {
     ) -> R {
         let r = f(&mut self.editor);
         self.changed(cx);
+        self.after_other_change(cx);
         r
     }
 
@@ -308,6 +345,10 @@ impl EditorView {
 
     pub fn language(&self) -> Option<&Arc<Language>> {
         self.syntax.language.as_ref()
+    }
+
+    pub(crate) fn syntax_language(&self) -> Option<Arc<Language>> {
+        self.syntax.language.clone()
     }
 
     /// Replace one layer of decorations (for example `"diagnostics"`).
@@ -462,7 +503,7 @@ impl EditorView {
         }
     }
 
-    fn changed(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn changed(&mut self, cx: &mut Context<Self>) {
         self.sync_highlights();
         if self.find_bar_open {
             self.recount_find_matches();
@@ -482,11 +523,13 @@ impl EditorView {
     fn edit(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Editor)) {
         f(&mut self.editor);
         self.changed(cx);
+        self.after_other_change(cx);
     }
 
     fn movement(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Editor)) {
         f(&mut self.editor);
         self.moved(cx);
+        self.after_other_change(cx);
     }
 
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
@@ -496,7 +539,9 @@ impl EditorView {
             self.set_find_text(q, cx);
             return;
         }
-        self.edit(cx, Editor::backspace);
+        self.editor.backspace();
+        self.changed(cx);
+        self.after_backspace(cx);
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
@@ -510,6 +555,19 @@ impl EditorView {
     }
 
     fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        // Escape closes the innermost IntelliSense popup first, as in Visual Studio.
+        if self.popups.completion.is_some() {
+            self.close_completion(cx);
+            return;
+        }
+        if self.popups.signature.is_some() {
+            self.close_signature_help(cx);
+            return;
+        }
+        if self.popups.hover.is_some() {
+            self.close_hover(cx);
+            return;
+        }
         if self.find_bar_open {
             self.find_bar_open = false;
             cx.notify();
@@ -590,7 +648,40 @@ impl EditorView {
             self.set_find_text(q, cx);
             return;
         }
-        self.edit(cx, |e| e.insert(text));
+        self.editor.insert(text);
+        self.changed(cx);
+        self.after_typing(text, cx);
+    }
+
+    // ----- IntelliSense actions -----
+
+    fn show_completions(&mut self, _: &ShowCompletions, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(EditorEvent::CompletionTriggered(CompletionTrigger::Invoked));
+    }
+
+    fn show_signature_help(
+        &mut self,
+        _: &ShowSignatureHelp,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(EditorEvent::SignatureHelpTriggered(
+            SignatureTrigger::Invoked,
+        ));
+    }
+
+    fn show_hover(&mut self, _: &ShowHover, _: &mut Window, cx: &mut Context<Self>) {
+        let offset = self.editor.primary_selection().head;
+        cx.emit(EditorEvent::HoverTriggered { offset });
+    }
+
+    fn accept_completion_action(
+        &mut self,
+        _: &AcceptCompletion,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.accept_completion(None, cx);
     }
 
     // ----- input: mouse -----
@@ -643,9 +734,13 @@ impl EditorView {
         self.editor.click(offset, kind, add, m.shift);
         self.dragging = true;
         self.moved(cx);
+        self.after_other_change(cx);
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if event.pressed_button.is_none() {
+            self.hover_mouse_moved(event.position, cx);
+        }
         if !self.dragging || event.pressed_button != Some(MouseButton::Left) {
             return;
         }
@@ -710,11 +805,22 @@ macro_rules! bind {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_highlights();
+        let mut context = KeyContext::default();
+        context.add(KEY_CONTEXT);
+        if self.completion_visible() {
+            context.add("showing_completions");
+            if self.completion_hard_selected() {
+                context.add("completion_selected");
+            }
+        }
+        if self.signatures_cyclable() {
+            context.add("showing_signatures");
+        }
         let el = div()
             .id("editor")
-            .key_context(KEY_CONTEXT)
+            .key_context(context)
             .track_focus(&self.focus)
             .size_full()
             .relative()
@@ -727,6 +833,34 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::paste))
+            .on_action(cx.listener(Self::show_completions))
+            .on_action(cx.listener(Self::show_signature_help))
+            .on_action(cx.listener(Self::show_hover))
+            .on_action(cx.listener(Self::accept_completion_action))
+            .on_action(cx.listener(|this, _: &SelectPreviousCompletion, _, cx| {
+                this.move_completion_selection(-1, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SelectNextCompletion, _, cx| {
+                this.move_completion_selection(1, cx)
+            }))
+            .on_action(cx.listener(|this, _: &CompletionPageUp, _, cx| {
+                this.move_completion_selection(
+                    -(eludite_ui::popup::COMPLETION_ROWS as isize - 1),
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &CompletionPageDown, _, cx| {
+                this.move_completion_selection(eludite_ui::popup::COMPLETION_ROWS as isize - 1, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &PreviousSignature, _, cx| this.cycle_signature(-1, cx)),
+            )
+            .on_action(cx.listener(|this, _: &NextSignature, _, cx| this.cycle_signature(1, cx)))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !*hovered {
+                    this.hover_mouse_left(cx);
+                }
+            }))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -792,10 +926,14 @@ impl Render for EditorView {
                     if self.find_match_count == 1 { "" } else { "es" },
                 )))
         });
+        let popups = self.render_popups(window, cx);
         el.child(EditorElement { view: cx.entity() })
             .children(find_bar)
+            .children(popups)
     }
 }
+
+impl EventEmitter<EditorEvent> for EditorView {}
 
 impl Focusable for EditorView {
     fn focus_handle(&self, _: &App) -> FocusHandle {

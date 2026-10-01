@@ -1600,6 +1600,7 @@ dependencies = [
  "clock",
  "eludite-ui",
  "futures",
+ "fuzzy",
  "gpui",
  "gpui_platform",
  "libmimalloc-sys",
@@ -2165,6 +2166,16 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "slab",
+]
+
+[[package]]
+name = "fuzzy"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "gpui_util",
+ "log",
+ "path",
 ]
 
 [[package]]
