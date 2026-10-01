@@ -99,6 +99,28 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
         Add(rpc, "textDocument/completion", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => CompletionAsync(launch, p, ct)));
         Add(rpc, "textDocument/signatureHelp", new Func<JsonElement, object>(p => Record(launch, "textDocument/signatureHelp", p, new { signatures = new[] { new { label = "M(int x)" } } })));
         Add(rpc, "textDocument/typeDefinition", new Func<JsonElement, object>(p => Record(launch, "textDocument/typeDefinition", p, new[] { new { uri = "file:///b.cs", range = new { start = new { line = 0, character = 0 }, end = new { line = 0, character = 1 } } } })));
+        Add(rpc, "textDocument/prepareRename", new Func<JsonElement, object>(p => Record(launch, "textDocument/prepareRename", p, new { start = new { line = 2, character = 4 }, end = new { line = 2, character = 8 } })));
+        Add(rpc, "textDocument/rename", new Func<JsonElement, object>(p => Record(launch, "textDocument/rename", p, new
+        {
+            documentChanges = new[]
+            {
+                new
+                {
+                    textDocument = new { uri = p.GetProperty("textDocument").GetProperty("uri").GetString(), version = (int?)null },
+                    edits = new[] { new { range = new { start = new { line = 2, character = 4 }, end = new { line = 2, character = 8 } }, newText = p.GetProperty("newName").GetString() } },
+                },
+            },
+        })));
+        Add(rpc, "textDocument/codeAction", new Func<JsonElement, object>(p => Record(launch, "textDocument/codeAction", p, new[]
+        {
+            new { title = "Use primary constructor", kind = "quickfix", data = new { id = 1 } },
+        })));
+        Add(rpc, "codeAction/resolve", new Func<JsonElement, object>(p => Record(launch, "codeAction/resolve", p, new
+        {
+            title = p.GetProperty("title").GetString(),
+            kind = "quickfix",
+            edit = new { changes = new Dictionary<string, object[]>() },
+        })));
         Add(rpc, "workspace/symbol", new Func<JsonElement, object>(p => Record(launch, "workspace/symbol", p, Array.Empty<object>())));
         Add(rpc, "textDocument/diagnostic", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => DiagnosticAsync(launch, p, ct)));
         Add(rpc, "shutdown", new Func<object?>(() => Record<object?>(launch, "shutdown", default, null)));
@@ -107,6 +129,10 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
         _rpc = rpc;
         return Task.FromResult(new LanguageServerConnection(host, host, new Lifetime(this, rpc)));
     }
+
+    /// <summary>Sends the host <c>workspace/applyEdit</c>, as Roslyn would, and returns the host's answer.</summary>
+    public Task<JsonElement> ApplyEditAsync(object parameters, CancellationToken cancellationToken) =>
+        _rpc!.InvokeWithParameterObjectAsync<JsonElement>("workspace/applyEdit", parameters, cancellationToken);
 
     public Task NotifyProjectsLoadedAsync() => _rpc!.NotifyAsync("workspace/projectInitializationComplete");
 

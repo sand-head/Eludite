@@ -15,6 +15,9 @@
 //! written after every document notification queued before it and sees the text the user sees. The worker sends
 //! it and a waiter thread blocks on the reply; the UI gets a [`Reply`] on a oneshot channel and never waits.
 //! [`RequestHandle::cancel`] sends `$/cancelRequest` for it.
+//!
+//! The host's one request to the shell, `workspace/applyEdit` (brief 0015), arrives as [`SessionEvent::ApplyEdit`];
+//! the shell answers it with [`HostSession::respond_apply_edit`], through the worker like everything else.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -143,6 +146,13 @@ pub enum SessionEvent {
     /// `textDocument/publishDiagnostics` for the current generation.
     Diagnostics(lsp::PublishDiagnosticsParams),
     Closed,
+    /// `workspace/applyEdit` from the host, computed under `generation`; answer with
+    /// [`HostSession::respond_apply_edit`] and `id`.
+    ApplyEdit {
+        id: Id,
+        generation: Generation,
+        params: lsp::ApplyWorkspaceEditParams,
+    },
 }
 
 enum Cmd {
@@ -171,6 +181,8 @@ enum Cmd {
     Request(RequestJob),
     /// Cancel the request with this ticket if it is still in flight.
     Cancel(u64),
+    /// Answer the host's `workspace/applyEdit`.
+    RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
     Shutdown(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -373,6 +385,11 @@ impl HostSession {
         self.send(Cmd::DidClose { uri });
     }
 
+    /// Answer the host's `workspace/applyEdit` request `id` ([`SessionEvent::ApplyEdit`]).
+    pub fn respond_apply_edit(&self, id: Id, result: lsp::ApplyWorkspaceEditResult) {
+        self.send(Cmd::RespondApplyEdit(id, result));
+    }
+
     /// Shuts the host down; the returned receiver fires when done (or the worker is gone).
     pub fn shutdown(&self) -> Receiver<()> {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -486,6 +503,11 @@ impl Worker {
                     let id = lock(&self.inflight).remove(&ticket);
                     if let (Some(id), Some(c)) = (id, &self.client) {
                         let _ = c.notify::<lsp::Cancel>(lsp::CancelParams { id });
+                    }
+                }
+                Cmd::RespondApplyEdit(id, result) => {
+                    if let Some(c) = &self.client {
+                        let _ = c.respond_apply_edit(id, result);
                     }
                 }
                 Cmd::Shutdown(done) => {
@@ -648,6 +670,11 @@ impl Pump {
                     SessionEvent::Diagnostics(d.params)
                 }
                 Event::Diagnostics(_) => continue,
+                Event::ApplyEdit { id, params } => SessionEvent::ApplyEdit {
+                    id,
+                    generation: params.generation,
+                    params: params.params,
+                },
                 Event::Host(HostEvent::Restarted { .. }) => {
                     let _ = self.tx.send(Cmd::Replay);
                     continue;

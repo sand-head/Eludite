@@ -812,6 +812,17 @@ impl Shell {
                 self.update_error_list(cx);
             }
             SessionEvent::Diagnostics(params) => self.on_diagnostics(params, cx),
+            SessionEvent::ApplyEdit { id, .. } => {
+                // Wired to the workspace-edit applier next; until then nothing is applied.
+                self.session.respond_apply_edit(
+                    id,
+                    lsp::ApplyWorkspaceEditResult {
+                        applied: false,
+                        failure_reason: Some("the shell cannot apply workspace edits yet".into()),
+                        failed_change: None,
+                    },
+                );
+            }
             SessionEvent::Closed => {
                 self.solution = None;
                 self.solution_state = None;
