@@ -74,6 +74,10 @@ pub enum EditorEvent {
     GoToDefinition {
         offset: usize,
     },
+    /// The light bulb in the margin of `row` was clicked (brief 0015): the owner opens its menu.
+    LightbulbClicked {
+        row: u32,
+    },
 }
 
 /// Where the shown completion items come from.
