@@ -24,7 +24,7 @@ use gpui::{
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-use super::documents::{DIAGNOSTICS_LAYER, DIDCHANGE_DEBOUNCE, path_to_uri};
+use super::documents::{DIAGNOSTICS_LAYER, DIDCHANGE_DEBOUNCE, normalize_path, path_to_uri};
 use super::explorer::row_selector;
 use super::session::HostLaunch;
 use super::{SOLUTION_SLOT, Shell};
@@ -310,7 +310,7 @@ fn open_solution_edit_diagnostics_and_error_list(cx: &mut TestAppContext) {
 
     // Double-click opens the file through the bus; the host gets didOpen.
     let program = w.path("src/App/Program.cs");
-    let id = program.to_string_lossy().into_owned();
+    let id = normalize_path(&program).to_string_lossy().into_owned();
     let uri = path_to_uri(&program);
     w.double_click(&row_selector(&format!(
         "{}|Program.cs",
@@ -599,14 +599,14 @@ fn agents_open_save_and_find_from_another_thread(cx: &mut TestAppContext) {
     let (open, find, missing) = agent.join().unwrap();
     assert_eq!(
         open,
-        json!({"path": program.to_string_lossy(), "already_open": false})
+        json!({"path": normalize_path(&program).to_string_lossy(), "already_open": false})
     );
     // Relative paths resolve against the solution directory; the file is opened at line 3.
     let view = w.editor(&program);
     // Find selected "Main" (case-insensitive) on line 3, column 17.
     assert_eq!(
         find,
-        json!({"path": program.to_string_lossy(), "found": true, "line": 3, "column": 17})
+        json!({"path": normalize_path(&program).to_string_lossy(), "found": true, "line": 3, "column": 17})
     );
     assert_eq!(
         view.read_with(&w.vcx, |v, _| v.editor().selected_text()),

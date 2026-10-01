@@ -407,9 +407,10 @@ impl Shell {
     /// The editor of the open document at `path`.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn editor(&self, path: &Path) -> Option<Entity<EditorView>> {
+        let id = documents::normalize_path(path);
         self.views
             .borrow()
-            .get(path.to_string_lossy().as_ref())
+            .get(id.to_string_lossy().as_ref())
             .cloned()
     }
 
