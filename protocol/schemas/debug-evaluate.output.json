@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-evaluate.output.json",
+  "title": "eludite.debug.evaluate output",
+  "description": "The value of an expression, or why it could not be evaluated.",
+  "type": "object",
+  "required": [
+    "expression",
+    "state",
+    "stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "expression": {
+      "type": "string"
+    },
+    "state": {
+      "description": "`done`: evaluated (see `result`). `pending`: the adapter has not answered yet (only from the UI, which shows the answer when it arrives). `failed`: see `message`.",
+      "enum": [
+        "done",
+        "pending",
+        "failed"
+      ]
+    },
+    "result": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "reference": {
+      "description": "Non-zero when the result has members.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "children": {
+      "description": "With `expand`: the result's members.",
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "reference"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "description": "Non-zero when the value has members; expand it by evaluating `evaluate_name` with `expand: true`.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluate_name": {
+            "description": "An expression that evaluates to this value.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "message": {
+      "description": "Why it failed (for example the debugger's compile error).",
+      "type": "string"
+    },
+    "stop": {
+      "description": "The stop the value was computed in.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

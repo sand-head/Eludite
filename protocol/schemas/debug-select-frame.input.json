@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-select-frame.input.json",
+  "title": "eludite.debug.select_frame input",
+  "description": "Select a thread (the Threads window) or a stack frame (the Call Stack window, Visual Studio's Switch To Frame): Locals, Watch values and data tips then use that frame. Refused unless the debuggee is in break mode.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "description": "A thread id from `threads`. Default: the selected thread.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "frame": {
+      "description": "Index in the thread's call stack (0 is the top). Default: 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

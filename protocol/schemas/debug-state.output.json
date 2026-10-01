@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-state.output.json",
+  "title": "eludite.debug output",
+  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows and the status bar show it. Every eludite.debug command but evaluate answers with it.",
+  "type": "object",
+  "required": [
+    "mode",
+    "generation",
+    "stop",
+    "threads",
+    "frames",
+    "locals",
+    "watches",
+    "breakpoints",
+    "exceptions",
+    "console"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "description": "`design`: no session. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
+      "enum": [
+        "design",
+        "launching",
+        "running",
+        "break",
+        "stopping",
+        "running_without_debugging"
+      ]
+    },
+    "generation": {
+      "description": "The session generation: it grows with every start. Events and answers of an older session are dropped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "Grows every time the debuggee breaks. Quote it as `stop` in a command to have the command refused if the debuggee moved on since (another driver stepped).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "session": {
+      "type": "object",
+      "required": [
+        "project",
+        "program",
+        "args",
+        "cwd",
+        "debug"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "The project file.",
+          "type": "string"
+        },
+        "program": {
+          "description": "The program run (the built DLL).",
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "profile": {
+          "description": "The launchSettings.json profile used.",
+          "type": "string"
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "adapter": {
+          "description": "The debug adapter's executable and transport.",
+          "type": "string"
+        },
+        "process_id": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "stopped": {
+      "description": "In break mode: why and where.",
+      "type": "object",
+      "required": [
+        "reason",
+        "thread"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "The adapter's reason: `breakpoint`, `step`, `exception`, `pause`, `entry` and others.",
+          "type": "string"
+        },
+        "thread": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": {
+          "type": "string"
+        },
+        "exception": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "description": "The exception type.",
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "break_mode": {
+              "type": "string"
+            }
+          }
+        },
+        "driver": {
+          "description": "Who resumed the debuggee before this stop: `user` or `agent:<name>`.",
+          "type": "string"
+        }
+      }
+    },
+    "threads": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "thread": {
+      "description": "The selected thread.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "frames": {
+      "description": "The selected thread's call stack, top first (at most 200).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "description": "The method, as the Call Stack window shows it.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The source file, when the frame has one.",
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "end_column": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "frame": {
+      "description": "The selected frame's index.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "locals": {
+      "description": "The selected frame's locals, top level (at most 500); expand one with eludite.debug.evaluate and `expand`.",
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "reference"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "description": "Non-zero when the value has members; expand it by evaluating `evaluate_name` with `expand: true`.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluate_name": {
+            "description": "An expression that evaluates to this value.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "watches": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "expression",
+          "reference"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "breakpoints": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "enabled",
+          "verified",
+          "hits"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "verified": {
+            "description": "The adapter bound it to code in the running session.",
+            "type": "boolean"
+          },
+          "condition": {
+            "type": "string"
+          },
+          "hit_condition": {
+            "type": "string"
+          },
+          "hits": {
+            "description": "Times it was reached in this session.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "description": "Why it is not bound, from the adapter.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exceptions": {
+      "type": "object",
+      "required": [
+        "break_when_thrown",
+        "break_when_user_unhandled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "break_when_thrown": {
+          "type": "boolean"
+        },
+        "break_when_user_unhandled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "console": {
+      "description": "The Debug Console: how many lines it holds and the last ones (at most 20).",
+      "type": "object",
+      "required": [
+        "lines",
+        "tail"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tail": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "last_driver": {
+      "description": "Who issued the last command that changed the session: `user` or `agent:<name>`.",
+      "type": "string"
+    },
+    "message": {
+      "description": "The last error or notice (for example why the adapter could not start).",
+      "type": "string"
+    }
+  }
+}
