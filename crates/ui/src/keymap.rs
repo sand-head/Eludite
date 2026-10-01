@@ -76,6 +76,14 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             "eludite.editor.signature_help",
         ),
         command("ctrl-k ctrl-i", "Ctrl+K, Ctrl+I", "eludite.editor.hover"),
+        // Navigation (brief 0014): Edit.GoToDefinition, Edit.FindAllReferences, View.NavigateBackward and
+        // View.NavigateForward.
+        command("f12", "F12", "eludite.editor.go_to_definition"),
+        command("shift-f12", "Shift+F12", "eludite.editor.find_references"),
+        command("ctrl--", "Ctrl+-", "eludite.navigation.back"),
+        command("ctrl-shift--", "Ctrl+Shift+-", "eludite.navigation.forward"),
+        // The same keys where the layout reports Shift+- as `_`.
+        command("ctrl-_", "Ctrl+Shift+-", "eludite.navigation.forward"),
     ]
 }
 
@@ -159,6 +167,22 @@ mod tests {
         assert_eq!(
             shortcut_for(&k, "eludite.editor.hover", &json!({})),
             Some("Ctrl+K, Ctrl+I")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.go_to_definition", &json!({})),
+            Some("F12")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.find_references", &json!({})),
+            Some("Shift+F12")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.navigation.back", &json!({})),
+            Some("Ctrl+-")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.navigation.forward", &json!({})),
+            Some("Ctrl+Shift+-")
         );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();
