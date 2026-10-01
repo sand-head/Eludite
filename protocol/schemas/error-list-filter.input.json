@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/error-list-filter.input.json",
+  "title": "eludite.error_list.filter input",
+  "description": "Filter the Error List as its toolbar does: the Errors, Warnings and Messages toggle buttons, the project dropdown and the search box (code and description, case-insensitive). Omitted members keep their current value. Filtering is local and instant; it changes what the window shows, never what diagnostics.list returns.",
+  "type": "object",
+  "properties": {
+    "errors": {
+      "description": "Show errors.",
+      "type": "boolean"
+    },
+    "warnings": {
+      "description": "Show warnings.",
+      "type": "boolean"
+    },
+    "messages": {
+      "description": "Show messages.",
+      "type": "boolean"
+    },
+    "project": {
+      "description": "Show only this project's rows, by its Solution Explorer name; null or an empty string shows every project.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "text": {
+      "description": "Show only rows whose code or description contains this text (case-insensitive); empty shows all.",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

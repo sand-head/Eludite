@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-find-references.output.json",
+  "title": "eludite.editor.find_references output",
+  "description": "The Find All References window's contents. From the UI thread this is the state right after the request was sent, usually `loading`; from another thread (an agent) the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state",
+    "symbol",
+    "total",
+    "references"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document the search started in.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line the search started at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column the search started at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server (or reading the lines of the results); `done`: the window shows the results; `failed`: the request failed.",
+      "enum": [
+        "loading",
+        "done",
+        "failed"
+      ]
+    },
+    "symbol": {
+      "description": "The name searched for, as the window's title shows it.",
+      "type": "string"
+    },
+    "total": {
+      "description": "Number of references found.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "references": {
+      "description": "The references in display order (project, then file, then position); at most 1000.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "column",
+          "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "description": "The project the file belongs to, as Solution Explorer names it; absent for a file outside the solution.",
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based column.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "description": "The line's text, without leading and trailing white space.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "message": {
+      "description": "Why `failed`.",
+      "type": "string"
+    }
+  }
+}
