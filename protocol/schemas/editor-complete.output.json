@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-complete.output.json",
+  "title": "eludite.editor.complete output",
+  "description": "The completion list as the editor shows it. Called from the UI thread (keys, typing) this is the state right after the request was sent, usually `loading`; called from another thread (an agent) the call waits up to 5 s for the list.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state",
+    "filter",
+    "total",
+    "items"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server (or the syntax tree); `open`: the list is shown; `closed`: nothing to show (no items, or nothing matches the typed text).",
+      "enum": [
+        "loading",
+        "open",
+        "closed"
+      ]
+    },
+    "source": {
+      "description": "Where the shown items come from: the language server, or the identifiers of the document's syntax tree (the fallback while the server is starting or the solution is loading).",
+      "enum": [
+        "languageServer",
+        "syntax"
+      ]
+    },
+    "filter": {
+      "description": "The text typed since the start of the word, which filters the list (fuzzy).",
+      "type": "string"
+    },
+    "total": {
+      "description": "Number of items that match `filter`.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "selected": {
+      "description": "Label of the selected item.",
+      "type": "string"
+    },
+    "items": {
+      "description": "The first 100 matching items in display order.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "label",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "LSP CompletionItemKind name in snake case (`method`, `property`, `class`, ...); `text` for syntax-tree identifiers.",
+            "type": "string",
+            "minLength": 1
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

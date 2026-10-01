@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-complete.input.json",
+  "title": "eludite.editor.complete input",
+  "description": "Show the IntelliSense completion list at the caret (Edit > IntelliSense > Complete Word, Ctrl+Space; typing an identifier character, '.', '(' or '<' runs it with `trigger`). The list comes from the language server; while the server is starting or the solution is loading, from the identifiers in the document's syntax tree, marked as such, until the server answers. A new call cancels the previous request for the document; a result for an older document version or solution generation is dropped.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line to move the caret to first.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) to move the caret to first; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "trigger": {
+      "description": "The character just typed that triggered completion. Omit for an explicit request (Ctrl+Space).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4
+    }
+  },
+  "additionalProperties": false
+}

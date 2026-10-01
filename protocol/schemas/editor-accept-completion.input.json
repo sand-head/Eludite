@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-accept-completion.input.json",
+  "title": "eludite.editor.accept_completion input",
+  "description": "Commit an item of the open completion list (Tab, or Enter on a selected item): applies the item's text edit, or inserts its text over the word typed so far. Snippet placeholders are inserted as plain text.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "label": {
+      "description": "Commit the matching item with this label instead of the selected one.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

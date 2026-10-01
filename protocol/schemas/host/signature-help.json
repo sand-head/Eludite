@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/signature-help.json",
+  "title": "textDocument/signatureHelp",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::SignatureHelpRequest). Only the members Eludite reads are listed; the others pass through unchanged. Params carry eluditeGeneration like every forwarded request (forwarded-request.json). Parameter labels are strings unless the client advertises labelOffsetSupport, which the host does not (host-rpc.md, \"LSP client capabilities the host advertises\"), but both forms are accepted.",
+  "x-eludite-method": "textDocument/signatureHelp",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "position",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "triggerKind",
+            "isRetrigger"
+          ],
+          "properties": {
+            "triggerKind": {
+              "description": "1 invoked, 2 trigger character, 3 content change.",
+              "enum": [
+                1,
+                2,
+                3
+              ]
+            },
+            "triggerCharacter": {
+              "type": "string"
+            },
+            "isRetrigger": {
+              "type": "boolean"
+            },
+            "activeSignatureHelp": {
+              "$ref": "#/$defs/signatureHelp"
+            }
+          }
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "SignatureHelp, or null when there is no call around the position.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "signatures"
+      ],
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signatureInformation"
+          }
+        },
+        "activeSignature": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeParameter": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "signatureHelp": {
+      "type": "object",
+      "required": [
+        "signatures"
+      ],
+      "properties": {
+        "signatures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/signatureInformation"
+          }
+        },
+        "activeSignature": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "activeParameter": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "signatureInformation": {
+      "type": "object",
+      "required": [
+        "label"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "documentation": {
+          "description": "A string or a MarkupContent.",
+          "type": [
+            "string",
+            "object"
+          ]
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label"
+            ],
+            "properties": {
+              "label": {
+                "description": "A substring of the signature label, or [start, end) UTF-16 offsets into it.",
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "maxItems": 2
+              },
+              "documentation": {
+                "type": [
+                  "string",
+                  "object"
+                ]
+              }
+            }
+          }
+        },
+        "activeParameter": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "character": {
+          "description": "UTF-16 code units.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
