@@ -25,8 +25,8 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use eludite_editor::Buffer;
 use eludite_editor::text::{self, Anchor, PointUtf16, TransactionId, Unclipped};
+use eludite_editor::{Buffer, LineEnding};
 use eludite_lsp::lsp;
 use gpui::{AppContext as _, Context, Window};
 use serde_json::json;
@@ -216,6 +216,8 @@ enum Entry {
 /// The files `steps` touch, as they will be: a model over the disk.
 struct Model {
     entries: BTreeMap<PathBuf, Entry>,
+    /// Files this apply creates: their line ending follows the text written, not the platform.
+    created: BTreeSet<PathBuf>,
 }
 
 impl Model {
@@ -260,21 +262,42 @@ impl Model {
     }
 }
 
+/// The caller's expected version for a document, with the key normalized like document ids are,
+/// so an agent may pass the path in any separator form.
+fn version_option(versions: &HashMap<String, i32>, id: &str) -> Option<i32> {
+    versions
+        .iter()
+        .find(|(k, _)| normalize_path(Path::new(k)).to_string_lossy() == id)
+        .map(|(_, v)| *v)
+}
+
 /// Apply `steps` (closed files and resource operations) to a model of the files, then write the result
 /// atomically. Nothing on disk changes unless every step succeeds and every new content was written to its temporary
 /// file. Runs off the UI thread.
 pub fn apply_on_disk(steps: &[Step]) -> Result<DiskOutcome, String> {
     let mut model = Model {
         entries: BTreeMap::new(),
+        created: BTreeSet::new(),
     };
     let mut out = DiskOutcome::default();
     for step in steps {
         match step {
             Step::Text { path, edits, .. } => {
+                let is_created = model.created.contains(path);
                 let buffer = model.load(path)?;
                 let ranges = resolve_edits(buffer.snapshot(), edits)
                     .map_err(|e| format!("{}: {e}", path.display()))?;
                 out.edits += ranges.len();
+                if is_created {
+                    // A new file takes the ending of the text the server wrote, not the
+                    // platform's: an LF edit must not become a CRLF file on Windows.
+                    let crlf = edits.iter().any(|e| e.new_text.contains("\r\n"));
+                    buffer.set_line_ending(if crlf {
+                        LineEnding::CrLf
+                    } else {
+                        LineEnding::Lf
+                    });
+                }
                 buffer.edit(ranges);
                 if let Some(Entry::File { dirty, .. }) = model.entries.get_mut(path) {
                     *dirty = true;
@@ -292,6 +315,7 @@ pub fn apply_on_disk(steps: &[Step]) -> Result<DiskOutcome, String> {
                     return Err(format!("{} already exists", path.display()));
                 }
                 model.put(path, Box::new(Buffer::new("")));
+                model.created.insert(path.clone());
                 out.created += 1;
             }
             Step::Rename {
@@ -699,7 +723,7 @@ impl Shell {
             if doc.read_only {
                 return Err(format!("{id} is read-only"));
             }
-            for expected in [*version, options.versions.get(&id).copied()]
+            for expected in [*version, version_option(&options.versions, &id)]
                 .into_iter()
                 .flatten()
             {
