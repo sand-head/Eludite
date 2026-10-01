@@ -70,6 +70,7 @@ pub fn spec() -> CommandSpec {
         input_schema: parse_schema(INPUT_SCHEMA),
         output_schema: parse_schema(OUTPUT_SCHEMA),
         permission: PermissionClass::Read,
+        agent_visible: true,
     }
 }
 

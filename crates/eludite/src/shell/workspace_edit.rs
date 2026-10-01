@@ -496,6 +496,18 @@ pub struct ApplySummary {
 }
 
 impl ApplySummary {
+    /// Held for review as pending changes `ids` (an agent's edit, brief 0016): nothing applied yet.
+    pub fn held(ids: &[u64]) -> Self {
+        Self::refused(format!(
+            "held for review as pending change{} {}",
+            if ids.len() == 1 { "" } else { "s" },
+            ids.iter()
+                .map(|i| format!("#{i}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    }
+
     pub fn refused(message: impl Into<String>) -> Self {
         Self {
             message: Some(message.into()),
@@ -526,6 +538,13 @@ impl ApplySummary {
 
     /// The status bar text.
     pub fn status_text(&self, label: Option<&str>) -> String {
+        if let Some(m) = self
+            .message
+            .as_deref()
+            .filter(|m| m.starts_with("held for review"))
+        {
+            return format!("{}: {m}", label.unwrap_or("The edit"));
+        }
         if !self.applied {
             return format!(
                 "{} was not applied: {}",
@@ -630,6 +649,16 @@ impl Shell {
         done: ApplyDone,
     ) {
         let started = std::time::Instant::now();
+        // An agent's edit command: hold the edit as pending changes instead (brief 0016).
+        if let Some(caller) = self.capture_next.take() {
+            let summary = match self.capture_edit(edit, &options, &caller, window, cx) {
+                Ok(ids) => ApplySummary::held(&ids),
+                Err(e) => ApplySummary::refused(e),
+            };
+            self.report_apply(&options, &summary, started);
+            done(self, summary, window, cx);
+            return;
+        }
         match self.prepare_workspace_edit(edit, &options) {
             Err(message) => {
                 trace(format_args!("workspace edit refused: {message}"));

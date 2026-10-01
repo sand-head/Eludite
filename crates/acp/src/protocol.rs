@@ -308,6 +308,45 @@ impl ToolCall {
     }
 }
 
+/// A file change an agent's tool call carries (`ToolCallContent` of type `diff`): the agent's own file tools show
+/// what they will write this way.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolDiff {
+    pub path: String,
+    /// `None` for a new file.
+    pub old_text: Option<String>,
+    pub new_text: String,
+}
+
+impl ToolCall {
+    /// The `diff` items of `content`.
+    pub fn diffs(&self) -> Vec<ToolDiff> {
+        self.content
+            .iter()
+            .flatten()
+            .filter(|c| c.get("type").and_then(Value::as_str) == Some("diff"))
+            .filter_map(|c| {
+                Some(ToolDiff {
+                    path: c.get("path")?.as_str()?.to_owned(),
+                    old_text: c.get("oldText").and_then(Value::as_str).map(str::to_owned),
+                    new_text: c.get("newText")?.as_str()?.to_owned(),
+                })
+            })
+            .collect()
+    }
+}
+
+/// One entry of a `plan` update.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanEntry {
+    pub content: String,
+    #[serde(default)]
+    pub priority: String,
+    /// `pending`, `in_progress` or `completed`.
+    #[serde(default)]
+    pub status: String,
+}
+
 /// One `session/update` payload.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionUpdate {
@@ -322,6 +361,18 @@ pub enum SessionUpdate {
         kind: String,
         raw: Value,
     },
+}
+
+impl SessionUpdate {
+    /// The entries of a `plan` update (kept as [`SessionUpdate::Other`] so new fields never break decoding).
+    pub fn plan_entries(&self) -> Option<Vec<PlanEntry>> {
+        match self {
+            SessionUpdate::Other { kind, raw } if kind == "plan" => {
+                serde_json::from_value(raw.get("entries")?.clone()).ok()
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for SessionUpdate {

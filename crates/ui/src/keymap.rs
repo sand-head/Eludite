@@ -57,6 +57,8 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         show("ctrl-\\ ctrl-e", "Ctrl+\\, Ctrl+E", "error_list"),
         show("f4", "F4", "properties"),
         show("ctrl-0 ctrl-g", "Ctrl+0, Ctrl+G", "git_changes"),
+        // The Agents window (brief 0016), on Visual Studio's chat window chord (View.GitHub.Copilot.Chat).
+        show("ctrl-\\ ctrl-c", "Ctrl+\\, Ctrl+C", "agents"),
         KeyBindingSpec {
             keystrokes: "shift-escape",
             display: "Shift+Esc",
@@ -153,6 +155,7 @@ mod tests {
         assert_eq!(find("toolbox"), Some("Ctrl+Alt+X"));
         assert_eq!(find("output"), Some("Ctrl+Alt+O"));
         assert_eq!(find("error_list"), Some("Ctrl+\\, Ctrl+E"));
+        assert_eq!(find("agents"), Some("Ctrl+\\, Ctrl+C"));
         assert_eq!(find("nope"), None);
         assert_eq!(
             shortcut_for(&k, "eludite.editor.save", &json!({})),

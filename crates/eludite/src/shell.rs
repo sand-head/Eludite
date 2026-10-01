@@ -1,12 +1,13 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Workspace,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
-//! and the workspace-edit applier (brief 0015).
+//! and the workspace-edit applier (brief 0015), and the Agents window (brief 0016).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
+pub mod agents;
 pub mod code_actions;
 pub mod documents;
 pub mod error_list;
@@ -88,6 +89,12 @@ pub struct Services {
     pub jobs: UnboundedReceiver<UiJob>,
     /// The Error List rows `diagnostics.list` reads, on any thread.
     pub published: Arc<Mutex<Vec<ListedDiagnostic>>>,
+    /// Where the Agents window's agents come from.
+    pub agents: agents::AgentsSetup,
+    /// `eludite.agents.*` from other threads, for the UI thread to apply.
+    pub agent_jobs: UnboundedReceiver<agents::AgentsJob>,
+    /// What `eludite.solution.tree` reads, on any thread.
+    pub tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
@@ -110,11 +117,34 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         Arc::new(move || source.lock().unwrap_or_else(|e| e.into_inner()).clone()),
     )
     .expect("diagnostics.list registers once");
+    let tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>> = Arc::default();
+    let tree_source = tree.clone();
+    eludite_commands::solution::register(
+        commands,
+        Arc::new(move || {
+            tree_source
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        }),
+    )
+    .expect("eludite.solution.tree registers once");
+    let (agent_jobs_tx, agent_jobs) = unbounded();
+    eludite_commands::agents::register(
+        commands,
+        Arc::new(agents::AgentsBus {
+            ui_thread: std::thread::current().id(),
+            jobs: agent_jobs_tx,
+        }),
+    );
     Services {
         session,
         events,
         jobs,
         published,
+        agents: agents::AgentsSetup::from_env(),
+        agent_jobs,
+        tree,
     }
 }
 
@@ -182,6 +212,12 @@ pub struct Shell {
     code_actions: code_actions::CodeActions,
     /// The last `eludite.workspace.apply_edit` (state, summary).
     apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
+    /// The Agents window and its sessions (brief 0016).
+    agents: agents::Agents,
+    /// An agent's edit command is running: the applier's next edit is held as pending changes for review.
+    capture_next: Option<eludite_commands::Caller>,
+    /// What `eludite.solution.tree` returns.
+    tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -190,6 +226,7 @@ fn tool_body(
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
     references: Entity<ReferencesWindow>,
+    agents: Entity<agents::window::AgentsWindow>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -205,6 +242,10 @@ fn tool_body(
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
+        ids::AGENTS => agents
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
         // Titled empty panels until later briefs fill them.
         _ => div().into_any_element(),
     }
@@ -212,10 +253,24 @@ fn tool_body(
 
 fn document_body(
     views: Rc<RefCell<HashMap<String, Entity<EditorView>>>>,
+    reviews: agents::Reviews,
+    gutters: agents::Gutters,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
         if let Some(view) = views.borrow().get(&tab.id) {
+            // An agent's pending change marks the lines it touches in the gutter (brief 0016).
+            if let Some(marks) = gutters.borrow().get(&tab.id) {
+                return div()
+                    .relative()
+                    .size_full()
+                    .child(view.clone())
+                    .child(marks.clone())
+                    .into_any_element();
+            }
             return view.clone().into_any_element();
+        }
+        if let Some(review) = reviews.borrow().get(&tab.id) {
+            return review.clone().into_any_element();
         }
         let text = if tab.id == WELCOME {
             "Open a solution with File > Open > Project/Solution (Ctrl+Shift+O)."
@@ -255,6 +310,16 @@ impl Shell {
         let error_list = cx.new(|cx| ErrorList::new(theme, cx));
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
+        let Services {
+            session,
+            mut events,
+            mut jobs,
+            published,
+            agents: agents_setup,
+            mut agent_jobs,
+            tree,
+        } = services;
+        let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
@@ -264,8 +329,13 @@ impl Shell {
                     explorer.clone(),
                     error_list.clone(),
                     references_window.clone(),
+                    agents.window.clone(),
                 )),
-                Rc::new(document_body(views.clone())),
+                Rc::new(document_body(
+                    views.clone(),
+                    agents.reviews.clone(),
+                    agents.gutters.clone(),
+                )),
                 persistence,
                 cx,
             )
@@ -283,9 +353,12 @@ impl Shell {
             },
         )
         .detach();
+        cx.subscribe_in(&agents.window, window, Self::on_agents_window_event)
+            .detach();
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
+        status.add_slot(agents::AGENTS_SLOT, SlotAlign::Right);
         // The status bar reads the version through the command bus, like an agent would.
         let version = commands
             .invoke(builtins::ABOUT, json!({}))
@@ -294,12 +367,6 @@ impl Shell {
             .unwrap_or_else(|| builtins::VERSION.to_owned());
         status.set(slots::VERSION, format!("Eludite {version}"));
 
-        let Services {
-            session,
-            mut events,
-            mut jobs,
-            published,
-        } = services;
         let event_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(event) = events.next().await {
                 if this
@@ -314,7 +381,15 @@ impl Shell {
         });
         let job_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(job) = jobs.next().await {
-                let UiJob { request, reply } = job;
+                let UiJob {
+                    request,
+                    reply,
+                    caller,
+                } = job;
+                // An agent's edit through the applier is held for review (brief 0016).
+                let _ = this.update(cx, |shell, _| {
+                    shell.capture_next = shell.reviews_edit(&request, &caller).then_some(caller);
+                });
                 // An agent may name a file it opened a moment ago: wait until it is loaded.
                 if let Ok(Some(loaded)) = this.update(cx, |shell, _| shell.wait_for_load(&request))
                 {
@@ -343,7 +418,38 @@ impl Shell {
                         _ => break,
                     }
                 }
+                let _ = this.update(cx, |shell, _| shell.capture_next = None);
                 let _ = reply.send(outcome);
+            }
+        });
+        // `eludite.agents.*` from other threads (an outer agent).
+        let agent_job_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = agent_jobs.next().await {
+                let agents::AgentsJob { request, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply_agents(request, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
+        // Agent events arrive from the agents' threads; everything queued is applied as one batch, so a burst of
+        // streamed chunks costs one frame.
+        let agent_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(first) = agent_msgs.next().await {
+                let mut batch = vec![first];
+                while let Ok(more) = agent_msgs.try_recv() {
+                    batch.push(more);
+                }
+                if this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.on_agent_batch(batch, window, cx)
+                    })
+                    .is_err()
+                {
+                    break;
+                }
             }
         });
         Self {
@@ -379,8 +485,11 @@ impl Shell {
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
             apply_edit: None,
+            agents,
+            capture_next: None,
+            tree,
             timings: Timings::default(),
-            _tasks: vec![event_task, job_task],
+            _tasks: vec![event_task, job_task, agent_task, agent_job_task],
         }
     }
 
@@ -509,6 +618,12 @@ impl Shell {
         if ui_bound && let Ok(request) = workspace::parse(command, args.clone()) {
             let outcome = self.apply(request, window, cx);
             target::stage(outcome);
+        }
+        if eludite_commands::agents::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::agents::parse(command, args.clone())
+        {
+            let outcome = self.apply_agents(request, window, cx);
+            agents::stage(outcome);
         }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
@@ -846,6 +961,7 @@ impl Shell {
                     return;
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
+                self.publish_tree(&tree);
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
@@ -876,6 +992,7 @@ impl Shell {
                 params,
             } => self.on_host_apply_edit(id, generation, params, window, cx),
             SessionEvent::Closed => {
+                *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
                 self.solution_state = None;
                 self.diagnostics.clear();
@@ -929,6 +1046,37 @@ impl Shell {
             self.diagnostics.insert(params.uri, params.diagnostics);
         }
         self.update_error_list(cx);
+    }
+
+    /// What `eludite.solution.tree` returns from now on.
+    fn publish_tree(&mut self, tree: &eludite_lsp::host::SolutionTree) {
+        use eludite_commands::solution::{SolutionTreeOutput, TreeProject};
+        let state = match self.solution_state {
+            Some(SolutionState::Failed) => "failed",
+            Some(SolutionState::Loaded) => "loaded",
+            _ => "loading",
+        };
+        let out = SolutionTreeOutput {
+            path: tree.path.clone(),
+            state: if tree.path.is_some() { state } else { "none" }.into(),
+            projects: tree
+                .projects
+                .iter()
+                .map(|p| TreeProject {
+                    name: p.name.clone(),
+                    path: p.path.clone(),
+                    kind: match p.kind {
+                        eludite_lsp::host::TreeProjectKind::Sdk => "sdk",
+                        eludite_lsp::host::TreeProjectKind::Legacy => "legacy",
+                    }
+                    .into(),
+                    target_frameworks: p.target_frameworks.clone(),
+                    files: p.files.iter().map(|f| f.path.clone()).collect(),
+                    error: p.error.clone(),
+                })
+                .collect(),
+        };
+        *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = out;
     }
 
     /// Rebuild the Error List rows and what `diagnostics.list` returns.

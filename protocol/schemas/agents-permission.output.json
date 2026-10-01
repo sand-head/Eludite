@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-permission.output.json",
+  "title": "eludite.agents.permission output",
+  "description": "The answered request.",
+  "type": "object",
+  "required": [
+    "request",
+    "decision",
+    "tool",
+    "class",
+    "persisted"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "request": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "always_allow",
+        "deny"
+      ]
+    },
+    "tool": {
+      "description": "The tool as the agent names it (for example `Bash` or `mcp__eludite__eludite-solution-open`).",
+      "type": "string"
+    },
+    "class": {
+      "description": "The permission class the request was judged by (PLAN.md 5.3).",
+      "enum": [
+        "read",
+        "edit_buffer",
+        "execute",
+        "dangerous"
+      ]
+    },
+    "persisted": {
+      "description": "True when an always-allow rule was written to the policy file.",
+      "type": "boolean"
+    },
+    "policy_path": {
+      "description": "The policy file written, when `persisted`.",
+      "type": "string"
+    }
+  }
+}

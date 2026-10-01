@@ -8,7 +8,9 @@ use eludite_commands::{CommandId, CommandRegistry, CommandSpec, PermissionClass,
 use serde_json::{Value, json};
 
 use crate::transport::{listen_local, relay, serve_lines};
-use crate::{McpServer, Message, Request, Response, ToolCallRecord, jsonrpc::ResponsePayload};
+use crate::{
+    GateDecision, McpServer, Message, Request, Response, ToolCallRecord, jsonrpc::ResponsePayload,
+};
 
 /// The subset of JSON Schema 2020-12 our schemas use: `type`, `enum`, `const`,
 /// `properties`, `required`, `additionalProperties: false`, `items`,
@@ -98,7 +100,7 @@ fn diag_id() -> CommandId {
 }
 
 fn server() -> McpServer {
-    McpServer::new(registry(), [diag_id()])
+    McpServer::new(registry()).with_only([diag_id()])
 }
 
 fn call(server: &McpServer, method: &str, params: Value) -> Response {
@@ -153,7 +155,7 @@ fn initialize_negotiates_version() {
         json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}),
     ));
     assert_eq!(r["protocolVersion"], "2025-06-18");
-    assert_eq!(r["capabilities"]["tools"]["listChanged"], false);
+    assert_eq!(r["capabilities"]["tools"]["listChanged"], true);
     assert_eq!(r["serverInfo"]["name"], "eludite");
     let r = result(call(
         &s,
@@ -198,10 +200,10 @@ fn call_returns_fixture_matching_schema() {
     assert_eq!(rows, &serde_json::to_value(diagnostics::fixture()).unwrap());
 
     // The command's own schema (protocol/) and the MCP-wrapped one both hold.
-    let spec: &CommandSpec = s.registry().lookup(DIAGNOSTICS_LIST).unwrap();
+    let spec: CommandSpec = s.registry().lookup(DIAGNOSTICS_LIST).unwrap();
     let errs = validate(&spec.output_schema, rows);
     assert!(errs.is_empty(), "{errs:?}");
-    let tool = crate::tool_from_command(spec);
+    let tool = crate::tool_from_command(&spec);
     assert!(validate(&tool.output_schema, &out["structuredContent"]).is_empty());
     // The text block carries the same JSON for clients without structured output.
     let text: Value = serde_json::from_str(out["content"][0]["text"].as_str().unwrap()).unwrap();
@@ -261,7 +263,7 @@ fn bad_calls() {
 
 #[test]
 fn non_read_commands_need_the_gate() {
-    let mut r = CommandRegistry::new();
+    let r = CommandRegistry::new();
     let id = CommandId::new("build.solution").unwrap();
     r.register(
         CommandSpec {
@@ -270,12 +272,13 @@ fn non_read_commands_need_the_gate() {
             input_schema: json!({"type": "object", "properties": {}}),
             output_schema: json!({"type": "object", "properties": {"ok": {"type": "boolean"}}}),
             permission: PermissionClass::Execute,
+            agent_visible: true,
         },
         |_| Ok(json!({"ok": true})),
     )
     .unwrap();
     let r = Arc::new(r);
-    let denied = McpServer::new(r.clone(), [id.clone()]);
+    let denied = McpServer::new(r.clone());
     let out = result(call(
         &denied,
         "tools/call",
@@ -291,17 +294,34 @@ fn non_read_commands_need_the_gate() {
 
     let asked = Arc::new(Mutex::new(Vec::new()));
     let asked2 = asked.clone();
-    let allowed = McpServer::new(r, [id]).with_permission_gate(Arc::new(move |spec, _| {
-        asked2.lock().unwrap().push(spec.id.to_string());
-        true
-    }));
+    let allowed = McpServer::new(r.clone())
+        .with_agent("Fake")
+        .with_permission_gate(Arc::new(move |spec, _, ctx| {
+            asked2
+                .lock()
+                .unwrap()
+                .push((spec.id.to_string(), ctx.clone()));
+            GateDecision::Allow
+        }));
     let out = result(call(
         &allowed,
         "tools/call",
         json!({"name": "build-solution", "arguments": {}}),
     ));
     assert_eq!(out["structuredContent"], json!({"ok": true}));
-    assert_eq!(*asked.lock().unwrap(), ["build.solution"]);
+    let asked = asked.lock().unwrap();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].0, "build.solution");
+    assert_eq!(asked[0].1.agent, "Fake");
+    // Both calls are audited as the agent's, the denied one with the reason.
+    let audit = r.audit_log().entries();
+    assert_eq!(audit.len(), 2);
+    assert!(audit.iter().all(|e| e.caller.is_agent()));
+    assert!(
+        matches!(&audit[0].outcome, eludite_commands::Outcome::Err(m) if m.contains("permission denied"))
+    );
+    assert!(audit[1].is_ok());
+    assert_eq!(audit[1].caller.call(), Some(asked[0].1.call));
 }
 
 #[test]
@@ -309,7 +329,7 @@ fn read_never_reaches_gate_and_is_audited() {
     let records: Arc<Mutex<Vec<ToolCallRecord>>> = Arc::default();
     let rec2 = records.clone();
     let s = server()
-        .with_permission_gate(Arc::new(|_, _| panic!("read must not prompt")))
+        .with_permission_gate(Arc::new(|_, _, _| panic!("read must not prompt")))
         .with_observer(Arc::new(move |r| rec2.lock().unwrap().push(r.clone())));
     result(call(
         &s,
@@ -398,4 +418,256 @@ fn local_endpoint_rejects_wrong_token() {
     )
     .unwrap();
     assert!(out.is_empty(), "{}", String::from_utf8_lossy(&out));
+}
+
+// MCP conformance (brief 0016): the tool list is the bus's agent-visible commands, every descriptor follows
+// `protocol/schemas/mcp-tool.json`, every command spec `command-spec.json`, and a command registered at runtime
+// appears on the next list with a `notifications/tools/list_changed` first.
+
+const MCP_TOOL_SCHEMA: &str = include_str!("../../../protocol/schemas/mcp-tool.json");
+const COMMAND_SPEC_SCHEMA: &str = include_str!("../../../protocol/schemas/command-spec.json");
+
+struct NoWorkspace;
+
+impl eludite_commands::workspace::WorkspaceTarget for NoWorkspace {
+    fn apply(
+        &self,
+        _: eludite_commands::workspace::WorkspaceRequest,
+    ) -> Result<eludite_commands::workspace::WorkspaceOutput, eludite_commands::CommandError> {
+        Err(eludite_commands::CommandError::Failed(
+            "no workspace".into(),
+        ))
+    }
+}
+
+/// The shell's bus without the shell: built-ins, `diagnostics.list`, the workspace commands and the view commands.
+fn full_registry() -> Arc<CommandRegistry> {
+    let mut r = builtins::default_registry();
+    diagnostics::register(&mut r, Arc::new(diagnostics::fixture)).unwrap();
+    eludite_commands::workspace::register(&mut r, Arc::new(NoWorkspace));
+    for id in eludite_commands::view::ALL {
+        r.register(eludite_commands::view::spec(id), |_| Ok(json!({})))
+            .unwrap();
+    }
+    Arc::new(r)
+}
+
+fn tool_names(list: &Value) -> Vec<String> {
+    list["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn tools_list_reflects_the_bus_and_follows_the_schemas() {
+    let r = full_registry();
+    let s = McpServer::new(r.clone());
+    let list = result(call(&s, "tools/list", json!({})));
+    let names = tool_names(&list);
+    let expected: Vec<String> = r
+        .agent_visible()
+        .iter()
+        .map(|spec| crate::tool_name(&spec.id))
+        .collect();
+    assert_eq!(names, expected);
+    for visible in [
+        "diagnostics-list",
+        "eludite-file-open",
+        "eludite-workspace-apply_edit",
+        "eludite-editor-rename",
+        "eludite-editor-code_actions",
+        "eludite-editor-go_to_definition",
+        "eludite-editor-find_references",
+    ] {
+        assert!(names.iter().any(|n| n == visible), "{visible} in {names:?}");
+    }
+    for hidden in [
+        "eludite-view-show",
+        "eludite-view-toggle_tool_window",
+        "eludite-navigation-back",
+        "eludite-error_list-filter",
+    ] {
+        assert!(!names.iter().any(|n| n == hidden), "{hidden} hidden");
+    }
+    // Calling a UI-only command is an unknown tool.
+    assert_eq!(
+        error_code(call(&s, "tools/call", json!({"name": "eludite-view-show"}))),
+        -32602
+    );
+
+    let tool_schema: Value = serde_json::from_str(MCP_TOOL_SCHEMA).unwrap();
+    for t in list["tools"].as_array().unwrap() {
+        let errs = validate(&tool_schema, t);
+        assert!(errs.is_empty(), "{}: {errs:?}", t["name"]);
+        // `pattern` is outside the validator's subset: check the name's form by hand.
+        let name = t["name"].as_str().unwrap();
+        assert!(
+            name.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+                && name.contains('-'),
+            "{name}"
+        );
+        let id = crate::command_id_from_tool_name(name).unwrap();
+        let spec = r.lookup(id.as_str()).unwrap();
+        assert_eq!(t["_meta"]["eludite/permission"], spec.permission.as_str());
+        let mut input = spec.input_schema.clone();
+        input.as_object_mut().unwrap().remove("$schema");
+        input.as_object_mut().unwrap().remove("$id");
+        assert_eq!(t["inputSchema"], input, "{name}");
+        assert_eq!(t["readOnlyHint"], Value::Null);
+        assert_eq!(
+            t["annotations"]["readOnlyHint"],
+            spec.permission == PermissionClass::Read
+        );
+    }
+    let spec_schema: Value = serde_json::from_str(COMMAND_SPEC_SCHEMA).unwrap();
+    for spec in r.list() {
+        let errs = validate(&spec_schema, &serde_json::to_value(&spec).unwrap());
+        assert!(errs.is_empty(), "{}: {errs:?}", spec.id);
+    }
+}
+
+fn read_json_line(reader: &mut impl std::io::BufRead) -> Value {
+    let mut line = String::new();
+    assert!(
+        reader.read_line(&mut line).unwrap() > 0,
+        "connection closed"
+    );
+    serde_json::from_str(&line).unwrap()
+}
+
+#[test]
+fn a_command_registered_at_runtime_appears_on_the_next_list() {
+    use std::io::{BufReader, Write as _};
+    let r = full_registry();
+    let before = r.agent_visible().len();
+    let endpoint = listen_local(Arc::new(McpServer::new(r.clone()))).unwrap();
+    let mut sock = std::net::TcpStream::connect(endpoint.addr).unwrap();
+    sock.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    let mut reader = BufReader::new(sock.try_clone().unwrap());
+    writeln!(sock, "{}", endpoint.token).unwrap();
+    writeln!(
+        sock,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"protocolVersion":"2025-06-18"}}}}"#
+    )
+    .unwrap();
+    assert_eq!(read_json_line(&mut reader)["id"], 1);
+    writeln!(sock, r#"{{"jsonrpc":"2.0","id":2,"method":"tools/list"}}"#).unwrap();
+    let first = read_json_line(&mut reader);
+    assert_eq!(tool_names(&first["result"]).len(), before);
+    assert!(
+        !tool_names(&first["result"])
+            .iter()
+            .any(|n| n == "eludite-test-late")
+    );
+
+    // A command added while the agent is connected: the server says the list changed, and the next list has it.
+    r.register(
+        CommandSpec {
+            id: CommandId::new("eludite.test.late").unwrap(),
+            title: "Test: Late".into(),
+            input_schema: json!({"type": "object", "description": "Added at runtime.", "properties": {}}),
+            output_schema: json!({"type": "object", "properties": {}}),
+            permission: PermissionClass::Read,
+            agent_visible: true,
+        },
+        |_| Ok(json!({})),
+    )
+    .unwrap();
+    let note = read_json_line(&mut reader);
+    assert_eq!(note["method"], "notifications/tools/list_changed");
+    assert!(note.get("id").is_none());
+    writeln!(sock, r#"{{"jsonrpc":"2.0","id":3,"method":"tools/list"}}"#).unwrap();
+    let second = read_json_line(&mut reader);
+    let names = tool_names(&second["result"]);
+    assert_eq!(names.len(), before + 1);
+    assert!(names.iter().any(|n| n == "eludite-test-late"));
+    writeln!(
+        sock,
+        r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"eludite-test-late"}}}}"#
+    )
+    .unwrap();
+    assert_eq!(read_json_line(&mut reader)["result"]["isError"], false);
+}
+
+#[test]
+fn a_waiting_call_does_not_hold_up_the_connection() {
+    use std::io::{BufReader, Write as _};
+    let r = full_registry();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let threads: Arc<Mutex<Vec<String>>> = Arc::default();
+    let threads2 = threads.clone();
+    let server = McpServer::new(r)
+        .with_agent("Fake")
+        .with_permission_gate(Arc::new(move |_, _, _| {
+            // The user takes a while to answer.
+            let _ = release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(10));
+            GateDecision::Deny("the user said no".into())
+        }))
+        .with_observer(Arc::new(move |r| {
+            threads2.lock().unwrap().push(r.thread.clone())
+        }));
+    let endpoint = listen_local(Arc::new(server)).unwrap();
+    let mut sock = std::net::TcpStream::connect(endpoint.addr).unwrap();
+    sock.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    let mut reader = BufReader::new(sock.try_clone().unwrap());
+    writeln!(sock, "{}", endpoint.token).unwrap();
+    // An execute command waits at the gate; a read call sent after it is answered first.
+    writeln!(
+        sock,
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"eludite-solution-open","arguments":{{"path":"/x/A.sln"}}}}}}"#
+    )
+    .unwrap();
+    writeln!(
+        sock,
+        r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"diagnostics-list","arguments":{{}}}}}}"#
+    )
+    .unwrap();
+    let first = read_json_line(&mut reader);
+    assert_eq!(first["id"], 2);
+    assert_eq!(first["result"]["isError"], false);
+    release_tx.send(()).unwrap();
+    let second = read_json_line(&mut reader);
+    assert_eq!(second["id"], 1);
+    assert_eq!(second["result"]["isError"], true);
+    assert!(
+        second["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("the user said no")
+    );
+    assert!(threads.lock().unwrap().iter().all(|t| t == "mcp-call"));
+}
+
+#[test]
+fn the_invoker_runs_allowed_calls_with_the_agents_tool_call_id() {
+    let seen: Arc<Mutex<Vec<crate::CallContext>>> = Arc::default();
+    let seen2 = seen.clone();
+    let s = McpServer::new(registry())
+        .with_agent("Claude Code")
+        .with_invoker(Arc::new(move |spec, args, ctx| {
+            seen2.lock().unwrap().push(ctx.clone());
+            eludite_commands::with_caller(ctx.caller(), || {
+                Ok(json!({"wrapped": spec.id.to_string(), "args": args, "caller": eludite_commands::current_caller()}))
+            })
+        }));
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-help-about", "arguments": {}, "_meta": {"claudecode/toolUseId": "toolu_42"}}),
+    ));
+    assert_eq!(out["structuredContent"]["wrapped"], "eludite.help.about");
+    assert_eq!(out["structuredContent"]["caller"]["kind"], "agent");
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen[0].tool_call.as_deref(), Some("toolu_42"));
+    assert_eq!(seen[0].agent, "Claude Code");
 }

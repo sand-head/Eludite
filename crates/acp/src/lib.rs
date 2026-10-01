@@ -7,8 +7,11 @@
 //! the Node adapter through `npx`.
 //!
 //! Public API: [`AgentDescriptor`], [`default_agents`] and
-//! [`find_native_claude_adapter`] (what to launch),
-//! [`AcpClient`] with [`ClientEvent`] (the connection: `initialize`,
+//! [`find_native_claude_adapter`] (what to launch), [`settings`] (the registry
+//! the Agents window offers: the built-in adapters plus the agents the user adds
+//! in `agents.json`), [`session`] (one agent session with its lifecycle,
+//! streaming, permission requests and cancellation, all on background threads),
+//! [`AcpClient`] with [`ClientEvent`] (the connection underneath: `initialize`,
 //! `session/new`, `session/prompt`, `session/cancel`, streamed
 //! `session/update`, `session/request_permission`), [`protocol`] (the typed
 //! subset of ACP v1), and [`fake_agent`] (a scripted agent for tests and
@@ -22,6 +25,8 @@
 mod client;
 pub mod fake_agent;
 pub mod protocol;
+pub mod session;
+pub mod settings;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -32,6 +37,11 @@ pub use client::{AcpClient, AcpError, ClientEvent, EventSink};
 pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
+pub use session::{
+    AgentSession, AgentState, LoginMethod, PermissionPolicy, PolicyAnswer, SessionConfig,
+    SessionEvent, SessionSink,
+};
+pub use settings::{AgentSettings, AgentSource, RegisteredAgent};
 
 /// How to launch an ACP agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
