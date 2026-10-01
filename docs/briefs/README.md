@@ -42,3 +42,5 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0009](0009-editor-core.md) | Vendor Zed's text crates and build the editor core | 1 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
+
+Phase 0 is complete on Linux (2026-10-01). The Windows runs are listed in [windows-checklist.md](windows-checklist.md).

@@ -55,3 +55,5 @@ Negative:
 - ACP or MCP breaks compatibility in a way an adapter cannot absorb.
 - A required IDE feature (for example designer-file regeneration or the project tree) cannot be expressed in `niello/*` without private side channels.
 - MTP fully replaces VSTest in the projects we target, so the VSTest path can be dropped.
+
+Note, 2026-10-01 (briefs 0005 and 0006): ACP hosting works end to end with Claude Code. The first-party path is `agents/claude-acp` (`niello-claude-acp`, MIT), a native Rust ACP agent that drives the `claude` binary directly over its headless stream-json protocol, so Node is not in the runtime path; the Node adapter `@agentclientprotocol/claude-agent-acp` remains the fallback. The IDE's MCP server exposes command-bus commands with dots mapped to dashes in tool names (`diagnostics.list` is `diagnostics-list`), because MCP forbids dots. Brief 0007 moves the host's own lifecycle methods under `niello/host/*` so plain LSP names are reserved for the forwarded language server.
