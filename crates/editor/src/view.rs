@@ -280,6 +280,10 @@ pub struct EditorView {
     find_bar_open: bool,
     find_match_count: usize,
     dragging: bool,
+    /// A read-only document (metadata as source, brief 0014): the caret, selection, find, copy and navigation work;
+    /// typing and every editing action do nothing. Programmatic edits through [`EditorView::update_editor`] still
+    /// apply.
+    read_only: bool,
 }
 
 impl EditorView {
@@ -312,6 +316,7 @@ impl EditorView {
             find_bar_open: false,
             find_match_count: 0,
             dragging: false,
+            read_only: false,
         };
         this.schedule_highlight(cx);
         this
@@ -336,6 +341,22 @@ impl EditorView {
 
     pub fn style(&self) -> &EditorStyle {
         &self.style
+    }
+
+    /// Make the document read-only (or editable again). See the `read_only` field.
+    pub fn set_read_only(&mut self, read_only: bool, cx: &mut Context<Self>) {
+        if self.read_only != read_only {
+            self.read_only = read_only;
+            if read_only {
+                self.close_completion(cx);
+                self.close_signature_help(cx);
+            }
+            cx.notify();
+        }
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
     }
 
     pub fn set_style(&mut self, style: EditorStyle, cx: &mut Context<Self>) {
@@ -521,6 +542,9 @@ impl EditorView {
     // ----- input: actions -----
 
     fn edit(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut Editor)) {
+        if self.read_only {
+            return;
+        }
         f(&mut self.editor);
         self.changed(cx);
         self.after_other_change(cx);
@@ -537,6 +561,9 @@ impl EditorView {
             let mut q = self.editor.find_query().clone();
             q.text.pop();
             self.set_find_text(q, cx);
+            return;
+        }
+        if self.read_only {
             return;
         }
         self.editor.backspace();
@@ -630,6 +657,11 @@ impl EditorView {
     }
 
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            // Visual Studio copies from a read-only document.
+            cx.write_to_clipboard(ClipboardItem::new_string(self.editor.selected_text()));
+            return;
+        }
         let text = self.editor.cut();
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.changed(cx);
@@ -648,6 +680,9 @@ impl EditorView {
             self.set_find_text(q, cx);
             return;
         }
+        if self.read_only {
+            return;
+        }
         self.editor.insert(text);
         self.changed(cx);
         self.after_typing(text, cx);
@@ -656,6 +691,9 @@ impl EditorView {
     // ----- IntelliSense actions -----
 
     fn show_completions(&mut self, _: &ShowCompletions, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         cx.emit(EditorEvent::CompletionTriggered(CompletionTrigger::Invoked));
     }
 
@@ -665,6 +703,9 @@ impl EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.read_only {
+            return;
+        }
         cx.emit(EditorEvent::SignatureHelpTriggered(
             SignatureTrigger::Invoked,
         ));
@@ -731,10 +772,16 @@ impl EditorView {
         };
         let m = event.modifiers;
         let add = m.control && m.alt;
+        // Ctrl+click is Go To Definition in Visual Studio: place the caret, then ask the owner to navigate.
+        let go_to_definition =
+            m.control && !m.alt && !m.shift && !m.platform && event.click_count <= 1;
         self.editor.click(offset, kind, add, m.shift);
-        self.dragging = true;
+        self.dragging = !go_to_definition;
         self.moved(cx);
         self.after_other_change(cx);
+        if go_to_definition {
+            cx.emit(EditorEvent::GoToDefinition { offset });
+        }
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
