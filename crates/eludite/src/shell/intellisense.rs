@@ -57,6 +57,13 @@ pub struct DocIntellisense {
     signature: Option<Pending>,
     /// The server's items of the shown list (editor list id, items), for `completionItem/resolve`.
     raw: Option<(u64, Arc<Vec<lsp::CompletionItem>>)>,
+    /// The text the shown list was computed on: its items' `additionalTextEdits` are positions in it.
+    raw_base: Option<text::BufferSnapshot>,
+    /// `additionalTextEdits` from `completionItem/resolve`, by item index of the shown list, with the text the server
+    /// had when it resolved (an empty list: resolved, none).
+    resolved: std::collections::HashMap<usize, (Vec<lsp::TextEdit>, text::BufferSnapshot)>,
+    /// A resolve sent when an unresolved item was committed (brief 0015).
+    accept_resolve: Option<Pending>,
     /// The last Parameter Info answer, sent back as `activeSignatureHelp` on a retrigger.
     last_signature: Option<lsp::SignatureHelp>,
 }
@@ -74,7 +81,10 @@ impl DocIntellisense {
         cancel(&mut self.resolve);
         cancel(&mut self.hover);
         cancel(&mut self.signature);
+        cancel(&mut self.accept_resolve);
         self.raw = None;
+        self.raw_base = None;
+        self.resolved.clear();
         self.last_signature = None;
     }
 }
@@ -85,6 +95,8 @@ pub struct ServerFeatures {
     completion_triggers: Vec<String>,
     resolve: bool,
     signature_triggers: Vec<String>,
+    /// `codeActionProvider.resolveProvider` (brief 0015).
+    pub code_action_resolve: bool,
 }
 
 impl ServerFeatures {
@@ -106,6 +118,8 @@ impl ServerFeatures {
             completion_triggers: strings(&caps["completionProvider"]["triggerCharacters"]),
             resolve: caps["completionProvider"]["resolveProvider"].as_bool() == Some(true),
             signature_triggers,
+            code_action_resolve: caps["codeActionProvider"]["resolveProvider"].as_bool()
+                == Some(true),
         }
     }
 }
@@ -172,7 +186,7 @@ fn hover_markdown(contents: &Value) -> Option<String> {
     }
 }
 
-fn offset_in(snapshot: &text::BufferSnapshot, p: lsp::Position) -> usize {
+pub(super) fn offset_in(snapshot: &text::BufferSnapshot, p: lsp::Position) -> usize {
     let point = snapshot.clip_point_utf16(
         Unclipped(PointUtf16::new(p.line, p.character)),
         text::Bias::Left,
@@ -429,6 +443,8 @@ impl Shell {
                 let items =
                     completion_items(&mut raw, defaults.as_ref(), &snapshot, features_resolve);
                 doc.intellisense.raw = Some((editor_id, Arc::new(raw)));
+                doc.intellisense.raw_base = Some(snapshot.clone());
+                doc.intellisense.resolved.clear();
                 (items, incomplete)
             }
             Ok(None) => (Vec::new(), false),
@@ -489,6 +505,8 @@ impl Shell {
         else {
             return;
         };
+        // The server resolves on the text it has, which is the text last sent (a pending change goes after this).
+        let base = doc.sent.clone();
         let (handle, rx) = self.session.request::<lsp::ResolveCompletionItem>(item);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
@@ -512,6 +530,16 @@ impl Shell {
                 }
                 doc.intellisense.resolve = None;
                 if let Ok(resolved) = reply.result {
+                    if doc
+                        .intellisense
+                        .raw
+                        .as_ref()
+                        .is_some_and(|(l, _)| *l == list)
+                    {
+                        doc.intellisense
+                            .resolved
+                            .insert(index, (additional_edits(&resolved), base));
+                    }
                     let documentation = resolved.documentation.as_ref().and_then(markup_text);
                     doc.view.update(cx, |v, cx| {
                         v.set_completion_resolved(list, index, resolved.detail, documentation, cx)
@@ -756,6 +784,15 @@ impl Shell {
                     doc.intellisense.last_signature = None;
                 }
             }
+            // A click on the light bulb opens its menu, as Ctrl+. does.
+            // A click on the light bulb opens its menu, as Ctrl+. does (the bulb is on the caret's line).
+            EditorEvent::LightbulbClicked { .. } => run(
+                self,
+                workspace::EDITOR_CODE_ACTIONS,
+                json!({ "path": id }),
+                window,
+                cx,
+            ),
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {
@@ -821,6 +858,10 @@ impl Shell {
         let id = self.document_id(path)?;
         let view = self.documents[&id].view.clone();
         let accepted = view.update(cx, |v, cx| v.accept_completion(label, cx));
+        if let Some(a) = &accepted {
+            trace(format_args!("accept completion {:?}", a.label));
+            self.apply_additional_edits(&id, a.list, a.index, cx);
+        }
         let caret = view.read(cx).editor().primary_selection().head;
         let (line, column) = line_column(&view, caret, cx);
         Ok(WorkspaceOutput::AcceptCompletion(AcceptCompletionOutput {
@@ -831,6 +872,127 @@ impl Shell {
             line,
             column,
         }))
+    }
+
+    /// The committed item's `additionalTextEdits` (a `using` for an unimported type, brief 0015), through the
+    /// workspace-edit applier: at once when the item or its lazy resolve carried them, else after a
+    /// `completionItem/resolve`. They join the commit's undo step when nothing was typed in between.
+    fn apply_additional_edits(
+        &mut self,
+        id: &str,
+        list: u64,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let generation = self.generation;
+        let resolvable = self.features.resolve;
+        let Some(doc) = self.documents.get_mut(id) else {
+            return;
+        };
+        cancel(&mut doc.intellisense.accept_resolve);
+        let Some((raw_list, items)) = &doc.intellisense.raw else {
+            return;
+        };
+        if *raw_list != list {
+            return;
+        }
+        let Some(item) = items.get(index).cloned() else {
+            return;
+        };
+        let commit = doc.view.read(cx).editor().last_transaction();
+        let inline = additional_edits(&item);
+        let known = if !inline.is_empty() {
+            doc.intellisense.raw_base.clone().map(|b| (inline, b))
+        } else {
+            doc.intellisense.resolved.get(&index).cloned()
+        };
+        if let Some((edits, base)) = known {
+            if !edits.is_empty() {
+                self.apply_completion_edits(id, &edits, &base, commit, cx);
+            }
+            return;
+        }
+        if !resolvable || item.data.is_none() {
+            return;
+        }
+        // Resolve now: the server has the text last sent (the commit's change is queued after this request).
+        let base = doc.sent.clone();
+        let label = item.label.clone();
+        let (handle, rx) = self.session.request::<lsp::ResolveCompletionItem>(item);
+        let doc_id = id.to_owned();
+        let task = cx.spawn(async move |this, cx| {
+            let Ok(reply) = rx.await else {
+                return;
+            };
+            let _ = this.update(cx, |shell, cx| {
+                if shell.generation != generation {
+                    return;
+                }
+                let Some(doc) = shell.documents.get_mut(&doc_id) else {
+                    return;
+                };
+                if !doc
+                    .intellisense
+                    .accept_resolve
+                    .as_ref()
+                    .is_some_and(|p| p.editor_id == list)
+                {
+                    return;
+                }
+                doc.intellisense.accept_resolve = None;
+                let Ok(resolved) = reply.result else {
+                    return;
+                };
+                let edits = additional_edits(&resolved);
+                trace(format_args!(
+                    "accept resolve {label:?}: {} additional edits",
+                    edits.len()
+                ));
+                if !edits.is_empty() {
+                    shell.apply_completion_edits(&doc_id, &edits, &base, commit, cx);
+                }
+                shell.wake_intellisense_waiters();
+            });
+        });
+        if let Some(doc) = self.documents.get_mut(id) {
+            doc.intellisense.accept_resolve = Some(Pending {
+                handle,
+                editor_id: list,
+                _task: task,
+            });
+        }
+    }
+
+    fn apply_completion_edits(
+        &mut self,
+        id: &str,
+        edits: &[lsp::TextEdit],
+        base: &text::BufferSnapshot,
+        commit: Option<eludite_editor::text::TransactionId>,
+        cx: &mut Context<Self>,
+    ) {
+        let still_last = self
+            .documents
+            .get(id)
+            .map(|d| d.view.read(cx).editor().last_transaction())
+            == Some(commit);
+        match self.apply_document_edits(id, edits, base, cx) {
+            Ok((n, Some(tx))) => {
+                if still_last
+                    && let Some(commit) = commit
+                    && let Some(doc) = self.documents.get(id)
+                {
+                    doc.view.update(cx, |v, cx| {
+                        v.update_editor(cx, |e| e.merge_transactions(tx, commit))
+                    });
+                }
+                trace(format_args!("completion: {n} additional edits applied"));
+            }
+            Ok((_, None)) => {}
+            Err(e) => trace(format_args!(
+                "completion: additional edits not applied: {e}"
+            )),
+        }
     }
 
     /// `eludite.editor.hover`.
@@ -881,6 +1043,17 @@ impl Shell {
         request: &WorkspaceRequest,
         cx: &Context<Self>,
     ) -> Option<Result<WorkspaceOutput, CommandError>> {
+        if matches!(
+            request,
+            WorkspaceRequest::ApplyCodeAction { .. } | WorkspaceRequest::ApplyEdit { .. }
+        ) {
+            return Some(Ok(match request {
+                WorkspaceRequest::ApplyCodeAction { .. } => {
+                    WorkspaceOutput::ApplyCodeAction(self.apply_code_action_output())
+                }
+                _ => WorkspaceOutput::ApplyEdit(self.apply_edit_output()),
+            }));
+        }
         let id = match self.document_id(request.path()) {
             Ok(id) => id,
             Err(e) => return Some(Err(e)),
@@ -898,6 +1071,16 @@ impl Shell {
             }
             WorkspaceRequest::FindReferences { .. } => {
                 WorkspaceOutput::FindReferences(self.references_output(cx))
+            }
+            WorkspaceRequest::Rename { .. } => WorkspaceOutput::Rename(self.rename_output()),
+            WorkspaceRequest::CodeActions { .. } => {
+                WorkspaceOutput::CodeActions(self.code_actions_output())
+            }
+            WorkspaceRequest::ApplyCodeAction { .. } => {
+                WorkspaceOutput::ApplyCodeAction(self.apply_code_action_output())
+            }
+            WorkspaceRequest::ApplyEdit { .. } => {
+                WorkspaceOutput::ApplyEdit(self.apply_edit_output())
             }
             _ => return None,
         }))
@@ -1028,6 +1211,14 @@ impl Shell {
             self.request_completion(&id, None, cx);
         }
     }
+}
+
+/// A completion item's `additionalTextEdits` (none when absent or malformed).
+fn additional_edits(item: &lsp::CompletionItem) -> Vec<lsp::TextEdit> {
+    item.extra
+        .get("additionalTextEdits")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
 }
 
 /// 1-based line and character column of `offset`.

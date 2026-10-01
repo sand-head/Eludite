@@ -13,6 +13,9 @@
 //!   results and diagnostics for an older generation are dropped ([`Error::Stale`]).
 //! - **Events**: solution status, language server status, diagnostics and host lifecycle arrive on a channel as
 //!   [`Event`]s.
+//! - **Requests from the host**: `workspace/applyEdit` (relayed from the language server) arrives as
+//!   [`Event::ApplyEdit`] and is answered with [`HostClient::respond_apply_edit`]; any other request from the host is
+//!   answered MethodNotFound.
 //!
 //! Public API boundary: [`HostClient`], [`PendingRequest`], [`HostCommand`], [`Connector`] (a host running in this
 //! process, [`HostClient::start_in_process`]), [`ClientInfo`], [`RestartPolicy`], [`StderrMode`], [`Event`],

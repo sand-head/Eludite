@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-code-actions.input.json",
+  "title": "eludite.editor.code_actions input",
+  "description": "Quick Actions and Refactorings (Ctrl+.): ask the language server for the code actions at `line`, `column` (or the caret), with the diagnostics shown on that line, and open the light bulb menu: fixes first, then refactorings, as Visual Studio groups them. The light bulb in the margin asks the same automatically after the caret rests. A new call cancels the previous request; a result for an older document version or solution generation is dropped.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the position; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the position; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

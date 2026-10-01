@@ -55,6 +55,10 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/signatureHelp",
         "textDocument/definition",
         "textDocument/references",
+        "textDocument/prepareRename",
+        "textDocument/rename",
+        "textDocument/codeAction",
+        "codeAction/resolve",
         "textDocument/documentSymbol",
         "workspace/symbol",
         "textDocument/diagnostic",
@@ -68,9 +72,7 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/documentHighlight",
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
-        "textDocument/codeAction",
         "textDocument/formatting",
-        "textDocument/rename",
     ];
 
     /// <summary>All forwarded requests.</summary>
@@ -89,6 +91,9 @@ public sealed class LspProxy : IAsyncDisposable
         "window/showMessage",
         "$/progress",
     ];
+
+    /// <summary>The one request the host sends the shell: relayed from the language server (host-rpc.md).</summary>
+    public const string ApplyEdit = "workspace/applyEdit";
 
     internal const string ProjectInitializationComplete = "workspace/projectInitializationComplete";
 
@@ -394,6 +399,7 @@ public sealed class LspProxy : IAsyncDisposable
         {
             "workspace/symbol" => HasString(p, "query") ? null : "params.query (string) is required",
             "completionItem/resolve" => HasString(p, "label") ? null : "params.label (string) is required",
+            "codeAction/resolve" => HasString(p, "title") ? null : "params.title (string) is required",
             _ when TypedRequests.Contains(method) =>
                 p.ValueKind == JsonValueKind.Object && p.TryGetProperty("textDocument", out var td) && HasString(td, "uri")
                     ? null
@@ -830,6 +836,14 @@ public sealed class LspProxy : IAsyncDisposable
             configuration = true,
             workspaceFolders = true,
             didChangeWatchedFiles = new { dynamicRegistration = false },
+            // The shell's workspace-edit applier (brief 0015): workspace/applyEdit is relayed to it.
+            applyEdit = true,
+            workspaceEdit = new
+            {
+                documentChanges = true,
+                resourceOperations = new[] { "create", "rename", "delete" },
+                failureHandling = "abort",
+            },
         },
         textDocument = new
         {
@@ -851,6 +865,21 @@ public sealed class LspProxy : IAsyncDisposable
             signatureHelp = new { },
             definition = new { },
             references = new { },
+            codeAction = new
+            {
+                codeActionLiteralSupport = new
+                {
+                    codeActionKind = new
+                    {
+                        valueSet = new[] { "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports" },
+                    },
+                },
+                resolveSupport = new { properties = new[] { "edit" } },
+                dataSupport = true,
+                isPreferredSupport = true,
+                disabledSupport = true,
+            },
+            rename = new { prepareSupport = true },
             publishDiagnostics = new { },
             diagnostic = new { dynamicRegistration = false },
         },
@@ -895,6 +924,8 @@ public sealed class LspProxy : IAsyncDisposable
         });
         upstream.AddLocalRpcMethod(refreshBare.Method, refreshBare.Target, new JsonRpcMethodAttribute("workspace/diagnostic/refresh"));
 
+        AddMethod(upstream, ApplyEdit, new Func<JsonElement, CancellationToken, Task<JsonElement>>(RelayApplyEditAsync));
+
         AddMethod(upstream, "window/logMessage", new Func<JsonElement, Task>(p =>
             _log.WriteLineAsync($"[roslyn-ls log] {(p.TryGetProperty("message", out var m) ? m.GetString() : p.GetRawText())}")));
         AddMethod(upstream, "telemetry/event", new Func<JsonElement, Task>(_ => Task.CompletedTask));
@@ -910,6 +941,39 @@ public sealed class LspProxy : IAsyncDisposable
             AddMethod(upstream, method, new Func<JsonElement, Task>(p => NotifyShellAsync(method, p.Clone())));
         }
     }
+
+    /// <summary>
+    /// <c>workspace/applyEdit</c> from the language server: relayed to the shell with <c>eluditeGeneration</c> added,
+    /// and the shell's result returned unchanged. A shell error or a lost shell connection is
+    /// <c>{ applied: false, failureReason }</c>; the language server's cancellation cancels the relayed request.
+    /// </summary>
+    internal async Task<JsonElement> RelayApplyEditAsync(JsonElement parameters, CancellationToken cancellationToken)
+    {
+        if (_shell is not { } shell)
+        {
+            return NotApplied("no shell is connected");
+        }
+
+        var node = parameters.ValueKind == JsonValueKind.Object
+            ? JsonNode.Parse(parameters.GetRawText())!.AsObject()
+            : new JsonObject();
+        node[GenerationProperty] = Generation;
+        try
+        {
+            return await shell.InvokeWithParameterObjectAsync<JsonElement>(ApplyEdit, node, cancellationToken).ConfigureAwait(false);
+        }
+        catch (RemoteInvocationException ex)
+        {
+            return NotApplied(ex.Message);
+        }
+        catch (Exception ex) when (ex is ConnectionLostException or ObjectDisposedException or IOException)
+        {
+            return NotApplied("the shell is not connected");
+        }
+    }
+
+    private static JsonElement NotApplied(string reason) =>
+        JsonSerializer.SerializeToElement(new { applied = false, failureReason = reason });
 
     /// <summary>
     /// Settings the host supplies to Roslyn's <c>workspace/configuration</c> requests; everything else is null

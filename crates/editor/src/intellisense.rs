@@ -74,6 +74,10 @@ pub enum EditorEvent {
     GoToDefinition {
         offset: usize,
     },
+    /// The light bulb in the margin of `row` was clicked (brief 0015): the owner opens its menu.
+    LightbulbClicked {
+        row: u32,
+    },
 }
 
 /// Where the shown completion items come from.
@@ -163,6 +167,10 @@ pub struct AcceptedCompletion {
     pub label: String,
     /// The text that replaced the typed word.
     pub text: String,
+    /// The request id of the items the committed one came from, and its index among them (as in
+    /// [`EditorEvent::ResolveCompletion`]), so the owner can find the server's item (its additional edits).
+    pub list: u64,
+    pub index: usize,
 }
 
 /// One overload in Parameter Info.

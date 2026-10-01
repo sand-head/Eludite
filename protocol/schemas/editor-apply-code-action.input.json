@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-apply-code-action.input.json",
+  "title": "eludite.editor.apply_code_action input",
+  "description": "Apply an action of the light bulb menu (Enter on it, or a click): resolve it lazily with codeAction/resolve when it has no edit, then apply its WorkspaceEdit with the workspace-edit applier. Name it by `index` (from eludite.editor.code_actions) or by `title`. An action that is a command rather than an edit is reported `unsupported`: the pinned Roslyn's commands are client-side (nested actions and Fix All) and none goes through workspace/executeCommand. An action with nested actions opens them instead.",
+  "type": "object",
+  "properties": {
+    "index": {
+      "description": "The action's `index`.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "title": {
+      "description": "The action's title (the first match), instead of `index`.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

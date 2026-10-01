@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-apply-edit.input.json",
+  "title": "eludite.workspace.apply_edit input",
+  "description": "Apply an LSP 3.17 WorkspaceEdit (protocol/schemas/host/apply-edit.json $defs.workspaceEdit: `changes` or `documentChanges`, including create, rename and delete file operations) with the shell's workspace-edit applier, the one rename, code actions, completion's additional edits and the language server's workspace/applyEdit use. Open documents are edited in their buffers as one undo step per document and the language server gets didChange; closed files are written on disk atomically (a temporary file, then a rename) and the language server gets workspace/didChangeWatchedFiles. A TextDocumentEdit whose version is not the open document's current LSP version refuses the whole edit and nothing is applied. Resource operations on an open document need it saved (no unsaved changes); its tab follows a rename and closes on a delete.",
+  "type": "object",
+  "required": [
+    "edit"
+  ],
+  "properties": {
+    "edit": {
+      "description": "The WorkspaceEdit (LSP 3.17).",
+      "type": "object"
+    },
+    "label": {
+      "description": "Shown in the status bar.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

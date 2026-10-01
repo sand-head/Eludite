@@ -10,7 +10,8 @@
 //! delay, or never ([`FakeReply::Hold`]) until the shell cancels it. `$/cancelRequest` answers a request still in
 //! flight with -32800 (RequestCancelled), as the real host does, unless [`FakeHost::set_ignore_cancel`] makes the fake
 //! deliver late results anyway (to test that the shell drops them). [`FakeHost::set_hold_load`] keeps an opened
-//! solution `loading` until [`FakeHost::finish_load`].
+//! solution `loading` until [`FakeHost::finish_load`]. [`FakeHost::apply_edit`] sends the shell a `workspace/applyEdit`
+//! request, as the host relays one from the language server, and waits for the shell's answer.
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -72,6 +73,9 @@ struct State {
     /// `eludite/languageServer/status` after initialize: state (default `running`) and capabilities.
     server_state: Option<String>,
     capabilities: Option<Value>,
+    /// Answers the shell sent to the fake's own requests, by JSON id.
+    responses: HashMap<String, Value>,
+    next_request: u64,
 }
 
 struct Shared {
@@ -272,6 +276,47 @@ impl FakeHost {
         );
     }
 
+    /// Sends the shell `workspace/applyEdit` with `params` (`{ label?, edit }`; `eluditeGeneration` is added unless
+    /// present) and waits up to `timeout` for the response: the whole JSON-RPC response (`result` or `error`), or
+    /// `None` on timeout.
+    pub fn apply_edit(&self, mut params: Value, timeout: Duration) -> Option<Value> {
+        if params.get(host::GENERATION_FIELD).is_none() {
+            params[host::GENERATION_FIELD] = json!(self.generation());
+        }
+        self.request_shell(methods::APPLY_EDIT, params, timeout)
+    }
+
+    /// Sends the shell a request and waits up to `timeout` for its response (see [`FakeHost::apply_edit`]).
+    pub fn request_shell(&self, method: &str, params: Value, timeout: Duration) -> Option<Value> {
+        let (writer, id) = {
+            let mut s = self.lock();
+            s.next_request += 1;
+            (s.writer.clone(), format!("fake-{}", s.next_request))
+        };
+        send(
+            &writer?,
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
+        );
+        let key = json!(id).to_string();
+        let deadline = Instant::now() + timeout;
+        let mut s = self.lock();
+        loop {
+            if let Some(r) = s.responses.remove(&key) {
+                return Some(r);
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            s = self
+                .shared
+                .changed
+                .wait_timeout(s, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+
     /// Sends any notification to the shell.
     pub fn notify(&self, method: &str, params: Value) {
         let writer = self.lock().writer.clone();
@@ -304,6 +349,14 @@ impl FakeHost {
             let Ok(msg) = serde_json::from_slice::<Value>(&body) else {
                 continue;
             };
+            if msg.get("method").is_none()
+                && let Some(id) = msg.get("id")
+            {
+                // A response to one of the fake's own requests (workspace/applyEdit).
+                self.lock().responses.insert(id.to_string(), msg.clone());
+                self.shared.changed.notify_all();
+                continue;
+            }
             let method = msg["method"].as_str().unwrap_or_default().to_owned();
             let params = msg.get("params").cloned().unwrap_or(Value::Null);
             {

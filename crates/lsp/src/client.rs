@@ -19,7 +19,9 @@ use eludite_protocol::host::{
     LanguageServerStatus, SolutionOpenParams, SolutionStatus, WithGeneration, error_codes, methods,
 };
 use eludite_protocol::jsonrpc::ResponsePayload;
-use eludite_protocol::lsp::{CancelParams, PublishDiagnosticsParams};
+use eludite_protocol::lsp::{
+    ApplyWorkspaceEditParams, ApplyWorkspaceEditResult, CancelParams, PublishDiagnosticsParams,
+};
 use eludite_protocol::{
     ErrorObject, Id, Message, Notification, NotificationType, Request, RequestType, Response,
     framing,
@@ -132,6 +134,12 @@ pub enum Event {
     Diagnostics(WithGeneration<PublishDiagnosticsParams>),
     /// Untyped notifications (`window/showMessage`, `$/progress`).
     Notification(Notification),
+    /// `workspace/applyEdit` from the host (relayed from the language server). Answer it with
+    /// [`HostClient::respond_apply_edit`] and `id`; until then the language server waits.
+    ApplyEdit {
+        id: Id,
+        params: WithGeneration<ApplyWorkspaceEditParams>,
+    },
     Host(HostEvent),
     /// A line of host stderr, with [`StderrMode::Capture`].
     Log(String),
@@ -544,16 +552,7 @@ impl HostClient {
         match message {
             Message::Response(response) => self.on_response(response),
             Message::Notification(n) => self.on_notification(n),
-            Message::Request(r) => {
-                // The host sends no requests (host-rpc.md); answer anything unexpected.
-                let _ = self.write(&Message::Response(Response::err(
-                    Some(r.id),
-                    ErrorObject::new(
-                        ErrorObject::METHOD_NOT_FOUND,
-                        format!("{} is not a shell method", r.method),
-                    ),
-                )));
-            }
+            Message::Request(r) => self.on_request(r),
         }
     }
 
@@ -596,6 +595,49 @@ impl HostClient {
             }
         };
         let _ = pending.tx.try_send(reply);
+    }
+
+    /// Requests from the host: `workspace/applyEdit` becomes [`Event::ApplyEdit`]; anything else is answered
+    /// MethodNotFound (host-rpc.md, "Messages the host sends").
+    fn on_request(&self, r: Request) {
+        if r.method == methods::APPLY_EDIT {
+            let params = r.params.clone().unwrap_or(Value::Null);
+            match serde_json::from_value::<WithGeneration<ApplyWorkspaceEditParams>>(params) {
+                Ok(params) => {
+                    let _ = self
+                        .inner
+                        .events
+                        .send(Event::ApplyEdit { id: r.id, params });
+                }
+                Err(e) => {
+                    let _ = self.write(&Message::Response(Response::err(
+                        Some(r.id),
+                        ErrorObject::new(
+                            ErrorObject::INVALID_PARAMS,
+                            format!("workspace/applyEdit: {e}"),
+                        ),
+                    )));
+                }
+            }
+            return;
+        }
+        let _ = self.write(&Message::Response(Response::err(
+            Some(r.id),
+            ErrorObject::new(
+                ErrorObject::METHOD_NOT_FOUND,
+                format!("{} is not a shell method", r.method),
+            ),
+        )));
+    }
+
+    /// Answer the host's `workspace/applyEdit` request `id` ([`Event::ApplyEdit`]).
+    pub fn respond_apply_edit(
+        &self,
+        id: Id,
+        result: ApplyWorkspaceEditResult,
+    ) -> Result<(), Error> {
+        let value = serde_json::to_value(result)?;
+        self.write(&Message::Response(Response::ok(id, value)))
     }
 
     fn on_notification(&self, n: Notification) {

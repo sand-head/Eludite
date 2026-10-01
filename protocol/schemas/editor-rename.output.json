@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-rename.output.json",
+  "title": "eludite.editor.rename output",
+  "description": "What Rename did. From the UI thread (keys, the dialog) this is the state right after the request was sent, usually `loading`; from another thread (an agent) the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state",
+    "files",
+    "total_edits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document the request was made in.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server; `dialog`: the Rename dialog is open with no preview yet; `preview`: the preview is computed (and shown in the dialog); `applied`: the rename was applied (see `summary`); `rejected`: nothing at the position can be renamed, or the language server refused the new name; `failed`: the request failed or the edit could not be applied.",
+      "enum": [
+        "loading",
+        "dialog",
+        "preview",
+        "applied",
+        "rejected",
+        "failed"
+      ]
+    },
+    "symbol": {
+      "description": "The symbol's current name.",
+      "type": "string"
+    },
+    "new_name": {
+      "description": "The name the preview or the rename is for.",
+      "type": "string"
+    },
+    "files": {
+      "description": "The preview: each file with its changed lines, in path order (at most 100 files, 100 lines each).",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "open",
+          "changes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Absolute path.",
+            "type": "string",
+            "minLength": 1
+          },
+          "open": {
+            "description": "True when the file is open in an editor (it changes in the buffer, unsaved).",
+            "type": "boolean"
+          },
+          "changes": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "required": [
+                "line",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "line": {
+                  "description": "1-based line in the file as it is before the rename.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "before": {
+                  "description": "The line's text before (trimmed).",
+                  "type": "string"
+                },
+                "after": {
+                  "description": "The line's text after (trimmed).",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "total_edits": {
+      "description": "Text edits in the rename (all files).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary": {
+      "description": "What the workspace-edit applier did (the same shape as the eludite.workspace.apply_edit output without `state`).",
+      "type": "object",
+      "required": [
+        "applied",
+        "files",
+        "edits",
+        "open_documents",
+        "files_on_disk",
+        "created",
+        "renamed",
+        "deleted",
+        "paths"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "description": "True when every change was applied; false when the edit was refused (nothing was applied) or a write failed (see `message`).",
+          "type": "boolean"
+        },
+        "files": {
+          "description": "Distinct files touched (edited, created, renamed or deleted).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "edits": {
+          "description": "Text edits applied.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "open_documents": {
+          "description": "Open documents edited in their buffers (one undo step each, not saved).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_on_disk": {
+          "description": "Closed files written on disk (atomically: a temporary file, then a rename).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "created": {
+          "description": "Files created.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "renamed": {
+          "description": "Files renamed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "deleted": {
+          "description": "Files or folders deleted.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "paths": {
+          "description": "The absolute paths touched, sorted (at most 1000).",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "description": "Why the edit was refused or failed.",
+          "type": "string"
+        }
+      }
+    },
+    "message": {
+      "description": "Why `rejected` or `failed`.",
+      "type": "string"
+    }
+  }
+}

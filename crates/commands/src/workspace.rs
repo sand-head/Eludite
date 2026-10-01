@@ -4,7 +4,9 @@
 //! `signature_help`, which the keys, typing and the mouse run too, so an agent can drive and observe them. Brief 0014
 //! adds navigation: `eludite.editor.go_to_definition` (F12, Ctrl+click), `eludite.editor.find_references`
 //! (Shift+F12), `eludite.navigation.back` and `forward` (Ctrl+-, Ctrl+Shift+-), and the Error List's toolbar,
-//! `eludite.error_list.filter`.
+//! `eludite.error_list.filter`. Brief 0015 adds rename and code actions, `eludite.editor.rename` (Ctrl+R, Ctrl+R and
+//! F2), `eludite.editor.code_actions` (Ctrl+.) and `eludite.editor.apply_code_action`, and the workspace-edit applier
+//! itself, `eludite.workspace.apply_edit`.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
@@ -35,9 +37,13 @@ pub const EDITOR_FIND_REFERENCES: &str = "eludite.editor.find_references";
 pub const NAVIGATION_BACK: &str = "eludite.navigation.back";
 pub const NAVIGATION_FORWARD: &str = "eludite.navigation.forward";
 pub const ERROR_LIST_FILTER: &str = "eludite.error_list.filter";
+pub const EDITOR_RENAME: &str = "eludite.editor.rename";
+pub const EDITOR_CODE_ACTIONS: &str = "eludite.editor.code_actions";
+pub const EDITOR_APPLY_CODE_ACTION: &str = "eludite.editor.apply_code_action";
+pub const WORKSPACE_APPLY_EDIT: &str = "eludite.workspace.apply_edit";
 
 /// Every command this module registers.
-pub const ALL: [&str; 17] = [
+pub const ALL: [&str; 21] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -55,6 +61,10 @@ pub const ALL: [&str; 17] = [
     NAVIGATION_BACK,
     NAVIGATION_FORWARD,
     ERROR_LIST_FILTER,
+    EDITOR_RENAME,
+    EDITOR_CODE_ACTIONS,
+    EDITOR_APPLY_CODE_ACTION,
+    WORKSPACE_APPLY_EDIT,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
@@ -170,6 +180,31 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/error-list-filter.output.json"),
             Read,
         ),
+        // Rename edits files across the solution (open buffers unsaved, closed files on disk).
+        EDITOR_RENAME => (
+            "Edit: Refactor: Rename",
+            include_str!("../../../protocol/schemas/editor-rename.input.json"),
+            include_str!("../../../protocol/schemas/editor-rename.output.json"),
+            EditBuffer,
+        ),
+        EDITOR_CODE_ACTIONS => (
+            "Edit: Quick Actions and Refactorings",
+            include_str!("../../../protocol/schemas/editor-code-actions.input.json"),
+            include_str!("../../../protocol/schemas/editor-code-actions.output.json"),
+            Read,
+        ),
+        EDITOR_APPLY_CODE_ACTION => (
+            "Edit: Apply Quick Action",
+            include_str!("../../../protocol/schemas/editor-apply-code-action.input.json"),
+            include_str!("../../../protocol/schemas/editor-apply-code-action.output.json"),
+            EditBuffer,
+        ),
+        WORKSPACE_APPLY_EDIT => (
+            "Workspace: Apply Edit",
+            include_str!("../../../protocol/schemas/workspace-apply-edit.input.json"),
+            include_str!("../../../protocol/schemas/workspace-apply-edit.output.json"),
+            EditBuffer,
+        ),
         other => unreachable!("not a workspace command: {other}"),
     }
 }
@@ -254,6 +289,31 @@ pub enum WorkspaceRequest {
     NavigateForward,
     /// The Error List's filters; `None` keeps the current value. `project: Some(None)` shows every project.
     ErrorListFilter(ErrorListFilterInput),
+    /// Rename the symbol at `line`, `column` (or the caret): the dialog without `new_name`, else the preview and,
+    /// with `apply`, the rename.
+    Rename {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+        new_name: Option<String>,
+        apply: bool,
+    },
+    /// The light bulb menu at `line`, `column` (or the caret).
+    CodeActions {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+    },
+    /// Apply an action of the menu, by index or title.
+    ApplyCodeAction {
+        index: Option<usize>,
+        title: Option<String>,
+    },
+    /// Apply an LSP `WorkspaceEdit` (a JSON object; the shell parses it).
+    ApplyEdit {
+        edit: Value,
+        label: Option<String>,
+    },
 }
 
 /// `error-list-filter.input.json`.
@@ -287,6 +347,10 @@ impl WorkspaceRequest {
             WorkspaceRequest::NavigateBack => NAVIGATION_BACK,
             WorkspaceRequest::NavigateForward => NAVIGATION_FORWARD,
             WorkspaceRequest::ErrorListFilter(_) => ERROR_LIST_FILTER,
+            WorkspaceRequest::Rename { .. } => EDITOR_RENAME,
+            WorkspaceRequest::CodeActions { .. } => EDITOR_CODE_ACTIONS,
+            WorkspaceRequest::ApplyCodeAction { .. } => EDITOR_APPLY_CODE_ACTION,
+            WorkspaceRequest::ApplyEdit { .. } => WORKSPACE_APPLY_EDIT,
         }
     }
 
@@ -302,7 +366,9 @@ impl WorkspaceRequest {
             | WorkspaceRequest::Hover { path, .. }
             | WorkspaceRequest::SignatureHelp { path, .. }
             | WorkspaceRequest::GoToDefinition { path, .. }
-            | WorkspaceRequest::FindReferences { path, .. } => path.as_deref(),
+            | WorkspaceRequest::FindReferences { path, .. }
+            | WorkspaceRequest::Rename { path, .. }
+            | WorkspaceRequest::CodeActions { path, .. } => path.as_deref(),
             WorkspaceRequest::FileOpen { path, .. } | WorkspaceRequest::FileClose { path, .. } => {
                 Some(path)
             }
@@ -310,7 +376,9 @@ impl WorkspaceRequest {
             | WorkspaceRequest::SolutionClose
             | WorkspaceRequest::NavigateBack
             | WorkspaceRequest::NavigateForward
-            | WorkspaceRequest::ErrorListFilter(_) => None,
+            | WorkspaceRequest::ErrorListFilter(_)
+            | WorkspaceRequest::ApplyCodeAction { .. }
+            | WorkspaceRequest::ApplyEdit { .. } => None,
         }
     }
 }
@@ -594,6 +662,194 @@ pub struct ErrorListFilterOutput {
     pub total: u64,
 }
 
+/// What the workspace-edit applier did (the `summary` of the rename and code action outputs).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplySummaryOutput {
+    pub applied: bool,
+    pub files: u64,
+    pub edits: u64,
+    pub open_documents: u64,
+    pub files_on_disk: u64,
+    pub created: u64,
+    pub renamed: u64,
+    pub deleted: u64,
+    /// At most [`MAX_APPLY_PATHS`].
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Paths an applier summary lists at most.
+pub const MAX_APPLY_PATHS: usize = 1000;
+
+/// `workspace-apply-edit.output.json` state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApplyEditState {
+    Applying,
+    Applied,
+    Failed,
+}
+
+/// `workspace-apply-edit.output.json`: the state and the summary's members.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplyEditOutput {
+    pub state: ApplyEditState,
+    pub applied: bool,
+    pub files: u64,
+    pub edits: u64,
+    pub open_documents: u64,
+    pub files_on_disk: u64,
+    pub created: u64,
+    pub renamed: u64,
+    pub deleted: u64,
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl ApplyEditOutput {
+    pub fn new(state: ApplyEditState, s: ApplySummaryOutput) -> Self {
+        Self {
+            state,
+            applied: s.applied,
+            files: s.files,
+            edits: s.edits,
+            open_documents: s.open_documents,
+            files_on_disk: s.files_on_disk,
+            created: s.created,
+            renamed: s.renamed,
+            deleted: s.deleted,
+            paths: s.paths,
+            message: s.message,
+        }
+    }
+}
+
+/// `editor-rename.output.json` state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenameState {
+    Loading,
+    Dialog,
+    Preview,
+    Applied,
+    Rejected,
+    Failed,
+}
+
+/// One changed line of the rename preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameLineRow {
+    pub line: u32,
+    pub before: String,
+    pub after: String,
+}
+
+/// One file of the rename preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameFileRow {
+    pub path: String,
+    pub open: bool,
+    pub changes: Vec<RenameLineRow>,
+}
+
+/// `editor-rename.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RenameOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: RenameState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    /// At most [`MAX_RENAME_FILES`] files of [`MAX_RENAME_LINES`] lines.
+    pub files: Vec<RenameFileRow>,
+    pub total_edits: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<ApplySummaryOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+pub const MAX_RENAME_FILES: usize = 100;
+pub const MAX_RENAME_LINES: usize = 100;
+
+/// `editor-code-actions.output.json` state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeActionsState {
+    Loading,
+    Open,
+    None,
+    Failed,
+}
+
+/// One action of `editor-code-actions.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeActionRow {
+    pub index: u64,
+    pub title: String,
+    /// `fix`, `refactoring` or `other`.
+    pub group: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<String>,
+}
+
+/// `editor-code-actions.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeActionsOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: CodeActionsState,
+    /// At most [`MAX_CODE_ACTIONS`].
+    pub actions: Vec<CodeActionRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+pub const MAX_CODE_ACTIONS: usize = 200;
+
+/// `editor-apply-code-action.output.json` state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApplyCodeActionState {
+    Resolving,
+    Applying,
+    Applied,
+    Expanded,
+    Unsupported,
+    Failed,
+}
+
+/// `editor-apply-code-action.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApplyCodeActionOutput {
+    pub state: ApplyCodeActionState,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<ApplySummaryOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 /// The typed result of a workspace command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceOutput {
@@ -612,6 +868,10 @@ pub enum WorkspaceOutput {
     FindReferences(ReferencesOutput),
     Navigation(NavigationOutput),
     ErrorListFilter(ErrorListFilterOutput),
+    Rename(RenameOutput),
+    CodeActions(CodeActionsOutput),
+    ApplyCodeAction(ApplyCodeActionOutput),
+    ApplyEdit(ApplyEditOutput),
 }
 
 impl WorkspaceOutput {
@@ -632,6 +892,10 @@ impl WorkspaceOutput {
             WorkspaceOutput::FindReferences(o) => serde_json::to_value(o),
             WorkspaceOutput::Navigation(o) => serde_json::to_value(o),
             WorkspaceOutput::ErrorListFilter(o) => serde_json::to_value(o),
+            WorkspaceOutput::Rename(o) => serde_json::to_value(o),
+            WorkspaceOutput::CodeActions(o) => serde_json::to_value(o),
+            WorkspaceOutput::ApplyCodeAction(o) => serde_json::to_value(o),
+            WorkspaceOutput::ApplyEdit(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
     }
@@ -654,6 +918,18 @@ impl WorkspaceOutput {
                 ..
             }) | WorkspaceOutput::FindReferences(ReferencesOutput {
                 state: ReferencesState::Loading,
+                ..
+            }) | WorkspaceOutput::Rename(RenameOutput {
+                state: RenameState::Loading,
+                ..
+            }) | WorkspaceOutput::CodeActions(CodeActionsOutput {
+                state: CodeActionsState::Loading,
+                ..
+            }) | WorkspaceOutput::ApplyCodeAction(ApplyCodeActionOutput {
+                state: ApplyCodeActionState::Resolving | ApplyCodeActionState::Applying,
+                ..
+            }) | WorkspaceOutput::ApplyEdit(ApplyEditOutput {
+                state: ApplyEditState::Applying,
                 ..
             })
         )
@@ -745,6 +1021,30 @@ struct FilterIn {
 /// A member that may be absent (`None`), null (`Some(None)`) or a value.
 fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
     Option::<String>::deserialize(d).map(Some)
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RenameIn {
+    path: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+    new_name: Option<String>,
+    apply: Option<bool>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyCodeActionIn {
+    index: Option<usize>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyEditIn {
+    edit: Value,
+    label: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -949,6 +1249,64 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
                 project: i.project.map(|p| p.filter(|p| !p.is_empty())),
                 text: i.text,
             })
+        }
+        EDITOR_RENAME => {
+            let i: RenameIn = input(value)?;
+            position(i.line, i.column)?;
+            if let Some(n) = &i.new_name {
+                non_empty("new_name", n)?;
+            }
+            if i.apply.is_some() && i.new_name.is_none() {
+                return Err(CommandError::InvalidInput(
+                    "`apply` needs `new_name`".into(),
+                ));
+            }
+            WorkspaceRequest::Rename {
+                path: optional_path(i.path)?,
+                line: i.line,
+                column: i.column,
+                apply: i.new_name.is_some() && i.apply.unwrap_or(true),
+                new_name: i.new_name,
+            }
+        }
+        EDITOR_CODE_ACTIONS => {
+            let i: HoverIn = input(value)?;
+            position(i.line, i.column)?;
+            WorkspaceRequest::CodeActions {
+                path: optional_path(i.path)?,
+                line: i.line,
+                column: i.column,
+            }
+        }
+        EDITOR_APPLY_CODE_ACTION => {
+            let i: ApplyCodeActionIn = input(value)?;
+            if let Some(t) = &i.title {
+                non_empty("title", t)?;
+            }
+            if i.index.is_some() == i.title.is_some() {
+                return Err(CommandError::InvalidInput(
+                    "name the action by `index` or by `title`".into(),
+                ));
+            }
+            WorkspaceRequest::ApplyCodeAction {
+                index: i.index,
+                title: i.title,
+            }
+        }
+        WORKSPACE_APPLY_EDIT => {
+            let i: ApplyEditIn = required(value)?;
+            if !i.edit.is_object() {
+                return Err(CommandError::InvalidInput(
+                    "`edit` is an LSP WorkspaceEdit object".into(),
+                ));
+            }
+            if let Some(l) = &i.label {
+                non_empty("label", l)?;
+            }
+            WorkspaceRequest::ApplyEdit {
+                edit: i.edit,
+                label: i.label,
+            }
         }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
@@ -1496,6 +1854,225 @@ mod tests {
                 state: DefinitionState::Loading,
                 targets: vec![],
                 navigated: None,
+                message: None,
+            })
+            .is_loading()
+        );
+    }
+
+    #[test]
+    fn rename_and_code_action_commands_parse_validate_and_match_their_schemas() {
+        let p = |id, v| parse(id, v).unwrap();
+        assert_eq!(
+            p(EDITOR_RENAME, json!({})),
+            WorkspaceRequest::Rename {
+                path: None,
+                line: None,
+                column: None,
+                new_name: None,
+                apply: false
+            }
+        );
+        assert_eq!(
+            p(
+                EDITOR_RENAME,
+                json!({"path": "/a.cs", "line": 3, "new_name": "Pong"})
+            ),
+            WorkspaceRequest::Rename {
+                path: Some("/a.cs".into()),
+                line: Some(3),
+                column: None,
+                new_name: Some("Pong".into()),
+                apply: true
+            }
+        );
+        assert!(matches!(
+            p(EDITOR_RENAME, json!({"new_name": "Pong", "apply": false})),
+            WorkspaceRequest::Rename { apply: false, .. }
+        ));
+        assert_eq!(
+            p(EDITOR_CODE_ACTIONS, Value::Null),
+            WorkspaceRequest::CodeActions {
+                path: None,
+                line: None,
+                column: None
+            }
+        );
+        assert_eq!(
+            p(EDITOR_APPLY_CODE_ACTION, json!({"index": 2})),
+            WorkspaceRequest::ApplyCodeAction {
+                index: Some(2),
+                title: None
+            }
+        );
+        assert_eq!(
+            p(
+                EDITOR_APPLY_CODE_ACTION,
+                json!({"title": "Use primary constructor"})
+            ),
+            WorkspaceRequest::ApplyCodeAction {
+                index: None,
+                title: Some("Use primary constructor".into())
+            }
+        );
+        assert_eq!(
+            p(
+                WORKSPACE_APPLY_EDIT,
+                json!({"edit": {"changes": {}}, "label": "x"})
+            ),
+            WorkspaceRequest::ApplyEdit {
+                edit: json!({"changes": {}}),
+                label: Some("x".into())
+            }
+        );
+        for (id, bad) in [
+            (EDITOR_RENAME, json!({"new_name": ""})),
+            (EDITOR_RENAME, json!({"apply": true})),
+            (EDITOR_RENAME, json!({"column": 2})),
+            (EDITOR_CODE_ACTIONS, json!({"line": 0})),
+            (EDITOR_CODE_ACTIONS, json!({"trigger": "."})),
+            (EDITOR_APPLY_CODE_ACTION, json!({})),
+            (EDITOR_APPLY_CODE_ACTION, json!({"index": 1, "title": "x"})),
+            (EDITOR_APPLY_CODE_ACTION, json!({"index": -1})),
+            (WORKSPACE_APPLY_EDIT, json!({})),
+            (WORKSPACE_APPLY_EDIT, json!({"edit": []})),
+            (WORKSPACE_APPLY_EDIT, json!({"edit": {}, "label": ""})),
+        ] {
+            assert!(
+                matches!(parse(id, bad.clone()), Err(CommandError::InvalidInput(_))),
+                "{id} {bad}"
+            );
+        }
+        let summary = ApplySummaryOutput {
+            applied: true,
+            files: 2,
+            edits: 3,
+            open_documents: 1,
+            files_on_disk: 1,
+            created: 0,
+            renamed: 0,
+            deleted: 0,
+            paths: vec!["/a.cs".into(), "/b.cs".into()],
+            message: None,
+        };
+        let cases = [
+            (
+                EDITOR_RENAME,
+                WorkspaceOutput::Rename(RenameOutput {
+                    path: "/a.cs".into(),
+                    line: 3,
+                    column: 9,
+                    state: RenameState::Applied,
+                    symbol: Some("Ping".into()),
+                    new_name: Some("Pong".into()),
+                    files: vec![RenameFileRow {
+                        path: "/a.cs".into(),
+                        open: true,
+                        changes: vec![RenameLineRow {
+                            line: 3,
+                            before: "void Ping()".into(),
+                            after: "void Pong()".into(),
+                        }],
+                    }],
+                    total_edits: 3,
+                    summary: Some(summary.clone()),
+                    message: None,
+                }),
+                PermissionClass::EditBuffer,
+            ),
+            (
+                EDITOR_CODE_ACTIONS,
+                WorkspaceOutput::CodeActions(CodeActionsOutput {
+                    path: "/a.cs".into(),
+                    line: 3,
+                    column: 9,
+                    state: CodeActionsState::Open,
+                    actions: vec![CodeActionRow {
+                        index: 0,
+                        title: "Use primary constructor".into(),
+                        group: "fix".into(),
+                        kind: Some("quickfix".into()),
+                        preferred: None,
+                        parent: None,
+                        disabled: None,
+                    }],
+                    message: None,
+                }),
+                PermissionClass::Read,
+            ),
+            (
+                EDITOR_APPLY_CODE_ACTION,
+                WorkspaceOutput::ApplyCodeAction(ApplyCodeActionOutput {
+                    state: ApplyCodeActionState::Applied,
+                    title: "Use primary constructor".into(),
+                    summary: Some(summary.clone()),
+                    message: None,
+                }),
+                PermissionClass::EditBuffer,
+            ),
+            (
+                WORKSPACE_APPLY_EDIT,
+                WorkspaceOutput::ApplyEdit(ApplyEditOutput::new(ApplyEditState::Applied, summary)),
+                PermissionClass::EditBuffer,
+            ),
+        ];
+        for (id, out, permission) in cases {
+            conforms(&spec(id).output_schema, &out.to_json());
+            assert_eq!(spec(id).permission, permission, "{id}");
+        }
+        let enums = |id: &str| spec(id).output_schema["properties"]["state"]["enum"].clone();
+        for s in [
+            RenameState::Loading,
+            RenameState::Dialog,
+            RenameState::Preview,
+            RenameState::Applied,
+            RenameState::Rejected,
+            RenameState::Failed,
+        ] {
+            assert!(
+                enums(EDITOR_RENAME)
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::to_value(s).unwrap())
+            );
+        }
+        for s in [
+            ApplyCodeActionState::Resolving,
+            ApplyCodeActionState::Applying,
+            ApplyCodeActionState::Applied,
+            ApplyCodeActionState::Expanded,
+            ApplyCodeActionState::Unsupported,
+            ApplyCodeActionState::Failed,
+        ] {
+            assert!(
+                enums(EDITOR_APPLY_CODE_ACTION)
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::to_value(s).unwrap())
+            );
+        }
+        let rename = spec(EDITOR_RENAME).output_schema;
+        assert_eq!(
+            rename["properties"]["files"]["maxItems"],
+            json!(MAX_RENAME_FILES)
+        );
+        assert_eq!(
+            rename["properties"]["files"]["items"]["properties"]["changes"]["maxItems"],
+            json!(MAX_RENAME_LINES)
+        );
+        assert_eq!(
+            spec(EDITOR_CODE_ACTIONS).output_schema["properties"]["actions"]["maxItems"],
+            json!(MAX_CODE_ACTIONS)
+        );
+        assert_eq!(
+            spec(WORKSPACE_APPLY_EDIT).output_schema["properties"]["paths"]["maxItems"],
+            json!(MAX_APPLY_PATHS)
+        );
+        assert!(
+            WorkspaceOutput::ApplyCodeAction(ApplyCodeActionOutput {
+                state: ApplyCodeActionState::Resolving,
+                title: String::new(),
+                summary: None,
                 message: None,
             })
             .is_loading()

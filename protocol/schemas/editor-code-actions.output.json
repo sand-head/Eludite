@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-code-actions.output.json",
+  "title": "eludite.editor.code_actions output",
+  "description": "The light bulb menu. From the UI thread this is the state right after the request was sent, usually `loading`; from another thread (an agent) the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state",
+    "actions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The document the request was made in.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column the request was made at.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`: waiting for the language server; `open`: the menu is open with `actions`; `none`: no actions here; `failed`: the request failed.",
+      "enum": [
+        "loading",
+        "open",
+        "none",
+        "failed"
+      ]
+    },
+    "actions": {
+      "description": "The menu's actions in display order (at most 200). Apply one with eludite.editor.apply_code_action and its `index`.",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "title",
+          "group"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "description": "0-based, stable for this menu.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "title": {
+            "type": "string"
+          },
+          "group": {
+            "description": "`fix` (quickfix), `refactoring` (refactor*), `other`.",
+            "enum": [
+              "fix",
+              "refactoring",
+              "other"
+            ]
+          },
+          "kind": {
+            "description": "The LSP CodeActionKind.",
+            "type": "string"
+          },
+          "preferred": {
+            "type": "boolean"
+          },
+          "parent": {
+            "description": "The `index` of the action this one is nested under (Visual Studio's submenu).",
+            "type": "integer",
+            "minimum": 0
+          },
+          "disabled": {
+            "description": "Why the action cannot be applied, when it cannot.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "message": {
+      "description": "Why `failed`.",
+      "type": "string"
+    }
+  }
+}
