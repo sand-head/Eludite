@@ -98,7 +98,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
 | `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], error? }] }` |
-| `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, project?, configuration?, platform? }` | `{ buildId, generation, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
+| `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 
 #### `eludite/host/initialize`
@@ -220,6 +220,10 @@ generation changes before the tree is ready; -32800 when canceled.
   tree; on Windows `taskkill /T /F /PID`, untested) and `eludite/build/finished` reports `canceled` within 2 s. A new
   generation (`eludite/solution/open` of another solution, or `eludite/solution/close`) cancels the running build the
   same way.
+- **`system` (brief 0019).** The host builds .NET solutions only: `system` is `msbuild` or omitted, and the shell never
+  sends `cargo`. The `eludite/build/*` shapes (start result, output, progress, finished) are also what the shell's own
+  Cargo runner produces in process for a Cargo workspace (see "Generic language servers and Cargo"), with `system`
+  `cargo` and toolchain kind `cargo`, so one Output and Error List path serves both build systems.
 - **Windows-only targets under Mono.** When a legacy project fails on a Windows-only target, the build's raw errors
   for it are replaced by **one diagnostic per project** with the brief 0003 code and message, and the same message
   is written to the output (instead of a task's stack trace, whose lines are dropped from the output):
@@ -454,3 +458,73 @@ plaintext, `signatureHelp`, `definition`, `references`, `publishDiagnostics`, pu
 `textDocument.codeAction` with `codeActionLiteralSupport` (the kinds `quickfix`, `refactor`, `refactor.extract`,
 `refactor.inline`, `refactor.rewrite`, `source`, `source.organizeImports`), `resolveSupport` for `edit`,
 `dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
+
+## Generic language servers and Cargo (brief 0019)
+
+Not every language server runs inside `eludite-host`. For languages outside .NET the shell launches the server itself
+and speaks **plain LSP 3.17** to it over the server's stdio, with the same `Content-Length` framing, request
+correlation, `$/cancelRequest` cancellation and document notifications as the host connection (`crates/lsp`:
+`ServerClient` and `HostClient` share one connection core). Roslyn stays behind the host (CLAUDE.md invariant 2 is
+about .NET tooling); a generic server is a separate child process of the shell, supervised like the host. Nothing in
+this section crosses the host connection, so none of it has a schema under [`host/`](host/); the method names are
+LSP's own, and the Eludite-side contract is below.
+
+**Registration is data.** Each generic server is one entry of `crates/lsp/src/servers.json` (`ServerRegistration`):
+`id`, display `name`, LSP `languageId`, `fileGlobs` (`*.rs`), the root markers that name its workspace
+(`Cargo.toml`), how to find the executable (`executable`, an environment override, a rustup component), its
+`initializationOptions` and its `settings` (the answers to `workspace/configuration`). Adding a language is adding an
+entry; the shell has no per-language code path for it. The pinned entry is rust-analyzer
+(`tools/rust-analyzer/`, located beside the `eludite` executable, then `ELUDITE_RUST_ANALYZER`, then `PATH`, then
+`rustup which rust-analyzer`; each candidate must answer `--version`, so a rustup proxy without the component is
+skipped).
+
+**Lifecycle.** One server per registration and workspace root. The root is the Cargo workspace root from
+`cargo metadata` when a Cargo workspace is open (else the open folder, else the document's folder). The shell sends
+`initialize` with `rootUri`, `workspaceFolders` (the root), `initializationOptions` from the registration and the
+client capabilities below, then `initialized`, then replays `didOpen` for every open document the registration
+matches. Shutdown is LSP `shutdown` then `exit`. A crash restarts the server under the brief 0007 policy (at most 3
+restarts, 500 ms apart), re-initializes it and replays the open documents.
+
+**Generations.** There is no `eluditeGeneration` on this connection: requests and notifications are plain LSP. The
+client keeps its own generation for each server, raised on every (re)start; a result that arrives after the
+generation moved is dropped (`Stale`), and diagnostics carry the generation they arrived under, so the shell never
+renders a result from a previous server instance (CLAUDE.md invariant 12).
+
+**What the shell sends** (the same requests the editor features send to the host, without the generation):
+
+| Kind | Methods |
+|---|---|
+| Lifecycle | `initialize`, `initialized`, `shutdown`, `exit` |
+| Document sync | `textDocument/didOpen`, `didChange` (incremental, UTF-16), `didSave`, `didClose`, `workspace/didChangeWatchedFiles` |
+| Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve` |
+| Cancellation | `$/cancelRequest` |
+
+**Client capabilities** are the set the host advertises to Roslyn (section above), so the editor features need no
+per-server branch, plus `window.workDoneProgress` and `experimental.serverStatusNotification: true`.
+
+**What the server sends, and the shell's answer:**
+
+| Kind | Method | Shell |
+|---|---|---|
+| notification | `textDocument/publishDiagnostics` | Squiggles and Error List rows with source `live` (rust-analyzer pushes; it has no pull diagnostics in the shell's use) |
+| notification | `$/progress` | The status bar's slot for the server: the newest work-done progress title, message and percentage (`Indexing 120/300 (core)`) |
+| notification | `experimental/serverStatus` | The slot's state: `health` (`ok`, `warning`, `error`) and `quiescent`; `ready` when quiescent and healthy. A rust-analyzer LSP extension ([lsp-extensions.md](https://github.com/rust-lang/rust-analyzer/blob/master/docs/book/src/contributing/lsp-extensions.md#server-status)); the shell enables it with the experimental client capability above |
+| notification | `window/showMessage`, `window/logMessage` | The Output window's Language Servers source (with the server's stderr) |
+| request | `workspace/applyEdit` | The workspace-edit applier, as for the host's relayed request |
+| request | `workspace/configuration` | The registration's `settings` for each item's `section` (`null` when absent) |
+| request | `window/workDoneProgress/create`, `client/registerCapability`, `client/unregisterCapability` | `null` (accepted) |
+| request | `workspace/diagnostic/refresh`, `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | `null` |
+| request | anything else | -32601 (MethodNotFound) |
+
+**Diagnostics and the Error List.** Live rows come from the server; `cargo build` rows come from the build. A build
+row with the same file, line, column and code as a live row is shown once, as both, exactly as for MSBuild.
+
+**Cargo.** The Cargo workspace model is read in the shell, off the UI thread, from
+`cargo metadata --format-version 1 --no-deps --offline` (members, their targets and declared dependencies; no
+network). Builds run `cargo build --message-format=json-diagnostic-rendered-ansi` (with `-p <package>` for one
+package, `--release` for the Release configuration; `cargo clean` first for a rebuild, alone for a clean) in its own
+process group. The runner streams the rendered messages and cargo's own stderr lines into the Output window through
+the `eludite/build/output` shape (ANSI escapes removed), counts `compiler-artifact` messages into
+`eludite/build/progress`, and ends with one `eludite/build/finished` whose diagnostics are the `compiler-message`
+errors and warnings (primary span: file, line, column, end; code `E0308` or the lint name). Cancel kills the process
+group (`taskkill /T /F` on Windows) and reports `canceled`.

@@ -21,6 +21,14 @@
         "canceled"
       ]
     },
+    "system": {
+      "description": "The build system that ran: msbuild, cargo, or all (both, one after the other; the counts and diagnostics are the sum).",
+      "enum": [
+        "msbuild",
+        "cargo",
+        "all"
+      ]
+    },
     "build_id": {
       "type": "integer",
       "minimum": 1
@@ -33,7 +41,7 @@
       ]
     },
     "path": {
-      "description": "The solution or project file built.",
+      "description": "The solution or project file built, the Cargo workspace's (or package's) Cargo.toml, or the folder when all systems built.",
       "type": "string",
       "minLength": 1
     },
@@ -46,7 +54,7 @@
       "minLength": 1
     },
     "toolchain": {
-      "description": "dotnet, mono or buildTools.",
+      "description": "dotnet, mono, buildTools or cargo.",
       "type": "string"
     },
     "elapsed_ms": {

@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-tree.output.json",
+  "title": "eludite.workspace.tree output",
+  "description": "The workspace's projects. `state` is `none` when nothing is open, `loading` until every part (the host's solution tree, the Cargo metadata, the folder listing) has arrived, `loaded` after, and `failed` when a part could not be read (`projects` then holds what could).",
+  "type": "object",
+  "required": [
+    "state",
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "root": {
+      "description": "Absolute path of the open folder; for a solution opened on its own, its folder.",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "none",
+        "loading",
+        "loaded",
+        "failed"
+      ]
+    },
+    "projects": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "kind",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The project or package name, as the Workspace window shows it; the folder name for kind folder.",
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "description": "Absolute path of the project file (.csproj), the package's Cargo.toml, or the folder.",
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "description": "csproj: an MSBuild project of the open solution. cargo: a member package of the Cargo workspace. folder: a folder with no build system Eludite knows.",
+            "enum": [
+              "csproj",
+              "cargo",
+              "folder"
+            ]
+          },
+          "msbuild": {
+            "description": "For kind csproj: `sdk` or `legacy` (non-SDK MSBuild).",
+            "enum": [
+              "sdk",
+              "legacy"
+            ]
+          },
+          "target_frameworks": {
+            "description": "For kind csproj: the target framework monikers.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "description": "For kind cargo: the package version.",
+            "type": "string"
+          },
+          "targets": {
+            "description": "For kind cargo: the package's Cargo targets.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "kind",
+                "path"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "description": "The Cargo target kind (the first of cargo metadata's `kind` list; `lib` also covers rlib, dylib, cdylib and staticlib).",
+                  "enum": [
+                    "bin",
+                    "lib",
+                    "proc-macro",
+                    "example",
+                    "test",
+                    "bench",
+                    "custom-build"
+                  ]
+                },
+                "path": {
+                  "description": "Absolute path of the target's root source file.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "dependencies": {
+            "description": "For kind cargo: the names of the package's declared dependencies (normal, dev and build).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "files": {
+            "description": "Absolute paths of the project's files (at most 5000): a .csproj's compile and content items; a Cargo package's files under its folder; a folder's files. Build outputs (target/, bin/, obj/) and hidden folders are not listed.",
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "description": "Why the project did not load; `files` is then empty.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

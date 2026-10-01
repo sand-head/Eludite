@@ -15,6 +15,14 @@
       "type": "string",
       "minLength": 1
     },
+    "system": {
+      "description": "Which build system builds (brief 0019): msbuild (the .NET solution, through eludite-host), cargo (the Cargo workspace, `cargo build` run by the shell) or all (each the workspace has, MSBuild first, one after the other, into the same Output pane and Error List). Omitted: the system that owns the active document (a .rs file belongs to cargo, a file of the solution to msbuild), or all when no document is active or the active one belongs to neither.",
+      "enum": [
+        "msbuild",
+        "cargo",
+        "all"
+      ]
+    },
     "wait": {
       "description": "Wait for the build to finish and return its result (the default for a caller off the UI thread, such as an agent). false: return as soon as the build starts, with state running. A caller on the UI thread (menus, keys) never waits. A waiting call ends early, with state canceled, when the build is canceled (eludite.build.cancel).",
       "type": "boolean"

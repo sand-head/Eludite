@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-open-folder.output.json",
+  "title": "eludite.workspace.open_folder output",
+  "description": "What the shell found at the folder's root and started loading. The Workspace window shows the folder root with the .NET solution and the Cargo workspace as siblings under it; eludite.workspace.tree lists them once loaded.",
+  "type": "object",
+  "required": [
+    "root",
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "root": {
+      "description": "Absolute path of the opened folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "description": "loading: the folder listing, the solution and the Cargo metadata are being read.",
+      "const": "loading"
+    },
+    "solution": {
+      "description": "Absolute path of the .NET solution found at the root and handed to eludite-host, when there is one.",
+      "type": "string",
+      "minLength": 1
+    },
+    "cargo_manifest": {
+      "description": "Absolute path of the Cargo.toml whose workspace is being read, when there is one.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
