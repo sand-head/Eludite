@@ -95,6 +95,55 @@ pub fn start(shell: &Entity<Shell>, t_main: Instant, join_wait: Duration, cx: &m
     });
 }
 
+/// `--bounds-out PATH`: keep PATH updated with probed element bounds.
+pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App) {
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx));
+    cx.spawn(async move |cx| {
+        let mut last = String::new();
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(200))
+                .await;
+            let text = {
+                let mut p = probe.borrow_mut();
+                p.renders.clear();
+                p.presents.clear();
+                p.guides_visible.clear();
+                let mut map = serde_json::Map::new();
+                for (k, b) in &p.bounds {
+                    map.insert(
+                        k.clone(),
+                        json!([
+                            f32::from(b.origin.x),
+                            f32::from(b.origin.y),
+                            f32::from(b.size.width),
+                            f32::from(b.size.height)
+                        ]),
+                    );
+                }
+                // Elements not drawn any more drop out on the next frame.
+                p.bounds.clear();
+                Value::Object(map).to_string()
+            };
+            if text != "{}" && text != last {
+                last = text.clone();
+                let path = path.clone();
+                cx.background_executor()
+                    .spawn(async move {
+                        let tmp = path.with_extension("tmp");
+                        if std::fs::write(&tmp, text).is_ok() {
+                            let _ = std::fs::rename(&tmp, &path);
+                        }
+                    })
+                    .detach();
+            }
+            cx.update(|cx| cx.refresh_windows());
+        }
+    })
+    .detach();
+}
+
 struct DragBench {
     probe: Rc<RefCell<RenderProbe>>,
     frames: usize,
@@ -250,6 +299,10 @@ fn report(b: &DragBench, window: &Window, _cx: &App) {
         .collect();
     let intervals: Vec<f64> = b.frame_starts.windows(2).map(|w| ms(w[1] - w[0])).collect();
     let guides = probe.guides_visible.iter().filter(|g| **g).count();
+    // The slowest frames and where they fall in the run (warm-up or steady).
+    let mut worst: Vec<(usize, f64)> = cost.iter().copied().enumerate().collect();
+    worst.sort_by(|a, b| b.1.total_cmp(&a.1));
+    worst.truncate(10);
     let out = json!({
         "bench": "drag",
         "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
@@ -260,6 +313,7 @@ fn report(b: &DragBench, window: &Window, _cx: &App) {
         "frame_cost": summarize(&cost),
         "render_to_present": summarize(&render_to_present),
         "frame_interval": summarize(&intervals),
+        "worst_frames": worst.iter().map(|(i, c)| json!([i, c])).collect::<Vec<_>>(),
         "rss": rss_mib(),
         "platform": platform(window),
     });

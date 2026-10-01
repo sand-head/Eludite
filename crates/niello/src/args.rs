@@ -21,6 +21,10 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --bench-drag N      drag the Output tab over the document area with the
                       docking guides visible for N frames; per-frame cost
   --exit-after-ms N   quit after N ms (smoke runs, screenshots)
+  --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
+                      title bars, buttons, strips and guides to PATH as JSON
+                      (for tools/drive.py, which drives the UI with real X11
+                      pointer and key events)
 
 Environment:
   NIELLO_CONFIG_DIR   replaces <user config dir>/niello (layouts go in its
@@ -37,6 +41,7 @@ pub struct Args {
     pub bench_start: bool,
     pub bench_drag: Option<usize>,
     pub exit_after_ms: Option<u64>,
+    pub bounds_out: Option<PathBuf>,
 }
 
 impl Args {
@@ -66,6 +71,7 @@ impl Args {
                     let n = value("--exit-after-ms")?;
                     a.exit_after_ms = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);
                 }
+                "--bounds-out" => a.bounds_out = Some(value("--bounds-out")?.into()),
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }
