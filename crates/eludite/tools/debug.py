@@ -75,8 +75,12 @@ def main():
     out["f10_to_locals_ms"] = st and st[0] - step_at
     out["step"] = st and st[1]
     time.sleep(0.5)
-    # A data tip: the pointer rests on `timestamp` in `return new PingResult(true, timestamp);`.
-    caret_on("timestamp);")
+    # A data tip: the pointer rests on `timestamp` in `return new PingResult(true, timestamp);`, the line below
+    # the caret (still on Ping's first statement). The find bar is not used again: it keeps its last text.
+    press("Down")
+    press("End")
+    for _ in range(6):
+        press("Left")
     time.sleep(0.6)
     b = bounds(a.bounds)
     caret = b.get("editor-caret")

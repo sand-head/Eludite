@@ -1999,7 +1999,8 @@ pub fn debug(
             shell.update(cx, |s, cx| {
                 s.invoke(
                     cmds::TOGGLE_BREAKPOINT,
-                    json!({"path": file.to_string_lossy(), "line": line}),
+                    // `set`, not a toggle: the breakpoint persists per solution, so a second run would delete it.
+                    json!({"path": file.to_string_lossy(), "line": line, "action": "set", "enabled": true}),
                     window,
                     cx,
                 )
@@ -2044,9 +2045,11 @@ pub fn debug(
             let shell2 = shell.clone();
             let ready = until(cx, &executor, move |cx| {
                 let d = shell2.read(cx).debugger();
+                let bps = d.model.breakpoints.all();
                 d.model.mode == Mode::Running
                     && d.model.session.as_ref().and_then(|s| s.process_id).is_some()
-                    && d.model.breakpoints.all().iter().all(|b| b.verified)
+                    && !bps.is_empty()
+                    && bps.iter().all(|b| b.verified)
             })
             .await;
             if !ready {
