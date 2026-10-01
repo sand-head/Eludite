@@ -322,6 +322,46 @@ impl Editor {
         });
     }
 
+    /// Replace each range with its text, all against the current text, as one undo step of its own (a workspace
+    /// edit: rename, a code action, a completion's additional edits). Ranges must be sorted and must not overlap.
+    /// The step never merges with the typing before or after it. Selections stay where they were in the text (they
+    /// are anchors). Returns the step's id, or `None` when nothing changed.
+    pub fn apply_edits(&mut self, edits: Vec<(Range<usize>, String)>) -> Option<TransactionId> {
+        let edits: Vec<(Range<usize>, String)> = edits
+            .into_iter()
+            .filter(|(r, t)| !(r.is_empty() && t.is_empty()))
+            .collect();
+        if edits.is_empty() {
+            return None;
+        }
+        debug_assert!(edits.windows(2).all(|w| w[0].0.end <= w[1].0.start));
+        self.buffer.finalize_last_transaction();
+        let before = self.selections.clone();
+        let now = Instant::now();
+        self.buffer.start_transaction_at(now);
+        self.buffer.edit(edits);
+        let id = self.buffer.end_transaction_at(now);
+        self.buffer.finalize_last_transaction();
+        self.normalize_selections();
+        if let Some(id) = id {
+            self.history.insert(id, (before, self.selections.clone()));
+        }
+        id
+    }
+
+    /// The most recent undo step, if any.
+    pub fn last_transaction(&self) -> Option<TransactionId> {
+        self.buffer.last_transaction()
+    }
+
+    /// Fold undo step `transaction` into `destination` (a completion's additional edits join its commit).
+    pub fn merge_transactions(&mut self, transaction: TransactionId, destination: TransactionId) {
+        if transaction != destination {
+            self.buffer.merge_transactions(transaction, destination);
+            self.history.remove(&transaction);
+        }
+    }
+
     /// Type `text` at every selection, replacing selected text.
     pub fn insert(&mut self, text: &str) {
         self.edit_each(|_, s| Some((s.range(), text.to_owned())));
@@ -948,6 +988,44 @@ mod tests {
         }
         out.push_str(&text[last..]);
         out
+    }
+
+    #[test]
+    fn workspace_edits_are_one_undo_step_that_never_merges_with_typing() {
+        let mut e = editor("class A { void Ping() { Ping(); } }|");
+        // Typing within the group interval would merge; workspace edits never do.
+        e.buffer.set_group_interval(Duration::from_secs(60));
+        e.insert(" ");
+        let text = e.text();
+        let at: Vec<usize> = text.match_indices("Ping").map(|(i, _)| i).collect();
+        let id = e
+            .apply_edits(at.iter().map(|&i| (i..i + 4, "Pong".to_owned())).collect())
+            .unwrap();
+        assert_eq!(e.text(), "class A { void Pong() { Pong(); } } ");
+        assert_eq!(marked(&e), "class A { void Pong() { Pong(); } } |");
+        assert_eq!(e.last_transaction(), Some(id));
+        e.insert("x");
+        assert!(e.undo());
+        assert_eq!(e.text(), "class A { void Pong() { Pong(); } } ");
+        assert!(e.undo());
+        assert_eq!(e.text(), "class A { void Ping() { Ping(); } } ");
+        assert!(e.redo());
+        assert_eq!(e.text(), "class A { void Pong() { Pong(); } } ");
+        assert_eq!(e.apply_edits(vec![(0..0, String::new())]), None);
+    }
+
+    #[test]
+    fn merged_steps_undo_together() {
+        let mut e = editor("List<int> x;|");
+        e.insert("!");
+        let commit = e.last_transaction().unwrap();
+        let using = e
+            .apply_edits(vec![(0..0, "using System.Collections.Generic;\n".into())])
+            .unwrap();
+        e.merge_transactions(using, commit);
+        assert_eq!(e.text(), "using System.Collections.Generic;\nList<int> x;!");
+        assert!(e.undo());
+        assert_eq!(e.text(), "List<int> x;");
     }
 
     #[test]

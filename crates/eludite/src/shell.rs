@@ -20,6 +20,9 @@ pub mod session;
 pub mod target;
 #[cfg(test)]
 mod tests;
+pub mod workspace_edit;
+#[cfg(test)]
+mod workspace_edit_tests;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -812,17 +815,11 @@ impl Shell {
                 self.update_error_list(cx);
             }
             SessionEvent::Diagnostics(params) => self.on_diagnostics(params, cx),
-            SessionEvent::ApplyEdit { id, .. } => {
-                // Wired to the workspace-edit applier next; until then nothing is applied.
-                self.session.respond_apply_edit(
-                    id,
-                    lsp::ApplyWorkspaceEditResult {
-                        applied: false,
-                        failure_reason: Some("the shell cannot apply workspace edits yet".into()),
-                        failed_change: None,
-                    },
-                );
-            }
+            SessionEvent::ApplyEdit {
+                id,
+                generation,
+                params,
+            } => self.on_host_apply_edit(id, generation, params, window, cx),
             SessionEvent::Closed => {
                 self.solution = None;
                 self.solution_state = None;
