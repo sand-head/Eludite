@@ -1534,10 +1534,12 @@ name = "eludite"
 version = "0.1.0"
 dependencies = [
  "clock",
+ "eludite-acp",
  "eludite-commands",
  "eludite-docking",
  "eludite-editor",
  "eludite-lsp",
+ "eludite-mcp",
  "eludite-protocol",
  "eludite-ui",
  "eludite-workspace",

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 pub const USAGE: &str = "\
 Usage: eludite [OPTIONS]
+       eludite --mcp-relay ADDR
 
 Options:
   --solution PATH     open this .sln, .slnx or project file at startup (as
@@ -14,6 +15,10 @@ Options:
                       until the layout changes)
   --no-persist        neither load nor save layouts
   -h, --help          print this help
+
+--mcp-relay ADDR is the stdio MCP server Eludite gives a hosted agent: it pipes
+stdin and stdout to the IDE's MCP endpoint at ADDR (127.0.0.1:PORT), first
+sending the token from ELUDITE_MCP_TOKEN, and opens no window.
 
 Opening a solution starts eludite-host, found beside this executable, else
 at ELUDITE_HOST (an eludite-host executable or eludite-host.dll), else on PATH.
@@ -84,6 +89,8 @@ pub struct Args {
     pub bench_complete: Option<usize>,
     pub bench_navigate: Option<usize>,
     pub bench_refactor: Option<usize>,
+    /// `--mcp-relay ADDR`: run as the agent's stdio MCP server, relaying to the IDE's endpoint.
+    pub mcp_relay: Option<std::net::SocketAddr>,
 }
 
 impl Args {
@@ -132,6 +139,13 @@ impl Args {
                 "--bench-refactor" => {
                     let n = value("--bench-refactor")?;
                     a.bench_refactor = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
+                "--mcp-relay" => {
+                    let addr = value("--mcp-relay")?;
+                    a.mcp_relay = Some(
+                        addr.parse()
+                            .map_err(|_| format!("bad endpoint address `{addr}`"))?,
+                    );
                 }
                 other => return Err(format!("unknown argument `{other}`")),
             }
@@ -212,5 +226,9 @@ mod tests {
         assert_eq!(a.bench_refactor, Some(50));
         assert!(a.benching());
         assert!(parse(&["--bench-refactor"]).is_err());
+        let a = parse(&["--mcp-relay", "127.0.0.1:4567"]).unwrap();
+        assert_eq!(a.mcp_relay, Some("127.0.0.1:4567".parse().unwrap()));
+        assert!(!a.benching());
+        assert!(parse(&["--mcp-relay", "nowhere"]).is_err());
     }
 }

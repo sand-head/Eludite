@@ -26,8 +26,8 @@ mod server;
 pub mod transport;
 
 pub use server::{
-    CallContext, CallObserver, GateDecision, Invoker, McpServer, NO_GATE, PermissionGate,
-    SUPPORTED_PROTOCOL_VERSIONS, ToolCallRecord,
+    AgentName, CallContext, CallObserver, GateDecision, Invoker, McpServer, NO_GATE,
+    PermissionGate, SUPPORTED_PROTOCOL_VERSIONS, ToolCallRecord,
 };
 
 /// MCP `Tool` as returned by `tools/list`.
