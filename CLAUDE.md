@@ -88,7 +88,7 @@ A PR is done when all of these hold:
 - [ ] Benchmarks have not regressed by more than 5 percent.
 - [ ] A structural decision has an ADR in `docs/adr/` (new, or a status change on an existing one).
 - [ ] README.md and this file still match the repo (layout, commands, crate map).
-- [ ] Every commit carries a DCO `Signed-off-by` line from the human directing the work.
+- [ ] Every commit message is one plain, direct, active-voice line: no body, no trailers, no co-author lines.
 - [ ] Any new dependency has its SPDX license id in the PR description.
 
 ## How work is issued
