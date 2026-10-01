@@ -1,7 +1,8 @@
 //! The Error List (PLAN.md 5.4, brief 0012): diagnostics from the host's `textDocument/publishDiagnostics` and the
 //! solution's load diagnostics, one row each (code, description, project, file, line, column). The tab label stays
 //! "Error List". Double-clicking a row (Visual Studio's gesture) opens the file at the location through
-//! `eludite.file.open`.
+//! `eludite.file.open`. Rows come from the live analysis and from the last build (brief 0017); the Source column says
+//! which (Build, IntelliSense, or Build + IntelliSense for a build diagnostic that matched a live one).
 //!
 //! The toolbar (brief 0014) is Visual Studio's: the Errors, Warnings and Messages toggle buttons with their counts, a
 //! project dropdown and a search box over code and description. Every change goes through
@@ -14,7 +15,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use eludite_commands::diagnostics::Severity;
+use eludite_commands::diagnostics::{RowSource, Severity};
 use eludite_commands::workspace::{
     self, ErrorListFilterInput, ErrorListFilterOutput, FilterCounts,
 };
@@ -38,6 +39,17 @@ pub struct ErrorRow {
     pub file: String,
     pub line: u32,
     pub column: u32,
+    /// The last build, the live analysis, or both (brief 0017).
+    pub source: RowSource,
+}
+
+/// The Source column's text, in Visual Studio's terms (the live analysis is IntelliSense).
+pub fn source_label(source: RowSource) -> &'static str {
+    match source {
+        RowSource::Build => "Build",
+        RowSource::Live => "IntelliSense",
+        RowSource::Both => "Build + IntelliSense",
+    }
 }
 
 /// Counts for the header: errors, warnings, messages.
@@ -494,7 +506,8 @@ impl Render for ErrorList {
             .child(cell("Project", Some(130.)))
             .child(cell("File", Some(150.)))
             .child(cell("Line", Some(44.)))
-            .child(cell("Col", Some(36.)));
+            .child(cell("Col", Some(36.)))
+            .child(cell("Source", Some(130.)));
         let count = self.visible.len();
         div()
             .id("error-list")
@@ -538,6 +551,7 @@ impl Render for ErrorList {
                                     .child(cell(r.file.clone(), Some(150.)))
                                     .child(cell(r.line.to_string(), Some(44.)))
                                     .child(cell(r.column.to_string(), Some(36.)))
+                                    .child(cell(source_label(r.source), Some(130.)))
                                     .on_click(cx.listener(move |this, e, window, cx| {
                                         this.click(ix, e, window, cx)
                                     }));
@@ -576,6 +590,7 @@ mod tests {
             file: "a.cs".into(),
             line: 1,
             column: 1,
+            source: RowSource::Live,
         };
         let rows = [
             row(
