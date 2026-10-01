@@ -13,6 +13,8 @@ mod tests;
 
 fn main() {
     let t_main = std::time::Instant::now();
+    // Process-wide memory policy belongs here, not in a library (brief 0011).
+    eludite_editor::syntax::alloc::disable_transparent_huge_pages();
     match args::Args::parse(std::env::args().skip(1)) {
         Ok(args) if args.help => print!("{}", args::USAGE),
         Ok(args) => app::run(args, t_main),
