@@ -47,7 +47,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0014](0014-navigation.md) | Go to definition, Find All References and Error List filtering | 1 | [report](0014-report.md): done on Linux; F12 4 ms; references 508 ms p95 (Roslyn's fixed 500 ms batching) |
 | [0015](0015-rename-and-code-actions.md) | Rename, code actions and the workspace-edit applier | 1 | [report](0015-report.md): done on Linux; light bulb 121 ms p95, rename preview 170 ms p95 |
 | [0016](0016-agents-window.md) | The Agents window in the production shell | 1 | [report](0016-report.md): done on Linux; Claude fixed a real error through a pending-change review; ready 0.65 s |
-| [0017](0017-build.md) | Build with Output and Error List | 1 | open |
+| [0017](0017-build.md) | Build with Output and Error List | 1 | [report](0017-report.md): done on Linux; first Output line 18 ms, Error List rows 2 ms after finish |
 | [0018](0018-debug.md) | Run and debug with netcoredbg | 1 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
