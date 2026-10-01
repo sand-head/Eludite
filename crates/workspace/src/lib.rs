@@ -7,10 +7,17 @@
 //! Public API: [`explorer`] turns the host's `eludite/solution/tree` answer into
 //! Workspace's tree ([`explorer::SolutionModel`]) with Visual Studio's
 //! semantics: folders that mirror the file system, nested files, sorting, and the
-//! flattened rows a view draws for a set of expanded nodes. [`Solution`] and
-//! [`classify_csproj`] are the older project-file helpers.
+//! flattened rows a view draws for a set of expanded nodes; for an opened folder
+//! it composes the solution, the Cargo workspace and the folder's files
+//! ([`explorer::SolutionModel::compose`], brief 0019). [`cargo`] is the Cargo
+//! workspace model read from `cargo metadata` (members, targets, dependencies),
+//! and [`folder`] the plain-folder model (the files of a folder, the solution and
+//! `Cargo.toml` at its root). [`Solution`] and [`classify_csproj`] are the older
+//! project-file helpers.
 
+pub mod cargo;
 pub mod explorer;
+pub mod folder;
 
 use std::path::PathBuf;
 
