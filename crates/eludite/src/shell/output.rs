@@ -225,7 +225,6 @@ impl OutputWindow {
 
     /// The index of the topmost line drawn, from the scroll offset of the last layout (tests).
     #[cfg(test)]
-    #[allow(dead_code)]
     pub fn top_line(&self) -> usize {
         let offset = self.scroll.0.borrow().base_handle.offset();
         (-offset.y / px(LINE_HEIGHT)).floor().max(0.) as usize

@@ -10,6 +10,8 @@
 
 pub mod agents;
 pub mod build;
+#[cfg(test)]
+mod build_tests;
 pub mod code_actions;
 pub mod documents;
 pub mod error_list;
