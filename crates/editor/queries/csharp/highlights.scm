@@ -23,6 +23,7 @@
 ] @string
 
 (string_literal_content) @string
+(string_content) @string
 (escape_sequence) @string.escape
 
 [
