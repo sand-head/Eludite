@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-show.input.json",
+  "title": "niello.view.show input",
+  "description": "Show and activate a tool window (View menu, e.g. View > Solution Explorer) or a document tab. A closed tool window reopens where it was; an auto-hidden one slides out; a tabbed one becomes the active tab of its group.",
+  "type": "object",
+  "required": ["id"],
+  "properties": {
+    "id": {
+      "description": "Tool window id (e.g. solution_explorer, properties, error_list, output, toolbox, git_changes) or document tab id.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

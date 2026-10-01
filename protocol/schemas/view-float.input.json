@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-float.input.json",
+  "title": "niello.view.float input",
+  "description": "Float a tool window in its own OS window (Window > Float). It re-docks with niello.view.dock or by closing the floating window. On Wayland the compositor chooses the window position; the size is kept.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Tool window id. Omit to act on the active tool window.",
+      "type": "string",
+      "minLength": 1
+    },
+    "bounds": {
+      "description": "Requested window bounds in logical pixels, in screen coordinates. Omit for a default size near the main window.",
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
