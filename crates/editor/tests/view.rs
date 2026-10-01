@@ -425,3 +425,97 @@ fn ctrl_click_moves_the_caret_and_asks_for_the_definition(cx: &mut TestAppContex
     );
     assert_eq!(events.borrow().len(), 1);
 }
+
+#[gpui::test]
+fn breakpoint_margin_execution_point_and_data_tip_expressions(cx: &mut TestAppContext) {
+    use eludite_editor::{BreakpointGlyph, EditorEvent, ExecutionKind};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let src = "class A\n{\n    int M() { return this.order.Name.Length; }\n    void N() { }\n}\n";
+    let (view, mut cx) = open(cx, src, None);
+    let rows: Rc<RefCell<Vec<u32>>> = Rc::default();
+    let sink = rows.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &EditorEvent, _| {
+            if let EditorEvent::BreakpointMarginClicked { row } = e {
+                sink.borrow_mut().push(*row);
+            }
+        })
+        .detach()
+    });
+    cx.run_until_parked();
+    // A click in the margin reports its row and does not move the caret.
+    let at = view
+        .read_with(&cx, |v, _| v.breakpoint_margin_point(2))
+        .expect("row 2 painted");
+    cx.simulate_click(at, Modifiers::none());
+    assert_eq!(*rows.borrow(), [2]);
+    assert_eq!(
+        view.read_with(&cx, |v, _| v.editor().primary_selection().head),
+        0
+    );
+    // Clicking the text still places the caret (the margin is only the strip at the far left).
+    let text_at = position_of(&view, &mut cx, src.find("int").unwrap());
+    cx.simulate_click(text_at, Modifiers::none());
+    assert_eq!(rows.borrow().len(), 1);
+
+    // Glyphs and the execution point stay on their lines as lines are inserted above them.
+    view.update(&mut cx, |v, cx| {
+        v.set_breakpoint_glyphs(
+            vec![
+                (2, BreakpointGlyph::Enabled),
+                (3, BreakpointGlyph::Conditional),
+            ],
+            cx,
+        );
+        let start = src.find("return").unwrap();
+        v.set_execution_point(Some((start..start + 31, ExecutionKind::Current)), cx);
+    });
+    cx.run_until_parked();
+    view.update(&mut cx, |v, cx| {
+        v.update_editor(cx, |e| {
+            e.set_caret(0);
+            e.insert("// one\n// two\n");
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        view.read_with(&cx, |v, _| v.breakpoint_glyphs()),
+        [
+            (4, BreakpointGlyph::Enabled),
+            (5, BreakpointGlyph::Conditional)
+        ]
+    );
+    assert_eq!(
+        view.read_with(&cx, |v, _| v.execution_point()),
+        Some((4, ExecutionKind::Current))
+    );
+    view.update(&mut cx, |v, cx| v.set_execution_point(None, cx));
+    assert_eq!(view.read_with(&cx, |v, _| v.execution_point()), None);
+
+    // The data-tip expression is the member chain up to the hovered member.
+    let text = text(&view, &mut cx);
+    let expr = |cx: &mut VisualTestContext, needle: &str| {
+        let at = text.find(needle).unwrap() + 1;
+        view.read_with(cx, |v, _| v.expression_at(at))
+            .map(|(_, e)| e)
+    };
+    assert_eq!(expr(&mut cx, "Name").as_deref(), Some("this.order.Name"));
+    assert_eq!(expr(&mut cx, "order").as_deref(), Some("this.order"));
+    assert_eq!(expr(&mut cx, "return").as_deref(), Some("return"));
+    assert_eq!(expr(&mut cx, "{ }"), None);
+    let (range, e) = view
+        .read_with(&cx, |v, _| v.expression_at(text.find("Length").unwrap()))
+        .unwrap();
+    assert_eq!(&text[range], e);
+    // A data tip uses Quick Info's popup.
+    let id = view.update(&mut cx, |v, cx| {
+        let start = text.find("this.order").unwrap();
+        v.open_data_tip(start..start + 10, cx)
+    });
+    view.update(&mut cx, |v, cx| {
+        v.set_hover(id, Some("this.order = {App.Order}"), None, cx)
+    });
+    let tip = view.read_with(&cx, |v, _| v.hover()).unwrap();
+    assert_eq!(tip.text.as_deref(), Some("this.order = {App.Order}"));
+}

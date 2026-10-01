@@ -57,6 +57,16 @@ pub mod ids {
     pub const FIND_ALL_REFERENCES: &str = "find_all_references";
     /// The Agents window (brief 0016): docked right, tabbed with Workspace.
     pub const AGENTS: &str = "agents";
+    /// The debugger windows (brief 0018): closed until a debugging session shows them, then tabbed at the bottom.
+    pub const LOCALS: &str = "locals";
+    pub const WATCH: &str = "watch";
+    pub const CALL_STACK: &str = "call_stack";
+    pub const THREADS: &str = "threads";
+    pub const BREAKPOINTS: &str = "breakpoints";
+    pub const EXCEPTION_SETTINGS: &str = "exception_settings";
+    pub const DEBUG_CONSOLE: &str = "debug_console";
+    /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout).
+    pub const DEBUG_SESSION: [&str; 4] = [LOCALS, WATCH, CALL_STACK, DEBUG_CONSOLE];
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
@@ -105,6 +115,17 @@ impl ToolWindowRegistry {
                 DockSide::Bottom,
             ),
             (ids::AGENTS, "Agents", DockSide::Right),
+            (ids::LOCALS, "Locals", DockSide::Bottom),
+            (ids::WATCH, "Watch 1", DockSide::Bottom),
+            (ids::CALL_STACK, "Call Stack", DockSide::Bottom),
+            (ids::THREADS, "Threads", DockSide::Bottom),
+            (ids::BREAKPOINTS, "Breakpoints", DockSide::Bottom),
+            (
+                ids::EXCEPTION_SETTINGS,
+                "Exception Settings",
+                DockSide::Bottom,
+            ),
+            (ids::DEBUG_CONSOLE, "Debug Console", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -932,14 +953,23 @@ mod tests {
         assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
         assert_eq!(l.bottom.groups[0].tabs, [ids::ERROR_LIST, ids::OUTPUT]);
         assert_eq!(l.bottom.groups[0].active_id(), Some(ids::ERROR_LIST));
-        // Find All References starts closed and opens beside the Error List (brief 0014).
+        // Find All References starts closed and opens beside the Error List (brief 0014), as do the debugger
+        // windows (brief 0018).
+        let hidden: Vec<&str> = l.hidden.iter().map(|h| h.id.as_str()).collect();
         assert_eq!(
-            l.hidden,
-            [HiddenWindow {
-                id: ids::FIND_ALL_REFERENCES.into(),
-                side: DockSide::Bottom
-            }]
+            hidden,
+            [
+                ids::FIND_ALL_REFERENCES,
+                ids::LOCALS,
+                ids::WATCH,
+                ids::CALL_STACK,
+                ids::THREADS,
+                ids::BREAKPOINTS,
+                ids::EXCEPTION_SETTINGS,
+                ids::DEBUG_CONSOLE
+            ]
         );
+        assert!(l.hidden.iter().all(|h| h.side == DockSide::Bottom));
         assert!(l.floating.is_empty());
         let mut shown = l.clone();
         shown.show(ids::FIND_ALL_REFERENCES).unwrap();

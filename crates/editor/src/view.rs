@@ -17,6 +17,7 @@ use gpui::{
 use text::{Anchor, BufferSnapshot, OffsetUtf16};
 
 use crate::buffer::Buffer;
+use crate::debugging::{BREAKPOINT_MARGIN, BreakpointGlyph, ExecutionKind};
 use crate::display::{
     byte_for_visual_column, expand_tabs, from_display, to_display, visual_column,
 };
@@ -292,6 +293,10 @@ pub struct EditorView {
     read_only: bool,
     /// Visual Studio's light bulb in the margin (brief 0015): the start of its line, and which bulb.
     lightbulb: Option<(Anchor, LightbulbKind)>,
+    /// Breakpoint glyphs in the margin (brief 0018): the start of each line.
+    pub(crate) breakpoint_glyphs: Vec<(Anchor, BreakpointGlyph)>,
+    /// The debugger's execution point: the statement, and which arrow.
+    pub(crate) execution: Option<(Range<Anchor>, ExecutionKind)>,
 }
 
 impl EditorView {
@@ -326,6 +331,8 @@ impl EditorView {
             dragging: false,
             read_only: false,
             lightbulb: None,
+            breakpoint_glyphs: Vec::new(),
+            execution: None,
         };
         this.schedule_highlight(cx);
         this
@@ -806,6 +813,12 @@ impl EditorView {
     ) {
         window.focus(&self.focus, cx);
         if event.button == MouseButton::Left
+            && let Some(row) = self.margin_row(event.position)
+        {
+            cx.emit(EditorEvent::BreakpointMarginClicked { row });
+            return;
+        }
+        if event.button == MouseButton::Left
             && let Some(bulb) = self.lightbulb_bounds()
             && bulb.contains(&event.position)
             && let Some((row, _)) = self.lightbulb()
@@ -1186,6 +1199,9 @@ pub struct PrepaintState {
     rows: Vec<RowLayout>,
     /// The light bulb's bounds and color.
     lightbulb: Option<(Bounds<Pixels>, Rgba)>,
+    /// Breakpoint glyphs and the execution arrow in the margin (brief 0018).
+    glyphs: Vec<(Bounds<Pixels>, BreakpointGlyph)>,
+    arrow: Option<(Bounds<Pixels>, ExecutionKind)>,
     quads: Vec<gpui::PaintQuad>,
     carets: Vec<gpui::PaintQuad>,
     gutter_width: Pixels,
@@ -1249,8 +1265,9 @@ impl Element for EditorElement {
             .map(|s| s.width)
             .unwrap_or(font_size * 0.6);
         let digits = line_count.to_string().len().max(3);
-        // Line numbers, plus the light bulb margin at the left (brief 0015).
-        let gutter_width = char_width * (digits as f32 + 2.5) + LIGHTBULB_MARGIN;
+        // The breakpoint margin (brief 0018), the light bulb margin (brief 0015), then the line numbers.
+        let gutter_width =
+            char_width * (digits as f32 + 2.5) + LIGHTBULB_MARGIN + BREAKPOINT_MARGIN;
         let text_width = bounds.size.width - gutter_width;
         self.view.update(cx, |v, _| {
             v.prepare_frame(bounds.size, text_width, char_width)
@@ -1279,15 +1296,23 @@ impl Element for EditorElement {
         } else {
             snapshot.point_to_offset(text::Point::new(last, 0))
         };
-        let decorations: Vec<(Range<usize>, DecorationStyle)> = v
-            .decorations
-            .values()
-            .flatten()
-            .filter_map(|d| {
-                let r = snapshot.offset_for_anchor(&d.range.start)
-                    ..snapshot.offset_for_anchor(&d.range.end);
-                (r.end >= vis_start && r.start <= vis_end).then_some((r, d.style))
-            })
+        // The execution point's statement is a background under every other decoration.
+        let execution = v.execution.as_ref().map(|(r, kind)| {
+            (
+                snapshot.offset_for_anchor(&r.start)..snapshot.offset_for_anchor(&r.end),
+                DecorationStyle::Background(kind.background()),
+            )
+        });
+        let decorations: Vec<(Range<usize>, DecorationStyle)> = execution
+            .into_iter()
+            .chain(v.decorations.values().flatten().map(|d| {
+                (
+                    snapshot.offset_for_anchor(&d.range.start)
+                        ..snapshot.offset_for_anchor(&d.range.end),
+                    d.style,
+                )
+            }))
+            .filter(|(r, _)| r.end >= vis_start && r.start <= vis_end)
             .collect();
         let find_matches = if v.find_bar_open {
             v.editor.find_matches(vis_start..vis_end)
@@ -1411,14 +1436,49 @@ impl Element for EditorElement {
                 let size = (lh - px(4.)).min(px(14.));
                 let top = row_top(row) + (lh - size) / 2.;
                 (
-                    Bounds::new(point(bounds.left() + px(3.), top), gpui::size(size, size)),
+                    Bounds::new(
+                        point(bounds.left() + BREAKPOINT_MARGIN + px(3.), top),
+                        gpui::size(size, size),
+                    ),
                     kind.color(),
                 )
             })
         });
+        let margin_cell = |row: u32| {
+            let size = (lh - px(5.)).min(px(12.));
+            Bounds::new(
+                point(
+                    bounds.left() + (BREAKPOINT_MARGIN - size) / 2.,
+                    row_top(row) + (lh - size) / 2.,
+                ),
+                gpui::size(size, size),
+            )
+        };
+        let glyphs = v
+            .breakpoint_glyphs
+            .iter()
+            .filter_map(|(anchor, glyph)| {
+                let row = snapshot
+                    .offset_to_point(snapshot.offset_for_anchor(anchor))
+                    .row;
+                (first..last)
+                    .contains(&row)
+                    .then(|| (margin_cell(row), *glyph))
+            })
+            .collect();
+        let arrow = v.execution.as_ref().and_then(|(r, kind)| {
+            let row = snapshot
+                .offset_to_point(snapshot.offset_for_anchor(&r.start))
+                .row;
+            (first..last)
+                .contains(&row)
+                .then(|| (margin_cell(row), *kind))
+        });
         PrepaintState {
             rows,
             lightbulb,
+            glyphs,
+            arrow,
             quads,
             carets,
             gutter_width,
@@ -1462,6 +1522,50 @@ impl Element for EditorElement {
                     cx,
                 )
                 .ok();
+        }
+        for (b, glyph) in &state.glyphs {
+            let color = hsla(glyph.color());
+            let round = b.size.width / 2.;
+            let q = if glyph.filled() {
+                fill(*b, color).corner_radii(round)
+            } else {
+                gpui::quad(
+                    *b,
+                    round,
+                    gpui::transparent_black(),
+                    px(1.5),
+                    color,
+                    gpui::BorderStyle::Solid,
+                )
+            };
+            window.paint_quad(q);
+            if *glyph == BreakpointGlyph::Conditional {
+                let bar = Bounds::new(
+                    point(
+                        b.origin.x + b.size.width * 0.25,
+                        b.origin.y + b.size.height * 0.42,
+                    ),
+                    gpui::size(b.size.width * 0.5, b.size.height * 0.16),
+                );
+                window.paint_quad(fill(bar, hsla(rgb(0xFFFFFF))));
+            }
+        }
+        if let Some((b, kind)) = state.arrow {
+            // Visual Studio's arrow: a shaft and a head, pointing right.
+            let mut path = gpui::PathBuilder::fill();
+            let (x0, y0) = (b.origin.x, b.origin.y);
+            let (w, h) = (b.size.width, b.size.height);
+            path.move_to(point(x0, y0 + h * 0.3));
+            path.line_to(point(x0 + w * 0.5, y0 + h * 0.3));
+            path.line_to(point(x0 + w * 0.5, y0));
+            path.line_to(point(x0 + w, y0 + h * 0.5));
+            path.line_to(point(x0 + w * 0.5, y0 + h));
+            path.line_to(point(x0 + w * 0.5, y0 + h * 0.7));
+            path.line_to(point(x0, y0 + h * 0.7));
+            path.close();
+            if let Ok(p) = path.build() {
+                window.paint_path(p, hsla(kind.arrow()));
+            }
         }
         if let Some((b, color)) = state.lightbulb {
             // A bulb on a darker base, as Visual Studio draws it.
