@@ -117,6 +117,7 @@ pub fn vs_menus() -> Vec<Menu> {
             vec![
                 show("Workspace", "workspace"),
                 show("Git Changes", "git_changes"),
+                show("Agents", "agents"),
                 Separator,
                 show("Error List", "error_list"),
                 show("Output", "output"),

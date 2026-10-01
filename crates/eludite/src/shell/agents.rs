@@ -46,6 +46,51 @@ use self::transcript::{McpLink, Permission};
 use self::window::{AgentsWindow, AgentsWindowEvent, Decision, HeaderState, StateKind};
 use super::Shell;
 
+/// `eludite.agents.*` from another thread (an outer agent), for the UI thread to apply.
+pub struct AgentsJob {
+    pub request: eludite_commands::agents::AgentsRequest,
+    pub reply: mpsc::SyncSender<AgentsOutcome>,
+}
+
+pub type AgentsOutcome =
+    Result<eludite_commands::agents::AgentsOutput, eludite_commands::CommandError>;
+
+thread_local! {
+    static STAGED: RefCell<Option<AgentsOutcome>> = const { RefCell::new(None) };
+}
+
+/// The result the shell computed for the bus invocation it is about to make on this (the UI) thread.
+pub fn stage(outcome: AgentsOutcome) {
+    STAGED.with(|s| *s.borrow_mut() = Some(outcome));
+}
+
+/// The shell's `AgentsTarget`: on the UI thread the shell has applied the request already (keys, buttons, the prompt
+/// box); from another thread the request is posted to the UI and the caller waits for its answer.
+pub struct AgentsBus {
+    pub ui_thread: std::thread::ThreadId,
+    pub jobs: UnboundedSender<AgentsJob>,
+}
+
+impl eludite_commands::agents::AgentsTarget for AgentsBus {
+    fn apply(&self, request: eludite_commands::agents::AgentsRequest) -> AgentsOutcome {
+        use eludite_commands::CommandError;
+        if std::thread::current().id() == self.ui_thread {
+            return STAGED.with(|s| s.borrow_mut().take()).unwrap_or_else(|| {
+                Err(CommandError::Failed(format!(
+                    "{} runs on the UI thread through the shell",
+                    request.command()
+                )))
+            });
+        }
+        let (reply, rx) = mpsc::sync_channel(1);
+        self.jobs
+            .unbounded_send(AgentsJob { request, reply })
+            .map_err(|_| CommandError::Failed("the window is closed".into()))?;
+        rx.recv_timeout(Duration::from_secs(30))
+            .map_err(|_| CommandError::Failed("the UI did not answer".into()))?
+    }
+}
+
 /// Status bar slot: the agent's state (right).
 pub const AGENTS_SLOT: &str = "agents";
 
@@ -660,7 +705,6 @@ impl Shell {
     }
 
     /// The oldest waiting request, for `eludite.agents.permission` without a request id.
-    #[allow(dead_code)]
     pub fn agents_oldest_request(&self, cx: &gpui::App) -> Option<u64> {
         self.agents
             .window
@@ -765,6 +809,126 @@ impl Shell {
         }
     }
 
+    /// `eludite.agents.*`, on the UI thread.
+    pub fn apply_agents(
+        &mut self,
+        request: eludite_commands::agents::AgentsRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AgentsOutcome {
+        use eludite_commands::CommandError;
+        use eludite_commands::agents::{
+            AgentsOutput, AgentsRequest, ChangeRow, PermissionDecision, PermissionOutput,
+            ReviewOutput, ReviewTarget,
+        };
+        let failed = CommandError::Failed;
+        match request {
+            AgentsRequest::Start { agent, restart } => {
+                self.agents_start(agent.as_deref(), restart, cx)
+                    .map_err(failed)?;
+                Ok(AgentsOutput::State(self.agents_state(cx)))
+            }
+            AgentsRequest::Prompt { text } => {
+                self.agents_prompt(&text, cx).map_err(failed)?;
+                Ok(AgentsOutput::State(self.agents_state(cx)))
+            }
+            AgentsRequest::Cancel => {
+                self.agents_cancel(window, cx);
+                Ok(AgentsOutput::State(self.agents_state(cx)))
+            }
+            AgentsRequest::Permission { request, decision } => {
+                let key = request
+                    .or_else(|| self.agents_oldest_request(cx))
+                    .ok_or_else(|| failed("no permission request is pending".into()))?;
+                let d = match decision {
+                    PermissionDecision::Allow => Decision::Allow,
+                    PermissionDecision::AlwaysAllow => Decision::AlwaysAllow,
+                    PermissionDecision::Deny => Decision::Deny,
+                };
+                let a = self.agents_answer(key, d, cx).map_err(failed)?;
+                Ok(AgentsOutput::Permission(PermissionOutput {
+                    request: a.request,
+                    decision,
+                    tool: a.tool,
+                    class: a.class,
+                    persisted: a.persisted,
+                    policy_path: a.policy_path.map(|p| p.to_string_lossy().into_owned()),
+                }))
+            }
+            AgentsRequest::Review { target, accept } => {
+                let ids = match &target {
+                    ReviewTarget::Change(id) => self.changes_for(Some(*id), None),
+                    ReviewTarget::Path(p) => self.changes_for(None, Some(p)),
+                    ReviewTarget::All => self.changes_for(None, None),
+                };
+                let message = self.decide(&ids, accept, window, cx).err();
+                let changes = ids
+                    .iter()
+                    .filter_map(|id| self.agents.changes.get(id))
+                    .map(|c| ChangeRow {
+                        id: c.id,
+                        path: c.path.to_string_lossy().into_owned(),
+                        state: c.state.label().into(),
+                        edits: c.edits,
+                        tool_call: c.tool_call.clone(),
+                        message: match &c.state {
+                            review::ChangeState::Failed(why) => Some(why.clone()),
+                            _ => None,
+                        },
+                    })
+                    .collect();
+                Ok(AgentsOutput::Review(ReviewOutput {
+                    decision: if accept { "accept" } else { "reject" }.into(),
+                    changes,
+                    message,
+                }))
+            }
+        }
+    }
+
+    /// `agents-state.output.json`.
+    pub fn agents_state(&self, cx: &gpui::App) -> eludite_commands::agents::AgentsStateOutput {
+        use eludite_commands::agents::{AgentRow, AgentsStateOutput, LoginRow};
+        let a = &self.agents;
+        AgentsStateOutput {
+            agent: a
+                .selected_agent()
+                .map(|x| x.name().to_owned())
+                .unwrap_or_default(),
+            state: a.state.as_str().into(),
+            generation: a.generation,
+            session_id: a.session_id.clone(),
+            agent_info: a.agent_info.clone(),
+            protocol_version: a.protocol,
+            message: (!a.detail.is_empty()).then(|| a.detail.clone()),
+            login: a
+                .login
+                .iter()
+                .map(|m| LoginRow {
+                    name: m.name.clone(),
+                    description: (!m.description.is_empty()).then(|| m.description.clone()),
+                    command: m.command.clone(),
+                })
+                .collect(),
+            last_stop_reason: a.last_stop.clone(),
+            agents: a
+                .registry
+                .iter()
+                .map(|r| AgentRow {
+                    name: r.name().to_owned(),
+                    command: r.command_line(),
+                    source: r.source.as_str().into(),
+                })
+                .collect(),
+            pending_permissions: a.window.read(cx).transcript.asked().len() as u64,
+            pending_changes: a
+                .changes
+                .values()
+                .filter(|c| c.state == review::ChangeState::Pending)
+                .count() as u64,
+        }
+    }
+
     /// Whether `request` from `caller` is an agent's edit to hold for review (the solution's policy says review).
     pub(super) fn reviews_edit(
         &self,
@@ -792,30 +956,35 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let result = match event {
+        use eludite_commands::agents::{CANCEL, PERMISSION, PROMPT, REVIEW, START};
+        // Every action in the window is a command on the bus (CLAUDE.md invariant 3).
+        match event {
             AgentsWindowEvent::Start { agent, restart } => {
-                self.agents_start(agent.as_deref(), *restart, cx)
+                let mut args = json!({ "restart": restart });
+                if let Some(a) = agent {
+                    args["agent"] = json!(a);
+                }
+                self.run(START, args, window, cx);
             }
-            AgentsWindowEvent::Prompt(text) => self.agents_prompt(text, cx),
-            AgentsWindowEvent::Cancel => {
-                self.agents_cancel(window, cx);
-                Ok(())
+            AgentsWindowEvent::Prompt(text) => {
+                self.run(PROMPT, json!({ "text": text }), window, cx)
             }
-            AgentsWindowEvent::Answer { request, decision } => {
-                self.agents_answer(*request, *decision, cx).map(|_| ())
-            }
+            AgentsWindowEvent::Cancel => self.run(CANCEL, json!({}), window, cx),
+            AgentsWindowEvent::Answer { request, decision } => self.run(
+                PERMISSION,
+                json!({ "request": request, "decision": decision.as_str() }),
+                window,
+                cx,
+            ),
             AgentsWindowEvent::Review { change, accept } => {
-                let ids = self.changes_for(*change, None);
-                self.decide(&ids, *accept, window, cx)
+                let mut args = json!({ "decision": if *accept { "accept" } else { "reject" } });
+                match change {
+                    Some(c) => args["change"] = json!(c),
+                    None => args["all"] = json!(true),
+                }
+                self.run(REVIEW, args, window, cx);
             }
-            AgentsWindowEvent::OpenChange(id) => {
-                self.open_change(*id, window, cx);
-                Ok(())
-            }
-        };
-        if let Err(e) = result {
-            self.status.set(eludite_ui::slots::STATE, e);
-            cx.notify();
+            AgentsWindowEvent::OpenChange(id) => self.open_change(*id, window, cx),
         }
     }
 
