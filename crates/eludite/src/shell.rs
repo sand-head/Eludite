@@ -10,6 +10,8 @@ pub mod error_list;
 pub mod explorer;
 pub mod session;
 pub mod target;
+#[cfg(test)]
+mod tests;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
