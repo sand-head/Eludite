@@ -21,6 +21,7 @@ The full contract is `protocol/schemas/host-rpc.md` (brief 0007), with a JSON sc
 | `eludite/host/shutdown` | request | `Rpc/HostRpcTarget.cs` |
 | `eludite/host/exit` | notification | process exits (0 if `eludite/host/shutdown` came first, else 1) |
 | `eludite/solution/open`, `eludite/solution/close` | request | `Lsp/LspProxy.cs`; return the new solution generation |
+| `eludite/solution/tree` | request | `Projects/SolutionTreeProvider.cs`; projects and source files from `Projects/MsBuildProjectTreeEvaluator.cs`, once per generation |
 | forwarded LSP (typed and untyped lists) | request / notification | `Lsp/LspProxy.cs` (`TypedRequests`, `UntypedRequests`, `UntypedNotifications`) |
 | `eludite/solution/status`, `eludite/languageServer/status`, `textDocument/publishDiagnostics` | host-to-shell notification | `Lsp/LspProxy.cs` |
 
@@ -108,6 +109,17 @@ see `docs/briefs/0003-report.md`):
 - `LegacyDesignTime` is the bridge's `ISolutionPreparer`: it runs on `eludite/solution/open` before Roslyn opens the
   solution, only when the solution has legacy projects, and its result (MSBuild used, designer partials, case
   fixups, COM references removed, evaluation failures) is reported in `eludite/solution/status` `loaded`.
+
+## Solution Explorer tree (brief 0012)
+
+`eludite/solution/tree` lists the open solution's C# projects (`Legacy/SolutionProjects.cs`) with their `Compile`
+items, plus `Content` items for web projects. `Projects/MsBuildProjectTreeEvaluator.cs` evaluates every project with
+the .NET SDK's MSBuild in-process (registered by `Microsoft.Build.Locator`, as the brief 0003 in-process evaluator
+does): evaluation only, no targets, missing imports ignored, one evaluation at a time. A multi-targeted project's
+items come from the inner evaluation of its first target framework. Legacy projects get the brief 0003 design-time
+properties. `Projects/SolutionTreeProvider.cs` runs the evaluation once per generation on the thread pool, answers
+every request for that generation from it, and fails a waiting request with -32801 when the generation moves on.
+It does not wait for Roslyn: on `dotnet/Eludite.slnx` the tree is ready long before the language server's load.
 
 ## Planned (not yet added)
 
