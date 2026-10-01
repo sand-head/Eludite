@@ -1,0 +1,28 @@
+niello-claude-acp
+Copyright (c) 2026 The Niello Authors. Licensed under the MIT License (LICENSE).
+
+The presentation of Claude Code tool calls and permission prompts over the
+Agent Client Protocol (tool titles and kinds, diff content for edits, the
+"allow once / allow always / reject" options, `_meta.claudeCode.toolName`)
+follows the mapping of the official Node adapter:
+
+  @agentclientprotocol/claude-agent-acp
+  https://github.com/agentclientprotocol/claude-agent-acp
+  Licensed under the Apache License, Version 2.0.
+
+No code from that adapter, and no code from the Claude Agent SDK, is copied
+here. The `claude` headless stream-json protocol was implemented from
+observation of the Claude Code CLI (version 2.1.287) and its public CLI
+reference.
+
+Dependencies (Rust crates, linked into the binary):
+  agent-client-protocol 2.2.0 and agent-client-protocol-schema 1.9.1
+    (Apache-2.0), https://github.com/agentclientprotocol/rust-sdk
+  futures, serde, serde_json, uuid, schemars, derive_more, strum, tracing
+    and their dependencies: MIT, Apache-2.0, or MIT OR Apache-2.0
+    (memchr: Unlicense OR MIT; unicode-ident, build time only:
+    (MIT OR Apache-2.0) AND Unicode-3.0). See Cargo.lock.
+
+Claude Code is a product of Anthropic PBC and is not distributed with this
+program. The program runs the copy the user installed, under the user's own
+login and Anthropic's terms for it.
