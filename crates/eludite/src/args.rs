@@ -62,6 +62,21 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       the Rename dialog on `ELUDITE_BENCH_RENAME` (preview
                       latency); 20 applies of a no-op edit to 10 closed files
                       of the solution; report host and UI latency
+  --agent NAME        select this agent of the Agents window's registry
+  --transcript-out PATH
+                      write the Agents window's transcript as JSON to PATH
+                      whenever a turn ends
+  --bench-agent-ready N
+                      from the first frame, start the selected agent N times
+                      (no prompt) and report spawn, initialize and
+                      session/new times and window-open-to-ready
+  --bench-agent-stream PATH
+                      run the fake ACP agent at PATH (eludite-fake-acp-agent)
+                      streaming 2000 chunks at 200/s into the Agents window;
+                      report the UI frame work and the per-batch apply cost
+  --bench-diff N      N times, hold a 20-edit change to a 2000-line file as a
+                      pending change and open its review view; report the
+                      time to the first frame showing the diff
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -91,6 +106,11 @@ pub struct Args {
     pub bench_refactor: Option<usize>,
     /// `--mcp-relay ADDR`: run as the agent's stdio MCP server, relaying to the IDE's endpoint.
     pub mcp_relay: Option<std::net::SocketAddr>,
+    pub agent: Option<String>,
+    pub transcript_out: Option<PathBuf>,
+    pub bench_agent_ready: Option<usize>,
+    pub bench_agent_stream: Option<PathBuf>,
+    pub bench_diff: Option<usize>,
 }
 
 impl Args {
@@ -140,6 +160,20 @@ impl Args {
                     let n = value("--bench-refactor")?;
                     a.bench_refactor = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
                 }
+                "--agent" => a.agent = Some(value("--agent")?),
+                "--transcript-out" => a.transcript_out = Some(value("--transcript-out")?.into()),
+                "--bench-agent-ready" => {
+                    let n = value("--bench-agent-ready")?;
+                    a.bench_agent_ready =
+                        Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
+                "--bench-agent-stream" => {
+                    a.bench_agent_stream = Some(value("--bench-agent-stream")?.into())
+                }
+                "--bench-diff" => {
+                    let n = value("--bench-diff")?;
+                    a.bench_diff = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
+                }
                 "--mcp-relay" => {
                     let addr = value("--mcp-relay")?;
                     a.mcp_relay = Some(
@@ -161,6 +195,9 @@ impl Args {
             || self.bench_complete.is_some()
             || self.bench_navigate.is_some()
             || self.bench_refactor.is_some()
+            || self.bench_agent_ready.is_some()
+            || self.bench_agent_stream.is_some()
+            || self.bench_diff.is_some()
     }
 }
 
@@ -230,5 +267,19 @@ mod tests {
         assert_eq!(a.mcp_relay, Some("127.0.0.1:4567".parse().unwrap()));
         assert!(!a.benching());
         assert!(parse(&["--mcp-relay", "nowhere"]).is_err());
+        let a = parse(&[
+            "--agent",
+            "Claude Code",
+            "--transcript-out",
+            "/tmp/t.json",
+            "--bench-diff",
+            "20",
+        ])
+        .unwrap();
+        assert_eq!(a.agent.as_deref(), Some("Claude Code"));
+        assert_eq!(a.bench_diff, Some(20));
+        assert!(a.benching());
+        assert!(parse(&["--bench-agent-ready", "x"]).is_err());
+        assert!(parse(&["--bench-agent-stream", "/f"]).unwrap().benching());
     }
 }

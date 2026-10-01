@@ -143,6 +143,27 @@ pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App)
                 if let Some(c) = caret {
                     map.insert("editor-caret".into(), c);
                 }
+                // The Agents window's prompt box and buttons, and the review views' (brief 0016's manual run).
+                let agents = cx.update(|cx| {
+                    let s = shell.read(cx);
+                    let w = s.agents().window.read(cx);
+                    w.painted
+                        .borrow()
+                        .iter()
+                        .map(|(k, b)| (k.clone(), *b))
+                        .collect::<Vec<_>>()
+                });
+                for (k, b) in agents {
+                    map.insert(
+                        k,
+                        json!([
+                            f32::from(b.origin.x),
+                            f32::from(b.origin.y),
+                            f32::from(b.size.width),
+                            f32::from(b.size.height)
+                        ]),
+                    );
+                }
                 // The Error List's toolbar (brief 0014's filter run).
                 let toolbar = cx.update(|cx| shell.read(cx).error_list().read(cx).painted_bounds());
                 for (k, b) in toolbar {
@@ -1475,4 +1496,230 @@ pub fn refactor(
         });
     })
     .detach();
+}
+
+/// `--bench-agent-ready N`: from the first presented frame, start the selected agent N times (each a new session) and
+/// report spawn, `initialize` and `session/new` times and window-open-to-ready. No prompt is sent (no model call).
+pub fn agent_ready(shell: &Entity<Shell>, runs: usize, t_main: Instant, cx: &mut App) {
+    let shell2 = shell.clone();
+    shell.update(cx, |s, _| {
+        s.after_first_present(move |_, cx| {
+            let first_present = t_main.elapsed();
+            let shell = shell2.clone();
+            cx.spawn(async move |cx| {
+                // The registry is searched off the UI thread at startup.
+                loop {
+                    let ready = cx.update(|cx| !shell.read(cx).agents().registry.is_empty());
+                    if ready {
+                        break;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(5))
+                        .await;
+                }
+                let agent = cx.update(|cx| {
+                    shell
+                        .read(cx)
+                        .agents()
+                        .selected_agent()
+                        .map(|a| a.command_line())
+                        .unwrap_or_default()
+                });
+                let mut results = Vec::new();
+                for _ in 0..runs {
+                    let started = Instant::now();
+                    let g = cx.update(|cx| {
+                        shell.update(cx, |s, cx| {
+                            let _ = s.agents_start(None, true, cx);
+                            s.agents().generation
+                        })
+                    });
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(1))
+                            .await;
+                        let done = cx.update(|cx| {
+                            let a = shell.read(cx).agents();
+                            a.generation == g
+                                && (a.ready_ms.is_some()
+                                    || matches!(
+                                        a.state,
+                                        crate::shell::agents::window::StateKind::Error
+                                            | crate::shell::agents::window::StateKind::NeedsLogin
+                                    ))
+                        });
+                        if done || started.elapsed() > Duration::from_secs(120) {
+                            break;
+                        }
+                    }
+                    let run = cx.update(|cx| {
+                        let a = shell.read(cx).agents();
+                        let mut m = serde_json::Map::new();
+                        for (name, ms) in &a.timings {
+                            m.insert(format!("{name}_ms"), json!(ms));
+                        }
+                        m.insert("ready_ms".into(), json!(a.ready_ms));
+                        m.insert("state".into(), json!(a.state.as_str()));
+                        Value::Object(m)
+                    });
+                    results.push(run);
+                }
+                let ready: Vec<f64> = results
+                    .iter()
+                    .filter_map(|r| r["ready_ms"].as_f64())
+                    .collect();
+                let out = json!({
+                    "bench": "agent_ready",
+                    "agent": agent,
+                    "main_to_first_present_ms": ms(first_present),
+                    "runs": results,
+                    "ready": summarize(&ready),
+                    "rss": rss_mib(),
+                    "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+                });
+                println!("{out}");
+                cx.update(|cx| shell.update(cx, |s, cx| s.agents_stop(cx)));
+                cx.background_executor()
+                    .timer(Duration::from_millis(300))
+                    .await;
+                std::process::exit(0);
+            })
+            .detach();
+        });
+    });
+}
+
+/// `--bench-agent-stream PATH`: the fake agent at PATH (a real child process) streams 2000 message chunks at 200 per
+/// second into the Agents window; report the UI thread's frame work while it streams (the window's render to the end
+/// of the frame), the cost of applying each batch of events, and the batch sizes.
+pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
+    let shell2 = shell.clone();
+    shell.update(cx, |s, _| {
+        s.after_first_present(move |window, cx| {
+            let shell = shell2.clone();
+            let platform = platform(window);
+            shell.update(cx, |s, cx| {
+                let _ = s.commands_invoke_view_show(eludite_docking::ids::AGENTS);
+                let _ = s.agents_start(None, true, cx);
+            });
+            cx.spawn(async move |cx| {
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(5)).await;
+                    if cx.update(|cx| shell.read(cx).agents().ready_ms.is_some()) {
+                        break;
+                    }
+                }
+                cx.update(|cx| {
+                    shell.update(cx, |s, cx| {
+                        s.agents_probe(true, cx);
+                        let _ = s.agents_prompt("stream", cx);
+                    })
+                });
+                let started = Instant::now();
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(20)).await;
+                    let done = cx.update(|cx| {
+                        let a = shell.read(cx).agents();
+                        a.last_stop.is_some()
+                    });
+                    if done || started.elapsed() > Duration::from_secs(60) {
+                        break;
+                    }
+                }
+                cx.background_executor().timer(Duration::from_millis(300)).await;
+                let out = cx.update(|cx| {
+                    shell.update(cx, |s, cx| {
+                        s.agents_probe(false, cx);
+                        let (frames, apply, batches, chunks) = s.agents_probe_results(cx);
+                        json!({
+                            "bench": "agent_stream",
+                            "stream_s": ms(started.elapsed()) / 1e3,
+                            "frames": frames.len(),
+                            "frame_work": summarize(&frames),
+                            "apply_per_batch": summarize(&apply),
+                            "batches": batches.len(),
+                            "events_per_batch": batches.iter().sum::<usize>() as f64 / batches.len().max(1) as f64,
+                            "chunk_to_apply": summarize(&chunks),
+                            "rss": rss_mib(),
+                            "platform": platform,
+                            "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+                        })
+                    })
+                });
+                println!("{out}");
+                cx.update(|cx| shell.update(cx, |s, cx| s.agents_stop(cx)));
+                cx.background_executor().timer(Duration::from_millis(300)).await;
+                std::process::exit(0);
+            })
+            .detach();
+        });
+    });
+}
+
+/// `--bench-diff N`: N times, hold a 20-edit change to a 2000-line file as an agent's pending change and open its
+/// review view; report the time from the edit to the first presented frame showing the diff (the diff is computed
+/// off the UI thread, then drawn virtualized).
+pub fn diff(shell: &Entity<Shell>, runs: usize, cx: &mut App) {
+    use gpui::AppContext as _;
+    let shell2 = shell.clone();
+    shell.update(cx, |s, _| {
+        s.after_first_present(move |window, cx| {
+            let shell = shell2.clone();
+            let handle = window.window_handle();
+            let dir =
+                std::env::temp_dir().join(format!("eludite-bench-diff-{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&dir);
+            let file = dir.join("Big.cs");
+            let text: String = (0..2000)
+                .map(|i| format!("    int field{i} = {i}; // line {i}\n"))
+                .collect();
+            let _ = std::fs::write(&file, text);
+            cx.spawn(async move |cx| {
+                let mut total = Vec::new();
+                for _ in 0..runs {
+                    let t0 = Instant::now();
+                    let id = cx.update_window(handle, |_, window, cx| {
+                        shell.update(cx, |s, cx| s.bench_capture_big_edit(&file, window, cx))
+                    });
+                    let Ok(Some(id)) = id else { break };
+                    let tab = crate::shell::agents::review::review_tab(id);
+                    loop {
+                        cx.background_executor()
+                            .timer(Duration::from_millis(1))
+                            .await;
+                        let shown = cx.update(|cx| {
+                            let s = shell.read(cx);
+                            let reviews = s.agents().reviews.borrow();
+                            let v = reviews.get(&tab)?.read(cx);
+                            Some(ms(v.opened.duration_since(t0)) + v.first_diff_frame_ms?)
+                        });
+                        if let Some(ms) = shown {
+                            total.push(ms);
+                            break;
+                        }
+                        if t0.elapsed() > Duration::from_secs(10) {
+                            break;
+                        }
+                    }
+                    let _ = cx.update_window(handle, |_, window, cx| {
+                        shell.update(cx, |s, cx| s.bench_reject_all(window, cx))
+                    });
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+                let out = json!({
+                    "bench": "diff_review",
+                    "lines": 2000,
+                    "edits": 20,
+                    "edit_to_diff_frame": summarize(&total),
+                    "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+                });
+                println!("{out}");
+                let _ = std::fs::remove_dir_all(&dir);
+                std::process::exit(0);
+            })
+            .detach();
+        });
+    });
 }
