@@ -27,5 +27,6 @@ name = "fake_host"
 harness = false
 
 [dev-dependencies]
+tempfile.workspace = true
 # The in_process tests use the fake host from this crate's own `fake` feature.
 eludite-lsp = { path = ".", features = ["fake"] }
