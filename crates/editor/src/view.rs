@@ -323,6 +323,11 @@ impl EditorView {
         cx.notify();
     }
 
+    /// The decorations of one layer, as last set.
+    pub fn decorations(&self, layer: &str) -> &[Decoration] {
+        self.decorations.get(layer).map_or(&[], Vec::as_slice)
+    }
+
     // ----- scrolling -----
 
     pub fn scroll_position(&self) -> Point<Pixels> {

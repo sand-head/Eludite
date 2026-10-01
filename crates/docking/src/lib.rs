@@ -9,7 +9,10 @@
 //!   register theirs.
 //! - [`controller`]: [`DockController`], the shared owner of the layout and the
 //!   `eludite_commands::view::ViewTarget` that the `eludite.view.*` commands act
-//!   on. Every layout change goes through those commands.
+//!   on. Every layout change goes through those commands. Document tabs are
+//!   opened, closed and marked dirty by the shell's `eludite.file.*` commands
+//!   through [`DockController::open_document`] and its siblings; a tab's close
+//!   button dispatches `eludite.file.close`.
 //! - [`persist`]: [`LayoutStore`] (per-solution, default and named layout
 //!   files under the user config directory) and [`LayoutWriter`] (debounced
 //!   saving on a background thread).

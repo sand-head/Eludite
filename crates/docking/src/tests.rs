@@ -3,16 +3,18 @@
 //! the same code paths as on a desktop. Each interaction must reach the layout
 //! through the command bus; the audit log proves it.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use eludite_commands::{CommandRegistry, view};
-use eludite_ui::Theme;
+use eludite_ui::{RunCommand, Theme};
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton,
-    ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, div, point, px, size,
+    AnyElement, AppContext as _, Context, Entity, InteractiveElement, IntoElement, Modifiers,
+    MouseButton, ParentElement, Render, Styled, TestAppContext, VisualTestContext, Window, div,
+    point, px, size,
 };
 use serde_json::json;
 
@@ -21,11 +23,24 @@ use crate::model::{DockLayout, DockSide, Place, ToolWindowRegistry, ids};
 use crate::persist::{LayoutStore, LayoutWriter, read_layout};
 use crate::view::{DockHost, Persistence};
 
-struct Root(Entity<DockHost>);
+/// The window root: hosts the dock and records the `RunCommand` actions that bubble up to it.
+struct Root(
+    Entity<DockHost>,
+    Rc<RefCell<Vec<RunCommand>>>,
+    gpui::FocusHandle,
+);
 
 impl Render for Root {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().flex().flex_col().size_full().child(self.0.clone())
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .track_focus(&self.2)
+            .on_action(
+                cx.listener(|this, a: &RunCommand, _, _| this.1.borrow_mut().push(a.clone())),
+            )
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(self.0.clone())
     }
 }
 
@@ -34,6 +49,7 @@ struct Harness {
     vcx: VisualTestContext,
     commands: Arc<CommandRegistry>,
     controller: DockController,
+    actions: Rc<RefCell<Vec<RunCommand>>>,
 }
 
 fn body(id: &str, _: &Theme) -> AnyElement {
@@ -47,8 +63,10 @@ fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persist
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
     let commands = Arc::new(commands);
     let mut host_out = None;
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let recorded = actions.clone();
     let window = cx.update(|cx| {
-        cx.open_window(Default::default(), |_, cx| {
+        cx.open_window(Default::default(), |window, cx| {
             let host = cx.new(|cx| {
                 DockHost::new(
                     controller.clone(),
@@ -61,7 +79,9 @@ fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persist
                 )
             });
             host_out = Some(host.clone());
-            cx.new(|_| Root(host))
+            let root = cx.new(|cx| Root(host, recorded, cx.focus_handle()));
+            root.read(cx).2.clone().focus(window, cx);
+            root
         })
         .unwrap()
     });
@@ -76,6 +96,7 @@ fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persist
         vcx,
         commands,
         controller,
+        actions,
     }
 }
 
@@ -374,4 +395,77 @@ fn layout_save_and_load_round_trip(cx: &mut TestAppContext) {
         Some(Place::Floating { .. })
     ));
     assert_eq!(h2.side(ids::OUTPUT), Some(DockSide::Left));
+}
+
+#[gpui::test]
+fn document_tabs_show_dirty_markers_and_close_through_the_bus(cx: &mut TestAppContext) {
+    let mut h = open(cx, default_layout(), None);
+    h.controller.open_document("/src/A.cs", "A.cs");
+    h.controller.open_document("/src/B.cs", "B.cs");
+    h.vcx.run_until_parked();
+    assert!(h.vcx.debug_bounds("doc-tab-/src/A.cs").is_some());
+    assert_eq!(h.controller.active_document().as_deref(), Some("/src/B.cs"));
+
+    // The dirty marker is view state: drawn, not persisted.
+    h.controller.set_document_dirty("/src/A.cs", true);
+    h.vcx.run_until_parked();
+    let snap = h.host.read_with(&h.vcx, |host, _| host.snapshot().clone());
+    assert!(snap.dirty.contains("/src/A.cs"));
+    assert!(!snap.layout.to_json().contains("dirty"));
+
+    // Clicking a tab activates it through eludite.view.show.
+    h.click("doc-tab-/src/A.cs");
+    assert_eq!(h.audit(), [view::SHOW]);
+    assert_eq!(h.controller.active_document().as_deref(), Some("/src/A.cs"));
+
+    // The close button asks the shell to run eludite.file.close; it does not close the tab itself.
+    h.click("doc-close-/src/A.cs");
+    let actions = h.actions.borrow().clone();
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].command.as_ref(), "eludite.file.close");
+    assert_eq!(actions[0].args, json!({"path": "/src/A.cs"}));
+    assert_eq!(
+        h.audit(),
+        [view::SHOW],
+        "the close click did not activate the tab"
+    );
+    assert!(h.controller.layout().documents.get("/src/A.cs").is_some());
+
+    assert!(h.controller.close_document("/src/A.cs"));
+    assert!(!h.controller.close_document("/src/A.cs"));
+    h.vcx.run_until_parked();
+    assert!(h.vcx.debug_bounds("doc-tab-/src/A.cs").is_none());
+    assert!(!h.host.read_with(&h.vcx, |host, _| {
+        host.snapshot().dirty.contains("/src/A.cs")
+    }));
+}
+
+#[gpui::test]
+fn reset_keeps_documents_and_retain_drops_stale_tabs(cx: &mut TestAppContext) {
+    let h = open(cx, default_layout(), None);
+    h.controller.open_document("/src/A.cs", "A.cs");
+    h.commands
+        .invoke(view::DOCK, json!({"id": "output", "side": "left"}))
+        .unwrap();
+    h.commands.invoke(view::RESET_LAYOUT, json!({})).unwrap();
+    let layout = h.controller.layout();
+    assert!(layout.documents.get("/src/A.cs").is_some());
+    assert_eq!(layout.documents.active.as_deref(), Some("/src/A.cs"));
+    assert!(matches!(
+        layout.find(ids::OUTPUT),
+        Some(Place::Docked {
+            side: DockSide::Bottom,
+            ..
+        })
+    ));
+    h.controller.retain_documents(|id| id == "welcome");
+    let ids: Vec<String> = h
+        .controller
+        .layout()
+        .documents
+        .tabs
+        .iter()
+        .map(|t| t.id.clone())
+        .collect();
+    assert_eq!(ids, ["welcome"]);
 }
