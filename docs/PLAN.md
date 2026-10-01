@@ -253,11 +253,14 @@ Niello should be recognizable to a VS user in the first five seconds and never m
 |---|---|
 | Cold start to interactive window | < 300 ms |
 | 100-project solution to editable text with syntax highlighting | < 1 s (semantic features stream in after) |
-| Keystroke to pixel | < 8 ms at p99 |
+| Keystroke to frame submitted (input, layout, render; excludes waiting for the display's next refresh) | < 8 ms at p99 |
+| Keystroke to pixel, end to end | < one refresh interval + 8 ms at p99 (24.7 ms at 60 Hz, 14.1 ms at 165 Hz) |
 | Scrolling a 50k-line file | sustained monitor refresh rate |
 | Shell resident memory, 100-project solution, 20 tabs | < 400 MB (host memory reported separately in the status bar) |
 | Completion popup after trigger | < 50 ms p95 from host; tree-sitter fallback immediately |
 | Ctrl+Shift+B to first Output line | < 100 ms |
+
+The two keystroke rows exist because a frame-paced renderer like GPUI only draws when the display asks for a frame, so end-to-end latency includes up to one refresh interval of waiting that no amount of optimization removes (brief 0001 report, section 8). The first row is what we optimize; the second is what the user feels.
 
 Every PR touching the shell runs the benchmark suite; regressions over 5 percent block merge.
 

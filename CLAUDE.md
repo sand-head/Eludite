@@ -71,7 +71,8 @@ Enforced in CI on a reference machine. A shell-touching PR that regresses any be
 |---|---|
 | Cold start to interactive window | < 300 ms |
 | 100-project solution to editable text with syntax highlighting | < 1 s (semantic features stream in after) |
-| Keystroke to pixel | < 8 ms at p99 |
+| Keystroke to frame submitted (input, layout, render; excludes waiting for the display's next refresh) | < 8 ms at p99 |
+| Keystroke to pixel, end to end | < one refresh interval + 8 ms at p99 (24.7 ms at 60 Hz, 14.1 ms at 165 Hz) |
 | Scrolling a 50k-line file | sustained monitor refresh rate |
 | Shell resident memory, 100-project solution, 20 tabs | < 400 MB |
 | Completion popup after trigger | < 50 ms p95 from host; tree-sitter fallback immediately |
