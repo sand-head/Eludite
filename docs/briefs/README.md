@@ -50,6 +50,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0017](0017-build.md) | Build with Output and Error List | 1 | [report](0017-report.md): done on Linux; first Output line 18 ms, Error List rows 2 ms after finish |
 | [0018](0018-debug.md) | Run and debug with netcoredbg | 1 | [report](0018-report.md): done on Linux; F5 to first stop 180 ms warm, step 12 ms p95 |
 | [0019](0019-rust-workspace.md) | Rust through the generic paths, so Eludite can build Eludite | 1 | open |
+| [0020](0020-integration-pass.md) | Integration pass after build and debug | 1 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
