@@ -1,6 +1,6 @@
 # Brief 0007: Production LSP bridge between the shell and niello-host
 
-Status: open
+Status: done on Linux; Windows not run. Report: [0007-report.md](0007-report.md)
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 2, 3, 6), 3 (D2, D3), 4.3, 9, 11
 Related ADRs: ADR-0002, ADR-0003
