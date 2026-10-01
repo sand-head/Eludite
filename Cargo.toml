@@ -18,6 +18,9 @@ members = [
     "extension-sdk",
     "debuggers/netfx",
 ]
+# Vendored Zed crates form their own workspace (vendor/Cargo.toml) so they keep
+# upstream's manifests and lint rules unchanged. They are used by path below.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -49,6 +52,13 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58
 # GPUI's platform backends live in a separate Apache-2.0 crate at this rev; it provides `application()`.
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["wayland", "x11", "font-kit"] }
 
+# Vendored Zed crates (vendor/*/WHY.md). sum_tree is Apache-2.0, the rest GPL-3.0-or-later.
+clock = { path = "vendor/clock" }
+fuzzy = { path = "vendor/fuzzy" }
+rope = { path = "vendor/rope" }
+sum_tree = { path = "vendor/sum_tree" }
+text = { path = "vendor/text" }
+
 # Third-party
 git2 = { version = "0.20", default-features = false }
 ropey = "1.6"
@@ -68,6 +78,11 @@ unused_must_use = "deny"
 all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
+
+# GPUI depends on sum_tree by git at the pin; resolve it to the vendored copy so
+# the build has one sum_tree. Check with `cargo tree -d`.
+[patch."https://github.com/zed-industries/zed"]
+sum_tree = { path = "vendor/sum_tree" }
 
 [profile.dev.package."*"]
 # Optimize dependencies (GPUI in particular) so debug builds stay usable.
