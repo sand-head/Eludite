@@ -161,6 +161,18 @@ pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
     Some(PathBuf::from(s))
 }
 
+/// `ELUDITE_TRACE_LSP=1` logs document notifications and diagnostics to stderr with wall-clock milliseconds (the
+/// manual timing runs).
+pub fn trace(what: std::fmt::Arguments<'_>) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("ELUDITE_TRACE_LSP").is_some_and(|v| v != "0")) {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        eprintln!("[lsp] {ms} {what}");
+    }
+}
+
 fn language_id(path: &Path) -> Option<&'static str> {
     path.extension()
         .and_then(|e| e.to_str())
@@ -335,6 +347,7 @@ impl Shell {
         let uri = super::documents::path_to_uri(&path);
         let language_id = language_id(&path);
         if let Some(lang) = language_id {
+            trace(format_args!("didOpen {uri} version 1"));
             self.session.did_open(uri.clone(), lang, 1, text);
         }
         let observe_id = id.clone();
@@ -421,6 +434,10 @@ impl Shell {
         let text = buffer.text();
         doc.sent = buffer.snapshot().clone();
         doc.lsp_version += 1;
+        trace(format_args!(
+            "didChange {} version {}",
+            doc.uri, doc.lsp_version
+        ));
         self.session
             .did_change(doc.uri.clone(), doc.lsp_version, text);
     }

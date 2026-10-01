@@ -118,6 +118,7 @@ fn cell(text: impl Into<SharedString>, width: Option<f32>) -> gpui::Div {
         .px_1()
         .overflow_hidden()
         .whitespace_nowrap()
+        .text_ellipsis()
         .child(text.into());
     match width {
         Some(w) => c.flex_none().w(px(w)),
@@ -140,6 +141,7 @@ impl Render for ErrorList {
             .text_size(t.typography.ui)
             .child(self.header());
         let columns = div()
+            .w_full()
             .flex()
             .flex_row()
             .flex_none()
@@ -185,6 +187,8 @@ impl Render for ErrorList {
                                 let row = div()
                                     .id(SharedString::from(sel.clone()))
                                     .debug_selector(move || sel)
+                                    .w_full()
+                                    .overflow_hidden()
                                     .flex()
                                     .flex_row()
                                     .h(px(ROW_HEIGHT))

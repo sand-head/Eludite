@@ -25,12 +25,17 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --bench-drag N      drag the Output tab over the document area with the
                       docking guides visible for N frames; per-frame cost
   --exit-after-ms N   quit after N ms (smoke runs, screenshots)
-  --open-file PATH    with --solution: open this file right after the solution
-                      open command (eludite.file.open)
+  --open-file PATH    open this file at startup (eludite.file.open), after the
+                      solution when --solution is given
   --timings-out PATH  with --solution: write the times from the open command
                       to editable text, to the Solution Explorer tree and to
-                      the first diagnostics as JSON to PATH (once all arrived,
-                      or after 180 s); does not exit
+                      the first diagnostics of the opened file as JSON to PATH
+                      (once all arrived, or after 180 s); does not exit
+  --bench-type N      with --open-file: type N keys into the file (bursts of
+                      25, 15 to 45 ms apart, 250 ms pauses so diagnostics
+                      arrive while typing; with --solution, once it has
+                      loaded) and report the keystroke frame cost; the file
+                      is not saved
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -54,6 +59,7 @@ pub struct Args {
     pub bounds_out: Option<PathBuf>,
     pub open_file: Option<PathBuf>,
     pub timings_out: Option<PathBuf>,
+    pub bench_type: Option<usize>,
 }
 
 impl Args {
@@ -86,6 +92,10 @@ impl Args {
                 "--bounds-out" => a.bounds_out = Some(value("--bounds-out")?.into()),
                 "--open-file" => a.open_file = Some(value("--open-file")?.into()),
                 "--timings-out" => a.timings_out = Some(value("--timings-out")?.into()),
+                "--bench-type" => {
+                    let n = value("--bench-type")?;
+                    a.bench_type = Some(n.parse().map_err(|_| format!("bad key count `{n}`"))?);
+                }
                 other => return Err(format!("unknown argument `{other}`")),
             }
         }

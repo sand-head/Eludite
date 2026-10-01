@@ -39,7 +39,8 @@ use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, PathPromptOptions, PromptLevel, Render, Styled, Task, Window, div,
+    IntoElement, ParentElement, PathPromptOptions, PromptLevel, Render, StyleRefinement, Styled,
+    Task, Window, div,
 };
 use serde_json::{Value, json};
 
@@ -112,6 +113,8 @@ pub struct Timings {
     /// First non-empty one.
     pub first_nonempty_diagnostics: Option<Instant>,
     pub loaded: Option<Instant>,
+    /// `publishDiagnostics` notifications applied so far.
+    pub diagnostics_events: usize,
 }
 
 pub struct Shell {
@@ -150,9 +153,16 @@ fn tool_body(
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
+    // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
-        ids::SOLUTION_EXPLORER => explorer.clone().into_any_element(),
-        ids::ERROR_LIST => error_list.clone().into_any_element(),
+        ids::SOLUTION_EXPLORER => explorer
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::ERROR_LIST => error_list
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
         // Titled empty panels until later briefs fill them.
         _ => div().into_any_element(),
     }
@@ -543,13 +553,11 @@ impl Shell {
                 let text = match s.state {
                     LanguageServerState::Starting => "C#: starting\u{2026}".to_owned(),
                     LanguageServerState::Running => format!(
-                        "C#: {}",
+                        "C#: running{}",
                         s.server_info
-                            .map(|i| i
-                                .name
-                                .trim_start_matches("Microsoft.CodeAnalysis.")
-                                .to_owned())
-                            .unwrap_or_else(|| "running".into())
+                            .and_then(|i| i.version)
+                            .map(|v| format!(" ({v})"))
+                            .unwrap_or_default()
                     ),
                     LanguageServerState::Restarting => "C#: restarting\u{2026}".to_owned(),
                     LanguageServerState::Unavailable => "C#: unavailable".to_owned(),
@@ -604,6 +612,10 @@ impl Shell {
                     ),
                     SolutionState::Closed => String::new(),
                 };
+                documents::trace(format_args!(
+                    "solution {:?} generation {}: {text}",
+                    status.state, status.generation
+                ));
                 self.host_diagnostics = status.diagnostics.clone();
                 self.status.set(SOLUTION_SLOT, text);
                 self.update_error_list(cx);
@@ -613,8 +625,25 @@ impl Shell {
                     return;
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
+                documents::trace(format_args!(
+                    "tree generation {}: {} projects",
+                    tree.generation,
+                    tree.projects.len()
+                ));
                 match SolutionModel::from_tree(&tree) {
-                    Some(model) => self.explorer.update(cx, |e, cx| e.set_model(model, cx)),
+                    Some(model) => {
+                        // Show where the active document is (Visual Studio's Track Active Item).
+                        let active = self
+                            .controller
+                            .active_document()
+                            .filter(|id| self.documents.contains_key(id));
+                        self.explorer.update(cx, |e, cx| {
+                            e.set_model(model, cx);
+                            if let Some(id) = active {
+                                e.reveal(Path::new(&id), cx);
+                            }
+                        })
+                    }
                     None => self.explorer.update(cx, |e, cx| e.clear(cx)),
                 }
                 self.update_error_list(cx);
@@ -637,6 +666,18 @@ impl Shell {
     }
 
     fn on_diagnostics(&mut self, params: lsp::PublishDiagnosticsParams, cx: &mut Context<Self>) {
+        self.timings.diagnostics_events += 1;
+        documents::trace(format_args!(
+            "publishDiagnostics {} version {:?}: {} ({} errors)",
+            params.uri,
+            params.version,
+            params.diagnostics.len(),
+            params
+                .diagnostics
+                .iter()
+                .filter(|d| d.severity.is_none_or(|s| s == 1))
+                .count()
+        ));
         let id = uri_to_path(&params.uri).map(|p| p.to_string_lossy().into_owned());
         if let Some(doc) = id.as_deref().and_then(|id| self.documents.get(id)) {
             // A result for an older version than the editor last sent is stale; a newer one is coming.
