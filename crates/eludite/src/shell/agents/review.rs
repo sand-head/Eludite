@@ -706,7 +706,7 @@ impl Shell {
             .unwrap_or("edit")
             .to_owned();
         // An agent tool call is not a bus command; it is audited all the same.
-        self.commands.audit_log().record_call(
+        let seq = self.commands.audit_log().record_call(
             &tool,
             Some(eludite_commands::PermissionClass::EditBuffer),
             eludite_commands::Outcome::Ok,
@@ -717,6 +717,10 @@ impl Shell {
             },
             request.tool_call.raw_input.clone(),
         );
+        let tc = request.tool_call.tool_call_id.clone();
+        self.agents
+            .window
+            .update(cx, |w, _| w.transcript.set_audit(&tc, seq));
         let generation = self.agents.generation;
         for d in diffs {
             let id = self.agents.next_change();
@@ -1158,6 +1162,30 @@ impl Shell {
             });
         }
         self.sync_changes(cx);
+    }
+
+    /// The transcript's link to change `id`: an accepted change opens its file at the first changed line (what was
+    /// applied, in the editor); any other opens its review view.
+    pub fn open_change(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(change) = self.agents.changes.get(&id) else {
+            return;
+        };
+        if change.state == ChangeState::Accepted && change.path.is_file() {
+            let line = change
+                .diff
+                .as_deref()
+                .and_then(|d| hunks(d).first().map(|h| h.new_start + 1))
+                .unwrap_or(1);
+            let path = change.path.to_string_lossy().into_owned();
+            self.run(
+                eludite_commands::workspace::FILE_OPEN,
+                json!({ "path": path, "line": line, "column": 1 }),
+                window,
+                cx,
+            );
+            return;
+        }
+        self.open_review(id, window, cx);
     }
 
     /// The pending changes `eludite.agents.review` names, by id or path.

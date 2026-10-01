@@ -809,7 +809,7 @@ impl Shell {
                 self.decide(&ids, *accept, window, cx)
             }
             AgentsWindowEvent::OpenChange(id) => {
-                self.open_review(*id, window, cx);
+                self.open_change(*id, window, cx);
                 Ok(())
             }
         };
@@ -996,6 +996,7 @@ impl Shell {
                 },
             }
         }
+        self.audit_agent_tools(cx);
         window.update(cx, |w, cx| w.sync(cx));
         if permissions {
             self.after_permission_change(cx);
@@ -1003,6 +1004,44 @@ impl Shell {
         if header {
             self.sync_agents_header(cx);
         }
+    }
+
+    /// Every tool call is audited: Eludite's at its MCP boundary; the agent's own once they end, with their arguments
+    /// and how they ended.
+    fn audit_agent_tools(&mut self, cx: &mut Context<Self>) {
+        let window = self.agents.window.clone();
+        let ended = window.read(cx).transcript.unaudited();
+        if ended.is_empty() {
+            return;
+        }
+        let agent = self.agents.current_name();
+        window.update(cx, |w, _| {
+            for super::agents::transcript::EndedTool {
+                id,
+                name,
+                kind,
+                input,
+                ok,
+            } in ended
+            {
+                let seq = self.commands.audit_log().record_call(
+                    &name,
+                    Some(class_of_kind(kind.as_deref())),
+                    if ok {
+                        eludite_commands::Outcome::Ok
+                    } else {
+                        eludite_commands::Outcome::Err("the tool call failed".into())
+                    },
+                    eludite_commands::Caller::Agent {
+                        agent: agent.clone(),
+                        call: eludite_commands::next_call_id(),
+                        tool_call: Some(id.clone()),
+                    },
+                    input,
+                );
+                w.transcript.set_audit(&id, seq);
+            }
+        });
     }
 
     fn on_agent_state(&mut self, s: AgentState, cx: &mut Context<Self>) {
