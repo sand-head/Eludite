@@ -8,6 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="StreamJsonRpc" />
+    <!-- Legacy/ (brief 0003): compile against MSBuild, load the SDK's copy at run time through the locator. -->
+    <PackageReference Include="Microsoft.Build" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Locator" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Niello.Web/Niello.Web.csproj" />
   </ItemGroup>
 
   <ItemGroup>
