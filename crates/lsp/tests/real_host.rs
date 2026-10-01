@@ -133,3 +133,107 @@ fn real_host_without_language_server() {
     assert_eq!(client.shutdown(T).unwrap(), Some(0));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Brief 0017: a real build through the real host, typed end to end: the reply, ordered output chunks, progress
+/// and a failed result whose diagnostic has its file, position, code and project (from the binary log).
+#[test]
+fn real_host_builds_a_project() {
+    let Some(dll) = host_dll() else {
+        eprintln!(
+            "skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx) and ELUDITE_HOST_DLL unset"
+        );
+        return;
+    };
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
+        return;
+    }
+    let (client, rx) = HostClient::start(
+        HostCommand::dotnet_host(&dll)
+            .arg("--no-roslyn")
+            .stderr(StderrMode::Discard),
+        ClientInfo {
+            name: "eludite-lsp-test".into(),
+            version: "0".into(),
+        },
+        RestartPolicy {
+            max_restarts: 0,
+            backoff: Duration::ZERO,
+        },
+    )
+    .expect("start eludite-host");
+    let dir = std::env::temp_dir().join(format!("eludite-lsp-real-build-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("App")).unwrap();
+    let sln = dir.join("App.slnx");
+    std::fs::write(
+        &sln,
+        "<Solution>\n  <Project Path=\"App/App.csproj\" />\n</Solution>\n",
+    )
+    .unwrap();
+    let project = dir.join("App").join("App.csproj");
+    std::fs::write(
+        &project,
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n  </PropertyGroup>\n</Project>\n",
+    )
+    .unwrap();
+    let source = dir.join("App").join("Broken.cs");
+    std::fs::write(&source, "class Broken\n{\n    int x = y;\n}\n").unwrap();
+    client.open_solution(sln.to_str().unwrap(), T).unwrap();
+
+    let started = client
+        .request::<host::BuildStart>(host::BuildStartParams {
+            target: host::BuildTarget::Build,
+            project: None,
+            configuration: None,
+            platform: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(started.toolchain.kind, host::ToolchainKind::Dotnet);
+    assert_eq!(started.platform, None);
+    let mut seq = 0;
+    let mut text = String::new();
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let finished = loop {
+        match rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("build events")
+        {
+            Event::BuildOutput(o) => {
+                assert_eq!((o.build_id, o.seq), (started.build_id, seq));
+                seq += 1;
+                text.push_str(&o.text);
+            }
+            Event::BuildFinished(f) => break f,
+            _ => {}
+        }
+    };
+    assert!(text.starts_with("Build started at "), "{text}");
+    assert_eq!(finished.result, host::BuildResult::Failed);
+    let error = finished
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "CS0103")
+        .unwrap_or_else(|| panic!("{:?}", finished.diagnostics));
+    assert_eq!(error.severity, host::BuildDiagnosticSeverity::Error);
+    assert_eq!(
+        std::path::Path::new(error.file.as_deref().unwrap()),
+        source.as_path()
+    );
+    assert_eq!((error.line, error.column), (Some(3), Some(13)));
+    assert_eq!(
+        std::path::Path::new(error.project.as_deref().unwrap()),
+        project.as_path()
+    );
+    assert_eq!(finished.projects[0].name, "App");
+    assert_eq!(finished.projects[0].result, host::BuildResult::Failed);
+    assert!(finished.binlog.is_some());
+
+    assert_eq!(client.shutdown(T).unwrap(), Some(0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
