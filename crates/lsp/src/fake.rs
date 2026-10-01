@@ -12,6 +12,12 @@
 //! deliver late results anyway (to test that the shell drops them). [`FakeHost::set_hold_load`] keeps an opened
 //! solution `loading` until [`FakeHost::finish_load`]. [`FakeHost::apply_edit`] sends the shell a `workspace/applyEdit`
 //! request, as the host relays one from the language server, and waits for the shell's answer.
+//!
+//! Builds (brief 0017): `eludite/build/start` is accepted when a solution is open and no build runs (else -32602 or
+//! -32010, as the real host answers); the fake sends the start line as output chunk 0 and then waits for the test to
+//! stream more with [`FakeHost::build_output`] and [`FakeHost::build_progress`] and to end it with
+//! [`FakeHost::finish_build`]. `eludite/build/cancel` answers `canceled` and sends the `canceled` finished
+//! notification at once (or never, with [`FakeHost::set_build_cancel_ignored`]).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -76,6 +82,20 @@ struct State {
     /// Answers the shell sent to the fake's own requests, by JSON id.
     responses: HashMap<String, Value>,
     next_request: u64,
+    /// The running build: id, next output seq, its `eludite/build/start` params, generation.
+    build: Option<FakeBuild>,
+    builds_started: u64,
+    build_cancel_ignored: bool,
+}
+
+#[derive(Debug, Clone)]
+struct FakeBuild {
+    id: u64,
+    seq: u64,
+    params: Value,
+    generation: Generation,
+    path: String,
+    started: Instant,
 }
 
 struct Shared {
@@ -317,6 +337,95 @@ impl FakeHost {
         }
     }
 
+    /// The id of the build that is running, if any.
+    pub fn running_build(&self) -> Option<u64> {
+        self.lock().build.as_ref().map(|b| b.id)
+    }
+
+    /// When true, `eludite/build/cancel` answers but the build goes on (a host whose kill is slow).
+    pub fn set_build_cancel_ignored(&self, ignored: bool) {
+        self.lock().build_cancel_ignored = ignored;
+    }
+
+    /// Sends the running build's next output chunk (`text` should end with a newline).
+    pub fn build_output(&self, text: &str) {
+        let next = {
+            let mut s = self.lock();
+            s.build.as_mut().map(|b| {
+                b.seq += 1;
+                (b.id, b.seq - 1)
+            })
+        };
+        if let Some((id, seq)) = next {
+            self.notify(
+                methods::BUILD_OUTPUT,
+                json!({"buildId": id, "seq": seq, "text": text}),
+            );
+        }
+    }
+
+    /// Sends `eludite/build/progress` for the running build.
+    pub fn build_progress(&self, completed: u32, total: u32, errors: u32, warnings: u32) {
+        let build = self.lock().build.clone();
+        if let Some(b) = build {
+            self.notify(
+                methods::BUILD_PROGRESS,
+                json!({"buildId": b.id, "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
+                       "projectsTotal": total, "projectsCompleted": completed,
+                       "errors": errors, "warnings": warnings}),
+            );
+        }
+    }
+
+    /// Ends the running build with `result` (`succeeded`, `failed`, `canceled`) and `diagnostics` (the
+    /// `build-finished.json` shape). Every project of the tree is listed, failed when it has an error.
+    pub fn finish_build(&self, result: &str, diagnostics: Value) {
+        let (build, tree) = {
+            let mut s = self.lock();
+            (s.build.take(), s.tree.clone())
+        };
+        let Some(b) = build else { return };
+        let diags = diagnostics.as_array().cloned().unwrap_or_default();
+        let count = |sev: &str, project: Option<&str>| {
+            diags
+                .iter()
+                .filter(|d| {
+                    d["severity"] == sev && project.is_none_or(|p| d["project"].as_str() == Some(p))
+                })
+                .count()
+        };
+        let projects: Vec<Value> = tree
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .map(|p| {
+                let path = p["path"].as_str().unwrap_or_default();
+                let errors = count("error", Some(path));
+                let r = if result == "canceled" {
+                    "canceled"
+                } else if errors > 0 {
+                    "failed"
+                } else {
+                    "succeeded"
+                };
+                json!({"name": p["name"], "path": path, "result": r, "elapsedMs": 1.0,
+                       "errors": errors, "warnings": count("warning", Some(path))})
+            })
+            .collect();
+        let failed = projects.iter().filter(|p| p["result"] == "failed").count();
+        let summary = json!({"projectsSucceeded": projects.len() - failed, "projectsFailed": failed,
+                             "errors": count("error", None), "warnings": count("warning", None)});
+        let target = b.params["target"].clone();
+        self.notify(
+            methods::BUILD_FINISHED,
+            json!({"buildId": b.id, "generation": b.generation, "target": target, "path": b.path,
+                   "result": result, "exitCode": if result == "succeeded" { 0 } else { 1 },
+                   "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
+                   "summary": summary, "projects": projects, "diagnostics": diagnostics}),
+        );
+    }
+
     /// Sends any notification to the shell.
     pub fn notify(&self, method: &str, params: Value) {
         let writer = self.lock().writer.clone();
@@ -478,6 +587,24 @@ impl FakeHost {
                     send(&out, json!({"jsonrpc": "2.0", "id": id, "result": result}));
                 });
             }
+            methods::BUILD_START => self.build_start(&reply, &error, &notify, params),
+            methods::BUILD_CANCEL => {
+                let (running, ignored) = {
+                    let s = self.lock();
+                    (s.build.as_ref().map(|b| b.id), s.build_cancel_ignored)
+                };
+                let wanted = params["buildId"].as_u64();
+                match running {
+                    Some(id) if wanted.is_none_or(|w| w == id) => {
+                        reply(json!({"canceled": true, "buildId": id}));
+                        if !ignored {
+                            self.build_output("Build canceled.\n");
+                            self.finish_build("canceled", json!([]));
+                        }
+                    }
+                    _ => reply(json!({"canceled": false})),
+                }
+            }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>
             {
@@ -498,6 +625,64 @@ impl FakeHost {
 }
 
 impl FakeHost {
+    fn build_start(
+        &self,
+        reply: &dyn Fn(Value),
+        error: &dyn Fn(i64, &str, Option<Value>),
+        notify: &dyn Fn(&str, Value),
+        params: &Value,
+    ) {
+        let mut s = self.lock();
+        let Some(solution) = s.solution.clone() else {
+            drop(s);
+            return error(-32602, "no solution is open", None);
+        };
+        if let Some(b) = &s.build {
+            let id = b.id;
+            drop(s);
+            return error(
+                host::error_codes::BUILD_IN_PROGRESS,
+                "a build is already running",
+                Some(json!({"buildId": id})),
+            );
+        }
+        if !matches!(
+            params["target"].as_str(),
+            Some("build" | "rebuild" | "clean")
+        ) {
+            drop(s);
+            return error(-32602, "target must be build, rebuild or clean", None);
+        }
+        s.builds_started += 1;
+        let id = s.builds_started;
+        let path = params["project"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or(solution);
+        let generation = s.generation;
+        s.build = Some(FakeBuild {
+            id,
+            seq: 1,
+            params: params.clone(),
+            generation,
+            path: path.clone(),
+            started: Instant::now(),
+        });
+        drop(s);
+        let configuration = params["configuration"].as_str().unwrap_or("Debug");
+        reply(
+            json!({"buildId": id, "generation": generation, "path": path, "target": params["target"],
+                     "configuration": configuration, "platform": params.get("platform").cloned().unwrap_or(Value::Null),
+                     "toolchain": {"kind": "dotnet", "path": "dotnet"}, "binlog": null,
+                     "commandLine": format!("dotnet build {path}")}),
+        );
+        notify(
+            methods::BUILD_OUTPUT,
+            json!({"buildId": id, "seq": 0,
+                   "text": format!("Build started...\n> dotnet build {path} -c {configuration}\n")}),
+        );
+    }
+
     fn forwarded(&self, out: &Writer, id: &Value, method: &str, params: &Value) {
         let responder = self.lock().responders.get(method).cloned();
         let reply = responder.map_or(FakeReply::Result(Value::Null), |r| r(params));

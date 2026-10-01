@@ -696,6 +696,9 @@ impl Pump {
                 }) => SessionEvent::HostRestarting,
                 Event::Host(HostEvent::GaveUp { reason }) => SessionEvent::HostFailed { reason },
                 Event::Host(HostEvent::Exited { .. }) | Event::Notification(_) => continue,
+                Event::BuildOutput(_) | Event::BuildProgress(_) | Event::BuildFinished(_) => {
+                    continue;
+                }
                 Event::Log(line) => {
                     eprintln!("[eludite-host] {line}");
                     continue;
