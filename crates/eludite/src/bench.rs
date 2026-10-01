@@ -643,10 +643,11 @@ pub fn complete(
             {
                 if std::env::var_os("ELUDITE_BENCH_SAMPLES").is_some() {
                     eprintln!(
-                        "[bench] sent +{:.3} received +{:.3} applied +{:.3} presented +{:.3} ms after the key",
+                        "[bench] sent +{:.3} received +{:.3} applied +{:.3} render +{:.3} presented +{:.3} ms after the key",
                         ms(sent.saturating_duration_since(dot.0)),
                         ms(received.saturating_duration_since(dot.0)),
                         ms(applied_at.saturating_duration_since(dot.0)),
+                        ms(frame.map_or(dot.0, |f| f.0).saturating_duration_since(dot.0)),
                         ms(p.saturating_duration_since(dot.0))
                     );
                 }

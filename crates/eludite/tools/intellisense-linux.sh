@@ -10,7 +10,7 @@
 #      RUNS runs of --bench-type 500 in LspProxy.cs (brief 0012's typing benchmark, now with IntelliSense)
 #                                                                         -> OUT_DIR/type.jsonl
 #   The 1-minute load average before each run goes to OUT_DIR/loadavg.txt.
-# Usage: tools/intellisense-linux.sh OUT_DIR    (RUNS=3 TRIGGERS=200 CYCLES=500 by default)
+# Usage: tools/intellisense-linux.sh OUT_DIR    (RUNS=3 TRIGGERS=200 CYCLES=500 by default; SKIP_DRIVE=1 skips 1-2)
 # The host is ELUDITE_HOST (default: the Debug build under dotnet/src/Eludite.Host/bin). Files are never saved.
 set -euo pipefail
 out=$(realpath -m "$1"); mkdir -p "$out"
@@ -29,7 +29,7 @@ q() { printf %q "$1"; }
 inner="$out/inner.sh"
 cat >"$inner" <<INNER
 #!/usr/bin/env bash
-export ELUDITE_CONFIG_DIR=$(q "$out/config") ELUDITE_HOST=$(q "$host") ELUDITE_TRACE_LSP=1
+export SKIP_DRIVE=${SKIP_DRIVE:-} ELUDITE_CONFIG_DIR=$(q "$out/config") ELUDITE_HOST=$(q "$host") ELUDITE_TRACE_LSP=1
 wl=\$WAYLAND_DISPLAY
 load() { echo "\$1 \$(cut -d' ' -f1-3 /proc/loadavg)" >>$(q "$out/loadavg.txt"); }
 drive() { # mode file
@@ -42,8 +42,10 @@ drive() { # mode file
     >$(q "$out")/\$1.json 2>$(q "$out")/\$1-driver.err || true
   kill \$pid; wait \$pid
 }
-drive edit $(q "$target")
-drive hover $(q "$server")
+if [[ -z "\${SKIP_DRIVE:-}" ]]; then
+  drive edit $(q "$target")
+  drive hover $(q "$server")
+fi
 for run in \$(seq 1 $runs); do
   load "complete-\$run"
   $(q "$bin") --reset-layout --solution $(q "$sln") --open-file $(q "$target") --bench-complete $triggers \\
