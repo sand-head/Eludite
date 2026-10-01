@@ -167,6 +167,10 @@ pub struct AcceptedCompletion {
     pub label: String,
     /// The text that replaced the typed word.
     pub text: String,
+    /// The request id of the items the committed one came from, and its index among them (as in
+    /// [`EditorEvent::ResolveCompletion`]), so the owner can find the server's item (its additional edits).
+    pub list: u64,
+    pub index: usize,
 }
 
 /// One overload in Parameter Info.
