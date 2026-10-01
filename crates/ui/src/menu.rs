@@ -99,6 +99,13 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Go To Definition", "eludite.editor.go_to_definition"),
                 item("Find All References", "eludite.editor.find_references"),
                 Separator,
+                // Visual Studio's Edit > Refactor > Rename and the editor's Quick Actions and Refactorings.
+                item("Rename...", "eludite.editor.rename"),
+                item(
+                    "Quick Actions and Refactorings...",
+                    "eludite.editor.code_actions",
+                ),
+                Separator,
                 // Visual Studio's Edit > IntelliSense items.
                 item("Complete Word", "eludite.editor.complete"),
                 item("Parameter Info", "eludite.editor.signature_help"),

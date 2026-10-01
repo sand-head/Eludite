@@ -1,6 +1,7 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Solution Explorer,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
-//! the navigation history, Find All References and the Error List's filters (brief 0014).
+//! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
+//! and the workspace-edit applier (brief 0015).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -177,6 +178,8 @@ pub struct Shell {
     rename: rename::Rename,
     /// The light bulb and its menu (brief 0015).
     code_actions: code_actions::CodeActions,
+    /// The last `eludite.workspace.apply_edit` (state, summary).
+    apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -373,6 +376,7 @@ impl Shell {
             references: References::default(),
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
+            apply_edit: None,
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -645,6 +649,32 @@ impl Shell {
                     e.filter_output()
                 })),
             ),
+            WorkspaceRequest::Rename {
+                path,
+                line,
+                column,
+                new_name,
+                apply,
+            } => self.rename_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                new_name,
+                apply,
+                window,
+                cx,
+            ),
+            WorkspaceRequest::CodeActions { path, line, column } => self.code_actions_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                window,
+                cx,
+            ),
+            WorkspaceRequest::ApplyCodeAction { index, title } => {
+                self.apply_code_action_command(index, title.as_deref(), window, cx)
+            }
+            WorkspaceRequest::ApplyEdit { edit, label } => {
+                self.apply_edit_command(edit, label, window, cx)
+            }
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),
