@@ -8,7 +8,8 @@
 //! - Title bar buttons: Float, Auto Hide, Close. A floating window has Dock and
 //!   Close; closing its OS window closes (hides) its tool windows, as in VS.
 //! - Auto-hidden windows sit on edge strips; hovering or clicking one slides it
-//!   out (`niello.view.show`), Pin docks it again (`niello.view.dock`).
+//!   out (`niello.view.show`); clicking elsewhere slides it back in; Pin docks
+//!   it again (`niello.view.dock`).
 //!
 //! Every one of those goes through the command bus. The view re-renders when
 //! the controller reports a change, whoever made it (an agent included), and
@@ -314,20 +315,7 @@ impl DockHost {
     }
 
     fn probe_bounds(&self, key: String) -> Option<AnyElement> {
-        let probe = self.probe.clone()?;
-        Some(
-            canvas(
-                move |bounds, _, _| {
-                    probe.borrow_mut().bounds.insert(key, bounds);
-                },
-                |_, _, _, _| {},
-            )
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .into_any_element(),
-        )
+        probe_canvas(&self.probe, key)
     }
 
     fn render_documents(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -343,7 +331,12 @@ impl DockHost {
             let sel = format!("doc-tab-{}", d.id);
             tab(&t, d.title.clone(), style)
                 .id(SharedString::from(sel.clone()))
-                .debug_selector(move || sel)
+                .debug_selector({
+                    let s = sel.clone();
+                    move || s
+                })
+                .relative()
+                .children(self.probe_bounds(sel))
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, _| {
                     let _ = this.invoke(view::SHOW, json!({ "id": id }));
@@ -500,7 +493,12 @@ impl DockHost {
                     let sel = format!("strip-{id}");
                     let el = div()
                         .id(SharedString::from(sel.clone()))
-                        .debug_selector(move || sel)
+                        .debug_selector({
+                            let s = sel.clone();
+                            move || s
+                        })
+                        .relative()
+                        .children(self.probe_bounds(sel))
                         .p_0p5()
                         .cursor_pointer()
                         .hover(|s| s.text_color(t.text))
@@ -510,9 +508,9 @@ impl DockHost {
                             }
                         }))
                         .on_click(cx.listener(move |this, _, _, _| {
-                            if this.snap.flyout.as_deref() == Some(click_id.as_str()) {
-                                this.controller.close_flyout();
-                            } else {
+                            // Hovering usually opened it already; a click keeps
+                            // it open (VS), clicking elsewhere closes it.
+                            if this.snap.flyout.as_deref() != Some(click_id.as_str()) {
                                 let _ = this.invoke(view::SHOW, json!({ "id": click_id }));
                             }
                         }))
@@ -541,6 +539,8 @@ impl DockHost {
             .child(
                 icon_button("flyout-pin", "Pin", &t)
                     .debug_selector(|| "flyout-pin".into())
+                    .relative()
+                    .children(self.probe_bounds("flyout-pin".into()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         let _ = this.invoke(view::DOCK, json!({ "id": pin_id }));
@@ -647,6 +647,25 @@ impl Render for DockHost {
     }
 }
 
+/// When probing, an invisible canvas filling its (relative) parent that
+/// records the parent's bounds under `key`.
+fn probe_canvas(probe: &Option<Probe>, key: String) -> Option<AnyElement> {
+    let probe = probe.clone()?;
+    Some(
+        canvas(
+            move |bounds, _, _| {
+                probe.borrow_mut().bounds.insert(key, bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
+
 fn header_bar(t: &Theme, title: String, active: bool) -> gpui::Div {
     let (bg, fg) = if active {
         (t.panel_header_active, t.panel_header_active_text)
@@ -704,29 +723,21 @@ fn render_group(
             });
         }
     };
-    let probe_el = |key: String| -> Option<AnyElement> {
-        let probe = probe.clone()?;
-        Some(
-            canvas(
-                move |b, _, _| {
-                    probe.borrow_mut().bounds.insert(key, b);
-                },
-                |_, _, _, _| {},
-            )
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .into_any_element(),
-        )
-    };
+    // Floating windows record bounds relative to their own OS window.
+    let prefix = if floating { "floating/" } else { "" };
+    let probe_el = |key: String| probe_canvas(probe, format!("{prefix}{key}"));
 
     let button = |name: &str, label: &'static str, cmd: &'static str| {
         let h = host.clone();
         let id = active.clone();
         let sel = format!("{name}-{active}");
         icon_button(SharedString::from(sel.clone()), label, &t)
-            .debug_selector(move || sel)
+            .debug_selector({
+                let s = sel.clone();
+                move || s
+            })
+            .relative()
+            .children(probe_el(sel))
             .on_click(move |_, _, cx| {
                 // The title bar under the button activates on click; do not.
                 cx.stop_propagation();
@@ -809,9 +820,11 @@ fn render_group(
 
     let drop_host = host.clone();
     let target = active.clone();
+    let group_probe = probe_el(format!("group-{active}"));
     div()
         .id(SharedString::from(format!("group-{}", g.id)))
         .debug_selector(move || format!("group-{active}"))
+        .relative()
         .flex()
         .flex_col()
         .min_h_0()
@@ -839,6 +852,7 @@ fn render_group(
                 .child(tool_body(g.active_id().unwrap_or_default(), &t)),
         )
         .children(tabs)
+        .children(group_probe)
 }
 
 /// Root view of a floating tool window's OS window.
@@ -873,7 +887,7 @@ impl Render for FloatingView {
         let h = host.read(cx);
         let t = h.theme;
         let body = match h.snap.layout.group(self.gid) {
-            Some(g) => render_group(&h.snap, &t, g, true, &self.host, &h.tool_body, &None)
+            Some(g) => render_group(&h.snap, &t, g, true, &self.host, &h.tool_body, &h.probe)
                 .size_full()
                 .into_any_element(),
             None => div().into_any_element(),
