@@ -36,9 +36,11 @@ public static class HostServer
         rpc.SynchronizationContext = new NonConcurrentSynchronizationContext(sticky: false);
         rpc.AddLocalRpcTarget(target);
         target.LanguageServer.Attach(rpc);
+        target.Build.Attach(rpc);
         rpc.StartListening();
 
         await Task.WhenAny(target.ExitRequested, rpc.Completion).ConfigureAwait(false);
+        await target.Build.DisposeAsync().ConfigureAwait(false);
         await target.LanguageServer.DisposeAsync().ConfigureAwait(false);
 
         return target.ShutdownRequested && target.ExitRequested.IsCompleted ? 0 : 1;
