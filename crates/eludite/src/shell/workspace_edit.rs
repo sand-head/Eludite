@@ -472,8 +472,11 @@ fn write_temp(path: &Path, bytes: &[u8], existed: bool) -> std::io::Result<PathB
 pub struct ApplyOptions {
     /// Shown in the status bar.
     pub label: Option<String>,
-    /// The solution generation the edit was computed under; another one refuses it.
+    /// The generation the edit was computed under (of `server`: the solution's for the host); another one refuses
+    /// it.
     pub generation: Option<u64>,
+    /// The server that computed it (brief 0019).
+    pub server: super::servers::ServerKey,
     /// Document id to the LSP version the edit was computed for (a rename or code action request); another version
     /// refuses it, like a `TextDocumentEdit` version.
     pub versions: HashMap<String, i32>,
@@ -701,12 +704,17 @@ impl Shell {
         options: &ApplyOptions,
     ) -> Result<(Vec<BufferEdit>, Vec<Step>, Vec<String>), String> {
         if let Some(g) = options.generation
-            && g != self.generation
+            && g != self.key_generation(Some(&options.server))
         {
-            return Err(format!(
-                "the edit was computed for solution generation {g}; the solution changed since (generation {})",
-                self.generation
-            ));
+            return Err(match &options.server {
+                super::servers::ServerKey::Host => format!(
+                    "the edit was computed for solution generation {g}; the solution changed since (generation {})",
+                    self.generation
+                ),
+                super::servers::ServerKey::Generic(k) => format!(
+                    "the edit was computed by a language server that has restarted since ({k})"
+                ),
+            });
         }
         let steps = plan(edit)?;
         // Open documents a resource operation touches are handled on disk, and must be saved.
@@ -839,10 +847,14 @@ impl Shell {
                 .map(|p| json!({"uri": path_to_uri(p), "type": 3})),
         );
         if !changes.is_empty() {
-            self.session.notify_untyped(
-                "workspace/didChangeWatchedFiles",
-                json!({ "changes": changes }),
-            );
+            // Every server watches the workspace's files (brief 0019: the host and the generic servers).
+            let params = json!({ "changes": changes });
+            self.session
+                .notify_untyped("workspace/didChangeWatchedFiles", params.clone());
+            for g in self.generic.values() {
+                g.session
+                    .notify_untyped("workspace/didChangeWatchedFiles", params.clone());
+            }
         }
         for id in managed {
             let Some(doc) = self.documents.get(id) else {
@@ -940,18 +952,28 @@ impl Shell {
         }
     }
 
-    /// `workspace/applyEdit` from the host: apply with the applier, answer `applied` (brief 0015).
-    pub(super) fn on_host_apply_edit(
+    /// `workspace/applyEdit` from a server (the host's relay, brief 0015, or a generic server's, brief 0019): apply
+    /// with the applier, answer `applied`.
+    pub(super) fn on_server_apply_edit(
         &mut self,
+        server: super::servers::ServerKey,
         id: eludite_lsp::Id,
         generation: u64,
         params: lsp::ApplyWorkspaceEditParams,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let session = match &server {
+            super::servers::ServerKey::Host => self.session.clone(),
+            super::servers::ServerKey::Generic(k) => match self.generic.get(k) {
+                Some(g) => g.session.clone(),
+                None => return,
+            },
+        };
         let options = ApplyOptions {
             label: params.label.clone(),
             generation: Some(generation),
+            server,
             versions: HashMap::new(),
         };
         self.apply_workspace_edit(
@@ -959,8 +981,8 @@ impl Shell {
             options,
             window,
             cx,
-            Box::new(move |shell, summary, _, _| {
-                shell.session.respond_apply_edit(
+            Box::new(move |_, summary, _, _| {
+                session.respond_apply_edit(
                     id,
                     lsp::ApplyWorkspaceEditResult {
                         applied: summary.applied,

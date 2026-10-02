@@ -1,7 +1,7 @@
 //! The shell's [`WorkspaceTarget`]: how `eludite.solution.*`, `eludite.file.*` and `eludite.editor.*` reach the
 //! session and the editors from whichever thread invokes the bus.
 //!
-//! - `eludite.solution.open` and `close` only hand work to the [`HostSession`] worker, so they run on any thread.
+//! - `eludite.solution.open` and `close` only hand work to the [`ServerSession`] worker, so they run on any thread.
 //! - The file and editor commands touch GPUI entities, which live on the UI thread. From another thread (an agent)
 //!   the request is posted to the UI as a [`UiJob`] and the caller waits for the shell's answer. On the UI thread
 //!   the shell applies the request itself first, then invokes the bus with the result staged in [`stage`], so the
@@ -19,7 +19,7 @@ use eludite_commands::workspace::{
 };
 use futures::channel::mpsc::UnboundedSender;
 
-use super::session::HostSession;
+use super::session::ServerSession;
 
 /// How long an agent's file or editor command waits for the UI thread.
 const UI_TIMEOUT: Duration = Duration::from_secs(30);
@@ -44,7 +44,7 @@ pub struct UiJob {
 }
 
 pub struct ShellTarget {
-    pub session: HostSession,
+    pub session: ServerSession,
     pub ui_thread: ThreadId,
     pub jobs: UnboundedSender<UiJob>,
 }

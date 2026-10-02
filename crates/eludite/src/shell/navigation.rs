@@ -426,7 +426,7 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let doc = &self.documents[id];
         let version = doc.lsp_version;
         let params = lsp::TextDocumentPositionParams {
@@ -441,14 +441,14 @@ impl Shell {
             "definition request {ticket} at {}:{} version {version}",
             params.position.line, params.position.character
         ));
-        let (handle, rx) = self.session.request::<lsp::GotoDefinition>(params);
+        let (handle, rx) = doc.session.request::<lsp::GotoDefinition>(params);
         let doc_id = id.to_owned();
         let task = cx.spawn_in(window, async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
             };
             let _ = this.update_in(cx, |shell, window, cx| {
-                let current = shell.generation;
+                let current = shell.doc_generation(&doc_id);
                 let newest = shell
                     .navigation
                     .definition

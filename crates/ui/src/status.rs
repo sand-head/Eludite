@@ -26,7 +26,7 @@ pub mod slots {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusSlot {
-    pub id: &'static str,
+    pub id: SharedString,
     pub align: SlotAlign,
     pub text: SharedString,
 }
@@ -40,8 +40,8 @@ pub struct StatusBar {
 impl StatusBar {
     /// Visual Studio's slots, in display order, all empty but "Ready".
     pub fn vs_default() -> Self {
-        let slot = |id, align| StatusSlot {
-            id,
+        let slot = |id: &'static str, align| StatusSlot {
+            id: id.into(),
             align,
             text: SharedString::default(),
         };
@@ -62,7 +62,7 @@ impl StatusBar {
 
     /// Set a slot's text. Returns false for an unknown slot.
     pub fn set(&mut self, id: &str, text: impl Into<SharedString>) -> bool {
-        match self.slots.iter_mut().find(|s| s.id == id) {
+        match self.slots.iter_mut().find(|s| s.id.as_ref() == id) {
             Some(s) => {
                 s.text = text.into();
                 true
@@ -71,9 +71,10 @@ impl StatusBar {
         }
     }
 
-    /// Add a slot (later briefs: debugger state, test results).
-    pub fn add_slot(&mut self, id: &'static str, align: SlotAlign) {
-        if self.get(id).is_none() {
+    /// Add a slot (later briefs: debugger state, test results; one per language server, brief 0019).
+    pub fn add_slot(&mut self, id: impl Into<SharedString>, align: SlotAlign) {
+        let id = id.into();
+        if !self.has_slot(&id) {
             self.slots.push(StatusSlot {
                 id,
                 align,
@@ -82,10 +83,15 @@ impl StatusBar {
         }
     }
 
+    /// Whether slot `id` exists (empty or not).
+    pub fn has_slot(&self, id: &str) -> bool {
+        self.slots.iter().any(|s| s.id.as_ref() == id)
+    }
+
     pub fn get(&self, id: &str) -> Option<&str> {
         self.slots
             .iter()
-            .find(|s| s.id == id)
+            .find(|s| s.id.as_ref() == id)
             .map(|s| s.text.as_ref())
     }
 
@@ -143,10 +149,20 @@ mod tests {
         assert!(bar.set(slots::BRANCH, "main"));
         assert!(bar.set(slots::VERSION, "Eludite 0.1.0"));
         assert!(!bar.set("nope", "x"));
-        let right: Vec<_> = bar.visible(SlotAlign::Right).map(|s| s.id).collect();
+        let right: Vec<_> = bar
+            .visible(SlotAlign::Right)
+            .map(|s| s.id.to_string())
+            .collect();
         assert_eq!(right, [slots::BRANCH, slots::VERSION]);
         bar.add_slot("debug_state", SlotAlign::Left);
         bar.add_slot("debug_state", SlotAlign::Left);
+        // Slot ids made at run time (one per language server, brief 0019).
+        bar.add_slot(
+            format!("language_server:{}", "rust-analyzer"),
+            SlotAlign::Right,
+        );
+        assert!(bar.has_slot("language_server:rust-analyzer"));
+        assert!(!bar.has_slot("language_server:other"));
         assert!(bar.set("debug_state", "Running"));
         let left: Vec<_> = bar
             .visible(SlotAlign::Left)

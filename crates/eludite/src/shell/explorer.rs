@@ -172,7 +172,8 @@ impl Render for SolutionExplorer {
         if self.model.is_none() {
             let text = match &self.placeholder {
                 Placeholder::NoSolution => {
-                    "No solution is open. File > Open > Project/Solution (Ctrl+Shift+O).".to_owned()
+                    "No solution is open. File > Open > Project/Solution (Ctrl+Shift+O), or File > Open > Folder \
+                     (Ctrl+Shift+Alt+O).".to_owned()
                 }
                 Placeholder::Loading(name) => format!("Loading {name}\u{2026}"),
                 Placeholder::Failed(why) => why.clone(),

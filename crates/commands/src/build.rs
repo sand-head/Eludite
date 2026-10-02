@@ -136,6 +136,8 @@ impl BuildKind {
 pub enum OutputSource {
     Build,
     Host,
+    /// The language servers the shell runs itself (brief 0019).
+    LanguageServers,
 }
 
 impl OutputSource {
@@ -143,6 +145,7 @@ impl OutputSource {
         match self {
             OutputSource::Build => "build",
             OutputSource::Host => "host",
+            OutputSource::LanguageServers => "language_servers",
         }
     }
 }

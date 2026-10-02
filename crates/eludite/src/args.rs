@@ -10,6 +10,9 @@ Options:
   --solution PATH     open this .sln, .slnx or project file at startup (as
                       File > Open > Project/Solution does) and use the window
                       layout saved for it
+  --folder PATH       open this folder (or the folder of this Cargo.toml) at
+                      startup, as File > Open > Folder does: its .NET
+                      solution and Cargo workspace side by side
   --theme NAME        dark (default), light or blue
   --reset-layout      start from the default layout (the saved file is kept
                       until the layout changes)
@@ -32,7 +35,8 @@ Measurement harness (prints one JSON line to stdout, then exits):
   --exit-after-ms N   quit after N ms (smoke runs, screenshots)
   --open-file PATH    open this file at startup (eludite.file.open), after the
                       solution when --solution is given
-  --timings-out PATH  with --solution: write the times from the open command
+  --timings-out PATH  with --solution or --folder: write the times from the
+                      open command
                       to editable text, to the Workspace tree and to
                       the first diagnostics of the opened file as JSON to PATH
                       (once all arrived, or after 180 s); does not exit
@@ -108,6 +112,8 @@ Environment:
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Args {
     pub solution: Option<PathBuf>,
+    /// `--folder PATH` (brief 0019).
+    pub folder: Option<PathBuf>,
     pub theme: Option<String>,
     pub reset_layout: bool,
     pub no_persist: bool,
@@ -145,6 +151,7 @@ impl Args {
             let mut value = |name: &str| it.next().ok_or_else(|| format!("{name} needs a value"));
             match arg.as_str() {
                 "--solution" => a.solution = Some(value("--solution")?.into()),
+                "--folder" => a.folder = Some(value("--folder")?.into()),
                 "--theme" => {
                     let t = value("--theme")?;
                     if eludite_ui::Theme::by_name(&t).is_none() {
