@@ -85,7 +85,13 @@
             "edit_buffer",
             "execute",
             "dangerous"
-          ]
+          ],
+          "description": "The command's declared class (command-spec.json `permission`): the class every call has at least."
+        },
+        "eludite/escalates": {
+          "description": "When a call is raised above `eludite/permission` (ADR-0009): the command spec's `escalates`, from its input schema's `x-eludite-escalates`, which is removed from `inputSchema`. Absent: every call has the declared class.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }
