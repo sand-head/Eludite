@@ -7,8 +7,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eludite_docking::RenderProbe;
 use gpui::{
-    AnyWindowHandle, App, Entity, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PlatformInput, Point, Window, point, px,
+    AnyWindowHandle, App, Entity, Focusable as _, Keystroke, Modifiers, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput, Point, Window, point, px,
 };
 use serde_json::{Value, json};
 
@@ -320,7 +320,8 @@ fn report(b: &DragBench, window: &Window, _cx: &App) {
     println!("{out}");
 }
 
-/// `--timings-out PATH`: once editable text, the tree and the first diagnostics have all arrived (or after 180 s),
+/// `--timings-out PATH`: once editable text, the tree and the first diagnostics for the opened file have all arrived
+/// (or after 180 s),
 /// write how long each took from the `eludite.solution.open` command, as JSON.
 pub fn timings_out(
     shell: Entity<Shell>,
@@ -337,8 +338,10 @@ pub fn timings_out(
             let Ok(t) = cx.update(|_, cx| shell.read(cx).timings().clone()) else {
                 return;
             };
-            let done =
-                t.editable.is_some() && t.tree.is_some() && t.first_nonempty_diagnostics.is_some();
+            let done = t.editable.is_some()
+                && t.tree.is_some()
+                && t.first_diagnostics.is_some()
+                && t.loaded.is_some();
             if !done && started.elapsed() < Duration::from_secs(180) {
                 continue;
             }
@@ -360,6 +363,127 @@ pub fn timings_out(
             }
             return;
         }
+    })
+    .detach();
+}
+
+/// `--bench-type N`: keystroke frame cost in the shell while the host's diagnostics arrive (brief 0012 budget,
+/// method as brief 0009's viewer: `Window::dispatch_keystroke`, frame cost = key handler + render to end of present,
+/// excluding the wait for the next refresh). Prints one JSON line and quits. Without a solution (`with_host`
+/// false) it types into the file at once, with no host and no diagnostics: the baseline.
+pub fn type_keys(
+    shell: Entity<Shell>,
+    file: std::path::PathBuf,
+    count: usize,
+    with_host: bool,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    cx.spawn_in(window, async move |_, cx| {
+        // Wait for the load and the first diagnostics, as a user would.
+        loop {
+            executor.timer(Duration::from_millis(20)).await;
+            let Ok(ready) = cx.update(|_, cx| {
+                let t = shell.read(cx).timings();
+                if with_host {
+                    t.loaded.is_some() && t.first_diagnostics.is_some()
+                } else {
+                    shell.read(cx).editor(&file).is_some()
+                }
+            }) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(1000)).await;
+        let Ok(Some(editor)) = cx.update(|window, cx| {
+            let editor = shell.read(cx).editor(&file)?;
+            // The end of a line in the middle of the file.
+            editor.update(cx, |v, cx| {
+                v.update_editor(cx, |e| {
+                    let b = e.buffer();
+                    let row = b.line_count() / 2;
+                    let at = b.point_to_offset(eludite_editor::text::Point::new(row, b.line_len(row)));
+                    e.set_caret(at);
+                })
+            });
+            window.focus(&editor.focus_handle(cx), cx);
+            Some(editor)
+        }) else {
+            eprintln!("eludite bench: {} is not open", file.display());
+            std::process::exit(1);
+        };
+        let events_before = cx
+            .update(|_, cx| shell.read(cx).timings().diagnostics_events)
+            .unwrap_or_default();
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        let mut seed: u64 = 0x5eed;
+        let mut next = move || {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let mut keys: Vec<(Instant, Instant)> = Vec::with_capacity(count);
+        for i in 0..count {
+            let pause = if i % 25 == 24 { 250. } else { 0. };
+            let delay = pause + 15. + 30. * next();
+            executor
+                .timer(Duration::from_micros((delay * 1000.) as u64))
+                .await;
+            let key = if i % 17 == 16 {
+                "backspace".to_owned()
+            } else {
+                ((b'a' + (i % 26) as u8) as char).to_string()
+            };
+            let ks = Keystroke::parse(&key).expect("keystroke");
+            let _ = cx.update(|window, cx| {
+                let t0 = Instant::now();
+                window.dispatch_keystroke(ks, cx);
+                keys.push((t0, Instant::now()));
+            });
+        }
+        executor.timer(Duration::from_millis(300)).await;
+        let _ = cx.update(|window, cx| {
+            let p = probe.borrow();
+            let frames: Vec<(Instant, Instant)> = p
+                .renders
+                .iter()
+                .copied()
+                .zip(p.presents.iter().copied())
+                .collect();
+            let mut cost = Vec::new();
+            let mut handler = Vec::new();
+            for (t0, t1) in &keys {
+                handler.push(ms(*t1 - *t0));
+                if let Some((r, pr)) = frames.iter().find(|(r, _)| r >= t1) {
+                    cost.push(ms(*t1 - *t0) + ms(pr.saturating_duration_since(*r)));
+                }
+            }
+            let all: Vec<f64> = frames.iter().map(|(r, pr)| ms(pr.saturating_duration_since(*r))).collect();
+            let events = shell.read(cx).timings().diagnostics_events - events_before;
+            let lines = editor.read(cx).editor().buffer().line_count();
+            let out = json!({
+                "bench": "type_in_shell",
+                "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+                "file": file.to_string_lossy(),
+                "with_host": with_host,
+                "lines": lines,
+                "keystrokes": count,
+                "samples": cost.len(),
+                "diagnostics_events_during_run": events,
+                "keystroke_frame_cost": summarize(&cost),
+                "key_handler": summarize(&handler),
+                "all_frames_render_to_present": summarize(&all),
+                "rss": rss_mib(),
+                "platform": platform(window),
+            });
+            println!("{out}");
+            cx.quit();
+        });
     })
     .detach();
 }

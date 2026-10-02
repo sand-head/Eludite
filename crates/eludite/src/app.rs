@@ -193,18 +193,22 @@ pub fn run(args: Args, t_main: Instant) {
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);
         }
-        if let Some(solution) = args.solution.clone() {
-            // Open the solution once the window is up, as File > Open > Project/Solution would.
+        if args.solution.is_some() || args.open_file.is_some() {
+            // Open the solution once the window is up, as File > Open > Project/Solution would, then the file.
+            let solution = args.solution.clone();
             let open_file = args.open_file.clone();
             let timings_out = args.timings_out.clone();
+            let bench_type = args.bench_type;
             let _ = window.update(cx, |shell, window, cx| {
-                shell.run(
-                    workspace::SOLUTION_OPEN,
-                    json!({ "path": solution.to_string_lossy() }),
-                    window,
-                    cx,
-                );
-                if let Some(file) = open_file {
+                if let Some(solution) = &solution {
+                    shell.run(
+                        workspace::SOLUTION_OPEN,
+                        json!({ "path": solution.to_string_lossy() }),
+                        window,
+                        cx,
+                    );
+                }
+                if let Some(file) = &open_file {
                     shell.run(
                         workspace::FILE_OPEN,
                         json!({ "path": file.to_string_lossy() }),
@@ -214,6 +218,10 @@ pub fn run(args: Args, t_main: Instant) {
                 }
                 if let Some(path) = timings_out {
                     bench::timings_out(cx.entity(), path, window, cx);
+                }
+                if let (Some(count), Some(file)) = (bench_type, open_file) {
+                    let with_host = solution.is_some();
+                    bench::type_keys(cx.entity(), file, count, with_host, window, cx);
                 }
             });
         }
