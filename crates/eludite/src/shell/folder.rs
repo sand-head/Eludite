@@ -1,7 +1,8 @@
 //! File > Open Folder (brief 0019, `eludite.workspace.open_folder`): a folder, or the folder of a `Cargo.toml`.
 //!
 //! - **At once** (the command's handler, on the UI thread): the folder becomes the Workspace window's root, with a
-//!   loading node for each part found at its root: the .NET solution (an `.slnx` before an `.sln`), handed to
+//!   loading node for each part found: the .NET solution (at the root or one folder down, an `.slnx` before an
+//!   `.sln`), handed to
 //!   `eludite-host` exactly as File > Open > Project/Solution does, and the Cargo workspace.
 //! - **Off the UI thread**: the folder's files are listed (`eludite-workspace`'s `folder`), and the Cargo workspace is
 //!   read with `cargo metadata --format-version 1 --no-deps --offline` (no network). Each result replaces its loading
