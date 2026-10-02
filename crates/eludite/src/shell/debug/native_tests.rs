@@ -177,7 +177,9 @@ impl Nt {
 
     /// The binary cargo would have built: a script printing its arguments and environment.
     fn built_binary(&self) -> PathBuf {
-        let exe = self.rs.join("target/debug/app");
+        let exe = self
+            .rs
+            .join(format!("target/debug/app{}", std::env::consts::EXE_SUFFIX));
         std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
         std::fs::write(
             &exe,
@@ -292,7 +294,7 @@ fn a_cargo_package_is_the_startup_project_and_debugs_under_lldb(cx: &mut TestApp
     eprintln!("launch: {launch}");
     assert_eq!(
         Path::new(launch["program"].as_str().unwrap()),
-        nt.rs.join("target/debug/app")
+        nt.built_binary()
     );
     assert_eq!(Path::new(launch["cwd"].as_str().unwrap()), nt.rs);
     assert_eq!(launch["args"], json!(["--fast"]));
