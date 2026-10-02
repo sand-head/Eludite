@@ -1,6 +1,6 @@
 # Brief 0019: Rust through the generic paths, so Eludite can build Eludite
 
-Status: open
+Status: done on Linux ([report](0019-report.md)); Windows and macOS not run
 Phase: 1 (exit condition)
 Plan reference: PLAN.md sections 2 (principles 5, 6), 7 (Rust row), 8, 9, 10 (Phase 1 exit)
 Related ADR: ADR-0003
