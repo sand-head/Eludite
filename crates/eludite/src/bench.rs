@@ -388,22 +388,40 @@ pub fn timings_out(
             cx.background_executor()
                 .timer(Duration::from_millis(20))
                 .await;
-            let Ok(t) = cx.update(|_, cx| shell.read(cx).timings().clone()) else {
+            let Ok((t, folder, servers)) = cx.update(|_, cx| {
+                let s = shell.read(cx);
+                (
+                    s.timings().clone(),
+                    s.folder().cloned(),
+                    language_servers(s),
+                )
+            }) else {
                 return;
             };
+            // An open folder (brief 0019): its listing and Cargo metadata, and every generic server's first
+            // diagnostics and quiescence; a folder without a solution has no tree or load.
+            let has_solution = folder.as_ref().is_none_or(|f| f.solution.is_some());
+            let folder_done = folder.as_ref().is_none_or(|f| {
+                f.timings.listed.is_some()
+                    && (f.cargo_manifest.is_none() || f.timings.cargo.is_some())
+            });
+            let servers_done = servers
+                .iter()
+                .all(|s| s["first_diagnostics_ms"].is_number() && s["quiescent_ms"].is_number());
             let done = t.editable.is_some()
-                && t.tree.is_some()
+                && (!has_solution || (t.tree.is_some() && t.loaded.is_some()))
                 && t.first_diagnostics.is_some()
-                && t.loaded.is_some();
-            if !done && started.elapsed() < Duration::from_secs(180) {
+                && folder_done
+                && servers_done;
+            if !done && started.elapsed() < Duration::from_secs(600) {
                 continue;
             }
             let since = |x: Option<Instant>| match (t.open, x) {
                 (Some(o), Some(x)) => json!(ms(x.saturating_duration_since(o))),
                 _ => Value::Null,
             };
-            let out = json!({
-                "bench": "open_solution",
+            let mut out = json!({
+                "bench": if folder.is_some() { "open_folder" } else { "open_solution" },
                 "open_to_editable_ms": since(t.editable),
                 "open_to_tree_ms": since(t.tree),
                 "open_to_first_diagnostics_ms": since(t.first_diagnostics),
@@ -411,6 +429,12 @@ pub fn timings_out(
                 "open_to_loaded_ms": since(t.loaded),
                 "rss": rss_mib(),
             });
+            if let Some(f) = &folder {
+                out["open_to_folder_listed_ms"] = since(f.timings.listed);
+                out["open_to_cargo_metadata_ms"] = since(f.timings.cargo);
+                out["folder_files"] = json!(f.listing.as_ref().map(|l| l.files.len()));
+                out["language_servers"] = Value::Array(servers);
+            }
             if let Err(e) = std::fs::write(&path, format!("{out}\n")) {
                 eprintln!("eludite: --timings-out {}: {e}", path.display());
             }
@@ -418,6 +442,30 @@ pub fn timings_out(
         }
     })
     .detach();
+}
+
+/// The generic language servers' state and timings (brief 0019), for the harness's JSON.
+fn language_servers(s: &Shell) -> Vec<Value> {
+    s.generic_servers()
+        .values()
+        .map(|g| {
+            let since = |x: Option<Instant>| match (g.timings.requested, x) {
+                (Some(o), Some(x)) => json!(ms(x.saturating_duration_since(o))),
+                _ => Value::Null,
+            };
+            json!({
+                "id": g.registration.id,
+                "root": g.root.to_string_lossy(),
+                "version": g.version,
+                "status": g.status_text(),
+                "ready": g.ready(),
+                "running_ms": since(g.timings.running),
+                "first_diagnostics_ms": since(g.timings.first_diagnostics),
+                "first_nonempty_diagnostics_ms": since(g.timings.first_nonempty_diagnostics),
+                "quiescent_ms": since(g.timings.quiescent),
+            })
+        })
+        .collect()
 }
 
 /// `--bench-type N`: keystroke frame cost in the shell while the host's diagnostics arrive (brief 0012 budget,
@@ -439,11 +487,16 @@ pub fn type_keys(
         loop {
             executor.timer(Duration::from_millis(20)).await;
             let Ok(ready) = cx.update(|_, cx| {
-                let t = shell.read(cx).timings();
-                if with_host {
+                let s = shell.read(cx);
+                let t = s.timings();
+                if s.folder().is_some() {
+                    // An open folder (brief 0019): type while its language servers still index, once the file's
+                    // first diagnostics arrived.
+                    s.editor(&file).is_some() && t.first_diagnostics.is_some()
+                } else if with_host {
                     t.loaded.is_some() && t.first_diagnostics.is_some()
                 } else {
-                    shell.read(cx).editor(&file).is_some()
+                    s.editor(&file).is_some()
                 }
             }) else {
                 return;
@@ -453,6 +506,9 @@ pub fn type_keys(
             }
         }
         executor.timer(Duration::from_millis(1000)).await;
+        let servers_before = cx
+            .update(|_, cx| language_servers(shell.read(cx)))
+            .unwrap_or_default();
         let Ok(Some(editor)) = cx.update(|window, cx| {
             let editor = shell.read(cx).editor(&file)?;
             // The end of a line in the middle of the file.
@@ -519,7 +575,10 @@ pub fn type_keys(
             let all: Vec<f64> = frames.iter().map(|(r, pr)| ms(pr.saturating_duration_since(*r))).collect();
             let events = shell.read(cx).timings().diagnostics_events - events_before;
             let lines = editor.read(cx).editor().buffer().line_count();
+            let servers_after = language_servers(shell.read(cx));
             let out = json!({
+                "language_servers_before": servers_before,
+                "language_servers_after": servers_after,
                 "bench": "type_in_shell",
                 "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
                 "file": file.to_string_lossy(),
@@ -567,8 +626,15 @@ pub fn complete(
         loop {
             executor.timer(Duration::from_millis(20)).await;
             let Ok(ready) = cx.update(|_, cx| {
-                let t = shell.read(cx).timings();
-                t.loaded.is_some() && t.first_diagnostics.is_some()
+                let s = shell.read(cx);
+                let t = s.timings();
+                // An open folder without a solution has no load; generic servers must be done indexing
+                // (brief 0019: the completion budget is measured after rust-analyzer answers).
+                let solution_ready =
+                    t.loaded.is_some() || s.folder().is_some_and(|f| f.solution.is_none());
+                solution_ready
+                    && t.first_diagnostics.is_some()
+                    && s.generic_servers().values().all(|g| g.ready())
             }) else {
                 return;
             };
@@ -1826,7 +1892,11 @@ pub fn build_keys(
     cx.spawn_in(window, async move |_, cx| {
         loop {
             executor.timer(Duration::from_millis(50)).await;
-            let Ok(ready) = cx.update(|_, cx| shell.read(cx).timings().loaded.is_some()) else {
+            // The solution loaded, or (an open folder, brief 0019) its Cargo workspace read.
+            let Ok(ready) = cx.update(|_, cx| {
+                let s = shell.read(cx);
+                s.timings().loaded.is_some() || s.cargo_workspace().is_some()
+            }) else {
                 return;
             };
             if ready {

@@ -514,7 +514,7 @@ impl Shell {
     }
 
     /// The open folder's Cargo workspace, once read.
-    pub(super) fn cargo_workspace(&self) -> Option<&eludite_workspace::cargo::CargoWorkspace> {
+    pub fn cargo_workspace(&self) -> Option<&eludite_workspace::cargo::CargoWorkspace> {
         match self.folder.as_ref()?.cargo.as_ref()? {
             CargoState::Loaded(ws) => Some(ws),
             _ => None,
