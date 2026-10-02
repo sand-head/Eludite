@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-cancel.input.json",
+  "title": "eludite.agents.cancel input",
+  "description": "Cancel the agent's current turn, as Escape in the prompt box does: ACP session/cancel, every pending permission request answered `cancelled`, and every pending change the turn produced rejected.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

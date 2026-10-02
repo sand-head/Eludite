@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-prompt.input.json",
+  "title": "eludite.agents.prompt input",
+  "description": "Send a prompt to the agent in the Agents window, as the prompt box does (Enter). Starts the selected agent first if it is not running. Returns at once with the state `running`; the transcript streams in the window.",
+  "type": "object",
+  "required": [
+    "text"
+  ],
+  "properties": {
+    "text": {
+      "description": "The prompt.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

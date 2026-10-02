@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-policy.json",
+  "title": "Eludite agent permission policy",
+  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "edit_buffer": {
+      "description": "Agent edits of files: `review` (default) holds them as pending changes until accepted or rejected; `accept` applies them at once (still audited).",
+      "enum": [
+        "review",
+        "accept"
+      ]
+    },
+    "execute": {
+      "description": "Build, test, run, shell commands, unknown tools: `prompt` (default), `allow` or `deny`, unless a rule matches.",
+      "enum": [
+        "prompt",
+        "allow",
+        "deny"
+      ]
+    },
+    "dangerous": {
+      "description": "Push, delete, external network: `prompt` (default) or `deny`, unless a rule matches.",
+      "enum": [
+        "prompt",
+        "deny"
+      ]
+    },
+    "rules": {
+      "description": "Decisions for specific tools, checked in order before the class default (execute and dangerous only). The first matching rule wins.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "tool",
+          "decision"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "tool": {
+            "description": "The tool as the agent names it: an agent tool (`Bash`, `WebFetch`) or an Eludite MCP tool (`mcp__eludite__eludite-solution-open`, or just `eludite-solution-open`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "command_prefix": {
+            "description": "Only when the tool's `command` argument (a shell command) starts with this text.",
+            "type": "string",
+            "minLength": 1
+          },
+          "decision": {
+            "enum": [
+              "allow",
+              "deny"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

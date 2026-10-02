@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-tree.output.json",
+  "title": "eludite.solution.tree output",
+  "description": "The solution's projects. `state` is `none` when no solution is open and `loading` until the host sent the tree.",
+  "type": "object",
+  "required": [
+    "state",
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path of the open solution or project file.",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "none",
+        "loading",
+        "loaded",
+        "failed"
+      ]
+    },
+    "projects": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "kind",
+          "target_frameworks",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path of the project file.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`sdk` or `legacy` (non-SDK MSBuild).",
+            "enum": [
+              "sdk",
+              "legacy"
+            ]
+          },
+          "target_frameworks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "files": {
+            "description": "Absolute paths of the project's source and content files (at most 5000).",
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "description": "Why the project did not evaluate; `files` is then empty.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

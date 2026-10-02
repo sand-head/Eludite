@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-permission.input.json",
+  "title": "eludite.agents.permission input",
+  "description": "Answer a pending permission request in the Agents window, as its dialog's buttons do: Allow, Always Allow (writes an allow rule into the solution's committable policy file, .eludite/agents-policy.json) or Deny. Requests come from the agent (ACP session/request_permission) and from Eludite's MCP server for execute and dangerous commands.",
+  "type": "object",
+  "required": [
+    "decision"
+  ],
+  "properties": {
+    "request": {
+      "description": "The request's id as the transcript shows it. Omit to answer the oldest pending request.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "always_allow",
+        "deny"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
