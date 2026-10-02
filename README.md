@@ -45,7 +45,9 @@ Linux system packages for the GPUI build:
 - Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`
 - Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`
 
-Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows.
+Optional, to debug .NET Framework programs under Mono with `eludite-dbg-mono` (and to run its tests, which skip without it): `mono-devel` on Debian/Ubuntu, `mono` on Arch, the Mono framework package on macOS.
+
+Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows; `debuggers/mono` builds everywhere and runs under Mono on Linux and macOS.
 
 ## Repository layout
 
@@ -57,6 +59,7 @@ crates/            Rust workspace (shell)
 vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), each with WHY.md
 dotnet/            .NET solution (hosts)
 debuggers/netfx/   eludite-dbg-netfx (Rust, Windows)
+debuggers/mono/    eludite-dbg-mono (C# on Mono.Debugging.Soft, runs under Mono: .NET Framework on Linux and macOS)
 protocol/          MIT: schemas, generated bindings
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
