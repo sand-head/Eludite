@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-settings.json",
+  "title": "Eludite agents settings",
+  "description": "The ACP agents a user adds to the Agents window, in `agents.json` in Eludite's config directory (`<user config dir>/eludite/`, or ELUDITE_CONFIG_DIR). They follow the built-in ones (the native Claude Code adapter, then the npx adapter) in the window's agent list. Any ACP agent speaking JSON-RPC on stdio works.",
+  "type": "object",
+  "properties": {
+    "default": {
+      "description": "The name of the agent the window selects at start.",
+      "type": "string",
+      "minLength": 1
+    },
+    "agents": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "description": "The executable (a path, or a name looked up on PATH).",
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "description": "Extra environment variables.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

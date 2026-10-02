@@ -18,10 +18,12 @@ clock.workspace = true
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
 gpui_platform.workspace = true
+eludite-acp.workspace = true
 eludite-commands.workspace = true
 eludite-docking.workspace = true
 eludite-editor.workspace = true
 eludite-lsp.workspace = true
+eludite-mcp.workspace = true
 # Typed request markers for the shell's IntelliSense requests (MIT; already a dependency of eludite-lsp).
 eludite-protocol.workspace = true
 eludite-ui.workspace = true

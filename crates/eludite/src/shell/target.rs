@@ -39,6 +39,8 @@ pub fn stage(outcome: Outcome) {
 pub struct UiJob {
     pub request: WorkspaceRequest,
     pub reply: mpsc::SyncSender<Outcome>,
+    /// Who invoked the command (an agent's edits are held for review, brief 0016).
+    pub caller: eludite_commands::Caller,
 }
 
 pub struct ShellTarget {
@@ -105,6 +107,7 @@ impl WorkspaceTarget for ShellTarget {
                     .unbounded_send(UiJob {
                         request: other,
                         reply,
+                        caller: eludite_commands::current_caller(),
                     })
                     .map_err(|_| CommandError::Failed("the window is closed".into()))?;
                 rx.recv_timeout(UI_TIMEOUT)

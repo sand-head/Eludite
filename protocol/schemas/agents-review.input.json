@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-review.input.json",
+  "title": "eludite.agents.review input",
+  "description": "Accept or reject agent edits held as pending changes, as the review view's Accept, Reject and Accept All buttons do. Accepted changes go through the workspace-edit applier (eludite.workspace.apply_edit's) as one undo step per open document; rejected ones are discarded. Either way the agent's tool call is answered with the outcome. Give exactly one of `change`, `path` and `all`.",
+  "type": "object",
+  "required": [
+    "decision"
+  ],
+  "properties": {
+    "change": {
+      "description": "The pending change's id as the window shows it.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "path": {
+      "description": "Absolute path of a file with a pending change.",
+      "type": "string",
+      "minLength": 1
+    },
+    "all": {
+      "description": "Every pending change (Accept All, Reject All).",
+      "type": "boolean",
+      "const": true
+    },
+    "decision": {
+      "enum": [
+        "accept",
+        "reject"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

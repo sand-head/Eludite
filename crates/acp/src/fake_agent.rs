@@ -7,8 +7,13 @@
 //! honours permission answers and, when `session/new` passes a stdio MCP
 //! server, really launches it and calls `diagnostics-list` through it.
 //!
+//! Brief 0016 adds the scenarios the Agents window is tested with: an edit
+//! through Eludite's `eludite.workspace.apply_edit` tool (with a thought and a
+//! plan first), a write with the agent's own file tool (a permission request
+//! carrying a diff, as Claude's `Write` makes), and an agent that exits mid-turn.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
-//! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`).
+//! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
@@ -23,6 +28,15 @@ use crate::protocol::{AUTH_REQUIRED, McpServer, methods};
 pub const DIAGNOSTICS_TOOL: &str = "mcp__eludite__diagnostics-list";
 pub const SHELL_TOOL: &str = "Bash";
 pub const SHELL_COMMAND: &str = "rm -rf obj/";
+/// The Eludite edit tool, as Claude names it.
+pub const APPLY_EDIT_TOOL: &str = "mcp__eludite__eludite-workspace-apply_edit";
+/// The agent's own file tool.
+pub const WRITE_TOOL: &str = "Write";
+/// The line the edit scenario inserts at the top of each file.
+pub const EDIT_HEADER: &str = "// Edited by the agent\n";
+/// The file the write scenario creates, relative to the session's cwd, and its content.
+pub const WRITE_FILE: &str = "notes.txt";
+pub const WRITE_TEXT: &str = "hello\n";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
@@ -36,6 +50,15 @@ pub enum Scenario {
     /// Logged out: `initialize` lists a terminal login method, `session/prompt`
     /// fails with `-32000`, as the real adapter does.
     LoginRequired,
+    /// A thought and a plan, then `eludite.workspace.apply_edit` through the MCP
+    /// server inserting [`EDIT_HEADER`] at the top of each `--edit` file, then
+    /// the outcome the tool reported.
+    Edit,
+    /// The agent's own `Write` of [`WRITE_FILE`]: a permission request with a
+    /// diff; the agent writes the file itself when allowed.
+    Write,
+    /// One chunk, then the process exits mid-turn.
+    Exit,
 }
 
 impl std::str::FromStr for Scenario {
@@ -46,6 +69,9 @@ impl std::str::FromStr for Scenario {
             "diagnostics-then-shell" => Scenario::DiagnosticsThenShell,
             "stream" => Scenario::Stream,
             "login-required" => Scenario::LoginRequired,
+            "edit" => Scenario::Edit,
+            "write" => Scenario::Write,
+            "exit" => Scenario::Exit,
             other => return Err(format!("unknown scenario {other}")),
         })
     }
@@ -56,6 +82,11 @@ pub struct Options {
     pub scenario: Scenario,
     pub chunks: usize,
     pub rate_hz: f64,
+    /// The files [`Scenario::Edit`] edits, relative to the session's cwd.
+    pub edit_files: Vec<String>,
+    /// Reach a stdio MCP server whose arguments are `--mcp-relay ADDR` by connecting to ADDR directly with the
+    /// token from its environment, instead of launching it (an in-process fake agent in the shell's tests).
+    pub mcp_direct: bool,
 }
 
 impl Default for Options {
@@ -64,6 +95,11 @@ impl Default for Options {
             scenario: Scenario::DiagnosticsThenShell,
             chunks: 1000,
             rate_hz: 200.,
+            edit_files: vec![
+                "src/App/Program.cs".into(),
+                "src/App/Models/Order.cs".into(),
+            ],
+            mcp_direct: false,
         }
     }
 }
@@ -72,6 +108,7 @@ impl Options {
     /// Parse `--scenario`, `--chunks`, `--rate` from an argument list.
     pub fn from_args(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut o = Options::default();
+        let mut edits = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = || it.next().ok_or(format!("{a} needs a value"));
@@ -79,8 +116,12 @@ impl Options {
                 "--scenario" => o.scenario = val()?.parse()?,
                 "--chunks" => o.chunks = val()?.parse().map_err(|e| format!("{e}"))?,
                 "--rate" => o.rate_hz = val()?.parse().map_err(|e| format!("{e}"))?,
+                "--edit" => edits.push(val()?),
                 other => return Err(format!("unknown argument {other}")),
             }
+        }
+        if !edits.is_empty() {
+            o.edit_files = edits;
         }
         Ok(o)
     }
@@ -100,6 +141,7 @@ struct Agent<R, W> {
     out: W,
     opts: Options,
     session: String,
+    cwd: String,
     mcp: Vec<McpServer>,
     /// Messages read while waiting for a specific response.
     backlog: VecDeque<Value>,
@@ -114,6 +156,7 @@ pub fn run(input: impl BufRead, output: impl Write, opts: Options) -> io::Result
         out: output,
         opts,
         session: "fake-session-1".into(),
+        cwd: String::new(),
         mcp: Vec::new(),
         backlog: VecDeque::new(),
         cancelled: false,
@@ -198,6 +241,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
             }
             (methods::SESSION_NEW, Some(id)) => {
                 self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
+                self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
                 let session = self.session.clone();
                 self.reply(&id, json!({"sessionId": session}))?;
                 let status = if self.opts.scenario == Scenario::LoginRequired {
@@ -216,6 +260,12 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                     Scenario::Stream => self.stream()?,
                     Scenario::Diagnostics => self.diagnostics(false)?,
                     Scenario::DiagnosticsThenShell => self.diagnostics(true)?,
+                    Scenario::Edit => self.edit()?,
+                    Scenario::Write => self.write_file()?,
+                    Scenario::Exit => {
+                        self.say("Starting on it")?;
+                        return Err(io::Error::other("the fake agent exits mid-turn"));
+                    }
                 };
                 self.reply(&id, json!({"stopReason": stop}))
             }
@@ -351,6 +401,35 @@ impl<R: BufRead, W: Write> Agent<R, W> {
     /// Call `diagnostics-list` through the first stdio MCP server from
     /// `session/new`, or return a canned result if there is none.
     fn call_mcp_diagnostics(&self, args: &Value) -> Result<(String, Vec<Value>), String> {
+        if !self
+            .mcp
+            .iter()
+            .any(|s| matches!(s, McpServer::Stdio { .. }))
+        {
+            let rows = vec![
+                json!({"path": "Program.cs", "line": 1, "column": 1, "severity": "error", "code": "CS0000", "message": "canned: no MCP server was passed"}),
+            ];
+            let text = json!({"result": rows}).to_string();
+            return Ok((text, rows));
+        }
+        let r = self.call_mcp("diagnostics-list", args, "toolu_fake_diagnostics")?;
+        if r["isError"] == true {
+            return Err(r["content"][0]["text"]
+                .as_str()
+                .unwrap_or("tool error")
+                .to_owned());
+        }
+        let rows = r["structuredContent"]["result"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        Ok((r["structuredContent"].to_string(), rows))
+    }
+
+    /// Call `tool` through the first stdio MCP server from `session/new`, as
+    /// Claude does: `initialize`, then `tools/call` with the tool use id in
+    /// `_meta`. Returns the call's `result`.
+    fn call_mcp(&self, tool: &str, args: &Value, tool_use_id: &str) -> Result<Value, String> {
         let Some(McpServer::Stdio {
             command,
             args: argv,
@@ -361,21 +440,40 @@ impl<R: BufRead, W: Write> Agent<R, W> {
             .iter()
             .find(|s| matches!(s, McpServer::Stdio { .. }))
         else {
-            let rows = vec![
-                json!({"path": "Program.cs", "line": 1, "column": 1, "severity": "error", "code": "CS0000", "message": "canned: no MCP server was passed"}),
-            ];
-            let text = json!({"result": rows}).to_string();
-            return Ok((text, rows));
+            return Err("no MCP server was passed".into());
         };
-        let mut child = Command::new(command)
-            .args(argv)
-            .envs(env.iter().map(|e| (&e.name, &e.value)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("spawn {command}: {e}"))?;
-        let mut stdin = child.stdin.take().expect("piped");
-        let mut stdout = BufReader::new(child.stdout.take().expect("piped"));
+        let (mut stdin, mut stdout, mut child): (
+            Box<dyn Write>,
+            Box<dyn BufRead>,
+            Option<std::process::Child>,
+        ) = if self.opts.mcp_direct {
+            let addr = argv
+                .iter()
+                .skip_while(|a| *a != "--mcp-relay")
+                .nth(1)
+                .ok_or("no --mcp-relay address")?;
+            let token = env
+                .iter()
+                .find(|e| e.name == "ELUDITE_MCP_TOKEN")
+                .map(|e| e.value.clone())
+                .ok_or("no token")?;
+            let mut sock = std::net::TcpStream::connect(addr.as_str())
+                .map_err(|e| format!("connect {addr}: {e}"))?;
+            writeln!(sock, "{token}").map_err(|e| e.to_string())?;
+            let read = sock.try_clone().map_err(|e| e.to_string())?;
+            (Box::new(sock), Box::new(BufReader::new(read)), None)
+        } else {
+            let mut child = Command::new(command)
+                .args(argv)
+                .envs(env.iter().map(|e| (&e.name, &e.value)))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("spawn {command}: {e}"))?;
+            let stdin = child.stdin.take().expect("piped");
+            let stdout = BufReader::new(child.stdout.take().expect("piped"));
+            (Box::new(stdin), Box::new(stdout), Some(child))
+        };
         let mut send = |v: Value| {
             writeln!(stdin, "{v}")
                 .and_then(|()| stdin.flush())
@@ -386,7 +484,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
         )?;
         send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         send(
-            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "diagnostics-list", "arguments": args}}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": args, "_meta": {"claudecode/toolUseId": tool_use_id}}}),
         )?;
         let mut result = None;
         let mut line = String::new();
@@ -400,24 +498,146 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 result = Some(v);
             }
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        if let Some(c) = child.as_mut() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
         let v = result.ok_or("MCP server closed before answering")?;
         if let Some(e) = v.get("error") {
             return Err(e.to_string());
         }
-        let r = &v["result"];
-        if r["isError"] == true {
-            return Err(r["content"][0]["text"]
-                .as_str()
-                .unwrap_or("tool error")
-                .to_owned());
+        Ok(v["result"].clone())
+    }
+
+    fn mcp_tool_call(id: &str, tool: &str, args: &Value) -> Value {
+        let mut call = Self::tool_call(id, tool, tool, "other", args.clone());
+        call.as_object_mut()
+            .expect("object")
+            .remove("sessionUpdate");
+        call["_meta"]["claudeCode"]["mcpServer"] = json!({"name": "eludite", "source": "dynamic"});
+        call
+    }
+
+    fn rejected(&mut self, tc: &str) -> io::Result<()> {
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "failed", "content": [{"type": "content", "content": {"type": "text", "text": "The user doesn't want to proceed with this tool use. The tool use was rejected."}}]}))
+    }
+
+    /// [`Scenario::Edit`].
+    fn edit(&mut self) -> io::Result<&'static str> {
+        self.update(json!({"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "The user wants a header comment in each file. One workspace edit covers both."}}))?;
+        let entries: Vec<Value> = self
+            .opts
+            .edit_files
+            .iter()
+            .enumerate()
+            .map(|(i, f)| json!({"content": format!("Add the header to {f}"), "priority": "medium", "status": if i == 0 { "in_progress" } else { "pending" }}))
+            .collect();
+        self.update(json!({"sessionUpdate": "plan", "entries": entries}))?;
+        self.say("I'll add a header comment to each file with one workspace edit.")?;
+        let tc = "toolu_fake_edit";
+        let mut changes = serde_json::Map::new();
+        for rel in &self.opts.edit_files {
+            let path = std::path::Path::new(&self.cwd).join(rel);
+            changes.insert(
+                file_uri(&path),
+                json!([{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": EDIT_HEADER}]),
+            );
         }
-        let rows = r["structuredContent"]["result"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        Ok((r["structuredContent"].to_string(), rows))
+        let args = json!({"edit": {"changes": changes}, "label": "Agent: add header comments"});
+        let call = Self::tool_call(tc, APPLY_EDIT_TOOL, APPLY_EDIT_TOOL, "other", json!({}));
+        self.update(call)?;
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "rawInput": args, "_meta": {"claudeCode": {"toolName": APPLY_EDIT_TOOL}}}))?;
+        if !self.ask(Self::mcp_tool_call(tc, APPLY_EDIT_TOOL, &args))? {
+            self.rejected(tc)?;
+            return Ok(if self.cancelled {
+                "cancelled"
+            } else {
+                "end_turn"
+            });
+        }
+        self.update(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "in_progress"}),
+        )?;
+        match self.call_mcp("eludite-workspace-apply_edit", &args, tc) {
+            Ok(r) => {
+                let text = r["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                let failed = r["isError"] == true;
+                self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": if failed { "failed" } else { "completed" }, "rawOutput": text, "content": [{"type": "content", "content": {"type": "text", "text": text}}]}))?;
+                let out = &r["structuredContent"];
+                let reply = if failed {
+                    format!("The edit failed: {text}")
+                } else {
+                    format!(
+                        "The edit ended `{}`: {} edits in {} files.{}",
+                        out["state"].as_str().unwrap_or("?"),
+                        out["edits"],
+                        out["files"],
+                        out["message"]
+                            .as_str()
+                            .map(|m| format!(" {m}"))
+                            .unwrap_or_default()
+                    )
+                };
+                self.say(&reply)?;
+            }
+            Err(e) => {
+                self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "failed", "content": [{"type": "content", "content": {"type": "text", "text": format!("MCP call failed: {e}")}}]}))?;
+                self.say(&format!("The edit tool failed: {e}"))?;
+            }
+        }
+        Ok(if self.cancelled {
+            "cancelled"
+        } else {
+            "end_turn"
+        })
+    }
+
+    /// [`Scenario::Write`].
+    fn write_file(&mut self) -> io::Result<&'static str> {
+        self.say("I'll create the notes file.")?;
+        let tc = "toolu_fake_write";
+        let path = std::path::Path::new(&self.cwd).join(WRITE_FILE);
+        let path_text = path.to_string_lossy().into_owned();
+        let input = json!({"file_path": path_text, "content": WRITE_TEXT});
+        let mut call = Self::tool_call(
+            tc,
+            WRITE_TOOL,
+            &format!("Write {WRITE_FILE}"),
+            "edit",
+            input,
+        );
+        call["content"] =
+            json!([{"type": "diff", "path": path_text, "oldText": null, "newText": WRITE_TEXT}]);
+        call["locations"] = json!([{"path": path_text}]);
+        self.update(call.clone())?;
+        call.as_object_mut()
+            .expect("object")
+            .remove("sessionUpdate");
+        if self.ask(call)? {
+            std::fs::write(&path, WRITE_TEXT)?;
+            self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "completed", "content": [{"type": "diff", "path": path_text, "oldText": null, "newText": WRITE_TEXT}]}))?;
+            self.say("Created notes.txt.")?;
+        } else {
+            self.rejected(tc)?;
+            if self.cancelled {
+                return Ok("cancelled");
+            }
+            self.say("The write to notes.txt was declined, so the file was not created.")?;
+        }
+        Ok("end_turn")
+    }
+}
+
+/// A `file://` URI for an absolute path.
+fn file_uri(path: &std::path::Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else {
+        format!("file:///{p}")
     }
 }
 

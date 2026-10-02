@@ -112,7 +112,23 @@ pub fn run(args: Args, t_main: Instant) {
         view::register(&mut commands, Arc::new(controller.clone()))
             .expect("view commands register once");
         // The host starts on the first solution open, never at startup.
-        let services = crate::shell::register_workspace(&mut commands, HostLaunch::locate());
+        let mut services = crate::shell::register_workspace(&mut commands, HostLaunch::locate());
+        services.agents.preferred = args.agent.clone();
+        services.agents.transcript_out = args.transcript_out.clone();
+        if let Some(fake) = &args.bench_agent_stream {
+            services.agents.registry = Some(vec![eludite_acp::RegisteredAgent {
+                descriptor: eludite_acp::AgentDescriptor {
+                    name: "Fake streamer".into(),
+                    command: fake.to_string_lossy().into_owned(),
+                    args: ["--scenario", "stream", "--chunks", "2000", "--rate", "200"]
+                        .map(str::to_owned)
+                        .to_vec(),
+                    env: Vec::new(),
+                    env_remove: Vec::new(),
+                },
+                source: eludite_acp::AgentSource::Settings,
+            }]);
+        }
         let session = services.session.clone();
         let commands = Arc::new(commands);
         let persistence = store.map(|s| Persistence {
@@ -206,6 +222,15 @@ pub fn run(args: Args, t_main: Instant) {
         }
         if let Some(frames) = args.bench_drag {
             bench::drag(&shell, window.into(), frames, cx);
+        }
+        if let Some(n) = args.bench_agent_ready {
+            bench::agent_ready(&shell, n, t_main, cx);
+        }
+        if args.bench_agent_stream.is_some() {
+            bench::agent_stream(&shell, cx);
+        }
+        if let Some(n) = args.bench_diff {
+            bench::diff(&shell, n, cx);
         }
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);

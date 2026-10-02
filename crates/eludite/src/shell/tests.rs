@@ -49,6 +49,15 @@ pub(super) fn setup(cx: &mut TestAppContext) -> Ws {
 
 /// As [`setup`], scripting the fake host before the shell starts it.
 pub(super) fn setup_with(cx: &mut TestAppContext, script: impl FnOnce(&FakeHost)) -> Ws {
+    setup_full(cx, script, None)
+}
+
+/// As [`setup_with`], with the Agents window's agents (none by default: tests never search the machine for agents).
+pub(super) fn setup_full(
+    cx: &mut TestAppContext,
+    script: impl FnOnce(&FakeHost),
+    agents: Option<super::agents::AgentsSetup>,
+) -> Ws {
     cx.executor().allow_parking();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -90,6 +99,12 @@ pub(super) fn setup_with(cx: &mut TestAppContext, script: impl FnOnce(&FakeHost)
         &mut commands,
         HostLaunch::InProcess(fake.connector()),
     ));
+    if let Some(s) = services.as_mut() {
+        s.agents = agents.unwrap_or_else(|| super::agents::AgentsSetup {
+            registry: Some(Vec::new()),
+            ..super::agents::AgentsSetup::from_env()
+        });
+    }
     let commands = Arc::new(commands);
     let window = cx.update(|cx| {
         bind_keymap(cx, &vs_keymap());

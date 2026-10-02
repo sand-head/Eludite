@@ -317,6 +317,7 @@ fn stream_arrives_complete_and_in_order() {
             scenario: Scenario::Stream,
             chunks: 300,
             rate_hz: 2000.,
+            ..Options::default()
         },
         Arc::new(|_| None),
     );
