@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-reset-layout.output.json",
+  "title": "niello.view.reset_layout output",
+  "description": "Every registered tool window and where it is after the reset.",
+  "type": "object",
+  "required": [
+    "tool_windows"
+  ],
+  "properties": {
+    "tool_windows": {
+      "type": "array",
+      "items": {
+        "$ref": "view-tool-window.output.json"
+      }
+    }
+  },
+  "additionalProperties": false
+}
