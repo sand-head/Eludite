@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-open-containing-folder.input.json",
+  "title": "eludite.workspace.open_containing_folder input",
+  "description": "Open Containing Folder (the Workspace window's context menu): show the folder of a project or file in the system's file manager (xdg-open on Linux, Explorer on Windows, Finder on macOS).",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Absolute path of the project file, file or folder.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

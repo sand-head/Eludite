@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/tools-options.output.json",
+  "title": "eludite.tools.options output",
+  "type": "object",
+  "required": [
+    "section"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "section": {
+      "description": "The page shown.",
+      "type": "string"
+    }
+  }
+}

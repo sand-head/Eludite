@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings-get.output.json",
+  "title": "eludite.settings.get output",
+  "description": "The settings files and the settings, in the order of the settings schema.",
+  "type": "object",
+  "required": [
+    "user_file",
+    "settings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "user_file": {
+      "description": "The user settings file: where it is, whether it exists, and why it could not be read (it is then ignored).",
+      "$ref": "#/$defs/file"
+    },
+    "solution_file": {
+      "description": "The open solution's (or folder's) `.eludite/settings.json`; omitted when nothing is open.",
+      "$ref": "#/$defs/file"
+    },
+    "settings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "value",
+          "default",
+          "source",
+          "section",
+          "label",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "description": "The effective value."
+          },
+          "default": {},
+          "source": {
+            "description": "Where the value came from: the schema's default, the user file, the solution file, or an environment variable.",
+            "enum": [
+              "default",
+              "user",
+              "solution",
+              "environment"
+            ]
+          },
+          "env": {
+            "description": "The environment variable that overrides it, when it has one.",
+            "type": "string"
+          },
+          "section": {
+            "description": "The Options dialog page.",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unknown_keys": {
+      "description": "Keys found in a settings file that the schema does not know; they are ignored.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "file": {
+      "type": "object",
+      "required": [
+        "path",
+        "exists"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

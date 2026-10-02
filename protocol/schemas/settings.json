@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings.json",
+  "title": "Eludite settings file",
+  "description": "Eludite's settings (PLAN.md 4.12), one JSON object of dotted keys. Two files are merged, user then solution, so a key in the solution's file wins: the user file `settings.json` in Eludite's config directory (`$XDG_CONFIG_HOME/eludite/settings.json`, default `~/.config/eludite/settings.json`, on Linux; `%APPDATA%\\eludite\\settings.json` on Windows; `~/Library/Application Support/eludite/settings.json` on macOS; `ELUDITE_CONFIG_DIR` replaces the `eludite` folder), and `.eludite/settings.json` beside the open solution (or in the open folder), which a team may commit. A key missing from both has the default given here. An environment variable named by `x-eludite-env` overrides both files while it is set. Eludite watches both files and applies a change without a restart; it writes them only for eludite.settings.set (and the Options dialog, which runs it). Every property has a default, a description, a section of the Options dialog (`x-eludite-section`, in VS's Tools > Options tree), a label (`x-eludite-label`) and, for strings, how the dialog edits it (`x-eludite-editor`: text or path; `enum` gives a choice). Unknown keys are ignored and reported.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-eludite-sections": [
+    "Environment > Keyboard",
+    "Projects and Solutions > Build and Run",
+    "Debugging > General",
+    "Text Editor > Rust",
+    "Agents"
+  ],
+  "properties": {
+    "keyboard.preset": {
+      "description": "The keyboard mapping scheme. Only Visual Studio's exists (PLAN.md 8); the Rider and VS Code presets come with the keymap editor.",
+      "enum": [
+        "visualStudio"
+      ],
+      "default": "visualStudio",
+      "x-eludite-section": "Environment > Keyboard",
+      "x-eludite-label": "Apply the following additional keyboard mapping scheme",
+      "x-eludite-enum-labels": [
+        "Visual Studio"
+      ]
+    },
+    "build.beforeRun": {
+      "description": "F5 (Start Debugging) and Ctrl+F5 (Start Without Debugging) build the startup project first and launch only when the build succeeds (Visual Studio's \"On Run, when projects are out of date: Always build\"). MSBuild's incremental build makes an up-to-date project cost a check, not a compile. false: launch the last build as it is.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "On Run, build the startup project first"
+    },
+    "build.onSave": {
+      "description": "Build the saved file's project (or the solution, for a file in no project) after each save.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "Build the project after saving one of its files",
+      "x-eludite-env": "ELUDITE_BUILD_ON_SAVE"
+    },
+    "build.showOutputOnStart": {
+      "description": "Bring the Output window forward, showing the Build source, when a build starts.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "Show Output window when build starts"
+    },
+    "build.showErrorListOnFailure": {
+      "description": "Bring the Error List forward when a build finishes with errors.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "Always show Error List if build finishes with errors"
+    },
+    "build.cargoPath": {
+      "description": "The cargo executable that builds Cargo workspaces. Empty: `cargo` on PATH.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Projects and Solutions > Build and Run",
+      "x-eludite-label": "cargo executable",
+      "x-eludite-env": "ELUDITE_CARGO"
+    },
+    "debugger.netcoredbgPath": {
+      "description": "The netcoredbg executable that debugs .NET programs. Empty: beside the eludite executable, then PATH (tools/netcoredbg/fetch.sh prints one).",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "netcoredbg executable",
+      "x-eludite-env": "ELUDITE_NETCOREDBG"
+    },
+    "languageServers.rustAnalyzerPath": {
+      "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Text Editor > Rust",
+      "x-eludite-label": "rust-analyzer executable",
+      "x-eludite-env": "ELUDITE_RUST_ANALYZER"
+    },
+    "agents.default": {
+      "description": "The name of the agent the Agents window selects at start. Empty: the first one (the native Claude Code adapter when found).",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Agents",
+      "x-eludite-label": "Default agent"
+    },
+    "agents.claudeCodeAdapterPath": {
+      "description": "The native Claude Code ACP adapter (`eludite-claude-acp`). Empty: beside the eludite executable, then PATH; the npx adapter is the fallback.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Agents",
+      "x-eludite-label": "Claude Code adapter executable",
+      "x-eludite-env": "ELUDITE_CLAUDE_ACP"
+    },
+    "agents.custom": {
+      "description": "ACP agents added to the Agents window after the built-in ones; one with a built-in's name replaces it. Any ACP agent speaking JSON-RPC on stdio works. Edited in the file (the Options dialog shows the count). When neither settings file has this key, the older `agents.json` in the config directory is read instead.",
+      "type": "array",
+      "default": [],
+      "maxItems": 100,
+      "x-eludite-section": "Agents",
+      "x-eludite-label": "Additional agents",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "description": "The executable (a path, or a name looked up on PATH).",
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "description": "Extra environment variables.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

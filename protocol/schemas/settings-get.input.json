@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings-get.input.json",
+  "title": "eludite.settings.get input",
+  "description": "Read Eludite's settings (the keys of protocol/schemas/settings.json): each one's effective value and where it came from, after merging the user file, then the solution's `.eludite/settings.json`, then the environment variables that override them.",
+  "type": "object",
+  "properties": {
+    "key": {
+      "description": "One setting, for example build.onSave. Omitted: every setting.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

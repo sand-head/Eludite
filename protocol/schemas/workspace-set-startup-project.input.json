@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-set-startup-project.input.json",
+  "title": "eludite.workspace.set_startup_project input",
+  "description": "Set as Startup Project (the Workspace window's context menu on a project): the project F5 and Ctrl+F5 build and run. It is kept per solution and per user (Visual Studio keeps it in the .suo), beside the solution's breakpoints under the config directory, and Workspace shows it in bold. Without one, the startup project is the solution's first executable project.",
+  "type": "object",
+  "required": [
+    "project"
+  ],
+  "properties": {
+    "project": {
+      "description": "The project: its name as Workspace shows it, or the path of its project file (absolute, or relative to the solution folder).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
