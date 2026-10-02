@@ -11,8 +11,11 @@ $repo = Resolve-Path (Join-Path $here "..\..")
 $src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $env:USERPROFILE ".cache\eludite\roslyn" }
 $lsDll = if ($env:ELUDITE_ROSLYN_LS) { $env:ELUDITE_ROSLYN_LS } else { Join-Path $src "artifacts\bin\Microsoft.CodeAnalysis.LanguageServer\Release\net10.0\Microsoft.CodeAnalysis.LanguageServer.dll" }
 
-# corpus/legacy/fetch.sh needs bash (Git for Windows ships one).
-& bash (Join-Path $repo "corpus/legacy/fetch.sh")
+# corpus/legacy/fetch.sh needs bash: Git for Windows' own, found beside git.exe, since the `bash` on PATH is usually
+# System32's WSL launcher, which cannot take a Windows path.
+$gitBash = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) "bin\bash.exe"
+if (-not (Test-Path $gitBash)) { throw "Git for Windows' bash not found at $gitBash" }
+& $gitBash (Join-Path $repo "corpus/legacy/fetch.sh").Replace('\', '/')
 if ($LASTEXITCODE -ne 0) { throw "fetch failed" }
 
 $refdl = Join-Path $here "runner\obj\refdl"
