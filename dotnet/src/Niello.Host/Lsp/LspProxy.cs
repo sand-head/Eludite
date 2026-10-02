@@ -91,11 +91,17 @@ public sealed class LspProxy : IAsyncDisposable
     private JsonRpc? _shell;
     private Task<JsonRpc>? _upstream;
     private LanguageServerConnection? _connection;
+    private readonly Func<string?, CancellationToken, Task>? _beforeLaunch;
 
-    public LspProxy(ILanguageServerLauncher launcher, TextWriter log)
+    /// <param name="beforeLaunch">
+    /// Runs before the server process starts, with the solution path (brief 0003: legacy design-time preparation).
+    /// Its failure is logged and does not stop the server.
+    /// </param>
+    public LspProxy(ILanguageServerLauncher launcher, TextWriter log, Func<string?, CancellationToken, Task>? beforeLaunch = null)
     {
         _launcher = launcher;
         _log = log;
+        _beforeLaunch = beforeLaunch;
     }
 
     /// <summary>Number of completed solution loads. 0 until the first load finishes.</summary>
@@ -159,6 +165,18 @@ public sealed class LspProxy : IAsyncDisposable
     {
         // Run off the caller's thread: the shell's initialize must not wait for the child process.
         await Task.Yield();
+        if (_beforeLaunch is not null)
+        {
+            try
+            {
+                await _beforeLaunch(solutionPath, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                await _log.WriteLineAsync($"pre-launch preparation failed (continuing): {ex.Message}").ConfigureAwait(false);
+            }
+        }
+
         _connection = await _launcher.LaunchAsync(CancellationToken.None).ConfigureAwait(false);
         var upstream = HostServer.CreateConnection(_connection.ToServer, _connection.FromServer);
         // NIELLO_LSP_TRACE=1 traces every upstream message to the host log; =warn only warnings. Off by default
@@ -188,7 +206,14 @@ public sealed class LspProxy : IAsyncDisposable
             }).ConfigureAwait(false);
         await upstream.NotifyWithParameterObjectAsync("initialized", new { }).ConfigureAwait(false);
 
-        if (solutionPath is not null)
+        if (solutionPath is not null && solutionPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+        {
+            // Roslyn extension: open individual projects when there is no solution file (brief 0003 corpus).
+            await upstream.NotifyWithParameterObjectAsync(
+                "project/open",
+                new { projects = new[] { new Uri(Path.GetFullPath(solutionPath)).AbsoluteUri } }).ConfigureAwait(false);
+        }
+        else if (solutionPath is not null)
         {
             // Roslyn extension: open a solution explicitly (used by the VS Code C# extension and roslyn.nvim).
             await upstream.NotifyWithParameterObjectAsync(

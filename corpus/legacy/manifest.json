@@ -1,0 +1,77 @@
+{
+  "description": "Brief 0003 legacy-project corpus. Third-party sources are cloned by fetch.sh into .checkout/ (gitignored) at the pinned commits below; nothing here is vendored.",
+  "repos": [
+    {
+      "id": "aspnet-samples",
+      "url": "https://github.com/aspnet/samples.git",
+      "commit": "f7d4a776327df09c13b39489b122209c5d04693b",
+      "spdx": "Apache-2.0",
+      "licenseFile": "LICENSE.txt",
+      "sparse": ["samples/aspnet/Identity/ChangePK", "samples/aspnet/Identity/SQLMembership-Identity-OWIN"]
+    },
+    {
+      "id": "dotnet-samples",
+      "url": "https://github.com/dotnet/samples.git",
+      "commit": "acb39ceb13f910ae0f8f6298059c59102b749c41",
+      "spdx": "MIT",
+      "licenseFile": "LICENSE-CODE",
+      "sparse": ["framework/wcf/Basic/Services/ConfigSimplificationIn40"]
+    },
+    {
+      "id": "sharex",
+      "url": "https://github.com/ShareX/ShareX.git",
+      "commit": "fcf846cdbf673a538324230fbfe3ae404d5a23ff",
+      "spdx": "GPL-3.0-or-later",
+      "licenseFile": "LICENSE.txt",
+      "note": "Last commit before 'Convert project to SDK style' (5ae739d5): 11 legacy csproj with PackageReference, net48."
+    },
+    {
+      "id": "umbraco7",
+      "url": "https://github.com/umbraco/Umbraco-CMS.git",
+      "commit": "da6bc2bdea4cad93cd7b07253a87093dd037bb3d",
+      "spdx": "MIT",
+      "licenseFile": "LICENSE.md",
+      "note": "Tag release-7.15.9: legacy WebForms-era CMS, packages.config, net472."
+    }
+  ],
+  "entries": [
+    {
+      "id": "webforms-changepk",
+      "repo": "aspnet-samples",
+      "path": "samples/aspnet/Identity/ChangePK/PrimaryKeysConfigTest/PrimaryKeysConfigTest.csproj",
+      "solution": "samples/aspnet/Identity/ChangePK/PrimaryKeysConfigTest.sln",
+      "covers": ["webforms", "designer.cs", "packages.config"]
+    },
+    {
+      "id": "webforms-sqlmembership",
+      "repo": "aspnet-samples",
+      "path": "samples/aspnet/Identity/SQLMembership-Identity-OWIN/SQLMembership-Identity-OWIN/SQLMembership-Identity-OWIN.csproj",
+      "solution": "samples/aspnet/Identity/SQLMembership-Identity-OWIN/SQLMembership-Identity-OWIN.sln",
+      "covers": ["webforms", "designer.cs", "packages.config"]
+    },
+    {
+      "id": "wcf-webhosted",
+      "repo": "dotnet-samples",
+      "path": "framework/wcf/Basic/Services/ConfigSimplificationIn40/Web-Hosted/CS/Service/service.csproj",
+      "covers": ["wcf", "svc"]
+    },
+    {
+      "id": "sharex",
+      "repo": "sharex",
+      "path": "ShareX.sln",
+      "covers": ["multi-project", "PackageReference-non-sdk", "winforms", "resx"]
+    },
+    {
+      "id": "umbraco7",
+      "repo": "umbraco7",
+      "path": "src/umbraco.sln",
+      "covers": ["multi-project", "webforms", "packages.config"]
+    }
+  ],
+  "webformsProbe": {
+    "entry": "webforms-changepk",
+    "codeBehind": "samples/aspnet/Identity/ChangePK/PrimaryKeysConfigTest/Account/Login.aspx.cs",
+    "markup": "samples/aspnet/Identity/ChangePK/PrimaryKeysConfigTest/Account/Login.aspx",
+    "note": "Filled in after inspecting the checkout; see tools/legacy-load/README.md."
+  }
+}

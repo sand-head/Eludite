@@ -6,5 +6,12 @@
     <PackageVersion Include="StreamJsonRpc" Version="2.25.29" />
     <PackageVersion Include="Nerdbank.Streams" Version="2.14.354" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <!-- Brief 0003: design-time evaluation of legacy projects (MIT). Compile-time only; the MSBuild assemblies
+         are loaded at run time from the located .NET SDK by Microsoft.Build.Locator. -->
+    <PackageVersion Include="Microsoft.Build" Version="17.11.48" />
+    <PackageVersion Include="Microsoft.Build.Framework" Version="17.11.48" />
+    <PackageVersion Include="Microsoft.Build.Locator" Version="1.10.2" />
+    <!-- Brief 0003: tools/legacy-load runner compiles the evaluator's output directly (MIT). -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
   </ItemGroup>
 </Project>

@@ -55,7 +55,29 @@ loading was tried and rejected; see `docs/briefs/0002-report.md`.
 None of this is in `protocol/schemas/host-rpc.md` yet; the gaps are listed in the brief 0002
 report.
 
+## Legacy projects (brief 0003 spike)
+
+`Legacy/` evaluates non-SDK `.csproj` files at design time (evaluation plus `ResolveReferences`, never a compile;
+see `docs/briefs/0003-report.md`):
+
+- `MonoInstallation` locates Mono's MSBuild (`NIELLO_MONO_PREFIX`, `mono` on `PATH`, `~/.local/opt/mono-root/usr`,
+  `/usr`, ...); `BuildToolsInstallation` locates Build Tools' `MSBuild.exe` with `vswhere` (Windows, untested).
+- `CommandLineMsBuildEvaluator` runs a located MSBuild with an injected dump target; `InProcessMsBuildEvaluator`
+  uses the .NET SDK's MSBuild in-process through `Microsoft.Build.Locator`, ignoring Visual Studio-only imports.
+- `ReferenceAssemblies` supplies `TargetFrameworkRootPath` from the `Microsoft.NETFramework.ReferenceAssemblies.net4*`
+  packages in the NuGet cache.
+- `LegacyDesignTime` runs before the Roslyn server starts: it puts Mono on the server's `PATH` (Roslyn then loads
+  non-SDK projects with its Mono build host), sets `TargetFrameworkRootPath`, generates WebForms designer partials
+  (`WebFormsDesignerService`, Niello.Web) and injects them through `CustomAfterMicrosoftCommonTargets`. By default a
+  checked-in `.designer.cs` is kept and the partial adds only the fields it lacks (checked-in designers can be stale).
+  The same targets file fixes Compile items whose letter case differs from the disk and drops `COMReference` items
+  off Windows.
+- Switches: `NIELLO_LEGACY=0` (all off), `NIELLO_LEGACY_MONO=0` (hide Mono), `NIELLO_LEGACY_DESIGNERS=0`
+  (no designer partials), `NIELLO_CACHE_DIR` (default `~/.cache/niello`).
+- A bare `.csproj` as `solutionPath` is opened with Roslyn's `project/open`.
+
+No `niello/*` method exposes evaluation results yet; the gaps are listed in the brief 0003 report.
+
 ## Planned (not yet added)
 
-- **MSBuild evaluation** will locate the user's SDK or Build Tools through
-  `Microsoft.Build.Locator` (PLAN.md D4).
+- **MSBuild evaluation for SDK-style projects** through `Microsoft.Build.Locator` (PLAN.md D4).

@@ -12,12 +12,18 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
     private readonly string _serverDllPath;
     private readonly TextWriter _log;
     private readonly string _logDirectory;
+    private readonly IReadOnlyDictionary<string, string>? _environment;
 
-    public RoslynProcessLauncher(string serverDllPath, TextWriter log, string? logDirectory = null)
+    /// <param name="environment">
+    /// Extra environment for the server process (brief 0003: Mono on PATH, reference-assembly root, designer injection).
+    /// MSBuild in Roslyn's build hosts reads these as properties.
+    /// </param>
+    public RoslynProcessLauncher(string serverDllPath, TextWriter log, string? logDirectory = null, IReadOnlyDictionary<string, string>? environment = null)
     {
         _serverDllPath = serverDllPath;
         _log = log;
         _logDirectory = logDirectory ?? Path.Combine(Path.GetTempPath(), "niello-host", "roslyn-logs");
+        _environment = environment;
     }
 
     /// <summary>
@@ -61,6 +67,18 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        // Variables Microsoft.Build.Locator sets in this process (or a parent) would point the server's build hosts
+        // at the wrong MSBuild; the build hosts locate their own.
+        foreach (var name in Legacy.DesignTimeProperties.LocatorVariables)
+        {
+            psi.Environment.Remove(name);
+        }
+
+        foreach (var (key, value) in _environment ?? new Dictionary<string, string>())
+        {
+            psi.Environment[key] = value;
+        }
+
         psi.ArgumentList.Add(_serverDllPath);
         psi.ArgumentList.Add("--stdio");
         psi.ArgumentList.Add("--logLevel");
