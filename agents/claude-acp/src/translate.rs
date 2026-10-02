@@ -12,7 +12,14 @@
 //!   emitted only when that message streamed none (synthetic messages).
 //! - `user` `tool_result` -> `tool_call_update` completed or failed, with the
 //!   result text and `rawOutput`.
-//! - `result` ends the turn.
+//! - `result` ends the turn, after a `usage_update` (brief 0034) with the
+//!   turn's token counts: ACP's `used` (the tokens in context at the turn's
+//!   last model call), `size` (the model's context window from `modelUsage`, 0
+//!   when absent) and `cost` (`total_cost_usd`, the session's running total in
+//!   USD), and in `_meta.claudeCode.usage` the turn's `usage` under the names of
+//!   ACP's `Usage`: `inputTokens` (uncached), `cachedReadTokens`,
+//!   `cachedWriteTokens`, `outputTokens`, `thoughtTokens` when given and
+//!   `totalTokens` (their sum), plus `model`.
 //!
 //! Only top-level messages (`parent_tool_use_id: null`) produce text; tool
 //! calls from subagents are shown too.
@@ -21,10 +28,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use agent_client_protocol::schema::v1::{
-    ContentBlock, ContentChunk, SessionUpdate, StopReason, ToolCall, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    ContentBlock, ContentChunk, Cost, Meta, SessionUpdate, StopReason, ToolCall, ToolCallStatus,
+    ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::mapping::{tool_info, tool_meta, tool_result_fields};
 
@@ -48,6 +55,10 @@ pub struct Translator {
     streamed: HashSet<String>,
     current_message: Option<String>,
     auth_failed: bool,
+    /// The tokens in context at the turn's last top-level model call
+    /// (uncached input, cache reads and cache writes), and its model.
+    context: Option<u64>,
+    model: Option<String>,
 }
 
 fn is_top_level(msg: &Value) -> bool {
@@ -62,6 +73,8 @@ impl Translator {
             streamed: HashSet::new(),
             current_message: None,
             auth_failed: false,
+            context: None,
+            model: None,
         }
     }
 
@@ -70,6 +83,7 @@ impl Translator {
         self.streamed.clear();
         self.current_message = None;
         self.auth_failed = false;
+        self.context = None;
     }
 
     /// The name of a tool use seen in this session.
@@ -89,7 +103,14 @@ impl Translator {
             "stream_event" => self.on_stream_event(msg, out),
             "assistant" => self.on_assistant(msg, out),
             "user" => self.on_user(msg, out),
-            "result" => return Some(self.on_result(msg, cancelled)),
+            "result" => {
+                if !self.auth_failed
+                    && let Some(u) = self.usage(msg)
+                {
+                    out.push(SessionUpdate::UsageUpdate(u));
+                }
+                return Some(self.on_result(msg, cancelled));
+            }
             // system (init, status, thinking_tokens, ...), rate_limit_event and
             // anything newer: nothing for the client.
             _ => {}
@@ -108,6 +129,7 @@ impl Translator {
                     .pointer("/message/id")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                self.note_context(&event["message"]);
             }
             Some("content_block_start") => {
                 let block = &event["content_block"];
@@ -164,6 +186,9 @@ impl Translator {
             return;
         }
         let top = is_top_level(msg);
+        if top && let Some(m) = msg.get("message") {
+            self.note_context(m);
+        }
         let message_id = msg.pointer("/message/id").and_then(Value::as_str);
         let streamed = message_id.is_some_and(|id| self.streamed.contains(id));
         let Some(blocks) = msg.pointer("/message/content").and_then(Value::as_array) else {
@@ -239,6 +264,79 @@ impl Translator {
             }
             out.push(SessionUpdate::ToolCallUpdate(update));
         }
+    }
+
+    /// A top-level model call's message: its context size (from `usage`) and
+    /// its model.
+    fn note_context(&mut self, message: &Value) {
+        if let Some(u) = message.get("usage").filter(|u| u.is_object()) {
+            let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+            self.context = Some(
+                n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"),
+            );
+        }
+        if let Some(m) = message.get("model").and_then(Value::as_str) {
+            self.model = Some(m.to_owned());
+        }
+    }
+
+    /// The turn's `usage_update` from a `result` message: `None` when it has
+    /// no `usage`.
+    pub fn usage(&self, msg: &Value) -> Option<UsageUpdate> {
+        let u = msg.get("usage").filter(|u| u.is_object())?;
+        let n = |k: &str| u.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let (input, read, write, output) = (
+            n("input_tokens"),
+            n("cache_read_input_tokens"),
+            n("cache_creation_input_tokens"),
+            n("output_tokens"),
+        );
+        let thought = u
+            .pointer("/output_tokens_details/thinking_tokens")
+            .and_then(Value::as_u64);
+        // `modelUsage` is per model and for the whole session: the context
+        // window of the turn's model, else the largest one listed.
+        let models = msg.get("modelUsage").and_then(Value::as_object);
+        let window = |m: &Value| m.get("contextWindow").and_then(Value::as_u64);
+        let size = models
+            .and_then(|all| {
+                self.model
+                    .as_deref()
+                    .and_then(|name| all.get(name))
+                    .and_then(window)
+                    .or_else(|| all.values().filter_map(window).max())
+            })
+            .unwrap_or(0);
+        let model = self.model.clone().or_else(|| {
+            models
+                .filter(|all| all.len() == 1)
+                .and_then(|all| all.keys().next().cloned())
+        });
+        let mut tokens = Map::new();
+        tokens.insert("inputTokens".into(), json!(input));
+        tokens.insert("cachedReadTokens".into(), json!(read));
+        tokens.insert("cachedWriteTokens".into(), json!(write));
+        tokens.insert("outputTokens".into(), json!(output));
+        if let Some(t) = thought {
+            tokens.insert("thoughtTokens".into(), json!(t));
+        }
+        tokens.insert("totalTokens".into(), json!(input + read + write + output));
+        if let Some(m) = model {
+            tokens.insert("model".into(), json!(m));
+        }
+        let mut cc = Map::new();
+        cc.insert("usage".into(), Value::Object(tokens));
+        let mut meta = Meta::new();
+        meta.insert("claudeCode".into(), Value::Object(cc));
+        let cost = msg
+            .get("total_cost_usd")
+            .and_then(Value::as_f64)
+            .map(|amount| Cost::new(amount, "USD"));
+        Some(
+            UsageUpdate::new(self.context.unwrap_or(0), size)
+                .cost(cost)
+                .meta(meta),
+        )
     }
 
     fn on_result(&mut self, msg: &Value, cancelled: bool) -> TurnEnd {

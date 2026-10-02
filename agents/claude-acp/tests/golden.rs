@@ -97,6 +97,51 @@ fn recorded_session_maps_exactly() {
 }
 
 #[test]
+fn each_recorded_turn_reports_its_usage() {
+    // Brief 0034: every `result` is preceded by a `usage_update` with the turn's counts as Claude Code's stream gives
+    // them; the logged-out turn has none.
+    let got = mapped("claude-2.1.287-session.jsonl");
+    let usage: Vec<&Value> = got
+        .iter()
+        .filter(|v| v["update"]["sessionUpdate"] == "usage_update")
+        .map(|v| &v["update"])
+        .collect();
+    assert_eq!(usage.len(), 3);
+    for (i, v) in got.iter().enumerate() {
+        if v.get("turn_end").is_some() {
+            assert_eq!(got[i - 1]["update"]["sessionUpdate"], "usage_update");
+            assert_eq!(got[i - 1]["from"], "result");
+        }
+    }
+    let first = usage[0];
+    // The first turn: two model calls; the last one had 32 + 22,228 + 402 tokens in context.
+    assert_eq!(first["used"], 32 + 22_228 + 402);
+    assert_eq!(first["size"], 1_000_000);
+    assert_eq!(
+        first["cost"],
+        json!({"amount": 0.26172724999999997, "currency": "USD"})
+    );
+    assert_eq!(
+        first["_meta"]["claudeCode"]["usage"],
+        json!({
+            "inputTokens": 66, "cachedReadTokens": 55_789, "cachedWriteTokens": 10_821,
+            "outputTokens": 614, "thoughtTokens": 57, "totalTokens": 66 + 55_789 + 10_821 + 614,
+            "model": "claude-fable-5-1"
+        })
+    );
+    // The cost is the session's running total, as ACP's `cost` is.
+    assert_eq!(usage[1]["cost"]["amount"], 0.30284075);
+    assert_eq!(usage[1]["_meta"]["claudeCode"]["usage"]["inputTokens"], 34);
+    // The interrupted turn: no tokens, the same running cost.
+    assert_eq!(usage[2]["_meta"]["claudeCode"]["usage"]["totalTokens"], 0);
+    let out = mapped("claude-2.1.287-logged-out.jsonl");
+    assert!(
+        !out.iter()
+            .any(|v| v["update"]["sessionUpdate"] == "usage_update")
+    );
+}
+
+#[test]
 fn logged_out_session_maps_exactly() {
     check(
         "claude-2.1.287-logged-out.jsonl",
