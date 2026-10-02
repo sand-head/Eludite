@@ -143,6 +143,19 @@ pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App)
                 if let Some(c) = caret {
                     map.insert("editor-caret".into(), c);
                 }
+                // The Error List's toolbar (brief 0014's filter run).
+                let toolbar = cx.update(|cx| shell.read(cx).error_list().read(cx).painted_bounds());
+                for (k, b) in toolbar {
+                    map.insert(
+                        k.into(),
+                        json!([
+                            f32::from(b.origin.x),
+                            f32::from(b.origin.y),
+                            f32::from(b.size.width),
+                            f32::from(b.size.height)
+                        ]),
+                    );
+                }
                 Value::Object(map).to_string()
             };
             if text != "{}" && text != last {
@@ -718,4 +731,381 @@ pub fn complete(
         });
     })
     .detach();
+}
+
+/// Wait (polling every half millisecond, up to 10 s) until `done` holds.
+async fn until(
+    cx: &mut gpui::AsyncWindowContext,
+    executor: &gpui::BackgroundExecutor,
+    mut done: impl FnMut(&mut App) -> bool,
+) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if cx.update(|_, cx| done(cx)).unwrap_or(false) {
+            return true;
+        }
+        executor.timer(Duration::from_micros(500)).await;
+    }
+    false
+}
+
+/// The first frame rendered at or after `t`, and its present (waits up to 1 s).
+async fn frame_after(
+    probe: &Rc<RefCell<RenderProbe>>,
+    executor: &gpui::BackgroundExecutor,
+    t: Instant,
+) -> Option<(Instant, Instant)> {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        {
+            let p = probe.borrow();
+            if let Some(f) = p
+                .renders
+                .iter()
+                .copied()
+                .zip(p.presents.iter().copied())
+                .find(|(r, _)| *r >= t)
+            {
+                return Some(f);
+            }
+        }
+        if Instant::now() > deadline {
+            return None;
+        }
+        executor.timer(Duration::from_micros(500)).await;
+    }
+}
+
+/// `--bench-navigate N` (brief 0014), in the real app against the real host:
+///
+/// 1. **Go To Definition in a file**, N times: F12 on the first occurrence of `ELUDITE_BENCH_DEFINITION` (default
+///    `ISdkDiscoverer`) in the opened file, wait for the caret at the definition in the other file and the frame that
+///    shows it, then Ctrl+- back. Host latency = request written to reply read; UI latency = key to request written
+///    + reply read to caret placed + that frame's render to end of present; F12-to-caret = key to caret placed.
+/// 2. **Find All References**, N/4 times (at least 10): Shift+F12 on the first occurrence of
+///    `ELUDITE_BENCH_REFERENCES` (default `HostRpcTarget`); host as above, UI = key to request written + reply read
+///    to rows in the window (line text read off the UI thread) + the frame's render to present; key-to-populated.
+/// 3. **Keystroke frame cost with the window holding 1000 rows**: the window is filled with 1000 rows built from the
+///    file's lines (a symbol with that many references does not exist in the solution), shown, and 300 keys are typed
+///    into the file as `--bench-type` types them.
+pub fn navigate(
+    shell: Entity<Shell>,
+    file: std::path::PathBuf,
+    count: usize,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    use eludite_commands::workspace;
+    const WARMUP: usize = 3;
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let executor = cx.background_executor().clone();
+    let definition =
+        std::env::var("ELUDITE_BENCH_DEFINITION").unwrap_or_else(|_| "ISdkDiscoverer".into());
+    let references =
+        std::env::var("ELUDITE_BENCH_REFERENCES").unwrap_or_else(|_| "HostRpcTarget".into());
+    let id = file.to_string_lossy().into_owned();
+    cx.spawn_in(window, async move |_, cx| {
+        loop {
+            executor.timer(Duration::from_millis(20)).await;
+            let Ok(ready) = cx.update(|_, cx| {
+                let t = shell.read(cx).timings();
+                t.loaded.is_some() && t.first_diagnostics.is_some()
+            }) else {
+                return;
+            };
+            if ready {
+                break;
+            }
+        }
+        executor.timer(Duration::from_millis(2000)).await;
+        let Ok(Some(editor)) = cx.update(|_, cx| shell.read(cx).editor(&file)) else {
+            eprintln!("eludite bench: {} is not open", file.display());
+            std::process::exit(1);
+        };
+        cx.update(|_, cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)))
+            .ok();
+        // Put the caret inside the first whole-word occurrence of `word` in the opened file, active and focused.
+        let place = |cx: &mut gpui::AsyncWindowContext, word: &str| {
+            let word = word.to_owned();
+            let editor = editor.clone();
+            let id = id.clone();
+            cx.update(|window, cx| {
+                let _ = shell.update(cx, |s, cx| {
+                    s.invoke(workspace::FILE_OPEN, json!({ "path": id }), window, cx)
+                });
+                editor.update(cx, |v, cx| {
+                    v.update_editor(cx, |e| {
+                        let text = e.text();
+                        let at = text
+                            .match_indices(word.as_str())
+                            .map(|(i, _)| i)
+                            .find(|&i| {
+                                let before = text[..i].chars().next_back();
+                                let after = text[i + word.len()..].chars().next();
+                                let ident = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+                                !ident(before) && !ident(after)
+                            });
+                        match at {
+                            Some(at) => e.set_caret(at + 1),
+                            None => {
+                                eprintln!("eludite bench: `{word}` is not in the file");
+                                std::process::exit(1);
+                            }
+                        }
+                    })
+                });
+                window.focus(&editor.focus_handle(cx), cx);
+            })
+            .ok();
+        };
+        let key = |cx: &mut gpui::AsyncWindowContext, k: &str| -> (Instant, Instant) {
+            let ks = Keystroke::parse(k).expect("keystroke");
+            let mut out = (Instant::now(), Instant::now());
+            let _ = cx.update(|window, cx| {
+                let t0 = Instant::now();
+                window.dispatch_keystroke(ks, cx);
+                out = (t0, Instant::now());
+            });
+            out
+        };
+
+        // 1. Go To Definition.
+        let (mut d_host, mut d_ui, mut d_caret, mut d_visible) = (vec![], vec![], vec![], vec![]);
+        let mut d_timeouts = 0;
+        let mut target_title = String::new();
+        place(cx, &definition);
+        for i in 0..(WARMUP + count) {
+            executor.timer(Duration::from_millis(30)).await;
+            let before = cx
+                .update(|_, cx| shell.read(cx).navigation_timings().len())
+                .unwrap_or_default();
+            let f12 = key(cx, "f12");
+            let shell2 = shell.clone();
+            let done = until(cx, &executor, move |cx| {
+                shell2.read(cx).navigation_timings().len() > before
+            })
+            .await;
+            let timing = cx
+                .update(|_, cx| shell.read(cx).navigation_timings().get(before).cloned())
+                .ok()
+                .flatten();
+            let ok = done
+                && timing.as_ref().is_some_and(|t| t.applied.is_some())
+                && cx
+                    .update(|_, cx| shell.read(cx).active_document().as_deref() != Some(id.as_str()))
+                    .unwrap_or(false);
+            if !ok {
+                d_timeouts += 1;
+                place(cx, &definition);
+                continue;
+            }
+            let t = timing.expect("checked");
+            let applied = t.applied.expect("checked");
+            let frame = frame_after(&probe, &executor, applied).await;
+            if i == 0 {
+                target_title = cx
+                    .update(|_, cx| shell.read(cx).active_document().unwrap_or_default())
+                    .unwrap_or_default();
+            }
+            if i >= WARMUP
+                && let (Some(sent), Some(received), Some((render, present))) = (t.sent, t.received, frame)
+            {
+                d_host.push(ms(received - sent));
+                d_ui.push(
+                    ms(sent.saturating_duration_since(f12.0))
+                        + ms(applied.saturating_duration_since(received))
+                        + ms(present.saturating_duration_since(render)),
+                );
+                d_caret.push(ms(applied.saturating_duration_since(f12.0)));
+                d_visible.push(ms(present.saturating_duration_since(f12.0)));
+            }
+            // Back to the symbol (Ctrl+-), which also exercises the history.
+            let _ = key(cx, "ctrl--");
+            let shell2 = shell.clone();
+            let id2 = id.clone();
+            until(cx, &executor, move |cx| {
+                shell2.read(cx).active_document().as_deref() == Some(id2.as_str())
+            })
+            .await;
+            place(cx, &definition);
+        }
+
+        // 2. Find All References.
+        let runs = (count / 4).max(10);
+        let (mut r_host, mut r_ui, mut r_total, mut r_count) = (vec![], vec![], vec![], 0);
+        let mut r_timeouts = 0;
+        for i in 0..(WARMUP + runs) {
+            place(cx, &references);
+            executor.timer(Duration::from_millis(30)).await;
+            let before = cx
+                .update(|_, cx| shell.read(cx).references_timings().len())
+                .unwrap_or_default();
+            let key_at = key(cx, "shift-f12");
+            let shell2 = shell.clone();
+            if !until(cx, &executor, move |cx| {
+                shell2.read(cx).references_timings().len() > before
+            })
+            .await
+            {
+                r_timeouts += 1;
+                continue;
+            }
+            let t = cx
+                .update(|_, cx| shell.read(cx).references_timings()[before].clone())
+                .expect("window");
+            let applied = t.applied.expect("set with the rows");
+            let frame = frame_after(&probe, &executor, applied).await;
+            r_count = t.count;
+            if i >= WARMUP
+                && let (Some(sent), Some(received), Some((render, present))) = (t.sent, t.received, frame)
+            {
+                r_host.push(ms(received - sent));
+                r_ui.push(
+                    ms(sent.saturating_duration_since(key_at.0))
+                        + ms(applied.saturating_duration_since(received))
+                        + ms(present.saturating_duration_since(render)),
+                );
+                r_total.push(ms(present.saturating_duration_since(key_at.0)));
+            }
+        }
+
+        // 3. Typing with the window open and holding 1000 rows.
+        place(cx, &references);
+        let fill = cx
+            .update(|_, cx| {
+                let lines: Vec<String> = editor
+                    .read(cx)
+                    .editor()
+                    .text()
+                    .lines()
+                    .map(str::to_owned)
+                    .collect();
+                let start = Instant::now();
+                let refs = synthetic_references(&lines, &file, 1000);
+                shell.update(cx, |s, cx| {
+                    s.references_window()
+                        .update(cx, |w, cx| {
+                            w.start("Synthetic".into(), cx);
+                            w.finish(refs, cx)
+                        })
+                });
+                start
+            })
+            .expect("window");
+        let fill_frame = frame_after(&probe, &executor, fill).await;
+        executor.timer(Duration::from_millis(500)).await;
+        // The end of a line in the middle of the file, as `--bench-type` does.
+        let _ = cx.update(|window, cx| {
+            editor.update(cx, |v, cx| {
+                v.update_editor(cx, |e| {
+                    let b = e.buffer();
+                    let row = b.line_count() / 2;
+                    let at = b.point_to_offset(eludite_editor::text::Point::new(row, b.line_len(row)));
+                    e.set_caret(at);
+                })
+            });
+            window.focus(&editor.focus_handle(cx), cx);
+        });
+        let mut typed: Vec<(Instant, Instant)> = Vec::new();
+        for i in 0..300usize {
+            let pause = if i % 25 == 24 { 250 } else { 0 };
+            executor
+                .timer(Duration::from_millis(pause + 15 + (i as u64 * 7) % 30))
+                .await;
+            let k = if i % 17 == 16 {
+                "backspace".to_owned()
+            } else {
+                // Comment text, so completion stays closed and the measure is the window's effect alone.
+                ((b'a' + (i % 26) as u8) as char).to_string()
+            };
+            if i == 0 {
+                let _ = key(cx, "space");
+                let _ = key(cx, "/");
+                let _ = key(cx, "/");
+            }
+            typed.push(key(cx, &k));
+        }
+        executor.timer(Duration::from_millis(300)).await;
+        let rows_open = cx
+            .update(|_, cx| {
+                let s = shell.read(cx);
+                (s.references_window().read(cx).references().len(), s.active_document())
+            })
+            .ok();
+        let _ = cx.update(|window, cx| {
+            let p = probe.borrow();
+            let frames: Vec<(Instant, Instant)> =
+                p.renders.iter().copied().zip(p.presents.iter().copied()).collect();
+            let mut cost = Vec::new();
+            for (t0, t1) in &typed {
+                if let Some((r, pr)) = frames.iter().find(|(r, _)| r >= t1) {
+                    cost.push(ms(*t1 - *t0) + ms(pr.saturating_duration_since(*r)));
+                }
+            }
+            let out = json!({
+                "bench": "navigate_in_shell",
+                "method": "definition: F12 on the symbol, wait for the caret at the definition in the other file and the frame showing it, Ctrl+- back; host = request written to reply read; ui = key to request written + reply read to caret placed + that frame's render to end of present; f12_to_caret = key to caret placed; f12_to_visible = key to end of that present. references: Shift+F12, same split, rows in the window (lines read off the UI thread). typing: 300 keys in a comment with the Find All References window showing 1000 rows; frame cost = key handler + the next frame's render to end of present",
+                "file": file.to_string_lossy(),
+                "definition": {
+                    "symbol": definition,
+                    "target": target_title,
+                    "runs": count,
+                    "timeouts": d_timeouts,
+                    "host_latency": summarize(&d_host),
+                    "ui_latency": summarize(&d_ui),
+                    "f12_to_caret": summarize(&d_caret),
+                    "f12_to_visible": summarize(&d_visible),
+                },
+                "references": {
+                    "symbol": references,
+                    "count": r_count,
+                    "runs": runs,
+                    "timeouts": r_timeouts,
+                    "host_latency": summarize(&r_host),
+                    "ui_latency": summarize(&r_ui),
+                    "key_to_populated_visible": summarize(&r_total),
+                },
+                "typing_with_1000_rows": {
+                    "rows": rows_open.as_ref().map(|r| r.0),
+                    "fill_render_to_present_ms": fill_frame.map(|(r, p)| ms(p.saturating_duration_since(r))),
+                    "keystrokes": typed.len(),
+                    "keystroke_frame_cost": summarize(&cost),
+                },
+                "rss": rss_mib(),
+                "platform": platform(window),
+            });
+            println!("{out}");
+            cx.quit();
+        });
+    })
+    .detach();
+}
+
+/// `n` Find All References rows built from `lines` of `file`, spread over 25 files in 5 projects.
+fn synthetic_references(
+    lines: &[String],
+    file: &std::path::Path,
+    n: usize,
+) -> Vec<crate::shell::references::Reference> {
+    use crate::shell::references::{Reference, sort_references};
+    let dir = file.parent().unwrap_or(file);
+    let mut refs: Vec<Reference> = (0..n)
+        .map(|i| {
+            let line = lines
+                .get(i % lines.len().max(1))
+                .map(|l| l.trim().to_owned())
+                .unwrap_or_default();
+            let end = line.char_indices().nth(6).map_or(line.len(), |(b, _)| b);
+            Reference {
+                project: Some(format!("Project{}", i % 5)),
+                path: dir.join(format!("File{}.cs", i % 25)),
+                line: (i % lines.len().max(1)) as u32 + 1,
+                column: 1,
+                text: line,
+                highlight: 0..end,
+            }
+        })
+        .collect();
+    sort_references(&mut refs);
+    refs
 }

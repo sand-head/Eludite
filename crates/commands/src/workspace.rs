@@ -1,7 +1,10 @@
 //! Solution, file and editor commands (PLAN.md 4.1, 4.2, 5.1; brief 0012): `eludite.solution.open` and `close`,
 //! `eludite.file.open` and `close`, and the editor actions that must be commands, `eludite.editor.save`, `undo`,
 //! `redo` and `find`. Brief 0013 adds IntelliSense: `eludite.editor.complete`, `accept_completion`, `hover` and
-//! `signature_help`, which the keys, typing and the mouse run too, so an agent can drive and observe them.
+//! `signature_help`, which the keys, typing and the mouse run too, so an agent can drive and observe them. Brief 0014
+//! adds navigation: `eludite.editor.go_to_definition` (F12, Ctrl+click), `eludite.editor.find_references`
+//! (Shift+F12), `eludite.navigation.back` and `forward` (Ctrl+-, Ctrl+Shift+-), and the Error List's toolbar,
+//! `eludite.error_list.filter`.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
@@ -27,9 +30,14 @@ pub const EDITOR_COMPLETE: &str = "eludite.editor.complete";
 pub const EDITOR_ACCEPT_COMPLETION: &str = "eludite.editor.accept_completion";
 pub const EDITOR_HOVER: &str = "eludite.editor.hover";
 pub const EDITOR_SIGNATURE_HELP: &str = "eludite.editor.signature_help";
+pub const EDITOR_GO_TO_DEFINITION: &str = "eludite.editor.go_to_definition";
+pub const EDITOR_FIND_REFERENCES: &str = "eludite.editor.find_references";
+pub const NAVIGATION_BACK: &str = "eludite.navigation.back";
+pub const NAVIGATION_FORWARD: &str = "eludite.navigation.forward";
+pub const ERROR_LIST_FILTER: &str = "eludite.error_list.filter";
 
 /// Every command this module registers.
-pub const ALL: [&str; 12] = [
+pub const ALL: [&str; 17] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -42,9 +50,15 @@ pub const ALL: [&str; 12] = [
     EDITOR_ACCEPT_COMPLETION,
     EDITOR_HOVER,
     EDITOR_SIGNATURE_HELP,
+    EDITOR_GO_TO_DEFINITION,
+    EDITOR_FIND_REFERENCES,
+    NAVIGATION_BACK,
+    NAVIGATION_FORWARD,
+    ERROR_LIST_FILTER,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
+const NAVIGATION_OUTPUT: &str = include_str!("../../../protocol/schemas/navigation.output.json");
 
 /// (title, input schema, output schema, permission)
 fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionClass) {
@@ -125,6 +139,37 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/editor-signature-help.output.json"),
             Read,
         ),
+        EDITOR_GO_TO_DEFINITION => (
+            "Edit: Go To Definition",
+            include_str!("../../../protocol/schemas/editor-go-to-definition.input.json"),
+            include_str!("../../../protocol/schemas/editor-go-to-definition.output.json"),
+            Read,
+        ),
+        EDITOR_FIND_REFERENCES => (
+            "Edit: Find All References",
+            include_str!("../../../protocol/schemas/editor-find-references.input.json"),
+            include_str!("../../../protocol/schemas/editor-find-references.output.json"),
+            Read,
+        ),
+        NAVIGATION_BACK => (
+            "View: Navigate Backward",
+            include_str!("../../../protocol/schemas/navigation-back.input.json"),
+            NAVIGATION_OUTPUT,
+            Read,
+        ),
+        NAVIGATION_FORWARD => (
+            "View: Navigate Forward",
+            include_str!("../../../protocol/schemas/navigation-forward.input.json"),
+            NAVIGATION_OUTPUT,
+            Read,
+        ),
+        // A view filter: what the window shows, never what diagnostics.list returns.
+        ERROR_LIST_FILTER => (
+            "Error List: Filter",
+            include_str!("../../../protocol/schemas/error-list-filter.input.json"),
+            include_str!("../../../protocol/schemas/error-list-filter.output.json"),
+            Read,
+        ),
         other => unreachable!("not a workspace command: {other}"),
     }
 }
@@ -192,6 +237,33 @@ pub enum WorkspaceRequest {
         column: Option<u32>,
         trigger: Option<char>,
     },
+    /// Go To Definition at `line`, `column` (the caret when `line` is `None`), or choose `target` of the open
+    /// picker.
+    GoToDefinition {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+        target: Option<usize>,
+    },
+    FindReferences {
+        path: Option<String>,
+        line: Option<u32>,
+        column: Option<u32>,
+    },
+    NavigateBack,
+    NavigateForward,
+    /// The Error List's filters; `None` keeps the current value. `project: Some(None)` shows every project.
+    ErrorListFilter(ErrorListFilterInput),
+}
+
+/// `error-list-filter.input.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ErrorListFilterInput {
+    pub errors: Option<bool>,
+    pub warnings: Option<bool>,
+    pub messages: Option<bool>,
+    pub project: Option<Option<String>>,
+    pub text: Option<String>,
 }
 
 impl WorkspaceRequest {
@@ -210,6 +282,11 @@ impl WorkspaceRequest {
             WorkspaceRequest::AcceptCompletion { .. } => EDITOR_ACCEPT_COMPLETION,
             WorkspaceRequest::Hover { .. } => EDITOR_HOVER,
             WorkspaceRequest::SignatureHelp { .. } => EDITOR_SIGNATURE_HELP,
+            WorkspaceRequest::GoToDefinition { .. } => EDITOR_GO_TO_DEFINITION,
+            WorkspaceRequest::FindReferences { .. } => EDITOR_FIND_REFERENCES,
+            WorkspaceRequest::NavigateBack => NAVIGATION_BACK,
+            WorkspaceRequest::NavigateForward => NAVIGATION_FORWARD,
+            WorkspaceRequest::ErrorListFilter(_) => ERROR_LIST_FILTER,
         }
     }
 
@@ -223,11 +300,17 @@ impl WorkspaceRequest {
             | WorkspaceRequest::Complete { path, .. }
             | WorkspaceRequest::AcceptCompletion { path, .. }
             | WorkspaceRequest::Hover { path, .. }
-            | WorkspaceRequest::SignatureHelp { path, .. } => path.as_deref(),
+            | WorkspaceRequest::SignatureHelp { path, .. }
+            | WorkspaceRequest::GoToDefinition { path, .. }
+            | WorkspaceRequest::FindReferences { path, .. } => path.as_deref(),
             WorkspaceRequest::FileOpen { path, .. } | WorkspaceRequest::FileClose { path, .. } => {
                 Some(path)
             }
-            WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => None,
+            WorkspaceRequest::SolutionOpen { .. }
+            | WorkspaceRequest::SolutionClose
+            | WorkspaceRequest::NavigateBack
+            | WorkspaceRequest::NavigateForward
+            | WorkspaceRequest::ErrorListFilter(_) => None,
         }
     }
 }
@@ -390,6 +473,127 @@ pub struct SignatureHelpOutput {
     pub active_parameter: Option<u32>,
 }
 
+/// What Go To Definition did (`editor-go-to-definition.output.json`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DefinitionState {
+    Loading,
+    Navigated,
+    Choose,
+    None,
+    Failed,
+}
+
+/// One definition in `editor-go-to-definition.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DefinitionTarget {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub metadata: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// `editor-go-to-definition.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DefinitionOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: DefinitionState,
+    /// At most [`MAX_DEFINITION_TARGETS`].
+    pub targets: Vec<DefinitionTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navigated: Option<DefinitionTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Targets `eludite.editor.go_to_definition` reports at most.
+pub const MAX_DEFINITION_TARGETS: usize = 100;
+
+/// The Find All References window's state (`editor-find-references.output.json`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferencesState {
+    Loading,
+    Done,
+    Failed,
+}
+
+/// One reference in `editor-find-references.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferenceRow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub text: String,
+}
+
+/// `editor-find-references.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReferencesOutput {
+    pub path: String,
+    pub line: u32,
+    pub column: u32,
+    pub state: ReferencesState,
+    pub symbol: String,
+    pub total: u64,
+    /// At most [`MAX_REFERENCE_ROWS`].
+    pub references: Vec<ReferenceRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// References `eludite.editor.find_references` reports at most (the window shows them all).
+pub const MAX_REFERENCE_ROWS: usize = 1000;
+
+/// `navigation.output.json` (back and forward).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NavigationOutput {
+    pub navigated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    pub back: u32,
+    pub forward: u32,
+}
+
+/// The Error List's toggle-button counts in `error-list-filter.output.json`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilterCounts {
+    pub errors: u64,
+    pub warnings: u64,
+    pub messages: u64,
+}
+
+/// `error-list-filter.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ErrorListFilterOutput {
+    pub errors: bool,
+    pub warnings: bool,
+    pub messages: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    pub text: String,
+    pub counts: FilterCounts,
+    pub shown: u64,
+    pub total: u64,
+}
+
 /// The typed result of a workspace command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceOutput {
@@ -404,6 +608,10 @@ pub enum WorkspaceOutput {
     AcceptCompletion(AcceptCompletionOutput),
     Hover(HoverOutput),
     SignatureHelp(SignatureHelpOutput),
+    GoToDefinition(DefinitionOutput),
+    FindReferences(ReferencesOutput),
+    Navigation(NavigationOutput),
+    ErrorListFilter(ErrorListFilterOutput),
 }
 
 impl WorkspaceOutput {
@@ -420,6 +628,10 @@ impl WorkspaceOutput {
             WorkspaceOutput::AcceptCompletion(o) => serde_json::to_value(o),
             WorkspaceOutput::Hover(o) => serde_json::to_value(o),
             WorkspaceOutput::SignatureHelp(o) => serde_json::to_value(o),
+            WorkspaceOutput::GoToDefinition(o) => serde_json::to_value(o),
+            WorkspaceOutput::FindReferences(o) => serde_json::to_value(o),
+            WorkspaceOutput::Navigation(o) => serde_json::to_value(o),
+            WorkspaceOutput::ErrorListFilter(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
     }
@@ -436,6 +648,12 @@ impl WorkspaceOutput {
                 ..
             }) | WorkspaceOutput::SignatureHelp(SignatureHelpOutput {
                 state: PopupState::Loading,
+                ..
+            }) | WorkspaceOutput::GoToDefinition(DefinitionOutput {
+                state: DefinitionState::Loading,
+                ..
+            }) | WorkspaceOutput::FindReferences(ReferencesOutput {
+                state: ReferencesState::Loading,
                 ..
             })
         )
@@ -501,6 +719,32 @@ struct HoverIn {
 struct AcceptIn {
     path: Option<String>,
     label: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DefinitionIn {
+    path: Option<String>,
+    line: Option<u32>,
+    column: Option<u32>,
+    target: Option<usize>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FilterIn {
+    errors: Option<bool>,
+    warnings: Option<bool>,
+    messages: Option<bool>,
+    /// Absent: keep; null: every project (handled in `parse`).
+    #[serde(default, deserialize_with = "present")]
+    project: Option<Option<String>>,
+    text: Option<String>,
+}
+
+/// A member that may be absent (`None`), null (`Some(None)`) or a value.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
 }
 
 #[derive(Default, Deserialize)]
@@ -663,6 +907,48 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
                 path: optional_path(i.path)?,
                 label: i.label,
             }
+        }
+        EDITOR_GO_TO_DEFINITION => {
+            let i: DefinitionIn = input(value)?;
+            position(i.line, i.column)?;
+            if i.target.is_some() && i.line.is_some() {
+                return Err(CommandError::InvalidInput(
+                    "`target` chooses from the open picker; it takes no position".into(),
+                ));
+            }
+            WorkspaceRequest::GoToDefinition {
+                path: optional_path(i.path)?,
+                line: i.line,
+                column: i.column,
+                target: i.target,
+            }
+        }
+        EDITOR_FIND_REFERENCES => {
+            let i: HoverIn = input(value)?;
+            position(i.line, i.column)?;
+            WorkspaceRequest::FindReferences {
+                path: optional_path(i.path)?,
+                line: i.line,
+                column: i.column,
+            }
+        }
+        NAVIGATION_BACK | NAVIGATION_FORWARD => {
+            let _: Empty = input(value)?;
+            if id == NAVIGATION_BACK {
+                WorkspaceRequest::NavigateBack
+            } else {
+                WorkspaceRequest::NavigateForward
+            }
+        }
+        ERROR_LIST_FILTER => {
+            let i: FilterIn = input(value)?;
+            WorkspaceRequest::ErrorListFilter(ErrorListFilterInput {
+                errors: i.errors,
+                warnings: i.warnings,
+                messages: i.messages,
+                project: i.project.map(|p| p.filter(|p| !p.is_empty())),
+                text: i.text,
+            })
         }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
@@ -1033,6 +1319,187 @@ mod tests {
             PermissionClass::EditBuffer
         );
         assert_eq!(spec(EDITOR_HOVER).permission, PermissionClass::Read);
+    }
+
+    #[test]
+    fn navigation_commands_parse_validate_and_match_their_schemas() {
+        let p = |id, v| parse(id, v).unwrap();
+        assert_eq!(
+            p(EDITOR_GO_TO_DEFINITION, json!({"path": "/a.cs", "line": 3})),
+            WorkspaceRequest::GoToDefinition {
+                path: Some("/a.cs".into()),
+                line: Some(3),
+                column: None,
+                target: None
+            }
+        );
+        assert_eq!(
+            p(EDITOR_GO_TO_DEFINITION, json!({"target": 1})),
+            WorkspaceRequest::GoToDefinition {
+                path: None,
+                line: None,
+                column: None,
+                target: Some(1)
+            }
+        );
+        assert_eq!(
+            p(EDITOR_FIND_REFERENCES, Value::Null),
+            WorkspaceRequest::FindReferences {
+                path: None,
+                line: None,
+                column: None
+            }
+        );
+        assert_eq!(
+            p(NAVIGATION_BACK, json!({})),
+            WorkspaceRequest::NavigateBack
+        );
+        assert_eq!(
+            p(NAVIGATION_FORWARD, Value::Null),
+            WorkspaceRequest::NavigateForward
+        );
+        // Absent keeps, null or "" is every project, a name filters.
+        let filter = |v| match p(ERROR_LIST_FILTER, v) {
+            WorkspaceRequest::ErrorListFilter(f) => f,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(filter(json!({})), ErrorListFilterInput::default());
+        assert_eq!(
+            filter(json!({"warnings": false, "project": null, "text": "CS01"})),
+            ErrorListFilterInput {
+                warnings: Some(false),
+                project: Some(None),
+                text: Some("CS01".into()),
+                ..Default::default()
+            }
+        );
+        assert_eq!(filter(json!({"project": ""})).project, Some(None));
+        assert_eq!(
+            filter(json!({"project": "Eludite.Host"})).project,
+            Some(Some("Eludite.Host".into()))
+        );
+        for (id, bad) in [
+            (EDITOR_GO_TO_DEFINITION, json!({"target": -1})),
+            (EDITOR_GO_TO_DEFINITION, json!({"target": 0, "line": 2})),
+            (EDITOR_GO_TO_DEFINITION, json!({"column": 2})),
+            (EDITOR_FIND_REFERENCES, json!({"line": 0})),
+            (EDITOR_FIND_REFERENCES, json!({"trigger": "."})),
+            (NAVIGATION_BACK, json!({"steps": 2})),
+            (ERROR_LIST_FILTER, json!({"errors": "yes"})),
+            (ERROR_LIST_FILTER, json!({"severity": "error"})),
+        ] {
+            assert!(
+                matches!(parse(id, bad.clone()), Err(CommandError::InvalidInput(_))),
+                "{id} {bad}"
+            );
+        }
+        let target = DefinitionTarget {
+            path: "/tmp/MetadataAsSource/1/D/2/JsonRpc.cs".into(),
+            line: 31,
+            column: 14,
+            metadata: true,
+            title: Some("JsonRpc [from metadata]".into()),
+        };
+        let cases = [
+            (
+                EDITOR_GO_TO_DEFINITION,
+                WorkspaceOutput::GoToDefinition(DefinitionOutput {
+                    path: "/a.cs".into(),
+                    line: 4,
+                    column: 9,
+                    state: DefinitionState::Navigated,
+                    targets: vec![target.clone()],
+                    navigated: Some(target),
+                    message: None,
+                }),
+            ),
+            (
+                EDITOR_FIND_REFERENCES,
+                WorkspaceOutput::FindReferences(ReferencesOutput {
+                    path: "/a.cs".into(),
+                    line: 4,
+                    column: 9,
+                    state: ReferencesState::Done,
+                    symbol: "HostRpcTarget".into(),
+                    total: 1,
+                    references: vec![ReferenceRow {
+                        project: Some("Eludite.Host".into()),
+                        path: "/a.cs".into(),
+                        line: 4,
+                        column: 9,
+                        text: "class HostRpcTarget".into(),
+                    }],
+                    message: None,
+                }),
+            ),
+            (
+                NAVIGATION_BACK,
+                WorkspaceOutput::Navigation(NavigationOutput {
+                    navigated: true,
+                    path: Some("/a.cs".into()),
+                    line: Some(4),
+                    column: Some(9),
+                    back: 0,
+                    forward: 1,
+                }),
+            ),
+            (
+                ERROR_LIST_FILTER,
+                WorkspaceOutput::ErrorListFilter(ErrorListFilterOutput {
+                    errors: false,
+                    warnings: true,
+                    messages: false,
+                    project: Some("Eludite.Host".into()),
+                    text: String::new(),
+                    counts: FilterCounts {
+                        errors: 2,
+                        warnings: 1,
+                        messages: 0,
+                    },
+                    shown: 1,
+                    total: 5,
+                }),
+            ),
+        ];
+        for (id, out) in cases {
+            conforms(&spec(id).output_schema, &out.to_json());
+            assert_eq!(spec(id).permission, PermissionClass::Read, "{id}");
+        }
+        let states = &spec(EDITOR_GO_TO_DEFINITION).output_schema["properties"]["state"]["enum"];
+        for s in [
+            DefinitionState::Loading,
+            DefinitionState::Navigated,
+            DefinitionState::Choose,
+            DefinitionState::None,
+            DefinitionState::Failed,
+        ] {
+            assert!(
+                states
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::to_value(s).unwrap())
+            );
+        }
+        assert_eq!(
+            spec(EDITOR_FIND_REFERENCES).output_schema["properties"]["references"]["maxItems"],
+            json!(MAX_REFERENCE_ROWS)
+        );
+        assert_eq!(
+            spec(EDITOR_GO_TO_DEFINITION).output_schema["properties"]["targets"]["maxItems"],
+            json!(MAX_DEFINITION_TARGETS)
+        );
+        assert!(
+            WorkspaceOutput::GoToDefinition(DefinitionOutput {
+                path: "/a.cs".into(),
+                line: 1,
+                column: 1,
+                state: DefinitionState::Loading,
+                targets: vec![],
+                navigated: None,
+                message: None,
+            })
+            .is_loading()
+        );
     }
 
     #[test]

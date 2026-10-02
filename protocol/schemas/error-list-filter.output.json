@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/error-list-filter.output.json",
+  "title": "eludite.error_list.filter output",
+  "description": "The Error List's filters after the command, the counts its toggle buttons show (rows that pass the project and text filters, by severity, whether or not the severity is shown, as in Visual Studio) and how many rows are shown.",
+  "type": "object",
+  "required": [
+    "errors",
+    "warnings",
+    "messages",
+    "text",
+    "counts",
+    "shown",
+    "total"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "errors": {
+      "type": "boolean"
+    },
+    "warnings": {
+      "type": "boolean"
+    },
+    "messages": {
+      "type": "boolean"
+    },
+    "project": {
+      "description": "The project filter; absent for every project.",
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "errors",
+        "warnings",
+        "messages"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "messages": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "shown": {
+      "description": "Rows shown.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "description": "Rows in the Error List before filtering (what diagnostics.list returns).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
