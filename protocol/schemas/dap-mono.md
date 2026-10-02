@@ -104,9 +104,29 @@ exceptions; `hitBreakpointIds`), `continued`, `thread` (`started`, `exited`), `b
 
 `value` is Mono.Debugging's display string: strings quoted (`"hello"`), characters quoted, numbers and booleans as C#
 writes them, objects with a `ToString` override as its result, other objects as `{Namespace.Type}`, arrays as
-`{string[3]}`, `null`. `type` is the C# type name. An expandable value has a `variablesReference`; an array gives
-`indexedVariables` (its length) and an object `namedVariables` when Mono knows the count without evaluating, so a
-client can page big collections with `start` and `count`.
+`{string[3]}`, `null`. `type` is the C# type name. An expandable value has a `variablesReference`. A one-dimensional
+array of up to 150 elements gives `indexedVariables` (its length) and its elements page with `start` and `count`; a
+longer one lists the ranges Mono.Debugging groups it in (`[0..99]`, ...), each expandable. Objects give no
+`namedVariables` (Mono.Debugging knows the count only by reading the members); `start` and `count` page their members
+too.
+
+## Expressions
+
+C# as Mono.Debugging's evaluator (NRefactory 5.5) reads it, in the stopped frame: locals, parameters, `this`, members,
+indexers, method and property calls (which run debuggee code), casts, literals, operators. Two gaps of the 2017 build
+are closed by the adapter: integer and floating arithmetic and comparisons (`i == 5`, `a + b * 2`) are retried with
+explicit `long` or `double` casts when the evaluator's numeric unboxing fails, and type names (`Program.Hang()`,
+`Calculator.Twice(2)`) resolve against the types loaded in the debuggee from the frame's namespace outwards. A
+namespace-qualified name (`MyApp.Program.Hang()`) is not resolved.
+
+## Breakpoint behavior
+
+- Hit conditions count hits before the condition is checked (Mono.Debugging's order) for source breakpoints.
+- Function breakpoints: Mono.Debugging 2017 binds a function breakpoint to every method of the named type, so the
+  adapter lets only the named method stop and applies the function breakpoint's condition, hit condition (counted
+  after the condition) and log message itself. Its `breakpoint` event has no line.
+- `all` with Just My Code (the default) stops at first-chance exceptions thrown in user code only; an exception the
+  runtime throws and handles inside its own code does not stop.
 
 ## What the adapter lacks
 

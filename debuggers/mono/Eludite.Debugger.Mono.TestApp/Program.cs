@@ -67,6 +67,7 @@ namespace Eludite.Debugger.Mono.TestApp
                 names[n] = "name" + n;
             }
 
+            var big = new int[1000];
             var order = new Order(7, "Contoso");
             var calc = new Calculator();
             var result = calc.Add(2, 3); // MARK: main-add
@@ -87,7 +88,7 @@ namespace Eludite.Debugger.Mono.TestApp
             }
 
             Many();
-            System.Console.WriteLine("done " + total + " " + order.Describe() + " " + names.Length); // MARK: done
+            System.Console.WriteLine("done " + total + " " + order.Describe() + " " + names.Length + " " + big.Length); // MARK: done
             return 3;
         }
 

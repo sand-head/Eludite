@@ -1167,7 +1167,8 @@ internal sealed class MonoAdapter
     private static string? ChildName(string? parent, ObjectValue v)
     {
         var name = v.Name ?? string.Empty;
-        if (v.HasFlag(ObjectValueFlags.Group) || name.Length == 0)
+        // Groups of members and the ranges a long array is split in (`[0..99]`) have no expression.
+        if (v.HasFlag(ObjectValueFlags.Group) || name.Length == 0 || name.Contains(".."))
         {
             return null;
         }
