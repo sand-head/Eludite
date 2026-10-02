@@ -11,6 +11,10 @@
 //!   out (`eludite.view.show`); clicking elsewhere slides it back in; Pin docks
 //!   it again (`eludite.view.dock`).
 //!
+//! - Drag the splitter between a dock and the document area to resize the
+//!   dock, or the one between two groups on an edge to resize them. The drag
+//!   previews live; releasing commits one `eludite.view.resize`.
+//!
 //! Every one of those goes through the command bus. The view re-renders when
 //! the controller reports a change, whoever made it (an agent included), and
 //! hands the layout to the [`LayoutWriter`] thread to save.
@@ -27,15 +31,17 @@ use eludite_ui::elements::TabStyle;
 use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab, vertical_label};
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, App, Bounds as PxBounds, Context, Entity, FontWeight, InteractiveElement,
-    IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
+    AnyElement, App, Bounds as PxBounds, Context, DragMoveEvent, Entity, FontWeight,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, Pixels, Render, SharedString,
     StatefulInteractiveElement, Styled, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
     WindowHandle, WindowOptions, canvas, div, point, prelude::*, px, size,
 };
 use serde_json::{Value, json};
 
 use crate::controller::{DockController, Snapshot};
-use crate::model::{DockLayout, DockSide, DocumentTab, Group, Place};
+use crate::model::{
+    DockLayout, DockSide, DocumentTab, Group, MIN_DOCK_SIZE, MIN_GROUP_SHARE, Place,
+};
 use crate::persist::LayoutWriter;
 
 /// Draws a tool window's body. Brief 0008 bodies are empty titled panels;
@@ -43,6 +49,44 @@ use crate::persist::LayoutWriter;
 pub type ToolBody = Rc<dyn Fn(&str, &Theme) -> AnyElement>;
 /// Draws the active document's body.
 pub type DocumentBody = Rc<dyn Fn(&DocumentTab, &Theme) -> AnyElement>;
+
+/// Drag payload for a splitter: a dock's edge (`group: None`) or the splitter
+/// after group `group` on that edge.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DraggedSplitter {
+    pub side: DockSide,
+    pub group: Option<usize>,
+}
+
+/// What a splitter drag would commit, drawn while it lasts.
+#[derive(Debug, Clone, PartialEq)]
+enum ResizePreview {
+    Dock(f32),
+    Shares(Vec<f32>),
+}
+
+/// The splitter being dragged and its preview (set on mouse down, cleared
+/// on release).
+#[derive(Debug, Clone, PartialEq)]
+struct Resizing {
+    splitter: DraggedSplitter,
+    /// Where the mouse went down; sizes change by the distance from here.
+    start: gpui::Point<Pixels>,
+    preview: Option<ResizePreview>,
+}
+
+/// A splitter drag shows no ghost.
+struct NoGhost;
+
+impl Render for NoGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        gpui::Empty
+    }
+}
+
+/// Smallest the document area stays when a dock grows, logical pixels.
+const MIN_CENTER: f32 = 200.;
+const SPLITTER_PX: f32 = 4.;
 
 /// Drag payload for a tool window tab or title bar.
 #[derive(Clone, Debug)]
@@ -105,6 +149,7 @@ pub struct DockHost {
     saved: Option<DockLayout>,
     probe: Option<Probe>,
     last_error: Option<String>,
+    resizing: Option<Resizing>,
     _watch: Task<()>,
 }
 
@@ -141,6 +186,7 @@ impl DockHost {
             persistence,
             probe: None,
             last_error: None,
+            resizing: None,
             _watch: watch,
         }
     }
@@ -466,26 +512,190 @@ impl DockHost {
         }
         let t = self.theme;
         let host = cx.entity().downgrade();
-        let base = div().flex().flex_none().bg(t.chrome).gap(px(4.)).p(px(2.));
+        let (size, shares) = self.dock_preview(side);
+        let base = div().flex().flex_none().bg(t.chrome).p(px(2.));
         let base = match side {
-            DockSide::Bottom => base.flex_row().h(px(dock.size)),
-            _ => base.flex_col().w(px(dock.size)),
+            DockSide::Bottom => base.flex_row().h(px(size)),
+            _ => base.flex_col().w(px(size)),
         };
-        Some(
-            base.children(dock.groups.iter().map(|g| {
-                render_group(
-                    &self.snap,
-                    &t,
-                    g,
-                    false,
-                    &host,
-                    &self.tool_body,
-                    &self.probe,
+        let last = dock.groups.len() - 1;
+        let groups = dock.groups.iter().enumerate().flat_map(|(ix, g)| {
+            let group = render_group(
+                &self.snap,
+                &t,
+                g,
+                false,
+                &host,
+                &self.tool_body,
+                &self.probe,
+            )
+            .flex_basis(px(0.))
+            .flex_grow(shares[ix].max(0.01))
+            .flex_shrink(1.);
+            let group = match side {
+                DockSide::Bottom => group.min_w(px(MIN_DOCK_SIZE)),
+                _ => group.min_h(px(MIN_DOCK_SIZE)),
+            };
+            let splitter = (ix < last).then(|| {
+                self.splitter(
+                    DraggedSplitter {
+                        side,
+                        group: Some(ix),
+                    },
+                    cx,
                 )
-                .flex_1()
-            }))
-            .into_any_element(),
+            });
+            std::iter::once(group.into_any_element()).chain(splitter)
+        });
+        Some(
+            base.children(groups)
+                .on_drag_move(cx.listener(
+                    move |this, e: &DragMoveEvent<DraggedSplitter>, window, cx| {
+                        let d = *e.drag(cx);
+                        if d.side == side {
+                            this.preview_resize(d, e.bounds, e.event.position, window);
+                            cx.notify();
+                        }
+                    },
+                ))
+                .into_any_element(),
         )
+    }
+
+    /// A dock's size and its groups' shares, with the drag preview applied.
+    fn dock_preview(&self, side: DockSide) -> (f32, Vec<f32>) {
+        let dock = self.snap.layout.dock(side);
+        let mut size = dock.size;
+        let mut shares = dock.shares();
+        if let Some(r) = &self.resizing
+            && r.splitter.side == side
+        {
+            match &r.preview {
+                Some(ResizePreview::Dock(s)) => size = *s,
+                Some(ResizePreview::Shares(s)) => shares = s.clone(),
+                None => {}
+            }
+        }
+        (size, shares)
+    }
+
+    /// The splitter element for `d`, 4 px thick across the dock's axis.
+    fn splitter(&self, d: DraggedSplitter, cx: &mut Context<Self>) -> AnyElement {
+        let t = self.theme;
+        let sel = match d.group {
+            None => format!("splitter-{}", d.side.name()),
+            Some(ix) => format!("splitter-{}-{ix}", d.side.name()),
+        };
+        let horizontal = matches!(d.side, DockSide::Bottom) ^ d.group.is_some();
+        let el = div()
+            .id(SharedString::from(sel.clone()))
+            .debug_selector({
+                let s = sel.clone();
+                move || s
+            })
+            .relative()
+            .flex_none()
+            .bg(t.chrome)
+            .hover(|s| s.bg(t.guide))
+            .children(probe_canvas(&self.probe, sel));
+        // A horizontal bar (between things stacked vertically) resizes rows.
+        let el = if horizontal {
+            el.h(px(SPLITTER_PX)).w_full().cursor_row_resize()
+        } else {
+            el.w(px(SPLITTER_PX)).h_full().cursor_col_resize()
+        };
+        el.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                this.resizing = Some(Resizing {
+                    splitter: d,
+                    start: e.position,
+                    preview: None,
+                });
+                cx.notify();
+            }),
+        )
+        .on_drag(d, |_, _, _, cx| cx.new(|_| NoGhost))
+        .into_any_element()
+    }
+
+    /// Update the preview of splitter `d` from the mouse at `pos`, given the
+    /// dock's `bounds`.
+    fn preview_resize(
+        &mut self,
+        d: DraggedSplitter,
+        bounds: PxBounds<Pixels>,
+        pos: gpui::Point<Pixels>,
+        window: &Window,
+    ) {
+        let Some(r) = self.resizing.as_mut() else {
+            return;
+        };
+        if r.splitter != d {
+            return;
+        }
+        let moved = pos - r.start;
+        let dock = self.snap.layout.dock(d.side);
+        let preview = match d.group {
+            None => {
+                let viewport = window.viewport_size();
+                let (delta, limit) = match d.side {
+                    DockSide::Left => (moved.x, viewport.width),
+                    DockSide::Right => (-moved.x, viewport.width),
+                    DockSide::Bottom => (-moved.y, viewport.height),
+                };
+                let max = (f32::from(limit) - MIN_CENTER).max(MIN_DOCK_SIZE);
+                ResizePreview::Dock((dock.size + f32::from(delta)).clamp(MIN_DOCK_SIZE, max))
+            }
+            Some(ix) => {
+                let (delta, extent) = match d.side {
+                    DockSide::Bottom => (moved.x, bounds.size.width),
+                    _ => (moved.y, bounds.size.height),
+                };
+                let fraction = f32::from(delta) / f32::from(extent).max(1.);
+                let mut shares = dock.shares();
+                if ix + 1 < shares.len() {
+                    let pair = shares[ix] + shares[ix + 1];
+                    let first = (shares[ix] + fraction).clamp(
+                        MIN_GROUP_SHARE,
+                        (pair - MIN_GROUP_SHARE).max(MIN_GROUP_SHARE),
+                    );
+                    shares[ix] = first;
+                    shares[ix + 1] = pair - first;
+                }
+                ResizePreview::Shares(shares)
+            }
+        };
+        r.preview = Some(preview);
+    }
+
+    /// Commit the splitter drag's preview through the bus and end the drag.
+    fn commit_resize(&mut self, cx: &mut Context<Self>) {
+        let Some(r) = self.resizing.take() else {
+            return;
+        };
+        cx.notify();
+        let side = r.splitter.side.name();
+        match (r.splitter.group, r.preview) {
+            (None, Some(ResizePreview::Dock(size))) => {
+                let _ = self.invoke(view::RESIZE, json!({ "side": side, "size": size }));
+            }
+            (Some(ix), Some(ResizePreview::Shares(shares))) => {
+                let dock = self.snap.layout.dock(r.splitter.side);
+                if let (Some(g), Some(share)) = (dock.groups.get(ix), shares.get(ix))
+                    && let Some(id) = g.active_id()
+                {
+                    let _ = self.invoke(view::RESIZE, json!({ "id": id, "share": share }));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The splitter between a dock with groups and the document area.
+    fn edge_splitter(&self, side: DockSide, cx: &mut Context<Self>) -> Option<AnyElement> {
+        (!self.snap.layout.dock(side).groups.is_empty())
+            .then(|| self.splitter(DraggedSplitter { side, group: None }, cx))
     }
 
     fn render_strip(&self, side: DockSide, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -616,7 +826,7 @@ impl DockHost {
 
 impl Render for DockHost {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dragging = cx.has_active_drag();
+        let dragging = cx.has_active_drag() && self.resizing.is_none();
         if let Some(probe) = &self.probe {
             let mut p = probe.borrow_mut();
             p.renders.push(Instant::now());
@@ -635,6 +845,7 @@ impl Render for DockHost {
             .flex_1()
             .min_w_0()
             .child(self.render_documents(cx));
+        center = center.children(self.edge_splitter(DockSide::Bottom, cx));
         center = center.children(self.render_dock(DockSide::Bottom, cx));
         if dragging {
             center = center.child(self.render_guides(cx));
@@ -648,7 +859,9 @@ impl Render for DockHost {
             .min_h_0()
             .children(self.render_strip(DockSide::Left, cx))
             .children(self.render_dock(DockSide::Left, cx))
+            .children(self.edge_splitter(DockSide::Left, cx))
             .child(center)
+            .children(self.edge_splitter(DockSide::Right, cx))
             .children(self.render_dock(DockSide::Right, cx))
             .children(self.render_strip(DockSide::Right, cx));
 
@@ -674,6 +887,15 @@ impl Render for DockHost {
                     json!({ "id": d.id, "bounds": {"x": x, "y": y, "width": 360, "height": 420} }),
                 );
             }))
+            .on_drop(cx.listener(|this, _: &DraggedSplitter, _, cx| this.commit_resize(cx)))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.commit_resize(cx)),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.commit_resize(cx)),
+            )
             .child(row)
             .children(self.render_strip(DockSide::Bottom, cx))
     }

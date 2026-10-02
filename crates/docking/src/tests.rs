@@ -529,3 +529,125 @@ fn reset_keeps_documents_and_retain_drops_stale_tabs(cx: &mut TestAppContext) {
         .collect();
     assert_eq!(ids, ["welcome"]);
 }
+
+#[gpui::test]
+fn resize_a_dock_by_dragging_its_splitter(cx: &mut TestAppContext) {
+    let mut h = open(cx, default_layout(), None);
+    let before = h.layout().right.size;
+    assert!(
+        h.vcx.debug_bounds("splitter-left").is_none(),
+        "no splitter for an empty dock"
+    );
+    // Press on the right dock's splitter and pull it 100 px to the left.
+    let start = h.bounds("splitter-right").center();
+    h.vcx
+        .simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    // The first move past GPUI's threshold starts the drag; later moves preview.
+    h.vcx.simulate_mouse_move(
+        start - point(px(10.), px(0.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.simulate_mouse_move(
+        start - point(px(100.), px(0.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.run_until_parked();
+    assert!(
+        h.vcx.debug_bounds("guide-left").is_none(),
+        "a splitter drag shows no docking guides"
+    );
+    assert_eq!(h.layout().right.size, before, "the drag only previews");
+    let previewed = h.bounds("group-workspace").size.width;
+    assert!(
+        (f32::from(previewed) - (before + 100.)).abs() < 12.,
+        "the preview widened the dock: {previewed:?}"
+    );
+    h.vcx.simulate_mouse_up(
+        start - point(px(100.), px(0.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.run_until_parked();
+    let after = h.layout().right.size;
+    assert!((after - (before + 100.)).abs() < 1., "{before} -> {after}");
+    assert_eq!(h.audit(), [view::RESIZE]);
+
+    // The bottom dock, pulled up by 60 px.
+    let before = h.layout().bottom.size;
+    let start = h.bounds("splitter-bottom").center();
+    h.vcx
+        .simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    h.vcx.simulate_mouse_move(
+        start - point(px(0.), px(10.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.simulate_mouse_move(
+        start - point(px(0.), px(60.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.simulate_mouse_up(
+        start - point(px(0.), px(60.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.run_until_parked();
+    let after = h.layout().bottom.size;
+    assert!((after - (before + 60.)).abs() < 1., "{before} -> {after}");
+
+    // A press without a move commits nothing.
+    let start = h.bounds("splitter-bottom").center();
+    h.vcx
+        .simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    h.vcx
+        .simulate_mouse_up(start, MouseButton::Left, Modifiers::none());
+    h.vcx.run_until_parked();
+    assert_eq!(h.audit(), [view::RESIZE, view::RESIZE]);
+    assert_eq!(h.layout().bottom.size, after);
+}
+
+#[gpui::test]
+fn resize_groups_by_dragging_the_splitter_between_them(cx: &mut TestAppContext) {
+    let mut h = open(cx, default_layout(), None);
+    // The right dock stacks the Workspace group over Properties, equal by default.
+    assert_eq!(h.layout().right.shares(), [0.5, 0.5]);
+    let workspace_before = h.bounds("group-workspace").size.height;
+    let start = h.bounds("splitter-right-0").center();
+    h.vcx
+        .simulate_mouse_down(start, MouseButton::Left, Modifiers::none());
+    h.vcx.simulate_mouse_move(
+        start + point(px(0.), px(10.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.simulate_mouse_move(
+        start + point(px(0.), px(120.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.run_until_parked();
+    let previewed = h.bounds("group-workspace").size.height;
+    assert!(
+        f32::from(previewed - workspace_before) > 100.,
+        "the preview grew Workspace: {workspace_before:?} -> {previewed:?}"
+    );
+    h.vcx.simulate_mouse_up(
+        start + point(px(0.), px(120.)),
+        MouseButton::Left,
+        Modifiers::none(),
+    );
+    h.vcx.run_until_parked();
+    let shares = h.layout().right.shares();
+    assert!(shares[0] > 0.6 && shares[0] < 0.9, "{shares:?}");
+    assert!((shares.iter().sum::<f32>() - 1.).abs() < 1e-5);
+    assert_eq!(h.audit(), [view::RESIZE]);
+    // Workspace's group keeps the share after a redraw from the committed layout.
+    let committed = h.bounds("group-workspace").size.height;
+    assert!(
+        (f32::from(committed - previewed)).abs() < 2.,
+        "{previewed:?} vs {committed:?}"
+    );
+}

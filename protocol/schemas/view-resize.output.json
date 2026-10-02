@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-resize.output.json",
+  "title": "eludite.view.resize output",
+  "description": "The sizes in effect after the command: the dock's size, and for a group resize the shares of every group on that edge in order.",
+  "type": "object",
+  "required": ["side", "size", "shares"],
+  "properties": {
+    "side": {
+      "enum": ["left", "right", "bottom"]
+    },
+    "size": {
+      "description": "The dock's width (left, right) or height (bottom), logical pixels, after clamping.",
+      "type": "number"
+    },
+    "shares": {
+      "description": "Each group's share of the dock's length, top to bottom (left, right) or left to right (bottom); they sum to 1.",
+      "type": "array",
+      "items": { "type": "number" }
+    }
+  },
+  "additionalProperties": false
+}

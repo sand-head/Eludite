@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-resize.input.json",
+  "title": "eludite.view.resize input",
+  "description": "Resize a dock or a group inside it (dragging a splitter). With side and size, the dock on that edge becomes size logical pixels wide (left, right) or tall (bottom), clamped to at least 40. With id and share, the group holding that docked tool window takes share (0 to 1) of its dock's length and the other groups on the edge scale to fill the rest; a group keeps at least a tenth.",
+  "type": "object",
+  "properties": {
+    "side": {
+      "description": "Dock edge to resize.",
+      "enum": ["left", "right", "bottom"]
+    },
+    "size": {
+      "description": "New width (left, right) or height (bottom) of the dock, logical pixels.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "id": {
+      "description": "A docked tool window; its group is resized.",
+      "type": "string",
+      "minLength": 1
+    },
+    "share": {
+      "description": "The group's share of its dock's length, 0 to 1.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1
+    }
+  },
+  "oneOf": [
+    { "required": ["side", "size"], "not": { "anyOf": [{ "required": ["id"] }, { "required": ["share"] }] } },
+    { "required": ["id", "share"], "not": { "anyOf": [{ "required": ["side"] }, { "required": ["size"] }] } }
+  ],
+  "additionalProperties": false
+}
