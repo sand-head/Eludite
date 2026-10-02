@@ -1,0 +1,319 @@
+{
+ "brief": "0031",
+ "date": "2026-10-03",
+ "method": "crates/eludite/tools/browser-spike-linux.sh OUT 20 with ELUDITE_CHROME_NO_SANDBOX=1 (the container runs as root): Xvfb on DISPLAY :98 (2400x1600x24), Mesa lavapipe (software Vulkan), no GPU; eludite and eludite-chromium debug builds (dependencies at opt-level 2, as the workspace's dev profile sets); 4 cores shared with another agent's builds and tests. eludite --bench-browser 20: the animation page in a 1600x1000 tab, 2 s warm-up, 20 s recorded, then 10 s of the no-upload baseline, then a second tab with the engine running. These frame costs are software rasterization of a 2200x1500 window and an upper bound, not the reference machine's; the owner's run on real hardware decides (docs/briefs/0031-report.md, section 8).",
+ "screenshot": "crates/eludite/screenshots/linux-browser-spike.png",
+ "reported_run": {
+  "bench": "browser",
+  "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+  "seconds": 20.102,
+  "frame_size": [
+   1600,
+   1000
+  ],
+  "bytes_per_frame": 6400000,
+  "engine_paint_rate_fps": 60.0,
+  "frames_announced": 1206,
+  "frames_uploaded": 216,
+  "uploads_per_s": 10.7,
+  "empty_reads": 0,
+  "shell_frames": 216,
+  "frame_cost": {
+   "n": 216,
+   "p50_ms": 81.395,
+   "p95_ms": 102.973,
+   "p99_ms": 108.82,
+   "max_ms": 123.516
+  },
+  "frame_split": {
+   "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+   "render_to_img_painted": {
+    "n": 216,
+    "p50_ms": 24.8,
+    "p95_ms": 33.498,
+    "p99_ms": 36.284,
+    "max_ms": 37.334
+   },
+   "img_painted_to_present": {
+    "n": 216,
+    "p50_ms": 55.717,
+    "p95_ms": 74.839,
+    "p99_ms": 78.231,
+    "max_ms": 90.018
+   }
+  },
+  "baseline_no_upload": {
+   "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+   "seconds": 10,
+   "shell_frames": 117,
+   "frame_cost": {
+    "n": 117,
+    "p50_ms": 73.498,
+    "p95_ms": 104.421,
+    "p99_ms": 110.004,
+    "max_ms": 119.314
+   },
+   "render_to_img_painted": {
+    "n": 117,
+    "p50_ms": 21.539,
+    "p95_ms": 30.987,
+    "p99_ms": 36.714,
+    "max_ms": 39.463
+   },
+   "img_painted_to_present": {
+    "n": 117,
+    "p50_ms": 51.924,
+    "p95_ms": 72.596,
+    "p99_ms": 88.734,
+    "max_ms": 93.764
+   }
+  },
+  "upload": {
+   "n": 216,
+   "p50_ms": 1.15,
+   "p95_ms": 1.692,
+   "p99_ms": 3.056,
+   "max_ms": 3.792
+  },
+  "img_paint": {
+   "n": 216,
+   "p50_ms": 1.299,
+   "p95_ms": 1.655,
+   "p99_ms": 2.24,
+   "max_ms": 4.947
+  },
+  "engine_copy": {
+   "n": 216,
+   "p50_ms": 0.836,
+   "p95_ms": 1.053,
+   "p99_ms": 1.462,
+   "max_ms": 2.562
+  },
+  "paint_to_present": {
+   "n": 216,
+   "p50_ms": 90.472,
+   "p95_ms": 113.61,
+   "p99_ms": 121.466,
+   "max_ms": 126.61
+  },
+  "last_dirty": [
+   [
+    0,
+    0,
+    1600,
+    1000
+   ]
+  ],
+  "engine_launch_ms": 182.795,
+  "engine_cold_start_to_first_frame_ms": 267.222,
+  "tab_open_to_first_frame_ms": 60.271,
+  "shell_rss_before_engine": {
+   "rss_mib": 181.6,
+   "peak_rss_mib": 181.6
+  },
+  "shell_rss_with_tab": {
+   "rss_mib": 265.5,
+   "peak_rss_mib": 265.5
+  },
+  "engine_memory": {
+   "processes": 8,
+   "rss_sum_mib": 942.7,
+   "pss_sum_mib": 371.5,
+   "browser_process_rss_mib": 224.6
+  },
+  "shell_maps_libcef": false,
+  "platform": {
+   "os": "linux",
+   "wayland_display": "",
+   "display": ":98",
+   "scale_factor": 1.0,
+   "viewport": [
+    2200.0,
+    1500.0
+   ]
+  },
+  "loadavg": "4.62 8.16 9.29 2/303 7378"
+ },
+ "other_runs": [
+  {
+   "run": "10 s, the first run with the baseline phase",
+   "loadavg": "6.16 5.89 8.18 6/255 13529",
+   "frame_cost": {
+    "n": 60,
+    "p50_ms": 145.849,
+    "p95_ms": 210.18,
+    "p99_ms": 365.6,
+    "max_ms": 365.6
+   },
+   "baseline_no_upload_frame_cost": {
+    "n": 34,
+    "p50_ms": 135.301,
+    "p95_ms": 185.876,
+    "p99_ms": 188.441,
+    "max_ms": 188.441
+   },
+   "upload": {
+    "n": 60,
+    "p50_ms": 1.218,
+    "p95_ms": 7.148,
+    "p99_ms": 8.584,
+    "max_ms": 8.584
+   },
+   "img_paint": {
+    "n": 60,
+    "p50_ms": 1.354,
+    "p95_ms": 4.706,
+    "p99_ms": 5.558,
+    "max_ms": 5.558
+   },
+   "engine_paint_rate_fps": 56.4,
+   "uploads_per_s": 6.0,
+   "engine_cold_start_to_first_frame_ms": 327.654,
+   "tab_open_to_first_frame_ms": 93.668
+  },
+  {
+   "run": "20 s, run 1 of the final series",
+   "loadavg": "10.87 9.59 9.73 12/374 2792",
+   "frame_cost": {
+    "n": 47,
+    "p50_ms": 413.492,
+    "p95_ms": 641.86,
+    "p99_ms": 667.6,
+    "max_ms": 667.6
+   },
+   "baseline_no_upload_frame_cost": {
+    "n": 33,
+    "p50_ms": 254.525,
+    "p95_ms": 516.274,
+    "p99_ms": 621.496,
+    "max_ms": 621.496
+   },
+   "upload": {
+    "n": 47,
+    "p50_ms": 1.218,
+    "p95_ms": 13.367,
+    "p99_ms": 17.307,
+    "max_ms": 17.307
+   },
+   "img_paint": {
+    "n": 47,
+    "p50_ms": 1.776,
+    "p95_ms": 26.284,
+    "p99_ms": 49.303,
+    "max_ms": 49.303
+   },
+   "engine_paint_rate_fps": 39.3,
+   "uploads_per_s": 2.3,
+   "engine_cold_start_to_first_frame_ms": 373.412,
+   "tab_open_to_first_frame_ms": 63.356
+  },
+  {
+   "run": "20 s, run 2 of the final series",
+   "loadavg": "12.29 10.08 9.89 14/363 2969",
+   "frame_cost": {
+    "n": 57,
+    "p50_ms": 324.616,
+    "p95_ms": 546.657,
+    "p99_ms": 587.631,
+    "max_ms": 587.631
+   },
+   "baseline_no_upload_frame_cost": {
+    "n": 29,
+    "p50_ms": 366.546,
+    "p95_ms": 510.529,
+    "p99_ms": 613.009,
+    "max_ms": 613.009
+   },
+   "upload": {
+    "n": 57,
+    "p50_ms": 1.172,
+    "p95_ms": 4.001,
+    "p99_ms": 9.148,
+    "max_ms": 9.148
+   },
+   "img_paint": {
+    "n": 57,
+    "p50_ms": 1.352,
+    "p95_ms": 21.206,
+    "p99_ms": 29.776,
+    "max_ms": 29.776
+   },
+   "engine_paint_rate_fps": 38.3,
+   "uploads_per_s": 2.8,
+   "engine_cold_start_to_first_frame_ms": 475.298,
+   "tab_open_to_first_frame_ms": 66.897
+  },
+  {
+   "run": "20 s, run 3 of the final series",
+   "loadavg": "12.84 10.50 10.04 10/351 3319",
+   "frame_cost": {
+    "n": 60,
+    "p50_ms": 279.562,
+    "p95_ms": 527.11,
+    "p99_ms": 578.187,
+    "max_ms": 578.187
+   },
+   "baseline_no_upload_frame_cost": {
+    "n": 39,
+    "p50_ms": 248.26,
+    "p95_ms": 289.795,
+    "p99_ms": 307.662,
+    "max_ms": 307.662
+   },
+   "upload": {
+    "n": 60,
+    "p50_ms": 1.206,
+    "p95_ms": 3.079,
+    "p99_ms": 8.885,
+    "max_ms": 8.885
+   },
+   "img_paint": {
+    "n": 60,
+    "p50_ms": 1.337,
+    "p95_ms": 19.372,
+    "p99_ms": 30.452,
+    "max_ms": 30.452
+   },
+   "engine_paint_rate_fps": 44.0,
+   "uploads_per_s": 3.0,
+   "engine_cold_start_to_first_frame_ms": 625.385,
+   "tab_open_to_first_frame_ms": 115.814
+  },
+  {
+   "run": "20 s, run 4 of the final series",
+   "loadavg": "10.94 10.26 9.99 14/376 4140",
+   "frame_cost": {
+    "n": 55,
+    "p50_ms": 352.852,
+    "p95_ms": 508.147,
+    "p99_ms": 564.029,
+    "max_ms": 564.029
+   },
+   "baseline_no_upload_frame_cost": {
+    "n": 31,
+    "p50_ms": 323.827,
+    "p95_ms": 431.858,
+    "p99_ms": 471.87,
+    "max_ms": 471.87
+   },
+   "upload": {
+    "n": 55,
+    "p50_ms": 1.213,
+    "p95_ms": 9.245,
+    "p99_ms": 21.976,
+    "max_ms": 21.976
+   },
+   "img_paint": {
+    "n": 55,
+    "p50_ms": 1.391,
+    "p95_ms": 25.273,
+    "p99_ms": 29.226,
+    "max_ms": 29.226
+   },
+   "engine_paint_rate_fps": 42.2,
+   "uploads_per_s": 2.7,
+   "engine_cold_start_to_first_frame_ms": 683.328,
+   "tab_open_to_first_frame_ms": 69.014
+  }
+ ]
+}
