@@ -563,3 +563,83 @@ fn build_messages_are_typed_and_a_concurrent_build_is_refused() {
         .unwrap();
     assert!(!cancel.canceled);
 }
+
+/// Brief 0020: `eludite/build/status` reports the running build with every chunk so far (also one the client never
+/// received) and, after a restart, either the build that survived it or none, with the last finished build.
+#[test]
+fn build_status_replays_the_running_build_across_a_restart() {
+    let fake = FakeHost::new();
+    let (client, rx) = start(&fake, 2);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let status = |client: &HostClient| {
+        client
+            .request::<host::BuildStatus>(())
+            .unwrap()
+            .wait_timeout(T)
+            .unwrap()
+    };
+    assert_eq!(status(&client), host::BuildStatusResult::default());
+    let started = client
+        .request::<host::BuildStart>(host::BuildStartParams {
+            target: host::BuildTarget::Build,
+            system: None,
+            project: None,
+            configuration: Some("Release".into()),
+            platform: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    fake.build_output("one\n");
+    fake.build_progress(1, 2, 0, 0);
+    let running = status(&client).running.expect("a running build");
+    assert_eq!(running.build_id, started.build_id);
+    assert_eq!(running.configuration, "Release");
+    assert_eq!(running.output.next_seq, 2);
+    assert!(running.output.text.ends_with("one\n"), "{running:?}");
+    assert_eq!(
+        running.progress.as_ref().map(|p| p.projects_completed),
+        Some(1)
+    );
+
+    // The build survives the restart (a host the client reattaches to) and goes on while nobody listens.
+    fake.set_build_survives_restart(true);
+    client.kill().unwrap();
+    next(&rx, |e| {
+        matches!(e, Event::Host(HostEvent::Restarted { .. }))
+    });
+    fake.build_output_unsent("two\n");
+    let after = status(&client).running.expect("the build survived");
+    assert_eq!(after.output.next_seq, 3);
+    assert!(after.output.text.ends_with("one\ntwo\n"));
+    fake.finish_build("succeeded", json!([]));
+    let done = status(&client);
+    assert!(done.running.is_none());
+    let last = done.last.expect("the last build");
+    assert_eq!(
+        (last.build_id, last.result),
+        (started.build_id, host::BuildResult::Succeeded)
+    );
+
+    // By default a restart ends the running build, as a real host's does.
+    fake.set_build_survives_restart(false);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    client
+        .request::<host::BuildStart>(host::BuildStartParams {
+            target: host::BuildTarget::Build,
+            system: None,
+            project: None,
+            configuration: None,
+            platform: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(status(&client).running.is_some());
+    client.kill().unwrap();
+    next(&rx, |e| {
+        matches!(e, Event::Host(HostEvent::Restarted { .. }))
+    });
+    assert!(status(&client).running.is_none());
+    client.shutdown(T).unwrap();
+}
