@@ -30,6 +30,13 @@
 //! hold exception types too ([`ExceptionPlan`] turns them into DAP filters and filter options). What persists is
 //! version 2 ([`Persisted`]); a version 1 file loads unchanged.
 //!
+//! # Attach, restart and who may drive (brief 0027)
+//!
+//! `attach` starts a session from a running process (allowed in design mode, and while Ctrl+F5's program runs, which
+//! may be attached to); the session's `attached` flag makes Stop detach and Restart refused. `restart` needs a launched
+//! session. [`DebugModel::agents_allowed`] is the session's Allow Agents to Drive switch: each session starts with the
+//! setting's default, or with what the person chose while no session ran.
+//!
 //! # Inspection (brief 0025)
 //!
 //! Reads never move what the windows show: `snapshot`, `stack`, `variables` and `exception_info` take the thread and
@@ -1126,6 +1133,12 @@ pub struct DebugModel {
     pub exit_code: Option<i64>,
     /// What the session's adapter supports, once its handshake ended.
     pub capabilities: Option<CapabilitiesRow>,
+    /// Agents may drive this session (Debug > Allow Agents to Drive; brief 0027).
+    pub agents_allowed: bool,
+    /// What each new session starts with (the setting `debugger.allowAgentsByDefault`).
+    pub agents_default: bool,
+    /// Chosen while no session ran: the next session starts with it.
+    pub agents_next: Option<bool>,
 }
 
 impl Default for DebugModel {
@@ -1158,6 +1171,9 @@ impl Default for DebugModel {
             outputs: Default::default(),
             exit_code: None,
             capabilities: None,
+            agents_allowed: true,
+            agents_default: true,
+            agents_next: None,
         }
     }
 }
@@ -1250,6 +1266,31 @@ impl DebugModel {
             DebugRequest::SetNextStatement { stop, .. } => {
                 needs_break("set the next statement", *stop)
             }
+            DebugRequest::Attach {
+                target: eludite_commands::debug::AttachTarget::Dialog,
+                ..
+            } => Ok(()),
+            DebugRequest::Attach { .. }
+                if !matches!(self.mode, Mode::Design | Mode::RunningWithoutDebugging) =>
+            {
+                Err(refused(format!(
+                    "a debugging session is already {mode} (generation {g}); stop it (eludite.debug.stop) before \
+                     attaching to another process"
+                )))
+            }
+            DebugRequest::Restart { .. } if self.mode == Mode::Design => Err(refused(
+                "there is no debugging session to restart; start one with eludite.debug.start".into(),
+            )),
+            DebugRequest::Restart { .. } if self.attached() => Err(refused(
+                "Restart is not available for an attached session (Visual Studio disables it too): detach with \
+                 eludite.debug.stop and attach again"
+                    .into(),
+            )),
+            DebugRequest::Restart { .. } if matches!(self.mode, Mode::Stopping | Mode::Building) => {
+                Err(refused(format!(
+                    "the session is {mode} (generation {g}); restart it once it has started or ended"
+                )))
+            }
             DebugRequest::Pause { .. } if self.mode != Mode::Running => Err(refused(format!(
                 "cannot break all: the debuggee is not running (it is {mode}, generation {g}, stop {s}); Break All \
                  needs a running debuggee"
@@ -1326,6 +1367,12 @@ impl DebugModel {
         }
         self.exit_code = None;
         self.capabilities = None;
+        self.agents_allowed = self.agents_next.take().unwrap_or(self.agents_default);
+    }
+
+    /// Whether the session attached to a running process.
+    pub fn attached(&self) -> bool {
+        self.session.as_ref().is_some_and(|s| s.attached)
     }
 
     /// The session ended.
@@ -1394,7 +1441,7 @@ impl DebugModel {
             message: self.message.clone(),
             capabilities: self.capabilities.clone(),
             agent_driving: self.agent_driving(),
-            agents_allowed: true,
+            agents_allowed: self.agents_allowed,
         }
     }
 

@@ -2,7 +2,9 @@
 //! virtualized transcript, the permission prompt, the pending changes, and the prompt box (Enter sends, Shift+Enter
 //! starts a new line, Escape cancels the turn). It renders and emits [`AgentsWindowEvent`]s; the shell turns them
 //! into `eludite.agents.*` commands, and all agent and MCP I/O happens on other threads. A tool call's images show
-//! as thumbnails under its card (brief 0024); clicking one asks the shell to open the full image.
+//! as thumbnails under its card (brief 0024); clicking one asks the shell to open the full image. An agent's debug
+//! command reads as one line above its card (brief 0027): the action and the result as the person would see them, the
+//! stop's location a link that opens the file at the line, and the summary the agent received folded until expanded.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -50,6 +52,11 @@ pub enum AgentsWindowEvent {
     OpenImage {
         tool_call: String,
         index: usize,
+    },
+    /// Open `path` at `line` (a debug row's stop location; brief 0027).
+    OpenLocation {
+        path: String,
+        line: u32,
     },
 }
 
@@ -213,6 +220,19 @@ pub fn change_link(change: u64) -> String {
     format!("agents-change-{change}")
 }
 
+/// The debug line of the tool call in row `ix` (brief 0027), its stop location and its Show/Hide toggle.
+pub fn debug_row(ix: usize) -> String {
+    format!("agents-debug-{ix}")
+}
+
+pub fn debug_location(ix: usize) -> String {
+    format!("agents-debug-location-{ix}")
+}
+
+pub fn debug_expand(ix: usize) -> String {
+    format!("agents-debug-expand-{ix}")
+}
+
 /// Thumbnail `n` of the tool call in row `ix`.
 pub fn thumb(ix: usize, n: usize) -> String {
     format!("agents-thumb-{ix}-{n}")
@@ -260,6 +280,14 @@ impl AgentsWindow {
         if let Some(s) = self.transcript.take_splice() {
             self.list.splice(s.start..s.old_end, s.new_end - s.start);
         }
+        cx.notify();
+    }
+
+    /// Scroll so row `ix` is visible (a debug row's link, in tests and from the shell).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn reveal(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.list.set_follow_mode(FollowMode::Normal);
+        self.list.scroll_to_reveal_item(ix);
         cx.notify();
     }
 
@@ -352,7 +380,13 @@ impl AgentsWindow {
                     .as_ref()
                     .map(compact)
                     .unwrap_or_default();
-                let result = clip(&tool.call.content_text(), 1500);
+                // A debug command's result (the summary the agent received) is folded under its line (brief 0027).
+                let debug = tool.mcp.as_ref().and_then(|m| m.debug.clone());
+                let result = if debug.is_some() && !tool.expanded {
+                    String::new()
+                } else {
+                    clip(&tool.call.content_text(), 1500)
+                };
                 let note = tool.note();
                 let changes = tool.changes.clone();
                 let card = tool_call_card(
@@ -421,6 +455,74 @@ impl AgentsWindow {
                     }))
                 });
                 let thumbs: Vec<_> = thumbs.collect();
+                let expanded = tool.expanded;
+                let debug_line = debug.map(|d| {
+                    let sel = debug_row(ix);
+                    let location = d.location.clone().map(|(path, line)| {
+                        let sel = debug_location(ix);
+                        let name = std::path::Path::new(&path)
+                            .file_name()
+                            .map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+                        tracked(
+                            &painted,
+                            sel.clone(),
+                            div().id(SharedString::from(sel.clone())),
+                        )
+                        .debug_selector(move || sel)
+                        .text_color(t.accent)
+                        .cursor_pointer()
+                        .child(SharedString::from(format!("{name}:{line}")))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.emit(AgentsWindowEvent::OpenLocation {
+                                path: path.clone(),
+                                line,
+                            })
+                        }))
+                    });
+                    let toggle = {
+                        let sel = debug_expand(ix);
+                        tracked(
+                            &painted,
+                            sel.clone(),
+                            div().id(SharedString::from(sel.clone())),
+                        )
+                        .debug_selector(move || sel)
+                        .text_color(t.text_muted)
+                        .cursor_pointer()
+                        .child(if expanded {
+                            "Hide snapshot"
+                        } else {
+                            "Show snapshot"
+                        })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.transcript.toggle_result(ix);
+                            this.sync(cx);
+                        }))
+                    };
+                    // The line, then its links under it (a narrow window wraps the text, never hides the links).
+                    div()
+                        .id(SharedString::from(sel.clone()))
+                        .debug_selector(move || sel)
+                        .flex()
+                        .flex_col()
+                        .px_3()
+                        .pt_1()
+                        .text_size(t.typography.small)
+                        .child(
+                            div()
+                                .font_family(self.mono.clone())
+                                .child(SharedString::from(d.text.clone())),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_wrap()
+                                .gap_2()
+                                .children(location)
+                                .child(toggle),
+                        )
+                });
                 let strip = (!thumbs.is_empty()).then(|| {
                     div()
                         .flex()
@@ -434,6 +536,7 @@ impl AgentsWindow {
                     .w_full()
                     .flex()
                     .flex_col()
+                    .children(debug_line)
                     .child(card)
                     .children(links)
                     .children(strip)

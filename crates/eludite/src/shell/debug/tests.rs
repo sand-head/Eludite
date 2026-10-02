@@ -118,6 +118,16 @@ fn setup_dotnet(
     tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
     dotnet: &str,
 ) -> Dbg {
+    setup_dotnet_agents(cx, tweak, dotnet, None)
+}
+
+/// As [`setup_dotnet`], with the Agents window's agents (brief 0027's transcript and policy tests).
+fn setup_dotnet_agents(
+    cx: &mut TestAppContext,
+    tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
+    dotnet: &str,
+    agents: Option<crate::shell::agents::AgentsSetup>,
+) -> Dbg {
     let store = tempfile::tempdir().unwrap().keep();
     let fake: Arc<Mutex<Option<FakeHandle>>> = Arc::default();
     let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
@@ -138,7 +148,7 @@ fn setup_dotnet(
         store_dir: Some(store.clone()),
         dotnet: dotnet.to_owned(),
     };
-    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let w = setup_debug(cx, |_| {}, agents, Some(setup));
     *dir.lock().unwrap() = Some(w.dir.path().to_path_buf());
     let write = |rel: &str, text: &str| {
         let p = w.dir.path().join(rel);
@@ -2259,24 +2269,16 @@ fn output_by_cursor_exception_info_and_wait(cx: &mut TestAppContext) {
     // A pattern over the program's lines: none of the flood yet.
     let o = agent_call(&mut d, cmds::OUTPUT, json!({"pattern": "/^flood \\d+$/"}));
     assert_eq!(o["lines"].as_array().unwrap().len(), 0);
-    // `wait until output` from another thread while the person continues: it returns on the printed lines.
-    let commands = d.w.commands.clone();
-    let a = test_agent();
-    let waiting = std::thread::spawn(move || {
-        with_caller(a, || {
-            let w = commands
-                .invoke(cmds::WAIT, json!({"until": "output", "wait_ms": 5000}))
-                .unwrap();
-            (w, Instant::now())
-        })
+    // `wait until output` after the agent continued without waiting: it returns on the printed lines. (A person's
+    // resume while an agent waits ends the wait instead, brief 0027: `interrupted_by`, tested on its own.)
+    let w = agent(&mut d, move |c| {
+        c.invoke(cmds::CONTINUE, json!({"wait_ms": 0})).unwrap();
+        c.invoke(
+            cmds::WAIT,
+            json!({"until": "output", "wait_ms": 5000, "output_since": next}),
+        )
+        .unwrap()
     });
-    d.w.wait("the agent waiting", |w| {
-        w.shell
-            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
-    });
-    d.w.vcx.simulate_keystrokes("f5");
-    d.w.wait("the wait's answer", |_| waiting.is_finished());
-    let (w, _) = waiting.join().unwrap();
     assert_eq!(w["satisfied"], "output", "{w}");
     // The summary's output is the tail (no `output_since`): it ends with the new line.
     let lines = w["output"]["lines"].as_array().unwrap();
@@ -4235,4 +4237,973 @@ fn run_control_works_against_eludite_dbg_mono(cx: &mut TestAppContext) {
     );
     assert!(e["error"].as_str().unwrap().contains("`mono`"), "{e}");
     agent_call(&mut d, cmds::STOP, json!({}));
+}
+
+// ----- Brief 0027: attach, restart, the debug policy, Allow Agents to Drive and interrupted waits. -----
+
+/// A stand-in for `dotnet` that keeps running (`/bin/sh <it> <dll>`, runtime `dotnet` in the process listing).
+#[cfg(unix)]
+fn looping_dotnet() -> PathBuf {
+    let bin = tempfile::tempdir().unwrap().keep();
+    let script = bin.join("dotnet");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\necho \"serving $1\"\nwhile true; do sleep 1; done\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script
+}
+
+/// Ctrl+F5 the test solution's program; answers its process id once it runs.
+fn ctrl_f5(d: &mut Dbg) -> u32 {
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    d.wait_mode(Mode::RunningWithoutDebugging);
+    d.w.wait("the program's pid", |w| {
+        state_of(w)["session"]["process_id"].as_u64().is_some()
+    });
+    d.state()["session"]["process_id"].as_u64().unwrap() as u32
+}
+
+fn kill(pid: u32) {
+    let _ = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status();
+}
+
+fn menu_enabled(d: &Dbg, label: &str) -> Option<bool> {
+    d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.menu().read(cx).is_item_enabled("Debug", label)
+    })
+}
+
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn attach_to_the_ctrl_f5_program_lists_it_and_stop_detaches(cx: &mut TestAppContext) {
+    let script = looping_dotnet();
+    let mut d = setup_dotnet(cx, |_| {}, &script.to_string_lossy());
+    d.w.open_solution();
+    let pid = ctrl_f5(&mut d);
+    // processes lists the Ctrl+F5 program as launched by Eludite, with its runtime; not this test process.
+    let out = agent_call(&mut d, cmds::PROCESSES, json!({"filter": "App.dll"}));
+    let rows = out["processes"].as_array().unwrap();
+    let row = rows
+        .iter()
+        .find(|r| r["pid"] == pid)
+        .unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(row["runtime"], "dotnet", "{row}");
+    assert_eq!(row["launched_by_eludite"], true);
+    assert!(
+        row["command_line"].as_str().unwrap().ends_with("App.dll"),
+        "{row}"
+    );
+    let all = agent_call(&mut d, cmds::PROCESSES, json!({}));
+    let me = all["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["pid"] == std::process::id())
+        .cloned()
+        .unwrap();
+    assert_eq!(me["launched_by_eludite"], false);
+    assert_eq!(
+        all["total"].as_u64().unwrap() as usize,
+        all["processes"].as_array().unwrap().len()
+    );
+    // The budget: 20 agent calls under 300 ms p95, the listing on a worker thread.
+    let times: Vec<Duration> = (0..20)
+        .map(|_| {
+            let t = Instant::now();
+            agent_call(&mut d, cmds::PROCESSES, json!({}));
+            t.elapsed()
+        })
+        .collect();
+    let p = p95(times);
+    eprintln!(
+        "timing: processes p95 {:.1} ms over 20 agent calls",
+        p.as_secs_f64() * 1e3
+    );
+    assert!(p < Duration::from_millis(300), "{p:?}");
+    // The attach hook: execute for the program Eludite started, dangerous for another process.
+    let class = |input: Value| d.w.commands.classify(cmds::ATTACH, &input).unwrap();
+    assert_eq!(
+        class(json!({"pid": pid})).class,
+        eludite_commands::PermissionClass::Execute
+    );
+    let foreign = class(json!({"pid": std::process::id()}));
+    assert_eq!(foreign.class, eludite_commands::PermissionClass::Dangerous);
+    assert_eq!(
+        foreign.reason.as_deref(),
+        Some("attach to a process Eludite did not start")
+    );
+    // Debug > Attach to Process... is enabled while Ctrl+F5's program runs; Restart is not a debugger session's.
+    assert_eq!(menu_enabled(&d, "Attach to Process..."), Some(true));
+    // An agent attaches to it (with a breakpoint already set): a session with `attached`, through the fake adapter.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 5}),
+    )
+    .unwrap();
+    let s = agent_call(&mut d, cmds::ATTACH, json!({"pid": pid, "wait_ms": 5000}));
+    assert_eq!(s["mode"], "running", "{s}");
+    let st = d.state();
+    assert_eq!(st["session"]["attached"], true);
+    assert_eq!(st["session"]["process_id"], pid);
+    assert_eq!(st["session"]["runtime"], "coreclr");
+    assert_eq!(st["session"]["project"], "sh", "the process's name");
+    let fake = d.fake();
+    assert!(fake.commands().contains(&"attach".to_owned()));
+    assert!(!fake.commands().contains(&"launch".to_owned()));
+    assert_eq!(fake.last("attach").unwrap()["processId"], pid);
+    // Every window works as for a launch.
+    fake.trigger();
+    d.wait_break(1);
+    assert_eq!(d.top_line().0, "Calc.cs:5");
+    assert!(!d.locals().is_empty());
+    let s = agent_call(&mut d, cmds::STEP_OVER, json!({}));
+    assert_eq!(s["stopped"]["location"]["line"], 6, "{s}");
+    // Restart is refused for an attached session, from the menu's state and the command.
+    assert_eq!(menu_enabled(&d, "Restart"), Some(false));
+    let r = agent_call(&mut d, cmds::RESTART, json!({}));
+    assert!(
+        r["error"].as_str().unwrap().contains("attached session"),
+        "{r}"
+    );
+    // Stop detaches: disconnect without terminating; the process keeps running and the status bar says so.
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+    assert_eq!(fake.last("disconnect").unwrap()["terminateDebuggee"], false);
+    let status = debug_status(&d);
+    assert!(status.starts_with("Detached from sh (process "), "{status}");
+    assert!(status.ends_with("it keeps running."), "{status}");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(
+        eludite_dap::processes::alive(pid),
+        "the process keeps running"
+    );
+    // An unknown process is refused before anything starts, and a name must be unique.
+    let e = agent_call(&mut d, cmds::ATTACH, json!({"pid": 999_999_999u32}));
+    assert!(
+        e["error"]
+            .as_str()
+            .unwrap()
+            .contains("no process 999999999"),
+        "{e}"
+    );
+    let e = agent_call(
+        &mut d,
+        cmds::ATTACH,
+        json!({"process_name": "no-such-program-0027"}),
+    );
+    assert!(
+        e["error"].as_str().unwrap().contains("no process is named"),
+        "{e}"
+    );
+    let e = agent_call(&mut d, cmds::ATTACH, json!({}));
+    assert!(
+        e["error"].as_str().unwrap().contains("name the process"),
+        "{e}"
+    );
+    kill(pid);
+}
+
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn the_attach_dialog_filters_refreshes_and_attaches_through_the_bus(cx: &mut TestAppContext) {
+    let script = looping_dotnet();
+    let mut d = setup_dotnet(cx, |_| {}, &script.to_string_lossy());
+    d.w.open_solution();
+    let pid = ctrl_f5(&mut d);
+    let processes_calls = |d: &Dbg| {
+        d.w.audit()
+            .iter()
+            .filter(|c| c.as_str() == cmds::PROCESSES)
+            .count()
+    };
+    // Ctrl+Alt+P opens the dialog, which lists the processes through the bus (off the UI thread).
+    d.w.vcx.simulate_keystrokes("ctrl-alt-p");
+    assert!(d.w.audit().contains(&cmds::ATTACH.to_owned()));
+    let listed = processes_calls(&d);
+    assert!(listed >= 1);
+    d.w.wait("the dialog's rows", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.debugger()
+                .attach_dialog
+                .as_ref()
+                .is_some_and(|dlg| dlg.read(cx).visible().iter().any(|r| r.pid == pid))
+        })
+    });
+    assert!(
+        d.w.vcx
+            .debug_bounds(super::windows::ATTACH_DIALOG)
+            .is_some()
+    );
+    let visible = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.debugger()
+                .attach_dialog
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .visible()
+                .iter()
+                .map(|r| (r.pid, r.launched_by_eludite, r.runtime.clone()))
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = visible(&d).len();
+    // The filter box narrows the list as it is typed.
+    d.w.click(super::windows::ATTACH_FILTER);
+    type_text(&mut d, "app.dll");
+    let rows = visible(&d);
+    assert!(rows.len() < before, "{rows:?}");
+    assert!(rows.contains(&(pid, true, "dotnet".to_owned())), "{rows:?}");
+    // Refresh lists again through the bus, with the filter.
+    d.w.click(super::windows::ATTACH_REFRESH);
+    assert_eq!(processes_calls(&d), listed + 1);
+    let last =
+        d.w.commands
+            .audit_log()
+            .entries()
+            .into_iter()
+            .rfind(|e| e.command == cmds::PROCESSES)
+            .unwrap();
+    assert!(last.is_ok());
+    // Attach is enabled once a row is selected; it runs eludite.debug.attach and closes the dialog.
+    d.w.click(&super::windows::attach_row(pid));
+    let selected = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.debugger()
+            .attach_dialog
+            .as_ref()
+            .unwrap()
+            .read(cx)
+            .selected()
+    });
+    assert_eq!(selected, Some(pid));
+    d.w.click(super::windows::ATTACH_ATTACH);
+    d.wait_mode(Mode::Running);
+    assert!(
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().attach_dialog.is_none())
+    );
+    assert_eq!(d.state()["session"]["attached"], true);
+    assert_eq!(d.fake().last("attach").unwrap()["processId"], pid);
+    assert_eq!(menu_enabled(&d, "Attach to Process..."), Some(false));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // Escape closes the dialog without attaching.
+    d.w.vcx.simulate_keystrokes("ctrl-alt-p");
+    assert!(
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().attach_dialog.is_some())
+    );
+    d.w.vcx.simulate_keystrokes("escape");
+    assert!(
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().attach_dialog.is_none())
+    );
+    kill(pid);
+}
+
+#[gpui::test]
+fn restart_uses_the_adapters_restart_or_stops_and_starts_again(cx: &mut TestAppContext) {
+    // Without the capability: Ctrl+Shift+F5 stops the session and starts the same configuration, building first.
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(menu_enabled(&d, "Restart"), Some(true));
+    let first = d.fake();
+    let generation = d.state()["generation"].as_u64().unwrap();
+    d.set_build_before_run(true);
+    d.w.vcx.simulate_keystrokes("ctrl-shift-f5");
+    assert!(d.w.audit().contains(&cmds::RESTART.to_owned()));
+    let start = wait_build(&mut d);
+    assert_eq!(start["target"], "build", "build before run is honored");
+    assert!(first.is_done(), "the first session ended");
+    d.w.fake.finish_build("succeeded", json!([]));
+    d.wait_mode(Mode::Running);
+    let st = d.state();
+    assert!(st["generation"].as_u64().unwrap() > generation);
+    d.fake().trigger();
+    d.w.wait("the break of the new session", |w| {
+        state_of(w)["mode"] == "break"
+    });
+    assert_eq!(d.top_line().0, "Program.cs:6");
+    // An agent's restart answers in the new session.
+    d.set_build_before_run(false);
+    let g = d.state()["generation"].as_u64().unwrap();
+    let s = agent_call(&mut d, cmds::RESTART, json!({"wait_ms": 5000}));
+    assert_eq!(s["mode"], "running", "{s}");
+    assert!(s["generation"].as_u64().unwrap() > g, "{s}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // Refused in design mode.
+    let e = d.cmd(cmds::RESTART, json!({})).unwrap_err().to_string();
+    assert!(e.contains("no debugging session to restart"), "{e}");
+    assert_eq!(menu_enabled(&d, "Restart"), Some(false));
+}
+
+#[gpui::test]
+fn restart_goes_through_the_adapter_where_it_has_restart(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.extra_capabilities = json!({"supportsRestartRequest": true})
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["restart"], true);
+    let fake = d.fake();
+    let generation = d.state()["generation"].as_u64().unwrap();
+    let s = agent_call(&mut d, cmds::RESTART, json!({"wait_ms": 5000}));
+    assert_eq!(s["mode"], "running", "{s}");
+    assert!(fake.wait_for("restart", 1, T));
+    assert_eq!(d.state()["generation"], generation, "the same session");
+    fake.trigger();
+    d.wait_break(2);
+    assert_eq!(d.top_line().0, "Program.cs:6");
+    assert!(!fake.is_done());
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn allow_agents_off_refuses_their_driving_but_not_their_reads_or_the_person(
+    cx: &mut TestAppContext,
+) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["agents_allowed"], true);
+    let checked = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.menu()
+                .read(cx)
+                .is_item_checked("Debug", "Allow Agents to Drive")
+        })
+    };
+    assert_eq!(checked(&d), Some(true));
+    // The status bar's toggle turns it off: the state, the status bar and the menu's check say so.
+    d.w.click(super::DEBUG_AGENTS_TOGGLE);
+    assert!(d.w.audit().contains(&cmds::ALLOW_AGENTS.to_owned()));
+    assert_eq!(d.state()["agents_allowed"], false);
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: App (break: breakpoint, Calc.cs line 5, agents not allowed)"
+    );
+    assert_eq!(checked(&d), Some(false));
+    // An agent's continue and set_variable are refused; its reads keep working.
+    let stop = d.state()["stop"].as_u64().unwrap();
+    for (command, args) in [
+        (cmds::CONTINUE, json!({})),
+        (cmds::SET_VARIABLE, json!({"name": "sum", "value": "9"})),
+        (cmds::STEP_OVER, json!({})),
+        (cmds::START, json!({})),
+    ] {
+        let e = agent_call(&mut d, command, args);
+        assert_eq!(
+            e["error"].as_str().unwrap(),
+            format!("command failed: {}", cmds::AGENTS_NOT_ALLOWED),
+            "{command}"
+        );
+    }
+    let snap = agent_call(&mut d, cmds::SNAPSHOT, json!({}));
+    assert_eq!(snap["stop"], stop);
+    assert!(agent_call(&mut d, cmds::STATE, json!({}))["agents_allowed"] == false);
+    assert!(agent_call(&mut d, cmds::PROCESSES, json!({"filter": "zzz-none"}))["total"] == 0);
+    // Only the person can turn it on.
+    let e = agent_call(&mut d, cmds::ALLOW_AGENTS, json!({"enabled": true}));
+    assert!(
+        e["error"].as_str().unwrap().contains("only the person"),
+        "{e}"
+    );
+    // The person's F10 still works.
+    d.w.vcx.simulate_keystrokes("f10");
+    d.wait_break(stop + 1);
+    // Debug > Allow Agents to Drive turns it back on; the agent drives again.
+    d.w.click("menu-Debug");
+    d.w.click("menu-item-Debug-Allow Agents to Drive");
+    assert_eq!(d.state()["agents_allowed"], true);
+    assert_eq!(checked(&d), Some(true));
+    let s = agent_call(&mut d, cmds::STEP_OVER, json!({}));
+    assert_eq!(s["stop"], stop + 2, "{s}");
+    // An agent may turn it off.
+    let off = agent_call(&mut d, cmds::ALLOW_AGENTS, json!({"enabled": false}));
+    assert_eq!(off["agents_allowed"], false);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // A new session starts with the setting's default; set off, agents are refused from the start.
+    d.w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "debugger.allowAgentsByDefault", "value": false}),
+        )
+        .unwrap();
+    d.w.wait("the setting applied", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().model.agents_default)
+    });
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    assert_eq!(d.state()["agents_allowed"], false);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // Set while no session runs, the toggle holds for the next one.
+    d.cmd(cmds::ALLOW_AGENTS, json!({"enabled": true})).unwrap();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    assert_eq!(d.state()["agents_allowed"], true);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Run `f` as an agent on another thread, returning its handle (the test drives the UI meanwhile).
+fn agent_thread<F>(d: &Dbg, f: F) -> std::thread::JoinHandle<Value>
+where
+    F: FnOnce(&eludite_commands::CommandRegistry) -> Value + Send + 'static,
+{
+    let commands = d.w.commands.clone();
+    let a = test_agent();
+    std::thread::spawn(move || with_caller(a, || f(&commands)))
+}
+
+fn wait_agent_waiting(d: &mut Dbg) {
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+}
+
+#[gpui::test]
+fn the_person_always_wins_an_agents_wait(cx: &mut TestAppContext) {
+    // Main line 7 runs until paused (a long loop).
+    let mut d = setup_with(cx, |p| p.steps[4].runs_until_paused = true);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    // An agent waits for the next stop; the person's F10 ends the wait at once with what the person caused.
+    let stop = d.state()["stop"].as_u64().unwrap();
+    let waiting = agent_thread(&d, move |c| {
+        c.invoke(
+            cmds::WAIT,
+            json!({"until": "stopped", "stop": stop, "wait_ms": 20000}),
+        )
+        .unwrap()
+    });
+    wait_agent_waiting(&mut d);
+    d.w.vcx.simulate_keystrokes("f10");
+    d.w.wait("the wait's answer", |_| waiting.is_finished());
+    let w = waiting.join().unwrap();
+    assert_eq!(w["interrupted_by"], "user", "{w}");
+    assert!(
+        w.get("satisfied").is_none() && w.get("timed_out").is_none(),
+        "{w}"
+    );
+    let (at, answered) = d.w.shell.read_with(&d.w.vcx, |s, _| {
+        let dbg = s.debugger();
+        (
+            dbg.interrupted_at.unwrap(),
+            dbg.timings.interrupt_answered.unwrap(),
+        )
+    });
+    let latency = answered - at;
+    eprintln!(
+        "timing: interrupted wait answered {:.2} ms after the person's command",
+        latency.as_secs_f64() * 1e3
+    );
+    assert!(latency < Duration::from_millis(50), "{latency:?}");
+    d.wait_break(stop + 1);
+    // Its next resuming command is stale, with the old stop or none, until it reads the state.
+    let e = agent_call(&mut d, cmds::CONTINUE, json!({"stop": stop}));
+    assert!(e["error"].as_str().unwrap().contains("stale"), "{e}");
+    let e = agent_call(&mut d, cmds::CONTINUE, json!({}));
+    assert!(
+        e["error"]
+            .as_str()
+            .unwrap()
+            .contains("the person drove the session"),
+        "{e}"
+    );
+    let snap = agent_call(&mut d, cmds::SNAPSHOT, json!({}));
+    let now = snap["stop"].as_u64().unwrap();
+    assert_eq!(now, stop + 1);
+    // An agent's continue waiting on the long loop: the person's Break All ends it with the pause.
+    let waiting = agent_thread(&d, move |c| {
+        c.invoke(cmds::CONTINUE, json!({"stop": now, "wait_ms": 20000}))
+            .unwrap()
+    });
+    wait_agent_waiting(&mut d);
+    d.w.wait("the loop", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().model.mode == Mode::Running)
+    });
+    d.w.vcx.simulate_keystrokes("ctrl-alt-pause");
+    d.w.wait("the continue's answer", |_| waiting.is_finished());
+    let c = waiting.join().unwrap();
+    assert_eq!(c["interrupted_by"], "user", "{c}");
+    d.wait_break(now + 1);
+    assert_eq!(d.state()["stopped"]["reason"], "pause");
+    // A quoted current stop counts as having read the state.
+    let s = agent_call(&mut d, cmds::STEP_OVER, json!({"stop": now + 1}));
+    assert_eq!(s["mode"], "break", "{s}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn an_interrupted_trace_answers_its_lines(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| p.steps[4].runs_until_paused = true);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.start_and_break();
+    let calc = d.w.path("src/App/Calc.cs").to_string_lossy().into_owned();
+    let tracing = agent_thread(&d, move |c| {
+        c.invoke(
+            cmds::TRACE,
+            json!({"points": [{"path": calc, "line": 5, "message": "a={a}"}], "until": "terminated",
+                   "wait_ms": 20000}),
+        )
+        .unwrap()
+    });
+    // The tracepoint prints once; then the program loops at line 7 and the trace waits for the end.
+    d.w.wait("the trace line", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .model
+                .output(cmds::OutputKind::Debug)
+                .read(0, 100, None)
+                .0
+                .iter()
+                .any(|l| l.text == "a=1")
+        })
+    });
+    wait_agent_waiting(&mut d);
+    d.w.vcx.simulate_keystrokes("ctrl-alt-pause");
+    d.w.wait("the trace's answer", |_| tracing.is_finished());
+    let t = tracing.join().unwrap();
+    assert_eq!(t["stopped_by"], "interrupted", "{t}");
+    let lines: Vec<&str> = t["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(lines, ["a=1"]);
+    d.w.wait("the pause", |w| state_of(w)["mode"] == "break");
+    // The trace's point is gone; the person's breakpoint stays.
+    let rows = d.breakpoint_rows();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// The debug test solution with scripted fake agents (`{"tool": ..., "arguments": ...}` steps through the MCP endpoint)
+/// and the solution's policy file.
+fn setup_debug_agents(
+    cx: &mut TestAppContext,
+    tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
+    policy: Value,
+    agents: &[(&str, Value)],
+) -> Dbg {
+    let setup = crate::shell::agents::tests::fake_agents(
+        agents
+            .iter()
+            .map(|(name, steps)| {
+                (
+                    (*name).to_owned(),
+                    vec![
+                        "--scenario".into(),
+                        "script".into(),
+                        "--script".into(),
+                        steps.to_string(),
+                    ],
+                )
+            })
+            .collect(),
+    );
+    let mut d = setup_dotnet_agents(cx, tweak, "dotnet", Some(setup));
+    d.w.open_solution();
+    write_policy(&d, policy);
+    d
+}
+
+fn write_policy(d: &Dbg, policy: Value) {
+    let file = eludite_commands::policy::AgentPolicy::path_for(d.w.dir.path());
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, policy.to_string()).unwrap();
+}
+
+impl Dbg {
+    /// Start agent `name` (afresh: the policy file is read again) and prompt it; wait for the turn's end unless a
+    /// permission prompt comes first.
+    fn run_agent(&mut self, name: &str) {
+        let name = name.to_owned();
+        self.w
+            .shell
+            .update(&mut self.w.vcx, |s, cx| {
+                s.agents.last_stop = None;
+                s.agents_start(Some(&name), true, cx)?;
+                s.agents_prompt("go", cx)
+            })
+            .unwrap();
+    }
+
+    fn wait_turn(&mut self) {
+        self.w.wait("the turn's end", |w| {
+            w.shell.read_with(&w.vcx, |s, _| {
+                s.agents().last_stop.is_some()
+                    && s.agents().state != crate::shell::agents::window::StateKind::Running
+            })
+        });
+    }
+
+    fn agent_prompt(&self) -> Option<crate::shell::agents::window::Prompt> {
+        self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            s.agents().window.read(cx).prompt.clone()
+        })
+    }
+
+    /// The transcript row of the scripted agent's step `n`, and its index in the transcript.
+    fn step_row(&self, n: usize) -> (usize, Value) {
+        let id = format!("toolu_fake_step_{n}");
+        let ix = self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            s.agents()
+                .window
+                .read(cx)
+                .transcript
+                .rows
+                .iter()
+                .position(|r| matches!(r, crate::shell::agents::transcript::Row::Tool(t) if t.call.tool_call_id == id))
+        });
+        let rows = self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            s.agents().window.read(cx).transcript.to_json()
+        });
+        let row = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["tool_call"]["id"] == id)
+            .map(|r| r["tool_call"].clone())
+            .unwrap_or(Value::Null);
+        (ix.unwrap_or(usize::MAX), row)
+    }
+}
+
+#[gpui::test]
+fn agent_debug_commands_read_in_the_transcript_as_the_debug_toolbar_would(cx: &mut TestAppContext) {
+    let steps = json!([
+        {"tool": "eludite-debug-toggle_breakpoint", "arguments": {"path": "src/App/Calc.cs", "line": 5}},
+        {"tool": "eludite-debug-start", "arguments": {"wait_ms": 10000}},
+        {"tool": "eludite-debug-wait", "arguments": {"until": "stopped", "wait_ms": 10000}},
+        {"tool": "eludite-debug-step_over", "arguments": {}},
+        {"tool": "eludite-debug-continue", "arguments": {"wait_ms": 10000}},
+        {"tool": "eludite-debug-continue", "arguments": {}}
+    ]);
+    let mut d = setup_debug_agents(
+        cx,
+        |p| {
+            p.run_at_start = true;
+            p.exit_at_end = Some(0);
+        },
+        json!({"version": 1, "execute": "allow"}),
+        &[("Debugger", steps)],
+    );
+    d.run_agent("Debugger");
+    d.wait_turn();
+    let line = |d: &Dbg, n| {
+        d.step_row(n).1["debug"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert_eq!(line(&d, 1), "Toggle Breakpoint \u{2192} done");
+    assert!(
+        line(&d, 2).starts_with("Start Debugging \u{2192} "),
+        "{}",
+        line(&d, 2)
+    );
+    assert_eq!(
+        line(&d, 3),
+        "Wait \u{2192} stopped at Calc.cs:5 (breakpoint)"
+    );
+    assert_eq!(
+        line(&d, 4),
+        "Step Over \u{2192} stopped at Calc.cs:6 (step)"
+    );
+    assert_eq!(line(&d, 5), "Continue \u{2192} exited (0)");
+    let refused = line(&d, 6);
+    assert!(
+        refused.starts_with(
+            "Continue \u{2192} refused: cannot continue: the debuggee is not in break mode"
+        ),
+        "{refused}"
+    );
+    let (ix, step) = d.step_row(4);
+    assert_eq!(
+        step["debug_location"],
+        json!({"path": d.w.path("src/App/Calc.cs").to_string_lossy(), "line": 6})
+    );
+    // The row draws the line; the summary the agent received is folded until expanded.
+    d.cmd("eludite.view.show", json!({"id": ids::AGENTS}))
+        .unwrap();
+    let folded = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.agents()
+            .window
+            .read(cx)
+            .transcript
+            .tool("toolu_fake_step_4")
+            .map(|t| t.expanded)
+    });
+    assert_eq!(folded, Some(false));
+    let window =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.agents().window.clone());
+    window.update(&mut d.w.vcx, |w, cx| w.reveal(ix, cx));
+    let sel = crate::shell::agents::window::debug_row(ix);
+    d.w.wait("the debug row drawn", |w| {
+        let sel: &'static str = Box::leak(sel.clone().into_boxed_str());
+        w.vcx.debug_bounds(sel).is_some()
+    });
+    d.w.click(&crate::shell::agents::window::debug_expand(ix));
+    let expanded = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.agents()
+            .window
+            .read(cx)
+            .transcript
+            .tool("toolu_fake_step_4")
+            .map(|t| t.expanded)
+    });
+    assert_eq!(expanded, Some(true));
+    // The location opens the file at the line, as an Error List row does.
+    d.w.click(&crate::shell::agents::window::debug_location(ix));
+    let calc = d.w.path("src/App/Calc.cs");
+    let view = d.w.editor(&calc);
+    let active = d.w.shell.read_with(&d.w.vcx, |s, _| s.active_document());
+    assert_eq!(active.as_deref().map(Path::new), Some(calc.as_path()));
+    let caret_row = view.read_with(&d.w.vcx, |v, _| v.editor().primary_head().row);
+    assert_eq!(caret_row, 5, "line 6");
+}
+
+#[gpui::test]
+fn the_debug_policy_refuses_or_asks_through_the_agents_window(cx: &mut TestAppContext) {
+    let steps = json!([
+        {"tool": "eludite-debug-start", "arguments": {"wait_ms": 0}},
+        {"tool": "eludite-debug-state", "arguments": {}}
+    ]);
+    let mut d = setup_debug_agents(
+        cx,
+        |_| {},
+        json!({"version": 1, "execute": "allow", "debug": {"drive": "deny"}}),
+        &[("Driver", steps)],
+    );
+    // drive: deny refuses the agent's start with the policy named; its read runs.
+    d.run_agent("Driver");
+    d.wait_turn();
+    let (_, start) = d.step_row(1);
+    assert_eq!(start["status"], "failed", "{start}");
+    assert!(
+        start["debug"]
+            .as_str()
+            .unwrap()
+            .contains("the solution's policy sets debug.drive to deny"),
+        "{start}"
+    );
+    assert_eq!(d.mode(), Mode::Design);
+    let audited =
+        d.w.commands
+            .audit_log()
+            .entries()
+            .into_iter()
+            .rfind(|e| e.command == cmds::START)
+            .unwrap();
+    assert_eq!(
+        audited.escalation.as_deref(),
+        Some("the solution's policy sets debug.drive to deny")
+    );
+    assert!(!audited.is_ok());
+    let (_, snap) = d.step_row(2);
+    assert_eq!(snap["status"], "completed", "{snap}");
+    // drive: prompt makes the start dangerous: the window asks, with the reason; Always Allow writes `allow`.
+    write_policy(
+        &d,
+        json!({"version": 1, "execute": "allow", "debug": {"drive": "prompt"}}),
+    );
+    d.run_agent("Driver");
+    d.w.wait("the permission prompt", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.agents().window.read(cx).prompt.is_some())
+    });
+    let p = d.agent_prompt().unwrap();
+    assert_eq!(p.class, "dangerous");
+    assert!(
+        p.reason.as_deref().unwrap().contains("debug.drive: prompt"),
+        "{:?}",
+        p.reason
+    );
+    assert!(p.can_persist);
+    d.cmd("eludite.view.show", json!({"id": ids::AGENTS}))
+        .unwrap();
+    assert!(d.w.vcx.debug_bounds("agents-permission-dialog").is_some());
+    let answered =
+        d.w.shell
+            .update(&mut d.w.vcx, |s, cx| {
+                s.agents_answer(
+                    p.request,
+                    crate::shell::agents::window::Decision::AlwaysAllow,
+                    cx,
+                )
+            })
+            .unwrap();
+    assert!(answered.persisted);
+    d.wait_turn();
+    let (_, start) = d.step_row(1);
+    assert!(
+        start["note"]
+            .as_str()
+            .unwrap()
+            .contains("always for this solution (debug.drive: allow)"),
+        "{start}"
+    );
+    let file = eludite_commands::policy::AgentPolicy::path_for(d.w.dir.path());
+    d.w.wait("the policy file written", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("\"drive\": \"allow\""))
+    });
+    assert_ne!(d.mode(), Mode::Design, "the start ran");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Brief 0027 against the real eludite-dbg-mono: attach to the TestApp started by `mono` with a debugger agent that
+/// listens (and waits: `suspend=y`), a breakpoint already set, to the first stop (the budget: under 3 s); Stop detaches
+/// and the program runs on to its end. Then a launched Mono session restarts (eludite-dbg-mono has no `restart`: stop
+/// and start) and breaks again.
+#[gpui::test]
+fn attach_and_restart_against_eludite_dbg_mono(cx: &mut TestAppContext) {
+    let Some((mut d, source, text)) = mono_solution(cx) else {
+        return;
+    };
+    let line_of = |mark: &str| {
+        text.lines()
+            .position(|l| l.ends_with(&format!("// MARK: {mark}")))
+            .unwrap() as u32
+            + 1
+    };
+    let mono = eludite_dap::discovery::MonoSearch::from_env()
+        .find_mono()
+        .unwrap();
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let exe =
+        d.w.path("src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe");
+    let mut app = std::process::Command::new(&mono.mono)
+        .args([
+            "--debug",
+            &format!(
+                "--debugger-agent=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:{port}"
+            ),
+        ])
+        .arg(&exe)
+        .envs(mono.env.iter().map(|(k, v)| (k, v)))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let path = source.to_string_lossy().into_owned();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": path, "line": line_of("add-sum")}),
+    )
+    .unwrap();
+    // The listing shows the agent to attach to.
+    let listed = agent_call(&mut d, cmds::PROCESSES, json!({"filter": "TestApp"}));
+    let row = listed["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["pid"] == app.id())
+        .cloned()
+        .unwrap_or_else(|| panic!("{listed}"));
+    assert_eq!(row["runtime"], "mono");
+    assert_eq!(row["debugger_agent"], format!("127.0.0.1:{port}"));
+    assert_eq!(row["launched_by_eludite"], false);
+    let clock = Instant::now();
+    let s = agent_call(
+        &mut d,
+        cmds::ATTACH,
+        json!({"pid": app.id(), "wait_ms": 10000}),
+    );
+    assert_ne!(s["mode"], "design", "{s}");
+    let st = d.state();
+    assert_eq!(st["session"]["attached"], true);
+    assert_eq!(st["session"]["runtime"], "mono");
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 10000}),
+    );
+    let took = clock.elapsed();
+    eprintln!(
+        "timing: shell attach to a waiting Mono TestApp to the first stop: {:.0} ms",
+        took.as_secs_f64() * 1e3
+    );
+    assert_eq!(w["stopped"]["reason"], "breakpoint", "{w}");
+    assert_eq!(w["stopped"]["location"]["line"], line_of("add-sum"));
+    assert!(took < Duration::from_secs(3), "{took:?}");
+    // Stop detaches: the program goes on and exits by itself.
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    assert!(
+        debug_status(&d).starts_with("Detached from mono"),
+        "{}",
+        debug_status(&d)
+    );
+    let deadline = Instant::now() + T;
+    let status = loop {
+        if let Some(s) = app.try_wait().unwrap() {
+            break s;
+        }
+        assert!(Instant::now() < deadline, "the TestApp did not run on");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(3));
+    // A launched Mono session restarts: stop, then the same start again; it breaks at the same line.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.wait("the first break", |w| state_of(w)["mode"] == "break");
+    let generation = d.state()["generation"].as_u64().unwrap();
+    assert_eq!(d.state()["capabilities"]["restart"], false);
+    let s = agent_call(&mut d, cmds::RESTART, json!({"wait_ms": 10000}));
+    assert!(s["generation"].as_u64().unwrap() > generation, "{s}");
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 10000}),
+    );
+    assert_eq!(w["stopped"]["location"]["line"], line_of("add-sum"), "{w}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
 }
