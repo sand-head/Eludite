@@ -1818,7 +1818,8 @@ fn an_agent_reads_a_deep_stop_within_the_budgets(cx: &mut TestAppContext) {
     assert_eq!(caps["variable_paging"], true);
     assert_eq!(caps["hit_conditions"], "shell");
     assert_eq!(caps["log_points"], "shell");
-    assert_eq!(caps["set_variable"], false);
+    assert_eq!(caps["set_variable"], true);
+    assert_eq!(caps["function_breakpoints"], true);
     assert_eq!(caps["set_next_statement"], false);
     assert_eq!(d.state()["capabilities"], *caps);
 

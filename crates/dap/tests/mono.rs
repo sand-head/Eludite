@@ -13,7 +13,7 @@ use std::time::Instant;
 use eludite_dap::discovery::{MonoAdapterSearch, MonoSearch};
 use eludite_dap::launch::{self, FrameworkKind, Platform};
 use eludite_dap::session::{self, StartKind, StartPlan};
-use eludite_dap::types::{Event, SourceBreakpoint};
+use eludite_dap::types::{Event, ExceptionFilterOptions, FunctionBreakpoint, SourceBreakpoint};
 use eludite_dap::{ClientEvent, DapClient, transport};
 use serde_json::json;
 
@@ -48,6 +48,25 @@ impl Found {
 
     /// Start the adapter and launch the TestApp with `args`, breaking at `marks`, with exception `filters`.
     fn launch(&self, args: &[&str], marks: &[&str], filters: &[&str]) -> (DapClient, Recorder) {
+        let breakpoints = marks
+            .iter()
+            .map(|m| SourceBreakpoint {
+                line: self.line_of(m),
+                ..Default::default()
+            })
+            .collect();
+        self.launch_plan(args, breakpoints, Vec::new(), filters, Vec::new())
+    }
+
+    /// As [`Found::launch`] with source breakpoints as given, function breakpoints and exception filter options.
+    fn launch_plan(
+        &self,
+        args: &[&str],
+        breakpoints: Vec<SourceBreakpoint>,
+        functions: Vec<FunctionBreakpoint>,
+        filters: &[&str],
+        options: Vec<ExceptionFilterOptions>,
+    ) -> (DapClient, Recorder) {
         let rec = Recorder::default();
         let client = DapClient::start(
             transport::connect_with_env(
@@ -65,17 +84,10 @@ impl Found {
                 adapter_id: "mono".into(),
                 kind: StartKind::Launch,
                 arguments,
-                breakpoints: vec![(
-                    self.source.to_string_lossy().into_owned(),
-                    marks
-                        .iter()
-                        .map(|m| SourceBreakpoint {
-                            line: self.line_of(m),
-                            ..Default::default()
-                        })
-                        .collect(),
-                )],
+                breakpoints: vec![(self.source.to_string_lossy().into_owned(), breakpoints)],
                 exception_filters: filters.iter().map(|f| (*f).to_owned()).collect(),
+                exception_options: options,
+                function_breakpoints: functions,
             },
             T,
         )
@@ -182,6 +194,8 @@ fn eludite_dbg_mono_debugs_the_test_app() {
                 }],
             )],
             exception_filters: vec!["user-unhandled".into()],
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
         },
         T,
     )
@@ -398,4 +412,231 @@ fn eludite_dbg_mono_pauses_and_pages() {
     client
         .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
         .unwrap();
+}
+
+fn wait_terminated(rec: &Recorder) {
+    rec.wait_nth(1, "terminated", |e| {
+        matches!(e, ClientEvent::Event(Event::Terminated))
+    });
+}
+
+fn console_lines(rec: &Recorder, containing: &str) -> Vec<String> {
+    rec.events()
+        .into_iter()
+        .filter_map(|e| match e {
+            ClientEvent::Event(Event::Output(o))
+                if o.category.as_deref() == Some("console") && o.output.contains(containing) =>
+            {
+                Some(o.output)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Brief 0026's requests against the real adapter: exception filter options by type (the TestApp throws an
+/// `InvalidOperationException`; a `FormatException` condition lets it pass), `setVariable` on a parameter whose new
+/// value the program then computes with (timed), a function breakpoint on `Calculator.Twice`, and the adapter's own log
+/// points on the loop body (100 lines, no stop).
+#[test]
+fn eludite_dbg_mono_runs_under_control() {
+    let Some(found) = find() else { return };
+    let caps = {
+        let (client, _) = found.launch(&["sleep"], &[], &[]);
+        let c = client.capabilities();
+        let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
+        c
+    };
+    assert!(caps.supports_exception_filter_options && caps.supports_function_breakpoints);
+    assert!(caps.supports_set_variable && caps.supports_log_points);
+    assert!(!caps.supports_set_expression && !caps.supports_goto_targets_request);
+
+    // Filter options: `all` for InvalidOperationException stops at the throw...
+    let option = |types: &str| ExceptionFilterOptions {
+        filter_id: "all".into(),
+        condition: Some(types.into()),
+    };
+    let (client, rec) = found.launch_plan(
+        &[],
+        Vec::new(),
+        Vec::new(),
+        &[],
+        vec![option(
+            "System.FormatException, System.InvalidOperationException",
+        )],
+    );
+    let s = rec.stopped(1);
+    assert_eq!(s.reason, "exception");
+    let st = client
+        .request_wait(
+            "stackTrace",
+            json!({"threadId": s.thread_id.unwrap(), "levels": 1}),
+            T,
+        )
+        .unwrap();
+    assert_eq!(st["stackFrames"][0]["line"], found.line_of("throw"));
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
+        .unwrap();
+    // ...and for FormatException only, the program runs to its end.
+    let (client, rec) = found.launch_plan(
+        &[],
+        Vec::new(),
+        Vec::new(),
+        &[],
+        vec![option("System.FormatException")],
+    );
+    wait_terminated(&rec);
+    assert!(
+        !rec.events()
+            .iter()
+            .any(|e| matches!(e, ClientEvent::Event(Event::Stopped(_))))
+    );
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
+
+    // setVariable: `a` becomes 10 before `sum = a + b`, so Add returns (10 + 3) * 2.
+    let bp = |mark: &str| SourceBreakpoint {
+        line: found.line_of(mark),
+        ..Default::default()
+    };
+    let (client, rec) = found.launch_plan(&[], vec![bp("add-sum")], Vec::new(), &[], Vec::new());
+    let s = rec.stopped(1);
+    let tid = s.thread_id.unwrap();
+    let st = client
+        .request_wait("stackTrace", json!({"threadId": tid, "levels": 1}), T)
+        .unwrap();
+    let scopes = client
+        .request_wait("scopes", json!({"frameId": st["stackFrames"][0]["id"]}), T)
+        .unwrap();
+    let locals = scopes["scopes"][0]["variablesReference"].clone();
+    let mut times = Vec::new();
+    for v in (0..20).rev() {
+        let clock = Instant::now();
+        let r = client
+            .request_wait(
+                "setVariable",
+                json!({"variablesReference": locals, "name": "a", "value": (v + 10).to_string()}),
+                T,
+            )
+            .unwrap();
+        times.push(clock.elapsed());
+        assert_eq!(r["value"], (v + 10).to_string());
+    }
+    times.sort();
+    eprintln!(
+        "timing: setVariable round trip against eludite-dbg-mono p95 {:.2} ms (max {:.2} ms, 20 calls)",
+        times[18].as_secs_f64() * 1e3,
+        times[19].as_secs_f64() * 1e3
+    );
+    let bad = client
+        .request_wait(
+            "setVariable",
+            json!({"variablesReference": locals, "name": "a", "value": "\"text\""}),
+            T,
+        )
+        .unwrap_err();
+    eprintln!("setVariable of a string to an int: {bad}");
+    let vars = client
+        .request_wait("variables", json!({"variablesReference": locals}), T)
+        .unwrap();
+    let a = vars["variables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["name"] == "a")
+        .unwrap()
+        .clone();
+    assert_eq!(a["value"], "10");
+    client
+        .request_wait("continue", json!({"threadId": tid}), T)
+        .unwrap();
+    rec.wait_nth(
+        1,
+        "result 26",
+        |e| matches!(e, ClientEvent::Event(Event::Output(o)) if o.output.contains("result 26")),
+    );
+    wait_terminated(&rec);
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
+
+    // A function breakpoint by name.
+    let (client, rec) = found.launch_plan(
+        &[],
+        Vec::new(),
+        vec![FunctionBreakpoint {
+            name: "Eludite.Debugger.Mono.TestApp.Calculator.Twice".into(),
+            ..Default::default()
+        }],
+        &[],
+        Vec::new(),
+    );
+    let s = rec.stopped(1);
+    assert_eq!(s.reason, "function breakpoint");
+    let st = client
+        .request_wait(
+            "stackTrace",
+            json!({"threadId": s.thread_id.unwrap(), "levels": 1}),
+            T,
+        )
+        .unwrap();
+    eprintln!(
+        "function breakpoint stop: {} line {}",
+        st["stackFrames"][0]["name"], st["stackFrames"][0]["line"]
+    );
+    assert!(
+        st["stackFrames"][0]["name"]
+            .as_str()
+            .unwrap()
+            .contains("Calculator.Twice"),
+        "{st}"
+    );
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
+        .unwrap();
+
+    // The same tracepoint emulated as the shell does on an adapter without log points: a stop, the stack, an evaluation
+    // and a resume per hit, 100 hits.
+    let clock = Instant::now();
+    let (client, rec) = found.launch_plan(&[], vec![bp("loop-body")], Vec::new(), &[], Vec::new());
+    let hits = common::emulate_tracepoint(&client, &rec, 100, "i");
+    let total = clock.elapsed();
+    assert_eq!(hits[0].0, "0");
+    assert_eq!(hits[99].0, "99");
+    let (mean, p95) = common::mean_p95(&hits.iter().map(|(_, t)| *t).collect::<Vec<_>>());
+    eprintln!(
+        "timing: an emulated tracepoint against eludite-dbg-mono through eludite-dap, stop to resume: mean {mean:.2} ms, \
+         p95 {p95:.2} ms over 100 hits; launch to the last hit {:.0} ms",
+        total.as_secs_f64() * 1e3
+    );
+    wait_terminated(&rec);
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
+
+    // The adapter's own log points: 100 lines from the loop body, no stop.
+    let clock = Instant::now();
+    let (client, rec) = found.launch_plan(
+        &[],
+        vec![SourceBreakpoint {
+            line: found.line_of("loop-body"),
+            log_message: Some("i={i} total={total}".into()),
+            ..Default::default()
+        }],
+        Vec::new(),
+        &[],
+        Vec::new(),
+    );
+    wait_terminated(&rec);
+    let lines = console_lines(&rec, "total=");
+    eprintln!(
+        "timing: the TestApp with an adapter log point on its loop body, launch to end: {:.0} ms for {} lines",
+        clock.elapsed().as_secs_f64() * 1e3,
+        lines.len()
+    );
+    assert_eq!(lines.len(), 100, "{lines:?}");
+    assert_eq!(lines[0].trim_end(), "i=0 total=0");
+    assert_eq!(lines[99].trim_end(), "i=99 total=4851");
+    assert!(
+        !rec.events()
+            .iter()
+            .any(|e| matches!(e, ClientEvent::Event(Event::Stopped(_))))
+    );
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
 }

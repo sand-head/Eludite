@@ -45,6 +45,8 @@ fn plan(kind: StartKind) -> StartPlan {
             ),
         ],
         exception_filters: vec!["user-unhandled".into(), "not-offered".into()],
+        exception_options: Vec::new(),
+        function_breakpoints: Vec::new(),
     }
 }
 

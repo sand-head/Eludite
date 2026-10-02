@@ -924,6 +924,8 @@ fn launch_thread(job: LaunchJob) {
         arguments,
         breakpoints,
         exception_filters: filters,
+        exception_options: Vec::new(),
+        function_breakpoints: Vec::new(),
     };
     let result = dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
     // The tests' fake adapter says so in its connection's description.
