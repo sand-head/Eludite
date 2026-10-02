@@ -434,8 +434,14 @@ mod tests {
         );
         let (p, a) = opener("http://localhost/", None);
         if std::env::var_os(OPENER_ENV).is_none() {
-            #[cfg(target_os = "linux")]
-            assert_eq!(p, "xdg-open");
+            let platform = if cfg!(target_os = "windows") {
+                "cmd"
+            } else if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
+            assert_eq!(p, platform);
         }
         assert_eq!(a.last().unwrap(), "http://localhost/");
     }

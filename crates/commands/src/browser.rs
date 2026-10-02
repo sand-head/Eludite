@@ -2186,6 +2186,19 @@ pub fn register(registry: &CommandRegistry, target: Arc<dyn BrowserTarget>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Absolute on this platform: `/w` is not absolute on Windows.
+    const W: &str = if cfg!(windows) { "C:/w" } else { "/w" };
+    const W_A: &str = if cfg!(windows) {
+        "C:/w/a.txt"
+    } else {
+        "/w/a.txt"
+    };
+    const OUTSIDE: &str = if cfg!(windows) {
+        "C:/etc/passwd"
+    } else {
+        "/etc/passwd"
+    };
     use serde_json::json;
 
     /// Checks `value` against `schema` for what these outputs use: `required`, `additionalProperties: false`,
@@ -2277,7 +2290,7 @@ mod tests {
     #[test]
     fn hooks_apply_the_browser_policy() {
         use crate::policy::AlwaysAllow;
-        let d = view(json!({"version": 1}), Some("/w"));
+        let d = view(json!({"version": 1}), Some(W));
         // navigate, tab_open, open_external: the origin rule.
         assert_eq!(
             class_of(NAVIGATE, json!({"url": "http://127.0.0.1:4000/"}), &d),
@@ -2307,23 +2320,19 @@ mod tests {
         );
         // The file rule.
         assert_eq!(
-            class_of(UPLOAD, json!({"ref": "e1", "paths": ["/w/a.txt"]}), &d),
+            class_of(UPLOAD, json!({"ref": "e1", "paths": [W_A]}), &d),
             None
         );
-        let up = class_of(
-            UPLOAD,
-            json!({"ref": "e1", "paths": ["/w/a.txt", "/etc/passwd"]}),
-            &d,
-        );
+        let up = class_of(UPLOAD, json!({"ref": "e1", "paths": [W_A, OUTSIDE]}), &d);
         assert_eq!(
             up,
             Some(Escalation::Raise {
                 class: PermissionClass::Dangerous,
-                reason: "upload a file outside the workspace: /etc/passwd".into(),
+                reason: format!("upload a file outside the workspace: {OUTSIDE}"),
                 always_allow: AlwaysAllow::Never,
             })
         );
-        let fields = json!({"fields": [{"ref": "e1", "value": "x"}, {"ref": "e2", "value": {"files": ["/tmp/x"]}}]});
+        let fields = json!({"fields": [{"ref": "e1", "value": "x"}, {"ref": "e2", "value": {"files": [OUTSIDE]}}]});
         assert!(class_of(FORM_INPUT, fields.clone(), &d).is_some());
         assert_eq!(
             class_of(
@@ -2336,7 +2345,7 @@ mod tests {
         assert!(
             class_of(
                 UPLOAD,
-                json!({"ref": "e1", "paths": ["/w/a.txt"]}),
+                json!({"ref": "e1", "paths": [W_A]}),
                 &view(json!({"version": 1}), None)
             )
             .is_some(),
@@ -2400,7 +2409,7 @@ mod tests {
         let r = CommandRegistry::new();
         register(&r, Arc::new(Nothing));
         r.set_policy_source(Arc::new(|| crate::policy::PolicySnapshot {
-            workspace: Some("/w".into()),
+            workspace: Some(W.into()),
             ..Default::default()
         }));
         let c = r
@@ -2746,7 +2755,7 @@ mod tests {
                     {"ref": "e1", "value": "Ada"},
                     {"ref": "e2", "value": true},
                     {"ref": "e3", "value": ["a", "b"]},
-                    {"ref": "e4", "value": {"files": ["/w/a.txt"]}}
+                    {"ref": "e4", "value": {"files": [W_A]}}
                 ], "tab": "t2"})
             )
             .unwrap(),
@@ -2767,7 +2776,7 @@ mod tests {
                     },
                     FormField {
                         ref_: "e4".into(),
-                        value: FieldValue::Files(vec!["/w/a.txt".into()])
+                        value: FieldValue::Files(vec![W_A.into()])
                     },
                 ]
             }
@@ -2788,11 +2797,11 @@ mod tests {
         assert!(parse(FORM_INPUT, json!({"fields": many})).is_err());
         // upload
         assert_eq!(
-            parse(UPLOAD, json!({"ref": "e9", "paths": ["/w/a.txt"]})).unwrap(),
+            parse(UPLOAD, json!({"ref": "e9", "paths": [W_A]})).unwrap(),
             BrowserRequest::Upload {
                 tab: None,
                 ref_: "e9".into(),
-                paths: vec!["/w/a.txt".into()]
+                paths: vec![W_A.into()]
             }
         );
         assert!(parse(UPLOAD, json!({"ref": "e9", "paths": []})).is_err());
