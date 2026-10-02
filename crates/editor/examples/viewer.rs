@@ -10,6 +10,9 @@
 //!                         row, print keystroke frame-cost JSON and quit
 //!   --bench-open          print time to first painted frame and to complete
 //!                         highlighting, with memory, and quit
+//!   --tree-limit BYTES    syntax tree retain limit (default TREE_RETAIN_LIMIT)
+//!   --measure-tree        without a window: tree memory, and the cost of an
+//!                         edit with the tree kept and dropped
 //! cargo run -p eludite-editor --release --example viewer -- --generate LANG LINES OUT
 //!   write a synthetic C# (LANG=csharp) or Rust (LANG=rust) file
 //! ```
@@ -26,6 +29,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use eludite_editor::syntax::LanguageRegistry;
+use eludite_editor::text;
 use eludite_editor::{Buffer, EditorView, key_bindings};
 use gpui::{
     App, AppContext as _, Bounds, Context, Entity, Focusable as _, IntoElement, Keystroke,
@@ -41,6 +45,8 @@ struct Args {
     lines_per_frame: f32,
     bench_type: Option<usize>,
     bench_open: bool,
+    tree_limit: Option<usize>,
+    measure_tree: bool,
     generate: Option<(String, usize, PathBuf)>,
 }
 
@@ -64,6 +70,10 @@ fn parse_args() -> Args {
                 a.bench_type = Some(n);
             }
             "--bench-open" => a.bench_open = true,
+            "--tree-limit" => {
+                a.tree_limit = Some(it.next().expect("BYTES").parse().expect("number"))
+            }
+            "--measure-tree" => a.measure_tree = true,
             "--generate" => {
                 let lang = it.next().expect("LANG");
                 let lines = it.next().expect("LINES").parse().expect("number");
@@ -77,7 +87,24 @@ fn parse_args() -> Args {
     a
 }
 
+// ----- allocator -----
+
+/// The viewer uses mimalloc, as the `eludite` binary does (brief 0011).
+/// `--features system-allocator` builds it on the system allocator instead,
+/// for the with-and-without comparison.
+#[cfg(not(feature = "system-allocator"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+#[cfg(not(feature = "system-allocator"))]
+const ALLOCATOR: &str = "mimalloc";
+#[cfg(feature = "system-allocator")]
+const ALLOCATOR: &str = "system";
+
 // ----- measurement -----
+
+/// How long the benchmarks wait before an idle or settled RSS reading.
+const IDLE_SETTLE: Duration = Duration::from_secs(2);
 
 fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.
@@ -118,7 +145,11 @@ fn rss_json() -> Value {
             .and_then(|v| v.parse::<f64>().ok())
             .map(|kib| round3(kib / 1024.))
     };
-    json!({"rss_mib": field("VmRSS:"), "peak_rss_mib": field("VmHWM:")})
+    json!({
+        "rss_mib": field("VmRSS:"),
+        "peak_rss_mib": field("VmHWM:"),
+        "tree_sitter_mib": round3(eludite_editor::syntax::alloc::live_bytes() as f64 / 1048576.),
+    })
 }
 
 fn platform_json(window: &Window) -> Value {
@@ -420,7 +451,11 @@ fn bench_type(handle: gpui::AnyWindowHandle, root: Entity<Root>, count: usize, c
             p.record_frames = true;
         });
         let rss_before = cx.update(|_| rss_json());
+        let mut rss_curve = Vec::new();
         for i in 0..count {
+            if i % 50 == 0 {
+                rss_curve.push(json!([i, cx.update(|_| rss_json())["rss_mib"].clone()]));
+            }
             let delay = 15. + 30. * rng.next_f64();
             executor.timer(Duration::from_micros((delay * 1000.) as u64)).await;
             let key = if i % 40 == 39 {
@@ -443,6 +478,16 @@ fn bench_type(handle: gpui::AnyWindowHandle, root: Entity<Root>, count: usize, c
             });
         }
         executor.timer(Duration::from_millis(300)).await;
+        let rss_after = cx.update(|_| rss_json());
+        // Settled: highlighting caught up with the last keystroke, then idle.
+        loop {
+            executor.timer(Duration::from_millis(10)).await;
+            if editor.read_with(cx, |v, _| v.highlights_complete()) {
+                break;
+            }
+        }
+        executor.timer(IDLE_SETTLE).await;
+        rss_curve.push(json!([count, cx.update(|_| rss_json())["rss_mib"].clone()]));
         let _ = handle.update(cx, |_, window, cx| {
             let p = probes.borrow();
             let handler: Vec<f64> = p.keys.iter().map(|k| ms(k.1 - k.0)).collect();
@@ -465,7 +510,10 @@ fn bench_type(handle: gpui::AnyWindowHandle, root: Entity<Root>, count: usize, c
                 "all_frames_render_to_present": summarize(&all_frames),
                 "highlight_updates": editor.read(cx).highlight_progress().0,
                 "rss_before": rss_before,
-                "rss_after": rss_json(),
+                "rss_after": rss_after,
+                "rss_settled": rss_json(),
+                "rss_curve_mib": rss_curve,
+                "allocator": ALLOCATOR,
                 "platform": platform_json(window),
             });
             println!("{out}");
@@ -473,6 +521,78 @@ fn bench_type(handle: gpui::AnyWindowHandle, root: Entity<Root>, count: usize, c
         });
     })
     .detach();
+}
+
+/// `--measure-tree`: what retaining the syntax tree costs and what dropping
+/// it costs, without GPUI. Prints tree-sitter's live bytes with the tree and
+/// without it, the time of a full parse and highlight pass, and the time to
+/// bring highlights up to date after a one-character edit with the tree kept
+/// (incremental) and with it dropped (full re-parse, every row redone).
+fn measure_tree(buffer: Buffer, language: std::sync::Arc<eludite_editor::syntax::Language>) {
+    use eludite_editor::syntax::{Highlighter, alloc::live_bytes};
+    let mib = |b: usize| round3(b as f64 / 1048576.);
+    let base = live_bytes();
+    let mut text = text::Buffer::new(
+        text::ReplicaId::LOCAL,
+        text::BufferId::new(1).unwrap(),
+        buffer.text(),
+    );
+    drop(buffer);
+    let pass = |h: &mut Highlighter, snapshot: &text::BufferSnapshot| {
+        let t = Instant::now();
+        let mut parse = Duration::ZERO;
+        let mut first = None;
+        loop {
+            let u = h.step(snapshot, 0..60).expect("not cancelled");
+            parse += u.stats.parse;
+            first.get_or_insert(t.elapsed());
+            if u.complete {
+                return (
+                    ms(parse),
+                    ms(first.unwrap()),
+                    ms(t.elapsed()),
+                    ms(u.stats.release),
+                );
+            }
+        }
+    };
+    let edit_middle = |text: &mut text::Buffer| {
+        let row = text.max_point().row / 2;
+        let at = text.point_to_offset(text::Point::new(row, 0));
+        text.edit([(at..at, "x")]);
+    };
+    // Retained: initial pass, then one edit re-parsed incrementally.
+    let mut kept = Highlighter::new(language.clone());
+    kept.set_retain_limit(usize::MAX);
+    let (parse_ms, first_ms, pass_ms, _) = pass(&mut kept, text.snapshot());
+    let with_tree = live_bytes() - base;
+    edit_middle(&mut text);
+    let (inc_parse_ms, inc_first_ms, inc_ms, inc_release_ms) = pass(&mut kept, text.snapshot());
+    drop(kept);
+    // Dropped: initial pass drops the tree; one edit re-parses from scratch.
+    let mut gated = Highlighter::new(language);
+    gated.set_retain_limit(0);
+    pass(&mut gated, text.snapshot());
+    let without_tree = live_bytes() - base;
+    edit_middle(&mut text);
+    let (full_parse_ms, full_first_ms, full_ms, full_release_ms) =
+        pass(&mut gated, text.snapshot());
+    let snapshot = text.snapshot();
+    println!(
+        "{}",
+        json!({
+            "bench": "measure-tree",
+            "bytes": snapshot.len(),
+            "lines": snapshot.max_point().row + 1,
+            "tree_sitter_mib_with_tree": mib(with_tree),
+            "tree_sitter_mib_without_tree": mib(without_tree),
+            "tree_bytes_per_source_byte": round3(with_tree as f64 / snapshot.len() as f64),
+            "initial": {"parse_ms": round3(parse_ms), "first_rows_ms": round3(first_ms), "complete_ms": round3(pass_ms)},
+            "edit_tree_kept": {"parse_ms": round3(inc_parse_ms), "first_rows_ms": round3(inc_first_ms), "complete_ms": round3(inc_ms), "release_ms": round3(inc_release_ms)},
+            "edit_tree_dropped": {"parse_ms": round3(full_parse_ms), "first_rows_ms": round3(full_first_ms), "complete_ms": round3(full_ms), "release_ms": round3(full_release_ms)},
+            "allocator": ALLOCATOR,
+        })
+    );
 }
 
 fn main() {
@@ -500,6 +620,10 @@ fn main() {
     let buffer_ms = ms(t_buffer.elapsed());
     let registry = LanguageRegistry::with_builtins();
     let language = registry.for_path(&path);
+    if args.measure_tree {
+        measure_tree(buffer, language.expect("a C# or Rust file"));
+        return;
+    }
     let benching = args.bench_scroll || args.bench_type.is_some() || args.bench_open;
 
     gpui_platform::application().run(move |cx: &mut App| {
@@ -530,7 +654,13 @@ fn main() {
         let mut root_out = None;
         let window = cx
             .open_window(options, |window, cx| {
-                let editor = cx.new(|cx| EditorView::new(buffer, language, cx));
+                let editor = cx.new(|cx| {
+                    let mut view = EditorView::new(buffer, language, cx);
+                    if let Some(limit) = args.tree_limit {
+                        view.set_syntax_tree_limit(limit);
+                    }
+                    view
+                });
                 window.focus(&editor.focus_handle(cx), cx);
                 let root = cx.new(|_| Root {
                     editor,
@@ -563,7 +693,10 @@ fn main() {
                         }
                     }
                     let complete = ms(t_main.elapsed());
+                    let rss_highlighted = rss_json();
                     let (updates, stats) = editor2.read_with(cx, |v, _| v.highlight_progress());
+                    // Idle: give the allocator time to return freed pages.
+                    cx.background_executor().timer(IDLE_SETTLE).await;
                     let out = json!({
                         "bench": "open",
                         "bytes": bytes,
@@ -575,7 +708,9 @@ fn main() {
                         "highlight_updates": updates,
                         "last_step_parse_ms": round3(ms(stats.parse)),
                         "rss_at_first_paint": rss_first,
-                        "rss_highlighted": rss_json(),
+                        "rss_highlighted": rss_highlighted,
+                        "rss_idle": rss_json(),
+                        "allocator": ALLOCATOR,
                     });
                     println!("{out}");
                     cx.update(|cx| cx.quit());
