@@ -26,7 +26,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | Path | Role | PLAN.md |
 |---|---|---|
 | `crates/eludite` | App binary: entry, window, layout | 3 (D1), 8 |
-| `crates/docking` | Tool windows, document tabs, layouts | 8 |
+| `crates/docking` | Tool windows, document tabs, layouts (layout schema v3 with migrations) | 8 |
 | `crates/ui` | Widgets, themes, keymaps, icons | 8 |
 | `crates/editor` | Buffer, view, input | 4.1 |
 | `crates/commands` | Command bus, schemas, audit | 5.1 |
