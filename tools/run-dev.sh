@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Launch a development build of Eludite on this repository with the host, debugger,
+# rust-analyzer and the Claude Code adapter wired up. Builds what is missing.
+# Usage: tools/run-dev.sh [--solution PATH | --folder PATH] [other eludite args]
+set -euo pipefail
+repo=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo"
+[ -x target/release/eludite ] || cargo build --release -p eludite
+[ -x agents/claude-acp/target/release/eludite-claude-acp ] || (cd agents/claude-acp && cargo build --release)
+host=dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host.dll
+[ -f "$host" ] || dotnet build dotnet/Eludite.slnx
+export ELUDITE_HOST="${ELUDITE_HOST:-$repo/$host}"
+export ELUDITE_CLAUDE_ACP="${ELUDITE_CLAUDE_ACP:-$repo/agents/claude-acp/target/release/eludite-claude-acp}"
+ncdb=$(ls -d "$HOME"/.cache/eludite/netcoredbg/*/netcoredbg/netcoredbg 2>/dev/null | tail -1 || true)
+[ -n "$ncdb" ] && export ELUDITE_NETCOREDBG="${ELUDITE_NETCOREDBG:-$ncdb}"
+args=("$@"); [ $# -eq 0 ] && args=(--folder "$repo")
+exec target/release/eludite "${args[@]}"
