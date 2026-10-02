@@ -51,7 +51,7 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         args: json!({ "id": id }),
     };
     vec![
-        show("ctrl-alt-l", "Ctrl+Alt+L", "solution_explorer"),
+        show("ctrl-alt-l", "Ctrl+Alt+L", "workspace"),
         show("ctrl-alt-x", "Ctrl+Alt+X", "toolbox"),
         show("ctrl-alt-o", "Ctrl+Alt+O", "output"),
         show("ctrl-\\ ctrl-e", "Ctrl+\\, Ctrl+E", "error_list"),
@@ -149,7 +149,7 @@ mod tests {
     fn vs_table() {
         let k = vs_keymap();
         let find = |id: &str| shortcut_for(&k, SHOW, &json!({ "id": id }));
-        assert_eq!(find("solution_explorer"), Some("Ctrl+Alt+L"));
+        assert_eq!(find("workspace"), Some("Ctrl+Alt+L"));
         assert_eq!(find("toolbox"), Some("Ctrl+Alt+X"));
         assert_eq!(find("output"), Some("Ctrl+Alt+O"));
         assert_eq!(find("error_list"), Some("Ctrl+\\, Ctrl+E"));

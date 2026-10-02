@@ -102,26 +102,26 @@ impl Harness {
 #[gpui::test]
 fn key_bindings_dispatch_view_commands(cx: &mut TestAppContext) {
     let mut h = open(cx);
-    // Close Solution Explorer, then Ctrl+Alt+L brings it back.
+    // Close Workspace, then Ctrl+Alt+L brings it back.
     h.commands
-        .invoke(view::HIDE, serde_json::json!({"id": "solution_explorer"}))
+        .invoke(view::HIDE, serde_json::json!({"id": "workspace"}))
         .unwrap();
     h.vcx.run_until_parked();
     assert!(matches!(
-        h.place(ids::SOLUTION_EXPLORER),
+        h.place(ids::WORKSPACE),
         Some(Place::Hidden { .. })
     ));
     let before = h.audit().len();
     h.keys("ctrl-alt-l");
     assert_eq!(h.audit()[before..], [view::SHOW]);
     assert!(matches!(
-        h.place(ids::SOLUTION_EXPLORER),
+        h.place(ids::WORKSPACE),
         Some(Place::Docked {
             side: DockSide::Right,
             ..
         })
     ));
-    assert!(h.active_in_group(ids::SOLUTION_EXPLORER));
+    assert!(h.active_in_group(ids::WORKSPACE));
 
     // Ctrl+Alt+O activates Output (a background tab of the bottom group).
     assert!(!h.active_in_group(ids::OUTPUT));

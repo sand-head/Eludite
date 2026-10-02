@@ -1,5 +1,5 @@
 //! Headless GPUI tests of opening a solution end to end (brief 0012), against the in-process fake `eludite-host`
-//! from `eludite-lsp` (feature `fake`): the command bus opens the solution, Solution Explorer shows the host's tree,
+//! from `eludite-lsp` (feature `fake`): the command bus opens the solution, Workspace shows the host's tree,
 //! a double-click opens a file in an editor, edits reach the host as a debounced `didChange`, injected diagnostics
 //! become squiggles and Error List rows with click-through, save, undo, close with the unsaved-changes question, an
 //! agent's commands from another thread, and a host stalled for 5 s that leaves the editor responsive.
@@ -198,7 +198,7 @@ impl Ws {
             out,
             json!({"path": sln.to_string_lossy(), "state": "loading"})
         );
-        self.wait("the Solution Explorer tree", |w| {
+        self.wait("the Workspace tree", |w| {
             w.shell
                 .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_some())
         });

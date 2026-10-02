@@ -62,7 +62,7 @@
         "additionalProperties": false,
         "properties": {
           "project": {
-            "description": "The project the file belongs to, as Solution Explorer names it; absent for a file outside the solution.",
+            "description": "The project the file belongs to, as Workspace names it; absent for a file outside the solution.",
             "type": "string"
           },
           "path": {

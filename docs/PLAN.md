@@ -118,7 +118,7 @@ Every debug adapter is reached through a transport abstraction (stdio child, TCP
 Rope buffer with piece-table-style undo, vendored if Zed's text crates pass audit. Multi-cursor, column selection, folding, bracket matching, inlay hints, CodeLens, semantic highlighting from LSP layered over tree-sitter, diff gutter, inline diagnostics, optional minimap, sticky scroll, ligature-aware shaping. Large-file mode above 10 MB degrades semantic features gracefully. Full Unicode, BOM and line-ending preservation (15-year-old WebForms repos depend on it).
 
 ### 4.2 Workspace and solution model (shell + host)
-Solution Explorer with VS semantics: solution folders, project dependencies, References and Packages nodes, Show All Files, nested files (`.designer.cs` and `.aspx.cs` under `.aspx`), file properties (Build Action, Copy to Output). Multi-root fallback without a solution. Project property pages for the ~30 properties people actually touch, editing `.csproj` XML directly and preserving formatting.
+The Workspace window (Solution Explorer in VS terms) with VS semantics: solution folders, project dependencies, References and Packages nodes, Show All Files, nested files (`.designer.cs` and `.aspx.cs` under `.aspx`), file properties (Build Action, Copy to Output). Multi-root fallback without a solution. Project property pages for the ~30 properties people actually touch, editing `.csproj` XML directly and preserving formatting.
 
 ### 4.3 Language intelligence (host)
 Everything the Roslyn LSP provides: completion with our own ranking, signature help, hover with XML docs, go to definition/implementation/base, find all references, rename, code actions and refactorings (extract method/interface/class, inline, move type, change signature, generate members), diagnostics with analyzers and source generators, CodeLens for references and tests, navigate to decompiled source (ILSpy's engine, MIT), semantic tokens, inlay hints, format, organize usings, EditorConfig. Host-side additions: a solution-wide symbol index so Go To All and call hierarchy are instant on 10k-file solutions.
@@ -240,12 +240,12 @@ Eludite should be recognizable to a VS user in the first five seconds and never 
 
 - **Chrome.** Menu bar (File, Edit, View, Git, Project, Build, Debug, Test, Analyze, Tools, Extensions, Window, Help), optional toolbars, a VS-style status bar with build/debug state, line/column, encoding, line endings, branch, and host memory.
 - **Docking.** Tool windows dock, tab, float, auto-hide and pin, with VS's docking guides on drag. Document tabs with pinned tabs and a preview tab. Layouts per solution and named layouts (Design, Debug). This alone makes the product look nothing like Zed, which has fixed docks.
-- **Default layout.** Solution Explorer right, Properties below it, Error List and Output bottom, Toolbox collapsed left.
+- **Default layout.** Workspace (the Solution Explorer role; see the divergence below) right, Properties below it, Error List and Output bottom, Toolbox collapsed left.
 - **Keymap.** VS on Windows and Linux; VS for Mac mapping on macOS with Rider as an option. F5, F9, F10, F11, Ctrl+T, Ctrl+Q, Ctrl+Shift+B, Ctrl+K Ctrl+D and the rest.
 - **Themes and type.** Our own VS Dark, Light and Blue defaults with VS's token colors, our own UI font stack and iconography. No Zed themes or icons are vendored.
 - **Theme system.** User-installable themes are a planned feature, not just built-in defaults: a documented theme format covering UI chrome and editor token colors, loadable from a file or an extension, with VS and VS Code theme import as a stretch goal. The format is ours; it is not required to be Zed's, though Zed's `theme` crate may be vendored as plumbing if the audit finds it worth it (D1). Lands with the extension system in Phase 2.
 - **Dialogs.** New Project backed by `dotnet new` templates, Add Reference, Project Properties, Options, Exception Settings, Attach to Process; same organization as VS.
-- **Deliberate divergences.** No modal dialogs during load, no blocking design-time builds, no "busy" banner; a command palette on Ctrl+Shift+P alongside Ctrl+Q; multibuffers for search results and references; inline agent prompts; a project graph view.
+- **Deliberate divergences.** The Solution Explorer window is called Workspace, because the same window will show Cargo workspaces, npm workspaces and plain folders, not only .NET solutions (owner's decision, 2026-10-02); its id is `workspace`, its contents and VS semantics are unchanged, and Ctrl+Alt+L still opens it. No modal dialogs during load, no blocking design-time builds, no "busy" banner; a command palette on Ctrl+Shift+P alongside Ctrl+Q; multibuffers for search results and references; inline agent prompts; a project graph view.
 
 ---
 
@@ -386,6 +386,7 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 | 7 | Language scope (v0.3) | .NET-first, not .NET-only. All .NET languages, the web stack and Rust are first-class per section 7; Rust basics land in Phase 1 for dogfooding. Other languages via extensions in Phase 5. |
 | 8 | Vendoring policy | Vendor over own when owning is not required (D1). Brief 0001's vendor list (sum_tree, rope, text, clock, fuzzy) is accepted; its rewrite verdicts are re-examined with that bias. |
 | 9 | Themes | A user-installable theme system is in scope for Phase 2 (section 8). Our own format and defaults; Zed's theme plumbing may be vendored but its look is not. |
+| 11 | Workspace window | The Solution Explorer window is named Workspace (id `workspace`) so one window serves .NET solutions, Cargo and npm workspaces and folders; VS semantics kept (section 8). |
 | 10 | Name (v0.4) | Eludite, replacing Niello, 2026-10-02. Repository sand-head/Eludite. |
 
 **Still open.** Which Zed crates actually pass the vendoring audit (Phase 0 output), and whether the Phase 0 GPUI spike on Windows clears the bar.

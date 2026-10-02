@@ -18,7 +18,7 @@
       "type": "boolean"
     },
     "project": {
-      "description": "Show only this project's rows, by its Solution Explorer name; null or an empty string shows every project.",
+      "description": "Show only this project's rows, by its Workspace name; null or an empty string shows every project.",
       "type": [
         "string",
         "null"

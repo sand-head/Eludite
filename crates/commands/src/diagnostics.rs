@@ -43,7 +43,7 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub code: String,
     pub message: String,
-    /// The project the file belongs to, as Solution Explorer names it.
+    /// The project the file belongs to, as Workspace names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
 }

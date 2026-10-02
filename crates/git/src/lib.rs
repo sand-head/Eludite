@@ -1,6 +1,6 @@
 //! Git integration over libgit2 (PLAN.md D2, 4.8).
 //!
-//! Status and branch queries for the status bar, Solution Explorer decorations
+//! Status and branch queries for the status bar, Workspace decorations
 //! and agents (git status is agent-visible state, PLAN.md 5.4).
 
 use std::path::Path;

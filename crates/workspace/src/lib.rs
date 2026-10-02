@@ -1,11 +1,11 @@
 //! Client-side solution and project model (PLAN.md 4.2, D4).
 //!
 //! The authoritative project system lives in `eludite-host` (MSBuild evaluation);
-//! the shell keeps a light model for Solution Explorer and can classify a
+//! the shell keeps a light model for Workspace and can classify a
 //! `.csproj` as SDK-style or legacy without asking the host.
 //!
 //! Public API: [`explorer`] turns the host's `eludite/solution/tree` answer into
-//! Solution Explorer's tree ([`explorer::SolutionModel`]) with Visual Studio's
+//! Workspace's tree ([`explorer::SolutionModel`]) with Visual Studio's
 //! semantics: folders that mirror the file system, nested files, sorting, and the
 //! flattened rows a view draws for a set of expanded nodes. [`Solution`] and
 //! [`classify_csproj`] are the older project-file helpers.

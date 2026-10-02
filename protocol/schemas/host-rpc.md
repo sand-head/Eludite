@@ -153,7 +153,7 @@ When no solution is open it changes nothing and returns the current generation.
 
 #### `eludite/solution/tree`
 
-The projects of the open solution with their source files, for Solution Explorer (brief 0012). The host computes it
+The projects of the open solution with their source files, for Workspace (brief 0012). The host computes it
 from its own MSBuild evaluation, in the background and once per generation, so the shell can send the request right
 after `eludite/solution/open` and get the answer when the evaluation finishes. It does not wait for the language
 server's load.
