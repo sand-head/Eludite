@@ -97,6 +97,24 @@ impl Shell {
             .or_else(|| self.solution_dir())
     }
 
+    /// A project's name as the Workspace window shows it: the Cargo package for a `Cargo.toml` (brief 0019), else
+    /// the project file's name without extension.
+    pub(super) fn project_display(&self, project: &str) -> String {
+        let path = Path::new(project);
+        if path.file_name().is_some_and(|n| n == "Cargo.toml")
+            && let Some(ws) = self.cargo_workspace()
+            && let Some(p) = ws.members.iter().find(|p| {
+                super::documents::normalize_path(&p.manifest_path)
+                    == super::documents::normalize_path(path)
+            })
+        {
+            return p.name.clone();
+        }
+        path.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
     /// The root a generic server for `path` gets from the open folder: the Cargo workspace root (or, while
     /// `cargo metadata` runs, the folder holding the `Cargo.toml`) when the registration's root marker is the
     /// manifest the folder opened and `path` is inside it.

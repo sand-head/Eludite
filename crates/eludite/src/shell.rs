@@ -13,6 +13,7 @@ pub mod agents;
 pub mod build;
 #[cfg(test)]
 mod build_tests;
+pub mod cargo_build;
 pub mod code_actions;
 pub mod debug;
 pub mod documents;
@@ -279,6 +280,8 @@ pub struct Shell {
     builds: Builds,
     /// Run and debug (brief 0018).
     debug: debug::Debugger,
+    /// Where the shell's own Cargo builds report, as the host reports MSBuild's (brief 0019).
+    build_events: futures::channel::mpsc::UnboundedSender<SessionEvent>,
     /// Language-server registrations and how to launch them (brief 0019).
     launches: ServerLaunches,
     /// Generic language servers by `<registration id>|<root>` (brief 0019).
@@ -476,6 +479,26 @@ impl Shell {
             .unwrap_or_else(|| builtins::VERSION.to_owned());
         status.set(slots::VERSION, format!("Eludite {version}"));
 
+        // The shell's own Cargo builds report through the same handlers as the host's builds (brief 0019).
+        let (build_events, mut cargo_events) = unbounded();
+        let cargo_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(first) = cargo_events.next().await {
+                let mut batch = vec![first];
+                while let Ok(more) = cargo_events.try_recv() {
+                    batch.push(more);
+                }
+                if this
+                    .update_in(cx, |shell, window, cx| {
+                        for event in batch {
+                            shell.on_session_event(event, window, cx);
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
         // Everything queued is applied in one update, so a burst of build output costs one frame.
         let event_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = events.next().await {
@@ -625,6 +648,7 @@ impl Shell {
             tree,
             builds: Builds::new(building, build_shared),
             debug: debugger,
+            build_events,
             launches,
             generic: Default::default(),
             folder: None,
@@ -639,6 +663,7 @@ impl Shell {
                 build_job_task,
                 debug_task.0,
                 debug_task.1,
+                cargo_task,
             ],
         }
     }
@@ -1360,12 +1385,7 @@ impl Shell {
     fn update_error_list(&mut self, cx: &mut Context<Self>) {
         let model = self.explorer.read(cx).model().cloned();
         let root = self.workspace_root();
-        let project_name = |p: &str| {
-            Path::new(p)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
+        let project_name = |p: &str| self.project_display(p);
         let mut rows = Vec::new();
         for (uri, diags) in &self.diagnostics {
             let Some(path) = uri_to_path(uri) else {
