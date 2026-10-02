@@ -134,8 +134,22 @@ pub fn relay(
     let mut line = Vec::new();
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 {
-            return Ok(());
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {}
+            // The IDE hung up (for example after rejecting the token). macOS and
+            // Windows report that as a reset or abort rather than a clean EOF.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::BrokenPipe
+                ) =>
+            {
+                return Ok(());
+            }
+            Err(e) => return Err(e),
         }
         output.write_all(&line)?;
         output.flush()?;
