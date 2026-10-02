@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-network.input.json",
+  "title": "eludite.browser.network input",
+  "description": "Read a tab's network requests, oldest first: method, url, status, resource type, MIME type, timing, size, failure and initiator. Pass the answer's `next` as `since` to read only newer requests; `dropped` counts requests lost because the tab keeps the last 5000. Filter by `url_pattern`, `status` or `resource_type`. Use to find failed API calls (4xx, 5xx, `failed`) after an action. A request still in flight has no status yet. Response bodies are not included. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "since": {
+      "description": "Answer requests after this cursor (default 0: from the oldest kept).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "url_pattern": {
+      "description": "Only requests whose url matches. A substring, or a regular expression between slashes (`/err(or)?/`; Rust regex syntax, `/.../i` for case-insensitive).",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "description": "Only responses with this HTTP status.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 999
+    },
+    "resource_type": {
+      "description": "Only this resource type, as CDP names it (Document, Stylesheet, Image, Media, Font, Script, XHR, Fetch, WebSocket, Other, ...), case-insensitive.",
+      "type": "string",
+      "minLength": 1
+    },
+    "max": {
+      "description": "The most requests to answer (default 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

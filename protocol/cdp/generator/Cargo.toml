@@ -1,0 +1,21 @@
+[package]
+name = "eludite-cdp-generator"
+description = "Generates Eludite's Chrome DevTools Protocol types (protocol/rust/src/cdp/) from the pinned protocol JSON."
+version.workspace = true
+edition.workspace = true
+license = "MIT"
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+
+[dev-dependencies]
+# The generated types themselves, for the serde round trips.
+eludite-protocol = { workspace = true, features = ["cdp"] }
+serde.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

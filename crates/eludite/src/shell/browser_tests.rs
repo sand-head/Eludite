@@ -1,0 +1,329 @@
+//! Headless tests of the shell's browser (brief 0023) against a fake [`Engine`]: the commands are registered and
+//! agent-visible with their schemas, they run on the `browser` worker and never on (or against) the UI thread, the
+//! Output window's Browser source gets the lifecycle lines, the settings reach the launch, and the browser closes
+//! with the workspace. The real Chrome is `crates/browser`'s tests.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
+
+use eludite_browser::{
+    CdpEvent, Engine, EngineConfig, EngineError, LaunchInfo, LogSink, TargetInfo,
+};
+use eludite_commands::browser as cmds;
+use eludite_commands::build::OutputSource;
+use eludite_commands::settings::SET;
+use eludite_commands::workspace;
+use serde_json::{Value, json};
+
+use super::tests::{Ws, setup};
+
+/// What the fake engines of one test saw.
+#[derive(Default)]
+struct Seen {
+    /// How long `is_running` blocks, to stand for a slow browser.
+    delay: Mutex<Duration>,
+    /// The configuration of each launch.
+    launches: Mutex<Vec<EngineConfig>>,
+    shutdowns: AtomicUsize,
+    /// The threads the engine was called on.
+    threads: Mutex<Vec<String>>,
+    /// Event channels handed out (kept open, as a live tab's are).
+    events: Mutex<Vec<mpsc::Sender<CdpEvent>>>,
+}
+
+struct FakeEngine {
+    seen: Arc<Seen>,
+    config: EngineConfig,
+    log: LogSink,
+    running: bool,
+}
+
+impl FakeEngine {
+    fn record(&self) {
+        let name = std::thread::current().name().unwrap_or("?").to_owned();
+        self.seen.threads.lock().unwrap().push(name);
+    }
+}
+
+impl Engine for FakeEngine {
+    fn name(&self) -> &'static str {
+        "fake-chrome"
+    }
+
+    fn configure(&mut self, config: EngineConfig) {
+        self.config = config;
+    }
+
+    fn is_running(&self) -> bool {
+        self.record();
+        std::thread::sleep(*self.seen.delay.lock().unwrap());
+        self.running
+    }
+
+    fn launch(&mut self) -> Result<Option<LaunchInfo>, EngineError> {
+        if self.running {
+            return Ok(None);
+        }
+        self.running = true;
+        self.seen.launches.lock().unwrap().push(self.config.clone());
+        (self.log)("Launched fake-chrome (Fake/1.0); DevTools at ws://fake");
+        Ok(self.info())
+    }
+
+    fn info(&self) -> Option<LaunchInfo> {
+        self.running.then(|| LaunchInfo {
+            executable: "fake-chrome".into(),
+            version: "Fake/1.0".into(),
+            endpoint: "ws://fake".into(),
+        })
+    }
+
+    fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {
+        if !self.running {
+            return Err(EngineError::NotRunning);
+        }
+        Ok(vec![TargetInfo {
+            target_id: "T1".into(),
+            url: "about:blank".into(),
+            title: String::new(),
+        }])
+    }
+
+    fn open_tab(&mut self, _url: &str) -> Result<String, EngineError> {
+        Ok("T2".into())
+    }
+
+    fn close_tab(&mut self, _target_id: &str) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn activate_tab(&mut self, _target_id: &str) -> Result<(), EngineError> {
+        Ok(())
+    }
+
+    fn attach(&mut self, target_id: &str) -> Result<String, EngineError> {
+        Ok(format!("S-{target_id}"))
+    }
+
+    fn send(
+        &self,
+        _session: &str,
+        _method: &str,
+        _params: Value,
+        _timeout: Duration,
+    ) -> Result<Value, EngineError> {
+        self.record();
+        Ok(json!({}))
+    }
+
+    fn subscribe(&self, _session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError> {
+        let (tx, rx) = mpsc::channel();
+        self.seen.events.lock().unwrap().push(tx);
+        Ok(rx)
+    }
+
+    fn shutdown(&mut self) {
+        if self.running {
+            self.running = false;
+            self.seen.shutdowns.fetch_add(1, Ordering::SeqCst);
+            (self.log)("Closed the browser.");
+        }
+    }
+}
+
+/// The shell with fake engines.
+fn setup_fake(cx: &mut gpui::TestAppContext) -> (Ws, Arc<Seen>) {
+    let w = setup(cx);
+    let seen = Arc::new(Seen::default());
+    let engines = seen.clone();
+    w.shell.read_with(&w.vcx, |s, _| {
+        s.browser().set_engine_factory(Arc::new(move |config, log| {
+            Box::new(FakeEngine {
+                seen: engines.clone(),
+                config,
+                log,
+                running: false,
+            })
+        }))
+    });
+    (w, seen)
+}
+
+fn browser_output(w: &Ws) -> String {
+    w.shell.read_with(&w.vcx, |s, cx| {
+        let pane = s.output.read(cx).pane(OutputSource::Browser);
+        (0..pane.len())
+            .filter_map(|i| pane.line(i))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
+#[gpui::test]
+fn browser_commands_are_registered_agent_visible_with_their_schemas(cx: &mut gpui::TestAppContext) {
+    let (w, seen) = setup_fake(cx);
+    for id in cmds::ALL {
+        let spec = w
+            .commands
+            .lookup(id)
+            .unwrap_or_else(|| panic!("{id} is registered"));
+        assert!(spec.agent_visible, "{id}");
+        let expected = cmds::spec(id);
+        assert_eq!(spec.input_schema, expected.input_schema, "{id}");
+        assert_eq!(spec.output_schema, expected.output_schema, "{id}");
+        assert_eq!(spec.permission, expected.permission, "{id}");
+    }
+    assert!(
+        w.commands
+            .agent_visible()
+            .iter()
+            .any(|s| s.id.as_str() == cmds::SCREENSHOT)
+    );
+    // Registering is all a cold start pays for the browser: the fourteen commands' schemas.
+    let fresh = eludite_commands::CommandRegistry::new();
+    let t = Instant::now();
+    let _bus = super::browser::register(&fresh);
+    let took = t.elapsed();
+    eprintln!("registering the browser commands at startup: {took:?}");
+    assert!(took < Duration::from_millis(50), "{took:?}");
+    // A cold start does nothing for the browser: no worker, no engine, nothing launched.
+    assert!(!w.shell.read_with(&w.vcx, |s, _| s.browser().started()));
+    assert!(seen.threads.lock().unwrap().is_empty());
+}
+
+#[gpui::test]
+fn tabs_runs_on_the_browser_worker_and_never_delays_a_frame(cx: &mut gpui::TestAppContext) {
+    let (mut w, seen) = setup_fake(cx);
+    *seen.delay.lock().unwrap() = Duration::from_millis(200);
+    // The UI thread never calls into the browser: it fails at once rather than wait.
+    let t = Instant::now();
+    let err = w
+        .commands
+        .invoke(cmds::TABS, json!({}))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("UI thread"), "{err}");
+    assert!(t.elapsed() < Duration::from_millis(50));
+    assert!(seen.threads.lock().unwrap().is_empty());
+
+    // An agent's call (another thread) waits on the worker while the UI keeps drawing.
+    let commands = w.commands.clone();
+    let agent = std::thread::spawn(move || commands.invoke(cmds::TABS, json!({})));
+    let started = Instant::now();
+    let mut worst = Duration::ZERO;
+    let mut frames = 0;
+    while !agent.is_finished() {
+        assert!(
+            started.elapsed() < super::tests::T,
+            "the agent's call timed out"
+        );
+        let t = Instant::now();
+        w.shell.update(&mut w.vcx, |_, cx| cx.notify());
+        w.vcx.run_until_parked();
+        worst = worst.max(t.elapsed());
+        frames += 1;
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let out = agent.join().unwrap().unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(200),
+        "the fake engine blocked"
+    );
+    assert_eq!(out["running"], false);
+    assert_eq!(out["engine"]["name"], "fake-chrome");
+    assert!(frames > 5, "frames went on during the call ({frames})");
+    assert!(
+        worst < Duration::from_millis(100),
+        "a frame waited {worst:?} on the browser"
+    );
+    let threads = seen.threads.lock().unwrap().clone();
+    assert!(
+        !threads.is_empty() && threads.iter().all(|t| t == super::browser::THREAD),
+        "{threads:?}"
+    );
+    eprintln!("tabs with a 200 ms engine: {frames} UI updates meanwhile, the slowest {worst:?}");
+}
+
+#[gpui::test]
+fn the_output_window_shows_the_browsers_lifecycle(cx: &mut gpui::TestAppContext) {
+    let (mut w, _seen) = setup_fake(cx);
+    let opened = w.agent_invoke(cmds::TAB_OPEN, json!({})).unwrap();
+    assert_eq!(opened["id"], "t1");
+    assert_eq!(opened["launched"], true);
+    w.wait("the launch and the tab in Output", |w| {
+        let out = browser_output(w);
+        out.contains("Launched fake-chrome (Fake/1.0)") && out.contains("Opened tab t1")
+    });
+    let tabs = w.agent_invoke(cmds::TABS, json!({})).unwrap();
+    assert_eq!(tabs["running"], true);
+    assert_eq!(tabs["engine"]["version"], "Fake/1.0");
+    w.agent_invoke(cmds::TAB_CLOSE, json!({"tab": "t1"}))
+        .unwrap();
+    w.wait("the closed tab in Output", |w| {
+        browser_output(w).contains("Closed tab t1")
+    });
+    // Every call is audited as every command is.
+    let audit = w.audit();
+    for id in [cmds::TAB_OPEN, cmds::TABS, cmds::TAB_CLOSE] {
+        assert!(audit.iter().any(|c| c == id), "{id} in {audit:?}");
+    }
+}
+
+#[gpui::test]
+fn settings_reach_the_launch_and_the_browser_closes_with_the_workspace(
+    cx: &mut gpui::TestAppContext,
+) {
+    let (mut w, seen) = setup_fake(cx);
+    w.open_solution();
+    for (key, value) in [
+        ("browser.chromePath", json!("/opt/chrome-test/chrome")),
+        ("browser.headless", json!(true)),
+        ("browser.viewport", json!("800x600")),
+    ] {
+        w.agent_invoke(SET, json!({"key": key, "value": value}))
+            .unwrap();
+    }
+    w.wait("the browser settings applied", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.browser().settings().viewport == (800, 600))
+    });
+    w.agent_invoke(cmds::TAB_OPEN, json!({})).unwrap();
+    let launch = seen.launches.lock().unwrap()[0].clone();
+    assert_eq!(
+        launch.executable.as_deref(),
+        Some(std::path::Path::new("/opt/chrome-test/chrome"))
+    );
+    assert!(launch.headless);
+    assert_eq!(launch.viewport, (800, 600));
+    assert_eq!(
+        launch.profile_dir,
+        w.dir
+            .path()
+            .join(".eludite")
+            .join("browser")
+            .join("profile")
+    );
+
+    // Closing the workspace closes the browser, without waiting on the UI thread.
+    let commands = w.commands.clone();
+    let agent = std::thread::spawn(move || commands.invoke(workspace::WORKSPACE_CLOSE, json!({})));
+    w.wait("the workspace closed", |_| agent.is_finished());
+    w.wait("the browser closed", |w| {
+        seen.shutdowns.load(Ordering::SeqCst) == 1
+            && browser_output(w).contains("Closed the browser.")
+    });
+    // The next launch (no workspace open) uses a profile outside any workspace.
+    let next = w.shell.read_with(&w.vcx, |s, _| s.browser().config());
+    assert!(
+        !next.profile_dir.starts_with(w.dir.path()),
+        "{}",
+        next.profile_dir.display()
+    );
+
+    // Shell exit: the shutdown answers once the browser is closed.
+    w.agent_invoke(cmds::TAB_OPEN, json!({})).unwrap();
+    let done = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
+    done.recv_timeout(super::tests::T).unwrap();
+    assert_eq!(seen.shutdowns.load(Ordering::SeqCst), 2);
+}

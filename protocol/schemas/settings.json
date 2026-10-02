@@ -10,7 +10,8 @@
     "Projects and Solutions > Build and Run",
     "Debugging > General",
     "Text Editor > Rust",
-    "Agents"
+    "Agents",
+    "Web Browser"
   ],
   "properties": {
     "keyboard.preset": {
@@ -155,6 +156,31 @@
           }
         }
       }
+    },
+    "browser.chromePath": {
+      "description": "The Chrome or Chromium executable the browser tools (eludite.browser.*) launch. Empty: Chrome for Testing from tools/chrome/fetch.sh in Eludite's cache, then google-chrome, google-chrome-stable, chromium, chromium-browser or chrome on PATH, then the platform's usual install locations. Applies to the next launch.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Chrome executable",
+      "x-eludite-env": "ELUDITE_CHROME"
+    },
+    "browser.headless": {
+      "description": "Run the browser without a window (Chrome's --headless=new). Off: the browser opens its own window beside Eludite, so you see what agents do. Applies to the next launch.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Run the browser headless"
+    },
+    "browser.viewport": {
+      "description": "The browser window's size at launch, WIDTHxHEIGHT in pixels (Chrome's --window-size). A tab's viewport can be changed later with eludite.browser.resize. Applies to the next launch.",
+      "type": "string",
+      "default": "1280x800",
+      "pattern": "^[1-9][0-9]{1,4}x[1-9][0-9]{1,4}$",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Window size"
     }
   }
 }

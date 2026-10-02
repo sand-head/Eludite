@@ -244,15 +244,18 @@ pub fn run(args: Args, t_main: Instant) {
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);
         }
-        // Stop the generic language servers (rust-analyzer) on exit too, off the UI thread.
+        // Stop the generic language servers (rust-analyzer) and the browser (brief 0023) on exit too, off the UI
+        // thread.
         shell.update(cx, |_, cx| {
             cx.on_app_quit(|shell: &mut Shell, _| {
                 let done = shell.shutdown_generic();
+                let browser = shell.browser().shutdown();
                 let (tx, rx) = futures::channel::oneshot::channel();
                 std::thread::spawn(move || {
                     for d in done {
                         let _ = d.recv_timeout(Duration::from_secs(5));
                     }
+                    let _ = browser.recv_timeout(crate::shell::browser::EXIT_TIMEOUT);
                     let _ = tx.send(());
                 });
                 async move {

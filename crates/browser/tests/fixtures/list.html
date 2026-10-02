@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Five thousand items</title>
+</head>
+<body>
+<h1>Items</h1>
+<ul id="items"></ul>
+<script>
+  // 5,000 list items, each a link: read_page's interactive filter finds 5,000 nodes and lists max_nodes of them.
+  const ul = document.getElementById('items');
+  const frag = document.createDocumentFragment();
+  for (let i = 1; i <= 5000; i++) {
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = '#item-' + i;
+    a.textContent = 'Item ' + i;
+    li.append(a);
+    frag.append(li);
+  }
+  ul.append(frag);
+</script>
+</body>
+</html>

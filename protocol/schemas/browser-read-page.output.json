@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-read-page.output.json",
+  "title": "eludite.browser.read_page output",
+  "description": "The nodes, in document order.",
+  "type": "object",
+  "required": [
+    "tab",
+    "url",
+    "mode",
+    "nodes",
+    "total",
+    "truncated",
+    "page_generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "url": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "accessibility",
+        "dom"
+      ]
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "role",
+          "name",
+          "depth"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "pattern": "^e[0-9]+$"
+          },
+          "role": {
+            "description": "The accessibility role (`button`, `link`, `textbox`, ...); in `dom` mode, the element's tag name.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The accessible name (the label a screen reader reads); in `dom` mode, the aria-label, alt, title, placeholder or name attribute, or the element's own text.",
+            "type": "string"
+          },
+          "value": {
+            "description": "A control's current value.",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "state": {
+            "description": "The states the node has; omitted when it has none.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "checked": {
+                "enum": [
+                  true,
+                  false,
+                  "mixed"
+                ]
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "expanded": {
+                "type": "boolean"
+              },
+              "focused": {
+                "type": "boolean"
+              },
+              "selected": {
+                "type": "boolean"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "invalid": {
+                "type": "boolean"
+              }
+            }
+          },
+          "box": {
+            "description": "The element's border box in CSS pixels relative to the viewport's top left corner (the space screenshots use). Omitted when the element has no box (not rendered).",
+            "type": "object",
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0
+              },
+              "height": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          },
+          "depth": {
+            "description": "Nesting depth among the nodes listed (0 for the top).",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "How many nodes passed the filter (more than listed when truncated). On a large page read element by element (see the input's `mode`), the elements past the listed ones that can be interactive are counted without reading each one's accessibility node, so a truncated total is an upper bound.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

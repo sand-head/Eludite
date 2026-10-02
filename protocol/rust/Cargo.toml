@@ -14,3 +14,8 @@ serde_json.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+# The generated Chrome DevTools Protocol types (`cdp`, brief 0023): about 1,500 serde types, so only the crates that
+# drive a browser compile them.
+cdp = []

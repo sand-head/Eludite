@@ -51,6 +51,25 @@ jobs:
       - name: Build
         run: cargo build --workspace
 
+      # The browser tests (crates/browser/tests/chrome.rs, brief 0023) run on Linux against Chrome for Testing,
+      # pinned in tools/chrome/PIN. On Windows and macOS they skip themselves unless ELUDITE_CHROME is set.
+      - name: Cache Chrome for Testing
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/chrome
+          key: chrome-for-testing-${{ runner.os }}-${{ hashFiles('tools/chrome/PIN') }}
+
+      - name: Fetch Chrome for Testing
+        if: runner.os == 'Linux'
+        run: |
+          chrome="$(tools/chrome/fetch.sh)"
+          echo "ELUDITE_CHROME=$chrome" >> "$GITHUB_ENV"
+          # Ubuntu's AppArmor policy blocks the user namespaces Chrome's sandbox needs on the hosted runners; the
+          # tests then launch Chrome with --no-sandbox, which only this variable adds.
+          echo "ELUDITE_CHROME_NO_SANDBOX=1" >> "$GITHUB_ENV"
+          "$chrome" --version
+
       - name: Test
         run: cargo test --workspace
 

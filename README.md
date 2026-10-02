@@ -55,16 +55,17 @@ Windows and macOS need no extra system packages beyond the Rust and .NET toolcha
 crates/            Rust workspace (shell)
   eludite/         binary: entry, window, layout
   docking/ ui/ editor/ commands/ workspace/
-  lsp/ dap/ acp/ mcp/ git/ terminal/ extensions/
+  lsp/ dap/ acp/ mcp/ browser/ git/ terminal/ extensions/
 vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), each with WHY.md
 dotnet/            .NET solution (hosts)
 debuggers/netfx/   eludite-dbg-netfx (Rust, Windows)
 debuggers/mono/    eludite-dbg-mono (C# on Mono.Debugging.Soft, runs under Mono: .NET Framework on Linux and macOS)
 protocol/          MIT: schemas, generated bindings
+  cdp/             the pinned Chrome DevTools Protocol and the generator of its Rust types
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
 corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
-tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer)
+tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer, Chrome for Testing)
 docs/              PLAN.md, adr/, briefs/
 ```
 

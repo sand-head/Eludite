@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-open.output.json",
+  "title": "eludite.browser.tab_open output",
+  "description": "The tab opened (now the active tab).",
+  "type": "object",
+  "required": [
+    "id",
+    "url",
+    "title",
+    "active",
+    "loading",
+    "page_generation",
+    "launched"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "active": {
+      "description": "The tab commands act on when they are given no `tab`.",
+      "type": "boolean"
+    },
+    "loading": {
+      "description": "The main frame is loading (between Page.frameStartedLoading and frameStoppedLoading).",
+      "type": "boolean"
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "launched": {
+      "description": "This call launched the browser.",
+      "type": "boolean"
+    },
+    "status": {
+      "description": "The HTTP status of the main document, when a url was loaded over HTTP.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

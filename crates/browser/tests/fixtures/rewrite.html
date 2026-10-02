@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rewrite</title>
+</head>
+<body>
+<h1>Before</h1>
+<button id="rewrite" onclick="rewrite()">Rewrite</button>
+<script>
+  // Replaces the whole document: refs from before must be refused as stale.
+  function rewrite() {
+    document.open();
+    document.write('<!doctype html><title>Rewritten</title><h1>After</h1><button id="again">Again</button>');
+    document.close();
+  }
+</script>
+</body>
+</html>
