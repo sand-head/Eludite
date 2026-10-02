@@ -313,5 +313,126 @@
    }
   }
  ],
- "discarded": "A first benchmark round (load 2.3 to 7.2) is not reported: its harness toggled the breakpoint, which the previous run had persisted, so run 2 had no breakpoint and timed out. The harness now sets the breakpoint (action set) and waits for at least one bound breakpoint. That round's valid runs agree with these numbers (F5 to break shown 179 to 229 ms, step to shown p95 11.4 ms, frame cost p99 5.4 ms)."
+ "discarded": "A first benchmark round (load 2.3 to 7.2) is not reported: its harness toggled the breakpoint, which the previous run had persisted, so run 2 had no breakpoint and timed out. The harness now sets the breakpoint (action set) and waits for at least one bound breakpoint. That round's valid runs agree with these numbers (F5 to break shown 179 to 229 ms, step to shown p95 11.4 ms, frame cost p99 5.4 ms).",
+ "after_rebase": {
+  "note": "Re-run after rebasing onto origin/main at b77ff34 (brief 0017's build merged): the manual drive (no screenshots kept; Ping's first statement is now line 75) and one benchmark run of 3 sessions",
+  "load_average_1_5_15": [
+   "drive 2.36 8.43 6.74",
+   "debug-1 2.04 7.96 6.62"
+  ],
+  "drive": {
+   "loaded_ms": 1790954158737,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0018-debug/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 1 (0 errors)",
+   "f5_to_running_ms": 582,
+   "f5_to_bound_ms": 621,
+   "debuggee_pid": 1519740,
+   "ping_to_break_ms": 26,
+   "break": "debug locals stop 1 this={Eludite.Host.Rpc.HostRpcTarget} timestamp=null",
+   "f10_to_locals_ms": 55,
+   "step": "debug locals stop 2 this={Eludite.Host.Rpc.HostRpcTarget} timestamp=\"2026-10-02T15:16:07.4711973Z\"",
+   "continue_trace": [],
+   "shift_f5_to_ended_ms": 46,
+   "trace": [
+    "debug launched /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0018-debug/dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host.dll debug=true adapter=Some(\"/home/sand_head/.cache/eludite/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --interpreter=vscode (stdio)\")",
+    "debug process Some(1519740)",
+    "debug running generation 1",
+    "debug breakpoint changed verified=true line=Some(75)",
+    "debug break stop 1 breakpoint at Some(\"HostRpcTarget.cs:75\")",
+    "debug locals stop 1 this={Eludite.Host.Rpc.HostRpcTarget} timestamp=null",
+    "debug break stop 2 step at Some(\"HostRpcTarget.cs:76\")",
+    "debug locals stop 2 this={Eludite.Host.Rpc.HostRpcTarget} timestamp=\"2026-10-02T15:16:07.4711973Z\"",
+    "debug ended None"
+   ]
+  },
+  "benchmark_run": {
+   "bench": "debug_in_shell",
+   "method": "F5 with a breakpoint on Ping's first statement in the real eludite-host under netcoredbg; once running and bound, eludite/ping written to the debuggee's stdin; break shown = locals loaded and given to the windows; visible = end of the present of the first frame rendered after that. Steps: F10 twice per break; step state = key to break shown, step visible = key to end of that present. Frame cost = render to end of present of each frame drawn between an F10 and its present. Locals: 200 rows given to the Locals window to the end of the present of the frame drawing them",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0018-debug/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+   "line": 75,
+   "sessions": 3,
+   "pings_per_session": 20,
+   "timeouts": 0,
+   "first_session": [
+    {
+     "f5_to_break_shown_ms": 194.849,
+     "f5_to_break_visible_ms": 213.815,
+     "f5_to_running_ms": 74.391,
+     "ping_to_break_shown_ms": 120.458,
+     "start_to_first_break_ms": 190.74
+    }
+   ],
+   "later_sessions": [
+    {
+     "f5_to_break_shown_ms": 198.11,
+     "f5_to_break_visible_ms": 213.026,
+     "f5_to_running_ms": 70.241,
+     "ping_to_break_shown_ms": 127.869,
+     "start_to_first_break_ms": 198.079
+    },
+    {
+     "f5_to_break_shown_ms": 183.191,
+     "f5_to_break_visible_ms": 198.159,
+     "f5_to_running_ms": 71.643,
+     "ping_to_break_shown_ms": 111.547,
+     "start_to_first_break_ms": 183.124
+    }
+   ],
+   "f5_to_break_shown_later": {
+    "n": 2,
+    "p50_ms": 183.191,
+    "p95_ms": 198.11,
+    "p99_ms": 198.11,
+    "max_ms": 198.11
+   },
+   "step_to_shown": {
+    "n": 120,
+    "p50_ms": 5.986,
+    "p95_ms": 11.699,
+    "p99_ms": 12.664,
+    "max_ms": 12.8
+   },
+   "step_to_visible": {
+    "n": 120,
+    "p50_ms": 16.728,
+    "p95_ms": 34.621,
+    "p99_ms": 67.514,
+    "max_ms": 81.103
+   },
+   "frame_cost_while_stepping": {
+    "n": 205,
+    "p50_ms": 3.471,
+    "p95_ms": 5.132,
+    "p99_ms": 5.685,
+    "max_ms": 6.27
+   },
+   "locals_200_render_to_present": {
+    "n": 20,
+    "p50_ms": 3.444,
+    "p95_ms": 4.424,
+    "p99_ms": 6.093,
+    "max_ms": 6.093
+   },
+   "locals_200_set_to_present": {
+    "n": 20,
+    "p50_ms": 3.84,
+    "p95_ms": 17.011,
+    "p99_ms": 17.052,
+    "max_ms": 17.052
+   },
+   "rss": {
+    "rss_mib": 99.1,
+    "peak_rss_mib": 99.1
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-1519123",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ }
 }
