@@ -271,9 +271,13 @@ fn auto_hide_fly_out_and_pin(cx: &mut TestAppContext) {
     h.click("documents");
     assert!(h.controller.snapshot().flyout.is_none());
     assert!(h.vcx.debug_bounds("flyout").is_none());
-    // Clicking the strip tab slides it out; Pin docks it.
+    // Clicking the strip tab slides it out, and clicking again keeps it out
+    // (the hover that precedes a real click has usually opened it already).
     h.click("strip-solution_explorer");
     assert!(h.vcx.debug_bounds("flyout").is_some());
+    h.click("strip-solution_explorer");
+    assert!(h.vcx.debug_bounds("flyout").is_some());
+    // Pin docks it.
     h.click("flyout-pin");
     assert_eq!(h.side(ids::SOLUTION_EXPLORER), Some(DockSide::Right));
     assert!(h.vcx.debug_bounds("flyout").is_none());
