@@ -12,7 +12,8 @@
 //! permission gate and the invoker hook the shell supplies; the gate sees each
 //! call's effective class, ADR-0009), and [`transport`]
 //! (stdio serving, the IDE's local TCP endpoint and the stdio relay an agent
-//! launches). Hand-written rather than built on `rmcp`: four methods over the
+//! launches), and [`resources`]: the guides for agents served as MCP resources (`eludite://guides/debugging`,
+//! brief 0027). Hand-written rather than built on `rmcp`: a few methods over the
 //! existing `eludite-protocol` types, no async runtime, and the schemas come
 //! from `protocol/` rather than being derived from Rust types.
 
@@ -24,6 +25,7 @@ pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
 
+pub mod resources;
 mod server;
 pub mod transport;
 

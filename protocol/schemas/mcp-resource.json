@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/mcp-resource.json",
+  "title": "Eludite MCP resource",
+  "description": "How Eludite's MCP server exposes a guide for agents as an MCP resource (MCP Resources, revision 2025-06-18 and later): `initialize` advertises the `resources` capability; `resources/list` answers `{\"resources\": [<this object>]}` in one page (no `nextCursor`); `resources/read` with `{\"uri\"}` answers `{\"contents\": [{\"uri\", \"mimeType\", \"text\"}]}` and an unknown uri is the JSON-RPC error -32002 (resource not found) naming it; `resources/templates/list` answers `{\"resourceTemplates\": []}`. The guides are compiled into Eludite from `docs/agents/`, so they match the commands of the build. The first is `eludite://guides/debugging` (`docs/agents/debugging.md`, `text/markdown`): how an agent should drive the debugger (eludite.debug.*).",
+  "type": "object",
+  "required": [
+    "uri",
+    "name",
+    "mimeType"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "uri": {
+      "description": "`eludite://guides/<name>`.",
+      "type": "string",
+      "pattern": "^eludite://guides/[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "description": "When to read it.",
+      "type": "string"
+    },
+    "mimeType": {
+      "const": "text/markdown"
+    },
+    "size": {
+      "description": "The text's size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "read_result": {
+      "description": "`resources/read`'s result.",
+      "type": "object",
+      "required": [
+        "contents"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "contents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "uri",
+              "mimeType",
+              "text"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "uri": {
+                "type": "string"
+              },
+              "mimeType": {
+                "const": "text/markdown"
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "list_result": {
+      "description": "`resources/list`'s result.",
+      "type": "object",
+      "required": [
+        "resources"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#"
+          }
+        }
+      }
+    },
+    "templates_list_result": {
+      "description": "`resources/templates/list`'s result: Eludite has no resource templates.",
+      "type": "object",
+      "required": [
+        "resourceTemplates"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "resourceTemplates": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    }
+  }
+}

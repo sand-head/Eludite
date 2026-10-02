@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-toggle-breakpoint.input.json",
   "title": "eludite.debug.toggle_breakpoint input",
   "description": "Debug > Toggle Breakpoint (F9, or a click in the editor's breakpoint margin), and the Breakpoints window's edits: set, change or delete the breakpoint on a line, a tracepoint (`log_message`: Visual Studio's \"When Hit... Print a message and Continue\") or a function breakpoint (`function`). Breakpoints persist per solution and apply to a running session at once. Conditions are C# expressions evaluated by the debugger; a hit condition breaks only on some hits. A `log_message` with `{expression}` segments runs debuggee code at every hit (as a condition does), so such a call is of the execute class.",
+  "x-eludite-escalates": "Only a tracepoint whose `log_message` has an `{expression}` (it runs debuggee code at every hit): dangerous when the solution's policy sets `debug.drive` or `debug.evaluate` to `prompt`, refused for agents when either is `deny`. Plain breakpoints keep the declared class.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

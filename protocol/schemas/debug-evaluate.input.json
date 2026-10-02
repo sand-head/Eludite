@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-evaluate.input.json",
   "title": "eludite.debug.evaluate input",
   "description": "Evaluate a C# expression in the stopped debuggee, in the selected stack frame or a given one, as the Watch window, data tips and the Debug Console do. With `expand`, also list one level of the result's members (fields, properties, elements), which is how the Locals and Watch windows expand a value.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.evaluate` to `prompt`; refused for agents when it sets `debug.evaluate` to `deny`.",
   "type": "object",
   "required": [
     "expression"

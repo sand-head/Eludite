@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-processes.output.json",
+  "title": "eludite.debug.processes output",
+  "description": "The candidate processes for eludite.debug.attach.",
+  "type": "object",
+  "required": [
+    "processes",
+    "total",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "processes": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": [
+          "pid",
+          "name",
+          "command_line",
+          "runtime",
+          "launched_by_eludite"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pid": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parent": {
+            "description": "The parent process's id, when known.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "description": "The program's name (`dotnet`, `mono`, `sh`), from its command line or the process table.",
+            "type": "string"
+          },
+          "command_line": {
+            "description": "The command line, its arguments separated by spaces (an argument with a space in double quotes), cut at 500 characters (ending with `…`). Empty when it cannot be read.",
+            "type": "string"
+          },
+          "runtime": {
+            "description": "What runs it, from its command line: `dotnet` (`dotnet` running a `.dll`), `mono` (run by `mono`), `native` (anything else), `netfx` (a .NET Framework program on Windows) or `unknown` (the command line cannot be read).",
+            "enum": [
+              "dotnet",
+              "netfx",
+              "mono",
+              "native",
+              "unknown"
+            ]
+          },
+          "launched_by_eludite": {
+            "description": "Eludite started it in this session (Start Debugging or Start Without Debugging), or it is a child process of one it started.",
+            "type": "boolean"
+          },
+          "debugger_agent": {
+            "description": "For a Mono program started with `--debugger-agent=...,server=y`: where the agent listens (`127.0.0.1:55555`), which eludite.debug.attach connects to. Absent for a Mono program without one, which cannot be attached.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "How many processes matched the filter.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "More than 500 matched; narrow `filter`.",
+      "type": "boolean"
+    }
+  }
+}

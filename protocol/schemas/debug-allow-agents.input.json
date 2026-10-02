@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-allow-agents.input.json",
+  "title": "eludite.debug.allow_agents input",
+  "description": "Debug > Allow Agents to Drive, and the toggle in the status bar while debugging: whether agents may start, attach to, restart, resume and change the debugging session (continue, the steps, run_to_cursor, run_until, trace, pause, stop, set_variable, set_next_statement, tracepoints with expressions). While it is off, every such command from an agent is refused with `agents are not allowed to drive this session (Debug > Allow Agents to Drive)`; reads (snapshot, state, stack, variables, output, exception_info, wait, processes) keep working, and the person's own commands are never affected. It holds for the current session; set while no session runs, it holds for the next one. Each new session starts with the setting debugger.allowAgentsByDefault (true unless changed). Only the person can turn it on: an agent's call with `enabled: true` is refused (an agent may turn it off).",
+  "type": "object",
+  "required": [
+    "enabled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "description": "Allow agents to drive (true) or not (false).",
+      "type": "boolean"
+    }
+  }
+}

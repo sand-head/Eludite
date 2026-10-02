@@ -230,6 +230,7 @@ impl PolicyStore {
             policy: self.get(),
             workspace,
             launch_urls,
+            ..Default::default()
         }
     }
 
@@ -623,8 +624,13 @@ impl Shell {
         ));
         // Escalation hooks read the same policy (ADR-0009), on the calling thread, when a hook needs it.
         let shared = self.agents.policy.clone();
+        // With which processes this shell started, for `eludite.debug.attach`'s hook (brief 0027).
+        let launched = self.debug.launched_processes();
         self.commands
-            .set_policy_source(Arc::new(move || current_policy(&shared).snapshot()));
+            .set_policy_source(Arc::new(move || PolicySnapshot {
+                launched: launched.clone(),
+                ..current_policy(&shared).snapshot()
+            }));
         self.agents.generation += 1;
         let generation = self.agents.generation;
         *self
@@ -657,8 +663,16 @@ impl Shell {
         self.agents.login.clear();
         self.agents.session = Some(AgentSession::start(config, generation, sink));
         let name = agent.name().to_owned();
+        // The guides the session can read from Eludite's MCP server (brief 0027): MCP clients list them at start.
+        let guides = eludite_mcp::resources::GUIDES
+            .iter()
+            .map(|g| format!("{} ({})", g.uri, g.title))
+            .collect::<Vec<_>>()
+            .join(", ");
         self.agents.window.update(cx, |w, cx| {
-            w.transcript.notice(format!("Starting {name}"));
+            w.transcript.notice(format!(
+                "Starting {name} (Eludite's MCP resources for the agent: {guides})"
+            ));
             w.sync(cx);
         });
         self.sync_agents_header(cx);
@@ -1192,6 +1206,12 @@ impl Shell {
             AgentsWindowEvent::OpenImage { tool_call, index } => {
                 self.open_image(tool_call, *index, cx)
             }
+            // A debug row's stop location opens the file at the line, as an Error List row does (brief 0027).
+            AgentsWindowEvent::OpenLocation { path, line } => {
+                if let Err(e) = self.open_at(path, *line, 1, window, cx) {
+                    self.status.set(eludite_ui::slots::STATE, e.to_string());
+                }
+            }
         }
     }
 
@@ -1287,6 +1307,10 @@ impl Shell {
                         ok: record.outcome.is_ok(),
                         ms: record.elapsed.as_secs_f64() * 1e3,
                         audit,
+                        // A debug command reads as the Debug toolbar and the status bar would say it (brief 0027).
+                        debug: record.command.as_ref().and_then(|c| {
+                            transcript::debug_line(c.as_str(), &record.arguments, &record.outcome)
+                        }),
                     };
                     let linked = window.update(cx, |w, _| {
                         w.transcript

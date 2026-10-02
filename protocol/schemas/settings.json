@@ -107,6 +107,13 @@
       "x-eludite-section": "Debugging > General",
       "x-eludite-label": "Show Rust values with the toolchain's LLDB formatters"
     },
+    "debugger.allowAgentsByDefault": {
+      "description": "Whether a new debugging session lets agents drive it (start, resume, step, change values): what Debug > Allow Agents to Drive starts with in each session. Off: an agent may read a session but not drive it until the person turns the toggle on. Applies to the next session.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Allow agents to drive new debugging sessions"
+    },
     "languageServers.rustAnalyzerPath": {
       "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
       "type": "string",

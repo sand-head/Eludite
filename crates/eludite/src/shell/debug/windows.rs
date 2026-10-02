@@ -1256,3 +1256,302 @@ mod tests {
         assert_eq!(b.origin.y - a.origin.y, px(ROW_HEIGHT));
     }
 }
+
+// ----- Debug > Attach to Process... (brief 0027) -----
+
+/// Debug selectors of the Attach to Process dialog.
+pub const ATTACH_DIALOG: &str = "attach-dialog";
+pub const ATTACH_FILTER: &str = "attach-filter";
+pub const ATTACH_REFRESH: &str = "attach-refresh";
+pub const ATTACH_ATTACH: &str = "attach-attach";
+pub const ATTACH_CANCEL: &str = "attach-cancel";
+
+/// The row of process `pid`.
+pub fn attach_row(pid: u32) -> String {
+    format!("attach-row-{pid}")
+}
+
+/// What the dialog asks the shell to do: `eludite.debug.processes` (Refresh), `eludite.debug.attach` (Attach), close.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttachEvent {
+    Refresh { filter: Option<String> },
+    Attach { pid: u32 },
+    Close,
+}
+
+/// Visual Studio's Attach to Process dialog: the processes (`eludite.debug.processes`) with their id, name, runtime,
+/// whether Eludite started them and their command line; a filter box (it narrows the list as you type; Refresh lists
+/// again with it); Refresh, Attach (the selected process, or a double click) and Cancel. Mono programs need their
+/// debugger agent, which the dialog says.
+pub struct AttachDialog {
+    theme: Theme,
+    rows: Vec<cmds::ProcessRow>,
+    filter: LineInput,
+    selected: Option<u32>,
+    message: Option<String>,
+    focus: FocusHandle,
+}
+
+impl EventEmitter<AttachEvent> for AttachDialog {}
+
+impl gpui::Focusable for AttachDialog {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl AttachDialog {
+    pub fn new(theme: Theme, cx: &mut Context<Self>) -> Self {
+        Self {
+            theme,
+            rows: Vec::new(),
+            filter: LineInput::new(cx),
+            selected: None,
+            message: Some("Listing processes\u{2026}".into()),
+            focus: cx.focus_handle(),
+        }
+    }
+
+    /// The listing (`eludite.debug.processes`' rows), or why there is none.
+    pub fn set_rows(
+        &mut self,
+        rows: Vec<cmds::ProcessRow>,
+        message: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.rows = rows;
+        self.message = message;
+        if self
+            .selected
+            .is_some_and(|pid| !self.rows.iter().any(|r| r.pid == pid))
+        {
+            self.selected = None;
+        }
+        cx.notify();
+    }
+
+    /// The filter box's text, when it has any.
+    pub fn filter_text(&self) -> Option<String> {
+        let f = self.filter.text.trim();
+        (!f.is_empty()).then(|| f.to_owned())
+    }
+
+    /// The rows the filter leaves (name or command line containing it, case aside).
+    pub fn visible(&self) -> Vec<&cmds::ProcessRow> {
+        let needle = self.filter.text.trim().to_lowercase();
+        self.rows
+            .iter()
+            .filter(|r| {
+                needle.is_empty()
+                    || r.name.to_lowercase().contains(&needle)
+                    || r.command_line.to_lowercase().contains(&needle)
+            })
+            .collect()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn selected(&self) -> Option<u32> {
+        self.selected
+    }
+
+    pub fn select(&mut self, pid: u32, cx: &mut Context<Self>) {
+        self.selected = Some(pid);
+        cx.notify();
+    }
+
+    fn attach(&mut self, cx: &mut Context<Self>) {
+        if let Some(pid) = self
+            .selected
+            .filter(|pid| self.visible().iter().any(|r| r.pid == *pid))
+        {
+            cx.emit(AttachEvent::Attach { pid });
+        }
+    }
+
+    fn filter_key(&mut self, e: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match self.filter.key(e) {
+            InputKey::Ignored => return,
+            InputKey::Changed => {}
+            InputKey::Submit(text) => {
+                self.filter.text = text;
+                cx.emit(AttachEvent::Refresh {
+                    filter: self.filter_text(),
+                });
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    fn key_down(&mut self, e: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        match e.keystroke.key.as_str() {
+            "escape" => cx.emit(AttachEvent::Close),
+            "enter" => self.attach(cx),
+            _ => return,
+        }
+        cx.stop_propagation();
+    }
+}
+
+impl Render for AttachDialog {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        let focused = self.filter.focus.is_focused(window);
+        let header = div()
+            .flex()
+            .flex_row()
+            .h(px(ROW_HEIGHT))
+            .items_center()
+            .font_weight(FontWeight::SEMIBOLD)
+            .border_b_1()
+            .border_color(t.border)
+            .child(cell("Process", Some(160.)))
+            .child(cell("ID", Some(70.)))
+            .child(cell("Runtime", Some(70.)))
+            .child(cell("Launched by Eludite", Some(130.)))
+            .child(cell("Command Line", None));
+        let selected = self.selected;
+        let rows: Vec<_> = self
+            .visible()
+            .into_iter()
+            .map(|r| {
+                let pid = r.pid;
+                let sel = attach_row(pid);
+                let runtime = match &r.debugger_agent {
+                    Some(a) => format!("{} ({a})", r.runtime),
+                    None => r.runtime.clone(),
+                };
+                let row = div()
+                    .id(SharedString::from(sel.clone()))
+                    .debug_selector(move || sel)
+                    .flex()
+                    .flex_row()
+                    .h(px(ROW_HEIGHT))
+                    .items_center()
+                    .cursor_pointer()
+                    .child(cell(r.name.clone(), Some(160.)))
+                    .child(cell(pid.to_string(), Some(70.)))
+                    .child(cell(runtime, Some(70.)))
+                    .child(cell(
+                        if r.launched_by_eludite { "Yes" } else { "" },
+                        Some(130.),
+                    ))
+                    .child(cell(r.command_line.clone(), None))
+                    .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                        this.select(pid, cx);
+                        if e.click_count() >= 2 {
+                            this.attach(cx);
+                        }
+                    }));
+                if selected == Some(pid) {
+                    row.bg(t.accent).text_color(t.text_on_accent)
+                } else {
+                    row.hover(|s| s.bg(t.menu_hover))
+                }
+            })
+            .collect();
+        let can_attach = selected.is_some_and(|pid| self.visible().iter().any(|r| r.pid == pid));
+        let filter = text_box(
+            ATTACH_FILTER,
+            &self.filter.text,
+            "Filter processes",
+            focused,
+            &t,
+        )
+        .w(px(300.))
+        .track_focus(&self.filter.focus)
+        .key_context("AttachFilter")
+        .on_key_down(cx.listener(Self::filter_key))
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.filter.focus.focus(window, cx);
+            cx.notify();
+        }));
+        let button = |id: &'static str, label: &'static str, default: bool, enabled: bool| {
+            eludite_ui::push_button(id, label, default, enabled, &t)
+        };
+        let panel = eludite_ui::dialog_panel(&t, "Attach to Process")
+            .id(ATTACH_DIALOG)
+            .debug_selector(|| ATTACH_DIALOG.into())
+            .track_focus(&self.focus)
+            .key_context("AttachDialog")
+            .on_key_down(cx.listener(Self::key_down))
+            .occlude()
+            .w(px(860.))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .p_2()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .items_center()
+                            .child("Available processes")
+                            .child(div().flex_1())
+                            .child(filter),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .h(px(320.))
+                            .border_1()
+                            .border_color(t.border)
+                            .bg(t.background)
+                            .child(header)
+                            .child(
+                                div()
+                                    .id("attach-rows")
+                                    .flex()
+                                    .flex_col()
+                                    .overflow_y_scroll()
+                                    .children(rows),
+                            ),
+                    )
+                    .children(self.message.clone().map(|m| {
+                        div().text_color(t.text_muted).child(m)
+                    }))
+                    .child(
+                        div()
+                            .text_size(t.typography.small)
+                            .text_color(t.text_muted)
+                            .child(
+                                "A Mono program can be attached to only when it was started with a debugger agent that \
+                                 listens: mono --debug --debugger-agent=transport=dt_socket,server=y,\
+                                 address=127.0.0.1:PORT,suspend=n program.exe",
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap_2()
+                            .justify_end()
+                            .child(button(ATTACH_REFRESH, "Refresh", false, true).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    cx.emit(AttachEvent::Refresh {
+                                        filter: this.filter_text(),
+                                    })
+                                }),
+                            ))
+                            .child(
+                                button(ATTACH_ATTACH, "Attach", true, can_attach).on_click(
+                                    cx.listener(|this, _, _, cx| this.attach(cx)),
+                                ),
+                            )
+                            .child(button(ATTACH_CANCEL, "Cancel", false, true).on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(AttachEvent::Close)),
+                            )),
+                    ),
+            );
+        let viewport = window.viewport_size();
+        let at = gpui::point(
+            ((viewport.width - px(860.)) / 2.).max(px(0.)),
+            (viewport.height / 8.).max(px(0.)),
+        );
+        gpui::deferred(gpui::anchored().position(at).child(panel)).with_priority(5)
+    }
+}

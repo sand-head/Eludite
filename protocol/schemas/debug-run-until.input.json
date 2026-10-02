@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-run-until.input.json",
   "title": "eludite.debug.run_until input",
   "description": "Get the debuggee from here to there in one call: set breakpoints at `points` (temporary ones by default, shown in the Breakpoints window while they exist), resume, and answer with the next visible stop, whatever its reason (one of the points, another breakpoint, an exception, the end of the session), as Run To Cursor does; the temporary points are removed at that stop. Prefer it to stepping line by line: one round trip instead of one per line. A line that already has a breakpoint keeps it. Refused unless the debuggee is in break mode. The answer is the stop summary (debug-stop-summary.output.json) within the budget parameters; on a timeout `mode` is `running` with `timed_out` (the points stay until the next stop), and after the session ends `design` with `exit_code` and `message`. Next: read `stopped.location`, then eludite.debug.variables or another run_until.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "required": [
     "points"

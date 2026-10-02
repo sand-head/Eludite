@@ -640,3 +640,107 @@ fn eludite_dbg_mono_runs_under_control() {
     );
     let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
 }
+
+/// A free loopback port (bound and released: the debugger agent binds it next).
+fn free_port() -> u16 {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
+/// Brief 0027: attach to the TestApp started by `mono` with a debugger agent that listens (`server=y`, `suspend=y`, so
+/// it waits), through eludite-dap's attach plan (the agent's address read from the command line as the process listing
+/// sees it), run to a breakpoint set during the handshake, then detach: the program runs on to its end by itself.
+#[test]
+fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
+    use eludite_dap::attach::{AttachAdapter, attach_plan};
+    use eludite_dap::processes;
+    let Some(found) = find() else { return };
+    let port = free_port();
+    let agent =
+        format!("--debugger-agent=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:{port}");
+    let mut app = std::process::Command::new(&found.mono.mono)
+        .args(["--debug", &agent])
+        .arg(&found.config.program)
+        .envs(found.mono.env.iter().map(|(k, v)| (k, v)))
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The process listing sees it as a Mono program with an agent to attach to.
+    let deadline = Instant::now() + T;
+    let listed = loop {
+        let all = processes::list().unwrap();
+        if let Some(p) = all.iter().find(|p| p.pid == app.id()) {
+            break p.clone();
+        }
+        assert!(Instant::now() < deadline, "the TestApp is not listed");
+    };
+    assert_eq!(listed.runtime, processes::Runtime::Mono);
+    let at = processes::mono_agent(&listed.argv);
+    assert_eq!(at, Some(("127.0.0.1".to_owned(), port)));
+    let plan = attach_plan(
+        AttachAdapter::for_runtime(listed.runtime).unwrap(),
+        app.id(),
+        at,
+        Platform::Linux,
+    )
+    .unwrap();
+    let rec = Recorder::default();
+    let clock = Instant::now();
+    let client = DapClient::start(
+        transport::connect_with_env(
+            &found.mono.adapter_transport(&found.adapter),
+            &found.mono.env,
+        )
+        .unwrap(),
+        rec.sink(),
+    );
+    session::start(
+        &client,
+        &StartPlan {
+            adapter_id: plan.adapter_id.into(),
+            kind: StartKind::Attach,
+            arguments: plan.arguments,
+            breakpoints: vec![(
+                found.source.to_string_lossy().into_owned(),
+                vec![SourceBreakpoint {
+                    line: found.line_of("add-sum"),
+                    ..Default::default()
+                }],
+            )],
+            exception_filters: vec!["user-unhandled".into()],
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
+        },
+        T,
+    )
+    .unwrap();
+    let s = rec.stopped(1);
+    let took = clock.elapsed();
+    eprintln!(
+        "timing: attach to a waiting TestApp to the first stopped: {:.0} ms",
+        took.as_secs_f64() * 1e3
+    );
+    assert_eq!(s.reason, "breakpoint");
+    assert!(took.as_secs_f64() < 3.0, "budget: under 3 s ({took:?})");
+    // Detach: the program goes on without the debugger and exits with its code. eludite-dbg-mono stays up after a
+    // detach (and spins), so the client ends it, as the shell does when the detach is answered.
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
+        .unwrap();
+    client.kill();
+    let deadline = Instant::now() + T;
+    let status = loop {
+        if let Some(s) = app.try_wait().unwrap() {
+            break s;
+        }
+        assert!(Instant::now() < deadline, "the TestApp did not run on");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(3));
+    let mut out = String::new();
+    std::io::Read::read_to_string(app.stdout.as_mut().unwrap(), &mut out).unwrap();
+    assert!(out.contains("result 10"), "{out}");
+}

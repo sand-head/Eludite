@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stop-summary.output.json",
   "title": "eludite.debug stop summary",
-  "description": "The compact answer of eludite.debug.snapshot, wait and pause and of start, continue, step_over, step_into, step_out, run_to_cursor, run_until and set_next_statement (and of trace's `stopped_by: stopped`; proposal 0001 rule 2): why and where the debuggee stopped, the top frames, the frame's locals and the watches within the budget parameters, the program's output since a cursor, the adapter's capabilities and who drives. Breakpoints, exception settings and threads are in eludite.debug.state.",
+  "description": "The compact answer of eludite.debug.snapshot, wait and pause and of start, attach, restart, continue, step_over, step_into, step_out, run_to_cursor, run_until and set_next_statement (and of trace's `stopped_by: stopped`; proposal 0001 rule 2): why and where the debuggee stopped, the top frames, the frame's locals and the watches within the budget parameters, the program's output since a cursor, the adapter's capabilities and who drives. Breakpoints, exception settings and threads are in eludite.debug.state.",
   "type": "object",
   "required": [
     "mode",
@@ -390,6 +390,12 @@
     "timed_out": {
       "description": "eludite.debug.wait, or a resuming command waiting with `wait_ms`: nothing settled in time (`mode` says what the debuggee is doing).",
       "type": "boolean"
+    },
+    "interrupted_by": {
+      "description": "The person took over while this agent's command waited (proposal 0001 rule 5): a resuming command of theirs (Continue, a step, Run To Cursor, Break All, Stop, Restart) ended the wait at once, and this summary is the state they caused. The agent's next resuming command is refused as stale until it reads the state again (eludite.debug.snapshot, state or wait) or quotes the current `stop`.",
+      "enum": [
+        "user"
+      ]
     }
   },
   "$defs": {

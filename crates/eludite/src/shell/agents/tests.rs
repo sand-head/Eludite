@@ -790,6 +790,57 @@ fn the_endpoint_lists_the_bus_and_a_command_added_at_runtime(cx: &mut TestAppCon
     assert!(list(addr, &token).iter().any(|n| n == "eludite-test-late"));
 }
 
+/// Brief 0027: the endpoint serves the debugging guide as an MCP resource, and the session is told it has it.
+#[gpui::test]
+fn the_endpoint_serves_the_debugging_guide_and_the_session_lists_it(cx: &mut TestAppContext) {
+    use std::io::{BufRead, BufReader, Write};
+    let mut w = setup(cx);
+    w.start_agent("Fake agent");
+    let (addr, token) = w.shell.read_with(&w.vcx, |s, _| {
+        let e = s.agents().endpoint().unwrap();
+        (e.addr(), e.token().to_owned())
+    });
+    let mut sock = std::net::TcpStream::connect(addr).unwrap();
+    writeln!(sock, "{token}").unwrap();
+    let mut reader = BufReader::new(sock.try_clone().unwrap());
+    let mut ask = |id: u32, method: &str, params: Value| -> Value {
+        writeln!(
+            sock,
+            "{}",
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+        )
+        .unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+    let init = ask(1, "initialize", json!({"protocolVersion": "2025-06-18"}));
+    assert_eq!(init["result"]["capabilities"]["resources"], json!({}));
+    let list = ask(2, "resources/list", json!({}));
+    let resources = list["result"]["resources"].as_array().unwrap();
+    assert_eq!(resources[0]["uri"], "eludite://guides/debugging");
+    assert_eq!(resources[0]["mimeType"], "text/markdown");
+    let read = ask(
+        3,
+        "resources/read",
+        json!({"uri": "eludite://guides/debugging"}),
+    );
+    let text = read["result"]["contents"][0]["text"].as_str().unwrap();
+    assert!(text.starts_with("# Debugging with Eludite: a guide for agents"));
+    assert!(text.contains("interrupted_by: \"user\""));
+    let templates = ask(4, "resources/templates/list", json!({}));
+    assert_eq!(templates["result"]["resourceTemplates"], json!([]));
+    // The window says which guides the session has, at its start.
+    let rows = w.transcript();
+    assert!(
+        rows.as_array().unwrap().iter().any(|r| r["notice"]
+            .as_str()
+            .is_some_and(|n| n.starts_with("Starting Fake agent")
+                && n.contains("eludite://guides/debugging"))),
+        "{rows}"
+    );
+}
+
 /// Serve `crates/browser/tests/fixtures/` on 127.0.0.1 (the proof's page); answers the base url.
 fn serve_fixtures() -> String {
     use std::io::{BufRead, BufReader, Read, Write};

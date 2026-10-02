@@ -9,6 +9,7 @@
 //! | `debugger.netcoredbgPath` | the next debugging session's adapter search |
 //! | `debugger.monoPrefix`, `debugger.monoAdapterPath` | the next session's Mono and `eludite-dbg-mono` searches |
 //! | `debugger.lldbDapPath`, `debugger.rustFormatters` | the next native (Cargo) session's lldb-dap and Rust formatters |
+//! | `debugger.allowAgentsByDefault` | whether each new debugging session lets agents drive it (brief 0027) |
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
@@ -107,6 +108,7 @@ pub struct Applied {
     pub mono_adapter: Option<PathBuf>,
     pub lldb_dap: Option<PathBuf>,
     pub rust_formatters: bool,
+    pub agents_drive: bool,
     pub rust_analyzer: Option<PathBuf>,
     pub agents: super::agents::RegistryConfig,
     pub keyboard_preset: String,
@@ -135,6 +137,7 @@ impl Shell {
                 mono_adapter: s.path("debugger.monoAdapterPath"),
                 lldb_dap: s.path("debugger.lldbDapPath"),
                 rust_formatters: s.bool("debugger.rustFormatters"),
+                agents_drive: s.bool("debugger.allowAgentsByDefault"),
                 rust_analyzer: s.path("languageServers.rustAnalyzerPath"),
                 agents: super::agents::RegistryConfig::from_store(&s),
                 keyboard_preset: s.string("keyboard.preset"),
@@ -163,6 +166,7 @@ impl Shell {
             .set_mono_adapter_path(applied.mono_adapter.clone());
         self.debug.set_lldb_dap_path(applied.lldb_dap.clone());
         self.debug.set_rust_formatters(applied.rust_formatters);
+        self.debug.set_agents_default(applied.agents_drive);
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
         let agents_changed = self
