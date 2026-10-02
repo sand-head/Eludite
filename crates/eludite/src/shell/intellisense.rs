@@ -785,8 +785,14 @@ impl Shell {
                 }
             }
             // A click on the light bulb opens its menu, as Ctrl+. does.
-            // (The bulb is on the caret's line: the menu is for the caret.)
-            EditorEvent::LightbulbClicked { .. } => self.show_code_actions(id, None, window, cx),
+            // A click on the light bulb opens its menu, as Ctrl+. does (the bulb is on the caret's line).
+            EditorEvent::LightbulbClicked { .. } => run(
+                self,
+                workspace::EDITOR_CODE_ACTIONS,
+                json!({ "path": id }),
+                window,
+                cx,
+            ),
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {
@@ -971,12 +977,13 @@ impl Shell {
             == Some(commit);
         match self.apply_document_edits(id, edits, base, cx) {
             Ok((n, Some(tx))) => {
-                if still_last && let Some(commit) = commit {
-                    if let Some(doc) = self.documents.get(id) {
-                        doc.view.update(cx, |v, cx| {
-                            v.update_editor(cx, |e| e.merge_transactions(tx, commit))
-                        });
-                    }
+                if still_last
+                    && let Some(commit) = commit
+                    && let Some(doc) = self.documents.get(id)
+                {
+                    doc.view.update(cx, |v, cx| {
+                        v.update_editor(cx, |e| e.merge_transactions(tx, commit))
+                    });
                 }
                 trace(format_args!("completion: {n} additional edits applied"));
             }
@@ -1035,6 +1042,17 @@ impl Shell {
         request: &WorkspaceRequest,
         cx: &Context<Self>,
     ) -> Option<Result<WorkspaceOutput, CommandError>> {
+        if matches!(
+            request,
+            WorkspaceRequest::ApplyCodeAction { .. } | WorkspaceRequest::ApplyEdit { .. }
+        ) {
+            return Some(Ok(match request {
+                WorkspaceRequest::ApplyCodeAction { .. } => {
+                    WorkspaceOutput::ApplyCodeAction(self.apply_code_action_output())
+                }
+                _ => WorkspaceOutput::ApplyEdit(self.apply_edit_output()),
+            }));
+        }
         let id = match self.document_id(request.path()) {
             Ok(id) => id,
             Err(e) => return Some(Err(e)),
@@ -1052,6 +1070,16 @@ impl Shell {
             }
             WorkspaceRequest::FindReferences { .. } => {
                 WorkspaceOutput::FindReferences(self.references_output(cx))
+            }
+            WorkspaceRequest::Rename { .. } => WorkspaceOutput::Rename(self.rename_output()),
+            WorkspaceRequest::CodeActions { .. } => {
+                WorkspaceOutput::CodeActions(self.code_actions_output())
+            }
+            WorkspaceRequest::ApplyCodeAction { .. } => {
+                WorkspaceOutput::ApplyCodeAction(self.apply_code_action_output())
+            }
+            WorkspaceRequest::ApplyEdit { .. } => {
+                WorkspaceOutput::ApplyEdit(self.apply_edit_output())
             }
             _ => return None,
         }))

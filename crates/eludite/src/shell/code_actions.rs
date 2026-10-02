@@ -20,6 +20,11 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use eludite_commands::CommandError;
+use eludite_commands::workspace::{
+    self, ApplyCodeActionOutput, ApplyCodeActionState, CodeActionRow, CodeActionsOutput,
+    CodeActionsState, WorkspaceOutput,
+};
 use eludite_editor::LightbulbKind;
 use eludite_lsp::lsp;
 use eludite_ui::{Theme, menu_row, section_heading};
@@ -28,7 +33,7 @@ use gpui::{
     IntoElement, KeyDownEvent, ParentElement, Pixels, Point, Render, StatefulInteractiveElement,
     Styled, Task, Window, anchored, deferred, div, point, px,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::documents::trace;
 use super::intellisense::{Provider, line_column, lsp_position};
@@ -99,8 +104,6 @@ pub struct ActionList {
     /// The caret offset and buffer version the request was made at.
     pub offset: usize,
     pub buffer_version: clock::Global,
-    pub line: u32,
-    pub column: u32,
     pub generation: u64,
     /// Every open document's LSP version when the request was made.
     pub versions: HashMap<String, i32>,
@@ -247,6 +250,7 @@ pub struct ApplyStatus {
 
 /// When the steps of one light bulb happened (the `--bench-lightbulb` harness and the report).
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct LightbulbTiming {
     /// The caret came to rest (the debounce started).
     pub moved: Option<Instant>,
@@ -382,10 +386,12 @@ impl CodeActionMenu {
             .collect()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn selected(&self) -> usize {
         self.selected
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn list(&self) -> &ActionList {
         &self.list
     }
@@ -710,8 +716,6 @@ impl Shell {
                 doc: doc_id.clone(),
                 offset,
                 buffer_version: buffer_version.clone(),
-                line,
-                column,
                 generation,
                 versions: versions.clone(),
                 actions,
@@ -831,7 +835,13 @@ impl Shell {
         let theme = self.theme;
         let menu = cx.new(|cx| CodeActionMenu::new(theme, list, anchor, cx));
         cx.subscribe_in(&menu, window, |shell, _, event, window, cx| match event {
-            MenuEvent::Chosen(index) => shell.apply_code_action(*index, window, cx),
+            // Through the bus, as an agent applies an action.
+            MenuEvent::Chosen(index) => shell.run(
+                workspace::EDITOR_APPLY_CODE_ACTION,
+                json!({ "index": index }),
+                window,
+                cx,
+            ),
             MenuEvent::Dismissed => shell.close_code_action_menu(window, cx),
         })
         .detach();
@@ -1081,7 +1091,119 @@ impl Shell {
         );
     }
 
+    /// `eludite.editor.code_actions` (Ctrl+.).
+    pub(super) fn code_actions_command(
+        &mut self,
+        path: Option<&str>,
+        at: Option<Caret>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        self.show_code_actions(&id, at, window, cx);
+        Ok(WorkspaceOutput::CodeActions(self.code_actions_output()))
+    }
+
+    pub(super) fn code_actions_output(&self) -> CodeActionsOutput {
+        let s = &self.code_actions.status;
+        let origin = s.origin.clone().unwrap_or(NavEntry {
+            path: String::new(),
+            line: 1,
+            column: 1,
+        });
+        let state = s.state.unwrap_or(MenuState::Loading);
+        let actions = match (&self.code_actions.list, state) {
+            (Some(list), MenuState::Open) => list
+                .display_order()
+                .into_iter()
+                .take(workspace::MAX_CODE_ACTIONS)
+                .map(|i| {
+                    let a = &list.actions[i];
+                    CodeActionRow {
+                        index: a.index as u64,
+                        title: a.title.clone(),
+                        group: a.group.name().into(),
+                        kind: a.kind.clone(),
+                        preferred: a.preferred.then_some(true),
+                        parent: a.parent.map(|p| p as u64),
+                        disabled: a.disabled.clone(),
+                    }
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        CodeActionsOutput {
+            path: origin.path,
+            line: origin.line,
+            column: origin.column,
+            state: match state {
+                MenuState::Loading => CodeActionsState::Loading,
+                MenuState::Open => CodeActionsState::Open,
+                MenuState::None => CodeActionsState::None,
+                MenuState::Failed => CodeActionsState::Failed,
+            },
+            actions,
+            message: s.message.clone(),
+        }
+    }
+
+    /// `eludite.editor.apply_code_action`.
+    pub(super) fn apply_code_action_command(
+        &mut self,
+        index: Option<usize>,
+        title: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let list = self.code_actions.list.as_ref().ok_or_else(|| {
+            CommandError::Failed(
+                "no code actions were listed; run eludite.editor.code_actions first".into(),
+            )
+        })?;
+        let index = match (index, title) {
+            (Some(i), _) if i < list.actions.len() => i,
+            (Some(i), _) => {
+                return Err(CommandError::InvalidInput(format!(
+                    "`index` {i} is out of range ({} actions)",
+                    list.actions.len()
+                )));
+            }
+            (None, Some(t)) => list
+                .display_order()
+                .into_iter()
+                .find(|&i| list.actions[i].title == t)
+                .ok_or_else(|| CommandError::InvalidInput(format!("no action is titled {t:?}")))?,
+            (None, None) => {
+                return Err(CommandError::InvalidInput(
+                    "name the action by `index` or by `title`".into(),
+                ));
+            }
+        };
+        self.apply_code_action(index, window, cx);
+        Ok(WorkspaceOutput::ApplyCodeAction(
+            self.apply_code_action_output(),
+        ))
+    }
+
+    pub(super) fn apply_code_action_output(&self) -> ApplyCodeActionOutput {
+        let a = &self.code_actions.apply;
+        ApplyCodeActionOutput {
+            state: match a.state.unwrap_or(ApplyState::Failed) {
+                ApplyState::Resolving => ApplyCodeActionState::Resolving,
+                ApplyState::Applying => ApplyCodeActionState::Applying,
+                ApplyState::Applied => ApplyCodeActionState::Applied,
+                ApplyState::Expanded => ApplyCodeActionState::Expanded,
+                ApplyState::Unsupported => ApplyCodeActionState::Unsupported,
+                ApplyState::Failed => ApplyCodeActionState::Failed,
+            },
+            title: a.title.clone(),
+            summary: a.summary.as_ref().map(ApplySummary::output),
+            message: a.message.clone(),
+        }
+    }
+
     /// The light bulb timings so far (oldest first).
+    #[allow(dead_code)]
     pub fn lightbulb_timings(&self) -> &[LightbulbTiming] {
         &self.code_actions.timings
     }
@@ -1141,8 +1263,6 @@ mod tests {
             doc: String::new(),
             offset: 0,
             buffer_version: Default::default(),
-            line: 1,
-            column: 1,
             generation: 1,
             versions: HashMap::new(),
             actions,

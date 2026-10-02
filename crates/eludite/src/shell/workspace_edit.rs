@@ -479,6 +479,27 @@ impl ApplySummary {
         }
     }
 
+    /// The command outputs' `summary`.
+    pub fn output(&self) -> eludite_commands::workspace::ApplySummaryOutput {
+        eludite_commands::workspace::ApplySummaryOutput {
+            applied: self.applied,
+            files: self.files,
+            edits: self.edits,
+            open_documents: self.open_documents,
+            files_on_disk: self.files_on_disk,
+            created: self.created,
+            renamed: self.renamed,
+            deleted: self.deleted,
+            paths: self
+                .paths
+                .iter()
+                .take(eludite_commands::workspace::MAX_APPLY_PATHS)
+                .cloned()
+                .collect(),
+            message: self.message.clone(),
+        }
+    }
+
     /// The status bar text.
     pub fn status_text(&self, label: Option<&str>) -> String {
         if !self.applied {
@@ -808,6 +829,55 @@ impl Shell {
             eludite_ui::slots::STATE,
             summary.status_text(options.label.as_deref()),
         );
+    }
+
+    /// `eludite.workspace.apply_edit`.
+    pub(super) fn apply_edit_command(
+        &mut self,
+        edit: serde_json::Value,
+        label: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<eludite_commands::workspace::WorkspaceOutput, eludite_commands::CommandError> {
+        use eludite_commands::workspace::ApplyEditState;
+        let edit: lsp::WorkspaceEdit = serde_json::from_value(edit).map_err(|e| {
+            eludite_commands::CommandError::InvalidInput(format!(
+                "`edit` is not a WorkspaceEdit: {e}"
+            ))
+        })?;
+        self.apply_edit = Some((ApplyEditState::Applying, ApplySummary::default()));
+        self.apply_workspace_edit(
+            &edit,
+            ApplyOptions {
+                label,
+                ..Default::default()
+            },
+            window,
+            cx,
+            Box::new(|shell, summary, _, _| {
+                let state = if summary.applied {
+                    ApplyEditState::Applied
+                } else {
+                    ApplyEditState::Failed
+                };
+                shell.apply_edit = Some((state, summary));
+                shell.wake_intellisense_waiters();
+            }),
+        );
+        Ok(eludite_commands::workspace::WorkspaceOutput::ApplyEdit(
+            self.apply_edit_output(),
+        ))
+    }
+
+    pub(super) fn apply_edit_output(&self) -> eludite_commands::workspace::ApplyEditOutput {
+        use eludite_commands::workspace::{ApplyEditOutput, ApplyEditState};
+        match &self.apply_edit {
+            Some((state, summary)) => ApplyEditOutput::new(*state, summary.output()),
+            None => ApplyEditOutput::new(
+                ApplyEditState::Failed,
+                ApplySummary::refused("no edit was applied").output(),
+            ),
+        }
     }
 
     /// `workspace/applyEdit` from the host: apply with the applier, answer `applied` (brief 0015).

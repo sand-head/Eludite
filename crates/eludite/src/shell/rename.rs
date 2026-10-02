@@ -26,6 +26,12 @@ use gpui::{
     StatefulInteractiveElement, Styled, Task, Window, anchored, deferred, div, point, px,
 };
 
+use eludite_commands::CommandError;
+use eludite_commands::workspace::{
+    self, RenameFileRow, RenameLineRow, RenameOutput, WorkspaceOutput,
+};
+use serde_json::json;
+
 use super::documents::trace;
 use super::intellisense::{Provider, line_column, lsp_position};
 use super::navigation::{NavEntry, OUTDATED};
@@ -109,6 +115,7 @@ pub struct RenameStatus {
 
 /// When the steps of a rename happened (the `--bench-rename` harness and the report).
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct RenameTiming {
     /// `textDocument/rename` written and its reply read.
     pub sent: Option<Instant>,
@@ -719,7 +726,24 @@ impl Shell {
             RenameDialogEvent::NameChanged(name) => {
                 shell.rename_name_changed(name.clone(), window, cx)
             }
-            RenameDialogEvent::Apply => shell.apply_rename(window, cx),
+            // Apply goes through the bus, like an agent's rename with a new name.
+            RenameDialogEvent::Apply => {
+                let name = shell
+                    .rename
+                    .dialog
+                    .as_ref()
+                    .map(|d| d.read(cx).name().to_owned())
+                    .unwrap_or_default();
+                let path = shell.rename.status.origin.as_ref().map(|o| o.path.clone());
+                if !name.is_empty() {
+                    shell.run(
+                        workspace::EDITOR_RENAME,
+                        json!({ "path": path, "new_name": name }),
+                        window,
+                        cx,
+                    );
+                }
+            }
             RenameDialogEvent::Cancel => shell.cancel_rename(window, cx),
         })
         .detach();
@@ -988,6 +1012,8 @@ impl Shell {
             return;
         };
         self.rename.status.apply_when_ready = false;
+        // Loading until the applier is done (closed files are written off the UI thread).
+        self.rename.status.state = Some(RenameState::Loading);
         let started = Instant::now();
         let options = ApplyOptions {
             label: Some(format!("Rename '{symbol}' to '{name}'")),
@@ -1021,7 +1047,96 @@ impl Shell {
         );
     }
 
+    /// `eludite.editor.rename`. With `new_name`, no position and the dialog open for the same document, it renames
+    /// the dialog's symbol (the dialog's Apply); otherwise it starts over at the position.
+    pub(super) fn rename_command(
+        &mut self,
+        path: Option<&str>,
+        at: Option<Caret>,
+        new_name: Option<String>,
+        apply: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let id = self.document_id(path)?;
+        let prepared = self.rename.dialog.is_some()
+            && at.is_none()
+            && self.rename.status.symbol.is_some()
+            && self
+                .rename
+                .status
+                .origin
+                .as_ref()
+                .is_some_and(|o| o.path == id);
+        match new_name {
+            Some(name) if prepared => {
+                self.rename.status.new_name = Some(name.clone());
+                if apply {
+                    self.apply_rename(window, cx);
+                } else {
+                    self.request_rename_preview(name, window, cx);
+                }
+            }
+            new_name => self.start_rename(&id, at, new_name, apply, window, cx),
+        }
+        Ok(WorkspaceOutput::Rename(self.rename_output()))
+    }
+
+    pub(super) fn rename_output(&self) -> RenameOutput {
+        let s = &self.rename.status;
+        let origin = s.origin.clone().unwrap_or(NavEntry {
+            path: String::new(),
+            line: 1,
+            column: 1,
+        });
+        let preview = s
+            .preview
+            .as_ref()
+            .filter(|p| s.new_name.as_deref() == Some(p.new_name.as_str()));
+        RenameOutput {
+            path: origin.path,
+            line: origin.line,
+            column: origin.column,
+            state: match s.state.unwrap_or(RenameState::Loading) {
+                RenameState::Loading => workspace::RenameState::Loading,
+                RenameState::Dialog => workspace::RenameState::Dialog,
+                RenameState::Preview => workspace::RenameState::Preview,
+                RenameState::Applied => workspace::RenameState::Applied,
+                RenameState::Rejected => workspace::RenameState::Rejected,
+                RenameState::Failed => workspace::RenameState::Failed,
+            },
+            symbol: s.symbol.clone(),
+            new_name: s.new_name.clone(),
+            files: preview
+                .map(|p| {
+                    p.files
+                        .iter()
+                        .take(workspace::MAX_RENAME_FILES)
+                        .map(|f| RenameFileRow {
+                            path: f.path.to_string_lossy().into_owned(),
+                            open: f.open,
+                            changes: f
+                                .changes
+                                .iter()
+                                .take(workspace::MAX_RENAME_LINES)
+                                .map(|c| RenameLineRow {
+                                    line: c.line,
+                                    before: c.before.clone(),
+                                    after: c.after.clone(),
+                                })
+                                .collect(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            total_edits: preview.map_or(0, |p| p.total_edits as u64),
+            summary: s.summary.as_ref().map(ApplySummary::output),
+            message: s.message.clone(),
+        }
+    }
+
     /// The rename timings so far (oldest first).
+    #[allow(dead_code)]
     pub fn rename_timings(&self) -> &[RenameTiming] {
         &self.rename.timings
     }
