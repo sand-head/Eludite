@@ -138,6 +138,9 @@ pub enum OutputSource {
     Host,
     /// The language servers the shell runs itself (brief 0019).
     LanguageServers,
+    /// The program's output under the debugger or without it, and the debugger's messages (brief 0020; it replaced
+    /// the Debug Console window).
+    Debug,
 }
 
 impl OutputSource {
@@ -146,6 +149,7 @@ impl OutputSource {
             OutputSource::Build => "build",
             OutputSource::Host => "host",
             OutputSource::LanguageServers => "language_servers",
+            OutputSource::Debug => "debug",
         }
     }
 }
@@ -543,7 +547,15 @@ mod tests {
             }
         );
         assert!(parse(OUTPUT_SHOW, json!({"tail": 2001})).is_err());
-        assert!(parse(OUTPUT_SHOW, json!({"source": "debug"})).is_err());
+        // The Debug source (brief 0020).
+        assert_eq!(
+            parse(OUTPUT_SHOW, json!({"source": "debug", "tail": 0})).unwrap(),
+            BuildRequest::OutputShow {
+                source: Some(OutputSource::Debug),
+                tail: 0
+            }
+        );
+        assert!(parse(OUTPUT_SHOW, json!({"source": "immediate"})).is_err());
         assert_eq!(
             parse(OUTPUT_CLEAR, json!({})).unwrap(),
             BuildRequest::OutputClear { source: None }

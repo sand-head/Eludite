@@ -5,8 +5,8 @@ X11 (ELUDITE_TRACE_LSP=1, stderr in --log) with real XTest key and pointer event
   F9 on Ping's first statement, F5; once the program runs and the breakpoint is bound, an eludite/ping is written into
   the debuggee's stdin from this process (a second terminal, not the IDE); the break with Locals and the Call Stack
   (debug-break.png); F10, then the pointer rests on `timestamp` for a data tip (debug-step-datatip.png); the
-  Breakpoints tab, still in break mode (debug-breakpoints.png); F5, the Debug Console tab with the pong
-  (debug-continue-console.png); Shift+F5.
+  Breakpoints tab, still in break mode (debug-breakpoints.png); F5, the Output tab (its Debug source, which replaced
+  the Debug Console in brief 0020) with the pong (debug-continue-console.png); Shift+F5.
 
 Prints one JSON object with the trace lines and timings. The file is never saved.
 Usage: debug.py --title "Eludite - Eludite" --log run.err --bounds B --shots DIR
@@ -104,7 +104,7 @@ def main():
     cont_at = now()
     press("F5")
     time.sleep(1.0)
-    tab = bounds(a.bounds).get("tab-debug_console")
+    tab = bounds(a.bounds).get("tab-output")
     if tab:
         click(a.title, tab)
     time.sleep(0.8)

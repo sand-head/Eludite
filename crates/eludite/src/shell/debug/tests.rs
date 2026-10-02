@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use eludite_commands::build::OutputSource;
 use eludite_commands::debug as cmds;
 use eludite_commands::{Caller, with_caller};
 use eludite_dap::fake::{self, FakeHandle, FakeProgram, FakeStep, FakeVar};
@@ -74,6 +75,16 @@ fn program(dir: &Path) -> FakeProgram {
         output_at_start: vec!["listening\n".into()],
         ..FakeProgram::default()
     }
+}
+
+/// The Output window's Debug source (brief 0020).
+fn debug_output(d: &Dbg) -> Vec<String> {
+    d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.output()
+            .read(cx)
+            .pane(OutputSource::Debug)
+            .tail(usize::MAX)
+    })
 }
 
 fn state_of(w: &Ws) -> Value {
@@ -384,12 +395,13 @@ fn f5_breaks_with_windows_populated_steps_move_the_line_and_stop_tears_down(
             .iter()
             .any(|s| s.id == id && s.state == eludite_commands::view::WindowState::Docked)
     };
-    assert!(
-        shown(ids::LOCALS)
-            && shown(ids::WATCH)
-            && shown(ids::CALL_STACK)
-            && shown(ids::DEBUG_CONSOLE)
-    );
+    assert!(shown(ids::LOCALS) && shown(ids::WATCH) && shown(ids::CALL_STACK));
+    // No Debug Console window any more (brief 0020): the Output window's Debug source is selected instead.
+    assert!(states.iter().all(|s| s.id != "debug_console"));
+    let selected =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, cx| s.output().read(cx).selected());
+    assert_eq!(selected, OutputSource::Debug);
     d.wait_mode(Mode::Running);
     let fake = d.fake();
     // The handshake in DAP's order, the breakpoint sent before configurationDone, with the project's program.
@@ -462,17 +474,20 @@ fn f5_breaks_with_windows_populated_steps_move_the_line_and_stop_tears_down(
         status.as_deref(),
         Some("Debugging: App (break: breakpoint, Program.cs line 6)")
     );
-    let console = d.w.shell.read_with(&d.w.vcx, |s, cx| {
-        s.debugger()
-            .windows
-            .console
-            .read(cx)
-            .lines()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    });
+    // The adapter's output events reach the Output window's Debug source (brief 0020), after the start line.
+    let console = debug_output(&d);
     assert!(console.contains(&"listening".to_owned()), "{console:?}");
+    assert!(console[0].starts_with("Starting debugging"), "{console:?}");
+    assert_eq!(
+        d.state()["console"]["tail"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| *l == "listening")
+            .count(),
+        1,
+        "eludite.debug.state reads the same lines"
+    );
 
     // Watch: add through the window's box; an unknown name shows the debugger's error.
     d.w.commands
@@ -875,14 +890,18 @@ fn ctrl_f5_runs_without_the_debugger_and_shows_output(cx: &mut TestAppContext) {
         "{tail:?}"
     );
     assert!(d.fake.lock().unwrap().is_none(), "no adapter for Ctrl+F5");
-    // The Debug Console was shown, not the debugger windows.
+    // The program's stdout and stderr are in the Output window's Debug source.
+    let out = debug_output(&d);
+    assert!(out.contains(&"oops".to_owned()), "{out:?}");
+    assert!(out.iter().any(|l| l.starts_with("ran ")), "{out:?}");
+    // The Output window was shown, not the debugger windows.
     let states = d.w.controller.all_states();
     let docked = |id: &str| {
         states
             .iter()
             .any(|s| s.id == id && s.state == eludite_commands::view::WindowState::Docked)
     };
-    assert!(docked(ids::DEBUG_CONSOLE) && !docked(ids::LOCALS));
+    assert!(docked(ids::OUTPUT) && !docked(ids::LOCALS));
 }
 
 #[gpui::test]

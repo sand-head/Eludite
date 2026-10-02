@@ -203,7 +203,7 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 show("Windows > Breakpoints", "breakpoints"),
                 show("Windows > Exception Settings", "exception_settings"),
-                show("Windows > Debug Console", "debug_console"),
+                show("Windows > Output", "output"),
                 show("Windows > Watch 1", "watch"),
                 show("Windows > Locals", "locals"),
                 show("Windows > Call Stack", "call_stack"),
