@@ -37,6 +37,8 @@ pub mod methods {
     /// Start a build (brief 0017).
     pub const BUILD_START: &str = "eludite/build/start";
     pub const BUILD_CANCEL: &str = "eludite/build/cancel";
+    /// The running build and its output so far, for a shell that (re)connects (brief 0020).
+    pub const BUILD_STATUS: &str = "eludite/build/status";
     /// Host-to-shell notification: a chunk of the build log.
     pub const BUILD_OUTPUT: &str = "eludite/build/output";
     /// Host-to-shell notification.
@@ -56,6 +58,7 @@ pub mod methods {
         SOLUTION_TREE,
         BUILD_START,
         BUILD_CANCEL,
+        BUILD_STATUS,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -723,6 +726,82 @@ pub struct BuildFinished {
     pub message: Option<String>,
 }
 
+/// `eludite/build/status` (brief 0020): a running build's output so far, the chunks `first_seq` to `next_seq - 1`
+/// concatenated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildStatusOutput {
+    pub first_seq: u64,
+    /// The seq of the next `eludite/build/output` chunk: replay `text`, then apply chunks from this seq on.
+    pub next_seq: u64,
+    pub text: String,
+    pub truncated: bool,
+}
+
+/// `eludite/build/status`: the running build (the members of its start result, the time since it started, its last
+/// progress and its output so far).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildStatusRunning {
+    pub build_id: u64,
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BuildSystem>,
+    pub path: String,
+    pub target: BuildTarget,
+    pub configuration: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    pub toolchain: Toolchain,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binlog: Option<String>,
+    pub command_line: String,
+    pub elapsed_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<BuildProgress>,
+    pub output: BuildStatusOutput,
+}
+
+impl BuildStatusRunning {
+    /// The start result this build answered with.
+    pub fn start_result(&self) -> BuildStartResult {
+        BuildStartResult {
+            build_id: self.build_id,
+            generation: self.generation,
+            system: self.system,
+            path: self.path.clone(),
+            target: self.target,
+            configuration: self.configuration.clone(),
+            platform: self.platform.clone(),
+            toolchain: self.toolchain.clone(),
+            binlog: self.binlog.clone(),
+            command_line: self.command_line.clone(),
+        }
+    }
+}
+
+/// `eludite/build/status`: the last finished build, without its diagnostics.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildStatusLast {
+    pub build_id: u64,
+    pub generation: Generation,
+    pub target: BuildTarget,
+    pub path: String,
+    pub result: BuildResult,
+    pub elapsed_ms: f64,
+    pub summary: BuildSummary,
+}
+
+/// `eludite/build/status` result.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildStatusResult {
+    pub running: Option<BuildStatusRunning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<BuildStatusLast>,
+}
+
 request!(
     /// `eludite/build/start`.
     BuildStart,
@@ -736,6 +815,13 @@ request!(
     methods::BUILD_CANCEL,
     BuildCancelParams,
     BuildCancelResult
+);
+request!(
+    /// `eludite/build/status` (brief 0020).
+    BuildStatus,
+    methods::BUILD_STATUS,
+    (),
+    BuildStatusResult
 );
 
 /// `eludite/build/output` (host to shell).

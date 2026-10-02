@@ -7,7 +7,7 @@
 #   1. X11 backend on the nested Xwayland, real XTest input (tools/debug.py): F9 on Ping's first statement in
 #      HostRpcTarget.cs, F5, a ping written into the debuggee's stdin from outside the IDE (as from a second terminal),
 #      the break with Locals and the Call Stack (debug-break.png), F10 and a data tip on `timestamp`
-#      (debug-step-datatip.png), the Breakpoints window (debug-breakpoints.png), F5 and the pong in the Debug Console
+#      (debug-step-datatip.png), the Breakpoints window (debug-breakpoints.png), F5 and the pong in the Output window's Debug source
 #      (debug-continue-console.png), Shift+F5.
 #   2. Wayland backend: --bench-debug SESSIONS, RUNS times. Before the first run the page cache of netcoredbg, the .NET
 #      runtime and eludite-host is evicted (posix_fadvise DONTNEED; no root needed): that run's first session is the

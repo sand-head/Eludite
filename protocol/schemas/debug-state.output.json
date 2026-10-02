@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-state.output.json",
   "title": "eludite.debug output",
-  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows and the status bar show it. Every eludite.debug command but evaluate answers with it.",
+  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows, the Output window's Debug source and the status bar show it. Every eludite.debug command but evaluate answers with it.",
   "type": "object",
   "required": [
     "mode",
@@ -19,9 +19,10 @@
   "additionalProperties": false,
   "properties": {
     "mode": {
-      "description": "`design`: no session. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
+      "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
       "enum": [
         "design",
+        "building",
         "launching",
         "running",
         "break",
@@ -328,7 +329,7 @@
       }
     },
     "console": {
-      "description": "The Debug Console: how many lines it holds and the last ones (at most 20).",
+      "description": "The program's output (the Output window's Debug source): how many lines the session wrote and the last ones (at most 20). The standalone Debug Console window was retired by brief 0020.",
       "type": "object",
       "required": [
         "lines",

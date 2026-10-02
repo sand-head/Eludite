@@ -15,6 +15,10 @@
 //!   Ctrl+Shift+B builds the active system: the one owning the active document (a file of a Cargo package: cargo; a
 //!   file of the solution: MSBuild), or every system the workspace has, one after the other, when no document is
 //!   active or it belongs to neither. Build Project builds the active document's project or Cargo package.
+//! - **Recovery after a host restart** (brief 0020). When `eludite-host` exits mid-build, the build is kept until the
+//!   restarted host answers `eludite/build/status`: a build that still runs is replayed (the Build pane is refilled
+//!   with its output so far, and later chunks are applied from `nextSeq` on); otherwise the build is reported as
+//!   ended, with the host's last result when it finished meanwhile.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -184,6 +188,8 @@ pub struct CurrentBuild {
     pub platform: Option<String>,
     pub started: Option<BuildStartResult>,
     pub progress: Option<BuildProgress>,
+    /// Output chunks with a lower seq are already shown (replayed from `eludite/build/status`).
+    pub next_seq: u64,
 }
 
 /// When the steps of the last build happened (the budgets in the brief 0017 report).
@@ -215,7 +221,7 @@ pub struct Builds {
     pub diagnostics: Vec<BuildDiagnostic>,
     /// The running Cargo build, to cancel it (brief 0019).
     pub cargo: Option<CargoRun>,
-    /// The `cargo` to run: `ELUDITE_CARGO`, else `cargo` on PATH.
+    /// The `cargo` to run: the setting `build.cargoPath` (or `ELUDITE_CARGO`), else `cargo` on PATH.
     pub cargo_program: std::ffi::OsString,
     next_cargo_id: u64,
     /// A build of every system: what is left to run, and what the finished ones produced.
@@ -227,9 +233,18 @@ pub struct Builds {
     /// The platforms the solution file lists (the first is its default).
     pub platforms: Vec<String>,
     pub menu: Option<&'static str>,
-    /// Build the saved file's project after Ctrl+S (off by default; `ELUDITE_BUILD_ON_SAVE=1`).
+    /// Build the saved file's project after Ctrl+S (the setting `build.onSave`, or `ELUDITE_BUILD_ON_SAVE=1`; off by
+    /// default).
     pub build_on_save: bool,
+    /// F5 and Ctrl+F5 build the startup project first (the setting `build.beforeRun`; on by default).
+    pub build_before_run: bool,
+    /// Visual Studio's "Show Output window when build starts" (`build.showOutputOnStart`).
+    pub show_output_on_start: bool,
+    /// Visual Studio's "Always show Error List if build finishes with errors" (`build.showErrorListOnFailure`).
+    pub show_error_list_on_failure: bool,
     pub timings: BuildTimings,
+    /// The host restarted while its build ran: the build waits for `eludite/build/status`.
+    pub awaiting_status: bool,
 }
 
 impl Builds {
@@ -242,15 +257,19 @@ impl Builds {
             last: None,
             diagnostics: Vec::new(),
             cargo: None,
-            cargo_program: std::env::var_os("ELUDITE_CARGO").unwrap_or_else(|| "cargo".into()),
+            cargo_program: "cargo".into(),
             next_cargo_id: cargo_build::CARGO_BUILD_ID_BASE,
             chain: None,
             configuration: CONFIGURATIONS[0].to_owned(),
             platform: None,
             platforms: vec!["Any CPU".into()],
             menu: None,
-            build_on_save: std::env::var_os("ELUDITE_BUILD_ON_SAVE").is_some_and(|v| v == "1"),
+            build_on_save: false,
+            build_before_run: true,
+            show_output_on_start: true,
+            show_error_list_on_failure: true,
             timings: BuildTimings::default(),
+            awaiting_status: false,
         }
     }
 
@@ -679,12 +698,17 @@ impl Shell {
         };
         self.set_building(true, cx);
         // Visual Studio's "Show Output window when build starts".
-        let _ = self.controller.apply(ViewRequest::Show {
-            id: ids::OUTPUT.into(),
-        });
+        let show = self.builds.show_output_on_start;
+        if show {
+            let _ = self.controller.apply(ViewRequest::Show {
+                id: ids::OUTPUT.into(),
+            });
+        }
         self.output.update(cx, |o, cx| {
             o.clear(OutputSource::Build, cx);
-            o.select(OutputSource::Build, cx);
+            if show {
+                o.select(OutputSource::Build, cx);
+            }
         });
         self.status
             .set(BUILD_SLOT, format!("{} started\u{2026}", verb(kind)));
@@ -769,6 +793,7 @@ impl Shell {
             platform: platform.clone(),
             started: None,
             progress: None,
+            next_seq: 0,
         });
         match system {
             BuildSystem::Msbuild => self.session.build_start(
@@ -833,6 +858,7 @@ impl Shell {
         &mut self,
         ticket: u64,
         message: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(b) = self.builds.current.take_if(|b| b.ticket == ticket) else {
@@ -863,8 +889,14 @@ impl Shell {
                 warnings: None,
                 projects: Vec::new(),
                 diagnostics: Vec::new(),
-                message: Some(message),
+                message: Some(message.clone()),
             },
+        );
+        self.prelaunch_build_done(
+            ticket,
+            super::debug::PrelaunchBuild::Ended(message),
+            window,
+            cx,
         );
         cx.notify();
     }
@@ -882,8 +914,20 @@ impl Shell {
         }
     }
 
-    pub(super) fn on_build_output(&mut self, id: u64, text: &str, cx: &mut Context<Self>) {
-        if !self.is_current_build(id) {
+    pub(super) fn on_build_output(
+        &mut self,
+        id: u64,
+        seq: u64,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.is_current_build(id)
+            || self
+                .builds
+                .current
+                .as_ref()
+                .is_some_and(|b| seq < b.next_seq)
+        {
             return;
         }
         if self.builds.timings.first_output.is_none() {
@@ -1011,22 +1055,160 @@ impl Shell {
                 received.elapsed().as_secs_f64() * 1e3
             ));
             // Visual Studio's "Always show Error List if build finishes with errors".
-            if finished.result == BuildResult::Failed && s.errors > 0 {
+            if self.builds.show_error_list_on_failure
+                && finished.result == BuildResult::Failed
+                && s.errors > 0
+            {
                 let _ = self.controller.apply(ViewRequest::Show {
                     id: ids::ERROR_LIST.into(),
                 });
             }
         }
         let out = self.result_output(&b, &finished);
+        let prelaunch = match finished.result {
+            BuildResult::Succeeded => super::debug::PrelaunchBuild::Succeeded,
+            BuildResult::Failed => super::debug::PrelaunchBuild::Failed {
+                errors: s.errors,
+                warnings: s.warnings,
+            },
+            BuildResult::Canceled => super::debug::PrelaunchBuild::Ended("canceled".into()),
+        };
         self.builds.last = Some(finished);
         self.builds.shared.publish(b.ticket, out);
-        let _ = window;
+        // F5's build (brief 0020): the launch follows, or the start ends with the reason.
+        self.prelaunch_build_done(b.ticket, prelaunch, window, cx);
+        cx.notify();
+    }
+
+    /// The host exited while its build ran: keep the build until the restarted host says whether it still runs.
+    pub(super) fn on_host_restarting(&mut self, cx: &mut Context<Self>) {
+        if let Some(b) = self
+            .builds
+            .current
+            .as_ref()
+            .filter(|b| b.system == BuildSystem::Msbuild)
+        {
+            self.builds.awaiting_status = true;
+            self.status.set(
+                BUILD_SLOT,
+                format!(
+                    "{}: eludite-host restarted; recovering the build\u{2026}",
+                    verb(b.kind)
+                ),
+            );
+            cx.notify();
+        }
+    }
+
+    /// `eludite/build/status` from a restarted host (brief 0020): replay the build that still runs, or end the one
+    /// that did not survive (with the host's result when it finished meanwhile).
+    pub(super) fn on_build_status(
+        &mut self,
+        status: eludite_lsp::host::BuildStatusResult,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let awaiting = std::mem::take(&mut self.builds.awaiting_status);
+        let Some(r) = status.running else {
+            if !awaiting {
+                return;
+            }
+            let current = self.builds.current.as_ref().and_then(|b| b.id);
+            match status.last.filter(|l| Some(l.build_id) == current) {
+                Some(last) => {
+                    super::documents::trace(format_args!(
+                        "build status: build {} finished while the host restarted",
+                        last.build_id
+                    ));
+                    let finished = BuildFinished {
+                        build_id: last.build_id,
+                        generation: last.generation,
+                        target: last.target,
+                        path: last.path,
+                        result: last.result,
+                        exit_code: None,
+                        elapsed_ms: last.elapsed_ms,
+                        summary: last.summary,
+                        projects: Vec::new(),
+                        diagnostics: Vec::new(),
+                        diagnostics_truncated: false,
+                        binlog: None,
+                        message: Some("finished while eludite-host restarted".into()),
+                    };
+                    self.on_build_finished(finished, Instant::now(), window, cx);
+                }
+                None => {
+                    self.on_build_lost("eludite-host restarted and the build ended", window, cx)
+                }
+            }
+            return;
+        };
+        let adopt = match &self.builds.current {
+            None => true,
+            Some(b) if b.system == BuildSystem::Cargo => false,
+            Some(b) => awaiting || b.id.is_none_or(|id| id == r.build_id),
+        };
+        if !adopt {
+            return;
+        }
+        let kind = match r.target {
+            BuildTarget::Build => BuildKind::Build,
+            BuildTarget::Rebuild => BuildKind::Rebuild,
+            BuildTarget::Clean => BuildKind::Clean,
+        };
+        let (ticket, choice) = match self.builds.current.take() {
+            Some(b) => (b.ticket, b.choice),
+            None => {
+                let t = self.builds.next_ticket;
+                self.builds.next_ticket += 1;
+                (t, BuildSystemChoice::Msbuild)
+            }
+        };
+        super::documents::trace(format_args!(
+            "build status: replaying build {} from seq {} ({} bytes)",
+            r.build_id,
+            r.output.first_seq,
+            r.output.text.len()
+        ));
+        self.builds.current = Some(CurrentBuild {
+            ticket,
+            system: BuildSystem::Msbuild,
+            choice,
+            id: Some(r.build_id),
+            kind,
+            path: PathBuf::from(&r.path),
+            configuration: r.configuration.clone(),
+            platform: r.platform.clone(),
+            started: Some(r.start_result()),
+            progress: None,
+            next_seq: r.output.next_seq,
+        });
+        self.set_building(true, cx);
+        self.output.update(cx, |o, cx| {
+            o.clear(OutputSource::Build, cx);
+            if r.output.truncated {
+                o.append(
+                    OutputSource::Build,
+                    "(earlier output of this build was dropped by eludite-host)\n",
+                    cx,
+                );
+            }
+            o.append(OutputSource::Build, &r.output.text, cx);
+        });
+        match r.progress {
+            Some(p) => self.on_build_progress(p, cx),
+            None => {
+                self.status
+                    .set(BUILD_SLOT, format!("{} running\u{2026}", verb(kind)));
+            }
+        }
         cx.notify();
     }
 
     /// The host went away mid-build: the build is over.
-    pub(super) fn on_build_lost(&mut self, why: &str, cx: &mut Context<Self>) {
+    pub(super) fn on_build_lost(&mut self, why: &str, window: &mut Window, cx: &mut Context<Self>) {
         // Only the host's builds end with the host (a Cargo build runs in the shell).
+        self.builds.awaiting_status = false;
         let Some(b) = self
             .builds
             .current
@@ -1056,6 +1238,12 @@ impl Shell {
                 diagnostics: Vec::new(),
                 message: Some(why.to_owned()),
             },
+        );
+        self.prelaunch_build_done(
+            b.ticket,
+            super::debug::PrelaunchBuild::Ended(why.to_owned()),
+            window,
+            cx,
         );
     }
 
@@ -1135,6 +1323,7 @@ impl Shell {
             platform: None,
             started: None,
             progress: None,
+            next_seq: 0,
         });
         let _ = self.controller.apply(ViewRequest::Show {
             id: ids::OUTPUT.into(),
@@ -1147,7 +1336,7 @@ impl Shell {
 
     /// One chunk of the stand-in build's output, through the same handler as the host's.
     pub fn bench_stream_chunk(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.on_build_output(BENCH_BUILD_ID, text, cx);
+        self.on_build_output(BENCH_BUILD_ID, u64::MAX, text, cx);
     }
 
     /// Lines in the Output window's Build source.

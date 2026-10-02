@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current layout file schema version.
-pub const LAYOUT_SCHEMA_VERSION: u32 = 2;
+pub const LAYOUT_SCHEMA_VERSION: u32 = 3;
 
 /// A dock edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,9 +64,9 @@ pub mod ids {
     pub const THREADS: &str = "threads";
     pub const BREAKPOINTS: &str = "breakpoints";
     pub const EXCEPTION_SETTINGS: &str = "exception_settings";
-    pub const DEBUG_CONSOLE: &str = "debug_console";
-    /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout).
-    pub const DEBUG_SESSION: [&str; 4] = [LOCALS, WATCH, CALL_STACK, DEBUG_CONSOLE];
+    /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
+    /// the Output window's Debug source (brief 0020 retired the Debug Console window).
+    pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
@@ -125,7 +125,6 @@ impl ToolWindowRegistry {
                 "Exception Settings",
                 DockSide::Bottom,
             ),
-            (ids::DEBUG_CONSOLE, "Debug Console", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -868,8 +867,11 @@ impl DockLayout {
 }
 
 /// Bring a layout document of any supported version up to
-/// [`LAYOUT_SCHEMA_VERSION`]. Version 1 is the first; there are no steps yet.
-/// A step looks like `if version == 1 { /* rewrite fields */ version = 2; }`.
+/// [`LAYOUT_SCHEMA_VERSION`], one step per version, oldest first:
+/// - 1 to 2: the Solution Explorer window became Workspace.
+/// - 2 to 3 (brief 0020): the Debug Console window is retired; the program's output
+///   is the Output window's Debug source. Where the Debug Console was placed and
+///   Output was not, Output takes its place; otherwise the Debug Console is removed.
 pub fn migrate(mut value: Value) -> Result<Value, String> {
     let version = value
         .get("version")
@@ -885,8 +887,75 @@ pub fn migrate(mut value: Value) -> Result<Value, String> {
         // Version 2 renamed the Solution Explorer window to Workspace (PLAN.md section 8).
         rename_id(&mut value, "solution_explorer", "workspace");
     }
+    if version < 3 {
+        retire_id(&mut value, RETIRED_DEBUG_CONSOLE, ids::OUTPUT);
+    }
     value["version"] = Value::from(LAYOUT_SCHEMA_VERSION);
     Ok(value)
+}
+
+/// The Debug Console's id in layouts of version 2 and older.
+pub const RETIRED_DEBUG_CONSOLE: &str = "debug_console";
+
+/// Whether tool window `id` is placed (docked, auto-hidden or floating) in a layout document.
+fn placed(value: &Value, id: &str) -> bool {
+    let has = |v: &Value| v.as_array().is_some_and(|a| a.iter().any(|t| t == id));
+    let docks = ["left", "right", "bottom"].iter().any(|side| {
+        let dock = &value[*side];
+        has(&dock["auto_hidden"])
+            || dock["groups"]
+                .as_array()
+                .is_some_and(|gs| gs.iter().any(|g| has(&g["tabs"])))
+    });
+    docks
+        || value["floating"]
+            .as_array()
+            .is_some_and(|fs| fs.iter().any(|f| has(&f["group"]["tabs"])))
+}
+
+/// Retire tool window `old`: when `successor` is not placed, it takes `old`'s place (a rename); otherwise `old` is
+/// removed from every tab list, auto-hide strip and the closed list, keeping each group's active tab.
+fn retire_id(value: &mut Value, old: &str, successor: &str) {
+    if !placed(value, successor) {
+        if let Some(hidden) = value["hidden"].as_array_mut() {
+            // A closed successor reopens where the retired window was.
+            hidden.retain(|h| h["id"] != successor);
+        }
+        rename_id(value, old, successor);
+        return;
+    }
+    let fix_group = |g: &mut Value| {
+        let Some(tabs) = g["tabs"].as_array_mut() else {
+            return;
+        };
+        let Some(ix) = tabs.iter().position(|t| t == old) else {
+            return;
+        };
+        tabs.remove(ix);
+        if let Some(active) = g["active"].as_u64() {
+            let ix = ix as u64;
+            if active > ix || (active == ix && active > 0) {
+                g["active"] = Value::from(active - 1);
+            }
+        }
+    };
+    for side in ["left", "right", "bottom"] {
+        let dock = &mut value[side];
+        if let Some(gs) = dock["groups"].as_array_mut() {
+            gs.iter_mut().for_each(fix_group);
+        }
+        if let Some(a) = dock["auto_hidden"].as_array_mut() {
+            a.retain(|t| t != old);
+        }
+    }
+    if let Some(fs) = value["floating"].as_array_mut() {
+        for f in fs.iter_mut() {
+            fix_group(&mut f["group"]);
+        }
+    }
+    if let Some(hidden) = value["hidden"].as_array_mut() {
+        hidden.retain(|h| h["id"] != old);
+    }
 }
 
 /// Replace every string equal to `from` anywhere in `value` with `to`. Tool window ids
@@ -937,6 +1006,80 @@ mod tests {
         assert!(layout.find("solution_explorer").is_none());
     }
 
+    /// A version 2 layout as brief 0018 saved it after a debugging session: the Debug Console tabbed with Call Stack
+    /// and Breakpoints in a second bottom group, active there.
+    const V2_DEBUG_LAYOUT: &str = r#"{
+      "version": 2,
+      "left": {"groups": [], "size": 240.0, "auto_hidden": ["toolbox"]},
+      "right": {"groups": [{"id": 1, "tabs": ["workspace", "git_changes", "agents"], "active": 0},
+                           {"id": 2, "tabs": ["properties"], "active": 0}],
+                "size": 300.0, "auto_hidden": []},
+      "bottom": {"groups": [{"id": 3, "tabs": ["error_list", "output", "locals", "watch"], "active": 2},
+                            {"id": 4, "tabs": ["call_stack", "breakpoints", "debug_console"], "active": 2}],
+                 "size": 200.0, "auto_hidden": []},
+      "floating": [],
+      "hidden": [{"id": "find_all_references", "side": "bottom"}, {"id": "threads", "side": "bottom"},
+                 {"id": "exception_settings", "side": "bottom"}],
+      "documents": {"tabs": [], "active": null},
+      "next_group_id": 5
+    }"#;
+
+    #[test]
+    fn version_2_layouts_retire_the_debug_console() {
+        let r = reg();
+        assert!(!r.contains(RETIRED_DEBUG_CONSOLE));
+        let v: Value = serde_json::from_str(V2_DEBUG_LAYOUT).unwrap();
+        let migrated = migrate(v).unwrap();
+        assert_eq!(migrated["version"], LAYOUT_SCHEMA_VERSION);
+        let text = serde_json::to_string(&migrated).unwrap();
+        assert!(!text.contains(RETIRED_DEBUG_CONSOLE), "{text}");
+        // Output was placed already: the Debug Console is removed and its group's active tab moves to its neighbor.
+        assert_eq!(
+            migrated["bottom"]["groups"][1],
+            serde_json::json!({"id": 4, "tabs": ["call_stack", "breakpoints"], "active": 1})
+        );
+        assert_eq!(
+            migrated["bottom"]["groups"][0]["tabs"],
+            serde_json::json!(["error_list", "output", "locals", "watch"])
+        );
+        let mut layout = DockLayout::from_json(&text).unwrap();
+        layout.normalize(&r);
+        assert!(layout.is_consistent(&r));
+        assert_eq!(layout.bottom.groups[0].active_id(), Some(ids::LOCALS));
+        assert_eq!(layout.bottom.groups[1].active_id(), Some(ids::BREAKPOINTS));
+
+        // A layout where Output was closed: Output takes the Debug Console's place, and is no longer closed.
+        let mut v: Value = serde_json::from_str(V2_DEBUG_LAYOUT).unwrap();
+        v["bottom"]["groups"][0]["tabs"] = serde_json::json!(["error_list", "locals", "watch"]);
+        v["bottom"]["groups"][0]["active"] = Value::from(0);
+        v["hidden"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"id": "output", "side": "bottom"}));
+        let migrated = migrate(v).unwrap();
+        assert_eq!(
+            migrated["bottom"]["groups"][1]["tabs"],
+            serde_json::json!(["call_stack", "breakpoints", "output"])
+        );
+        let mut layout = DockLayout::from_json(&serde_json::to_string(&migrated).unwrap()).unwrap();
+        layout.normalize(&r);
+        assert!(layout.is_consistent(&r));
+        assert_eq!(layout.bottom.groups[1].active_id(), Some(ids::OUTPUT));
+        assert!(layout.hidden.iter().all(|h| h.id != ids::OUTPUT));
+
+        // Auto-hidden and floating Debug Consoles go too; a layout from a newer build is still refused.
+        let mut v: Value = serde_json::from_str(V2_DEBUG_LAYOUT).unwrap();
+        v["left"]["auto_hidden"] = serde_json::json!(["toolbox", "debug_console"]);
+        v["bottom"]["groups"][1]["tabs"] = serde_json::json!(["call_stack", "breakpoints"]);
+        v["bottom"]["groups"][1]["active"] = Value::from(0);
+        let migrated = migrate(v).unwrap();
+        assert_eq!(
+            migrated["left"]["auto_hidden"],
+            serde_json::json!(["toolbox"])
+        );
+        assert!(migrate(serde_json::json!({"version": LAYOUT_SCHEMA_VERSION + 1})).is_err());
+    }
+
     #[test]
     fn default_vs_layout() {
         let r = reg();
@@ -965,8 +1108,7 @@ mod tests {
                 ids::CALL_STACK,
                 ids::THREADS,
                 ids::BREAKPOINTS,
-                ids::EXCEPTION_SETTINGS,
-                ids::DEBUG_CONSOLE
+                ids::EXCEPTION_SETTINGS
             ]
         );
         assert!(l.hidden.iter().all(|h| h.side == DockSide::Bottom));

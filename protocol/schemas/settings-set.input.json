@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings-set.input.json",
+  "title": "eludite.settings.set input",
+  "description": "Change one setting (a key of protocol/schemas/settings.json) in the user file or the solution's `.eludite/settings.json`, as the Options dialog does. The value is checked against the setting's schema. The file is written in the background and the change applies at once, without a restart. A null value removes the key from that file, so the other file or the default applies. An environment variable that overrides the key still wins while it is set (the output says so).",
+  "type": "object",
+  "required": [
+    "key",
+    "value"
+  ],
+  "properties": {
+    "key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "description": "The new value, of the setting's type, or null to remove it from the file."
+    },
+    "scope": {
+      "description": "user (default): the user settings file. solution: the open solution's (or folder's) `.eludite/settings.json`, created if needed.",
+      "enum": [
+        "user",
+        "solution"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

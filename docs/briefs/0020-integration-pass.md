@@ -1,6 +1,6 @@
 # Brief 0020: Integration pass after build and debug
 
-Status: open
+Status: done on Linux; Windows and macOS not run. [Report](0020-report.md)
 Phase: 1
 Plan reference: PLAN.md sections 4.4, 4.5, 4.12, 8, 9
 Depends on: briefs 0017 (build), 0018 (debug), 0019 (Rust); runs after 0019 merges

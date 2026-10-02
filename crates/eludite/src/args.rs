@@ -26,6 +26,16 @@ sending the token from ELUDITE_MCP_TOKEN, and opens no window.
 Opening a solution starts eludite-host, found beside this executable, else
 at ELUDITE_HOST (an eludite-host executable or eludite-host.dll), else on PATH.
 
+Settings (Tools > Options) live in settings.json in the config directory
+(~/.config/eludite on Linux, %APPDATA%\\eludite on Windows, ~/Library/
+Application Support/eludite on macOS; ELUDITE_CONFIG_DIR replaces it) and in
+.eludite/settings.json beside the solution, which wins. These environment
+variables override them while set: ELUDITE_BUILD_ON_SAVE (build.onSave, 1 or
+0), ELUDITE_CARGO (build.cargoPath), ELUDITE_NETCOREDBG
+(debugger.netcoredbgPath), ELUDITE_RUST_ANALYZER
+(languageServers.rustAnalyzerPath), ELUDITE_CLAUDE_ACP
+(agents.claudeCodeAdapterPath).
+
 Measurement harness (prints one JSON line to stdout, then exits):
   --bench-start       time from process start to the first presented frame;
                       set ELUDITE_LAUNCH_WALL_NS to the launch time (ns since

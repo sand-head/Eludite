@@ -12,6 +12,12 @@
 //!   hit condition is not met resumes at once and is never shown. An adapter that supports hit conditions gets them.
 //! - **Persistence.** Breakpoints, exception settings and watch expressions are saved per solution under
 //!   `<config dir>/eludite/breakpoints/solutions/`, written off the UI thread.
+//! - **Build before run** (brief 0020). With the setting `build.beforeRun` (on by default), F5 and Ctrl+F5 first run
+//!   `eludite.build.project` for the project to start, through the bus like the Build menu, streaming into the Output
+//!   window; the session is in mode `building` meanwhile. The launch starts when that build succeeds; a failed,
+//!   refused or canceled build ends the start with the reason in the status bar, and a failed one brings the Error
+//!   List forward. Shift+F5 during the build cancels both. MSBuild's incremental build makes an up-to-date project
+//!   cost a check, so the build always runs rather than the shell guessing whether the project is stale.
 
 pub mod state;
 #[cfg(test)]
@@ -26,6 +32,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+use eludite_commands::build::OutputSource;
 use eludite_commands::debug::{
     self as cmds, BreakpointAction, DebugOutput, DebugRequest, EvalContext, EvaluateOutput,
     SessionRow, StoppedRow, ThreadRow, VariableRow,
@@ -84,7 +91,11 @@ impl DebugSetup {
     pub fn from_env() -> Self {
         Self {
             connect: None,
-            search: AdapterSearch::from_env(),
+            // The configured path comes from the settings store (`set_adapter_path`), which resolves the variable.
+            search: AdapterSearch {
+                env: None,
+                ..AdapterSearch::from_env()
+            },
             store_dir: eludite_docking::eludite_config_dir().map(|d| d.join("breakpoints")),
             dotnet: "dotnet".into(),
         }
@@ -286,6 +297,35 @@ pub struct DebugTimings {
     pub steps: Vec<Duration>,
     /// The last time the windows were given a break's locals.
     pub locals_shown: Option<Instant>,
+    /// Build before run (brief 0020): the build was requested, its result arrived, the launch thread started.
+    pub build_requested: Option<Instant>,
+    pub build_finished: Option<Instant>,
+    pub launched: Option<Instant>,
+}
+
+/// A start waiting for its build (brief 0020).
+#[derive(Debug, Clone)]
+pub struct PendingLaunch {
+    /// The session generation the start began.
+    pub generation: u64,
+    /// The build's ticket, once it started.
+    pub ticket: Option<u64>,
+    project: Option<String>,
+    debug: bool,
+    profile: Option<String>,
+    driver: String,
+}
+
+/// How the build before a launch ended.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrelaunchBuild {
+    Succeeded,
+    Failed {
+        errors: u32,
+        warnings: u32,
+    },
+    /// Canceled, refused or lost with its host.
+    Ended(String),
 }
 
 /// Where the execution point is: a document id, a 1-based statement range, which arrow.
@@ -315,11 +355,15 @@ pub struct Debugger {
     hover: Option<(String, u64)>,
     solution: Option<PathBuf>,
     console_partial: String,
-    console_seen: (u64, usize),
+    /// Text for the Output window's Debug source not given to it yet (brief 0020), and whether to clear it first.
+    output_queue: String,
+    output_clear: bool,
     /// `breakpoint` events for ids not known yet: netcoredbg binds breakpoints (events) before the handshake's
     /// `setBreakpoints` answers reach the shell.
     early_breakpoints: Vec<eludite_dap::types::Breakpoint>,
     pub timings: DebugTimings,
+    /// F5's build, while it runs (brief 0020).
+    pub pending_launch: Option<PendingLaunch>,
 }
 
 impl Debugger {
@@ -345,9 +389,11 @@ impl Debugger {
                 hover: None,
                 solution: None,
                 console_partial: String::new(),
-                console_seen: (u64::MAX, 0),
+                output_queue: String::new(),
+                output_clear: false,
                 early_breakpoints: Vec::new(),
                 timings: DebugTimings::default(),
+                pending_launch: None,
             },
             rx,
         )
@@ -368,6 +414,7 @@ impl Debugger {
 
     fn console(&mut self, text: &str) {
         let text = text.replace('\r', "");
+        self.output_queue.push_str(&text);
         let mut buf = std::mem::take(&mut self.console_partial);
         buf.push_str(&text);
         let mut parts: Vec<&str> = buf.split('\n').collect();
@@ -382,12 +429,22 @@ impl Debugger {
         if !self.console_partial.is_empty() {
             let p = std::mem::take(&mut self.console_partial);
             self.model.push_console(p);
+            self.output_queue.push('\n');
         }
+        let line = line.into();
+        self.output_queue.push_str(&line);
+        self.output_queue.push('\n');
         self.model.push_console(line);
     }
 
     fn generation(&self) -> u64 {
         self.model.generation
+    }
+
+    /// The setting `debugger.netcoredbgPath` (or `ELUDITE_NETCOREDBG`): searched where `ELUDITE_NETCOREDBG` was
+    /// (brief 0020). `None` leaves the search to the executable's folder and `PATH`.
+    pub fn set_adapter_path(&mut self, path: Option<PathBuf>) {
+        self.setup.search.env = path.map(PathBuf::into_os_string);
     }
 
     fn store_path(&self, solution: &Path) -> Option<PathBuf> {
@@ -434,8 +491,30 @@ fn resolve_launch(
     profile: Option<&str>,
     projects: &[PathBuf],
     solution_dir: Option<&Path>,
+    startup: Option<&Path>,
 ) -> Result<launch::LaunchConfig, String> {
-    let project = match hint {
+    let project = resolve_project(hint, projects, solution_dir, startup)?;
+    launch::launch_config(&project, profile)
+}
+
+/// The project file to run: the hint (a path or a project name), else the startup project (Set as Startup
+/// Project's, else the solution's first executable project). Reads project files: off the UI thread.
+pub(super) fn resolve_project(
+    hint: Option<&str>,
+    projects: &[PathBuf],
+    solution_dir: Option<&Path>,
+    startup: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if hint.is_none()
+        && let Some(s) = startup.filter(|s| {
+            projects
+                .iter()
+                .any(|p| normalize_path(p) == normalize_path(s))
+        })
+    {
+        return Ok(s.to_path_buf());
+    }
+    Ok(match hint {
         Some(h) => {
             let p = Path::new(h);
             let as_path = if p.is_absolute() {
@@ -462,8 +541,7 @@ fn resolve_launch(
                 "the solution has no executable project to start".to_owned()
             }
         })?,
-    };
-    launch::launch_config(&project, profile)
+    })
 }
 
 /// What the launch thread needs.
@@ -474,6 +552,7 @@ struct LaunchJob {
     profile: Option<String>,
     projects: Vec<PathBuf>,
     solution_dir: Option<PathBuf>,
+    startup: Option<PathBuf>,
     breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
     filters: Vec<String>,
     setup: DebugSetup,
@@ -488,6 +567,7 @@ fn launch_thread(job: LaunchJob) {
         profile,
         projects,
         solution_dir,
+        startup,
         breakpoints,
         filters,
         setup,
@@ -504,6 +584,7 @@ fn launch_thread(job: LaunchJob) {
         profile.as_deref(),
         &projects,
         solution_dir.as_deref(),
+        startup.as_deref(),
     ) {
         Ok(c) => c,
         Err(e) => return fail(e),
@@ -758,9 +839,10 @@ impl Shell {
                 project,
                 debug,
                 profile,
+                build,
                 ..
-            } => self.debug_start(project, debug, profile, &driver, cx),
-            DebugRequest::Stop => self.debug_stop(&driver, cx),
+            } => self.debug_start(project, debug, profile, build, &driver, window, cx),
+            DebugRequest::Stop => self.debug_stop(&driver, window, cx),
             DebugRequest::Continue { .. } => self.debug_resume("continue", None, &driver)?,
             DebugRequest::Step { kind, thread, .. } => {
                 self.debug.timings.step_sent = Some(Instant::now());
@@ -850,27 +932,226 @@ impl Shell {
         Ok((self.debug_state(), None))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn debug_start(
         &mut self,
         project: Option<String>,
         debug: bool,
         profile: Option<String>,
+        build: Option<bool>,
         driver: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let solution_dir = self.solution_dir();
+        // Build first (brief 0020): only a .NET solution's projects are built and run here.
+        let build = build.unwrap_or(self.builds.build_before_run) && self.solution.is_some();
+        if !build {
+            self.debug_launch(project, debug, profile, driver, false, cx);
+            return;
+        }
+        let what = project
+            .clone()
+            .unwrap_or_else(|| "the startup project".into());
         let d = &mut self.debug;
-        d.model.begin(Mode::Launching, driver);
+        d.model.begin(Mode::Building, driver);
         d.timings = DebugTimings {
             start: Some(Instant::now()),
             ..DebugTimings::default()
         };
+        d.model.console.clear();
+        d.console_partial.clear();
+        d.output_queue.clear();
+        d.output_clear = true;
+        d.console_line(format!("Building {what} before starting\u{2026}"));
+        let generation = d.model.generation;
+        d.pending_launch = Some(PendingLaunch {
+            generation,
+            ticket: None,
+            project: project.clone(),
+            debug,
+            profile,
+            driver: driver.to_owned(),
+        });
+        trace(format_args!("debug start: building {what} first"));
+        // Which project to build is read from the project files: off the UI thread.
+        let projects = self.solution_projects();
+        let solution_dir = self.solution_dir();
+        let startup = self.debug.model.startup_project.clone().map(PathBuf::from);
+        let resolve = cx.background_spawn(async move {
+            resolve_project(
+                project.as_deref(),
+                &projects,
+                solution_dir.as_deref(),
+                startup.as_deref(),
+            )
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let resolved = resolve.await;
+            let _ = this.update_in(cx, |shell, window, cx| {
+                shell.prelaunch_build(generation, resolved, window, cx)
+            });
+        })
+        .detach();
+        self.refresh_debug(cx);
+    }
+
+    /// The solution's project files, as the Workspace tree lists them.
+    fn solution_projects(&self) -> Vec<PathBuf> {
+        self.tree
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .projects
+            .iter()
+            .map(|p| PathBuf::from(&p.path))
+            .collect()
+    }
+
+    /// The project to start is known: build it through the bus, as Build > Build Project does.
+    fn prelaunch_build(
+        &mut self,
+        generation: u64,
+        project: Result<PathBuf, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.debug.model.mode != Mode::Building
+            || self.debug.pending_launch.as_ref().map(|p| p.generation) != Some(generation)
+        {
+            return;
+        }
+        let project = match project {
+            Ok(p) => p,
+            Err(e) => return self.prelaunch_failed(format!("Cannot start: {e}"), false, cx),
+        };
+        let started = self.invoke(
+            eludite_commands::build::PROJECT,
+            json!({ "project": project.to_string_lossy() }),
+            window,
+            cx,
+        );
+        match started {
+            Ok(_) => {
+                let ticket = self.builds.current.as_ref().map(|b| b.ticket);
+                if let Some(p) = self.debug.pending_launch.as_mut() {
+                    p.ticket = ticket;
+                }
+                self.debug.timings.build_requested = Some(Instant::now());
+                trace(format_args!(
+                    "debug start: build of {} requested",
+                    project.display()
+                ));
+            }
+            Err(e) => self.prelaunch_failed(
+                format!("Cannot start: the build did not start: {e}"),
+                false,
+                cx,
+            ),
+        }
+    }
+
+    /// The build before a launch ended (`build`'s handlers call this for every build).
+    pub(super) fn prelaunch_build_done(
+        &mut self,
+        ticket: u64,
+        outcome: PrelaunchBuild,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(p) = self
+            .debug
+            .pending_launch
+            .take_if(|p| p.ticket == Some(ticket))
+        else {
+            return;
+        };
+        if self.debug.model.mode != Mode::Building || self.debug.model.generation != p.generation {
+            return;
+        }
+        let now = Instant::now();
+        self.debug.timings.build_finished = Some(now);
+        let plural = |n: u32, w: &str| format!("{n} {w}{}", if n == 1 { "" } else { "s" });
+        match outcome {
+            PrelaunchBuild::Succeeded => {
+                trace(format_args!("debug start: build succeeded; launching"));
+                self.debug_launch(p.project, p.debug, p.profile, &p.driver, true, cx);
+            }
+            PrelaunchBuild::Failed { errors, warnings } => self.prelaunch_failed(
+                format!(
+                    "Not started: the build failed ({}, {})",
+                    plural(errors, "error"),
+                    plural(warnings, "warning")
+                ),
+                true,
+                cx,
+            ),
+            PrelaunchBuild::Ended(why) => {
+                self.prelaunch_failed(format!("Not started: the build ended ({why})"), false, cx)
+            }
+        }
+        let _ = window;
+    }
+
+    /// The start ends before launching: the status bar says why; a failed build brings the Error List forward.
+    fn prelaunch_failed(&mut self, message: String, show_errors: bool, cx: &mut Context<Self>) {
+        trace(format_args!("debug start: {message}"));
+        self.debug.pending_launch = None;
+        self.debug.console_line(message.clone());
+        if show_errors {
+            let _ = self.controller.apply(ViewRequest::Show {
+                id: ids::ERROR_LIST.into(),
+            });
+        }
+        self.end_session(Some(message), cx);
+        self.refresh_debug(cx);
+    }
+
+    /// Launch the program (after its build, or at once without one).
+    fn debug_launch(
+        &mut self,
+        project: Option<String>,
+        debug: bool,
+        profile: Option<String>,
+        driver: &str,
+        after_build: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let solution_dir = self.solution_dir();
+        let d = &mut self.debug;
+        if after_build {
+            // The session began with the build: same generation, its console lines kept.
+            d.model.mode = Mode::Launching;
+        } else {
+            d.model.begin(Mode::Launching, driver);
+            d.timings = DebugTimings {
+                start: Some(Instant::now()),
+                ..DebugTimings::default()
+            };
+            d.model.console.clear();
+            d.console_partial.clear();
+            d.output_queue.clear();
+            d.output_clear = true;
+        }
+        let launched = Instant::now();
+        d.timings.launched = Some(launched);
+        if let (Some(start), Some(req), Some(done)) = (
+            d.timings.start,
+            d.timings.build_requested,
+            d.timings.build_finished,
+        ) {
+            // What F5 adds to the build: the budget is the build time plus 50 ms.
+            let total = launched - start;
+            let build = done - req;
+            trace(format_args!(
+                "debug start: launched {:.2} ms after F5; build {:.2} ms; added {:.2} ms",
+                total.as_secs_f64() * 1e3,
+                build.as_secs_f64() * 1e3,
+                total.saturating_sub(build).as_secs_f64() * 1e3
+            ));
+        }
         d.pending.clear();
         d.caps = Capabilities::default();
         d.run_to_cursor = None;
         d.early_breakpoints.clear();
-        d.model.console.clear();
-        d.console_partial.clear();
         d.console_line(format!(
             "{} {}\u{2026}",
             if debug {
@@ -905,6 +1186,7 @@ impl Shell {
             profile,
             projects,
             solution_dir,
+            startup: d.model.startup_project.clone().map(PathBuf::from),
             breakpoints,
             filters: exception_filters(&d.model.exceptions),
             setup: d.setup.clone(),
@@ -917,15 +1199,18 @@ impl Shell {
         if debug {
             self.show_debug_windows();
         } else {
+            // Start Without Debugging: the program's output is all there is to see.
             let _ = self.controller.apply(ViewRequest::Show {
-                id: ids::DEBUG_CONSOLE.into(),
+                id: ids::OUTPUT.into(),
             });
         }
+        self.output
+            .update(cx, |o, cx| o.select(OutputSource::Debug, cx));
         self.refresh_glyphs(cx);
     }
 
-    /// Visual Studio's Debug layout the first time: Locals and Watch beside the Error List, Call Stack, Breakpoints
-    /// and the Debug Console in a second group at the bottom. A layout the user changed is left alone.
+    /// Visual Studio's Debug layout the first time: Locals and Watch beside the Error List and Output, Call Stack and
+    /// Breakpoints in a second group at the bottom. A layout the user changed is left alone.
     fn show_debug_windows(&mut self) {
         let c = &self.controller;
         let hidden = |id: &str| {
@@ -939,7 +1224,7 @@ impl Shell {
                 id: Some(ids::CALL_STACK.into()),
                 target: DockTarget::Side(DockEdge::Bottom),
             });
-            for id in [ids::BREAKPOINTS, ids::DEBUG_CONSOLE] {
+            for id in [ids::BREAKPOINTS] {
                 if hidden(id) {
                     let _ = c.apply(ViewRequest::Dock {
                         id: Some(id.into()),
@@ -953,7 +1238,18 @@ impl Shell {
         }
     }
 
-    fn debug_stop(&mut self, driver: &str, cx: &mut Context<Self>) {
+    fn debug_stop(&mut self, driver: &str, window: &mut Window, cx: &mut Context<Self>) {
+        // Stopping during the build before a launch cancels that build and the launch.
+        if self.debug.model.mode == Mode::Building {
+            self.debug.model.last_driver = Some(driver.to_owned());
+            let ticket = self.debug.pending_launch.take().and_then(|p| p.ticket);
+            if ticket.is_some() && self.builds.current.as_ref().map(|b| b.ticket) == ticket {
+                let _ = self.invoke(eludite_commands::build::CANCEL, json!({}), window, cx);
+            }
+            self.debug.console_line("Start canceled.");
+            self.end_session(Some("Start canceled".into()), cx);
+            return;
+        }
         let generation = self.debug.generation();
         let d = &mut self.debug;
         d.model.last_driver = Some(driver.to_owned());
@@ -1466,6 +1762,8 @@ impl Shell {
             return;
         }
         self.debug.solution = Some(solution.to_path_buf());
+        // Another solution's startup project is not this one's (brief 0020).
+        self.debug.model.startup_project = None;
         let Some(file) = self.debug.store_path(solution) else {
             return;
         };
@@ -1484,7 +1782,7 @@ impl Shell {
     }
 
     /// Save what persists, off the UI thread.
-    fn debug_persist(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn debug_persist(&mut self, cx: &mut Context<Self>) {
         let Some(file) = self
             .debug
             .solution
@@ -1565,14 +1863,16 @@ impl Shell {
         w.breakpoints
             .update(cx, |v, cx| v.set_rows(breakpoints, cx));
         w.exceptions.update(cx, |v, cx| v.set(exceptions, cx));
-        let seen = (d.model.console_total, d.console_partial.len());
-        if seen != d.console_seen {
-            d.console_seen = seen;
-            let mut lines = d.model.console.clone();
-            if !d.console_partial.is_empty() {
-                lines.push_back(d.console_partial.clone());
-            }
-            w.console.update(cx, |v, cx| v.set_lines(&lines, cx));
+        // The program's output and the debugger's messages: the Output window's Debug source (brief 0020).
+        let out = std::mem::take(&mut d.output_queue);
+        let clear = std::mem::take(&mut d.output_clear);
+        if clear || !out.is_empty() {
+            self.output.update(cx, |o, cx| {
+                if clear {
+                    o.clear(OutputSource::Debug, cx);
+                }
+                o.append(OutputSource::Debug, &out, cx);
+            });
         }
         let name = m
             .session
@@ -1582,6 +1882,7 @@ impl Shell {
             .unwrap_or_default();
         let status = match m.mode {
             Mode::Design => m.message.clone().unwrap_or_default(),
+            Mode::Building => "Debugging: building before starting\u{2026}".to_owned(),
             Mode::Launching => format!("Debugging: starting {name}\u{2026}"),
             Mode::Running => format!("Debugging: {name} (running)"),
             Mode::Break => {
@@ -1661,6 +1962,7 @@ impl Shell {
                         self.debug.model.restore(&p);
                     }
                     self.refresh_glyphs(cx);
+                    self.refresh_startup(cx);
                 }
             }
             DebugMsg::Launched {

@@ -1,9 +1,10 @@
 //! The Agents window (brief 0016): hosting ACP agents in the shell, Eludite's MCP endpoint inside this process, the
 //! permission policy and the agents' edits held as pending changes.
 //!
-//! - **Registry.** The native Claude Code adapter when found (beside the executable, `ELUDITE_CLAUDE_ACP`, `PATH`),
-//!   the npx adapter as the fallback, then the agents the user adds in `agents.json` (`eludite_acp::settings`). The
-//!   search runs off the UI thread at startup.
+//! - **Registry.** The native Claude Code adapter when found (beside the executable, the setting
+//!   `agents.claudeCodeAdapterPath` or `ELUDITE_CLAUDE_ACP`, `PATH`), the npx adapter as the fallback, then the
+//!   agents the user adds in the setting `agents.custom` (brief 0020; the older `agents.json` when no settings file
+//!   has that key). The search runs off the UI thread, at startup and again when those settings change.
 //! - **Sessions.** `eludite_acp::AgentSession` runs each agent on its own threads; its events reach the UI through
 //!   one channel, are applied in batches (a burst of streamed chunks costs one frame), and carry the session's
 //!   generation so a restarted session never shows the old one's events (CLAUDE.md invariant 12).
@@ -124,19 +125,57 @@ impl AgentsSetup {
     }
 }
 
-/// The registry from the environment and the user's `agents.json` (with the settings error, if any).
-fn search_registry() -> (Vec<RegisteredAgent>, Option<String>) {
-    let path =
-        eludite_docking::eludite_config_dir().map(|d| d.join(eludite_acp::settings::SETTINGS_FILE));
-    let (settings, error) = match path.as_deref().map(AgentSettings::load) {
-        Some(Ok(s)) => (s, None),
-        Some(Err(e)) => (AgentSettings::default(), Some(e)),
-        None => (AgentSettings::default(), None),
+/// What the agents settings say (brief 0020): the registry is searched again when it changes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RegistryConfig {
+    /// `agents.default` (empty: none).
+    pub default: Option<String>,
+    /// `agents.claudeCodeAdapterPath`, or `ELUDITE_CLAUDE_ACP` (the store resolves the override).
+    pub adapter: Option<PathBuf>,
+    /// `agents.custom` when a settings file sets it; `None`: read the older `agents.json`.
+    pub custom: Option<Vec<eludite_acp::settings::ConfiguredAgent>>,
+}
+
+impl RegistryConfig {
+    pub fn from_store(s: &crate::settings::SettingsStore) -> Self {
+        let custom = s
+            .is_set_in_a_file("agents.custom")
+            .then(|| serde_json::from_value(s.effective("agents.custom").0).unwrap_or_default());
+        Self {
+            default: Some(s.string("agents.default")).filter(|d| !d.is_empty()),
+            adapter: s.path("agents.claudeCodeAdapterPath"),
+            custom,
+        }
+    }
+}
+
+/// The registry from the settings, the environment and (without `agents.custom`) the user's `agents.json`, with
+/// the `agents.json` error, if any.
+fn search_registry(config: &RegistryConfig) -> (Vec<RegisteredAgent>, Option<String>) {
+    let (mut settings, error) = match &config.custom {
+        Some(agents) => (
+            AgentSettings {
+                default: None,
+                agents: agents.clone(),
+            },
+            None,
+        ),
+        None => {
+            let path = eludite_docking::eludite_config_dir()
+                .map(|d| d.join(eludite_acp::settings::SETTINGS_FILE));
+            match path.as_deref().map(AgentSettings::load) {
+                Some(Ok(s)) => (s, None),
+                Some(Err(e)) => (AgentSettings::default(), Some(e)),
+                None => (AgentSettings::default(), None),
+            }
+        }
     };
-    (
-        eludite_acp::settings::registry(&AdapterSearch::from_env(), &settings),
-        error,
-    )
+    if config.default.is_some() {
+        settings.default = config.default.clone();
+    }
+    let mut search = AdapterSearch::from_env();
+    search.configured = config.adapter.clone();
+    (eludite_acp::settings::registry(&search, &settings), error)
 }
 
 /// The solution's permission policy, read lazily off the UI thread (by the first agent request that needs it).
@@ -221,7 +260,8 @@ static NEXT_ASK: AtomicU64 = AtomicU64::new(1 << 40);
 pub enum HostMsg {
     Session(u64, Box<SessionEvent>),
     Mcp(Box<ToolCallRecord>),
-    Registry(Vec<RegisteredAgent>, Option<String>),
+    /// A searched registry, its `agents.json` error, and the agent to select (`agents.default` when it changed).
+    Registry(Vec<RegisteredAgent>, Option<String>, Option<String>),
     /// The MCP gate asks the user about an Eludite command; the answer goes to `reply`.
     Ask(Box<GateAsk>),
 }
@@ -258,6 +298,8 @@ pub struct Answered {
 pub struct Agents {
     pub window: Entity<AgentsWindow>,
     setup: AgentsSetup,
+    /// The agents settings the registry was last searched with.
+    registry_config: Option<RegistryConfig>,
     pub registry: Vec<RegisteredAgent>,
     pub selected: usize,
     session: Option<AgentSession>,
@@ -296,6 +338,26 @@ pub struct Agents {
 }
 
 impl Agents {
+    /// Search the registry again with the agents settings (off the UI thread). A registry fixed up front (tests,
+    /// the harness) stays.
+    pub fn set_registry_config(&mut self, config: RegistryConfig, cx: &mut Context<Shell>) {
+        if self.setup.registry.is_some() {
+            return;
+        }
+        let select = config.default.clone().filter(|d| {
+            self.registry_config
+                .as_ref()
+                .is_none_or(|old| old.default.as_ref() != Some(d))
+        });
+        self.registry_config = Some(config.clone());
+        let tx = self.tx.clone();
+        cx.background_spawn(async move {
+            let (r, e) = search_registry(&config);
+            let _ = tx.unbounded_send(HostMsg::Registry(r, e, select));
+        })
+        .detach();
+    }
+
     /// The window and the channel; `rx` goes to the shell's pump.
     pub fn new(
         setup: AgentsSetup,
@@ -308,19 +370,12 @@ impl Agents {
         window.update(cx, |w, _| {
             w.header.agents = registry.iter().map(|a| a.name().to_owned()).collect()
         });
-        if setup.registry.is_none() {
-            let tx = tx.clone();
-            // PATH and the settings file are read off the UI thread.
-            cx.background_spawn(async move {
-                let (r, e) = search_registry();
-                let _ = tx.unbounded_send(HostMsg::Registry(r, e));
-            })
-            .detach();
-        }
+        // Without a fixed registry, the shell's first settings pass searches it (`set_registry_config`).
         (
             Self {
                 window,
                 setup,
+                registry_config: None,
                 registry,
                 selected: 0,
                 session: None,
@@ -1122,13 +1177,22 @@ impl Shell {
         let window = self.agents.window.clone();
         for msg in batch {
             match msg {
-                HostMsg::Registry(registry, error) => {
+                HostMsg::Registry(registry, error, select) => {
+                    // `--agent` first, then a newly chosen `agents.default`, else keep the selected agent across a
+                    // new search (a settings change).
+                    let was = self
+                        .agents
+                        .registry
+                        .get(self.agents.selected)
+                        .map(|a| a.name().to_owned());
                     self.agents.registry = registry;
                     self.agents.selected = self
                         .agents
                         .setup
                         .preferred
                         .as_ref()
+                        .or(select.as_ref())
+                        .or(was.as_ref())
                         .and_then(|p| self.agents.registry.iter().position(|a| a.name() == p))
                         .unwrap_or(0);
                     if let Some(e) = error {

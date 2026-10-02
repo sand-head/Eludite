@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use eludite_commands::build::OutputSource;
 use eludite_commands::debug as cmds;
 use eludite_commands::{Caller, with_caller};
 use eludite_dap::fake::{self, FakeHandle, FakeProgram, FakeStep, FakeVar};
@@ -76,6 +77,16 @@ fn program(dir: &Path) -> FakeProgram {
     }
 }
 
+/// The Output window's Debug source (brief 0020).
+fn debug_output(d: &Dbg) -> Vec<String> {
+    d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.output()
+            .read(cx)
+            .pane(OutputSource::Debug)
+            .tail(usize::MAX)
+    })
+}
+
 fn state_of(w: &Ws) -> Value {
     w.shell.read_with(&w.vcx, |s, _| {
         serde_json::to_value(s.debugger().model.state()).unwrap()
@@ -138,10 +149,28 @@ fn setup_dotnet(
     write("src/App/Program.cs", PROGRAM_CS);
     write("src/App/Calc.cs", CALC_CS);
     write("src/App/bin/Debug/net10.0/App.dll", "");
-    Dbg { w, fake, store }
+    let mut d = Dbg { w, fake, store };
+    // These tests launch the built program at once; build before run has its own tests (brief 0020).
+    d.set_build_before_run(false);
+    d
 }
 
 impl Dbg {
+    /// The setting `build.beforeRun`, through the bus.
+    fn set_build_before_run(&mut self, on: bool) {
+        self.w
+            .commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": "build.beforeRun", "value": on}),
+            )
+            .unwrap();
+        self.w.wait("build before run", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.builds().build_before_run == on)
+        });
+    }
+
     fn fake(&self) -> FakeHandle {
         self.fake
             .lock()
@@ -366,12 +395,13 @@ fn f5_breaks_with_windows_populated_steps_move_the_line_and_stop_tears_down(
             .iter()
             .any(|s| s.id == id && s.state == eludite_commands::view::WindowState::Docked)
     };
-    assert!(
-        shown(ids::LOCALS)
-            && shown(ids::WATCH)
-            && shown(ids::CALL_STACK)
-            && shown(ids::DEBUG_CONSOLE)
-    );
+    assert!(shown(ids::LOCALS) && shown(ids::WATCH) && shown(ids::CALL_STACK));
+    // No Debug Console window any more (brief 0020): the Output window's Debug source is selected instead.
+    assert!(states.iter().all(|s| s.id != "debug_console"));
+    let selected =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, cx| s.output().read(cx).selected());
+    assert_eq!(selected, OutputSource::Debug);
     d.wait_mode(Mode::Running);
     let fake = d.fake();
     // The handshake in DAP's order, the breakpoint sent before configurationDone, with the project's program.
@@ -444,17 +474,20 @@ fn f5_breaks_with_windows_populated_steps_move_the_line_and_stop_tears_down(
         status.as_deref(),
         Some("Debugging: App (break: breakpoint, Program.cs line 6)")
     );
-    let console = d.w.shell.read_with(&d.w.vcx, |s, cx| {
-        s.debugger()
-            .windows
-            .console
-            .read(cx)
-            .lines()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    });
+    // The adapter's output events reach the Output window's Debug source (brief 0020), after the start line.
+    let console = debug_output(&d);
     assert!(console.contains(&"listening".to_owned()), "{console:?}");
+    assert!(console[0].starts_with("Starting debugging"), "{console:?}");
+    assert_eq!(
+        d.state()["console"]["tail"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| *l == "listening")
+            .count(),
+        1,
+        "eludite.debug.state reads the same lines"
+    );
 
     // Watch: add through the window's box; an unknown name shows the debugger's error.
     d.w.commands
@@ -796,6 +829,16 @@ fn an_adapter_crash_ends_the_session_and_a_stalled_one_never_blocks_the_ui(
     .unwrap();
     std::fs::create_dir_all(e.path("src/App/bin/Debug/net10.0")).unwrap();
     std::fs::write(e.path("src/App/bin/Debug/net10.0/App.dll"), "").unwrap();
+    e.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "build.beforeRun", "value": false}),
+        )
+        .unwrap();
+    e.wait("build before run off", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.builds().build_before_run)
+    });
     e.vcx.simulate_keystrokes("f5");
     e.wait("the launch failure", |w| {
         w.shell.read_with(&w.vcx, |s, _| {
@@ -847,14 +890,18 @@ fn ctrl_f5_runs_without_the_debugger_and_shows_output(cx: &mut TestAppContext) {
         "{tail:?}"
     );
     assert!(d.fake.lock().unwrap().is_none(), "no adapter for Ctrl+F5");
-    // The Debug Console was shown, not the debugger windows.
+    // The program's stdout and stderr are in the Output window's Debug source.
+    let out = debug_output(&d);
+    assert!(out.contains(&"oops".to_owned()), "{out:?}");
+    assert!(out.iter().any(|l| l.starts_with("ran ")), "{out:?}");
+    // The Output window was shown, not the debugger windows.
     let states = d.w.controller.all_states();
     let docked = |id: &str| {
         states
             .iter()
             .any(|s| s.id == id && s.state == eludite_commands::view::WindowState::Docked)
     };
-    assert!(docked(ids::DEBUG_CONSOLE) && !docked(ids::LOCALS));
+    assert!(docked(ids::OUTPUT) && !docked(ids::LOCALS));
 }
 
 #[gpui::test]
@@ -984,4 +1031,397 @@ fn an_agent_drives_a_session_from_the_bus_and_reads_the_same_state(cx: &mut Test
     for id in cmds::ALL {
         assert!(d.w.commands.lookup(id).unwrap().agent_visible, "{id}");
     }
+}
+
+/// Wait for the fake host to have a build running, and return its `eludite/build/start` params.
+fn wait_build(d: &mut Dbg) -> Value {
+    let fake = d.w.fake.clone();
+    d.w.wait("the build before the launch", |_| {
+        fake.running_build().is_some()
+    });
+    d.w.fake
+        .received_params("eludite/build/start")
+        .last()
+        .cloned()
+        .unwrap()
+}
+
+fn debug_status(d: &Dbg) -> String {
+    d.w.shell.read_with(&d.w.vcx, |s, _| {
+        s.status()
+            .get(super::DEBUG_SLOT)
+            .unwrap_or_default()
+            .to_owned()
+    })
+}
+
+/// Brief 0020: F5 builds the startup project first, through `eludite.build.project`, and launches only when the
+/// build succeeds; the launch adds little to the build.
+#[gpui::test]
+fn f5_builds_the_startup_project_then_launches(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.set_build_before_run(true);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    assert_eq!(d.mode(), Mode::Building);
+    assert_eq!(d.state()["mode"], "building");
+    let start = wait_build(&mut d);
+    assert_eq!(
+        Path::new(start["project"].as_str().unwrap()),
+        d.w.path("src/App/App.csproj"),
+        "the startup project, not the solution"
+    );
+    assert_eq!(start["target"], "build");
+    assert!(d.w.audit().contains(&"eludite.build.project".to_owned()));
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: building before starting\u{2026}"
+    );
+    assert!(
+        d.fake.lock().unwrap().is_none(),
+        "no adapter before the build ends"
+    );
+    // A second F5 meanwhile is refused, not queued.
+    assert!(
+        d.cmd(cmds::START, json!({}))
+            .unwrap_err()
+            .to_string()
+            .contains("building")
+    );
+    d.w.fake.build_output("App -> /s/App.dll\n");
+    d.w.fake.finish_build("succeeded", json!([]));
+    d.wait_mode(Mode::Running);
+    assert!(d.fake.lock().unwrap().is_some(), "the adapter started");
+    let (start, req, done, launched) = d.w.shell.read_with(&d.w.vcx, |s, _| {
+        let t = &s.debugger().timings;
+        (
+            t.start.unwrap(),
+            t.build_requested.unwrap(),
+            t.build_finished.unwrap(),
+            t.launched.unwrap(),
+        )
+    });
+    let added = (launched - start).saturating_sub(done - req);
+    eprintln!(
+        "F5 to launch {:.2} ms, build {:.2} ms, added {:.2} ms",
+        (launched - start).as_secs_f64() * 1e3,
+        (done - req).as_secs_f64() * 1e3,
+        added.as_secs_f64() * 1e3
+    );
+    assert!(added < Duration::from_millis(500), "{added:?}");
+    assert!(launched - done < Duration::from_millis(50));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // With the setting off, F5 launches the last build at once.
+    d.set_build_before_run(false);
+    let builds = d.w.fake.received_params("eludite/build/start").len();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    assert_eq!(
+        d.w.fake.received_params("eludite/build/start").len(),
+        builds
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // And an agent can ask for the build per start.
+    d.cmd(cmds::START, json!({"build": true})).unwrap();
+    assert_eq!(d.mode(), Mode::Building);
+    wait_build(&mut d);
+    // Shift+F5 during the build cancels the build and the start.
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+    let fake = d.w.fake.clone();
+    d.w.wait("the build canceled", |_| fake.running_build().is_none());
+    assert_eq!(debug_status(&d), "Start canceled");
+}
+
+/// Brief 0020: F5 on a failing build stops before the launch, with the Error List forward and the reason in the
+/// status bar; Ctrl+F5 builds first too.
+#[gpui::test]
+fn f5_on_a_failing_build_stops_with_the_error_list_forward(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.set_build_before_run(true);
+    d.w.open_solution();
+    // The Output window is the active bottom tab while building.
+    d.w.vcx.simulate_keystrokes("f5");
+    wait_build(&mut d);
+    let program = d.w.path("src/App/Program.cs");
+    let project = d.w.path("src/App/App.csproj");
+    d.w.fake.finish_build(
+        "failed",
+        json!([{"severity": "error", "code": "CS1002", "message": "; expected", "file": program,
+                "line": 5, "column": 18, "project": project}]),
+    );
+    d.wait_mode(Mode::Design);
+    assert_eq!(
+        debug_status(&d),
+        "Not started: the build failed (1 error, 0 warnings)"
+    );
+    assert!(d.fake.lock().unwrap().is_none(), "never launched");
+    let error_list =
+        d.w.controller
+            .all_states()
+            .into_iter()
+            .find(|s| s.id == ids::ERROR_LIST)
+            .unwrap();
+    assert!(error_list.active, "the Error List comes forward");
+    let state = d.state();
+    assert_eq!(state["mode"], "design");
+    assert!(
+        state["message"]
+            .as_str()
+            .unwrap()
+            .contains("the build failed")
+    );
+    // Ctrl+F5 builds first as well, and runs nothing when the build fails.
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    assert_eq!(d.mode(), Mode::Building);
+    let start = wait_build(&mut d);
+    assert_eq!(start["target"], "build");
+    d.w.fake.finish_build(
+        "failed",
+        json!([{"severity": "error", "code": "CS1002", "message": "; expected", "file": program,
+                "line": 5, "column": 18, "project": project}]),
+    );
+    d.wait_mode(Mode::Design);
+    assert!(debug_status(&d).starts_with("Not started: the build failed"));
+}
+
+/// Brief 0020: the Workspace window's context menu on a project: Set as Startup Project (bold, persisted per
+/// solution, what F5 runs), Build, Rebuild, Clean and Open Containing Folder, each through its command.
+#[gpui::test]
+fn the_context_menu_sets_the_startup_project_and_builds_and_it_persists(cx: &mut TestAppContext) {
+    use super::super::explorer::{context_item_selector, row_selector};
+    use gpui::{MouseButton, MouseDownEvent, MouseUpEvent};
+    let mut d = setup(cx);
+    // A second executable project, Tool, after App.
+    let write = |rel: &str, text: &str| {
+        let p = d.w.path(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/Tool/Tool.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    );
+    write(
+        "src/Tool/Main.cs",
+        "class Tool { static void Main() { } }\n",
+    );
+    write("src/Tool/bin/Debug/net10.0/Tool.dll", "");
+    write("Other.slnx", "<Solution />");
+    let app = d.w.path("src/App/App.csproj");
+    let tool = d.w.path("src/Tool/Tool.csproj");
+    d.w.fake.set_tree(json!([
+        {"name": "App", "path": app, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/App/Program.cs"), "itemType": "compile"}]},
+        {"name": "Tool", "path": tool, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/Tool/Main.cs"), "itemType": "compile"}]}
+    ]));
+    d.w.open_solution();
+    let startup = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        })
+    };
+    // Without a choice, the first executable project is the startup project, drawn bold.
+    d.w.wait("the default startup project", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&app))
+    });
+    let right_click = |d: &mut Dbg, sel: &str| {
+        let position = d.w.bounds(sel).center();
+        d.w.vcx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Right,
+            click_count: 1,
+            first_mouse: false,
+        });
+        d.w.vcx.simulate_event(MouseUpEvent {
+            position,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Right,
+            click_count: 1,
+        });
+        d.w.vcx.run_until_parked();
+    };
+    let tool_row = row_selector(&tool.to_string_lossy());
+    right_click(&mut d, &tool_row);
+    d.w.bounds("se-context-menu");
+    d.w.click(&context_item_selector("startup"));
+    assert!(
+        d.w.audit()
+            .contains(&"eludite.workspace.set_startup_project".to_owned())
+    );
+    assert_eq!(startup(&d), Some(normalize_path(&tool)));
+    // eludite.workspace.tree marks it for agents.
+    let tree =
+        d.w.commands
+            .invoke("eludite.workspace.tree", json!({}))
+            .unwrap();
+    let marked: Vec<&str> = tree["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["startup"] == true)
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(marked, ["Tool"]);
+    // Persisted per solution, beside the breakpoints.
+    let file =
+        eludite_docking::LayoutStore::new(d.store.clone()).solution_path(&d.w.path("App.slnx"));
+    d.w.wait("the persisted startup project", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Tool.csproj"))
+    });
+    // F5 runs it.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let project = d.state()["session"]["project"].as_str().unwrap().to_owned();
+    assert_eq!(normalize_path(Path::new(&project)), normalize_path(&tool));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // Build, Rebuild and Clean build that project.
+    for (item, target) in [
+        ("build", "build"),
+        ("rebuild", "rebuild"),
+        ("clean", "clean"),
+    ] {
+        right_click(&mut d, &tool_row);
+        d.w.click(&context_item_selector(item));
+        let start = wait_build(&mut d);
+        assert_eq!(start["target"], target);
+        assert_eq!(
+            normalize_path(Path::new(start["project"].as_str().unwrap())),
+            normalize_path(&tool)
+        );
+        d.w.fake.finish_build("succeeded", json!([]));
+        let fake = d.w.fake.clone();
+        d.w.wait("the build to end", |_| fake.running_build().is_none());
+        d.w.vcx.run_until_parked();
+    }
+    // Open Containing Folder hands the project's folder to the file manager.
+    right_click(&mut d, &tool_row);
+    d.w.click(&context_item_selector("folder"));
+    assert_eq!(
+        *d.w.opened.lock().unwrap(),
+        [d.w.path("src/Tool")],
+        "the project's folder"
+    );
+
+    // An agent sets it by name from another thread.
+    let commands = d.w.commands.clone();
+    let out = std::thread::spawn(move || {
+        commands
+            .invoke(
+                "eludite.workspace.set_startup_project",
+                json!({"project": "App"}),
+            )
+            .unwrap()
+    });
+    d.w.wait("the agent's call", |_| out.is_finished());
+    assert_eq!(out.join().unwrap()["project"], "App");
+    assert_eq!(startup(&d), Some(normalize_path(&app)));
+    assert!(
+        d.cmd(
+            "eludite.workspace.set_startup_project",
+            json!({"project": "Nope"})
+        )
+        .is_err()
+    );
+
+    // Back to Tool, then another solution and back: the choice was this solution's, and it is restored.
+    right_click(&mut d, &tool_row);
+    d.w.click(&context_item_selector("startup"));
+    d.w.wait("the persisted startup project", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Tool.csproj"))
+    });
+    d.w.commands
+        .invoke(
+            eludite_commands::workspace::SOLUTION_OPEN,
+            json!({"path": d.w.path("Other.slnx")}),
+        )
+        .unwrap();
+    d.w.wait("the other solution's default", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&app))
+    });
+    d.w.commands
+        .invoke(
+            eludite_commands::workspace::SOLUTION_OPEN,
+            json!({"path": d.w.path("App.slnx")}),
+        )
+        .unwrap();
+    d.w.wait("the restored startup project", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&tool))
+    });
+}
+
+/// Brief 0020: the adapter's `output` events (stdout, a partial line completed by a later event) reach the Output
+/// window's Debug source, which F5 selects and each new session clears.
+#[gpui::test]
+fn the_debug_source_receives_the_adapters_output(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.output_at_start = vec![
+            "listening on stdin\n".into(),
+            "partial ".into(),
+            "line\n".into(),
+        ];
+    });
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("the program's output", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.output()
+                .read(cx)
+                .pane(OutputSource::Debug)
+                .tail(usize::MAX)
+                .contains(&"partial line".to_owned())
+        })
+    });
+    let out = debug_output(&d);
+    assert!(out.contains(&"listening on stdin".to_owned()), "{out:?}");
+    let selected =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, cx| s.output().read(cx).selected());
+    assert_eq!(selected, OutputSource::Debug);
+    // eludite.output.show reads it as agents do.
+    let shown = d
+        .cmd(
+            eludite_commands::build::OUTPUT_SHOW,
+            json!({"source": "debug", "tail": 5}),
+        )
+        .unwrap();
+    assert!(
+        shown["tail"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l == "partial line"),
+        "{shown}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    assert!(
+        debug_output(&d)
+            .iter()
+            .any(|l| l.contains("exited") || l.contains("ended")),
+        "the end of the session is written: {:?}",
+        debug_output(&d)
+    );
+    // A new session starts from an empty Debug source.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let out = debug_output(&d);
+    assert!(out[0].starts_with("Starting debugging"), "{out:?}");
+    assert!(
+        out.iter().filter(|l| *l == "listening on stdin").count() <= 1,
+        "the first session's lines are gone: {out:?}"
+    );
 }

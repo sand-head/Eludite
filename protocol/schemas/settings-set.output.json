@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings-set.output.json",
+  "title": "eludite.settings.set output",
+  "description": "The file changed and the setting's effective value after the change.",
+  "type": "object",
+  "required": [
+    "key",
+    "scope",
+    "path",
+    "value",
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "type": "string"
+    },
+    "scope": {
+      "enum": [
+        "user",
+        "solution"
+      ]
+    },
+    "path": {
+      "description": "The settings file written.",
+      "type": "string"
+    },
+    "value": {
+      "description": "The effective value now."
+    },
+    "source": {
+      "enum": [
+        "default",
+        "user",
+        "solution",
+        "environment"
+      ]
+    }
+  }
+}

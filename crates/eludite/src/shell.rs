@@ -26,6 +26,7 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+pub mod options;
 pub mod output;
 #[cfg(test)]
 mod refactor_tests;
@@ -35,6 +36,10 @@ pub mod rename;
 mod rust_tests;
 pub mod servers;
 pub mod session;
+pub mod settings;
+#[cfg(test)]
+mod settings_tests;
+pub mod startup;
 pub mod target;
 #[cfg(test)]
 mod tests;
@@ -123,12 +128,39 @@ pub struct Services {
     pub workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
     /// The language-server registrations and, in tests, servers in this process (brief 0019).
     pub launches: ServerLaunches,
+    /// The settings store (brief 0020) and when it changed.
+    pub settings: crate::settings::Settings,
+    pub settings_changed: UnboundedReceiver<Instant>,
+    /// `eludite.tools.options` from other threads.
+    pub options_jobs: UnboundedReceiver<self::settings::OptionsJob>,
+    /// Set as Startup Project and Open Containing Folder from other threads (brief 0020).
+    pub project_jobs: UnboundedReceiver<startup::ProjectJob>,
+    /// Shows a folder in the system's file manager (tests record instead).
+    pub folder_opener: startup::FolderOpener,
 }
 
-/// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
-/// thread.
-pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) -> Services {
+/// Start the host session and the settings store, and register the workspace, settings and other shell commands on
+/// `commands`. Call on the UI thread.
+pub fn register_workspace(
+    commands: &mut CommandRegistry,
+    launch: HostLaunch,
+    settings: crate::settings::SettingsSetup,
+) -> Services {
     let (session, events) = ServerSession::spawn(launch);
+    let schema = Arc::new(eludite_commands::settings::SettingsSchema::builtin());
+    let (settings_tx, settings_changed) = unbounded();
+    let settings = crate::settings::Settings::start(schema.clone(), settings, settings_tx);
+    let (options_tx, options_jobs) = unbounded();
+    eludite_commands::settings::register(
+        commands,
+        schema,
+        Arc::new(self::settings::SettingsBus {
+            settings: settings.clone(),
+            ui_thread: std::thread::current().id(),
+            jobs: options_tx,
+        }),
+        true,
+    );
     let (jobs_tx, jobs) = unbounded();
     workspace::register(
         commands,
@@ -189,6 +221,14 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         }),
     );
     let debug_jobs = debug::register(commands);
+    let (project_tx, project_jobs) = unbounded();
+    eludite_commands::project::register(
+        commands,
+        Arc::new(startup::ProjectBus {
+            ui_thread: std::thread::current().id(),
+            jobs: project_tx,
+        }),
+    );
     Services {
         session,
         events,
@@ -203,6 +243,11 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         debug: debug::DebugSetup::from_env(),
         workspace_tree,
         launches: ServerLaunches::default(),
+        settings,
+        settings_changed,
+        options_jobs,
+        project_jobs,
+        folder_opener: startup::system_folder_opener(),
     }
 }
 
@@ -294,6 +339,17 @@ pub struct Shell {
     workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
     /// The host's last tree, for `eludite.workspace.tree` without a folder.
     last_tree: Option<eludite_lsp::host::SolutionTree>,
+    /// The settings store (brief 0020), what was last applied from it, and how long each change took to apply.
+    settings: crate::settings::Settings,
+    applied_settings: Option<self::settings::Applied>,
+    settings_applied: Vec<std::time::Duration>,
+    /// Tools > Options, while open.
+    options: Option<Entity<options::OptionsDialog>>,
+    /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
+    folder_opener: startup::FolderOpener,
+    default_startup: Option<PathBuf>,
+    /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
+    ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -414,6 +470,11 @@ impl Shell {
             debug: debug_setup,
             workspace_tree,
             launches,
+            settings,
+            mut settings_changed,
+            mut options_jobs,
+            mut project_jobs,
+            folder_opener,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -611,7 +672,44 @@ impl Shell {
             }
         });
         let debug_task = Self::debug_tasks(debug_msgs, debug_jobs, window, cx);
-        Self {
+        // Settings changes (a file edited on disk, or eludite.settings.set): applied in one update per burst.
+        let settings_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(first) = settings_changed.next().await {
+                let mut seen = first;
+                while let Ok(more) = settings_changed.try_recv() {
+                    seen = seen.min(more);
+                }
+                if this
+                    .update(cx, |shell, cx| shell.apply_settings(Some(seen), cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let options_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = options_jobs.next().await {
+                let self::settings::OptionsJob { section, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.open_options(section, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
+        let project_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = project_jobs.next().await {
+                let startup::ProjectJob { request, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply_project(request, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
+        let mut this = Self {
             theme,
             commands,
             controller,
@@ -656,6 +754,13 @@ impl Shell {
             folder: None,
             workspace_tree,
             last_tree: None,
+            settings,
+            applied_settings: None,
+            settings_applied: Vec::new(),
+            options: None,
+            folder_opener,
+            default_startup: None,
+            ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -666,8 +771,13 @@ impl Shell {
                 debug_task.0,
                 debug_task.1,
                 cargo_task,
+                settings_task,
+                options_task,
+                project_task,
             ],
-        }
+        };
+        this.apply_settings(None, cx);
+        this
     }
 
     pub fn dock(&self) -> &Entity<DockHost> {
@@ -736,7 +846,16 @@ impl Shell {
     }
 
     pub fn set_probe(&mut self, probe: Option<Probe>, cx: &mut Context<Self>) {
+        // The menu bar and the Options dialog record theirs too (brief 0020's manual run clicks them).
+        self.ui_bounds = probe.as_ref().map(|_| eludite_ui::BoundsMap::default());
+        let ui = self.ui_bounds.clone();
+        self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
+    }
+
+    /// Where the menu bar's and the Options dialog's probed elements were drawn.
+    pub fn ui_bounds(&self) -> Option<&eludite_ui::BoundsMap> {
+        self.ui_bounds.as_ref()
     }
 
     /// Run `f` once, after the first frame is presented.
@@ -827,6 +946,21 @@ impl Shell {
                 .apply_debug(request, &eludite_commands::Caller::User, false, window, cx)
                 .map(|(out, _)| out);
             debug::stage(outcome);
+        }
+        if eludite_commands::project::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::project::parse(command, args.clone())
+        {
+            let outcome = self.apply_project(request, window, cx);
+            self::startup::stage(outcome);
+        }
+        if command == eludite_commands::settings::OPTIONS {
+            let schema = self.settings.lock().schema().clone();
+            if let Ok(eludite_commands::settings::SettingsRequest::Options { section }) =
+                eludite_commands::settings::parse(command, args.clone(), &schema)
+            {
+                let outcome = self.open_options(section, window, cx);
+                self::settings::stage(outcome);
+            }
         }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
@@ -1046,6 +1180,7 @@ impl Shell {
                     self.timings.open = Some(Instant::now());
                 }
                 self.solution = Some(path.clone());
+                self.update_settings_dir();
                 self.debug_solution_opened(&path, cx);
                 let name = self.solution_name();
                 // An open folder keeps its title and its tree, where the solution shows as loading.
@@ -1067,6 +1202,10 @@ impl Shell {
                     .set(LANGUAGE_SERVER_SLOT, format!("eludite-host {version}"));
             }
             SessionEvent::HostFailed { reason } => {
+                // The host gave up restarting while its build waited for it.
+                if self.builds.awaiting_status {
+                    self.on_build_lost(&reason, window, cx);
+                }
                 self.status.set(SOLUTION_SLOT, reason.clone());
                 if let Some(f) = self.folder.as_mut() {
                     if f.solution.is_some() {
@@ -1084,7 +1223,7 @@ impl Shell {
                     LANGUAGE_SERVER_SLOT,
                     "eludite-host exited; restarting\u{2026}",
                 );
-                self.on_build_lost("eludite-host exited", cx);
+                self.on_host_restarting(cx);
             }
             SessionEvent::LanguageServer(s) => {
                 self.ls_state = Some(s.state);
@@ -1204,6 +1343,7 @@ impl Shell {
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
                 self.publish_tree(&tree);
+                self.find_default_startup(window, cx);
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
@@ -1245,9 +1385,10 @@ impl Shell {
                 self.on_build_started(ticket, result, cx)
             }
             SessionEvent::BuildRefused { ticket, message } => {
-                self.on_build_refused(ticket, message, cx)
+                self.on_build_refused(ticket, message, window, cx)
             }
-            SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, &o.text, cx),
+            SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, o.seq, &o.text, cx),
+            SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)
@@ -1262,6 +1403,7 @@ impl Shell {
             SessionEvent::Closed => {
                 *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
+                self.update_settings_dir();
                 self.solution_state = None;
                 self.last_tree = None;
                 self.clear_host_diagnostics(cx);
@@ -1579,6 +1721,7 @@ impl Render for Shell {
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())
             .children(self.rename.dialog.clone())
+            .children(self.options.clone())
             .children(self.code_actions.menu.clone())
     }
 }

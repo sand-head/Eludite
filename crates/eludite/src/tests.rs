@@ -29,6 +29,7 @@ fn open(cx: &mut TestAppContext) -> Harness {
     let services = crate::shell::register_workspace(
         &mut commands,
         HostLaunch::Missing("no host in these tests".into()),
+        crate::settings::SettingsSetup::isolated(None),
     );
     let mut services = Some(services);
     let commands = Arc::new(commands);

@@ -30,7 +30,7 @@ use eludite_dap::types::SourceBreakpoint;
 use eludite_editor::BreakpointGlyph;
 use serde::{Deserialize, Serialize};
 
-/// The Debug Console keeps this many lines.
+/// `eludite.debug.state` keeps this many lines of the program's output (the Output window keeps them all).
 pub const CONSOLE_LINES: usize = 10_000;
 /// Locals and members listed at most (the schema's bound).
 pub const MAX_VARIABLES: usize = 500;
@@ -38,6 +38,8 @@ pub const MAX_VARIABLES: usize = 500;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Design,
+    /// F5 or Ctrl+F5 builds the startup project before launching it (brief 0020).
+    Building,
     Launching,
     Running,
     Break,
@@ -49,6 +51,7 @@ impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::Design => "design",
+            Mode::Building => "building",
             Mode::Launching => "launching",
             Mode::Running => "running",
             Mode::Break => "break",
@@ -102,7 +105,8 @@ impl Breakpoint {
     }
 }
 
-/// What persists per solution: breakpoints (without session state), exception settings and watch expressions.
+/// What persists per solution and per user (Visual Studio's .suo): breakpoints (without session state), exception
+/// settings, watch expressions and the startup project (brief 0020).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Persisted {
@@ -110,6 +114,9 @@ pub struct Persisted {
     pub breakpoints: Vec<PersistedBreakpoint>,
     pub exceptions: Option<ExceptionSettingsRow>,
     pub watches: Vec<String>,
+    /// The absolute path of the startup project's file (Set as Startup Project); absent: the first executable one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_project: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -497,6 +504,8 @@ pub struct DebugModel {
     pub console_total: u64,
     pub last_driver: Option<String>,
     pub message: Option<String>,
+    /// The project Set as Startup Project chose (brief 0020): an absolute project file path.
+    pub startup_project: Option<String>,
 }
 
 impl Default for DebugModel {
@@ -520,6 +529,7 @@ impl Default for DebugModel {
             console_total: 0,
             last_driver: None,
             message: None,
+            startup_project: None,
         }
     }
 }
@@ -693,6 +703,7 @@ impl DebugModel {
             breakpoints: self.breakpoints.to_persisted(),
             exceptions: Some(self.exceptions),
             watches: self.watches.iter().map(|w| w.name.clone()).collect(),
+            startup_project: self.startup_project.clone(),
         }
     }
 
@@ -701,6 +712,7 @@ impl DebugModel {
         self.breakpoints = Breakpoints::from_persisted(&p.breakpoints);
         self.exceptions = p.exceptions.unwrap_or_default();
         self.watches = p.watches.iter().map(|w| VarNode::watch(w)).collect();
+        self.startup_project = p.startup_project.clone();
     }
 }
 
@@ -733,6 +745,7 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                build: None,
                 wait_ms: None
             })
             .is_ok()
@@ -744,6 +757,7 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                build: None,
                 wait_ms: None
             })
             .unwrap_err()

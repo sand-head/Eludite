@@ -125,6 +125,10 @@
           "error": {
             "description": "Why the project did not load; `files` is then empty.",
             "type": "string"
+          },
+          "startup": {
+            "description": "True for the startup project (eludite.workspace.set_startup_project; Workspace shows it in bold).",
+            "type": "boolean"
           }
         }
       }

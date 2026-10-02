@@ -1,19 +1,64 @@
 //! The Workspace window (PLAN.md 4.2, brief 0012; Visual Studio's Solution Explorer, renamed so Cargo and npm
 //! workspaces fit the same window later): the tree from `eludite-workspace`'s [`SolutionModel`], drawn as
 //! virtualized rows. Click selects; the triangle or a double-click expands and collapses; double-clicking a file
-//! opens it through `eludite.file.open`. No context menus yet.
+//! opens it through `eludite.file.open`. The startup project is drawn bold (brief 0020).
+//!
+//! A right-click on a project (or a Cargo package) opens its context menu (brief 0020), in Visual Studio's order:
+//! Build, Rebuild and Clean (`eludite.build.project` with the project and a target), Set as Startup Project
+//! (`eludite.workspace.set_startup_project`, .NET projects only: only they can be debugged yet) and Open Containing
+//! Folder (`eludite.workspace.open_containing_folder`). Every item runs its command through the bus.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eludite_commands::workspace;
-use eludite_ui::{RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, tree_row};
+use eludite_ui::{RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, menu_row, tree_row};
 use eludite_workspace::explorer::{NodeKind, Row, SolutionModel};
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
+    ClickEvent, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
+    ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled, Window,
+    anchored, deferred, div, px, uniform_list,
 };
-use serde_json::json;
+use serde_json::{Value, json};
+
+/// The project context menu's items: (selector suffix, label).
+pub const CONTEXT_ITEMS: [(&str, &str); 5] = [
+    ("build", "Build"),
+    ("rebuild", "Rebuild"),
+    ("clean", "Clean"),
+    ("startup", "Set as Startup Project"),
+    ("folder", "Open Containing Folder"),
+];
+
+/// Debug selector of a context menu item (`build`, `rebuild`, `clean`, `startup`, `folder`).
+pub fn context_item_selector(item: &str) -> String {
+    format!("se-menu-{item}")
+}
+
+/// The command and arguments a context menu item runs for project file (or `Cargo.toml`) `path`.
+pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)> {
+    let p = path.to_string_lossy();
+    Some(match item {
+        "build" => (eludite_commands::build::PROJECT, json!({ "project": p })),
+        "rebuild" => (
+            eludite_commands::build::PROJECT,
+            json!({ "project": p, "target": "rebuild" }),
+        ),
+        "clean" => (
+            eludite_commands::build::PROJECT,
+            json!({ "project": p, "target": "clean" }),
+        ),
+        "startup" => (
+            eludite_commands::project::SET_STARTUP_PROJECT,
+            json!({ "project": p }),
+        ),
+        "folder" => (
+            eludite_commands::project::OPEN_CONTAINING_FOLDER,
+            json!({ "path": p }),
+        ),
+        _ => return None,
+    })
+}
 
 /// What the explorer shows when there is no tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +75,10 @@ pub struct SolutionExplorer {
     selected: Option<String>,
     rows: Vec<Row>,
     placeholder: Placeholder,
+    /// The startup project's file, drawn bold.
+    startup: Option<PathBuf>,
+    /// The open context menu: the row it is for and where the pointer was.
+    menu: Option<(usize, Point<Pixels>)>,
 }
 
 /// Debug selector of the row for node `id` (tests and the real-input driver).
@@ -58,7 +107,111 @@ impl SolutionExplorer {
             selected: None,
             rows: Vec::new(),
             placeholder: Placeholder::NoSolution,
+            startup: None,
+            menu: None,
         }
+    }
+
+    /// The startup project (Set as Startup Project's, or the first executable project).
+    pub fn set_startup(&mut self, startup: Option<PathBuf>, cx: &mut Context<Self>) {
+        let startup = startup.map(|p| super::documents::normalize_path(&p));
+        if startup != self.startup {
+            self.startup = startup;
+            cx.notify();
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn startup(&self) -> Option<&Path> {
+        self.startup.as_deref()
+    }
+
+    fn is_startup(&self, row: &Row) -> bool {
+        matches!(row.kind, NodeKind::Project { .. })
+            && self.startup.is_some()
+            && row.path.as_deref().map(super::documents::normalize_path) == self.startup
+    }
+
+    fn open_menu(&mut self, ix: usize, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        let Some(row) = self.rows.get(ix) else { return };
+        self.selected = Some(row.id.clone());
+        let project = matches!(
+            row.kind,
+            NodeKind::Project { .. } | NodeKind::CargoPackage { .. }
+        );
+        self.menu = (project && row.path.is_some()).then_some((ix, event.position));
+        cx.notify();
+    }
+
+    fn run_item(&mut self, item: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .menu
+            .take()
+            .and_then(|(ix, _)| self.rows.get(ix))
+            .and_then(|r| r.path.clone())
+        else {
+            return;
+        };
+        if let Some((command, args)) = context_command(item, &path) {
+            window.dispatch_action(Box::new(RunCommand::new(command, args)), cx);
+        }
+        cx.notify();
+    }
+
+    fn context_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let (ix, at) = self.menu?;
+        let row = self.rows.get(ix)?;
+        let t = self.theme;
+        let dotnet = matches!(row.kind, NodeKind::Project { .. });
+        let mut items = Vec::new();
+        for (i, (item, label)) in CONTEXT_ITEMS.into_iter().enumerate() {
+            if i == 3 || i == 4 {
+                items.push(
+                    div()
+                        .h(px(1.))
+                        .mx_1()
+                        .my_1()
+                        .bg(t.border)
+                        .into_any_element(),
+                );
+            }
+            // Only .NET projects can be started (Rust debugging is a later brief).
+            let enabled = item != "startup" || dotnet;
+            let el = menu_row(
+                context_item_selector(item),
+                label,
+                0,
+                false,
+                false,
+                !enabled,
+                &t,
+            )
+            .min_w(px(220.));
+            items.push(if enabled {
+                el.on_click(cx.listener(move |this, _, window, cx| this.run_item(item, window, cx)))
+                    .into_any_element()
+            } else {
+                el.into_any_element()
+            });
+        }
+        Some(
+            deferred(
+                anchored().position(at).child(
+                    eludite_ui::popup::popup_panel(&t)
+                        .id("se-context-menu")
+                        .debug_selector(|| "se-context-menu".into())
+                        .occlude()
+                        .py_1()
+                        .text_size(t.typography.ui)
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.menu = None;
+                            cx.notify();
+                        }))
+                        .children(items),
+                ),
+            )
+            .with_priority(3),
+        )
     }
 
     pub fn model(&self) -> Option<&SolutionModel> {
@@ -212,6 +365,7 @@ impl Render for SolutionExplorer {
                                         row.kind,
                                         NodeKind::Project { error: Some(_), .. }
                                     ),
+                                    bold: this.is_startup(row),
                                 };
                                 let id = row.id.clone();
                                 Some(
@@ -223,9 +377,15 @@ impl Render for SolutionExplorer {
                                         style,
                                         cx.listener(move |this, _, _, cx| this.toggle(&id, cx)),
                                     )
-                                    .on_click(cx.listener(
-                                        move |this, e, window, cx| this.click(ix, e, window, cx),
-                                    )),
+                                    .on_click(cx.listener(move |this, e, window, cx| {
+                                        this.click(ix, e, window, cx)
+                                    }))
+                                    .on_mouse_down(
+                                        MouseButton::Right,
+                                        cx.listener(move |this, e: &MouseDownEvent, _, cx| {
+                                            this.open_menu(ix, e, cx)
+                                        }),
+                                    ),
                                 )
                             })
                             .collect()
@@ -234,6 +394,7 @@ impl Render for SolutionExplorer {
                 .flex_1()
                 .min_h(px(TREE_ROW_HEIGHT)),
             )
+            .children(self.context_menu(cx))
             .into_any_element()
     }
 }

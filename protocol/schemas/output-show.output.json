@@ -16,7 +16,8 @@
       "enum": [
         "build",
         "host",
-        "language_servers"
+        "language_servers",
+        "debug"
       ]
     },
     "line_count": {
