@@ -23,6 +23,9 @@
 //!   Linux, `ps` on macOS, `tasklist` on Windows), and which of them Eludite started (brief 0027).
 //! - [`attach`]: which adapter attaches to a process and its `attach` arguments (brief 0027).
 //! - `fake` (feature `fake`): a scripted fake adapter for tests, in-process, over TCP or on stdio.
+//! - [`record`]: the recorder, a [`Connection`] wrapper that writes a session to a scrubbed `.dap.json` file, and the
+//!   re-record check (brief 0033).
+//! - `replay` (feature `replay`): the replaying adapter, which serves a recording to a client (brief 0033).
 
 pub mod attach;
 pub mod cargo;
@@ -32,6 +35,9 @@ pub mod discovery;
 pub mod fake;
 pub mod launch;
 pub mod processes;
+pub mod record;
+#[cfg(feature = "replay")]
+pub mod replay;
 pub mod session;
 pub mod transport;
 pub mod types;
