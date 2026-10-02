@@ -121,6 +121,8 @@ fn row_base(t: &Theme, selector: String) -> gpui::Stateful<gpui::Div> {
         .overflow_hidden()
         .flex()
         .flex_row()
+        // Rows keep their height in a scrolling column instead of shrinking to fit it.
+        .flex_none()
         .h(px(ROW_HEIGHT))
         .items_center()
         .text_size(t.typography.ui)
@@ -975,5 +977,42 @@ impl DebugWindows {
             ids::DEBUG_CONSOLE => self.console.clone().cached(style()).into_any_element(),
             _ => return None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{TestAppContext, size};
+
+    use super::*;
+
+    /// A deep stack in a short Call Stack window keeps every row at full height and scrolls, rather than squeezing
+    /// the rows on top of each other (seen in the brief 0018 manual run).
+    #[gpui::test]
+    fn call_stack_rows_keep_their_height_when_the_stack_overflows(cx: &mut TestAppContext) {
+        let (view, vcx) = cx.add_window_view(|_, _| CallStackWindow::new(Theme::vs_dark()));
+        vcx.simulate_resize(size(px(600.), px(160.)));
+        let rows = (0..40)
+            .map(|i| StackRow {
+                name: format!("Frame{i}()"),
+                location: format!("File.cs, line {i}"),
+                selected: i == 0,
+            })
+            .collect();
+        view.update(vcx, |w, cx| w.set_rows(rows, cx));
+        vcx.run_until_parked();
+        for sel in [
+            "debug-callstack-row-0",
+            "debug-callstack-row-1",
+            "debug-callstack-row-2",
+        ] {
+            let b = vcx.debug_bounds(sel).expect("row drawn");
+            assert_eq!(b.size.height, px(ROW_HEIGHT), "{sel}");
+        }
+        let (a, b) = (
+            vcx.debug_bounds("debug-callstack-row-0").unwrap(),
+            vcx.debug_bounds("debug-callstack-row-1").unwrap(),
+        );
+        assert_eq!(b.origin.y - a.origin.y, px(ROW_HEIGHT));
     }
 }
