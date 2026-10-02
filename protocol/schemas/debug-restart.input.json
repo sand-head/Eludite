@@ -7,6 +7,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "session": {
+      "description": "The debugging session to act on (brief 0028): its `id`, from eludite.debug.sessions or `sessions` in eludite.debug.state. Default: the active session, the one the Locals, Watch, Call Stack and Threads windows show and the execution point follows. An unknown or ended id is refused with the ids of the live sessions.",
+      "type": "integer",
+      "minimum": 1
+    },
     "wait_ms": {
       "description": "How long to wait for the new session to run (or break) before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it.",
       "type": "integer",
