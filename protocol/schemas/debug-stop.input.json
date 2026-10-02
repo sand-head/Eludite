@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stop.input.json",
   "title": "eludite.debug.stop input",
   "description": "Debug > Stop Debugging (Shift+F5): end the session and terminate the debuggee, or end a program started without debugging.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {}

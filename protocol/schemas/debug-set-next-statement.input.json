@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-set-next-statement.input.json",
   "title": "eludite.debug.set_next_statement input",
   "description": "Debug > Set Next Statement (Ctrl+Shift+F10): move the execution point of the stopped thread to another line of the same method without running the code in between, through DAP gotoTargets and goto. Only where the debug adapter has them (`capabilities.set_next_statement`; netcoredbg and eludite-dbg-mono do not): refused naming the adapter otherwise. Only in break mode. The answer is the stop summary at the new point (the adapter stops with reason `goto`); the Call Stack and Locals windows refresh as after a step.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

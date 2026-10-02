@@ -68,12 +68,13 @@
       "type": "boolean"
     },
     "stopped_by": {
-      "description": "`terminated`: the session ended (see `exit_code`). `stopped`: a visible stop (see `summary`). `hits`: `count` or `max_hits` hits. `timeout`: `wait_ms` ran out (the debuggee goes on running).",
+      "description": "`terminated`: the session ended (see `exit_code`). `stopped`: a visible stop (see `summary`). `hits`: `count` or `max_hits` hits. `timeout`: `wait_ms` ran out (the debuggee goes on running). `interrupted`: the person resumed, paused, stopped or restarted the debuggee while the trace collected (proposal 0001 rule 5); the lines collected so far are answered.",
       "enum": [
         "terminated",
         "stopped",
         "hits",
-        "timeout"
+        "timeout",
+        "interrupted"
       ]
     },
     "summary": {
