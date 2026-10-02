@@ -53,3 +53,5 @@ Negative:
 - Keystroke-to-pixel p99 cannot be brought under 8 ms with the editor core on GPUI.
 
 Note, 2026-10-01 (brief 0001, [report](../briefs/0001-report.md) section 3.4): GPUI draws only when the platform asks for a frame, so measured keystroke-to-present includes a wait of up to one refresh interval (16.7 ms at 60 Hz). Read the keystroke trigger above as input-to-frame-submitted *excluding* that wait (measured at 3.4 to 4.9 ms p99 on Linux), or restate the budget against a named reference refresh rate. Until that is decided, a keystroke result over 8 ms does not by itself trigger this ADR.
+
+Note, 2026-10-01 (Phase 0 close on Linux): brief 0001 is GO on Linux Wayland and XWayland (provisional pending an unlocked-session re-run; [report](../briefs/0001-report.md) section 8). The keystroke budget was split into frame cost and end to end (PLAN.md section 9) and every Linux number passes. The vendoring audit approved `sum_tree`, `rope`, `text`, `clock` and `fuzzy`; brief 0009 vendors them. Windows and macOS remain undetermined until the runs happen; the first Windows run is planned on the owner's work laptop.
