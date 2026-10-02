@@ -15,20 +15,46 @@
 //! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`) still override the files: the store resolves
 //! them, so nothing here reads the environment.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eludite_commands::CommandError;
-use eludite_commands::settings::{SettingsOutput, SettingsRequest, SettingsTarget};
-use gpui::Context;
+use eludite_commands::settings::{
+    OptionsOutput, SettingsGetOutput, SettingsOutput, SettingsRequest, SettingsTarget,
+};
+use futures::channel::mpsc::UnboundedSender;
+use gpui::{AppContext as _, Context, Focusable as _, PathPromptOptions, Window};
+use serde_json::{Value, json};
 
 use super::Shell;
+use super::options::{OptionsDialog, OptionsEvent};
 use crate::settings::Settings;
 
-/// `eludite.settings.get` and `set` on any thread, straight on the store; the shell applies the change when the
-/// store signals it.
+type OptionsOutcome = Result<OptionsOutput, CommandError>;
+
+thread_local! {
+    static STAGED: RefCell<Option<OptionsOutcome>> = const { RefCell::new(None) };
+}
+
+/// The result the shell computed for the `eludite.tools.options` invocation it is about to make on the UI thread.
+pub fn stage(outcome: OptionsOutcome) {
+    STAGED.with(|s| *s.borrow_mut() = Some(outcome));
+}
+
+/// `eludite.tools.options` from another thread, for the UI thread to apply.
+pub struct OptionsJob {
+    pub section: Option<String>,
+    pub reply: mpsc::SyncSender<OptionsOutcome>,
+}
+
+/// `eludite.settings.get` and `set` on any thread, straight on the store (the shell applies the change when the
+/// store signals it); `eludite.tools.options` on the UI thread.
 pub struct SettingsBus {
     pub settings: Settings,
+    pub ui_thread: std::thread::ThreadId,
+    pub jobs: UnboundedSender<OptionsJob>,
 }
 
 impl SettingsTarget for SettingsBus {
@@ -41,9 +67,26 @@ impl SettingsTarget for SettingsBus {
                 .settings
                 .set(&key, value, scope)
                 .map(SettingsOutput::Set),
-            SettingsRequest::Options { .. } => Err(CommandError::Failed(
-                "the Options dialog is not available here".into(),
-            )),
+            SettingsRequest::Options { section } => {
+                if std::thread::current().id() == self.ui_thread {
+                    return STAGED
+                        .with(|s| s.borrow_mut().take())
+                        .unwrap_or_else(|| {
+                            Err(CommandError::Failed(
+                                "eludite.tools.options runs on the UI thread through the shell"
+                                    .into(),
+                            ))
+                        })
+                        .map(SettingsOutput::Options);
+                }
+                let (reply, rx) = mpsc::sync_channel(1);
+                self.jobs
+                    .unbounded_send(OptionsJob { section, reply })
+                    .map_err(|_| CommandError::Failed("the window is closed".into()))?;
+                rx.recv_timeout(Duration::from_secs(30))
+                    .map_err(|_| CommandError::Failed("the UI did not answer".into()))?
+                    .map(SettingsOutput::Options)
+            }
         }
     }
 }
@@ -103,6 +146,7 @@ impl Shell {
         if agents_changed {
             self.agents.set_registry_config(applied.agents.clone(), cx);
         }
+        self.refresh_options(cx);
         if let Some(seen) = seen {
             let took = seen.elapsed();
             super::documents::trace(format_args!(
@@ -128,5 +172,120 @@ impl Shell {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn applied_settings(&self) -> Option<&Applied> {
         self.applied_settings.as_ref()
+    }
+}
+
+impl Shell {
+    /// `eludite.tools.options`: open the Options dialog (or show `section` in the open one).
+    pub(super) fn open_options(
+        &mut self,
+        section: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> OptionsOutcome {
+        let dialog = match &self.options {
+            Some(d) => d.clone(),
+            None => {
+                let schema = self.settings.lock().schema().clone();
+                let theme = self.theme;
+                let d = cx.new(|cx| OptionsDialog::new(theme, schema, section.as_deref(), cx));
+                cx.subscribe_in(&d, window, Self::on_options_event).detach();
+                self.options = Some(d.clone());
+                d
+            }
+        };
+        if let Some(s) = &section {
+            let ix = self
+                .settings
+                .lock()
+                .schema()
+                .sections
+                .iter()
+                .position(|x| x == s);
+            if let Some(ix) = ix {
+                dialog.update(cx, |d, cx| d.show_section(ix, cx));
+            }
+        }
+        self.refresh_options(cx);
+        dialog.focus_handle(cx).focus(window, cx);
+        cx.notify();
+        Ok(OptionsOutput {
+            section: dialog.read(cx).section().to_owned(),
+        })
+    }
+
+    /// Give the open dialog the current values.
+    fn refresh_options(&mut self, cx: &mut Context<Self>) {
+        if let Some(d) = self.options.clone() {
+            let out: SettingsGetOutput = self.settings.lock().get_output(None);
+            d.update(cx, |d, cx| d.set_values(out, cx));
+        }
+    }
+
+    pub(super) fn close_options(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.options.take().is_some() {
+            self.focus.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// The Options dialog's changes run `eludite.settings.set` through the bus, as an agent's would.
+    fn on_options_event(
+        &mut self,
+        _: &gpui::Entity<OptionsDialog>,
+        event: &OptionsEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            OptionsEvent::Set { key, value } => {
+                self.set_setting(key, value.clone(), window, cx);
+            }
+            OptionsEvent::Browse { key } => {
+                let paths = cx.prompt_for_paths(PathPromptOptions {
+                    files: true,
+                    directories: false,
+                    multiple: false,
+                    prompt: Some("Select".into()),
+                });
+                let key = key.clone();
+                cx.spawn_in(window, async move |this, cx| {
+                    if let Ok(Ok(Some(paths))) = paths.await
+                        && let Some(path) = paths.into_iter().next()
+                    {
+                        let _ = this.update_in(cx, |shell, window, cx| {
+                            let value = Value::String(path.to_string_lossy().into_owned());
+                            shell.set_setting(&key, value, window, cx)
+                        });
+                    }
+                })
+                .detach();
+            }
+            OptionsEvent::Close => self.close_options(window, cx),
+        }
+    }
+
+    /// `eludite.settings.set` from the UI, in the user file (Visual Studio's Options are per user).
+    fn set_setting(
+        &mut self,
+        key: &str,
+        value: Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.run(
+            eludite_commands::settings::SET,
+            json!({ "key": key, "value": value }),
+            window,
+            cx,
+        );
+        // The store signals the change; refresh now so the dialog never shows the old value for a frame.
+        self.refresh_options(cx);
+    }
+
+    /// The Options dialog, while it is open.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn options_dialog(&self) -> Option<&gpui::Entity<OptionsDialog>> {
+        self.options.as_ref()
     }
 }

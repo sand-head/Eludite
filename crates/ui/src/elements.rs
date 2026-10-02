@@ -96,6 +96,45 @@ pub fn toggle_button(
     }
 }
 
+/// A check box with its label (the Options dialog's switches, brief 0020): Visual Studio's square, checked or not,
+/// with element id `id`. The caller adds the click handler.
+pub fn check_box(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    checked: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let selector = id.clone();
+    let square = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .w(px(13.))
+        .h(px(13.))
+        .border_1()
+        .border_color(if checked { theme.accent } else { theme.border })
+        .bg(theme.background)
+        .text_size(theme.typography.small)
+        .text_color(theme.text)
+        .child(if checked { "\u{2713}" } else { "" });
+    div()
+        .id(id)
+        .debug_selector(move || selector.to_string())
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .h(px(20.))
+        .text_size(theme.typography.ui)
+        .text_color(theme.text)
+        .cursor_pointer()
+        .child(square)
+        .child(label.into())
+}
+
 /// A one-line text box (the Error List's search box): `text`, or `placeholder` muted when empty, with a caret
 /// while `focused`. The caller owns the text, the focus and the key handling.
 pub fn text_box(

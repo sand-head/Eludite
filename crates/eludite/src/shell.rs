@@ -26,6 +26,7 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+pub mod options;
 pub mod output;
 #[cfg(test)]
 mod refactor_tests;
@@ -129,6 +130,8 @@ pub struct Services {
     /// The settings store (brief 0020) and when it changed.
     pub settings: crate::settings::Settings,
     pub settings_changed: UnboundedReceiver<Instant>,
+    /// `eludite.tools.options` from other threads.
+    pub options_jobs: UnboundedReceiver<self::settings::OptionsJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -142,13 +145,16 @@ pub fn register_workspace(
     let schema = Arc::new(eludite_commands::settings::SettingsSchema::builtin());
     let (settings_tx, settings_changed) = unbounded();
     let settings = crate::settings::Settings::start(schema.clone(), settings, settings_tx);
+    let (options_tx, options_jobs) = unbounded();
     eludite_commands::settings::register(
         commands,
         schema,
         Arc::new(self::settings::SettingsBus {
             settings: settings.clone(),
+            ui_thread: std::thread::current().id(),
+            jobs: options_tx,
         }),
-        false,
+        true,
     );
     let (jobs_tx, jobs) = unbounded();
     workspace::register(
@@ -226,6 +232,7 @@ pub fn register_workspace(
         launches: ServerLaunches::default(),
         settings,
         settings_changed,
+        options_jobs,
     }
 }
 
@@ -321,6 +328,8 @@ pub struct Shell {
     settings: crate::settings::Settings,
     applied_settings: Option<self::settings::Applied>,
     settings_applied: Vec<std::time::Duration>,
+    /// Tools > Options, while open.
+    options: Option<Entity<options::OptionsDialog>>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -443,6 +452,7 @@ impl Shell {
             launches,
             settings,
             mut settings_changed,
+            mut options_jobs,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -655,6 +665,17 @@ impl Shell {
                 }
             }
         });
+        let options_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = options_jobs.next().await {
+                let self::settings::OptionsJob { section, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.open_options(section, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
         let mut this = Self {
             theme,
             commands,
@@ -703,6 +724,7 @@ impl Shell {
             settings,
             applied_settings: None,
             settings_applied: Vec::new(),
+            options: None,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -714,6 +736,7 @@ impl Shell {
                 debug_task.1,
                 cargo_task,
                 settings_task,
+                options_task,
             ],
         };
         this.apply_settings(None, cx);
@@ -877,6 +900,15 @@ impl Shell {
                 .apply_debug(request, &eludite_commands::Caller::User, false, window, cx)
                 .map(|(out, _)| out);
             debug::stage(outcome);
+        }
+        if command == eludite_commands::settings::OPTIONS {
+            let schema = self.settings.lock().schema().clone();
+            if let Ok(eludite_commands::settings::SettingsRequest::Options { section }) =
+                eludite_commands::settings::parse(command, args.clone(), &schema)
+            {
+                let outcome = self.open_options(section, window, cx);
+                self::settings::stage(outcome);
+            }
         }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
@@ -1636,6 +1668,7 @@ impl Render for Shell {
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())
             .children(self.rename.dialog.clone())
+            .children(self.options.clone())
             .children(self.code_actions.menu.clone())
     }
 }
