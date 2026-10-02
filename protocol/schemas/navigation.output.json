@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation.output.json",
+  "title": "eludite.navigation output",
+  "description": "Output of eludite.navigation.back and eludite.navigation.forward: where the caret is after the command, and how many positions remain in each direction.",
+  "type": "object",
+  "required": [
+    "navigated",
+    "back",
+    "forward"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "navigated": {
+      "description": "False when there was nowhere to go.",
+      "type": "boolean"
+    },
+    "path": {
+      "description": "The document now active.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "back": {
+      "description": "Positions left behind (Ctrl+-).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "forward": {
+      "description": "Positions ahead (Ctrl+Shift+-).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

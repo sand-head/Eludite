@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-find-references.input.json",
+  "title": "eludite.editor.find_references input",
+  "description": "Find All References (Shift+F12): ask the language server for every reference to the symbol at `line`, `column` (or the caret), including its declaration, and show them in the Find All References tool window, docked at the bottom beside the Error List and grouped by project, then file. A new search replaces the previous results and cancels a search still running; a result for an older document version or solution generation is dropped.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the symbol; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the symbol; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

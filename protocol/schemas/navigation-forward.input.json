@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/navigation-forward.input.json",
+  "title": "eludite.navigation.forward input",
+  "description": "View > Navigate Forward (Ctrl+Shift+-): go forward again to the position after the last navigation (Go To Definition, a Find All References result, or this command). The history belongs to the window and holds 50 positions; a position in a closed document reopens it.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
