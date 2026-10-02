@@ -243,7 +243,7 @@ impl Shell {
         Some(rx)
     }
 
-    fn resolve_file(&self, path: &str) -> PathBuf {
+    pub(super) fn resolve_file(&self, path: &str) -> PathBuf {
         let p = Path::new(path);
         let resolved = if p.is_absolute() {
             p.to_path_buf()
@@ -422,6 +422,8 @@ impl Shell {
             view.focus_handle(cx).focus(window, cx);
         }
         self.explorer.update(cx, |e, cx| e.reveal(&path, cx));
+        // Breakpoints and the debugger's execution point (brief 0018).
+        self.debug_document_opened(cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();
@@ -437,6 +439,14 @@ impl Shell {
 
     fn on_editor_changed(&mut self, id: &str, cx: &mut Context<Self>) {
         self.wake_intellisense_waiters();
+        // Breakpoints follow their lines through edits (brief 0018).
+        if self
+            .documents
+            .get(id)
+            .is_some_and(|d| d.view.read(cx).editor().buffer().version() != d.seen)
+        {
+            self.debug_sync_lines(id, cx);
+        }
         // The light bulb follows the caret (brief 0015).
         self.probe_lightbulb(id, cx);
         let Some(doc) = self.documents.get_mut(id) else {

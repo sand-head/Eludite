@@ -1536,6 +1536,7 @@ dependencies = [
  "clock",
  "eludite-acp",
  "eludite-commands",
+ "eludite-dap",
  "eludite-docking",
  "eludite-editor",
  "eludite-lsp",
@@ -1546,6 +1547,7 @@ dependencies = [
  "futures",
  "gpui",
  "gpui_platform",
+ "serde",
  "serde_json",
  "tempfile",
 ]
