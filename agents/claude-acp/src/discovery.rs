@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 pub const MIN_CLAUDE_VERSION: Version = Version(2, 1, 287);
 
 /// Environment variable naming the `claude` executable explicitly.
-pub const CLAUDE_PATH_ENV: &str = "NIELLO_CLAUDE_PATH";
+pub const CLAUDE_PATH_ENV: &str = "ELUDITE_CLAUDE_PATH";
 
 /// Variables Claude Code sets for its own child processes. If the adapter (or
 /// the IDE that launched it) was started from a Claude Code terminal they would
@@ -71,7 +71,7 @@ pub enum Source {
 }
 
 /// Find `claude`: an explicit path (the `--claude` argument), then
-/// `$NIELLO_CLAUDE_PATH`, then `$PATH`, then `~/.local/bin` (the native
+/// `$ELUDITE_CLAUDE_PATH`, then `$PATH`, then `~/.local/bin` (the native
 /// installer's location). `env` and `home` are passed in so tests can control
 /// them.
 pub fn discover(
@@ -186,7 +186,7 @@ pub fn check_version(v: Version) -> Result<(), String> {
     if v < MIN_CLAUDE_VERSION {
         Err(format!(
             "Claude Code {v} is older than {MIN_CLAUDE_VERSION}, the oldest version \
-             niello-claude-acp is validated against. Update it (`claude update`) and start a \
+             eludite-claude-acp is validated against. Update it (`claude update`) and start a \
              new session."
         ))
     } else {
@@ -222,7 +222,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!(
-            "niello-claude-acp-disc-{}-{name}",
+            "eludite-claude-acp-disc-{}-{name}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&d);

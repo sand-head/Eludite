@@ -138,7 +138,7 @@ pub struct EditorStyle {
     pub font_family: SharedString,
     pub font_size: Pixels,
     pub line_height: Pixels,
-    pub theme: niello_ui::Theme,
+    pub theme: eludite_ui::Theme,
     pub syntax: SyntaxTheme,
     pub line_number: Rgba,
     pub line_number_active: Rgba,
@@ -150,7 +150,7 @@ pub struct EditorStyle {
 
 impl Default for EditorStyle {
     fn default() -> Self {
-        let theme = niello_ui::Theme::vs_dark();
+        let theme = eludite_ui::Theme::vs_dark();
         Self {
             font_family: default_font_family(),
             font_size: theme.typography.body,
@@ -167,9 +167,9 @@ impl Default for EditorStyle {
     }
 }
 
-/// `NIELLO_EDITOR_FONT` if set, else the platform's usual monospace font.
+/// `ELUDITE_EDITOR_FONT` if set, else the platform's usual monospace font.
 pub fn default_font_family() -> SharedString {
-    if let Ok(f) = std::env::var("NIELLO_EDITOR_FONT") {
+    if let Ok(f) = std::env::var("ELUDITE_EDITOR_FONT") {
         return f.into();
     }
     if cfg!(target_os = "windows") {

@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Brief 0003 runner: loads each corpus project through niello-host's legacy evaluators and the Roslyn LS. -->
+  <!-- Brief 0003 runner: loads each corpus project through eludite-host's legacy evaluators and the Roslyn LS. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,7 +9,7 @@
     <AssemblyName>legacy-load</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../../dotnet/src/Niello.Host/Niello.Host.csproj" />
+    <ProjectReference Include="../../../dotnet/src/Eludite.Host/Eludite.Host.csproj" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-//! `niello-acp` against the scripted fake agent and the recorded real session.
+//! `eludite-acp` against the scripted fake agent and the recorded real session.
 
 use std::io::Write;
 use std::path::Path;
@@ -7,20 +7,20 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-use niello_acp::fake_agent::{self, DIAGNOSTICS_TOOL, Options, SHELL_TOOL, Scenario};
-use niello_acp::protocol::{
+use eludite_acp::fake_agent::{self, DIAGNOSTICS_TOOL, Options, SHELL_TOOL, Scenario};
+use eludite_acp::protocol::{
     InitializeResponse, NewSessionResponse, PromptResponse, RequestPermissionOutcome,
     RequestPermissionRequest, SessionNotification, SessionUpdate, StopReason, ToolCall,
     ToolCallStatus,
 };
-use niello_acp::{AcpClient, AgentDescriptor, ClientEvent, EventSink};
+use eludite_acp::{AcpClient, AgentDescriptor, ClientEvent, EventSink};
 use serde_json::Value;
 
 const T: Option<Duration> = Some(Duration::from_secs(10));
 
-fn info() -> niello_acp::protocol::Implementation {
-    niello_acp::protocol::Implementation {
-        name: "niello-test".into(),
+fn info() -> eludite_acp::protocol::Implementation {
+    eludite_acp::protocol::Implementation {
+        name: "eludite-test".into(),
         title: None,
         version: "0".into(),
     }
@@ -93,7 +93,7 @@ fn harness(opts: Options, policy: Policy) -> Harness {
     }
 }
 
-/// The panel's policy from brief 0005: the Niello read tool runs without a
+/// The panel's policy from brief 0005: the Eludite read tool runs without a
 /// prompt; everything else is "prompted", and the simulated user denies it.
 fn read_only_policy() -> Policy {
     Arc::new(|req| Some(req.tool_call.agent_tool_name() == Some(DIAGNOSTICS_TOOL)))
@@ -297,7 +297,7 @@ fn login_required_surfaces_auth_methods_and_error() {
     let m = &init.auth_methods[0];
     assert_eq!(m.kind.as_deref(), Some("terminal"));
     assert_eq!(
-        niello_acp::npx_claude_agent().terminal_auth_command(m),
+        eludite_acp::npx_claude_agent().terminal_auth_command(m),
         "npx -y @agentclientprotocol/claude-agent-acp@0.85.0 --cli auth login --claudeai"
     );
     let s = h.client.new_session(Path::new("/work"), vec![], T).unwrap();
@@ -337,7 +337,7 @@ fn stream_arrives_complete_and_in_order() {
 fn spawned_process_and_close() {
     let agent = AgentDescriptor {
         name: "fake".into(),
-        command: env!("CARGO_BIN_EXE_niello-fake-acp-agent").into(),
+        command: env!("CARGO_BIN_EXE_eludite-fake-acp-agent").into(),
         args: vec!["--scenario".into(), "diagnostics".into()],
         env: vec![],
         env_remove: vec!["CLAUDECODE".into()],
@@ -387,7 +387,7 @@ fn spawned_process_and_close() {
     assert!(client.is_closed());
     assert_eq!(
         client.prompt("x", "y").unwrap_err(),
-        niello_acp::AcpError::Closed
+        eludite_acp::AcpError::Closed
     );
 }
 

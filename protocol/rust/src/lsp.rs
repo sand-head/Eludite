@@ -1,7 +1,7 @@
-//! The typed subset of LSP 3.17 that `niello-host` forwards (host-rpc.md, "Forwarded LSP methods, typed").
+//! The typed subset of LSP 3.17 that `eludite-host` forwards (host-rpc.md, "Forwarded LSP methods, typed").
 //!
-//! Only the members Niello reads are typed. Every response type keeps the members it does not name in an `extra`
-//! map, so a message survives a decode and re-encode unchanged. Requests carry `nielloGeneration` on the wire; the
+//! Only the members Eludite reads are typed. Every response type keeps the members it does not name in an `extra`
+//! map, so a message survives a decode and re-encode unchanged. Requests carry `eluditeGeneration` on the wire; the
 //! marker types here mark them [`RequestType::GENERATIONAL`] and a client adds the member (see
 //! [`crate::host::WithGeneration`]).
 
@@ -519,7 +519,7 @@ mod tests {
                 generation: 1,
             },
             json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 3, "character": 7},
-                   "context": {"triggerKind": 2, "triggerCharacter": "."}, "nielloGeneration": 1}),
+                   "context": {"triggerKind": 2, "triggerCharacter": "."}, "eluditeGeneration": 1}),
         );
     }
 
@@ -552,7 +552,7 @@ mod tests {
                 },
                 generation: 2,
             },
-            json!({"label": "Compute", "data": {"k": 1}, "nielloGeneration": 2}),
+            json!({"label": "Compute", "data": {"k": 1}, "eluditeGeneration": 2}),
         );
     }
 
@@ -566,7 +566,7 @@ mod tests {
                 },
                 generation: 0,
             },
-            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 1}, "nielloGeneration": 0}),
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 1}, "eluditeGeneration": 0}),
         );
         round_trip(
             &Some(Hover {
@@ -651,7 +651,7 @@ mod tests {
                 },
                 generation: 5,
             },
-            json!({"query": "Widget", "nielloGeneration": 5}),
+            json!({"query": "Widget", "eluditeGeneration": 5}),
         );
         let r = json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}});
         let flat = json!([{"name": "Widget00", "kind": 5, "location": {"uri": "file:///w.cs", "range": r}}]);
@@ -709,7 +709,7 @@ mod tests {
                 },
                 generation: 1,
             },
-            json!({"uri": "file:///a.cs", "version": 3, "nielloGeneration": 1, "diagnostics": [
+            json!({"uri": "file:///a.cs", "version": 3, "eluditeGeneration": 1, "diagnostics": [
                 {"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}},
                  "severity": 2, "code": "CS0168", "message": "unused"}]}),
         );

@@ -2,7 +2,7 @@
 //! benchmarks for brief 0009.
 //!
 //! ```text
-//! cargo run -p niello-editor --release --example viewer -- FILE [options]
+//! cargo run -p eludite-editor --release --example viewer -- FILE [options]
 //!   --bench-scroll        scroll top to bottom once highlighting is complete,
 //!                         print frame-cost JSON and quit
 //!   --lines-per-frame N   scroll step for --bench-scroll (default 40)
@@ -10,7 +10,7 @@
 //!                         row, print keystroke frame-cost JSON and quit
 //!   --bench-open          print time to first painted frame and to complete
 //!                         highlighting, with memory, and quit
-//! cargo run -p niello-editor --release --example viewer -- --generate LANG LINES OUT
+//! cargo run -p eludite-editor --release --example viewer -- --generate LANG LINES OUT
 //!   write a synthetic C# (LANG=csharp) or Rust (LANG=rust) file
 //! ```
 //!
@@ -25,13 +25,13 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use eludite_editor::syntax::LanguageRegistry;
+use eludite_editor::{Buffer, EditorView, key_bindings};
 use gpui::{
     App, AppContext as _, Bounds, Context, Entity, Focusable as _, IntoElement, Keystroke,
     ParentElement as _, Render, Styled as _, TitlebarOptions, Window, WindowBounds, WindowOptions,
     div, px, size,
 };
-use niello_editor::syntax::LanguageRegistry;
-use niello_editor::{Buffer, EditorView, key_bindings};
 use serde_json::{Value, json};
 
 #[derive(Default)]
@@ -184,7 +184,7 @@ fn generate(lang: &str, lines: usize) -> String {
     let mut block = 0usize;
     match lang {
         "csharp" => {
-            out.push_str("using System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nnamespace Niello.Generated\n{\n");
+            out.push_str("using System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nnamespace Eludite.Generated\n{\n");
             n += 6;
             while n + 2 < lines {
                 let b = block;
@@ -405,7 +405,7 @@ fn bench_type(handle: gpui::AnyWindowHandle, root: Entity<Root>, count: usize, c
     editor.update(cx, |v, cx| {
         v.update_editor(cx, |e| {
             let b = e.buffer();
-            let at = b.point_to_offset(niello_editor::text::Point::new(row, b.line_len(row)));
+            let at = b.point_to_offset(eludite_editor::text::Point::new(row, b.line_len(row)));
             e.set_caret(at);
         });
     });
@@ -518,7 +518,7 @@ fn main() {
                 title: Some(title.into()),
                 ..Default::default()
             }),
-            app_id: Some("niello-editor-viewer".into()),
+            app_id: Some("eludite-editor-viewer".into()),
             inactive_frame_interval: if benching {
                 None
             } else {

@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commit = (Get-Content (Join-Path $here 'COMMIT') -Raw).Trim()
-$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '.cache/niello/roslyn' }
+$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '.cache/eludite/roslyn' }
 $config = if ($env:ROSLYN_CONFIGURATION) { $env:ROSLYN_CONFIGURATION } else { 'Release' }
 $project = 'src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj'
 

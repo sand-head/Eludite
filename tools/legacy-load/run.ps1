@@ -8,8 +8,8 @@ param([switch]$PrepareOnly, [string]$Phases = "", [string]$Entries = "", [string
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $here "..\..")
-$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $env:USERPROFILE ".cache\niello\roslyn" }
-$lsDll = if ($env:NIELLO_ROSLYN_LS) { $env:NIELLO_ROSLYN_LS } else { Join-Path $src "artifacts\bin\Microsoft.CodeAnalysis.LanguageServer\Release\net10.0\Microsoft.CodeAnalysis.LanguageServer.dll" }
+$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $env:USERPROFILE ".cache\eludite\roslyn" }
+$lsDll = if ($env:ELUDITE_ROSLYN_LS) { $env:ELUDITE_ROSLYN_LS } else { Join-Path $src "artifacts\bin\Microsoft.CodeAnalysis.LanguageServer\Release\net10.0\Microsoft.CodeAnalysis.LanguageServer.dll" }
 
 # corpus/legacy/fetch.sh needs bash (Git for Windows ships one).
 & bash (Join-Path $repo "corpus/legacy/fetch.sh")
@@ -34,7 +34,7 @@ $bin = Join-Path $here "runner\bin\Release\net10.0"
 $results = Join-Path $here ("results\" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force $results | Out-Null
 $runArgs = @("run", "--manifest", (Join-Path $repo "corpus\legacy\manifest.json"), "--checkout", (Join-Path $repo "corpus\legacy\.checkout"),
-          "--results", $results, "--host", (Join-Path $bin "niello-host.dll"))
+          "--results", $results, "--host", (Join-Path $bin "eludite-host.dll"))
 if (Test-Path $lsDll) { $runArgs += @("--roslyn-ls", $lsDll) } else { Write-Warning "Roslyn LS not found; skipping the roslyn phase" }
 if ($Phases) { $runArgs += @("--phases", $Phases) }
 if ($Entries) { $runArgs += @("--entries", $Entries) }

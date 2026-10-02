@@ -10,7 +10,7 @@
 
 ## Why vendored
 
-Chunked rope with byte offset, point and UTF-16 dimensions: the text storage of Niello's editor (PLAN.md 4.1). Line-ending and BOM handling live in `niello-editor`, not here.
+Chunked rope with byte offset, point and UTF-16 dimensions: the text storage of Eludite's editor (PLAN.md 4.1). Line-ending and BOM handling live in `eludite-editor`, not here.
 
 ## Local changes
 

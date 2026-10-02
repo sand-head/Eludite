@@ -27,7 +27,7 @@ impl SyntaxThread {
         THREAD.get_or_init(|| {
             let (tx, rx) = channel::<Job>();
             std::thread::Builder::new()
-                .name("niello-syntax".into())
+                .name("eludite-syntax".into())
                 .spawn(move || {
                     while let Ok(job) = rx.recv() {
                         job();

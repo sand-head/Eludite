@@ -1,6 +1,6 @@
 [package]
-name = "niello-workspace"
-description = "Client-side solution and project model for Niello."
+name = "eludite-workspace"
+description = "Client-side solution and project model for Eludite."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

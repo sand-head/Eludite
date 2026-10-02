@@ -10,7 +10,7 @@
 //!   the [`SyntaxThread`], never on the UI thread.
 //! - [`SyntaxTheme`]: maps [`HighlightKind`] to colors.
 //!
-//! The tree-sitter glue is written for Niello, following the approach of
+//! The tree-sitter glue is written for Eludite, following the approach of
 //! Zed's `language/src/syntax_map.rs` (incremental re-parse from buffer edits,
 //! `changed_ranges` to find rows to re-highlight) without porting its
 //! injection layers, which C# and Rust do not need yet.

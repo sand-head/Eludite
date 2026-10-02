@@ -3,13 +3,13 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// A command id: two or more dot-separated segments, each `[a-z][a-z0-9_]*`,
-/// e.g. `niello.file.open`.
+/// e.g. `eludite.file.open`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct CommandId(String);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("invalid command id {0:?}: expected dotted lowercase segments like `niello.file.open`")]
+#[error("invalid command id {0:?}: expected dotted lowercase segments like `eludite.file.open`")]
 pub struct InvalidCommandId(pub String);
 
 impl CommandId {
@@ -76,9 +76,9 @@ mod tests {
     #[test]
     fn valid_ids() {
         for id in [
-            "niello.file.open",
+            "eludite.file.open",
             "a.b",
-            "niello.view.toggle_tool_window",
+            "eludite.view.toggle_tool_window",
             "x1.y2",
         ] {
             assert!(CommandId::new(id).is_ok(), "{id}");
@@ -89,9 +89,9 @@ mod tests {
     fn invalid_ids() {
         for id in [
             "",
-            "niello",
-            "Niello.file",
-            "niello..open",
+            "eludite",
+            "Eludite.file",
+            "eludite..open",
             ".a.b",
             "a.b.",
             "a.1b",

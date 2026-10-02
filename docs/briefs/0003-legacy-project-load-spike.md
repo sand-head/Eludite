@@ -10,8 +10,8 @@ Show that legacy (non-SDK) `.csproj` projects can be evaluated and analyzed on L
 
 ## Files in scope
 
-- `dotnet/Niello.Host/**` additions for design-time evaluation (new files under `dotnet/Niello.Host/Legacy/`)
-- `dotnet/Niello.Web/**` for a minimal designer-partial-class prototype
+- `dotnet/Eludite.Host/**` additions for design-time evaluation (new files under `dotnet/Eludite.Host/Legacy/`)
+- `dotnet/Eludite.Web/**` for a minimal designer-partial-class prototype
 - `corpus/legacy/**` (new): corpus manifest and fetch script. Use git submodules or a script that clones at pinned commits. Do not commit third-party source directly.
 - `tools/legacy-load/**` (new): runner scripts for both OSes
 - `docs/briefs/0003-report.md` (new)
@@ -29,7 +29,7 @@ Do not edit `protocol/**`.
 - Windows: locate MSBuild from Visual Studio Build Tools (a free installer on the machine, never bundled). Use `vswhere` for discovery.
 - Design-time evaluation must not run a full build. Record any case that needed one.
 - WebForms: parse `.aspx.cs` against a generated partial class for the page (control fields from the markup) so that, in code-behind, completion on a server control field lists that control's members. Hand-written markup parsing is enough for the spike; it must handle runat="server" controls and a `web.config` `<pages><controls>` registration.
-- The `niello/*` vocabulary and method framing are in `protocol/schemas/host-rpc.md`. Use only what exists there and report gaps.
+- The `eludite/*` vocabulary and method framing are in `protocol/schemas/host-rpc.md`. Use only what exists there and report gaps.
 
 ## Proving test
 
@@ -41,7 +41,7 @@ Do not edit `protocol/**`.
 
 - Design-time evaluation of any single corpus project under 5 s cold, and a 10-project solution under 15 s total, on the reference machine.
 - No modal dialogs or blocking prompts on any failure. Failures become diagnostics.
-- Memory and shell budgets are not affected: all work runs in `niello-host`.
+- Memory and shell budgets are not affected: all work runs in `eludite-host`.
 
 ## Exit criterion
 

@@ -1,6 +1,6 @@
 # Brief 0010: Rename the project from Niello to Eludite
 
-Status: open
+Status: done on Linux ([report](0010-report.md))
 Phase: 1
 Plan reference: PLAN.md section 14 (decision 6 is superseded)
 

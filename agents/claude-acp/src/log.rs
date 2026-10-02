@@ -1,6 +1,6 @@
 //! Logging. stdout carries ACP only, so logs go to stderr, or to the file
-//! named by `NIELLO_CLAUDE_ACP_LOG`. Warnings always go out; informational
-//! lines (including the child's stderr) only when `NIELLO_CLAUDE_ACP_LOG` is
+//! named by `ELUDITE_CLAUDE_ACP_LOG`. Warnings always go out; informational
+//! lines (including the child's stderr) only when `ELUDITE_CLAUDE_ACP_LOG` is
 //! set (`stderr` or a path). The log never contains prompts, model output,
 //! account details or credentials.
 
@@ -9,7 +9,7 @@ use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 
 /// Environment variable enabling the verbose log: `stderr` or a file path.
-pub const LOG_ENV: &str = "NIELLO_CLAUDE_ACP_LOG";
+pub const LOG_ENV: &str = "ELUDITE_CLAUDE_ACP_LOG";
 
 struct Sink {
     verbose: bool,
@@ -41,7 +41,7 @@ fn sink() -> &'static Sink {
 
 fn write(level: &str, args: Arguments<'_>) {
     let s = sink();
-    let line = format!("[niello-claude-acp {level}] {args}\n");
+    let line = format!("[eludite-claude-acp {level}] {args}\n");
     if let Some(f) = &s.file
         && let Ok(mut f) = f.lock()
     {

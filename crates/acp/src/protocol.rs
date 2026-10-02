@@ -1,4 +1,4 @@
-//! The subset of ACP (protocol version 1) that Niello's client speaks.
+//! The subset of ACP (protocol version 1) that Eludite's client speaks.
 //!
 //! Hand-written from the schema at agentclientprotocol.com rather than taken
 //! from the `agent-client-protocol` crate (see the crate docs). Unknown fields
@@ -42,7 +42,7 @@ pub struct FileSystemCapability {
 
 /// `auth.terminal`: the client can show terminal login methods. Claude's
 /// adapter lists its login methods (with the command to run) only when this is
-/// set. Niello shows them; it does not run the login flow itself.
+/// set. Eludite shows them; it does not run the login flow itself.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthCapabilities {
@@ -269,7 +269,7 @@ pub struct ToolCall {
 
 impl ToolCall {
     /// The agent's own tool name, if it reports one. Claude's adapter puts it
-    /// in `_meta.claudeCode.toolName` (e.g. `mcp__niello__diagnostics-list`).
+    /// in `_meta.claudeCode.toolName` (e.g. `mcp__eludite__diagnostics-list`).
     pub fn agent_tool_name(&self) -> Option<&str> {
         self.meta
             .as_ref()?

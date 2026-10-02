@@ -110,7 +110,7 @@ fn init_params() -> Value {
 }
 
 fn ready(adapter: &str, runs: usize) {
-    let cwd = std::env::temp_dir().join("niello-claude-acp-bench");
+    let cwd = std::env::temp_dir().join("eludite-claude-acp-bench");
     std::fs::create_dir_all(&cwd).unwrap();
     for run in 0..runs {
         let t0 = Instant::now();
@@ -138,10 +138,10 @@ fn ready(adapter: &str, runs: usize) {
 }
 
 fn stream(adapter: &str, fake: &str, chunks: usize, rate: f64) {
-    let cwd = std::env::temp_dir().join("niello-claude-acp-bench");
+    let cwd = std::env::temp_dir().join("eludite-claude-acp-bench");
     std::fs::create_dir_all(&cwd).unwrap();
     let env = [
-        ("NIELLO_CLAUDE_PATH", fake.to_owned()),
+        ("ELUDITE_CLAUDE_PATH", fake.to_owned()),
         ("FAKE_CLAUDE_SCENARIO", "stream".to_owned()),
         ("FAKE_CLAUDE_CHUNKS", chunks.to_string()),
         ("FAKE_CLAUDE_RATE", rate.to_string()),

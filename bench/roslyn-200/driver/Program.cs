@@ -1,12 +1,12 @@
 // Brief 0002 bench driver, updated for the brief 0007 contract. See ../run.sh. Measures, per run (host killed between runs):
-//   T0     process start -> niello-host `niello/host/initialize` response
+//   T0     process start -> eludite-host `eludite/host/initialize` response
 //   T1     initialize response -> first textDocument/documentSymbol with >= 1 symbol
 //   T2     initialize response -> first textDocument/completion containing the expected member
-//   Tload  initialize response -> niello/solution/status "loaded" (informational)
+//   Tload  initialize response -> eludite/solution/status "loaded" (informational)
 //   warming completion latency while the host's warming diagnostics pull is in flight
 //   T3     latency of N sequential completion requests after warm-up (p50, p95, p99, max)
 //   cancel completion / workspace/symbol requests canceled with $/cancelRequest: time to response, outcome
-//   peak   VmHWM of niello-host, of the Roslyn LS child, and the sampled peak RSS of the whole tree (Linux)
+//   peak   VmHWM of eludite-host, of the Roslyn LS child, and the sampled peak RSS of the whole tree (Linux)
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
@@ -71,12 +71,12 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
     using var sampling = new CancellationTokenSource();
     var sampler = Task.Run(() => SampleTreeRss(proc.Id, sampling.Token));
     var client = new LspClient(proc.StandardInput.BaseStream, proc.StandardOutput.BaseStream);
-    // Brief 0007 contract (protocol/schemas/host-rpc.md): niello/host/initialize, then niello/solution/open; readiness
-    // is niello/solution/status "loaded"; every forwarded request carries nielloGeneration.
-    var loaded = client.WaitForNotification("niello/solution/status", p => p?["state"]?.GetValue<string>() is "loaded" or "failed");
+    // Brief 0007 contract (protocol/schemas/host-rpc.md): eludite/host/initialize, then eludite/solution/open; readiness
+    // is eludite/solution/status "loaded"; every forwarded request carries eluditeGeneration.
+    var loaded = client.WaitForNotification("eludite/solution/status", p => p?["state"]?.GetValue<string>() is "loaded" or "failed");
 
     var result = new JsonObject { ["kind"] = kind, ["index"] = index };
-    var init = await client.RequestAsync("niello/host/initialize", new JsonObject
+    var init = await client.RequestAsync("eludite/host/initialize", new JsonObject
     {
         ["clientName"] = "bench-roslyn-200",
         ["clientVersion"] = "0.1.0",
@@ -88,7 +88,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
     }
 
     var afterInit = Stopwatch.StartNew();
-    var opened = await client.RequestAsync("niello/solution/open", new JsonObject { ["path"] = probe["solution"]!.GetValue<string>() });
+    var opened = await client.RequestAsync("eludite/solution/open", new JsonObject { ["path"] = probe["solution"]!.GetValue<string>() });
     if (opened.ContainsKey("error"))
     {
         throw new InvalidOperationException(opened.ToJsonString());
@@ -105,11 +105,11 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
         },
     });
 
-    // The shell sends no diagnostic pulls of its own: niello-host warms semantics itself (pull on open, 150 ms after
+    // The shell sends no diagnostic pulls of its own: eludite-host warms semantics itself (pull on open, 150 ms after
     // a change, and for every open document when the solution loads), which is what brief 0002's bench did by hand.
     var docId = new JsonObject { ["uri"] = uri };
     var timeout = TimeSpan.FromMinutes(double.Parse(opts.GetValueOrDefault("timeout-min", "10"), CultureInfo.InvariantCulture));
-    var t1 = PollAsync(() => client.RequestAsync("textDocument/documentSymbol", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri }, ["nielloGeneration"] = generation }),
+    var t1 = PollAsync(() => client.RequestAsync("textDocument/documentSymbol", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri }, ["eluditeGeneration"] = generation }),
         r => r["result"] is JsonArray { Count: > 0 }, afterInit, timeout);
     // T2 attempts model a user retyping '.': each attempt is a new document version (didChange), then completion.
     var fileText = File.ReadAllText(probe["file"]!.GetValue<string>());
@@ -237,7 +237,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
     };
 
     result["cancelCompletion"] = await CancelTrialsAsync(client, "textDocument/completion", CompletionParams, cancelTrials);
-    result["cancelWorkspaceSymbol"] = await CancelTrialsAsync(client, "workspace/symbol", () => new JsonObject { ["query"] = "Widget", ["nielloGeneration"] = generation }, cancelTrials);
+    result["cancelWorkspaceSymbol"] = await CancelTrialsAsync(client, "workspace/symbol", () => new JsonObject { ["query"] = "Widget", ["eluditeGeneration"] = generation }, cancelTrials);
     var diagVersion = 100_000;
     result["cancelDiagnostic"] = await CancelTrialsAsync(client, "textDocument/diagnostic", () =>
     {
@@ -247,7 +247,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
             ["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = ++diagVersion },
             ["contentChanges"] = new JsonArray(new JsonObject { ["text"] = text + "// d" + diagVersion + "\n" }),
         });
-        return new JsonObject { ["textDocument"] = docId.DeepClone(), ["nielloGeneration"] = generation };
+        return new JsonObject { ["textDocument"] = docId.DeepClone(), ["eluditeGeneration"] = generation };
     }, cancelTrials);
     await Task.Delay(500);
     result["lateResponses"] = client.Unexpected.Count(m => m.ContainsKey("result"));
@@ -270,7 +270,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
         ["textDocument"] = new JsonObject { ["uri"] = uri },
         ["position"] = new JsonObject { ["line"] = probe["line"]!.GetValue<int>(), ["character"] = probe["character"]!.GetValue<int>() },
         ["context"] = new JsonObject { ["triggerKind"] = 2, ["triggerCharacter"] = "." },
-        ["nielloGeneration"] = generation,
+        ["eluditeGeneration"] = generation,
     };
 }
 
@@ -487,7 +487,7 @@ static string Summarize(JsonArray runs)
         Row("T0 start->initialize (ms)", r => r["t0Ms"]!.GetValue<double>());
         Row("T1 init->documentSymbol (ms)", r => r["t1Ms"]!.GetValue<double>());
         Row("T2 init->completion, depth-6 project (ms)", r => r["t2Ms"]!.GetValue<double>());
-        Row("Tload init->niello/solution/status loaded (ms)", r => r["tLoadMs"]!.GetValue<double>());
+        Row("Tload init->eludite/solution/status loaded (ms)", r => r["tLoadMs"]!.GetValue<double>());
         Row("T3 completion p50 (ms)", r => r["t3"]!["p50Ms"]!.GetValue<double>());
         Row("T3 completion p95 (ms)", r => r["t3"]!["p95Ms"]!.GetValue<double>());
         Row("T3 completion p99 (ms)", r => r["t3"]!["p99Ms"]!.GetValue<double>());
@@ -504,7 +504,7 @@ static string Summarize(JsonArray runs)
         Row("Completions overlapping a pull (of N)", r => r["completionDuringWarming"]!["overlappedWithPull"]!.GetValue<int>());
         Row("Warming pull duration p50 (ms)", r => r["completionDuringWarming"]!["pullP50Ms"]!.GetValue<double>());
         Row("Warming pull duration p95 (ms)", r => r["completionDuringWarming"]!["pullP95Ms"]!.GetValue<double>());
-        Row("niello-host peak RSS (MB)", r => r["hostPeakMb"]!.GetValue<double>());
+        Row("eludite-host peak RSS (MB)", r => r["hostPeakMb"]!.GetValue<double>());
         Row("Roslyn LS peak RSS (MB)", r => r["childPeakMb"]!.AsArray().Where(c => c!["comm"]!.GetValue<string>().Contains("LanguageServer", StringComparison.Ordinal)).Sum(c => c!["peakMb"]!.GetValue<double>()));
         Row("Tree peak RSS, sampled 50 ms (MB)", r => r["treePeakRssMb"]!.GetValue<double>());
         Row("Cancel completion: canceled of trials", r => r["cancelCompletion"]!["canceled"]!.GetValue<int>());

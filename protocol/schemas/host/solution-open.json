@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/solution-open.json",
-  "title": "niello/solution/open",
-  "description": "Open a solution or project file. Increments the solution generation and returns it; load progress follows as niello/solution/status.",
-  "x-niello-method": "niello/solution/open",
-  "x-niello-kind": "request",
-  "x-niello-direction": "shellToHost",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-open.json",
+  "title": "eludite/solution/open",
+  "description": "Open a solution or project file. Increments the solution generation and returns it; load progress follows as eludite/solution/status.",
+  "x-eludite-method": "eludite/solution/open",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "params": {
       "type": "object",

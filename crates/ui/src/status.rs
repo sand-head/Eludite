@@ -141,7 +141,7 @@ mod tests {
         assert_eq!(bar.get(slots::STATE), Some("Ready"));
         assert_eq!(bar.visible(SlotAlign::Right).count(), 0);
         assert!(bar.set(slots::BRANCH, "main"));
-        assert!(bar.set(slots::VERSION, "Niello 0.1.0"));
+        assert!(bar.set(slots::VERSION, "Eludite 0.1.0"));
         assert!(!bar.set("nope", "x"));
         let right: Vec<_> = bar.visible(SlotAlign::Right).map(|s| s.id).collect();
         assert_eq!(right, [slots::BRANCH, slots::VERSION]);

@@ -7,19 +7,19 @@ Plan reference: PLAN.md section 2 (principle 7), section 3 (D5), section 14 (ite
 
 The owner prefers copyleft: improvements to the IDE should stay public. Copyleft also makes Zed's GPL-3.0 crates legally available (ADR-0001), which the permissive-only v0.1 plan had ruled out.
 
-At the same time, people who write an ACP agent, an MCP client, an alternative language host or a WASM extension against Niello must be able to do so under any license. A GPL core must never become a reason someone cannot build on it. Zed makes the same split: Apache extension API, GPL editor.
+At the same time, people who write an ACP agent, an MCP client, an alternative language host or a WASM extension against Eludite must be able to do so under any license. A GPL core must never become a reason someone cannot build on it. Zed makes the same split: Apache extension API, GPL editor.
 
 The project is run by one person and agents, so the contribution process must be light.
 
 ## Decision
 
 - Shell, hosts, debuggers and web tooling: GPL-3.0-or-later. The root `LICENSE` is the GPL text.
-- `protocol/` (schemas and generated bindings, crate `niello-protocol`) and `extension-sdk/` (crate `niello-extension-sdk`): MIT. Each carries its own license file and `license = "MIT"` in its manifest.
+- `protocol/` (schemas and generated bindings, crate `eludite-protocol`) and `extension-sdk/` (crate `eludite-extension-sdk`): MIT. Each carries its own license file and `license = "MIT"` in its manifest.
 - Dependencies must be compatible with the directory they land in. GPL-3.0 can include MIT, Apache-2.0 and BSD code (Roslyn, netcoredbg, GPUI, libgit2, tree-sitter, wasmtime). The MIT directories may only depend on MIT-compatible code.
 - Each new dependency's SPDX id is recorded in the PR description (CLAUDE.md).
 - Contributor terms: Developer Certificate of Origin, no CLA. Agent output is contributed under the same terms by the human who directs the agent.
 - AGPL is not adopted now. It only matters for a network service such as an extension registry or collaboration server. Decide when such a service exists.
-- Trademark: "Niello" and the logo are held separately from the code, so forks can exist without confusion.
+- Trademark: "Eludite" and the logo are held separately from the code, so forks can exist without confusion.
 
 ## Alternatives considered
 

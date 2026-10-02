@@ -1,5 +1,5 @@
 [package]
-name = "niello-dbg-netfx"
+name = "eludite-dbg-netfx"
 description = "DAP server for .NET Framework over ICorDebug (Windows)."
 version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "niello-dbg-netfx"
+name = "eludite-dbg-netfx"
 path = "src/main.rs"
 
 [lints]

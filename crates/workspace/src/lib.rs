@@ -1,6 +1,6 @@
 //! Client-side solution and project model (PLAN.md 4.2, D4).
 //!
-//! The authoritative project system lives in `niello-host` (MSBuild evaluation);
+//! The authoritative project system lives in `eludite-host` (MSBuild evaluation);
 //! the shell keeps a light model for Solution Explorer and can classify a
 //! `.csproj` as SDK-style or legacy without asking the host.
 

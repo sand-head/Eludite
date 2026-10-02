@@ -10,7 +10,7 @@
 //!   --lines N                  buffer size (default 100000)
 //!   --scroll-lines-per-frame N scroll step for --bench-scroll (default 40)
 //!   --refresh-hz HZ            display refresh rate for dropped-frame accounting (default: estimate)
-//!   --layout PATH              layout JSON (default: <config dir>/niello-spike/layout.json)
+//!   --layout PATH              layout JSON (default: <config dir>/eludite-spike/layout.json)
 //!   --reset-layout             ignore any saved layout
 //!   --exit-after-ms N          quit after N ms (smoke runs)
 
@@ -78,7 +78,7 @@ fn default_layout_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("niello-spike").join("layout.json"))
+    Some(base.join("eludite-spike").join("layout.json"))
 }
 
 struct StderrLogger;
@@ -133,10 +133,10 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some("Niello spike 0001".into()),
+                title: Some("Eludite spike 0001".into()),
                 ..Default::default()
             }),
-            app_id: Some("niello-spike".into()),
+            app_id: Some("eludite-spike".into()),
             // Benchmarks must not be throttled to 30 fps if the compositor
             // withholds focus; activity is still reported in the JSON.
             inactive_frame_interval: if benching { None } else { WindowOptions::default().inactive_frame_interval },

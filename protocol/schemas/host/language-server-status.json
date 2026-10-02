@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/language-server-status.json",
-  "title": "niello/languageServer/status",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/language-server-status.json",
+  "title": "eludite/languageServer/status",
   "description": "Host-to-shell notification: state of the language server the host supervises.",
-  "x-niello-method": "niello/languageServer/status",
-  "x-niello-kind": "notification",
-  "x-niello-direction": "hostToShell",
+  "x-eludite-method": "eludite/languageServer/status",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
   "$defs": {
     "params": {
       "type": "object",

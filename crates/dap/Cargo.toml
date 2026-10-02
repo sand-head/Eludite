@@ -1,6 +1,6 @@
 [package]
-name = "niello-dap"
-description = "Niello DAP client and transports."
+name = "eludite-dap"
+description = "Eludite DAP client and transports."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-niello-protocol.workspace = true
+eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

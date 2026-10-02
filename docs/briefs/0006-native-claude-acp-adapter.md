@@ -7,7 +7,7 @@ Depends on: brief 0005 (report: docs/briefs/0005-report.md)
 
 ## Goal
 
-Remove Node and npx from Claude Code support. Ship `niello-claude-acp`, a Rust binary that speaks the Agent Client Protocol on stdin/stdout to any ACP client (Niello first, but also Zed, Neovim and others) and drives the user's installed `claude` binary directly over its headless JSON-lines protocol, using the user's existing Claude Code login. It replaces `npx -y @agentclientprotocol/claude-agent-acp` in `crates/acp::default_agents()` with a binary we build and ship beside the IDE.
+Remove Node and npx from Claude Code support. Ship `eludite-claude-acp`, a Rust binary that speaks the Agent Client Protocol on stdin/stdout to any ACP client (Eludite first, but also Zed, Neovim and others) and drives the user's installed `claude` binary directly over its headless JSON-lines protocol, using the user's existing Claude Code login. It replaces `npx -y @agentclientprotocol/claude-agent-acp` in `crates/acp::default_agents()` with a binary we build and ship beside the IDE.
 
 ## Why this is feasible
 
@@ -17,7 +17,7 @@ Remove Node and npx from Claude Code support. Ship `niello-claude-acp`, a Rust b
 
 ## Files in scope
 
-- `agents/claude-acp/**` (new): Cargo package `niello-claude-acp`, a standalone binary with its own `[workspace]` table during the spike, to be added to the root workspace by a follow-up once it is production-grade. License: MIT with its own LICENSE file, because it is a protocol bridge other editors will want (PLAN.md principle 7, "permissive edges"); the owner may override to GPL.
+- `agents/claude-acp/**` (new): Cargo package `eludite-claude-acp`, a standalone binary with its own `[workspace]` table during the spike, to be added to the root workspace by a follow-up once it is production-grade. License: MIT with its own LICENSE file, because it is a protocol bridge other editors will want (PLAN.md principle 7, "permissive edges"); the owner may override to GPL.
 - `crates/acp/src/**`: `default_agents()` gains the native adapter as the first entry when the binary is found beside the IDE or on PATH, with the npx adapter as a fallback. Tests.
 - `docs/briefs/0006-report.md` (new).
 - `protocol/schemas/`: none expected. If a schema is needed, add it first in a separate commit.
@@ -37,8 +37,8 @@ Do not touch `spikes/**`, `dotnet/**`, `crates/mcp/**`.
 ## Proving test
 
 - `cargo test` in `agents/claude-acp`: a recorded-session conformance test for the `claude` side (a redacted real headless session captured as JSON lines, replayed by a fake `claude` binary built as a test executable), asserting the full mapping to ACP messages, cancellation, and both permission outcomes. Plus the brief 0005 fake ACP client driving the real adapter against the fake `claude`.
-- `cargo test -p niello-acp`: `default_agents()` ordering and discovery.
-- Manual, recorded in the report with the transcript: run the brief 0005 spike panel (`spikes/0005-acp-panel`, unmodified, pointed at the native adapter via its agent descriptor), send "List the current errors in the Error List and tell me which file has the most." The agent calls `diagnostics-list` through Niello's MCP server and answers correctly. Then one prompt that triggers a Write permission request; deny it; the agent reports the denial and no file exists. Three or four real prompts total.
+- `cargo test -p eludite-acp`: `default_agents()` ordering and discovery.
+- Manual, recorded in the report with the transcript: run the brief 0005 spike panel (`spikes/0005-acp-panel`, unmodified, pointed at the native adapter via its agent descriptor), send "List the current errors in the Error List and tell me which file has the most." The agent calls `diagnostics-list` through Eludite's MCP server and answers correctly. Then one prompt that triggers a Write permission request; deny it; the agent reports the denial and no file exists. Three or four real prompts total.
 - A no-Node proof: the same manual run with `PATH` reduced so `node`, `npm` and `npx` cannot be found.
 
 ## Budget
@@ -58,7 +58,7 @@ Do not touch `spikes/**`, `dotnet/**`, `crates/mcp/**`.
 
 ## Out of scope
 
-- Any provider other than Claude Code. The adapter design should not preclude a `niello-codex-acp` later, but do not build abstractions for it now.
+- Any provider other than Claude Code. The adapter design should not preclude an `eludite-codex-acp` later, but do not build abstractions for it now.
 - Hosting the adapter inside the IDE process. It is a separate process by PLAN.md principle 2.
 - Changing the panel, `crates/mcp`, or the `diagnostics.list` command.
 - Session persistence UI, history browsing, multi-session management.

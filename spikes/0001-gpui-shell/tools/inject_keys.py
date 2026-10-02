@@ -64,7 +64,7 @@ def main():
     fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
     for k in KEYS:
         fcntl.ioctl(fd, UI_SET_KEYBIT, k)
-    setup = struct.pack("HHHH80sI", 0x03, 0x1234, 0x5678, 1, b"niello-spike-keys", 0)
+    setup = struct.pack("HHHH80sI", 0x03, 0x1234, 0x5678, 1, b"eludite-spike-keys", 0)
     fcntl.ioctl(fd, UI_DEV_SETUP, setup)
     fcntl.ioctl(fd, UI_DEV_CREATE)
     proc = None

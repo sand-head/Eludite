@@ -6,11 +6,11 @@ Related ADRs: ADR-0003, ADR-0007
 
 ## Goal
 
-Prove that `niello-dbg-netfx` can be a DAP server written in Rust over the ICorDebug COM interfaces: on Windows, attach to a running .NET Framework process, set a breakpoint, hit it, and read a local variable, with the DAP client connected over TCP. The result sizes the real debugger brief.
+Prove that `eludite-dbg-netfx` can be a DAP server written in Rust over the ICorDebug COM interfaces: on Windows, attach to a running .NET Framework process, set a breakpoint, hit it, and read a local variable, with the DAP client connected over TCP. The result sizes the real debugger brief.
 
 ## Files in scope
 
-- `debuggers/netfx/**` (crate `niello-dbg-netfx`, GPL-3.0-or-later)
+- `debuggers/netfx/**` (crate `eludite-dbg-netfx`, GPL-3.0-or-later)
 - `debuggers/netfx/tests/**` and `debuggers/netfx/fixtures/**` (a tiny .NET Framework 4.8 console app, source only, plus a build script)
 - `crates/dap/**`: only if the transport abstraction does not yet exist, and only to add a TCP transport behind a trait. Coordinate through the PR description.
 - `docs/briefs/0004-report.md` (new)
@@ -27,8 +27,8 @@ The crate must compile on Linux and macOS (CI builds it everywhere). Windows-onl
 
 ## Proving test
 
-- `cargo test -p niello-dbg-netfx` runs on every OS. On non-Windows it runs unit tests for framing and request parsing only.
-- On Windows, `cargo test -p niello-dbg-netfx --features e2e -- --ignored` runs the end-to-end test: build the fixture, start it, start the adapter with `--listen 127.0.0.1:0`, connect a minimal DAP client over TCP, then send `initialize`, `attach`, `setBreakpoints` on the line that updates `counter`, `configurationDone`. It asserts a `stopped` event arrives, `stackTrace` returns the fixture method at that line, and `variables` for the locals scope returns `counter` with an integer value.
+- `cargo test -p eludite-dbg-netfx` runs on every OS. On non-Windows it runs unit tests for framing and request parsing only.
+- On Windows, `cargo test -p eludite-dbg-netfx --features e2e -- --ignored` runs the end-to-end test: build the fixture, start it, start the adapter with `--listen 127.0.0.1:0`, connect a minimal DAP client over TCP, then send `initialize`, `attach`, `setBreakpoints` on the line that updates `counter`, `configurationDone`. It asserts a `stopped` event arrives, `stackTrace` returns the fixture method at that line, and `variables` for the locals scope returns `counter` with an integer value.
 - The same test run twice from a second machine (or VM) with the adapter bound to a non-loopback address proves the remote claim. Record the evidence in the report.
 
 ## Budget

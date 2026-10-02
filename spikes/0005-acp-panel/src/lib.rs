@@ -1,9 +1,9 @@
 //! Brief 0005 spike: a throwaway GPUI panel hosting an ACP agent (Claude Code
-//! through its ACP adapter), with Niello's MCP server exposing one command,
+//! through its ACP adapter), with Eludite's MCP server exposing one command,
 //! `diagnostics.list`, from an in-memory Error List.
 //!
-//! - `session`: everything off the UI thread. Spawns the agent (`niello-acp`),
-//!   starts the MCP endpoint (`niello-mcp`), applies the permission policy and
+//! - `session`: everything off the UI thread. Spawns the agent (`eludite-acp`),
+//!   starts the MCP endpoint (`eludite-mcp`), applies the permission policy and
 //!   forwards events to the UI over a channel.
 //! - `transcript`: the panel's model (rows for messages, tool calls, prompts).
 //! - `panel`: the GPUI view.

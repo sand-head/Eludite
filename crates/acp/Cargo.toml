@@ -1,6 +1,6 @@
 [package]
-name = "niello-acp"
-description = "Niello ACP (Agent Client Protocol) client."
+name = "eludite-acp"
+description = "Eludite ACP (Agent Client Protocol) client."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-niello-protocol.workspace = true
+eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
@@ -19,5 +19,5 @@ workspace = true
 # Scripted ACP agent for tests and benchmarks (see `fake_agent`). Not under
 # `src/bin/`: the repository's .gitignore ignores `bin/` for .NET output.
 [[bin]]
-name = "niello-fake-acp-agent"
+name = "eludite-fake-acp-agent"
 path = "src/fake_agent_main.rs"

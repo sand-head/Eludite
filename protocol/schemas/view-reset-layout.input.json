@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/view-reset-layout.input.json",
-  "title": "niello.view.reset_layout input",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-reset-layout.input.json",
+  "title": "eludite.view.reset_layout input",
   "description": "Reset the window layout to the Visual Studio default (Window > Reset Window Layout): Solution Explorer and Git Changes tabbed on the right above Properties, Error List and Output tabbed at the bottom, Toolbox auto-hidden on the left. Floating windows close.",
   "type": "object",
   "properties": {},

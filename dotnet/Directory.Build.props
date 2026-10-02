@@ -10,7 +10,7 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Deterministic>true</Deterministic>
     <Authors>Jessie Schweigert</Authors>
-    <Product>Niello</Product>
+    <Product>Eludite</Product>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Version>0.1.0</Version>
   </PropertyGroup>

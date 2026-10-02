@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Eludite.Wcf/Eludite.Wcf.csproj" />
+  </ItemGroup>
+
+</Project>

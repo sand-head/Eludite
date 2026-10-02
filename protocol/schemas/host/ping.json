@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/ping.json",
-  "title": "niello/ping",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/ping.json",
+  "title": "eludite/ping",
   "description": "Liveness check.",
-  "x-niello-method": "niello/ping",
-  "x-niello-kind": "request",
-  "x-niello-direction": "shellToHost",
+  "x-eludite-method": "eludite/ping",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
   "$defs": {
     "params": {
       "description": "No params: omitted, null, or an empty object/array.",

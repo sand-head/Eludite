@@ -1525,6 +1525,158 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
+name = "eludite"
+version = "0.1.0"
+dependencies = [
+ "eludite-commands",
+ "eludite-docking",
+ "eludite-ui",
+ "gpui",
+ "gpui_platform",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "eludite-acp"
+version = "0.1.0"
+dependencies = [
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-commands"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "eludite-dap"
+version = "0.1.0"
+dependencies = [
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-dbg-netfx"
+version = "0.1.0"
+
+[[package]]
+name = "eludite-docking"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "eludite-commands",
+ "eludite-ui",
+ "futures",
+ "gpui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "eludite-editor"
+version = "0.1.0"
+dependencies = [
+ "clock",
+ "eludite-ui",
+ "futures",
+ "gpui",
+ "gpui_platform",
+ "serde_json",
+ "text",
+ "tree-sitter",
+ "tree-sitter-c-sharp",
+ "tree-sitter-rust",
+]
+
+[[package]]
+name = "eludite-extension-sdk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "eludite-extensions"
+version = "0.1.0"
+dependencies = [
+ "eludite-extension-sdk",
+ "serde_json",
+ "thiserror 2.0.21",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "eludite-git"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "tempfile",
+]
+
+[[package]]
+name = "eludite-lsp"
+version = "0.1.0"
+dependencies = [
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-mcp"
+version = "0.1.0"
+dependencies = [
+ "eludite-commands",
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-terminal"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "eludite-ui"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "serde_json",
+]
+
+[[package]]
+name = "eludite-workspace"
+version = "0.1.0"
+dependencies = [
+ "roxmltree 0.20.0",
+ "serde",
+]
+
+[[package]]
 name = "embed-resource"
 version = "3.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3473,158 +3625,6 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "niello"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "gpui_platform",
- "niello-commands",
- "niello-docking",
- "niello-ui",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "niello-acp"
-version = "0.1.0"
-dependencies = [
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-commands"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "niello-dap"
-version = "0.1.0"
-dependencies = [
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-dbg-netfx"
-version = "0.1.0"
-
-[[package]]
-name = "niello-docking"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "futures",
- "gpui",
- "niello-commands",
- "niello-ui",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "niello-editor"
-version = "0.1.0"
-dependencies = [
- "clock",
- "futures",
- "gpui",
- "gpui_platform",
- "niello-ui",
- "serde_json",
- "text",
- "tree-sitter",
- "tree-sitter-c-sharp",
- "tree-sitter-rust",
-]
-
-[[package]]
-name = "niello-extension-sdk"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "niello-extensions"
-version = "0.1.0"
-dependencies = [
- "niello-extension-sdk",
- "serde_json",
- "thiserror 2.0.21",
- "toml 0.8.23",
-]
-
-[[package]]
-name = "niello-git"
-version = "0.1.0"
-dependencies = [
- "git2",
- "tempfile",
-]
-
-[[package]]
-name = "niello-lsp"
-version = "0.1.0"
-dependencies = [
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-mcp"
-version = "0.1.0"
-dependencies = [
- "niello-commands",
- "niello-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-protocol"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niello-terminal"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "niello-ui"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "serde_json",
-]
-
-[[package]]
-name = "niello-workspace"
-version = "0.1.0"
-dependencies = [
- "roxmltree 0.20.0",
- "serde",
-]
 
 [[package]]
 name = "nix"
