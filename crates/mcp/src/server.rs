@@ -87,6 +87,9 @@ pub struct ToolCallRecord {
 
 pub type CallObserver = Arc<dyn Fn(&ToolCallRecord) + Send + Sync>;
 
+/// The name of the agent calling, asked at each call (one endpoint serves whichever agent the window runs).
+pub type AgentName = Arc<dyn Fn() -> String + Send + Sync>;
+
 /// Exposes the agent-visible commands of a [`CommandRegistry`] as MCP tools.
 #[derive(Clone)]
 pub struct McpServer {
@@ -96,7 +99,7 @@ pub struct McpServer {
     gate: PermissionGate,
     invoker: Option<Invoker>,
     observer: Option<CallObserver>,
-    agent: String,
+    agent: AgentName,
     name: String,
     version: String,
 }
@@ -104,7 +107,7 @@ pub struct McpServer {
 impl std::fmt::Debug for McpServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("McpServer")
-            .field("agent", &self.agent)
+            .field("agent", &(self.agent)())
             .field("only", &self.only)
             .finish_non_exhaustive()
     }
@@ -123,7 +126,7 @@ impl McpServer {
             gate: Arc::new(|_, _, _| GateDecision::Deny(NO_GATE.into())),
             invoker: None,
             observer: None,
-            agent: "agent".into(),
+            agent: Arc::new(|| "agent".to_owned()),
             name: "eludite".into(),
             version: env!("CARGO_PKG_VERSION").into(),
         }
@@ -137,7 +140,14 @@ impl McpServer {
 
     /// The agent's name, recorded as the caller of its calls.
     pub fn with_agent(mut self, agent: impl Into<String>) -> Self {
-        self.agent = agent.into();
+        let agent = agent.into();
+        self.agent = Arc::new(move || agent.clone());
+        self
+    }
+
+    /// The agent's name, asked at each call.
+    pub fn with_agent_name(mut self, name: AgentName) -> Self {
+        self.agent = name;
         self
     }
 
@@ -260,7 +270,7 @@ impl McpServer {
             ErrorObject::new(ErrorObject::INVALID_PARAMS, format!("unknown tool: {name}"))
         })?;
         let ctx = CallContext {
-            agent: self.agent.clone(),
+            agent: (self.agent)(),
             call: next_call_id(),
             tool_call: tool_call_id(params),
         };

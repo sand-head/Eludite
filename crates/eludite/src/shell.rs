@@ -7,6 +7,7 @@
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
+pub mod agents;
 pub mod code_actions;
 pub mod documents;
 pub mod error_list;
