@@ -31,6 +31,12 @@
 //! `setExpression` are advertised by default and refused when turned off. [`hot_loop`] builds a loop's statements for
 //! the tracepoint overhead measurements.
 //!
+//! For brief 0027 it also answers `attach` (the `process` event names the attached `processId` or `pid`, `startMethod`
+//! `attach`; `disconnect` then detaches: the session ends with `terminated` and no `exited`, as it does after a launch with
+//! `terminateDebuggee: false`) and, behind `supportsRestartRequest` in [`FakeProgram::extra_capabilities`], `restart`
+//! (the program starts over in the same session: a new `process` event, and a run at once when
+//! [`FakeProgram::run_at_start`] is set); without the flag `restart` is refused as any unknown request.
+//!
 //! [`connect`] serves it in-process over pipes, [`listen_tcp`] over a loopback TCP socket, and [`serve_stdio`] on
 //! this process's stdin and stdout (a child process). Every request is recorded ([`FakeHandle::requests`]).
 
@@ -480,6 +486,8 @@ struct Machine {
     caps: Value,
     /// The program exited (`exited` was sent).
     exited: bool,
+    /// The session began with `attach` (brief 0027): the process id it named, if any.
+    attached: Option<Option<i64>>,
 }
 
 impl Machine {
@@ -509,6 +517,7 @@ impl Machine {
             running_at: None,
             caps: Value::Null,
             exited: false,
+            attached: None,
         }
     }
 
@@ -648,7 +657,32 @@ impl Machine {
                 self.respond(seq, command, Ok(caps));
                 self.event("initialized", json!({}));
             }
-            "launch" | "attach" => self.respond(seq, command, Ok(json!({}))),
+            "launch" => self.respond(seq, command, Ok(json!({}))),
+            // Attach (brief 0027): like a launch, but the process is the one named, and disconnecting leaves it running.
+            "attach" => {
+                self.attached = Some(args["processId"].as_i64().or(args["pid"].as_i64()));
+                self.respond(seq, command, Ok(json!({})));
+            }
+            // Restart (brief 0027), behind `supportsRestartRequest`: the program starts over in the same session.
+            "restart" if self.supports("supportsRestartRequest") => {
+                self.pc = None;
+                self.running_at = None;
+                self.exception = None;
+                self.stopped_on_exception = false;
+                self.frames.clear();
+                self.refs.clear();
+                self.origins.clear();
+                self.exited = false;
+                self.respond(seq, command, Ok(json!({})));
+                self.event(
+                    "process",
+                    json!({"name": "dotnet", "systemProcessId": self.program.process_id,
+                           "isLocalProcess": true, "startMethod": "launch"}),
+                );
+                if self.program.run_at_start {
+                    self.run_from(0, Mode::Continue);
+                }
+            }
             "setBreakpoints" => {
                 let path = args["source"]["path"]
                     .as_str()
@@ -769,10 +803,14 @@ impl Machine {
             }
             "configurationDone" => {
                 self.configured = true;
+                let (pid, method) = match self.attached {
+                    Some(pid) => (pid.unwrap_or(self.program.process_id), "attach"),
+                    None => (self.program.process_id, "launch"),
+                };
                 self.event(
                     "process",
-                    json!({"name": "dotnet", "systemProcessId": self.program.process_id,
-                           "isLocalProcess": true, "startMethod": "launch"}),
+                    json!({"name": "dotnet", "systemProcessId": pid,
+                           "isLocalProcess": true, "startMethod": method}),
                 );
                 self.respond(seq, command, Ok(json!({})));
                 let bound: Vec<(String, i64, i64)> = self
@@ -908,7 +946,17 @@ impl Machine {
                 self.respond(seq, command, Ok(json!({})));
             }
             "disconnect" => {
-                self.exit(0);
+                // Detaching (an attached session's default, or `terminateDebuggee: false`) leaves the program running:
+                // the session ends without `exited`.
+                let terminate = args["terminateDebuggee"]
+                    .as_bool()
+                    .unwrap_or(self.attached.is_none());
+                if terminate {
+                    self.exit(0);
+                } else if !self.exited {
+                    self.exited = true;
+                    self.event("terminated", json!({}));
+                }
                 self.respond(seq, command, Ok(json!({})));
                 return false;
             }

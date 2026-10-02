@@ -19,14 +19,19 @@
 //!   .exe), its `launchSettings.json` profile, and the adapter for its target framework and the platform (brief 0022).
 //! - [`cargo`]: a Cargo package's launch configuration for lldb-dap: the binary or test executable, the
 //!   `[package.metadata.eludite.run]` table, the Rust formatters' `initCommands` (brief 0029).
+//! - [`processes`]: the processes a debugger could attach to, with their command lines and runtimes (`/proc` on
+//!   Linux, `ps` on macOS, `tasklist` on Windows), and which of them Eludite started (brief 0027).
+//! - [`attach`]: which adapter attaches to a process and its `attach` arguments (brief 0027).
 //! - `fake` (feature `fake`): a scripted fake adapter for tests, in-process, over TCP or on stdio.
 
+pub mod attach;
 pub mod cargo;
 pub mod client;
 pub mod discovery;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod launch;
+pub mod processes;
 pub mod session;
 pub mod transport;
 pub mod types;
