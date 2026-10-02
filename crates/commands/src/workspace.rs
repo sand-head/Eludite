@@ -6,7 +6,8 @@
 //! (Shift+F12), `eludite.navigation.back` and `forward` (Ctrl+-, Ctrl+Shift+-), and the Error List's toolbar,
 //! `eludite.error_list.filter`. Brief 0015 adds rename and code actions, `eludite.editor.rename` (Ctrl+R, Ctrl+R and
 //! F2), `eludite.editor.code_actions` (Ctrl+.) and `eludite.editor.apply_code_action`, and the workspace-edit applier
-//! itself, `eludite.workspace.apply_edit`.
+//! itself, `eludite.workspace.apply_edit`. Brief 0019 adds File > Open Folder, `eludite.workspace.open_folder`: a
+//! folder (or a `Cargo.toml`), with its .NET solution and Cargo workspace.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4), embedded at compile
 //! time. This module parses and validates input into a typed [`WorkspaceRequest`] and serializes the typed
@@ -41,9 +42,10 @@ pub const EDITOR_RENAME: &str = "eludite.editor.rename";
 pub const EDITOR_CODE_ACTIONS: &str = "eludite.editor.code_actions";
 pub const EDITOR_APPLY_CODE_ACTION: &str = "eludite.editor.apply_code_action";
 pub const WORKSPACE_APPLY_EDIT: &str = "eludite.workspace.apply_edit";
+pub const WORKSPACE_OPEN_FOLDER: &str = "eludite.workspace.open_folder";
 
 /// Every command this module registers.
-pub const ALL: [&str; 21] = [
+pub const ALL: [&str; 22] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -65,6 +67,7 @@ pub const ALL: [&str; 21] = [
     EDITOR_CODE_ACTIONS,
     EDITOR_APPLY_CODE_ACTION,
     WORKSPACE_APPLY_EDIT,
+    WORKSPACE_OPEN_FOLDER,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
@@ -79,6 +82,13 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             "File: Open Project/Solution",
             include_str!("../../../protocol/schemas/solution-open.input.json"),
             include_str!("../../../protocol/schemas/solution-open.output.json"),
+            Execute,
+        ),
+        // Like opening a solution: loading it runs MSBuild evaluations and `cargo metadata`.
+        WORKSPACE_OPEN_FOLDER => (
+            "File: Open Folder",
+            include_str!("../../../protocol/schemas/workspace-open-folder.input.json"),
+            include_str!("../../../protocol/schemas/workspace-open-folder.output.json"),
             Execute,
         ),
         SOLUTION_CLOSE => (
@@ -314,6 +324,10 @@ pub enum WorkspaceRequest {
         edit: Value,
         label: Option<String>,
     },
+    /// Open a folder, or the folder of a `Cargo.toml` (brief 0019).
+    OpenFolder {
+        path: String,
+    },
 }
 
 /// `error-list-filter.input.json`.
@@ -351,6 +365,7 @@ impl WorkspaceRequest {
             WorkspaceRequest::CodeActions { .. } => EDITOR_CODE_ACTIONS,
             WorkspaceRequest::ApplyCodeAction { .. } => EDITOR_APPLY_CODE_ACTION,
             WorkspaceRequest::ApplyEdit { .. } => WORKSPACE_APPLY_EDIT,
+            WorkspaceRequest::OpenFolder { .. } => WORKSPACE_OPEN_FOLDER,
         }
     }
 
@@ -378,7 +393,8 @@ impl WorkspaceRequest {
             | WorkspaceRequest::NavigateForward
             | WorkspaceRequest::ErrorListFilter(_)
             | WorkspaceRequest::ApplyCodeAction { .. }
-            | WorkspaceRequest::ApplyEdit { .. } => None,
+            | WorkspaceRequest::ApplyEdit { .. }
+            | WorkspaceRequest::OpenFolder { .. } => None,
         }
     }
 }
@@ -850,6 +866,19 @@ pub struct ApplyCodeActionOutput {
     pub message: Option<String>,
 }
 
+/// `workspace-open-folder.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenFolderOutput {
+    pub root: String,
+    /// Always `"loading"`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cargo_manifest: Option<String>,
+}
+
 /// The typed result of a workspace command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceOutput {
@@ -872,6 +901,7 @@ pub enum WorkspaceOutput {
     CodeActions(CodeActionsOutput),
     ApplyCodeAction(ApplyCodeActionOutput),
     ApplyEdit(ApplyEditOutput),
+    OpenFolder(OpenFolderOutput),
 }
 
 impl WorkspaceOutput {
@@ -896,6 +926,7 @@ impl WorkspaceOutput {
             WorkspaceOutput::CodeActions(o) => serde_json::to_value(o),
             WorkspaceOutput::ApplyCodeAction(o) => serde_json::to_value(o),
             WorkspaceOutput::ApplyEdit(o) => serde_json::to_value(o),
+            WorkspaceOutput::OpenFolder(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
     }
@@ -1121,6 +1152,11 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
         SOLUTION_CLOSE => {
             let _: Empty = input(value)?;
             WorkspaceRequest::SolutionClose
+        }
+        WORKSPACE_OPEN_FOLDER => {
+            let i: PathIn = required(value)?;
+            non_empty("path", &i.path)?;
+            WorkspaceRequest::OpenFolder { path: i.path }
         }
         FILE_OPEN => {
             let i: FileOpenIn = required(value)?;
@@ -1438,6 +1474,12 @@ mod tests {
         assert_eq!(
             p(SOLUTION_CLOSE, json!({})),
             WorkspaceRequest::SolutionClose
+        );
+        assert_eq!(
+            p(WORKSPACE_OPEN_FOLDER, json!({"path": "/w/eludite"})),
+            WorkspaceRequest::OpenFolder {
+                path: "/w/eludite".into()
+            }
         );
         assert_eq!(
             p(SOLUTION_CLOSE, Value::Null),

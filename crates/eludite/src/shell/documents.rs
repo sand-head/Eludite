@@ -1,7 +1,9 @@
 //! Open documents (brief 0012): one document tab per file with an [`EditorView`], a dirty marker, saving, and the
 //! LSP document notifications.
 //!
-//! - **Open** reads the file off the UI thread, then creates the editor and sends `textDocument/didOpen`.
+//! - **Open** reads the file off the UI thread, then creates the editor and sends `textDocument/didOpen` to the
+//!   document's language server: the registration that matches its file name (`eludite-lsp`'s `servers.json`)
+//!   decides whether that is `eludite-host` or a generic server such as rust-analyzer (brief 0019, `servers`).
 //! - **Edits** mark the tab dirty at once and send `textDocument/didChange` [`DIDCHANGE_DEBOUNCE`] after the last
 //!   edit: the whole text goes to the session worker, which diffs it against what it last sent and sends one
 //!   incremental change. The host then pulls diagnostics 150 ms later (its own debounce, host-rpc.md).
@@ -27,6 +29,8 @@ use gpui::{AppContext as _, Context, Entity, Focusable as _, Subscription, Task,
 
 use super::Shell;
 use super::intellisense::{DocIntellisense, Provider};
+use super::servers::ServerKey;
+use super::session::ServerSession;
 
 /// Quiet time after the last edit before `textDocument/didChange` is sent.
 pub const DIDCHANGE_DEBOUNCE: Duration = Duration::from_millis(50);
@@ -37,8 +41,12 @@ pub const DIAGNOSTICS_LAYER: &str = "diagnostics";
 pub struct Document {
     pub path: PathBuf,
     pub uri: String,
-    /// `Some("csharp")` for files the language server handles; others get no LSP traffic.
-    pub language_id: Option<&'static str>,
+    /// The LSP language id (`csharp`, `rust`) for files a language server handles; others get no LSP traffic.
+    pub language_id: Option<String>,
+    /// The server the document belongs to (brief 0019).
+    pub server: ServerKey,
+    /// That server's session: every LSP message about the document goes through it.
+    pub session: ServerSession,
     /// Metadata as source: read-only, and no `didOpen`, `didChange`, `didSave` or `didClose`.
     pub read_only: bool,
     pub view: Entity<EditorView>,
@@ -195,13 +203,6 @@ pub fn trace(what: std::fmt::Arguments<'_>) {
     }
 }
 
-fn language_id(path: &Path) -> Option<&'static str> {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .filter(|e| e.eq_ignore_ascii_case("cs"))
-        .map(|_| "csharp")
-}
-
 fn title(path: &Path) -> String {
     super::navigation::document_title(path)
 }
@@ -248,9 +249,7 @@ impl Shell {
         let resolved = if p.is_absolute() {
             p.to_path_buf()
         } else {
-            self.solution
-                .as_deref()
-                .and_then(Path::parent)
+            self.workspace_root()
                 .map(|d| d.join(p))
                 .or_else(|| std::path::absolute(p).ok())
                 .unwrap_or_else(|| p.to_path_buf())
@@ -365,13 +364,16 @@ impl Shell {
             (b.text(), b.snapshot().clone(), b.version())
         };
         let uri = super::documents::path_to_uri(&path);
-        let language_id = language_id(&path);
         let read_only = super::navigation::is_metadata_path(&path);
+        let (server, session, language_id) = match self.server_for_path(&path, window, cx) {
+            Some((server, session, language)) => (server, session, Some(language)),
+            None => (ServerKey::Host, self.session.clone(), None),
+        };
         if read_only {
             view.update(cx, |v, cx| v.set_read_only(true, cx));
-        } else if let Some(lang) = language_id {
+        } else if let Some(lang) = &language_id {
             trace(format_args!("didOpen {uri} version 1"));
-            self.session.did_open(uri.clone(), lang, 1, text);
+            session.did_open(uri.clone(), lang, 1, text);
         }
         let observe_id = id.clone();
         let observe = cx.observe(&view, move |shell, _, cx| {
@@ -388,6 +390,8 @@ impl Shell {
                 path: path.clone(),
                 uri: uri.clone(),
                 language_id,
+                server,
+                session,
                 read_only,
                 view: view.clone(),
                 lsp_version: 1,
@@ -489,7 +493,7 @@ impl Shell {
             "didChange {} version {}",
             doc.uri, doc.lsp_version
         ));
-        self.session
+        doc.session
             .did_change(doc.uri.clone(), doc.lsp_version, text);
     }
 
@@ -518,7 +522,7 @@ impl Shell {
             self.controller.set_document_dirty(&id, false);
         }
         if doc.language_id.is_some() {
-            self.session.did_save(doc.uri.clone());
+            doc.session.did_save(doc.uri.clone());
         }
         Ok(WorkspaceOutput::Save(SaveOutput {
             path: id,
@@ -633,7 +637,7 @@ impl Shell {
                 doc.intellisense.cancel_all();
                 self.views.borrow_mut().remove(&id);
                 if doc.language_id.is_some() && !doc.read_only {
-                    self.session.did_close(doc.uri.clone());
+                    doc.session.did_close(doc.uri.clone());
                 }
                 self.diagnostics.remove(&doc.uri);
                 true

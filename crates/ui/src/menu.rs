@@ -75,6 +75,8 @@ pub fn vs_menus() -> Vec<Menu> {
             vec![
                 item("New Project...", "eludite.file.new_project"),
                 item("Open Project/Solution...", "eludite.solution.open"),
+                // File > Open > Folder (brief 0019): a folder or a Cargo workspace.
+                item("Open Folder...", "eludite.workspace.open_folder"),
                 item("Open File...", "eludite.file.open_file_dialog"),
                 Separator,
                 item("Save", "eludite.editor.save"),

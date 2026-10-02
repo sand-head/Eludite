@@ -41,8 +41,11 @@ fn glyph(kind: &NodeKind) -> &'static str {
     match kind {
         NodeKind::Solution => "\u{25A3}",
         NodeKind::Project { .. } => "C#",
-        NodeKind::Folder => "\u{25A1}",
+        NodeKind::Folder | NodeKind::CargoTargets => "\u{25A1}",
         NodeKind::File { .. } => "\u{2261}",
+        NodeKind::FolderRoot => "\u{25A0}",
+        NodeKind::CargoWorkspace | NodeKind::CargoPackage { .. } => "Rs",
+        NodeKind::CargoTarget { .. } => "\u{25B8}",
     }
 }
 
@@ -142,7 +145,7 @@ impl SolutionExplorer {
         self.selected = Some(row.id.clone());
         if event.click_count() >= 2 {
             match (&row.kind, &row.path) {
-                (NodeKind::File { .. }, Some(path)) => {
+                (kind, Some(path)) if kind.opens_file() => {
                     open_file(path.clone(), window, cx);
                 }
                 _ if row.has_children => self.toggle(&row.id, cx),
@@ -169,7 +172,8 @@ impl Render for SolutionExplorer {
         if self.model.is_none() {
             let text = match &self.placeholder {
                 Placeholder::NoSolution => {
-                    "No solution is open. File > Open > Project/Solution (Ctrl+Shift+O).".to_owned()
+                    "No solution is open. File > Open > Project/Solution (Ctrl+Shift+O), or File > Open > Folder \
+                     (Ctrl+Shift+Alt+O).".to_owned()
                 }
                 Placeholder::Loading(name) => format!("Loading {name}\u{2026}"),
                 Placeholder::Failed(why) => why.clone(),

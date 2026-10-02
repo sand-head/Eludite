@@ -1,0 +1,37 @@
+{
+  "servers": [
+    {
+      "id": "roslyn",
+      "name": "C#",
+      "languageId": "csharp",
+      "fileGlobs": ["*.cs"],
+      "via": "eluditeHost"
+    },
+    {
+      "id": "rust-analyzer",
+      "name": "rust-analyzer",
+      "languageId": "rust",
+      "fileGlobs": ["*.rs"],
+      "via": "process",
+      "rootMarkers": ["Cargo.toml"],
+      "command": {
+        "executable": "rust-analyzer",
+        "args": [],
+        "envOverride": "ELUDITE_RUST_ANALYZER",
+        "rustupComponent": "rust-analyzer"
+      },
+      "initializationOptions": {
+        "cargo": { "targetDir": true },
+        "checkOnSave": true,
+        "cachePriming": { "enable": true }
+      },
+      "settings": {
+        "rust-analyzer": {
+          "cargo": { "targetDir": true },
+          "checkOnSave": true,
+          "cachePriming": { "enable": true }
+        }
+      }
+    }
+  ]
+}

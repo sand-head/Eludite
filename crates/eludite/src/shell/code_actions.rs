@@ -623,7 +623,7 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let doc = &self.documents[id];
         let buffer_version = view.read(cx).editor().buffer().version();
         let position = lsp_position(&doc.sent, offset);
@@ -667,7 +667,7 @@ impl Shell {
             position.line,
             position.character
         ));
-        let (handle, rx) = self.session.request::<lsp::CodeActionRequest>(params);
+        let (handle, rx) = doc.session.request::<lsp::CodeActionRequest>(params);
         let doc_id = id.to_owned();
         let on_reply = move |shell: &mut Shell,
                              reply: super::session::Reply<
@@ -687,11 +687,11 @@ impl Shell {
                 .as_ref()
                 .is_some_and(|p| p.ticket == ticket);
             let doc_version = shell.documents.get(&doc_id).map(|d| d.lsp_version);
-            let outdated = generation != shell.generation || doc_version != Some(version);
+            let current = shell.doc_generation(&doc_id);
+            let outdated = generation != current || doc_version != Some(version);
             if !newest || outdated {
                 trace(format_args!(
-                    "codeAction reply {ticket} dropped (stale: newest {newest}, generation {generation}/{}, version {version}/{doc_version:?})",
-                    shell.generation
+                    "codeAction reply {ticket} dropped (stale: newest {newest}, generation {generation}/{current}, version {version}/{doc_version:?})"
                 ));
                 timing.dropped = true;
                 shell.code_actions.push_timing(timing);
@@ -792,7 +792,7 @@ impl Shell {
         };
         list.doc == id
             && list.offset == offset
-            && list.generation == self.generation
+            && list.generation == self.doc_generation(id)
             && list.buffer_version == doc.view.read(cx).editor().buffer().version()
     }
 
@@ -958,7 +958,8 @@ impl Shell {
             );
             return;
         }
-        let can_resolve = entry.action.data.is_some() && self.features.code_action_resolve;
+        let can_resolve =
+            entry.action.data.is_some() && self.doc_features(&list.doc).code_action_resolve;
         if !can_resolve {
             let message = match &entry.action.command {
                 Some(c) => format!(
@@ -972,7 +973,8 @@ impl Shell {
         }
         // Resolve lazily, with the text the server sees now.
         self.flush_change(&list.doc, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(&list.doc);
+        let doc_id = list.doc.clone();
         let versions: HashMap<String, i32> = self
             .documents
             .iter()
@@ -987,7 +989,7 @@ impl Shell {
         let title = entry.title.clone();
         trace(format_args!("codeAction/resolve {ticket}: {title:?}"));
         let (handle, rx) = self
-            .session
+            .session_for(&doc_id)
             .request::<lsp::ResolveCodeAction>(entry.action.clone());
         let task = cx.spawn_in(window, async move |this, cx| {
             let Ok(reply) = rx.await else {
@@ -1003,7 +1005,7 @@ impl Shell {
                     return;
                 }
                 shell.code_actions.resolve = None;
-                if generation != shell.generation {
+                if generation != shell.doc_generation(&doc_id) {
                     shell.finish_apply_action(ApplyState::Failed, Some(OUTDATED.into()), cx);
                     return;
                 }
@@ -1075,9 +1077,18 @@ impl Shell {
     ) {
         self.code_actions.apply.state = Some(ApplyState::Applying);
         // Only the documents the edit touches are checked against their versions.
+        // The server the actions came from (the light bulb's document's).
+        let server = self
+            .code_actions
+            .list
+            .as_ref()
+            .and_then(|l| self.documents.get(&l.doc))
+            .map(|d| d.server.clone())
+            .unwrap_or_default();
         let options = ApplyOptions {
             label: Some(title.clone()),
             generation: Some(generation),
+            server,
             versions,
         };
         self.apply_workspace_edit(

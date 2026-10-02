@@ -22,6 +22,13 @@
             "clean"
           ]
         },
+        "system": {
+          "description": "msbuild (the default when omitted). The host builds .NET solutions only, and the shell never sends it `cargo`: the same eludite/build/* message shapes also describe the Cargo builds the shell runs itself (brief 0019), whose start result has system cargo and toolchain kind cargo, and those never cross this connection.",
+          "enum": [
+            "msbuild",
+            "cargo"
+          ]
+        },
         "project": {
           "description": "Absolute path of one project file of the open solution to build alone (with its project references). Omitted: the whole solution.",
           "type": "string",
@@ -61,6 +68,13 @@
           "description": "The solution generation the build runs under. A new generation (another solution opened, or this one closed) cancels the build.",
           "type": "integer",
           "minimum": 0
+        },
+        "system": {
+          "description": "The build system: msbuild for every build the host runs; cargo for the shell's own Cargo builds (brief 0019). Omitted: msbuild.",
+          "enum": [
+            "msbuild",
+            "cargo"
+          ]
         },
         "path": {
           "description": "Absolute path of the solution or project file being built.",
@@ -110,11 +124,12 @@
       "additionalProperties": false,
       "properties": {
         "kind": {
-          "description": "dotnet: the .NET SDK's `dotnet build`. mono: Mono's MSBuild (located, brief 0003). buildTools: MSBuild.exe from Visual Studio Build Tools (located with vswhere, Windows).",
+          "description": "dotnet: the .NET SDK's `dotnet build`. mono: Mono's MSBuild (located, brief 0003). buildTools: MSBuild.exe from Visual Studio Build Tools (located with vswhere, Windows). cargo: `cargo` (the shell's Cargo builds, brief 0019; never from the host).",
           "enum": [
             "dotnet",
             "mono",
-            "buildTools"
+            "buildTools",
+            "cargo"
           ]
         },
         "path": {

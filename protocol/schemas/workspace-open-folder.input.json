@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-open-folder.input.json",
+  "title": "eludite.workspace.open_folder input",
+  "description": "Open a folder (File > Open > Folder..., Ctrl+Shift+Alt+O), or the Cargo workspace of a Cargo.toml. This is the workspace-open contract of brief 0019 (`eludite/workspace/open`): no process boundary is crossed, because the folder and Cargo models are computed in the shell. The shell lists the folder, opens the .NET solution at its root, or in a folder directly below it, in eludite-host when there is one (as eludite.solution.open does; an .slnx is preferred over an .sln), reads the Cargo workspace with `cargo metadata --no-deps --offline` when the folder (or the given file) has a Cargo.toml, and starts the language servers registered for the workspace (rust-analyzer for a Cargo workspace) when their first document opens. Returns at once; the Workspace window, the language servers' state and diagnostics stream in afterwards. Opening a folder closes the folder and solution that are open. The UI shows a folder dialog first and passes the chosen path.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Absolute path of a folder, or of a Cargo.toml (its folder is opened).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

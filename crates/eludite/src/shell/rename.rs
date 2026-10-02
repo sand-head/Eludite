@@ -580,7 +580,7 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let doc = &self.documents[id];
         let version = doc.lsp_version;
         let sent = doc.sent.clone();
@@ -600,7 +600,7 @@ impl Shell {
             "prepareRename {ticket} at {}:{} version {version}",
             position.line, position.character
         ));
-        let (handle, rx) = self.session.request::<lsp::PrepareRename>(params);
+        let (handle, rx) = doc.session.request::<lsp::PrepareRename>(params);
         let doc_id = id.to_owned();
         let task = cx.spawn_in(window, async move |this, cx| {
             let Ok(reply) = rx.await else {
@@ -685,11 +685,11 @@ impl Shell {
             .as_ref()
             .is_some_and(|p| p.ticket == ticket);
         let doc_version = self.documents.get(doc_id).map(|d| d.lsp_version);
-        let outdated = generation != self.generation || doc_version != Some(version);
+        let current = self.doc_generation(doc_id);
+        let outdated = generation != current || doc_version != Some(version);
         if !newest || outdated {
             trace(format_args!(
-                "rename reply {ticket} dropped (stale: newest {newest}, generation {generation}/{}, version {version}/{doc_version:?})",
-                self.generation
+                "rename reply {ticket} dropped (stale: newest {newest}, generation {generation}/{current}, version {version}/{doc_version:?})"
             ));
             if newest {
                 self.rename.pending = None;
@@ -846,7 +846,7 @@ impl Shell {
         self.rename.next_ticket += 1;
         let ticket = self.rename.next_ticket;
         trace(format_args!("rename {ticket} to {name:?}"));
-        let (handle, rx) = self.session.request::<lsp::Rename>(params);
+        let (handle, rx) = doc.session.request::<lsp::Rename>(params);
         let task = cx.spawn_in(window, async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
@@ -1014,9 +1014,18 @@ impl Shell {
         // Loading until the applier is done (closed files are written off the UI thread).
         self.rename.status.state = Some(RenameState::Loading);
         let started = Instant::now();
+        let server = self
+            .rename
+            .status
+            .origin
+            .as_ref()
+            .and_then(|o| self.documents.get(&o.path))
+            .map(|d| d.server.clone())
+            .unwrap_or_default();
         let options = ApplyOptions {
             label: Some(format!("Rename '{symbol}' to '{name}'")),
             generation: Some(preview.generation),
+            server,
             versions: preview.versions.clone(),
         };
         self.apply_workspace_edit(

@@ -1,6 +1,6 @@
-//! The Output window (PLAN.md 4.4, brief 0017): Visual Studio's "Show output from" dropdown with two sources, Build
-//! (the build log as `eludite-host` streams it) and Host (`eludite-host`'s own log), Clear All, and a virtualized,
-//! append-only text view.
+//! The Output window (PLAN.md 4.4, brief 0017): Visual Studio's "Show output from" dropdown with three sources, Build
+//! (the build log as `eludite-host` or cargo streams it), Host (`eludite-host`'s own log) and Language Servers (the
+//! servers the shell runs itself, brief 0019), Clear All, and a virtualized, append-only text view.
 //!
 //! - **Storage.** One `String` per source plus the byte offset of each line start, so 100k lines cost their bytes and
 //!   one `usize` each. ANSI escape sequences and carriage returns are removed as text arrives.
@@ -30,7 +30,7 @@ pub const LINES: &str = "output-lines";
 pub const BODY: &str = "output-body";
 pub const PAUSED_LABEL: &str = "output-paused";
 
-/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Host).
+/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Host, 2 Language Servers).
 pub fn source_item_selector(ix: usize) -> String {
     format!("output-source-{ix}")
 }
@@ -147,6 +147,8 @@ pub struct OutputWindow {
     mono: SharedString,
     build: OutputPane,
     host: OutputPane,
+    /// Brief 0019: the language servers the shell runs itself.
+    servers: OutputPane,
     selected: OutputSource,
     scroll: UniformListScrollHandle,
     /// Auto-scroll with new output (false after the user scrolled up, until they are back at the end).
@@ -161,6 +163,7 @@ impl OutputWindow {
             mono: eludite_editor::default_font_family(),
             build: OutputPane::default(),
             host: OutputPane::default(),
+            servers: OutputPane::default(),
             selected: OutputSource::Build,
             scroll: UniformListScrollHandle::new(),
             following: true,
@@ -172,6 +175,7 @@ impl OutputWindow {
         match source {
             OutputSource::Build => &self.build,
             OutputSource::Host => &self.host,
+            OutputSource::LanguageServers => &self.servers,
         }
     }
 
@@ -179,6 +183,7 @@ impl OutputWindow {
         match source {
             OutputSource::Build => &mut self.build,
             OutputSource::Host => &mut self.host,
+            OutputSource::LanguageServers => &mut self.servers,
         }
     }
 
@@ -271,6 +276,7 @@ impl Render for OutputWindow {
         let label = |s: OutputSource| match s {
             OutputSource::Build => "Build",
             OutputSource::Host => "Host",
+            OutputSource::LanguageServers => "Language Servers",
         };
         let source_button = toggle_button(
             SOURCE_BUTTON,
@@ -284,31 +290,35 @@ impl Render for OutputWindow {
             cx.notify();
         }));
         let menu = self.menu.then(|| {
-            let items = [OutputSource::Build, OutputSource::Host]
-                .into_iter()
-                .enumerate()
-                .map(|(ix, s)| {
-                    let sel = source_item_selector(ix);
-                    div()
-                        .id(SharedString::from(sel.clone()))
-                        .debug_selector(move || sel)
-                        .px_2()
-                        .h(px(20.))
-                        .flex()
-                        .items_center()
-                        .cursor_pointer()
-                        .hover(|st| st.bg(t.menu_hover))
-                        .child(label(s))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.menu = false;
-                            this.run(
-                                build_commands::OUTPUT_SHOW,
-                                json!({"source": s.as_str(), "tail": 0}),
-                                window,
-                                cx,
-                            );
-                        }))
-                });
+            let items = [
+                OutputSource::Build,
+                OutputSource::Host,
+                OutputSource::LanguageServers,
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(ix, s)| {
+                let sel = source_item_selector(ix);
+                div()
+                    .id(SharedString::from(sel.clone()))
+                    .debug_selector(move || sel)
+                    .px_2()
+                    .h(px(20.))
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .hover(|st| st.bg(t.menu_hover))
+                    .child(label(s))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.menu = false;
+                        this.run(
+                            build_commands::OUTPUT_SHOW,
+                            json!({"source": s.as_str(), "tail": 0}),
+                            window,
+                            cx,
+                        );
+                    }))
+            });
             deferred(
                 anchored().child(
                     eludite_ui::popup::popup_panel(&t)

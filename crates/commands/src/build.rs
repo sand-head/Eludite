@@ -136,6 +136,8 @@ impl BuildKind {
 pub enum OutputSource {
     Build,
     Host,
+    /// The language servers the shell runs itself (brief 0019).
+    LanguageServers,
 }
 
 impl OutputSource {
@@ -143,6 +145,29 @@ impl OutputSource {
         match self {
             OutputSource::Build => "build",
             OutputSource::Host => "host",
+            OutputSource::LanguageServers => "language_servers",
+        }
+    }
+}
+
+/// Which build system a build command runs (brief 0019).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildSystemChoice {
+    /// The .NET solution, through `eludite-host`.
+    Msbuild,
+    /// The Cargo workspace, `cargo build` run by the shell.
+    Cargo,
+    /// Each the workspace has, MSBuild first.
+    All,
+}
+
+impl BuildSystemChoice {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BuildSystemChoice::Msbuild => "msbuild",
+            BuildSystemChoice::Cargo => "cargo",
+            BuildSystemChoice::All => "all",
         }
     }
 }
@@ -157,6 +182,8 @@ pub enum BuildRequest {
         project: Option<Option<String>>,
         configuration: Option<String>,
         platform: Option<String>,
+        /// `None`: the system of the active document, or all (brief 0019).
+        system: Option<BuildSystemChoice>,
         /// `None`: wait when invoked off the UI thread.
         wait: Option<bool>,
     },
@@ -229,6 +256,9 @@ pub struct ResultProject {
 pub struct BuildResultOutput {
     /// `running`, `succeeded`, `failed` or `canceled`.
     pub state: String,
+    /// `msbuild`, `cargo` or `all` (brief 0019).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BuildSystemChoice>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build_id: Option<u64>,
     pub target: BuildKind,
@@ -309,6 +339,7 @@ pub trait BuildCommands: Send + Sync {
 struct SolutionIn {
     configuration: Option<String>,
     platform: Option<String>,
+    system: Option<BuildSystemChoice>,
     wait: Option<bool>,
 }
 
@@ -364,6 +395,7 @@ pub fn parse(id: &str, value: Value) -> Result<BuildRequest, CommandError> {
             project: None,
             configuration: non_empty("configuration", i.configuration)?,
             platform: non_empty("platform", i.platform)?,
+            system: i.system,
             wait: i.wait,
         })
     };
@@ -378,6 +410,7 @@ pub fn parse(id: &str, value: Value) -> Result<BuildRequest, CommandError> {
                 project: Some(non_empty("project", i.project)?),
                 configuration: non_empty("configuration", i.configuration)?,
                 platform: non_empty("platform", i.platform)?,
+                system: None,
                 wait: i.wait,
             }
         }
@@ -444,6 +477,7 @@ mod tests {
                 project: None,
                 configuration: None,
                 platform: None,
+                system: None,
                 wait: None
             }
         );
@@ -458,10 +492,28 @@ mod tests {
                 project: None,
                 configuration: Some("Release".into()),
                 platform: Some("Any CPU".into()),
+                system: None,
                 wait: Some(false)
             }
         );
         assert_eq!(parse(CLEAN, Value::Null).unwrap().command(), CLEAN);
+        // The build system (brief 0019).
+        assert!(matches!(
+            parse(SOLUTION, json!({"system": "cargo"})).unwrap(),
+            BuildRequest::Start {
+                system: Some(BuildSystemChoice::Cargo),
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(CLEAN, json!({"system": "all"})).unwrap(),
+            BuildRequest::Start {
+                system: Some(BuildSystemChoice::All),
+                ..
+            }
+        ));
+        assert!(parse(SOLUTION, json!({"system": "make"})).is_err());
+        assert!(parse(PROJECT, json!({"system": "cargo"})).is_err());
         assert_eq!(
             parse(
                 PROJECT,
@@ -473,6 +525,7 @@ mod tests {
                 project: Some(Some("Eludite.Host".into())),
                 configuration: None,
                 platform: None,
+                system: None,
                 wait: None
             }
         );
@@ -511,6 +564,7 @@ mod tests {
         // Outputs serialize to their schemas' members.
         let result = BuildCommandOutput::Result(Box::new(BuildResultOutput {
             state: "failed".into(),
+            system: Some(BuildSystemChoice::Cargo),
             build_id: Some(1),
             target: BuildKind::Build,
             path: "/s/A.slnx".into(),

@@ -238,9 +238,27 @@ pub fn run(args: Args, t_main: Instant) {
         if let Some(path) = args.bounds_out.clone() {
             bench::bounds_out(&shell, path, cx);
         }
-        if args.solution.is_some() || args.open_file.is_some() {
+        // Stop the generic language servers (rust-analyzer) on exit too, off the UI thread.
+        shell.update(cx, |_, cx| {
+            cx.on_app_quit(|shell: &mut Shell, _| {
+                let done = shell.shutdown_generic();
+                let (tx, rx) = futures::channel::oneshot::channel();
+                std::thread::spawn(move || {
+                    for d in done {
+                        let _ = d.recv_timeout(Duration::from_secs(5));
+                    }
+                    let _ = tx.send(());
+                });
+                async move {
+                    let _ = rx.await;
+                }
+            })
+            .detach();
+        });
+        if args.solution.is_some() || args.folder.is_some() || args.open_file.is_some() {
             // Open the solution once the window is up, as File > Open > Project/Solution would, then the file.
             let solution = args.solution.clone();
+            let folder = args.folder.clone();
             let open_file = args.open_file.clone();
             let timings_out = args.timings_out.clone();
             let bench_type = args.bench_type;
@@ -250,6 +268,14 @@ pub fn run(args: Args, t_main: Instant) {
             let bench_build = args.bench_build;
             let bench_debug = args.bench_debug;
             let _ = window.update(cx, |shell, window, cx| {
+                if let Some(folder) = &folder {
+                    shell.run(
+                        workspace::WORKSPACE_OPEN_FOLDER,
+                        json!({ "path": folder.to_string_lossy() }),
+                        window,
+                        cx,
+                    );
+                }
                 if let Some(solution) = &solution {
                     shell.run(
                         workspace::SOLUTION_OPEN,
@@ -270,7 +296,7 @@ pub fn run(args: Args, t_main: Instant) {
                     bench::timings_out(cx.entity(), path, window, cx);
                 }
                 if let (Some(count), Some(file)) = (bench_type, open_file.clone()) {
-                    let with_host = solution.is_some();
+                    let with_host = solution.is_some() || folder.is_some();
                     bench::type_keys(cx.entity(), file, count, with_host, window, cx);
                 }
                 if let (Some(count), Some(file)) = (bench_complete, open_file.clone()) {

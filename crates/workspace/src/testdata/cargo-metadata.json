@@ -1,0 +1,1932 @@
+{
+ "packages": [
+  {
+   "name": "eludite",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/eludite#0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite: a native, agent-first IDE for .NET.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "clock",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/vendor/clock"
+    },
+    {
+     "name": "eludite-acp",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/acp"
+    },
+    {
+     "name": "eludite-commands",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/commands"
+    },
+    {
+     "name": "eludite-docking",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/docking"
+    },
+    {
+     "name": "eludite-editor",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/editor"
+    },
+    {
+     "name": "eludite-lsp",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/lsp"
+    },
+    {
+     "name": "eludite-mcp",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/mcp"
+    },
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "eludite-ui",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/ui"
+    },
+    {
+     "name": "eludite-workspace",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/workspace"
+    },
+    {
+     "name": "futures",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.3",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui_platform",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "wayland",
+      "x11",
+      "font-kit"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "eludite-lsp",
+     "source": null,
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "fake"
+     ],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/lsp"
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "test-support"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tempfile",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^3",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "bin"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "eludite",
+     "src_path": "/w/eludite/crates/eludite/src/main.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "relay",
+     "src_path": "/w/eludite/crates/eludite/tests/relay.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/eludite/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": "eludite",
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-acp",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/acp#eludite-acp@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite ACP (Agent Client Protocol) client.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tempfile",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^3",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_acp",
+     "src_path": "/w/eludite/crates/acp/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    },
+    {
+     "kind": [
+      "bin"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "eludite-fake-acp-agent",
+     "src_path": "/w/eludite/crates/acp/src/fake_agent_main.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "client",
+     "src_path": "/w/eludite/crates/acp/tests/client.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "session",
+     "src_path": "/w/eludite/crates/acp/tests/session.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/acp/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-protocol",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/protocol/rust#eludite-protocol@0.1.0",
+   "license": "MIT",
+   "license_file": null,
+   "description": "Wire types shared between the Eludite shell, eludite-host and third-party clients.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_protocol",
+     "src_path": "/w/eludite/protocol/rust/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/protocol/rust/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-commands",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/commands#eludite-commands@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite command bus.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "thiserror",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^2",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_commands",
+     "src_path": "/w/eludite/crates/commands/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/commands/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-docking",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/docking#eludite-docking@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Visual Studio-style docking model, persistence and view for Eludite.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "dirs",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^6",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "eludite-commands",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/commands"
+    },
+    {
+     "name": "eludite-ui",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/ui"
+    },
+    {
+     "name": "futures",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.3",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "thiserror",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^2",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "test-support"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tempfile",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^3",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_docking",
+     "src_path": "/w/eludite/crates/docking/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/docking/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-ui",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/ui#eludite-ui@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite's own widgets and theme tokens.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "test-support"
+     ],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_ui",
+     "src_path": "/w/eludite/crates/ui/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/ui/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-editor",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/editor#eludite-editor@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite editor core: buffer, editor view and syntax highlighting.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "clock",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/vendor/clock"
+    },
+    {
+     "name": "eludite-ui",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/ui"
+    },
+    {
+     "name": "futures",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.3",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "fuzzy",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/vendor/fuzzy"
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "libmimalloc-sys",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.1.49",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "extended"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "text",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/vendor/text"
+    },
+    {
+     "name": "tree-sitter",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.27",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tree-sitter-c-sharp",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.23",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tree-sitter-rust",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.24",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "test-support"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "gpui_platform",
+     "source": "git+https://github.com/zed-industries/zed?rev=20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8",
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "wayland",
+      "x11",
+      "font-kit"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "mimalloc",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.1.52",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_editor",
+     "src_path": "/w/eludite/crates/editor/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    },
+    {
+     "kind": [
+      "example"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "viewer",
+     "src_path": "/w/eludite/crates/editor/examples/viewer.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": false
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "intellisense",
+     "src_path": "/w/eludite/crates/editor/tests/intellisense.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "tree_memory",
+     "src_path": "/w/eludite/crates/editor/tests/tree_memory.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "view",
+     "src_path": "/w/eludite/crates/editor/tests/view.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    }
+   ],
+   "features": {
+    "mimalloc-global": []
+   },
+   "manifest_path": "/w/eludite/crates/editor/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-lsp",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/lsp#eludite-lsp@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite LSP client.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "eludite-lsp",
+     "source": null,
+     "req": "*",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "fake"
+     ],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/lsp"
+    },
+    {
+     "name": "tempfile",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^3",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_lsp",
+     "src_path": "/w/eludite/crates/lsp/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "fake_host",
+     "src_path": "/w/eludite/crates/lsp/tests/fake_host.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "generic_server",
+     "src_path": "/w/eludite/crates/lsp/tests/generic_server.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "in_process",
+     "src_path": "/w/eludite/crates/lsp/tests/in_process.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "real_analyzer",
+     "src_path": "/w/eludite/crates/lsp/tests/real_analyzer.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    },
+    {
+     "kind": [
+      "test"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "real_host",
+     "src_path": "/w/eludite/crates/lsp/tests/real_host.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": true
+    }
+   ],
+   "features": {
+    "fake": []
+   },
+   "manifest_path": "/w/eludite/crates/lsp/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-mcp",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/mcp#eludite-mcp@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite MCP server: the command bus exposed to agents.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-commands",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/crates/commands"
+    },
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "getrandom",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.3",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_mcp",
+     "src_path": "/w/eludite/crates/mcp/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    },
+    {
+     "kind": [
+      "example"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "fixture_stdio_server",
+     "src_path": "/w/eludite/crates/mcp/examples/fixture_stdio_server.rs",
+     "edition": "2024",
+     "doc": false,
+     "doctest": false,
+     "test": false
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/mcp/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-workspace",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/workspace#eludite-workspace@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Client-side solution and project model for Eludite.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "roxmltree",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.20",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_workspace",
+     "src_path": "/w/eludite/crates/workspace/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/workspace/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-dap",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/dap#eludite-dap@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite DAP client and transports.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-protocol",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/protocol/rust"
+    },
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_dap",
+     "src_path": "/w/eludite/crates/dap/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/dap/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-git",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/git#eludite-git@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite git integration (libgit2).",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "git2",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.20",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": false,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "tempfile",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^3",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_git",
+     "src_path": "/w/eludite/crates/git/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/git/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-terminal",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/terminal#eludite-terminal@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite integrated terminal.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_terminal",
+     "src_path": "/w/eludite/crates/terminal/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/terminal/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-extensions",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/crates/extensions#eludite-extensions@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "Eludite extension host.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "eludite-extension-sdk",
+     "source": null,
+     "req": "*",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null,
+     "path": "/w/eludite/extension-sdk"
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "thiserror",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^2",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "toml",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.8",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_extensions",
+     "src_path": "/w/eludite/crates/extensions/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/crates/extensions/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-extension-sdk",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/extension-sdk#eludite-extension-sdk@0.1.0",
+   "license": "MIT",
+   "license_file": null,
+   "description": "Types for writing Eludite extensions.",
+   "source": null,
+   "dependencies": [
+    {
+     "name": "serde",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": null,
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [
+      "derive"
+     ],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "serde_json",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^1",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    },
+    {
+     "name": "toml",
+     "source": "registry+https://github.com/rust-lang/crates.io-index",
+     "req": "^0.8",
+     "kind": "dev",
+     "rename": null,
+     "optional": false,
+     "uses_default_features": true,
+     "features": [],
+     "target": null,
+     "registry": null
+    }
+   ],
+   "targets": [
+    {
+     "kind": [
+      "lib"
+     ],
+     "crate_types": [
+      "lib"
+     ],
+     "name": "eludite_extension_sdk",
+     "src_path": "/w/eludite/extension-sdk/src/lib.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": true,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/extension-sdk/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  },
+  {
+   "name": "eludite-dbg-netfx",
+   "version": "0.1.0",
+   "id": "path+file:///w/eludite/debuggers/netfx#eludite-dbg-netfx@0.1.0",
+   "license": "GPL-3.0-or-later",
+   "license_file": null,
+   "description": "DAP server for .NET Framework over ICorDebug (Windows).",
+   "source": null,
+   "dependencies": [],
+   "targets": [
+    {
+     "kind": [
+      "bin"
+     ],
+     "crate_types": [
+      "bin"
+     ],
+     "name": "eludite-dbg-netfx",
+     "src_path": "/w/eludite/debuggers/netfx/src/main.rs",
+     "edition": "2024",
+     "doc": true,
+     "doctest": false,
+     "test": true
+    }
+   ],
+   "features": {},
+   "manifest_path": "/w/eludite/debuggers/netfx/Cargo.toml",
+   "metadata": null,
+   "publish": [],
+   "authors": [],
+   "categories": [],
+   "keywords": [],
+   "readme": null,
+   "repository": "https://github.com/sand-head/Eludite",
+   "homepage": null,
+   "documentation": null,
+   "edition": "2024",
+   "links": null,
+   "default_run": null,
+   "rust_version": "1.98"
+  }
+ ],
+ "workspace_members": [
+  "path+file:///w/eludite/crates/eludite#0.1.0",
+  "path+file:///w/eludite/crates/acp#eludite-acp@0.1.0",
+  "path+file:///w/eludite/protocol/rust#eludite-protocol@0.1.0",
+  "path+file:///w/eludite/crates/commands#eludite-commands@0.1.0",
+  "path+file:///w/eludite/crates/docking#eludite-docking@0.1.0",
+  "path+file:///w/eludite/crates/ui#eludite-ui@0.1.0",
+  "path+file:///w/eludite/crates/editor#eludite-editor@0.1.0",
+  "path+file:///w/eludite/crates/lsp#eludite-lsp@0.1.0",
+  "path+file:///w/eludite/crates/mcp#eludite-mcp@0.1.0",
+  "path+file:///w/eludite/crates/workspace#eludite-workspace@0.1.0",
+  "path+file:///w/eludite/crates/dap#eludite-dap@0.1.0",
+  "path+file:///w/eludite/crates/git#eludite-git@0.1.0",
+  "path+file:///w/eludite/crates/terminal#eludite-terminal@0.1.0",
+  "path+file:///w/eludite/crates/extensions#eludite-extensions@0.1.0",
+  "path+file:///w/eludite/extension-sdk#eludite-extension-sdk@0.1.0",
+  "path+file:///w/eludite/debuggers/netfx#eludite-dbg-netfx@0.1.0"
+ ],
+ "workspace_default_members": [
+  "path+file:///w/eludite/crates/eludite#0.1.0",
+  "path+file:///w/eludite/crates/acp#eludite-acp@0.1.0",
+  "path+file:///w/eludite/protocol/rust#eludite-protocol@0.1.0",
+  "path+file:///w/eludite/crates/commands#eludite-commands@0.1.0",
+  "path+file:///w/eludite/crates/docking#eludite-docking@0.1.0",
+  "path+file:///w/eludite/crates/ui#eludite-ui@0.1.0",
+  "path+file:///w/eludite/crates/editor#eludite-editor@0.1.0",
+  "path+file:///w/eludite/crates/lsp#eludite-lsp@0.1.0",
+  "path+file:///w/eludite/crates/mcp#eludite-mcp@0.1.0",
+  "path+file:///w/eludite/crates/workspace#eludite-workspace@0.1.0",
+  "path+file:///w/eludite/crates/dap#eludite-dap@0.1.0",
+  "path+file:///w/eludite/crates/git#eludite-git@0.1.0",
+  "path+file:///w/eludite/crates/terminal#eludite-terminal@0.1.0",
+  "path+file:///w/eludite/crates/extensions#eludite-extensions@0.1.0",
+  "path+file:///w/eludite/extension-sdk#eludite-extension-sdk@0.1.0",
+  "path+file:///w/eludite/debuggers/netfx#eludite-dbg-netfx@0.1.0"
+ ],
+ "resolve": null,
+ "target_directory": "/w/eludite/target",
+ "build_directory": "/w/eludite/target",
+ "version": 1,
+ "workspace_root": "/w/eludite",
+ "metadata": null
+}
