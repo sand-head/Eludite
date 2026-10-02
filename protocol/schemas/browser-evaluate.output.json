@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-evaluate.output.json",
+  "title": "eludite.browser.evaluate output",
+  "description": "The value.",
+  "type": "object",
+  "required": [
+    "tab",
+    "result",
+    "type",
+    "truncated",
+    "page_generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "result": {
+      "description": "The value as JSON (`null` for undefined); with `return_by_value: false`, its description; when cut, the cut string or JSON text."
+    },
+    "type": {
+      "description": "JavaScript's type: object, function, undefined, string, number, boolean, symbol or bigint.",
+      "type": "string"
+    },
+    "subtype": {
+      "description": "For objects: array, null, node, regexp, date, map, set, error, promise, ...",
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

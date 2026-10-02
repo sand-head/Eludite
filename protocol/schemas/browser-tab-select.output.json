@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-select.output.json",
+  "title": "eludite.browser.tab_select output",
+  "description": "The tab, now active.",
+  "type": "object",
+  "required": [
+    "id",
+    "url",
+    "title",
+    "active",
+    "loading",
+    "page_generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "active": {
+      "description": "The tab commands act on when they are given no `tab`.",
+      "type": "boolean"
+    },
+    "loading": {
+      "description": "The main frame is loading (between Page.frameStartedLoading and frameStoppedLoading).",
+      "type": "boolean"
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-resize.input.json",
+  "title": "eludite.browser.resize input",
+  "description": "Emulate a viewport size on a tab (Emulation.setDeviceMetricsOverride), for example a phone with `mobile: true` and a device scale factor, and optionally a user agent (Emulation.setUserAgentOverride). The page re-lays out; screenshots and boxes follow the new viewport. Answers the viewport in effect as the page reports it (innerWidth, innerHeight, devicePixelRatio). The override lasts until the tab closes or the next resize.",
+  "type": "object",
+  "required": [
+    "width",
+    "height"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "width": {
+      "description": "Viewport width in CSS pixels.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "height": {
+      "description": "Viewport height in CSS pixels.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "device_scale_factor": {
+      "description": "Device pixels per CSS pixel. Default: the screen's.",
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 10
+    },
+    "mobile": {
+      "description": "Emulate a mobile device (meta viewport, overlay scrollbars). Default false.",
+      "type": "boolean"
+    },
+    "user_agent": {
+      "description": "The User-Agent header and navigator.userAgent to use.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

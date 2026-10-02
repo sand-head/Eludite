@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-screenshot.output.json",
+  "title": "eludite.browser.screenshot output",
+  "description": "The screenshot. Over MCP, `image` is sent as image content and replaced by \"(image content)\" in the text and structured content (protocol/schemas/mcp-tool.json).",
+  "type": "object",
+  "required": [
+    "image",
+    "format",
+    "width",
+    "height",
+    "scale",
+    "page_generation",
+    "tab"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "description": "The encoded image, base64. Its media type is `image/png` or `image/jpeg` as `format` says.",
+      "type": "string",
+      "contentEncoding": "base64",
+      "contentMediaType": "image/*",
+      "x-eludite-mcp-content": "image"
+    },
+    "format": {
+      "enum": [
+        "png",
+        "jpeg"
+      ]
+    },
+    "width": {
+      "description": "Image width in pixels.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "height": {
+      "description": "Image height in pixels.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "scale": {
+      "description": "Image pixels per CSS pixel (below 1 when the capture was scaled down to `max_width`).",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

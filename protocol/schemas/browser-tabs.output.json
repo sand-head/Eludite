@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tabs.output.json",
+  "title": "eludite.browser.tabs output",
+  "description": "Whether the browser runs, which engine it is, and its tabs in the order they were opened.",
+  "type": "object",
+  "required": [
+    "running",
+    "engine",
+    "tabs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "running": {
+      "type": "boolean"
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "`external-chrome`: a Chrome or Chromium process Eludite launched (brief 0023). The embedded engine of the Web Browser window comes later.",
+          "enum": [
+            "external-chrome"
+          ]
+        },
+        "version": {
+          "description": "The browser's product and version from Browser.getVersion (`HeadlessChrome/141.0.7390.37`); present while it runs.",
+          "type": "string"
+        },
+        "executable": {
+          "description": "The executable launched; present while it runs.",
+          "type": "string"
+        }
+      }
+    },
+    "active": {
+      "description": "The active tab's id; absent when there is none.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "tabs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "url",
+          "title",
+          "active",
+          "loading",
+          "page_generation"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^t[0-9]+$"
+          },
+          "url": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "active": {
+            "description": "The tab commands act on when they are given no `tab`.",
+            "type": "boolean"
+          },
+          "loading": {
+            "description": "The main frame is loading (between Page.frameStartedLoading and frameStoppedLoading).",
+            "type": "boolean"
+          },
+          "page_generation": {
+            "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

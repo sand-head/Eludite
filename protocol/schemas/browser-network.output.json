@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-network.output.json",
+  "title": "eludite.browser.network output",
+  "description": "Requests, oldest first.",
+  "type": "object",
+  "required": [
+    "tab",
+    "requests",
+    "next",
+    "dropped"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "seq",
+          "request_id",
+          "method",
+          "url",
+          "resource_type",
+          "started_at",
+          "initiator"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "status": {
+            "description": "The HTTP status; absent while in flight or when the request failed before a response.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "resource_type": {
+            "type": "string"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "started_at": {
+            "description": "Milliseconds since the Unix epoch.",
+            "type": "number"
+          },
+          "duration_ms": {
+            "description": "From the request to the end of loading (or the failure); absent while in flight.",
+            "type": "number",
+            "minimum": 0
+          },
+          "encoded_bytes": {
+            "description": "Bytes received over the network, headers included.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "description": "Why the request failed (`net::ERR_ABORTED`, ...).",
+            "type": "string"
+          },
+          "initiator": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "description": "parser, script, preload, SignedExchange, preflight, FedCM or other.",
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "next": {
+      "description": "The cursor to pass as `since` next time.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "dropped": {
+      "description": "Requests after `since` that the tab no longer keeps.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
