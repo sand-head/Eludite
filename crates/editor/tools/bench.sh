@@ -5,6 +5,10 @@
 # pass --direct to run on the current display instead), and appends one JSON
 # line per run to $OUT/results.jsonl.
 #
+# Each run waits until the 1-minute load average is below LOAD_MAX (default
+# 2.5), so other builds on the machine do not skew frame times; the load at
+# start is recorded. ONLY=<regex> limits the runs to matching labels.
+#
 # Usage: crates/editor/tools/bench.sh [--direct] [OUT_DIR]
 set -euo pipefail
 direct=0
@@ -22,7 +26,11 @@ cs=$out/Generated100k.cs rs=$out/generated20k.rs big=$out/Generated10MB.cs
 
 run() { # label args...
   local label=$1; shift
+  [[ -n ${ONLY:-} && ! $label =~ $ONLY ]] && return 0
   for i in $(seq "$runs"); do
+    while awk -v max="${LOAD_MAX:-2.5}" '{exit !($1 >= max)}' /proc/loadavg; do sleep 5; done
+    local load
+    load=$(cut -d' ' -f1 /proc/loadavg)
     if [[ $direct == 1 ]]; then
       "$viewer" "$@" >"$out/nested.out" 2>"$out/nested.err" || true
     else
@@ -30,7 +38,7 @@ run() { # label args...
     fi
     local line
     line=$(tail -n1 "$out/nested.out")
-    echo "{\"label\":\"$label\",\"run\":$i,\"result\":${line:-null}}" | tee -a "$out/results.jsonl"
+    echo "{\"label\":\"$label\",\"run\":$i,\"load_at_start\":$load,\"result\":${line:-null}}" | tee -a "$out/results.jsonl"
   done
 }
 

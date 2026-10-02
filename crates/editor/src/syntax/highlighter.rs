@@ -419,6 +419,7 @@ namespace Demo.App
         {
             var sb = new StringBuilder();
             sb.Append("Hello, \n");
+            sb.Append($"x = {who}");
             return who == null ? "nobody" : sb.ToString();
         }
     }
@@ -467,6 +468,7 @@ fn main() {
         assert_eq!(kind_of(&u, "\"Hello"), Some(String));
         assert_eq!(kind_of(&u, "\\n"), Some(Escape));
         assert_eq!(kind_of(&u, "null"), Some(ConstantBuiltin));
+        assert_eq!(kind_of(&u, "x = {"), Some(String));
         assert_eq!(kind_of(&u, "== null"), Some(Operator));
         assert_eq!(
             kind_of(&u, "sb.Append"),
