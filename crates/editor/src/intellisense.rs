@@ -69,6 +69,11 @@ pub enum EditorEvent {
     HoverClosed,
     SignatureHelpTriggered(SignatureTrigger),
     SignatureHelpClosed,
+    /// Ctrl+click on the text at `offset` (Visual Studio's Go To Definition gesture, brief 0014). The caret has
+    /// already moved there; the owner asks a language server and navigates.
+    GoToDefinition {
+        offset: usize,
+    },
 }
 
 /// Where the shown completion items come from.
