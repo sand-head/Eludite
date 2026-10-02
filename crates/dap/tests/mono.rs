@@ -725,10 +725,12 @@ fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
     );
     assert_eq!(s.reason, "breakpoint");
     assert!(took.as_secs_f64() < 3.0, "budget: under 3 s ({took:?})");
-    // Detach: the program goes on without the debugger and exits with its code.
+    // Detach: the program goes on without the debugger and exits with its code. eludite-dbg-mono stays up after a
+    // detach (and spins), so the client ends it, as the shell does when the detach is answered.
     client
         .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
         .unwrap();
+    client.kill();
     let deadline = Instant::now() + T;
     let status = loop {
         if let Some(s) = app.try_wait().unwrap() {
