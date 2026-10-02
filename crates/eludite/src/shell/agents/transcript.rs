@@ -512,7 +512,6 @@ impl Transcript {
     }
 
     /// The transcript as JSON (the manual run's record).
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn to_json(&self) -> Value {
         let mut out = Vec::new();
         let mut agent = String::new();

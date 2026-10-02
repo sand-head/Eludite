@@ -4,6 +4,7 @@
 //! into `eludite.agents.*` commands, and all agent and MCP I/O happens on other threads.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -13,10 +14,10 @@ use eludite_ui::transcript::{
     ToolCard, agent_line, notice, plan_card, thought_block, tool_call_card, user_prompt,
 };
 use gpui::{
-    AnyElement, App, Context, EventEmitter, FocusHandle, Focusable, FollowMode, FontWeight,
-    InteractiveElement, IntoElement, KeyDownEvent, ListAlignment, ListState, ParentElement, Render,
-    Rgba, SharedString, StatefulInteractiveElement, Styled, Window, anchored, deferred, div, list,
-    px, rgb,
+    AnyElement, App, Bounds, Context, Div, EventEmitter, FocusHandle, Focusable, FollowMode,
+    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ListAlignment, ListState,
+    ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement,
+    Styled, Window, anchored, canvas, deferred, div, list, px, rgb,
 };
 use serde_json::Value;
 
@@ -140,6 +141,28 @@ pub struct Prompt {
     pub can_persist: bool,
 }
 
+/// Where the window's and the review views' buttons were last painted, by element id (for the real-input driver,
+/// `--bounds-out`).
+pub type Painted = Rc<RefCell<HashMap<String, Bounds<Pixels>>>>;
+
+/// `el`, recording its painted bounds in `painted` under `id`.
+pub fn tracked(painted: &Painted, id: impl Into<String>, el: Stateful<Div>) -> Stateful<Div> {
+    let painted = painted.clone();
+    let id = id.into();
+    el.relative().child(
+        canvas(
+            move |b, _, _| {
+                painted.borrow_mut().insert(id.clone(), b);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full(),
+    )
+}
+
 /// Frame probes for the streaming benchmark.
 #[derive(Debug, Default)]
 pub struct Probes {
@@ -192,6 +215,7 @@ pub struct AgentsWindow {
     picker_open: bool,
     mono: SharedString,
     pub probes: Rc<RefCell<Probes>>,
+    pub painted: Painted,
 }
 
 impl EventEmitter<AgentsWindowEvent> for AgentsWindow {}
@@ -212,6 +236,7 @@ impl AgentsWindow {
             picker_open: false,
             mono: eludite_editor::default_font_family(),
             probes: Rc::default(),
+            painted: Rc::default(),
         }
     }
 
@@ -329,24 +354,28 @@ impl AgentsWindow {
                     self.mono.clone(),
                 );
                 // Each change the call proposed links to its review view (and, once decided, what was applied).
+                let painted = self.painted.clone();
                 let links = changes.into_iter().map(|(id, path, state)| {
                     let name = std::path::Path::new(&path)
                         .file_name()
                         .map_or(path.clone(), |n| n.to_string_lossy().into_owned());
                     let sel = change_link(id);
-                    div()
-                        .id(SharedString::from(sel.clone()))
-                        .debug_selector(move || sel)
-                        .px_3()
-                        .text_size(t.typography.small)
-                        .text_color(t.accent)
-                        .cursor_pointer()
-                        .child(SharedString::from(format!(
-                            "\u{2192} Change #{id}: {name} ({state})"
-                        )))
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            cx.emit(AgentsWindowEvent::OpenChange(id))
-                        }))
+                    tracked(
+                        &painted,
+                        sel.clone(),
+                        div().id(SharedString::from(sel.clone())),
+                    )
+                    .debug_selector(move || sel)
+                    .px_3()
+                    .text_size(t.typography.small)
+                    .text_color(t.accent)
+                    .cursor_pointer()
+                    .child(SharedString::from(format!(
+                        "\u{2192} Change #{id}: {name} ({state})"
+                    )))
+                    .on_click(
+                        cx.listener(move |_, _, _, cx| cx.emit(AgentsWindowEvent::OpenChange(id))),
+                    )
                 });
                 div()
                     .w_full()
@@ -497,15 +526,21 @@ impl AgentsWindow {
     fn render_prompt(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let t = self.theme;
         let p = self.prompt.clone()?;
+        let painted = self.painted.clone();
         let button = |d: Decision, label: &'static str, default: bool| {
-            eludite_ui::push_button(decision_button(d), label, default, true, &t).on_click(
-                cx.listener(move |_, _, _, cx| {
-                    cx.emit(AgentsWindowEvent::Answer {
-                        request: p.request,
-                        decision: d,
-                    })
-                }),
+            tracked(
+                &painted,
+                decision_button(d),
+                eludite_ui::push_button(decision_button(d), label, default, true, &t)
+                    .min_w(px(48.))
+                    .px_2(),
             )
+            .on_click(cx.listener(move |_, _, _, cx| {
+                cx.emit(AgentsWindowEvent::Answer {
+                    request: p.request,
+                    decision: d,
+                })
+            }))
         };
         let mut buttons =
             div()
@@ -552,14 +587,20 @@ impl AgentsWindow {
         if pending.is_empty() {
             return None;
         }
-        let review = |change: Option<u64>, accept: bool, label: &'static str| {
-            eludite_ui::push_button(review_button(change, accept), label, false, true, &t)
+        let painted = self.painted.clone();
+        let review =
+            |change: Option<u64>, accept: bool, label: &'static str| {
+                tracked(
+                    &painted,
+                    review_button(change, accept),
+                    eludite_ui::push_button(review_button(change, accept), label, false, true, &t),
+                )
                 .min_w(px(50.))
                 .h(px(20.))
                 .on_click(cx.listener(move |_, _, _, cx| {
                     cx.emit(AgentsWindowEvent::Review { change, accept })
                 }))
-        };
+            };
         let mut col = div()
             .debug_selector(|| "agents-changes".into())
             .flex()
@@ -659,8 +700,7 @@ impl Render for AgentsWindow {
         let header = self.render_header(cx);
         let prompt = self.render_prompt(cx);
         let changes = self.render_changes(cx);
-        let input = div()
-            .id(PROMPT_BOX)
+        let input = tracked(&self.painted, PROMPT_BOX, div().id(PROMPT_BOX))
             .debug_selector(|| PROMPT_BOX.into())
             .key_context("AgentsPrompt")
             .track_focus(&self.focus)
@@ -670,6 +710,8 @@ impl Render for AgentsWindow {
                 cx.notify();
             }))
             .flex_1()
+            .min_w(px(0.))
+            .overflow_hidden()
             .min_h(px(40.))
             .px_1()
             .border_1()
@@ -681,12 +723,16 @@ impl Render for AgentsWindow {
                 t.text
             })
             .child(shown);
-        let send = eludite_ui::push_button(
+        let send = tracked(
+            &self.painted,
             SEND_BUTTON,
-            if running { "Stop" } else { "Send" },
-            !running,
-            true,
-            &t,
+            eludite_ui::push_button(
+                SEND_BUTTON,
+                if running { "Stop" } else { "Send" },
+                !running,
+                true,
+                &t,
+            ),
         )
         .min_w(px(50.))
         .on_click(cx.listener(move |this, _, _, cx| {

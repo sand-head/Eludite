@@ -65,6 +65,8 @@ fn fake_setup() -> AgentsSetup {
                 })?;
             Ok((Box::new(agent_out_r), Box::new(agent_in_w)))
         })),
+        preferred: None,
+        transcript_out: None,
     }
 }
 

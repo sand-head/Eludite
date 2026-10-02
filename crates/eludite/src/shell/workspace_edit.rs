@@ -538,6 +538,13 @@ impl ApplySummary {
 
     /// The status bar text.
     pub fn status_text(&self, label: Option<&str>) -> String {
+        if let Some(m) = self
+            .message
+            .as_deref()
+            .filter(|m| m.starts_with("held for review"))
+        {
+            return format!("{}: {m}", label.unwrap_or("The edit"));
+        }
         if !self.applied {
             return format!(
                 "{} was not applied: {}",

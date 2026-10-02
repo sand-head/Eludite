@@ -106,6 +106,10 @@ pub struct AgentsSetup {
     pub relay_exe: PathBuf,
     /// Connect to agents in-process instead of spawning them (tests).
     pub connect: Option<StreamConnector>,
+    /// The agent to select once the registry is known (`--agent`).
+    pub preferred: Option<String>,
+    /// Write the transcript as JSON here whenever a turn ends (`--transcript-out`).
+    pub transcript_out: Option<PathBuf>,
 }
 
 impl AgentsSetup {
@@ -114,6 +118,8 @@ impl AgentsSetup {
             registry: None,
             relay_exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("eludite")),
             connect: None,
+            preferred: None,
+            transcript_out: None,
         }
     }
 }
@@ -274,6 +280,8 @@ pub struct Agents {
     pub ready_ms: Option<f64>,
     /// The solution's policy.
     policy: SharedPolicy,
+    /// `--bench-agent-stream`: per batch, the UI time to apply it, its size, and each chunk's send-to-apply time.
+    probe: Option<(Vec<f64>, Vec<usize>, Vec<f64>)>,
     /// Permission requests waiting for the user, by key.
     waiting: HashMap<u64, Waiting>,
     /// Pending changes by id (decided ones stay, for the transcript's links).
@@ -331,6 +339,7 @@ impl Agents {
                 timings: Vec::new(),
                 ready_ms: None,
                 policy: Arc::new(Mutex::new(Arc::new(PolicyStore::default()))),
+                probe: None,
                 waiting: HashMap::new(),
                 changes: BTreeMap::new(),
                 next_change: 1,
@@ -458,7 +467,6 @@ fn acp_policy(commands: Arc<CommandRegistry>, policy: SharedPolicy) -> Permissio
 }
 
 impl Shell {
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn agents(&self) -> &Agents {
         &self.agents
     }
@@ -927,6 +935,89 @@ impl Shell {
         }
     }
 
+    /// Stop the agent (the process is killed).
+    pub fn agents_stop(&mut self, cx: &mut Context<Self>) {
+        self.stop_session(cx);
+    }
+
+    /// `--bench-agent-stream`: start or stop recording frame work and batch costs.
+    pub fn agents_probe(&mut self, on: bool, cx: &mut Context<Self>) {
+        if on {
+            self.agents.probe = Some(Default::default());
+        }
+        self.agents.window.update(cx, |w, _| {
+            let mut p = w.probes.borrow_mut();
+            p.recording = on;
+            if on {
+                p.frame_work_ms.clear();
+            }
+        });
+    }
+
+    /// (frame work, apply per batch, batch sizes, chunk send to apply), in ms.
+    pub fn agents_probe_results(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> (Vec<f64>, Vec<f64>, Vec<usize>, Vec<f64>) {
+        let frames = self
+            .agents
+            .window
+            .read(cx)
+            .probes
+            .borrow()
+            .frame_work_ms
+            .clone();
+        let (apply, sizes, chunks) = self.agents.probe.take().unwrap_or_default();
+        (frames, apply, sizes, chunks)
+    }
+
+    /// `eludite.view.show` for a tool window.
+    pub fn commands_invoke_view_show(
+        &self,
+        id: &str,
+    ) -> Result<Value, eludite_commands::CommandError> {
+        self.commands
+            .invoke("eludite.view.show", json!({ "id": id }))
+    }
+
+    /// `--bench-diff`: hold a 20-edit change of `file` (2000 lines) as an agent's pending change. Returns its id.
+    pub fn bench_capture_big_edit(
+        &mut self,
+        file: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<u64> {
+        let uri = super::documents::path_to_uri(file);
+        let edits: Vec<Value> = (0..20)
+            .map(|i| {
+                let line = i * 100;
+                json!({"range": {"start": {"line": line, "character": 4}, "end": {"line": line, "character": 7}}, "newText": "long"})
+            })
+            .collect();
+        let edit: eludite_lsp::lsp::WorkspaceEdit =
+            serde_json::from_value(json!({"changes": {uri: edits}})).ok()?;
+        let caller = eludite_commands::Caller::Agent {
+            agent: "bench".into(),
+            call: eludite_commands::next_call_id(),
+            tool_call: None,
+        };
+        let ids = self
+            .capture_edit(&edit, &Default::default(), &caller, window, cx)
+            .ok()?;
+        ids.first().copied()
+    }
+
+    /// `--bench-diff`: reject every pending change and close the review views.
+    pub fn bench_reject_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let ids = self.changes_for(None, None);
+        let _ = self.decide(&ids, false, window, cx);
+        let tabs: Vec<String> = self.agents.reviews.borrow().keys().cloned().collect();
+        for t in tabs {
+            self.controller.close_document(&t);
+        }
+        self.agents.reviews.borrow_mut().clear();
+    }
+
     /// Whether `request` from `caller` is an agent's edit to hold for review (the solution's policy says review).
     pub(super) fn reviews_edit(
         &self,
@@ -993,6 +1084,38 @@ impl Shell {
         window_: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let applied = Instant::now();
+        let batch_len = batch.len();
+        if let Some((_, _, chunks)) = &mut self.agents.probe {
+            let now = eludite_acp::fake_agent::wall_ns();
+            for m in &batch {
+                if let HostMsg::Session(_, e) = m
+                    && let SessionEvent::Update(
+                        eludite_acp::protocol::SessionUpdate::AgentMessageChunk(c),
+                    ) = &**e
+                    && let Some(sent) = c
+                        .meta()
+                        .and_then(|m| m.get(eludite_acp::fake_agent::SENT_AT_META))
+                        .and_then(|v| v.as_str())
+                        .and_then(|v| v.parse::<u128>().ok())
+                {
+                    chunks.push(now.saturating_sub(sent) as f64 / 1e6);
+                }
+            }
+        }
+        self.apply_agent_batch(batch, window_, cx);
+        if let Some((apply, sizes, _)) = &mut self.agents.probe {
+            apply.push(applied.elapsed().as_secs_f64() * 1e3);
+            sizes.push(batch_len);
+        }
+    }
+
+    fn apply_agent_batch(
+        &mut self,
+        batch: Vec<HostMsg>,
+        window_: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let generation = self.agents.generation;
         let mut header = false;
         let mut permissions = false;
@@ -1001,13 +1124,26 @@ impl Shell {
             match msg {
                 HostMsg::Registry(registry, error) => {
                     self.agents.registry = registry;
-                    self.agents.selected = 0;
+                    self.agents.selected = self
+                        .agents
+                        .setup
+                        .preferred
+                        .as_ref()
+                        .and_then(|p| self.agents.registry.iter().position(|a| a.name() == p))
+                        .unwrap_or(0);
                     if let Some(e) = error {
                         window.update(cx, |w, _| w.transcript.error(e));
                     }
                     header = true;
                 }
                 HostMsg::Mcp(record) => {
+                    super::documents::trace(format_args!(
+                        "agents mcp {} ok={} {:.2} ms on {}",
+                        record.tool,
+                        record.outcome.is_ok(),
+                        record.elapsed.as_secs_f64() * 1e3,
+                        record.thread
+                    ));
                     let audit = self
                         .commands
                         .audit_log()
@@ -1032,6 +1168,11 @@ impl Shell {
                 }
                 HostMsg::Ask(ask) => {
                     permissions = true;
+                    super::documents::trace(format_args!(
+                        "agents permission asked {} ({})",
+                        ask.tool,
+                        ask.class.as_str()
+                    ));
                     let GateAsk {
                         key,
                         tool,
@@ -1071,6 +1212,7 @@ impl Shell {
                         protocol_version,
                     } => {
                         header = true;
+                        super::documents::trace(format_args!("agents ready {session_id}"));
                         // The login state can arrive (on the reader thread) before the handshake's end: keep it.
                         if self.agents.state != StateKind::NeedsLogin {
                             self.agents.state = StateKind::Ready;
@@ -1096,7 +1238,10 @@ impl Shell {
                         self.agents.agent_info = Some(info);
                         self.agents.protocol = Some(protocol_version);
                     }
-                    SessionEvent::Timing { name, ms } => self.agents.timings.push((name, ms)),
+                    SessionEvent::Timing { name, ms } => {
+                        super::documents::trace(format_args!("agents {name} {ms:.1} ms"));
+                        self.agents.timings.push((name, ms))
+                    }
                     SessionEvent::Update(u) => window.update(cx, |w, _| w.transcript.apply(&u)),
                     SessionEvent::Permission { key, request } => {
                         let class = class_of(&self.commands, &request);
@@ -1114,6 +1259,11 @@ impl Shell {
                             }
                         }
                         permissions = true;
+                        super::documents::trace(format_args!(
+                            "agents permission asked {} ({})",
+                            tool_of(&request),
+                            class.as_str()
+                        ));
                         self.agents.waiting.insert(
                             key,
                             Waiting {
@@ -1134,6 +1284,11 @@ impl Shell {
                         reason,
                         ..
                     } => {
+                        super::documents::trace(format_args!(
+                            "agents permission {} {}: {reason}",
+                            tool_of(&request),
+                            if allowed { "allowed" } else { "denied" }
+                        ));
                         let state = if allowed {
                             Permission::Allowed { auto: true, reason }
                         } else {
@@ -1142,6 +1297,7 @@ impl Shell {
                         window.update(cx, |w, _| w.transcript.permission(&request, state));
                     }
                     SessionEvent::TurnEnded(r) => {
+                        super::documents::trace(format_args!("agents turn ended {r:?}"));
                         let text = match &r {
                             Ok(stop) => {
                                 let s = serde_json::to_value(stop)
@@ -1160,6 +1316,16 @@ impl Shell {
                             Ok(_) => w.transcript.notice(text),
                             Err(_) => w.transcript.error(text),
                         });
+                        if let Some(path) = self.agents.setup.transcript_out.clone() {
+                            let json = window.read(cx).transcript.to_json();
+                            cx.background_spawn(async move {
+                                let _ = std::fs::write(
+                                    &path,
+                                    serde_json::to_string_pretty(&json).unwrap_or_default(),
+                                );
+                            })
+                            .detach();
+                        }
                     }
                     SessionEvent::Stderr(line) => {
                         if std::env::var_os("ELUDITE_AGENT_STDERR").is_some() {

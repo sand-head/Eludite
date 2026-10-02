@@ -30,8 +30,8 @@ use eludite_ui::Theme;
 use eludite_ui::diff::{DiffLine, counts, diff_lines, diff_row, hunks};
 use gpui::{
     AppContext as _, Context, Entity, EventEmitter, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Window, div, px, rgb,
-    uniform_list,
+    ParentElement, Render, ScrollStrategy, SharedString, StatefulInteractiveElement, Styled,
+    UniformListScrollHandle, Window, div, px, rgb, uniform_list,
 };
 use serde_json::{Value, json};
 
@@ -435,12 +435,16 @@ pub struct DiffView {
     /// When it was opened, and the frame that first showed the diff (the render budget).
     pub opened: Instant,
     pub first_diff_frame_ms: Option<f64>,
+    painted: super::window::Painted,
+    scroll: UniformListScrollHandle,
+    /// Scrolled to the first change once.
+    scrolled: bool,
 }
 
 impl EventEmitter<ReviewEvent> for DiffView {}
 
 impl DiffView {
-    pub fn new(theme: Theme, change: &PendingChange) -> Self {
+    pub fn new(theme: Theme, change: &PendingChange, painted: super::window::Painted) -> Self {
         Self {
             theme,
             change: change.id,
@@ -450,6 +454,9 @@ impl DiffView {
             mono: eludite_editor::default_font_family(),
             opened: Instant::now(),
             first_diff_frame_ms: None,
+            painted,
+            scroll: UniformListScrollHandle::new(),
+            scrolled: false,
         }
     }
 }
@@ -464,17 +471,21 @@ impl Render for DiffView {
         let (added, removed) = self.lines.as_deref().map(|l| counts(l)).unwrap_or_default();
         let id = self.change;
         let pending = self.state == ChangeState::Pending;
+        let painted = self.painted.clone();
         let button = |accept: bool, label: &'static str| {
-            eludite_ui::push_button(review_button(id, accept), label, accept, pending, &t).on_click(
-                cx.listener(move |this, _, _, cx| {
-                    if this.state == ChangeState::Pending {
-                        cx.emit(ReviewEvent::Decide {
-                            change: this.change,
-                            accept,
-                        })
-                    }
-                }),
+            super::window::tracked(
+                &painted,
+                review_button(id, accept),
+                eludite_ui::push_button(review_button(id, accept), label, accept, pending, &t),
             )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if this.state == ChangeState::Pending {
+                    cx.emit(ReviewEvent::Decide {
+                        change: this.change,
+                        accept,
+                    })
+                }
+            }))
         };
         let header = div()
             .flex()
@@ -509,6 +520,19 @@ impl Render for DiffView {
             )
             .child(button(true, "Accept"))
             .child(button(false, "Reject"));
+        // Open at the first change, with a little context above it.
+        if !self.scrolled
+            && let Some(lines) = &self.lines
+        {
+            self.scrolled = true;
+            if let Some(first) = lines
+                .iter()
+                .position(|l| l.kind != eludite_ui::diff::DiffKind::Same)
+            {
+                self.scroll
+                    .scroll_to_item(first.saturating_sub(5), ScrollStrategy::Top);
+            }
+        }
         let body = match self.lines.clone() {
             None => div()
                 .p_2()
@@ -530,6 +554,7 @@ impl Render for DiffView {
                             .collect()
                     }),
                 )
+                .track_scroll(&self.scroll)
                 .flex_1()
                 .into_any_element()
             }
@@ -779,6 +804,7 @@ impl Shell {
             change.call,
             change.path.to_string_lossy().into_owned(),
         );
+        super::super::documents::trace(format_args!("agents pending change #{id} {path}"));
         self.agents.board.add(
             call,
             Decided {
@@ -869,7 +895,8 @@ impl Shell {
             .get(&tab)
             .cloned()
             .unwrap_or_else(|| {
-                let view = cx.new(|_| DiffView::new(theme, change));
+                let painted = self.agents.window.read(cx).painted.clone();
+                let view = cx.new(|_| DiffView::new(theme, change, painted));
                 cx.subscribe_in(
                     &view,
                     window,
@@ -1125,6 +1152,10 @@ impl Shell {
         }
         let path = change.path.to_string_lossy().into_owned();
         let (call, tool_call, edits) = (change.call, change.tool_call.clone(), change.edits);
+        super::super::documents::trace(format_args!(
+            "agents change #{id} {} {path}",
+            state.label()
+        ));
         self.agents.board.set(id, state.clone(), summary.clone());
         let text = match (&state, &summary) {
             (ChangeState::Failed(why), _) => Some(why.clone()),
