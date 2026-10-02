@@ -68,6 +68,11 @@ jobs:
         with:
           global-json-file: global.json
 
+      # eludite-dbg-mono's tests debug a program under Mono (brief 0022); without Mono they skip, as on Windows.
+      - name: Install Mono
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mono-devel
+
       - name: Build
         run: dotnet build dotnet/Eludite.slnx --configuration Release
 
