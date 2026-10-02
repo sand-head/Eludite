@@ -20,10 +20,13 @@
 //! commands (brief 0018), registered by the shell through a [`debug::DebugTarget`].
 //! [`workspace_tree`] holds `eludite.workspace.tree`, every project of the open workspace whatever its build system
 //! (brief 0019). [`settings`] holds the settings schema and `eludite.settings.*` with Tools > Options, and [`project`] the
-//! Workspace context menu's Set as Startup Project and Open Containing Folder (brief 0020).
+//! Workspace context menu's Set as Startup Project and Open Containing Folder (brief 0020). [`browser`] holds the
+//! browser automation commands `eludite.browser.*` (brief 0023), registered by the shell through a
+//! [`browser::BrowserTarget`].
 
 pub mod agents;
 mod audit;
+pub mod browser;
 pub mod build;
 pub mod builtins;
 mod caller;
