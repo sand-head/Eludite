@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-tree.input.json",
   "title": "eludite.solution.tree input",
-  "description": "List the open solution's projects and their source files, as Solution Explorer shows them: each project's name, path, kind (SDK or legacy), target frameworks and files. Optionally only one project.",
+  "description": "List the open solution's projects and their source files, as the Workspace window (Visual Studio's Solution Explorer) shows them: each project's name, path, kind (SDK or legacy), target frameworks and files. Optionally only one project.",
   "type": "object",
   "properties": {
     "project": {
-      "description": "Only the project with this name (as Solution Explorer shows it).",
+      "description": "Only the project with this name (as the Workspace window shows it).",
       "type": "string",
       "minLength": 1
     }
