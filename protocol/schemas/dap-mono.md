@@ -92,6 +92,9 @@ naming the command.
 - `pause` interrupts every thread (`stopped` with reason `pause`).
 - `disconnect` ends the debuggee when `terminateDebuggee` is true (the default after `launch`) and detaches
   otherwise; `terminate` ends it. Both are followed by `terminated`.
+- A detach (`disconnect` after `attach` without `terminateDebuggee`, or with it false) is followed by `terminated`
+  without `exited`; the program runs on and the adapter exits with code 0, as it does when the client closes the
+  channel of an attached session.
 
 ## Events
 
