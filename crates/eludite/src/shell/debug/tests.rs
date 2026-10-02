@@ -1361,3 +1361,67 @@ fn the_context_menu_sets_the_startup_project_and_builds_and_it_persists(cx: &mut
         }) == Some(normalize_path(&tool))
     });
 }
+
+/// Brief 0020: the adapter's `output` events (stdout, a partial line completed by a later event) reach the Output
+/// window's Debug source, which F5 selects and each new session clears.
+#[gpui::test]
+fn the_debug_source_receives_the_adapters_output(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.output_at_start = vec![
+            "listening on stdin\n".into(),
+            "partial ".into(),
+            "line\n".into(),
+        ];
+    });
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("the program's output", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.output()
+                .read(cx)
+                .pane(OutputSource::Debug)
+                .tail(usize::MAX)
+                .contains(&"partial line".to_owned())
+        })
+    });
+    let out = debug_output(&d);
+    assert!(out.contains(&"listening on stdin".to_owned()), "{out:?}");
+    let selected =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, cx| s.output().read(cx).selected());
+    assert_eq!(selected, OutputSource::Debug);
+    // eludite.output.show reads it as agents do.
+    let shown = d
+        .cmd(
+            eludite_commands::build::OUTPUT_SHOW,
+            json!({"source": "debug", "tail": 5}),
+        )
+        .unwrap();
+    assert!(
+        shown["tail"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|l| l == "partial line"),
+        "{shown}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    assert!(
+        debug_output(&d)
+            .iter()
+            .any(|l| l.contains("exited") || l.contains("ended")),
+        "the end of the session is written: {:?}",
+        debug_output(&d)
+    );
+    // A new session starts from an empty Debug source.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let out = debug_output(&d);
+    assert!(out[0].starts_with("Starting debugging"), "{out:?}");
+    assert!(
+        out.iter().filter(|l| *l == "listening on stdin").count() <= 1,
+        "the first session's lines are gone: {out:?}"
+    );
+}

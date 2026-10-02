@@ -363,6 +363,28 @@ mod tests {
         );
     }
 
+    /// A solution's version 2 layout saved by brief 0018 with the Debug Console docked loads without it (brief 0020).
+    #[test]
+    fn a_saved_version_2_layout_loads_without_the_debug_console() {
+        let dir = tempdir();
+        let store = LayoutStore::new(dir.path());
+        let reg = ToolWindowRegistry::vs_default();
+        let sln = Path::new("/work/Shop.sln");
+        let mut v: serde_json::Value =
+            serde_json::from_str(&DockLayout::default_vs(&reg).to_json()).unwrap();
+        v["version"] = 2.into();
+        v["bottom"]["groups"].as_array_mut().unwrap().push(
+            serde_json::json!({"id": 9, "tabs": ["call_stack", "debug_console"], "active": 1}),
+        );
+        write_atomic(&store.solution_path(sln), &v.to_string()).unwrap();
+        let (l, src) = store.load(Some(sln), &reg);
+        assert_eq!(src, LayoutSource::Solution(store.solution_path(sln)));
+        assert!(l.find("debug_console").is_none());
+        assert!(l.is_consistent(&reg));
+        assert_eq!(l.bottom.groups[1].tabs, [ids::CALL_STACK]);
+        assert_eq!(l.version, crate::model::LAYOUT_SCHEMA_VERSION);
+    }
+
     #[test]
     fn named_layouts() {
         let dir = tempdir();
