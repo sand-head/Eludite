@@ -12,8 +12,17 @@
 //! plan first), a write with the agent's own file tool (a permission request
 //! carrying a diff, as Claude's `Write` makes), and an agent that exits mid-turn.
 //!
+//! Brief 0024 adds a scripted `script` scenario (each step an Eludite tool call
+//! through one MCP connection, its result's text and image content forwarded as
+//! the tool call's content, as Claude's adapter forwards MCP results) and the
+//! `browser-form` scenario of proposal 0002 brief A's proof: open the form at
+//! `--url`, screenshot it, read it, fill the name and the size, click Submit,
+//! wait for the result and read its text. [`McpClient`] is the MCP connection,
+//! also usable from tests.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
-//! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`).
+//! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
+//! `--script JSON`, `--url URL`).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
@@ -59,7 +68,18 @@ pub enum Scenario {
     Write,
     /// One chunk, then the process exits mid-turn.
     Exit,
+    /// Each step of `--script` (`[{"tool": "eludite-browser-tabs", "arguments": {...}}, ...]`) as a tool call
+    /// through the MCP server, then a summary of the results.
+    Script,
+    /// Proposal 0002 brief A's proof: fill the form at `--url` through the browser tools and read the result.
+    BrowserForm,
 }
+
+/// What the `browser-form` scenario fills in, and the result text it expects to read.
+pub const FORM_NAME: &str = "Ada Lovelace";
+pub const FORM_CHOICE: &str = "Large";
+/// The `--url` of `browser-form` when none is given.
+const FORM_URL: &str = "http://127.0.0.1/act.html";
 
 impl std::str::FromStr for Scenario {
     type Err = String;
@@ -72,6 +92,8 @@ impl std::str::FromStr for Scenario {
             "edit" => Scenario::Edit,
             "write" => Scenario::Write,
             "exit" => Scenario::Exit,
+            "script" => Scenario::Script,
+            "browser-form" => Scenario::BrowserForm,
             other => return Err(format!("unknown scenario {other}")),
         })
     }
@@ -87,6 +109,10 @@ pub struct Options {
     /// Reach a stdio MCP server whose arguments are `--mcp-relay ADDR` by connecting to ADDR directly with the
     /// token from its environment, instead of launching it (an in-process fake agent in the shell's tests).
     pub mcp_direct: bool,
+    /// [`Scenario::Script`]'s steps: `{"tool": NAME, "arguments": {...}}` (the bare MCP tool name).
+    pub script: Vec<Value>,
+    /// [`Scenario::BrowserForm`]'s page.
+    pub url: Option<String>,
 }
 
 impl Default for Options {
@@ -100,6 +126,8 @@ impl Default for Options {
                 "src/App/Models/Order.cs".into(),
             ],
             mcp_direct: false,
+            script: Vec::new(),
+            url: None,
         }
     }
 }
@@ -117,6 +145,11 @@ impl Options {
                 "--chunks" => o.chunks = val()?.parse().map_err(|e| format!("{e}"))?,
                 "--rate" => o.rate_hz = val()?.parse().map_err(|e| format!("{e}"))?,
                 "--edit" => edits.push(val()?),
+                "--script" => {
+                    o.script =
+                        serde_json::from_str(&val()?).map_err(|e| format!("--script: {e}"))?
+                }
+                "--url" => o.url = Some(val()?),
                 other => return Err(format!("unknown argument {other}")),
             }
         }
@@ -262,6 +295,8 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                     Scenario::DiagnosticsThenShell => self.diagnostics(true)?,
                     Scenario::Edit => self.edit()?,
                     Scenario::Write => self.write_file()?,
+                    Scenario::Script => self.script()?,
+                    Scenario::BrowserForm => self.browser_form()?,
                     Scenario::Exit => {
                         self.say("Starting on it")?;
                         return Err(io::Error::other("the fake agent exits mid-turn"));
@@ -430,83 +465,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
     /// Claude does: `initialize`, then `tools/call` with the tool use id in
     /// `_meta`. Returns the call's `result`.
     fn call_mcp(&self, tool: &str, args: &Value, tool_use_id: &str) -> Result<Value, String> {
-        let Some(McpServer::Stdio {
-            command,
-            args: argv,
-            env,
-            ..
-        }) = self
-            .mcp
-            .iter()
-            .find(|s| matches!(s, McpServer::Stdio { .. }))
-        else {
-            return Err("no MCP server was passed".into());
-        };
-        let (mut stdin, mut stdout, mut child): (
-            Box<dyn Write>,
-            Box<dyn BufRead>,
-            Option<std::process::Child>,
-        ) = if self.opts.mcp_direct {
-            let addr = argv
-                .iter()
-                .skip_while(|a| *a != "--mcp-relay")
-                .nth(1)
-                .ok_or("no --mcp-relay address")?;
-            let token = env
-                .iter()
-                .find(|e| e.name == "ELUDITE_MCP_TOKEN")
-                .map(|e| e.value.clone())
-                .ok_or("no token")?;
-            let mut sock = std::net::TcpStream::connect(addr.as_str())
-                .map_err(|e| format!("connect {addr}: {e}"))?;
-            writeln!(sock, "{token}").map_err(|e| e.to_string())?;
-            let read = sock.try_clone().map_err(|e| e.to_string())?;
-            (Box::new(sock), Box::new(BufReader::new(read)), None)
-        } else {
-            let mut child = Command::new(command)
-                .args(argv)
-                .envs(env.iter().map(|e| (&e.name, &e.value)))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-                .map_err(|e| format!("spawn {command}: {e}"))?;
-            let stdin = child.stdin.take().expect("piped");
-            let stdout = BufReader::new(child.stdout.take().expect("piped"));
-            (Box::new(stdin), Box::new(stdout), Some(child))
-        };
-        let mut send = |v: Value| {
-            writeln!(stdin, "{v}")
-                .and_then(|()| stdin.flush())
-                .map_err(|e| e.to_string())
-        };
-        send(
-            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "eludite-fake-acp-agent", "version": "0"}}}),
-        )?;
-        send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
-        send(
-            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": args, "_meta": {"claudecode/toolUseId": tool_use_id}}}),
-        )?;
-        let mut result = None;
-        let mut line = String::new();
-        while result.is_none() {
-            line.clear();
-            if stdout.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-                break;
-            }
-            let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-            if v["id"] == 2 {
-                result = Some(v);
-            }
-        }
-        if let Some(c) = child.as_mut() {
-            let _ = c.kill();
-            let _ = c.wait();
-        }
-        let v = result.ok_or("MCP server closed before answering")?;
-        if let Some(e) = v.get("error") {
-            return Err(e.to_string());
-        }
-        Ok(v["result"].clone())
+        McpClient::connect(&self.mcp, self.opts.mcp_direct)?.call(tool, args, tool_use_id)
     }
 
     fn mcp_tool_call(id: &str, tool: &str, args: &Value) -> Value {
@@ -631,6 +590,316 @@ impl<R: BufRead, W: Write> Agent<R, W> {
     }
 }
 
+/// One MCP connection, as an agent holds it: the stdio server from `session/new` launched (or, with `direct`, its
+/// `--mcp-relay ADDR` reached over TCP with the token from its environment), `initialize`d once, then any number of
+/// `tools/call`s.
+pub struct McpClient {
+    stdin: Box<dyn Write + Send>,
+    stdout: Box<dyn BufRead + Send>,
+    child: Option<std::process::Child>,
+    next_id: u64,
+}
+
+impl McpClient {
+    /// Connect to the first stdio server of `servers`.
+    pub fn connect(servers: &[McpServer], direct: bool) -> Result<Self, String> {
+        let Some(McpServer::Stdio {
+            command,
+            args: argv,
+            env,
+            ..
+        }) = servers
+            .iter()
+            .find(|s| matches!(s, McpServer::Stdio { .. }))
+        else {
+            return Err("no MCP server was passed".into());
+        };
+        if direct {
+            let addr = argv
+                .iter()
+                .skip_while(|a| *a != "--mcp-relay")
+                .nth(1)
+                .ok_or("no --mcp-relay address")?;
+            let token = env
+                .iter()
+                .find(|e| e.name == "ELUDITE_MCP_TOKEN")
+                .map(|e| e.value.clone())
+                .ok_or("no token")?;
+            return Self::connect_tcp(addr, &token);
+        }
+        let mut child = Command::new(command)
+            .args(argv)
+            .envs(env.iter().map(|e| (&e.name, &e.value)))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("spawn {command}: {e}"))?;
+        let stdin = child.stdin.take().expect("piped");
+        let stdout = BufReader::new(child.stdout.take().expect("piped"));
+        Self::start(Box::new(stdin), Box::new(stdout), Some(child))
+    }
+
+    /// Connect to Eludite's MCP endpoint at `addr` with its token (what `eludite --mcp-relay` does).
+    pub fn connect_tcp(addr: &str, token: &str) -> Result<Self, String> {
+        let mut sock =
+            std::net::TcpStream::connect(addr).map_err(|e| format!("connect {addr}: {e}"))?;
+        writeln!(sock, "{token}").map_err(|e| e.to_string())?;
+        let read = sock.try_clone().map_err(|e| e.to_string())?;
+        Self::start(Box::new(sock), Box::new(BufReader::new(read)), None)
+    }
+
+    fn start(
+        stdin: Box<dyn Write + Send>,
+        stdout: Box<dyn BufRead + Send>,
+        child: Option<std::process::Child>,
+    ) -> Result<Self, String> {
+        let mut c = Self {
+            stdin,
+            stdout,
+            child,
+            next_id: 0,
+        };
+        c.request(
+            "initialize",
+            json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "eludite-fake-acp-agent", "version": "0"}}),
+        )?;
+        c.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
+        Ok(c)
+    }
+
+    fn send(&mut self, v: Value) -> Result<(), String> {
+        writeln!(self.stdin, "{v}")
+            .and_then(|()| self.stdin.flush())
+            .map_err(|e| e.to_string())
+    }
+
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if self
+                .stdout
+                .read_line(&mut line)
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                return Err("MCP server closed before answering".into());
+            }
+            let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            if v["id"] == id {
+                if let Some(e) = v.get("error") {
+                    return Err(e.to_string());
+                }
+                return Ok(v["result"].clone());
+            }
+        }
+    }
+
+    /// `tools/call` with the agent's tool use id in `_meta`, as Claude sends it. Returns the call's `result`.
+    pub fn call(&mut self, tool: &str, args: &Value, tool_use_id: &str) -> Result<Value, String> {
+        self.request(
+            "tools/call",
+            json!({"name": tool, "arguments": args, "_meta": {"claudecode/toolUseId": tool_use_id}}),
+        )
+    }
+}
+
+impl Drop for McpClient {
+    fn drop(&mut self) {
+        if let Some(c) = self.child.as_mut() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
+/// An MCP tool result's content as ACP tool call content: text and images.
+fn acp_content(result: &Value) -> Vec<Value> {
+    result["content"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| matches!(c["type"].as_str(), Some("text" | "image")))
+        .map(|c| json!({"type": "content", "content": c}))
+        .collect()
+}
+
+/// The ref of the first node of `read_page`'s answer with `role` whose name contains `name`.
+fn ref_of(page: &Value, role: &str, name: &str) -> Option<String> {
+    page["nodes"]
+        .as_array()?
+        .iter()
+        .find(|n| n["role"] == role && n["name"].as_str().is_some_and(|n| n.contains(name)))?["ref"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+impl<R: BufRead, W: Write> Agent<R, W> {
+    /// One Eludite tool call as Claude makes it: announced, permission asked (the client allows Eludite's tools and
+    /// checks them at its MCP boundary), run through `client`, and ended with the result's content. Returns the
+    /// result's `structuredContent`, or the error text.
+    fn tool(
+        &mut self,
+        client: &mut McpClient,
+        n: usize,
+        tool: &str,
+        args: &Value,
+    ) -> io::Result<Result<Value, String>> {
+        let tc = format!("toolu_fake_step_{n}");
+        let full = format!("mcp__eludite__{tool}");
+        self.update(Self::tool_call(&tc, &full, &full, "other", json!({})))?;
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "rawInput": args, "_meta": {"claudeCode": {"toolName": full}}}))?;
+        if !self.ask(Self::mcp_tool_call(&tc, &full, args))? {
+            self.rejected(&tc)?;
+            return Ok(Err("the user rejected the tool use".into()));
+        }
+        self.update(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "in_progress"}),
+        )?;
+        let result = client.call(tool, args, &tc);
+        let (status, content, out) = match result {
+            Ok(r) if r["isError"] == true => {
+                let text = r["content"][0]["text"]
+                    .as_str()
+                    .unwrap_or("tool error")
+                    .to_owned();
+                ("failed", acp_content(&r), Err(text))
+            }
+            Ok(r) => (
+                "completed",
+                acp_content(&r),
+                Ok(r["structuredContent"].clone()),
+            ),
+            Err(e) => (
+                "failed",
+                vec![
+                    json!({"type": "content", "content": {"type": "text", "text": format!("MCP call failed: {e}")}}),
+                ],
+                Err(e),
+            ),
+        };
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": status, "content": content}))?;
+        Ok(out)
+    }
+
+    fn stop(&self) -> &'static str {
+        if self.cancelled {
+            "cancelled"
+        } else {
+            "end_turn"
+        }
+    }
+
+    /// [`Scenario::Script`].
+    fn script(&mut self) -> io::Result<&'static str> {
+        let mut client = match McpClient::connect(&self.mcp, self.opts.mcp_direct) {
+            Ok(c) => c,
+            Err(e) => {
+                self.say(&format!("I could not reach Eludite's tools: {e}"))?;
+                return Ok("end_turn");
+            }
+        };
+        let steps = self.opts.script.clone();
+        let mut lines = Vec::new();
+        for (n, step) in steps.iter().enumerate() {
+            let tool = step["tool"].as_str().unwrap_or_default();
+            let args = step.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let out = self.tool(&mut client, n + 1, tool, &args)?;
+            if self.cancelled {
+                return Ok("cancelled");
+            }
+            lines.push(match out {
+                Ok(_) => format!("{tool}: ok"),
+                Err(e) => format!("{tool}: {e}"),
+            });
+        }
+        self.say(&lines.join("\n"))?;
+        Ok(self.stop())
+    }
+
+    /// [`Scenario::BrowserForm`]: tab_open, screenshot, read_page, form_input, input (click Submit), wait,
+    /// page_text, each through Eludite's MCP tools, then the result text.
+    fn browser_form(&mut self) -> io::Result<&'static str> {
+        self.say("I'll open the form, fill it in and submit it.")?;
+        let mut client = match McpClient::connect(&self.mcp, self.opts.mcp_direct) {
+            Ok(c) => c,
+            Err(e) => {
+                self.say(&format!("I could not reach Eludite's tools: {e}"))?;
+                return Ok("end_turn");
+            }
+        };
+        let url = self.opts.url.clone().unwrap_or_else(|| FORM_URL.into());
+        let mut n = 0;
+        let mut step =
+            |agent: &mut Self, tool: &str, args: Value| -> io::Result<Result<Value, String>> {
+                n += 1;
+                agent.tool(&mut client, n, tool, &args)
+            };
+        macro_rules! ok {
+            ($e:expr) => {
+                match $e? {
+                    Ok(v) => v,
+                    Err(e) => {
+                        self.say(&format!("\n\nThat failed: {e}"))?;
+                        return Ok(self.stop());
+                    }
+                }
+            };
+        }
+        ok!(step(
+            self,
+            "eludite-browser-tab_open",
+            json!({ "url": url })
+        ));
+        ok!(step(
+            self,
+            "eludite-browser-screenshot",
+            json!({"max_width": 640})
+        ));
+        let page = ok!(step(self, "eludite-browser-read_page", json!({})));
+        let (Some(name), Some(choice), Some(submit)) = (
+            ref_of(&page, "textbox", "Name"),
+            ref_of(&page, "radio", FORM_CHOICE),
+            ref_of(&page, "button", "Submit"),
+        ) else {
+            self.say("\n\nThe page has no Name box, size choice or Submit button.")?;
+            return Ok(self.stop());
+        };
+        ok!(step(
+            self,
+            "eludite-browser-form_input",
+            json!({"fields": [{"ref": name, "value": FORM_NAME}, {"ref": choice, "value": true}]})
+        ));
+        ok!(step(
+            self,
+            "eludite-browser-input",
+            json!({"action": "click", "ref": submit, "wait_ms": 100})
+        ));
+        let waited = ok!(step(
+            self,
+            "eludite-browser-wait",
+            json!({"for": "selector", "css": "#result", "wait_ms": 5000})
+        ));
+        let Some(result) = waited["satisfied"]["ref"].as_str().map(str::to_owned) else {
+            self.say("\n\nThe result did not appear.")?;
+            return Ok(self.stop());
+        };
+        let text = ok!(step(
+            self,
+            "eludite-browser-page_text",
+            json!({ "root": result })
+        ));
+        self.say(&format!(
+            "\n\nThe form answered: {}",
+            text["text"].as_str().unwrap_or_default()
+        ))?;
+        Ok(self.stop())
+    }
+}
+
 /// A `file://` URI for an absolute path.
 fn file_uri(path: &std::path::Path) -> String {
     let p = path.to_string_lossy().replace('\\', "/");
@@ -663,4 +932,44 @@ pub fn answer(rows: &[Value]) -> String {
         s.push_str(&format!("\n- {f}: {c}"));
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_options_refs_and_content() {
+        let o = Options::from_args(
+            [
+                "--scenario",
+                "script",
+                "--script",
+                r#"[{"tool": "eludite-browser-tabs"}]"#,
+                "--url",
+                "http://127.0.0.1:1/act.html",
+            ]
+            .map(String::from),
+        )
+        .unwrap();
+        assert_eq!(o.scenario, Scenario::Script);
+        assert_eq!(o.script[0]["tool"], "eludite-browser-tabs");
+        assert_eq!(o.url.as_deref(), Some("http://127.0.0.1:1/act.html"));
+        assert!(Options::from_args(["--script", "nope"].map(String::from)).is_err());
+        assert_eq!(
+            "browser-form".parse::<Scenario>().unwrap(),
+            Scenario::BrowserForm
+        );
+        let page = json!({"nodes": [{"ref": "e1", "role": "textbox", "name": "Notes"}, {"ref": "e2", "role": "textbox", "name": "Name"}, {"ref": "e3", "role": "radio", "name": "Large"}]});
+        assert_eq!(ref_of(&page, "textbox", "Name").as_deref(), Some("e2"));
+        assert_eq!(ref_of(&page, "radio", "Large").as_deref(), Some("e3"));
+        assert_eq!(ref_of(&page, "button", "Submit"), None);
+        let content = acp_content(&json!({"content": [
+            {"type": "text", "text": "{}"},
+            {"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"},
+            {"type": "resource", "resource": {}}
+        ]}));
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[1]["content"]["type"], "image");
+    }
 }
