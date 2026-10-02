@@ -4,7 +4,8 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 
 ## Setup (once)
 
-1. Install: Git, Rust via rustup (the repo's `rust-toolchain.toml` picks 1.98.1), .NET SDK 10.0.302 (or let `global.json` roll forward), Visual Studio Build Tools 2022 with the ".NET Framework build tools" and "Web development build tools" workloads, Node (only to compare against the npx adapter), Claude Code (native installer) logged in.
+1. Install: Git, Rust via rustup (the repo's `rust-toolchain.toml` picks 1.98.1), .NET SDK 10.0.302 (or let `global.json` roll forward), Visual Studio Build Tools 2022 (or a Visual Studio with the same workloads) with the ".NET Framework build tools", "Web development build tools" and "Desktop development with C++" workloads (Rust's MSVC target needs the C++ linker and the Windows SDK), Node (only to compare against the npx adapter), Claude Code (native installer) logged in.
+   Then, from an elevated prompt, turn on long paths, which Roslyn's build requires: `New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force`.
 2. Clone `https://github.com/sand-head/Eludite` and run `cargo build --workspace` and `dotnet build dotnet/Eludite.slnx` from a PowerShell prompt. Record anything that fails to build; that is finding number one.
 
 ## Brief 0001, GPUI shell and docking
@@ -35,3 +36,18 @@ What Phase 0 still owes on Windows, in the order to run it on a Windows 11 machi
 ## Briefs 0007 to 0009, Phase 1
 
 - CI already builds and tests these on `windows-latest`. Run the manual parts of each report's "Windows" section if the brief has one.
+
+## Status (2026-10-03)
+
+Run on a Windows 11 Pro laptop (Intel Core Ultra 9 185H, RTX 1000 Ada plus Intel Arc, 143 Hz panel, Visual Studio 2026 Enterprise) from the `windows-run` branch. Each brief's report has the details under "Windows".
+
+| Item | Result |
+|---|---|
+| Setup: builds | `cargo build --workspace` and `dotnet build` pass after setup fixes: the repo now has a `nuget.config` (a second machine-wide feed fails restore with NU1507 under central package management), and the C++ workload and long paths above were missing from this list. |
+| Setup: gates | `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` and `dotnet test` all pass on Windows. Getting there fixed Unix-only test code (paths, `chmod`, shell-script fakes, 8.3 temp paths, verbatim `\\?\` paths) and two product bugs (LLDB formatter commands got backslash paths; `MergedRoot` needed symlink rights). GitHub Actions never ran these jobs: every recent run on `main` was refused for an account billing problem. |
+| 0001 | GO, provisional. Scroll holds 143 Hz, key to present p99 8.9 ms, render to present p99 2.6 ms, RSS 118 MB. Cold start 340 to 360 ms misses the 300 ms budget (about 200 ms in GPUI's platform init). Owed: a startup profile, a human pass of docking drags, and a `SendInput` keystroke tool (`inject_keys.py` is Linux-only). |
+| 0002 | Done. `build.ps1` needed four fixes. Load and T2 take about 2x Linux (T2 about 20 s); completion and cancellation match or beat Linux. |
+| 0003 | Done. vswhere finds MSBuild; 0 `-getItem` differences on 4 projects; completion test passes with the Build Tools MSBuild; 23 / 29 load cleanly. Owed: a re-run with the web development build tools installed (they were missing here; all 6 misses need `Microsoft.WebApplication.targets`). |
+| 0004 | In progress on branch `brief/0004-icordebug-dap-spike` in its own worktree. |
+| 0005, 0006 | The adapter builds and its tests pass after two fixes; it finds `claude.exe` with no Node on `PATH` (session ready 0.8 to 1.0 s). The 0005 panel no longer compiles against `crates/mcp`, so the panel run was not repeated. |
+| 0007 to 0029 | Their automated tests pass on Windows as part of the gates above. None of their reports has a manual Windows section. |

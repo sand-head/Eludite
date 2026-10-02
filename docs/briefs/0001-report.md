@@ -4,14 +4,14 @@ Date: 2026-10-01. Brief: [0001-gpui-shell-and-docking-spike.md](0001-gpui-shell-
 
 ## 1. Summary
 
-- The prototype builds and runs on Linux with GPUI at the pinned rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`. No other rev was needed. Windows and macOS were **not run on this machine**.
+- The prototype builds and runs on Linux with GPUI at the pinned rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`. No other rev was needed. Windows was run on 2026-10-03 (section 10); macOS was **not run**.
 - All five docking features work in the prototype and are covered by headless GPUI tests that drive them with real GPUI mouse events. One VS behavior does not map onto GPUI: dragging a *floating* OS window back onto the main window's dock guides (section 4).
 - Cold start to first presented frame: **130 ms** median (warm, XWayland), **142 ms** (Wayland, nested compositor). Resident memory with the 100k-line buffer: **~94 MB**. Both are far inside budget.
 - Scrolling the 100k-line file: **zero dropped frames** at 60 Hz under Wayland and XWayland in a nested KWin. On the real 165 Hz panel through XWayland, **4.5 to 5.1 % of frame intervals were 2 refresh periods**, with only 3.5 to 4 ms of frame work. That points at GPUI's free-running X11 frame timer, not at rendering cost, but it was measured with the user session locked (next point), so treat it as unconfirmed.
 - **The user session was locked for the whole run.** KWin stops sending Wayland frame callbacks to a hidden surface, so GPUI on the real Wayland display draws nothing after the first frame, and every frame-paced measurement stalls. I measured Wayland inside a nested `kwin_wayland --virtual` (60 Hz virtual output, real GPU) instead, and XWayland both on the real display server and nested. **A real-display Wayland run at 165 Hz is still owed**, as is the real-keyboard (`/dev/uinput`) latency run, which the injector refuses to do while the session is locked.
 - Keystroke to present, p99: **9.7 ms** (XWayland, 165 Hz), **17 ms** (Wayland, 60 Hz), **19.6 ms** (XWayland, 60 Hz). The frame's own cost, render to present, p99: **3.4 to 4.9 ms** everywhere. As written, the budget (under 8 ms p99) fails, but it cannot be met by any renderer that waits for the display's next frame at 60 Hz: one refresh interval is 16.7 ms. Section 3.4 asks for a decision on what the 8 ms measures.
 - Audit: vendor `sum_tree`, `rope`, `text`, `clock`, `fuzzy` (later `streaming_diff`); keep `gpui`, `gpui_platform` and GPUI's Apache support crates as pinned git dependencies; rewrite the tree-sitter glue by porting `language/src/syntax_map.rs`, because the `language` crate depends on `theme`.
-- Verdicts (section 8): Linux Wayland **GO, provisional**; Linux XWayland **GO, provisional**; Windows **undetermined, pending runs**; macOS **undetermined, pending runs**.
+- Verdicts (section 8): Linux Wayland **GO, provisional**; Linux XWayland **GO, provisional**; Windows **GO, provisional** (section 10: cold start misses its budget); macOS **undetermined, pending runs**.
 
 ## 2. Machine
 
@@ -188,7 +188,7 @@ Exit criteria, Linux:
 |---|---|---|
 | **Linux, Wayland** | **GO, provisional.** Owed before it is final: one run on the real 165 Hz display with the session unlocked (`tools/bench_all.py --label linux-wayland-real --refresh-hz 165`, `tools/inject_keys.py`), and the keystroke-metric decision in 3.4. | Nested KWin, 60 Hz: start 142 ms; scroll 0 intervals over 2x (1 over 1.5x) in about 20,000 frames; key to present p99 17.2 ms (render to present 3.5 ms); RSS 94 MB. |
 | **Linux, XWayland** (not a native X11 session) | **GO, provisional.** The 165 Hz frame drops need a re-run on an unlocked session; if they persist, patch or report GPUI's X11 frame timer (section 5, item 2). Native X11 was not tested. | Real Xwayland, 165 Hz: start 130 ms; scroll intervals over 2x 4.5 to 5.1 %; key to present p99 9.7 ms (render 4.6 to 4.9 ms); RSS 93 MB. Nested, 60 Hz: 0 drops; key to present p99 19.6 ms. |
-| **Windows 11** | **Undetermined, pending runs.** Not run on this machine: every metric (cold start, scroll, keystroke, RSS, docking) is unmeasured. This is still the top risk (PLAN 13, risk 1). | not run on this machine |
+| **Windows 11** | **GO, provisional** (section 10). Rendering is well inside budget on the DirectX backend: no frame drops at 143 Hz and render to present p99 2.6 ms. Owed before it is final: cold start, 340 to 360 ms against the 300 ms budget, with about 200 ms spent in GPUI's platform init before any window exists (profile it, then patch or report GPUI), and a human pass of the docking drags on the real pointer. | RTX 1000 Ada laptop, 143 Hz: start 360 ms (main to first present 309 ms); scroll 1 interval over 2x in about 20,000 frames; key to present p99 8.9 ms (render 2.6 ms); RSS 118 MB. |
 | **macOS** | **Undetermined, pending runs.** Not run on this machine: every metric is unmeasured. | not run on this machine |
 
 **Fallback assessment (Avalonia with NativeAOT).** No Linux result calls for the fallback. The metrics that failed as written fail because of the display's refresh interval (keystroke) or, most likely, GPUI's X11 frame timer (165 Hz scroll), not because of GPUI's rendering cost. Render to present stays at or under 5 ms p99 and frame work is 3.5 to 4 ms at the median while it shapes 45 new lines per frame. Avalonia also renders on its compositor's vsync-driven loop, so it would face the same keystroke arithmetic at 60 Hz. It would add GC pauses on the UI thread, the failure mode ADR-0001 exists to avoid, and NativeAOT shortens startup but does not remove the GC. The fallback is worth re-opening only if the Windows run shows GPUI's DirectX backend dropping frames or missing the render-cost budget in ways a GPUI patch cannot fix. ADR-0002 keeps that switch away from the hosts and protocols.
@@ -207,4 +207,50 @@ kwin_wayland --virtual --xwayland --no-lockscreen --socket wayland-spike \
   --width 1920 --height 1200 --exit-with-session <script running bench_all.py>  # nested runs as measured here
 ```
 
-On Windows and macOS, run `bench_all.py` the same way (`--bench-*` modes are cross-platform; RSS is Linux-only, so take it from Task Manager or `footprint`/Activity Monitor) and record GPU, driver and refresh rate.
+On Windows and macOS, run `bench_all.py` the same way (`--bench-*` modes are cross-platform; RSS is the working set on Windows and Linux-only otherwise, so take it from `footprint`/Activity Monitor on macOS) and record GPU, driver and refresh rate.
+
+## 10. Windows
+
+Run on 2026-10-03 from the `windows-run` branch. Raw results: [`spikes/0001-gpui-shell/results/windows-rtx1000-143hz.json`](../../spikes/0001-gpui-shell/results/windows-rtx1000-143hz.json).
+
+| | |
+|---|---|
+| Machine | Laptop, Intel Core Ultra 9 185H (16 cores, 22 threads), 31 GB RAM, SK hynix PC811 NVMe |
+| GPU | NVIDIA RTX 1000 Ada Laptop (driver 32.0.15.9641) and Intel Arc Pro iGPU (32.0.101.8860); GPUI's DirectX backend |
+| Display | 143 Hz (the internal panel) |
+| OS | Windows 11 Pro 10.0.26200, on AC power, Balanced power plan |
+| Toolchain | Rust 1.98.1 (MSVC), Visual Studio 2026 Enterprise C++ tools |
+
+**Builds and tests.** `cargo build --release` and `cargo test` (9 tests) pass. The tests need a debug build: `debug_selector`, which the docking-by-mouse test finds elements by, is compiled out of release builds, so `cargo test --release` fails on every OS. The only code change was `bench.rs` reporting the process working set as RSS on Windows (`K32GetProcessMemoryInfo`); it previously returned nothing off Linux and `bench_all.py` crashed on the empty RSS list.
+
+**Measurements** (`python tools/bench_all.py --label windows-rtx1000-143hz --refresh-hz 143`):
+
+| Metric | Budget | Windows | Linux, for comparison |
+|---|---|---|---|
+| Cold start, launch to first present | < 300 ms | **fail**: first run 355 ms; warm median 360 ms (333 to 458, 19 runs) | 130 to 142 ms |
+| Scroll, 40 lines per frame, 3 runs of 2,500 frames | refresh rate | interval p50 6.94 ms, p99 7.87 to 8.24 ms; 1 interval over 2x in 7,500 frames | 0 drops at 60 Hz; 4.5 to 5.1 % over 2x at 165 Hz (XWayland) |
+| Scroll, 8 lines per frame, 12,497 frames | refresh rate | p99 7.85 ms; 0 over 2x, 4 over 1.5x | |
+| Frame work while scrolling, p99 | | 3.9 to 4.2 ms (40 lines), 2.9 ms (8 lines) | 3.5 to 4 ms median |
+| Key to present, p99 (3 x 500 synthetic keys) | one refresh + 8 ms = 15.0 ms | **pass**: 8.87 to 8.98 ms | 9.7 to 19.6 ms |
+| Render to present, p99 | < 8 ms | **pass**: 2.56 to 2.64 ms | 3.4 to 4.9 ms |
+| RSS at first present | | 117.6 MB median (117.4 to 117.9) | ~94 MB |
+
+RSS on Windows is the working set, which like Linux's RSS counts shared pages; the extra ~24 MB over Linux has not been broken down.
+
+**Cold start.** Where the time goes, from the spike's own phase stamps (one warm run on each OS):
+
+| Phase | Windows | Linux XWayland |
+|---|---|---|
+| Process launch to `main` | 47 ms | 2 ms |
+| `main` to buffer ready | 23 ms | 18 ms |
+| `main` to GPUI app ready | **217 ms** | 36 ms |
+| `main` to window opened | 283 ms | 123 ms |
+| `main` to first present | 295 ms | 128 ms |
+
+About 180 ms of the gap is GPUI's Windows platform initialization, before any window is created. It does not depend on the GPU: forcing the Intel iGPU with `ZED_DEVICE_ID=0x7D55` gives the same 196 to 214 ms. DirectWrite's system font collection is the first suspect, but nothing here proves it; the next step is a WPR/ETW profile of startup. The 47 ms from launch to `main` is process creation; this is a corporate-managed laptop, and an endpoint agent (`SecureConnector`) was the busiest process on the machine, so part of that may be scanning rather than Eludite.
+
+**Docking.** The headless tests cover every feature on Windows with real GPUI mouse events. The prototype opens with the full default layout and renders the multilingual buffer (Consolas) correctly; a screenshot was checked. A human pass dragging tool windows with the real pointer (dock, tab, float, auto-hide, restore) is still owed.
+
+**Not run:** `tools/inject_keys.py` is Linux-only (it types through `/dev/uinput`). A Windows equivalent would use `SendInput`; until one exists, keystroke latency on Windows is the synthetic in-process measurement above.
+
+**Verdict: GO, provisional.** The renderer is not the risk PLAN 13 feared: frame cost and keystroke latency are better than on Linux and scrolling holds 143 Hz. Cold start misses its budget by 40 to 60 ms, and almost all of the miss is in GPUI's platform init, which is a profile-and-patch problem, not a reason for the Avalonia fallback.
