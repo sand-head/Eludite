@@ -452,7 +452,6 @@ impl Transcript {
     }
 
     /// Record a pending change (or its new state) on its tool call's row.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn change(&mut self, tool_call: &str, id: u64, path: &str, state: &str) {
         let Some(&ix) = self.tools.get(tool_call) else {
             return;

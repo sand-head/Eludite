@@ -358,13 +358,11 @@ impl Agents {
         self.registry.get(self.selected)
     }
 
-    #[allow(dead_code)]
     pub fn session(&self) -> Option<&AgentSession> {
         self.session.as_ref()
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     pub fn endpoint(&self) -> Option<&McpEndpoint> {
         self.endpoint.as_ref()
     }
@@ -460,7 +458,7 @@ fn acp_policy(commands: Arc<CommandRegistry>, policy: SharedPolicy) -> Permissio
 }
 
 impl Shell {
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn agents(&self) -> &Agents {
         &self.agents
     }
@@ -1073,13 +1071,16 @@ impl Shell {
                         protocol_version,
                     } => {
                         header = true;
-                        self.agents.state = StateKind::Ready;
+                        // The login state can arrive (on the reader thread) before the handshake's end: keep it.
+                        if self.agents.state != StateKind::NeedsLogin {
+                            self.agents.state = StateKind::Ready;
+                        }
                         self.agents.ready_ms =
                             self.agents.started.map(|t| t.elapsed().as_secs_f64() * 1e3);
                         let info = agent_info
                             .map(|a| format!("{} {}", a.name, a.version))
                             .unwrap_or_default();
-                        self.agents.detail = format!(
+                        let detail = format!(
                             "{info} (ACP v{protocol_version}). MCP: {}",
                             self.agents
                                 .endpoint
@@ -1087,6 +1088,10 @@ impl Shell {
                                 .map(McpEndpoint::describe)
                                 .unwrap_or_default()
                         );
+                        // The login state's detail is the label the agent gave.
+                        if self.agents.state != StateKind::NeedsLogin {
+                            self.agents.detail = detail;
+                        }
                         self.agents.session_id = Some(session_id);
                         self.agents.agent_info = Some(info);
                         self.agents.protocol = Some(protocol_version);
@@ -1239,3 +1244,6 @@ impl Shell {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
