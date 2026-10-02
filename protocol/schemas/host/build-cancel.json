@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-cancel.json",
+  "title": "eludite/build/cancel",
+  "description": "Cancel the running build: the host kills the MSBuild process tree and sends eludite/build/finished with result `canceled` within 2 s. Canceling when no build runs (or naming another build) changes nothing.",
+  "x-eludite-method": "eludite/build/cancel",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "Optionally the build to cancel; omitted, null or empty: the running one.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "canceled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canceled": {
+          "description": "True when a running build is being canceled; its eludite/build/finished follows.",
+          "type": "boolean"
+        },
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

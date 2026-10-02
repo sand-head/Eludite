@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-show.input.json",
+  "title": "eludite.output.show input",
+  "description": "Show the Output window (View > Output, Ctrl+Alt+O) with a source selected in its \"Show output from\" dropdown, and read the end of that source's text: Build is the build log, Host is eludite-host's own log.",
+  "type": "object",
+  "properties": {
+    "source": {
+      "description": "Omitted: the source already selected.",
+      "enum": [
+        "build",
+        "host"
+      ]
+    },
+    "tail": {
+      "description": "How many of the last lines to return (default 50, at most 2000; 0 for none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2000
+    }
+  },
+  "additionalProperties": false
+}

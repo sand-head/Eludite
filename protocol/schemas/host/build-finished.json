@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-finished.json",
+  "title": "eludite/build/finished",
+  "description": "Host-to-shell notification, exactly one per eludite/build/start that was accepted: the result, per-project results and the build's diagnostics, read from the binary log (MSBuild's own reader, Microsoft.Build.Logging.BinaryLogReplayEventSource), falling back to the console output when there is no log. Sent after the build's last eludite/build/output chunk.",
+  "x-eludite-method": "eludite/build/finished",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "buildId",
+        "generation",
+        "target",
+        "path",
+        "result",
+        "elapsedMs",
+        "summary",
+        "projects",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "description": "The solution generation the build ran under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "target": {
+          "description": "build: an incremental build (restore included). rebuild: clean, then build. clean: delete the outputs.",
+          "enum": [
+            "build",
+            "rebuild",
+            "clean"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "description": "succeeded: MSBuild exited 0. failed: it did not, or it could not start. canceled: eludite/build/cancel, or the generation changed.",
+          "enum": [
+            "succeeded",
+            "failed",
+            "canceled"
+          ]
+        },
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "projectsSucceeded",
+            "projectsFailed",
+            "errors",
+            "warnings"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "projectsSucceeded": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "projectsFailed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "errors": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "warnings": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project"
+          }
+        },
+        "diagnostics": {
+          "description": "Errors, then warnings, in the order MSBuild reported them; duplicates (a multi-targeted project reports the same error once per target framework) are listed once. At most 5000; `diagnosticsTruncated` says when more were dropped.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "diagnosticsTruncated": {
+          "type": "boolean"
+        },
+        "binlog": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "Why the build failed to run or was canceled, when it did not get as far as MSBuild's own result.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "result",
+        "errors",
+        "warnings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "File name without extension.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "canceled"
+          ]
+        },
+        "elapsedMs": {
+          "description": "Wall time of the project's outermost build in the log.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": [
+        "severity",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "message"
+          ]
+        },
+        "code": {
+          "description": "Compiler or MSBuild code (CS0103, MSB3073, NU1101), or ELUDITE01xx for the brief 0003 Windows-only messages. May be empty.",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "file": {
+          "description": "Absolute path of the file, when the diagnostic has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "description": "1-based; omitted or 0 when unknown.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "column": {
+          "description": "1-based, in characters; omitted or 0 when unknown.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "endLine": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "endColumn": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file that reported it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-show.output.json",
+  "title": "eludite.output.show output",
+  "description": "The selected source and the end of its text.",
+  "type": "object",
+  "required": [
+    "source",
+    "line_count",
+    "following",
+    "tail"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "enum": [
+        "build",
+        "host"
+      ]
+    },
+    "line_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "following": {
+      "description": "True while the window auto-scrolls with new output; false after the user scrolled up (until they scroll back to the end).",
+      "type": "boolean"
+    },
+    "tail": {
+      "description": "The last lines, oldest first, ANSI escapes removed.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

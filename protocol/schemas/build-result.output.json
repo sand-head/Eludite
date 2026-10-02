@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-result.output.json",
+  "title": "eludite.build.* output",
+  "description": "The output of eludite.build.solution, eludite.build.project, eludite.build.rebuild and eludite.build.clean: the finished build's summary when the caller waited, else the build as it started (state running).",
+  "type": "object",
+  "required": [
+    "state",
+    "target",
+    "path",
+    "configuration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "running: started, not waited for. succeeded, failed, canceled: the finished result.",
+      "enum": [
+        "running",
+        "succeeded",
+        "failed",
+        "canceled"
+      ]
+    },
+    "build_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "target": {
+      "enum": [
+        "build",
+        "rebuild",
+        "clean"
+      ]
+    },
+    "path": {
+      "description": "The solution or project file built.",
+      "type": "string",
+      "minLength": 1
+    },
+    "configuration": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "toolchain": {
+      "description": "dotnet, mono or buildTools.",
+      "type": "string"
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "result",
+          "errors",
+          "warnings"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "enum": [
+              "succeeded",
+              "failed",
+              "canceled"
+            ]
+          },
+          "errors": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "elapsed_ms": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "description": "The build's errors and warnings (at most 200; `diagnostics.list` with source build has them all, as the Error List shows them).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "message"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "description": "File path relative to the solution folder with forward slashes (absolute when outside it); omitted when the diagnostic has no file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "project": {
+            "description": "The project's name, as Workspace shows it.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}
