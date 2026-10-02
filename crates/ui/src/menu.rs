@@ -173,6 +173,11 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Add New Item...", "eludite.project.add_item"),
                 Separator,
                 item("Manage NuGet Packages...", "eludite.nuget.manage"),
+                // Visual Studio's multiple startup projects (brief 0028): the Startup Projects dialog.
+                item(
+                    "Set Startup Projects...",
+                    "eludite.workspace.set_startup_project",
+                ),
                 item("Properties", "eludite.project.properties"),
             ],
         ),
@@ -756,5 +761,22 @@ mod tests {
         .unwrap();
         assert_eq!(off.2, json!({"enabled": true}));
         assert!(MenuEntry::Separator.action(false).is_none());
+    }
+
+    /// Brief 0028: Project > Set Startup Projects... opens the Startup Projects dialog through
+    /// `eludite.workspace.set_startup_project` without arguments.
+    #[test]
+    fn the_project_menu_sets_startup_projects() {
+        let project = vs_menus()
+            .into_iter()
+            .find(|m| m.title == "Project")
+            .unwrap();
+        let found = project.entries.iter().any(|e| {
+            matches!(e, MenuEntry::Item { label, command, args }
+                if *label == "Set Startup Projects..."
+                    && *command == "eludite.workspace.set_startup_project"
+                    && args.as_object().is_none_or(|o| o.is_empty()))
+        });
+        assert!(found);
     }
 }

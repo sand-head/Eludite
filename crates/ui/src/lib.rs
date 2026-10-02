@@ -8,7 +8,8 @@
 //!   command-bus invocation.
 //! - [`menu`]: Visual Studio's menus ([`vs_menus`]) and the [`MenuBar`] view.
 //! - [`status`]: the [`StatusBar`] with named slots, and [`status_toggle`] (a two-state control beside them).
-//! - [`elements`]: small stateless elements (tab strips, panels, buttons, text and check boxes).
+//! - [`elements`]: small stateless elements (tab strips, panels, buttons, text and check boxes, the selector bar).
+//! - [`startup`]: the Startup Projects dialog (Project > Set Startup Projects..., brief 0028).
 //! - [`tree`]: tree rows for Workspace and other tree views (indent,
 //!   disclosure triangle, label), drawn by the caller's list.
 //! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
@@ -31,6 +32,7 @@ pub mod keymap;
 pub mod markdown;
 pub mod menu;
 pub mod popup;
+pub mod startup;
 pub mod status;
 mod theme;
 pub mod transcript;
@@ -39,8 +41,8 @@ pub mod vertical_text;
 
 pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};
 pub use elements::{
-    BoundsMap, bounds_canvas, check_box, highlighted_code, icon_button, tab, text_box,
-    toggle_button,
+    BoundsMap, bounds_canvas, check_box, highlighted_code, icon_button, selector_bar,
+    selector_option, tab, text_box, toggle_button,
 };
 pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
