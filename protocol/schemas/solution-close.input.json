@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-close.input.json",
+  "title": "eludite.solution.close input",
+  "description": "Close the open solution (File > Close Solution). Open documents stay open. Does nothing when no solution is open.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

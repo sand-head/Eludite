@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-save.output.json",
+  "title": "eludite.editor.save output",
+  "description": "The saved document.",
+  "type": "object",
+  "required": [
+    "path",
+    "bytes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bytes": {
+      "description": "Bytes written.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -63,7 +63,29 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             command: "eludite.view.hide",
             args: json!({}),
         },
+        command("ctrl-shift-o", "Ctrl+Shift+O", "eludite.solution.open"),
+        command("ctrl-s", "Ctrl+S", "eludite.editor.save"),
+        command("ctrl-z", "Ctrl+Z", "eludite.editor.undo"),
+        command("ctrl-y", "Ctrl+Y", "eludite.editor.redo"),
+        command("ctrl-f", "Ctrl+F", "eludite.editor.find"),
     ]
+}
+
+/// The editor actions that are commands (brief 0012): the shell binds these keys in the editor's own key context
+/// too, so they reach the command bus instead of the editor's built-in actions.
+pub const EDITOR_COMMAND_KEYS: [&str; 4] = ["ctrl-z", "ctrl-y", "ctrl-shift-z", "ctrl-f"];
+
+fn command(
+    keystrokes: &'static str,
+    display: &'static str,
+    command: &'static str,
+) -> KeyBindingSpec {
+    KeyBindingSpec {
+        keystrokes,
+        display,
+        command,
+        args: json!({}),
+    }
 }
 
 /// Register `keymap` with GPUI, scoped to [`SHELL_CONTEXT`].
@@ -102,6 +124,14 @@ mod tests {
         assert_eq!(find("output"), Some("Ctrl+Alt+O"));
         assert_eq!(find("error_list"), Some("Ctrl+\\, Ctrl+E"));
         assert_eq!(find("nope"), None);
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.save", &json!({})),
+            Some("Ctrl+S")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.solution.open", &json!({})),
+            Some("Ctrl+Shift+O")
+        );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();
         keys.dedup();

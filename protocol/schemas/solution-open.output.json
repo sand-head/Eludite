@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-open.output.json",
+  "title": "eludite.solution.open output",
+  "description": "The solution being opened.",
+  "type": "object",
+  "required": [
+    "path",
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute, normalized path of the solution or project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "description": "Always loading: the load continues in eludite-host. Solution Explorer and the status bar show its progress.",
+      "const": "loading"
+    }
+  }
+}

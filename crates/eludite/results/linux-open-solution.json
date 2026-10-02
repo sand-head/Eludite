@@ -1,0 +1,316 @@
+{
+ "brief": "0012",
+ "date": "2026-10-02",
+ "machine": "Ryzen 9 7940HS, 16 threads, 30 GiB, CachyOS, nested kwin_wayland --virtual 1280x960 at 60 Hz, release build",
+ "solution": "dotnet/Eludite.slnx (8 projects)",
+ "file": "dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs",
+ "load_average_before": "00:47:51 up  4:57,  1 user,  load average: 6.82, 4.57, 4.60",
+ "load_average_after": "00:50:37 up  5:00,  1 user,  load average: 2.44, 3.50, 4.18",
+ "open_wayland": {
+  "bench": "open_solution",
+  "open_to_editable_ms": 15.62,
+  "open_to_tree_ms": 494.25,
+  "open_to_first_diagnostics_ms": 2426.858,
+  "open_to_first_nonempty_diagnostics_ms": 2426.858,
+  "open_to_loaded_ms": 2504.554,
+  "rss": {
+   "rss_mib": 88.9,
+   "peak_rss_mib": 88.9
+  }
+ },
+ "open_x11": {
+  "bench": "open_solution",
+  "open_to_editable_ms": 17.051,
+  "open_to_tree_ms": 490.758,
+  "open_to_first_diagnostics_ms": 2443.14,
+  "open_to_first_nonempty_diagnostics_ms": 2443.14,
+  "open_to_loaded_ms": 2613.141,
+  "rss": {
+   "rss_mib": 88.5,
+   "peak_rss_mib": 88.5
+  }
+ },
+ "edit_x11_xtest": {
+  "loaded_ms": 1790920079566,
+  "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+  "typed": "x",
+  "key_to_error_diagnostics_ms": 521,
+  "error_diagnostics": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(2): 46 (45 errors)",
+  "key_to_cleared_diagnostics_ms": 641,
+  "cleared_diagnostics": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(3): 2 (0 errors)"
+ },
+ "type_with_host": [
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": true,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 14,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.4,
+    "p95_ms": 4.29,
+    "p99_ms": 5.822,
+    "max_ms": 6.438
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.165,
+    "p95_ms": 2.115,
+    "p99_ms": 2.431,
+    "max_ms": 3.84
+   },
+   "all_frames_render_to_present": {
+    "n": 815,
+    "p50_ms": 2.171,
+    "p95_ms": 2.838,
+    "p99_ms": 3.682,
+    "max_ms": 4.372
+   },
+   "rss": {
+    "rss_mib": 92.5,
+    "peak_rss_mib": 92.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": true,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 14,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.374,
+    "p95_ms": 3.59,
+    "p99_ms": 5.609,
+    "max_ms": 6.287
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.164,
+    "p95_ms": 1.675,
+    "p99_ms": 2.426,
+    "max_ms": 3.065
+   },
+   "all_frames_render_to_present": {
+    "n": 813,
+    "p50_ms": 2.14,
+    "p95_ms": 2.807,
+    "p99_ms": 3.63,
+    "max_ms": 4.83
+   },
+   "rss": {
+    "rss_mib": 92.5,
+    "peak_rss_mib": 92.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": true,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 14,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.397,
+    "p95_ms": 3.871,
+    "p99_ms": 4.978,
+    "max_ms": 6.241
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.168,
+    "p95_ms": 1.954,
+    "p99_ms": 2.456,
+    "max_ms": 4.235
+   },
+   "all_frames_render_to_present": {
+    "n": 821,
+    "p50_ms": 2.187,
+    "p95_ms": 2.755,
+    "p99_ms": 3.02,
+    "max_ms": 4.877
+   },
+   "rss": {
+    "rss_mib": 92.9,
+    "peak_rss_mib": 92.9
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ ],
+ "type_without_host": [
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": false,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 0,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.611,
+    "p95_ms": 3.987,
+    "p99_ms": 5.152,
+    "max_ms": 5.845
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.225,
+    "p95_ms": 1.754,
+    "p99_ms": 2.452,
+    "max_ms": 3.833
+   },
+   "all_frames_render_to_present": {
+    "n": 815,
+    "p50_ms": 2.292,
+    "p95_ms": 2.971,
+    "p99_ms": 3.497,
+    "max_ms": 5.494
+   },
+   "rss": {
+    "rss_mib": 90.6,
+    "peak_rss_mib": 90.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": false,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 0,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.42,
+    "p95_ms": 3.973,
+    "p99_ms": 5.467,
+    "max_ms": 6.363
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.178,
+    "p95_ms": 1.869,
+    "p99_ms": 2.754,
+    "max_ms": 3.729
+   },
+   "all_frames_render_to_present": {
+    "n": 819,
+    "p50_ms": 2.14,
+    "p95_ms": 3.016,
+    "p99_ms": 3.437,
+    "max_ms": 4.216
+   },
+   "rss": {
+    "rss_mib": 90.4,
+    "peak_rss_mib": 90.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "type_in_shell",
+   "method": "Window::dispatch_keystroke, bursts of 25 keys 15-45 ms apart with 250 ms pauses; frame cost = key handler + render to end of present (the next frame after the key)",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0012-open-solution/dotnet/src/Eludite.Host/Lsp/LspProxy.cs",
+   "with_host": false,
+   "lines": 1068,
+   "keystrokes": 500,
+   "samples": 500,
+   "diagnostics_events_during_run": 0,
+   "keystroke_frame_cost": {
+    "n": 500,
+    "p50_ms": 2.498,
+    "p95_ms": 3.967,
+    "p99_ms": 4.755,
+    "max_ms": 5.641
+   },
+   "key_handler": {
+    "n": 500,
+    "p50_ms": 0.196,
+    "p95_ms": 1.898,
+    "p99_ms": 2.495,
+    "max_ms": 3.713
+   },
+   "all_frames_render_to_present": {
+    "n": 818,
+    "p50_ms": 2.198,
+    "p95_ms": 2.873,
+    "p99_ms": 3.413,
+    "max_ms": 5.633
+   },
+   "rss": {
+    "rss_mib": 90.2,
+    "peak_rss_mib": 90.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-572027",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ ]
+}

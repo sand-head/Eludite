@@ -1527,9 +1527,14 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 name = "eludite"
 version = "0.1.0"
 dependencies = [
+ "clock",
  "eludite-commands",
  "eludite-docking",
+ "eludite-editor",
+ "eludite-lsp",
  "eludite-ui",
+ "eludite-workspace",
+ "futures",
  "gpui",
  "gpui_platform",
  "serde_json",
@@ -1629,6 +1634,7 @@ dependencies = [
 name = "eludite-lsp"
 version = "0.1.0"
 dependencies = [
+ "eludite-lsp",
  "eludite-protocol",
  "serde",
  "serde_json",
@@ -1671,6 +1677,7 @@ dependencies = [
 name = "eludite-workspace"
 version = "0.1.0"
 dependencies = [
+ "eludite-protocol",
  "roxmltree 0.20.0",
  "serde",
 ]

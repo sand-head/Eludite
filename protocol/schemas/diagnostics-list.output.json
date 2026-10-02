@@ -18,7 +18,12 @@
       "column": { "description": "1-based column.", "type": "integer", "minimum": 1 },
       "severity": { "enum": ["error", "warning", "message"] },
       "code": { "description": "Diagnostic code, e.g. CS0103.", "type": "string" },
-      "message": { "type": "string" }
+      "message": { "type": "string" },
+      "project": {
+        "description": "Name of the project the file belongs to, as Solution Explorer shows it; omitted when the file is in no loaded project.",
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }

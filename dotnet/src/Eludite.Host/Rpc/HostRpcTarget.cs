@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using Eludite.Host.Lsp;
+using Eludite.Host.Projects;
 using Eludite.Host.Sdk;
 using StreamJsonRpc;
 
@@ -22,13 +23,18 @@ public sealed class HostRpcTarget
 
     /// <param name="languageServer">The LSP bridge; when null, one without a language server is created, so
     /// <c>eludite/solution/*</c> and forwarded requests answer with documented failures instead of MethodNotFound.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null)
+    /// <param name="tree">Answers <c>eludite/solution/tree</c>; when null, one backed by the in-process MSBuild evaluator.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
         _timeProvider = timeProvider ?? TimeProvider.System;
         LanguageServer = languageServer ?? new LspProxy(null, log);
+        Tree = tree ?? new SolutionTreeProvider(new MsBuildProjectTreeEvaluator(), log);
     }
+
+    /// <summary>The <c>eludite/solution/tree</c> provider.</summary>
+    public SolutionTreeProvider Tree { get; }
 
     /// <summary>The LSP bridge.</summary>
     public LspProxy LanguageServer { get; }
@@ -94,6 +100,18 @@ public sealed class HostRpcTarget
         }
 
         return new GenerationResult(LanguageServer.CloseSolution());
+    }
+
+    [JsonRpcMethod("eludite/solution/tree")]
+    public Task<SolutionTree> GetSolutionTreeAsync(CancellationToken cancellationToken)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        var (generation, path, changed) = LanguageServer.CurrentSolution();
+        return Tree.GetAsync(generation, path, changed, () => LanguageServer.Generation, cancellationToken);
     }
 
     [JsonRpcMethod("eludite/host/shutdown")]

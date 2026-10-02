@@ -14,16 +14,19 @@
 //! - **Events**: solution status, language server status, diagnostics and host lifecycle arrive on a channel as
 //!   [`Event`]s.
 //!
-//! Public API boundary: [`HostClient`], [`PendingRequest`], [`HostCommand`], [`ClientInfo`], [`RestartPolicy`],
-//! [`StderrMode`], [`Event`], [`HostEvent`], [`Error`], plus the low-level [`Transport`] / [`FramedTransport`].
-//! Message types live in `eludite-protocol`.
+//! Public API boundary: [`HostClient`], [`PendingRequest`], [`HostCommand`], [`Connector`] (a host running in this
+//! process, [`HostClient::start_in_process`]), [`ClientInfo`], [`RestartPolicy`], [`StderrMode`], [`Event`],
+//! [`HostEvent`], [`Error`], plus the low-level [`Transport`] / [`FramedTransport`]. Message types live in
+//! `eludite-protocol`. With the `fake` feature, [`fake::FakeHost`] is a scripted in-process host for tests.
 
 mod client;
+#[cfg(feature = "fake")]
+pub mod fake;
 mod transport;
 
 pub use client::{
-    ClientInfo, Error, Event, HostClient, HostCommand, HostEvent, PendingRequest, RestartPolicy,
-    StderrMode,
+    ClientInfo, Connector, Error, Event, HostClient, HostCommand, HostEvent, PendingRequest,
+    RestartPolicy, StderrMode,
 };
 pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,

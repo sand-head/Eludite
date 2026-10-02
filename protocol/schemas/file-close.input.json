@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-close.input.json",
+  "title": "eludite.file.close input",
+  "description": "Close a document tab (its close button). A document with unsaved changes is closed only when save says what to do with them; the UI asks the user (Save, Don't Save, Cancel) and passes the answer.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "properties": {
+    "path": {
+      "description": "Document tab id: the absolute path of an open file (or the id of another document tab, such as welcome).",
+      "type": "string",
+      "minLength": 1
+    },
+    "save": {
+      "description": "For a document with unsaved changes: save writes it first, discard drops the changes. Required when the document is dirty.",
+      "enum": [
+        "save",
+        "discard"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-save.input.json",
+  "title": "eludite.editor.save input",
+  "description": "Save a document to disk (File > Save, Ctrl+S), keeping its encoding, byte-order mark and line endings.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

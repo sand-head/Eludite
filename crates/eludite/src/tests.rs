@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use crate::shell::Shell;
+use crate::shell::session::HostLaunch;
 
 struct Harness {
     shell: Entity<Shell>,
@@ -25,6 +26,11 @@ fn open(cx: &mut TestAppContext) -> Harness {
     let controller = DockController::new(DockLayout::default_vs(&tools), tools);
     let mut commands = builtins::default_registry();
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
+    let services = crate::shell::register_workspace(
+        &mut commands,
+        HostLaunch::Missing("no host in these tests".into()),
+    );
+    let mut services = Some(services);
     let commands = Arc::new(commands);
     let window = cx.update(|cx| {
         bind_keymap(cx, &vs_keymap());
@@ -35,6 +41,8 @@ fn open(cx: &mut TestAppContext) -> Harness {
                     controller.clone(),
                     Theme::vs_dark(),
                     None,
+                    services.take().unwrap(),
+                    window,
                     cx,
                 )
             });

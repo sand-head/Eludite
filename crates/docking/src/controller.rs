@@ -6,6 +6,7 @@
 //! then wakes every subscriber (the GPUI view), which re-renders and schedules
 //! a save. Nothing here does I/O.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use eludite_commands::CommandError;
@@ -46,6 +47,8 @@ pub struct Snapshot {
     pub active_tool: Option<String>,
     /// The auto-hidden window currently slid out. Not persisted.
     pub flyout: Option<String>,
+    /// Document tabs with unsaved changes (drawn with `*`). Not persisted.
+    pub dirty: BTreeSet<String>,
     /// Bumped on every change.
     pub revision: u64,
 }
@@ -79,6 +82,7 @@ impl DockController {
                     registry: Arc::new(registry),
                     active_tool: None,
                     flyout: None,
+                    dirty: BTreeSet::new(),
                     revision: 0,
                 },
                 subscribers: Vec::new(),
@@ -126,6 +130,63 @@ impl DockController {
         } else {
             false
         }
+    }
+
+    /// Open (or activate) a document tab, as `eludite.file.open` does. Documents are not tool windows; the command
+    /// that opens the file owns this call.
+    pub fn open_document(&self, id: &str, title: &str) {
+        let mut s = self.lock();
+        s.snapshot.layout.documents.open(id, title);
+        Self::changed(&mut s);
+    }
+
+    /// Close a document tab. Returns false when it was not open.
+    pub fn close_document(&self, id: &str) -> bool {
+        let mut s = self.lock();
+        let closed = s.snapshot.layout.documents.close(id);
+        s.snapshot.dirty.remove(id);
+        if closed {
+            Self::changed(&mut s);
+        }
+        closed
+    }
+
+    /// Close every document tab `keep` rejects (at startup: tabs saved in a layout whose editors are gone).
+    pub fn retain_documents(&self, keep: impl Fn(&str) -> bool) {
+        let mut s = self.lock();
+        let gone: Vec<String> = s
+            .snapshot
+            .layout
+            .documents
+            .tabs
+            .iter()
+            .filter(|t| !keep(&t.id))
+            .map(|t| t.id.clone())
+            .collect();
+        for id in &gone {
+            s.snapshot.layout.documents.close(id);
+        }
+        if !gone.is_empty() {
+            Self::changed(&mut s);
+        }
+    }
+
+    /// Mark a document tab as having unsaved changes (or not).
+    pub fn set_document_dirty(&self, id: &str, dirty: bool) {
+        let mut s = self.lock();
+        let changed = if dirty {
+            s.snapshot.dirty.insert(id.to_owned())
+        } else {
+            s.snapshot.dirty.remove(id)
+        };
+        if changed {
+            Self::changed(&mut s);
+        }
+    }
+
+    /// The active document tab's id.
+    pub fn active_document(&self) -> Option<String> {
+        self.lock().snapshot.layout.documents.active.clone()
     }
 
     /// Replace the whole layout (for example with a named layout).
@@ -250,7 +311,17 @@ impl DockController {
                 id
             }
             ViewRequest::ResetLayout => {
-                snap.layout = DockLayout::default_vs(&reg);
+                // Visual Studio's reset moves tool windows; open documents stay open.
+                let mut layout = DockLayout::default_vs(&reg);
+                for tab in &snap.layout.documents.tabs {
+                    if layout.documents.get(&tab.id).is_none() {
+                        layout.documents.tabs.push(tab.clone());
+                    }
+                }
+                if let Some(active) = &snap.layout.documents.active {
+                    layout.documents.activate(active);
+                }
+                snap.layout = layout;
                 snap.active_tool = None;
                 snap.flyout = None;
                 return Ok(None);
