@@ -257,6 +257,16 @@ impl Transcript {
         ix
     }
 
+    /// The row of `call`, made if it was not announced.
+    pub fn ensure_tool(&mut self, call: &ToolCall) {
+        let ix = self.tool_index(call);
+        if let Some(row) = self.tool_mut(ix)
+            && row.call.raw_input.is_none()
+        {
+            row.call.raw_input = call.raw_input.clone();
+        }
+    }
+
     fn tool_mut(&mut self, ix: usize) -> Option<&mut ToolRow> {
         self.mark(ix);
         match self.rows.get_mut(ix) {
