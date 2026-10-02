@@ -132,6 +132,9 @@ fn setup_dotnet(
             Ok(conn)
         })),
         search: eludite_dap::discovery::AdapterSearch::default(),
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(store.clone()),
         dotnet: dotnet.to_owned(),
     };
@@ -1423,5 +1426,212 @@ fn the_debug_source_receives_the_adapters_output(cx: &mut TestAppContext) {
     assert!(
         out.iter().filter(|l| *l == "listening on stdin").count() <= 1,
         "the first session's lines are gone: {out:?}"
+    );
+}
+
+/// Brief 0022: the test solution's project targeting `net472`, built (`bin/Debug/net472/App.exe`), on `platform`, with
+/// a fake Mono prefix whose `bin/mono` answers `--version` as Mono 6.8 does and otherwise prints its arguments and
+/// exits with 4. With `fake_adapter` the debugger reaches the fake adapter; without it, it searches for the real one.
+fn setup_netfx(
+    cx: &mut TestAppContext,
+    platform: eludite_dap::launch::Platform,
+    fake_adapter: bool,
+) -> (Dbg, PathBuf) {
+    let prefix = tempfile::tempdir().unwrap().keep();
+    let mono = prefix.join("bin/mono");
+    std::fs::create_dir_all(mono.parent().unwrap()).unwrap();
+    std::fs::write(
+        &mono,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"Mono JIT compiler version 6.8.0.105 (fake)\"\n  exit 0\nfi\necho \"mono ran $*\"\nexit 4\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&mono, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let store = tempfile::tempdir().unwrap().keep();
+    let fake: Arc<Mutex<Option<FakeHandle>>> = Arc::default();
+    let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
+    let (f, d) = (fake.clone(), dir.clone());
+    let connect: Option<super::Connector> = fake_adapter.then(|| {
+        Arc::new(move || {
+            let root = d.lock().unwrap().clone().expect("the solution folder");
+            let (conn, handle) = fake::connect(program(&root));
+            *f.lock().unwrap() = Some(handle);
+            Ok(conn)
+        }) as super::Connector
+    });
+    let setup = DebugSetup {
+        connect,
+        search: eludite_dap::discovery::AdapterSearch::default(),
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform,
+        store_dir: Some(store.clone()),
+        dotnet: "dotnet".into(),
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    *dir.lock().unwrap() = Some(w.dir.path().to_path_buf());
+    let write = |rel: &str, text: &str| {
+        let p = w.dir.path().join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/App/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net472</TargetFramework></PropertyGroup></Project>",
+    );
+    write("src/App/Program.cs", PROGRAM_CS);
+    write("src/App/Calc.cs", CALC_CS);
+    write("src/App/bin/Debug/net472/App.exe", "");
+    let mut d = Dbg { w, fake, store };
+    d.set_build_before_run(false);
+    (d, prefix)
+}
+
+impl Dbg {
+    /// Set `key` through the bus and wait until the debugger's searches have it.
+    fn set_debugger_path(&mut self, key: &str, value: &Path) {
+        self.w
+            .commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": key, "value": value.to_string_lossy()}),
+            )
+            .unwrap();
+        let want = Some(value.to_path_buf());
+        self.w.wait(key, |w| {
+            w.shell.read_with(&w.vcx, |s, _| {
+                let setup = s.debugger().setup();
+                match key {
+                    "debugger.monoPrefix" => setup.mono.configured == want,
+                    _ => setup.mono_adapter.configured == want,
+                }
+            })
+        });
+    }
+
+    fn message(&self) -> String {
+        self.w.shell.read_with(&self.w.vcx, |s, _| {
+            s.debugger().model.message.clone().unwrap_or_default()
+        })
+    }
+}
+
+#[gpui::test]
+fn a_net_framework_project_debugs_under_mono_with_eludite_dbg_mono(cx: &mut TestAppContext) {
+    let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, true);
+    d.set_debugger_path("debugger.monoPrefix", &prefix);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let fake = d.fake();
+    assert_eq!(fake.last("initialize").unwrap()["adapterID"], "mono");
+    let launch = fake.last("launch").unwrap();
+    assert_eq!(launch["type"], "mono");
+    assert!(
+        launch["program"]
+            .as_str()
+            .unwrap()
+            .ends_with("net472/App.exe"),
+        "{launch}"
+    );
+    assert_eq!(
+        launch["runtimeExecutable"],
+        prefix.join("bin/mono").to_string_lossy().as_ref()
+    );
+    let state = d.state();
+    assert_eq!(state["session"]["runtime"], "mono");
+    assert!(
+        state["session"]["adapter"]
+            .as_str()
+            .unwrap()
+            .starts_with("eludite-dbg-mono under mono 6.8.0.105 ("),
+        "{state}"
+    );
+    // The handshake ran to its end; Shift+F5 ends the session as any other.
+    assert!(fake.wait_for("configurationDone", 1, T));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn ctrl_f5_on_a_net_framework_project_runs_it_under_mono(cx: &mut TestAppContext) {
+    let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, true);
+    d.set_debugger_path("debugger.monoPrefix", &prefix);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    d.w.wait("the program exited", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.mode == Mode::Design && s.debugger().model.console_total > 1
+        })
+    });
+    let state = d.state();
+    let tail: Vec<String> = state["console"]["tail"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        tail.iter()
+            .any(|l| l.starts_with("mono ran ") && l.ends_with("net472/App.exe")),
+        "{tail:?}"
+    );
+    assert!(
+        tail.contains(&"The program has exited with code 4.".to_owned()),
+        "{tail:?}"
+    );
+    assert!(d.fake.lock().unwrap().is_none(), "no adapter for Ctrl+F5");
+}
+
+#[gpui::test]
+fn on_windows_a_net_framework_project_is_refused_until_eludite_dbg_netfx_exists(
+    cx: &mut TestAppContext,
+) {
+    let (mut d, _prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Windows, true);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.wait("the start failed", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.mode == Mode::Design && s.debugger().model.message.is_some()
+        })
+    });
+    assert_eq!(
+        d.message(),
+        "Debugging .NET Framework on Windows needs eludite-dbg-netfx (brief 0004), which is not built yet; on Linux \
+         and macOS Eludite debugs it under Mono"
+    );
+    assert!(d.fake.lock().unwrap().is_none(), "no adapter was started");
+    // Ctrl+F5 runs the .exe itself there, not Mono (this empty file cannot run, which names it).
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    d.w.wait("the run failed", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .model
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("App.exe"))
+        })
+    });
+    assert!(!d.message().contains("mono"), "{}", d.message());
+}
+
+#[gpui::test]
+fn the_mono_settings_reach_the_searches(cx: &mut TestAppContext) {
+    let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, false);
+    // Without the prefix setting this machine's search would run; with it, the fake Mono is found first.
+    d.set_debugger_path("debugger.monoPrefix", &prefix);
+    let missing = prefix.join("nowhere/eludite-dbg-mono.exe");
+    d.set_debugger_path("debugger.monoAdapterPath", &missing);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.wait("the start failed", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.mode == Mode::Design && s.debugger().model.message.is_some()
+        })
+    });
+    let message = d.message();
+    assert!(
+        message.contains(&missing.display().to_string()) && message.contains("ELUDITE_DBG_MONO"),
+        "{message}"
     );
 }

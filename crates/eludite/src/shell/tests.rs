@@ -124,6 +124,9 @@ pub(super) fn setup_debug(
         s.debug = debug.unwrap_or_else(|| super::debug::DebugSetup {
             connect: None,
             search: eludite_dap::discovery::AdapterSearch::default(),
+            mono: eludite_dap::discovery::MonoSearch::default(),
+            mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+            platform: eludite_dap::launch::Platform::current(),
             store_dir: None,
             dotnet: "dotnet".into(),
         });

@@ -1,11 +1,13 @@
-//! Run and debug (brief 0018): F5 runs the startup project under netcoredbg through `eludite-dap`, Ctrl+F5 without
-//! the debugger, with Visual Studio's debugger windows, breakpoints in the margin, the execution point, data tips,
+//! Run and debug (brief 0018): F5 runs the startup project under its debug adapter through `eludite-dap` (netcoredbg
+//! for .NET, `eludite-dbg-mono` under the located Mono for .NET Framework on Linux and macOS: brief 0022), Ctrl+F5
+//! without the debugger, with Visual Studio's debugger windows, breakpoints in the margin, the execution point, data tips,
 //! the Debug menu and keys and a status bar slot. Every action is an `eludite.debug.*` command, and agents drive a
 //! session through the same commands and read the same state the windows render ([`state`], whose module docs give
 //! the two-driver rules).
 //!
-//! - **Never waiting on the adapter.** The launch (project resolution, the launch configuration, finding and
-//!   starting the adapter, DAP's handshake) runs on a `debug-launch` thread. Every later request is sent with
+//! - **Never waiting on the adapter.** The launch (project resolution, the launch configuration, the adapter's choice
+//!   by target framework and platform, finding Mono and reading `mono --version`, finding and starting the adapter,
+//!   DAP's handshake) runs on a `debug-launch` thread; nothing of Mono is touched before F5. Every later request is sent with
 //!   [`DapClient::request`], which only queues it; answers and events come back through one channel and are applied
 //!   on the UI thread in batches, tagged with the session generation so an old session's never land.
 //! - **Hit counts.** netcoredbg ignores `hitCondition`, so the shell counts hits itself: a stop at a breakpoint whose
@@ -39,7 +41,8 @@ use eludite_commands::debug::{
 };
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
 use eludite_commands::{Caller, CommandError};
-use eludite_dap::discovery::AdapterSearch;
+use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
+use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform};
 use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
 use eludite_dap::types::{
     Capabilities, EvaluateResponse, Event, ExceptionInfoResponse, ScopesResponse,
@@ -78,9 +81,16 @@ pub type Connector = Arc<dyn Fn() -> std::io::Result<Connection> + Send + Sync>;
 /// How sessions reach their adapter and where breakpoints persist.
 #[derive(Clone)]
 pub struct DebugSetup {
-    /// Connect here instead of locating netcoredbg (tests).
+    /// Connect here instead of locating and starting the adapter (tests). The launch plan is computed as usual.
     pub connect: Option<Connector>,
+    /// netcoredbg (.NET).
     pub search: AdapterSearch,
+    /// Mono, which runs .NET Framework programs and `eludite-dbg-mono` off Windows (brief 0022).
+    pub mono: MonoSearch,
+    /// `eludite-dbg-mono.exe`.
+    pub mono_adapter: MonoAdapterSearch,
+    /// The platform adapter selection assumes (the current one; tests choose).
+    pub platform: Platform,
     /// The directory breakpoints persist in (`None`: `<config dir>/eludite/breakpoints`).
     pub store_dir: Option<PathBuf>,
     /// The `dotnet` Start Without Debugging runs (`dotnet` on `PATH`).
@@ -91,11 +101,15 @@ impl DebugSetup {
     pub fn from_env() -> Self {
         Self {
             connect: None,
-            // The configured path comes from the settings store (`set_adapter_path`), which resolves the variable.
+            // The configured paths come from the settings store (`set_adapter_path`, `set_mono_prefix`,
+            // `set_mono_adapter_path`), which resolves the variables.
             search: AdapterSearch {
                 env: None,
                 ..AdapterSearch::from_env()
             },
+            mono: MonoSearch::from_env(),
+            mono_adapter: MonoAdapterSearch::from_env(),
+            platform: Platform::current(),
             store_dir: eludite_docking::eludite_config_dir().map(|d| d.join("breakpoints")),
             dotnet: "dotnet".into(),
         }
@@ -447,6 +461,24 @@ impl Debugger {
         self.setup.search.env = path.map(PathBuf::into_os_string);
     }
 
+    /// The setting `debugger.monoPrefix` (or `ELUDITE_MONO_PREFIX`): the first place the next session looks for Mono
+    /// (brief 0022). `None` leaves the search to `PATH` and the usual prefixes.
+    pub fn set_mono_prefix(&mut self, prefix: Option<PathBuf>) {
+        self.setup.mono.configured = prefix;
+    }
+
+    /// The setting `debugger.monoAdapterPath` (or `ELUDITE_DBG_MONO`): where the next session looks for
+    /// `eludite-dbg-mono.exe` after the executable's folder.
+    pub fn set_mono_adapter_path(&mut self, path: Option<PathBuf>) {
+        self.setup.mono_adapter.configured = path;
+    }
+
+    /// The searches the next session uses (tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn setup(&self) -> &DebugSetup {
+        &self.setup
+    }
+
     fn store_path(&self, solution: &Path) -> Option<PathBuf> {
         self.setup
             .store_dir
@@ -589,6 +621,7 @@ fn launch_thread(job: LaunchJob) {
         Ok(c) => c,
         Err(e) => return fail(e),
     };
+    let platform = setup.platform;
     let mut session = SessionRow {
         project: config.project.to_string_lossy().into_owned(),
         program: config.program.to_string_lossy().into_owned(),
@@ -597,14 +630,33 @@ fn launch_thread(job: LaunchJob) {
         profile: config.profile.clone(),
         debug,
         adapter: None,
+        runtime: Some(launch::runtime_name(config.kind, platform).to_owned()),
         process_id: None,
     };
+    // A .NET Framework program off Windows runs under the located Mono, with or without the debugger.
+    let needs_mono = config.kind == FrameworkKind::NetFramework && platform != Platform::Windows;
+    let mono = if needs_mono {
+        match setup.mono.find_mono() {
+            Ok(m) => Some(m),
+            Err(e) => return fail(e),
+        }
+    } else {
+        None
+    };
     if !debug {
-        let (_, args) = config.without_debugging();
-        let cmd = setup.dotnet.clone();
+        let (cmd, args) = match config.run_command(
+            platform,
+            &setup.dotnet,
+            mono.as_ref().map(|m| m.mono.as_path()),
+        ) {
+            Ok(c) => c,
+            Err(e) => return fail(e),
+        };
+        let mono_env = mono.as_ref().map(|m| m.env.clone()).unwrap_or_default();
         let child = Command::new(&cmd)
             .args(&args)
             .current_dir(&config.cwd)
+            .envs(mono_env)
             .envs(&config.env)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -661,28 +713,61 @@ fn launch_thread(job: LaunchJob) {
         let _ = tx.unbounded_send(DebugMsg::ProgramExited { generation, code });
         return;
     }
+    let kind = match launch::select_adapter(config.kind, platform) {
+        Ok(k) => k,
+        Err(e) => return fail(e),
+    };
+    let (adapter_id, arguments) = match (kind, &mono) {
+        (AdapterKind::Mono, Some(m)) => ("mono", config.mono_arguments(&m.mono)),
+        _ => ("coreclr", config.netcoredbg_arguments()),
+    };
+    // `mono --version`, read once here: the adapter's description names the Mono that runs it.
+    let mono_version = mono
+        .as_ref()
+        .map(|m| m.version().unwrap_or_else(|| "(unknown version)".into()));
     let (connection, adapter) = match &setup.connect {
         Some(connect) => match connect() {
             Ok(c) => {
-                let d = c.description.clone();
+                let d = match &mono_version {
+                    Some(v) => format!("eludite-dbg-mono under mono {v} ({})", c.description),
+                    None => c.description.clone(),
+                };
                 (c, d)
             }
             Err(e) => return fail(format!("cannot reach the debug adapter: {e}")),
         },
-        None => {
-            let found = match setup.search.find_netcoredbg() {
-                Ok(f) => f,
-                Err(e) => return fail(e),
-            };
-            let t = found.transport();
-            match transport::connect(&t) {
-                Ok(c) => (c, transport::describe(&t)),
-                Err(e) => return fail(format!("cannot start netcoredbg: {e}")),
+        None => match (kind, &mono) {
+            (AdapterKind::Mono, Some(m)) => {
+                let exe = match setup.mono_adapter.find() {
+                    Ok(p) => p,
+                    Err(e) => return fail(e),
+                };
+                let t = m.adapter_transport(&exe);
+                match transport::connect_with_env(&t, &m.env) {
+                    Ok(c) => (
+                        c,
+                        format!(
+                            "eludite-dbg-mono under mono {} (stdio)",
+                            mono_version.as_deref().unwrap_or_default()
+                        ),
+                    ),
+                    Err(e) => return fail(format!("cannot start eludite-dbg-mono: {e}")),
+                }
             }
-        }
+            _ => {
+                let found = match setup.search.find_netcoredbg() {
+                    Ok(f) => f,
+                    Err(e) => return fail(e),
+                };
+                let t = found.transport();
+                match transport::connect(&t) {
+                    Ok(c) => (c, transport::describe(&t)),
+                    Err(e) => return fail(format!("cannot start netcoredbg: {e}")),
+                }
+            }
+        },
     };
     session.adapter = Some(adapter);
-    let arguments = config.netcoredbg_arguments();
     let _ = tx.unbounded_send(DebugMsg::Launched {
         generation,
         session,
@@ -700,7 +785,7 @@ fn launch_thread(job: LaunchJob) {
         client: client.clone(),
     });
     let plan = StartPlan {
-        adapter_id: "coreclr".into(),
+        adapter_id: adapter_id.into(),
         kind: StartKind::Launch,
         arguments,
         breakpoints,

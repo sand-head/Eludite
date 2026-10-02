@@ -1,6 +1,6 @@
 //! DAP client and transports (PLAN.md D3, D7, 4.5; brief 0018).
 //!
-//! Debug adapters (netcoredbg, later `eludite-dbg-netfx`) are reached through a transport abstraction so a local
+//! Debug adapters (netcoredbg, `eludite-dbg-mono` under Mono, later `eludite-dbg-netfx`) are reached through a transport abstraction so a local
 //! stdio child and a remote TCP or ssh adapter look the same to the debugger UI (ADR-0007). DAP is not JSON-RPC; it
 //! has its own envelope ([`ProtocolMessage`]) but shares `Content-Length` framing with LSP
 //! (`eludite_protocol::framing`).
@@ -11,8 +11,11 @@
 //!   it asks to ([`DapClient::request_wait`], for worker threads).
 //! - [`session::start`]: the launch or attach handshake in DAP's order, on a worker thread.
 //! - [`types`]: the typed subset of DAP Eludite uses, decoded tolerantly.
-//! - [`discovery`]: locating netcoredbg (beside the executable, `ELUDITE_NETCOREDBG`, `PATH`).
-//! - [`launch`]: a .NET project's launch configuration: its built DLL and its `launchSettings.json` profile.
+//! - [`discovery`]: locating netcoredbg (beside the executable, `ELUDITE_NETCOREDBG`, `PATH`), Mono (the setting
+//!   `debugger.monoPrefix`, `PATH`, the usual prefixes) and `eludite-dbg-mono` (beside the executable, the setting
+//!   `debugger.monoAdapterPath`).
+//! - [`launch`]: a .NET project's launch configuration: its built program (the DLL, or a .NET Framework project's
+//!   .exe), its `launchSettings.json` profile, and the adapter for its target framework and the platform (brief 0022).
 //! - `fake` (feature `fake`): a scripted fake adapter for tests, in-process, over TCP or on stdio.
 
 pub mod client;

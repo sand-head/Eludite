@@ -521,6 +521,8 @@ mod tests {
                 "build.showErrorListOnFailure",
                 "build.cargoPath",
                 "debugger.netcoredbgPath",
+                "debugger.monoPrefix",
+                "debugger.monoAdapterPath",
                 "languageServers.rustAnalyzerPath",
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
@@ -551,7 +553,15 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 1);
+        assert_eq!(s.section("Debugging > General").count(), 3);
+        assert_eq!(
+            s.get("debugger.monoPrefix").unwrap().env.as_deref(),
+            Some("ELUDITE_MONO_PREFIX")
+        );
+        assert_eq!(
+            s.get("debugger.monoAdapterPath").unwrap().env.as_deref(),
+            Some("ELUDITE_DBG_MONO")
+        );
     }
 
     #[test]

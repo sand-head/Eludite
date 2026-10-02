@@ -11,4 +11,10 @@
     <Project Path="tests/Eludite.Wcf.Tests/Eludite.Wcf.Tests.csproj" />
     <Project Path="tests/Eludite.Web.Tests/Eludite.Web.Tests.csproj" />
   </Folder>
+  <Folder Name="/debuggers/">
+    <Project Path="../debuggers/mono/Eludite.Debugger.Mono.Protocol/Eludite.Debugger.Mono.Protocol.csproj" />
+    <Project Path="../debuggers/mono/Eludite.Debugger.Mono/Eludite.Debugger.Mono.csproj" />
+    <Project Path="../debuggers/mono/Eludite.Debugger.Mono.TestApp/Eludite.Debugger.Mono.TestApp.csproj" />
+    <Project Path="../debuggers/mono/Eludite.Debugger.Mono.Tests/Eludite.Debugger.Mono.Tests.csproj" />
+  </Folder>
 </Solution>

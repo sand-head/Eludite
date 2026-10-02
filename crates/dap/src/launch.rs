@@ -1,11 +1,19 @@
-//! Launch configuration for a .NET project, as Visual Studio derives it: the project's built program (its output
-//! DLL, run with `dotnet`) and the `Properties/launchSettings.json` profile's arguments, environment and working
-//! directory.
+//! Launch configuration for a .NET project, as Visual Studio derives it: the project's built program and the
+//! `Properties/launchSettings.json` profile's arguments, environment and working directory; and which runtime and
+//! debug adapter run it (brief 0022).
 //!
-//! The project file is read as text, not evaluated: `AssemblyName`, `TargetFramework(s)`, `OutputType` and the SDK
-//! are taken from the project file itself, and the output is looked for under `bin/<Configuration>/<tfm>/` (then
-//! `bin/<Configuration>/`). A property set only in an imported file (`Directory.Build.props`) other than the target
-//! framework is not seen; the report lists that gap.
+//! The project file is read as text, not evaluated: `AssemblyName`, `TargetFramework(s)`, `TargetFrameworkVersion`,
+//! `OutputType`, `OutputPath` and the SDK are taken from the project file itself. A property set only in an imported
+//! file (`Directory.Build.props`) other than the target framework is not seen; the report lists that gap.
+//!
+//! - **Target frameworks** ([`classify_framework`]): `netcoreapp*`, `netstandard*` (not runnable) and `netN.M` with
+//!   N >= 5 are CoreCLR; `net2*`, `net3*`, `net4*` (SDK-style) and a legacy project's `TargetFrameworkVersion` `v2.0` to
+//!   `v4.8.1` are .NET Framework.
+//! - **The built program** ([`output_program`]): CoreCLR's `<AssemblyName>.dll` under `bin/<Configuration>/<tfm>/`
+//!   (then `bin/<Configuration>/`); an SDK-style .NET Framework project's `<AssemblyName>.exe` there; a legacy
+//!   project's `<AssemblyName>.exe` in its `OutputPath` (default `bin\Debug\`, backslashes normalized).
+//! - **The adapter** ([`select_adapter`]): netcoredbg for CoreCLR; `eludite-dbg-mono` under the located Mono for .NET
+//!   Framework on Linux and macOS; on Windows .NET Framework needs `eludite-dbg-netfx` (brief 0004), not built yet.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -26,6 +34,67 @@ pub struct ProjectInfo {
     pub target_frameworks: Vec<String>,
     pub output_type: Option<String>,
     pub sdk: Option<String>,
+    /// A legacy project's `TargetFrameworkVersion` (`v4.7.2`).
+    pub target_framework_version: Option<String>,
+    /// A legacy project's `OutputPath` for the Debug configuration, as written (`bin\Debug\`).
+    pub output_path: Option<String>,
+}
+
+/// Which runtime a target framework runs on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameworkKind {
+    /// .NET 5 and later, .NET Core (and .NET Standard, which is not runnable).
+    CoreClr,
+    /// .NET Framework 2.0 to 4.8.1.
+    NetFramework,
+}
+
+/// Classify a target framework moniker (`net472`, `net10.0`, `netcoreapp3.1`) or a legacy `TargetFrameworkVersion`
+/// (`v4.7.2`). `None` for anything else (`uap10.0`, `xamarinios10`).
+pub fn classify_framework(tfm: &str) -> Option<FrameworkKind> {
+    let t = tfm.trim().to_ascii_lowercase();
+    if let Some(v) = t.strip_prefix('v') {
+        // A legacy TargetFrameworkVersion: v2.0 to v4.8.1.
+        let major = v.split('.').next()?.parse::<u32>().ok()?;
+        return (2..=4)
+            .contains(&major)
+            .then_some(FrameworkKind::NetFramework);
+    }
+    if t.starts_with("netcoreapp") || t.starts_with("netstandard") {
+        return Some(FrameworkKind::CoreClr);
+    }
+    let rest = t.strip_prefix("net")?;
+    // `net5.0`, `net10.0-windows`: a version with a dot is .NET 5 or later; `net472`, `net48`, `net35`, `net20` are
+    // .NET Framework.
+    let version = rest.split('-').next().unwrap_or_default();
+    if version.contains('.') {
+        let major = version.split('.').next()?.parse::<u32>().ok()?;
+        return (major >= 5).then_some(FrameworkKind::CoreClr);
+    }
+    let first = version.chars().next()?;
+    (version.chars().all(|c| c.is_ascii_digit()) && matches!(first, '2' | '3' | '4'))
+        .then_some(FrameworkKind::NetFramework)
+}
+
+impl ProjectInfo {
+    /// A legacy (non-SDK) project: no `Sdk` attribute on `<Project>`.
+    pub fn is_legacy(&self) -> bool {
+        self.sdk.is_none()
+    }
+
+    /// The runtime the project's program runs on: its first target framework's, or a legacy project's
+    /// `TargetFrameworkVersion`. A project without either is taken as CoreCLR.
+    pub fn framework_kind(&self) -> FrameworkKind {
+        let tfm = if self.is_legacy() {
+            self.target_framework_version
+                .as_deref()
+                .or(self.target_frameworks.first().map(String::as_str))
+        } else {
+            self.target_frameworks.first().map(String::as_str)
+        };
+        tfm.and_then(classify_framework)
+            .unwrap_or(FrameworkKind::CoreClr)
+    }
 }
 
 impl ProjectInfo {
@@ -52,6 +121,35 @@ fn element(xml: &str, tag: &str) -> Option<String> {
     let end = xml[start..].find(&close)? + start;
     let v = xml[start..end].trim();
     (!v.is_empty() && !v.contains("$(")).then(|| v.to_owned())
+}
+
+/// The `OutputPath` of configuration `configuration` in a legacy project: the one in a `<PropertyGroup>` whose
+/// condition names the configuration, else the first unconditional one.
+fn configuration_output_path(xml: &str, configuration: &str) -> Option<String> {
+    let mut fallback = None;
+    let mut rest = xml;
+    while let Some(start) = rest.find("<PropertyGroup") {
+        let after = &rest[start..];
+        let Some(head_end) = after.find('>') else {
+            break;
+        };
+        let head = &after[..head_end];
+        let Some(end) = after.find("</PropertyGroup>") else {
+            break;
+        };
+        let body = &after[head_end..end];
+        if let Some(path) = element(body, "OutputPath") {
+            if !head.contains("Condition") {
+                fallback.get_or_insert(path);
+            } else if head.contains(&format!("'{configuration}|"))
+                || head.contains(&format!("'{configuration}'"))
+            {
+                return Some(path);
+            }
+        }
+        rest = &after[end..];
+    }
+    fallback
 }
 
 /// The value of attribute `name` on the root `<Project ...>` element.
@@ -102,21 +200,45 @@ pub fn read_project(path: &Path) -> Result<ProjectInfo, String> {
         target_frameworks,
         output_type: element(&xml, "OutputType"),
         sdk: project_attribute(&xml, "Sdk"),
+        target_framework_version: element(&xml, "TargetFrameworkVersion"),
+        output_path: configuration_output_path(&xml, CONFIGURATION),
     })
 }
 
-/// The built program of `project` in `configuration`: the first existing `<AssemblyName>.dll` under
-/// `bin/<configuration>/<tfm>/` (the first target framework first), then `bin/<configuration>/`.
-pub fn output_dll(project: &ProjectInfo, configuration: &str) -> Result<PathBuf, String> {
+/// The built program of `project` in `configuration` (the first candidate that exists):
+///
+/// - CoreCLR: `<AssemblyName>.dll` under `bin/<configuration>/<tfm>/` (the first target framework first), then
+///   `bin/<configuration>/`;
+/// - an SDK-style .NET Framework project: `<AssemblyName>.exe` in the same places;
+/// - a legacy project: `<AssemblyName>.exe` in its `OutputPath` (default `bin\<configuration>\`).
+///
+/// The error names the first candidate and says to build.
+pub fn output_program(project: &ProjectInfo, configuration: &str) -> Result<PathBuf, String> {
     let dir = project.path.parent().unwrap_or(Path::new("."));
-    let bin = dir.join("bin").join(configuration);
-    let file = format!("{}.dll", project.assembly_name);
-    let mut candidates: Vec<PathBuf> = project
-        .target_frameworks
-        .iter()
-        .map(|tf| bin.join(tf).join(&file))
-        .collect();
-    candidates.push(bin.join(&file));
+    let kind = project.framework_kind();
+    let extension = match kind {
+        FrameworkKind::CoreClr => "dll",
+        FrameworkKind::NetFramework => "exe",
+    };
+    let file = format!("{}.{extension}", project.assembly_name);
+    let candidates: Vec<PathBuf> = if project.is_legacy() && kind == FrameworkKind::NetFramework {
+        let out = project
+            .output_path
+            .clone()
+            .unwrap_or_else(|| format!("bin\\{configuration}\\"))
+            .replace('\\', "/");
+        let out = out.trim_end_matches('/');
+        vec![dir.join(out).join(&file)]
+    } else {
+        let bin = dir.join("bin").join(configuration);
+        let mut c: Vec<PathBuf> = project
+            .target_frameworks
+            .iter()
+            .map(|tf| bin.join(tf).join(&file))
+            .collect();
+        c.push(bin.join(&file));
+        c
+    };
     candidates
         .iter()
         .find(|p| p.is_file())
@@ -129,6 +251,57 @@ pub fn output_dll(project: &ProjectInfo, configuration: &str) -> Result<PathBuf,
                 project.path.display()
             )
         })
+}
+
+/// The OS the shell runs on, as adapter selection sees it (a parameter, so tests choose it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    Linux,
+    MacOs,
+    Windows,
+}
+
+impl Platform {
+    pub fn current() -> Self {
+        if cfg!(windows) {
+            Platform::Windows
+        } else if cfg!(target_os = "macos") {
+            Platform::MacOs
+        } else {
+            Platform::Linux
+        }
+    }
+}
+
+/// The debug adapter for a project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterKind {
+    /// netcoredbg (`--interpreter=vscode`), `adapterID` `coreclr`.
+    Netcoredbg,
+    /// `mono eludite-dbg-mono.exe`, `adapterID` `mono`.
+    Mono,
+}
+
+/// Why F5 on a .NET Framework project fails on Windows.
+pub const NETFX_ON_WINDOWS: &str = "Debugging .NET Framework on Windows needs eludite-dbg-netfx (brief 0004), which is not \
+                                    built yet; on Linux and macOS Eludite debugs it under Mono";
+
+/// The adapter that debugs a `kind` program on `platform`.
+pub fn select_adapter(kind: FrameworkKind, platform: Platform) -> Result<AdapterKind, String> {
+    match (kind, platform) {
+        (FrameworkKind::CoreClr, _) => Ok(AdapterKind::Netcoredbg),
+        (FrameworkKind::NetFramework, Platform::Windows) => Err(NETFX_ON_WINDOWS.to_owned()),
+        (FrameworkKind::NetFramework, _) => Ok(AdapterKind::Mono),
+    }
+}
+
+/// What runs a `kind` program on `platform`, as `eludite.debug.state`'s `session.runtime` names it.
+pub fn runtime_name(kind: FrameworkKind, platform: Platform) -> &'static str {
+    match (kind, platform) {
+        (FrameworkKind::CoreClr, _) => "coreclr",
+        (FrameworkKind::NetFramework, Platform::Windows) => "netfx",
+        (FrameworkKind::NetFramework, _) => "mono",
+    }
 }
 
 /// One profile of `launchSettings.json`.
@@ -211,8 +384,9 @@ pub fn split_command_line(s: &str) -> Vec<String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaunchConfig {
     pub project: PathBuf,
-    /// The built DLL.
+    /// The built program: the DLL (CoreCLR) or the .exe (.NET Framework).
     pub program: PathBuf,
+    pub kind: FrameworkKind,
     pub args: Vec<String>,
     pub cwd: PathBuf,
     /// Added to the inherited environment.
@@ -224,7 +398,7 @@ pub struct LaunchConfig {
 /// `commandName` is `Project`; none is fine).
 pub fn launch_config(project: &Path, profile: Option<&str>) -> Result<LaunchConfig, String> {
     let info = read_project(project)?;
-    let program = output_dll(&info, CONFIGURATION)?;
+    let program = output_program(&info, CONFIGURATION)?;
     let dir = project.parent().unwrap_or(Path::new(".")).to_path_buf();
     let profiles = read_launch_settings(&dir)?;
     let chosen = match profile {
@@ -264,6 +438,7 @@ pub fn launch_config(project: &Path, profile: Option<&str>) -> Result<LaunchConf
     Ok(LaunchConfig {
         project: project.to_path_buf(),
         program,
+        kind: info.framework_kind(),
         args,
         cwd,
         env,
@@ -287,11 +462,52 @@ impl LaunchConfig {
         })
     }
 
-    /// The command line of Start Without Debugging: `dotnet <dll> <args>`.
+    /// eludite-dbg-mono's `launch` arguments (protocol/schemas/dap-mono.md): the .exe, run by `mono` (the located one).
+    pub fn mono_arguments(&self, mono: &Path) -> Value {
+        json!({
+            "name": format!("{} (Eludite)", self.project.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default()),
+            "type": "mono",
+            "request": "launch",
+            "program": self.program.to_string_lossy(),
+            "args": self.args,
+            "cwd": self.cwd.to_string_lossy(),
+            "env": self.env,
+            "runtimeExecutable": mono.to_string_lossy(),
+            "runtimeArgs": [],
+            "stopAtEntry": false,
+            "justMyCode": true,
+        })
+    }
+
+    /// The command line of Start Without Debugging for a CoreCLR program: `dotnet <dll> <args>`.
     pub fn without_debugging(&self) -> (String, Vec<String>) {
         let mut args = vec![self.program.to_string_lossy().into_owned()];
         args.extend(self.args.iter().cloned());
         ("dotnet".to_owned(), args)
+    }
+
+    /// The command line of Start Without Debugging on `platform`: `<dotnet> <dll> <args>` for CoreCLR; for .NET
+    /// Framework `<mono> <exe> <args>` off Windows and `<exe> <args>` on Windows. `mono` is needed off Windows only.
+    pub fn run_command(
+        &self,
+        platform: Platform,
+        dotnet: &str,
+        mono: Option<&Path>,
+    ) -> Result<(String, Vec<String>), String> {
+        let program = self.program.to_string_lossy().into_owned();
+        let with = |first: Option<String>| {
+            let mut a: Vec<String> = first.into_iter().collect();
+            a.extend(self.args.iter().cloned());
+            a
+        };
+        Ok(match (self.kind, platform) {
+            (FrameworkKind::CoreClr, _) => (dotnet.to_owned(), with(Some(program))),
+            (FrameworkKind::NetFramework, Platform::Windows) => (program, with(None)),
+            (FrameworkKind::NetFramework, _) => {
+                let mono = mono.ok_or("running a .NET Framework program off Windows needs Mono")?;
+                (mono.to_string_lossy().into_owned(), with(Some(program)))
+            }
+        })
     }
 }
 
@@ -346,11 +562,11 @@ mod tests {
         assert_eq!(startup_project(&[lib]), None);
 
         // Not built yet: the error says to build.
-        let err = output_dll(&info, CONFIGURATION).unwrap_err();
+        let err = output_program(&info, CONFIGURATION).unwrap_err();
         assert!(err.contains("dotnet build"), "{err}");
         let dll = t.path().join("Host/bin/Debug/net10.0/eludite-host.dll");
         write(&dll, "");
-        assert_eq!(output_dll(&info, CONFIGURATION).unwrap(), dll);
+        assert_eq!(output_program(&info, CONFIGURATION).unwrap(), dll);
 
         // No launchSettings.json: no arguments, the project folder, no environment.
         let c = launch_config(&host, None).unwrap();
@@ -397,6 +613,140 @@ mod tests {
                 .unwrap_err()
                 .contains("Nope")
         );
+    }
+
+    #[test]
+    fn target_frameworks_classify_as_coreclr_or_net_framework() {
+        use FrameworkKind::*;
+        for (tfm, kind) in [
+            ("net10.0", Some(CoreClr)),
+            ("net5.0", Some(CoreClr)),
+            ("net8.0-windows", Some(CoreClr)),
+            ("netcoreapp3.1", Some(CoreClr)),
+            ("netstandard2.0", Some(CoreClr)),
+            ("net472", Some(NetFramework)),
+            ("net48", Some(NetFramework)),
+            ("net481", Some(NetFramework)),
+            ("net35", Some(NetFramework)),
+            ("net20", Some(NetFramework)),
+            ("v4.7.2", Some(NetFramework)),
+            ("v4.8.1", Some(NetFramework)),
+            ("v2.0", Some(NetFramework)),
+            ("v5.0", None),
+            ("net1.1", None),
+            ("uap10.0", None),
+            ("", None),
+        ] {
+            assert_eq!(classify_framework(tfm), kind, "{tfm}");
+        }
+    }
+
+    #[test]
+    fn net_framework_programs_are_the_exe_of_legacy_and_sdk_style_projects() {
+        let t = tempfile::tempdir().unwrap();
+        // An SDK-style net472 project builds to bin/Debug/net472/<AssemblyName>.exe.
+        let sdk = t.path().join("Sdk/Tool.csproj");
+        write(
+            &sdk,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net472</TargetFramework><AssemblyName>tool</AssemblyName></PropertyGroup></Project>",
+        );
+        let info = read_project(&sdk).unwrap();
+        assert_eq!(info.framework_kind(), FrameworkKind::NetFramework);
+        assert!(!info.is_legacy());
+        let err = output_program(&info, CONFIGURATION).unwrap_err();
+        assert!(
+            err.contains(&format!("net472{}tool.exe", std::path::MAIN_SEPARATOR)),
+            "{err}"
+        );
+        let exe = t.path().join("Sdk/bin/Debug/net472/tool.exe");
+        write(&exe, "");
+        // A DLL beside it is not the program.
+        write(&t.path().join("Sdk/bin/Debug/net472/tool.dll"), "");
+        assert_eq!(output_program(&info, CONFIGURATION).unwrap(), exe);
+
+        // A legacy project builds to its Debug OutputPath (backslashes normalized) as <AssemblyName>.exe.
+        let legacy = t.path().join("Legacy/Legacy.csproj");
+        write(
+            &legacy,
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Legacy.App</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <OutputPath>bin\Release\</OutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <OutputPath>..\out\debug\</OutputPath>
+  </PropertyGroup>
+</Project>"#,
+        );
+        let info = read_project(&legacy).unwrap();
+        assert!(info.is_legacy());
+        assert!(info.is_executable());
+        assert_eq!(info.target_framework_version.as_deref(), Some("v4.7.2"));
+        assert_eq!(info.framework_kind(), FrameworkKind::NetFramework);
+        let err = output_program(&info, CONFIGURATION).unwrap_err();
+        assert!(
+            err.contains("Legacy.App.exe") && err.contains("out"),
+            "{err}"
+        );
+        let exe = t.path().join("Legacy/../out/debug/Legacy.App.exe");
+        write(&exe, "");
+        assert_eq!(output_program(&info, CONFIGURATION).unwrap(), exe);
+        // Without an OutputPath: bin\Debug\.
+        let plain = t.path().join("Plain/Plain.csproj");
+        write(
+            &plain,
+            "<Project><PropertyGroup><OutputType>Exe</OutputType><TargetFrameworkVersion>v4.8</TargetFrameworkVersion></PropertyGroup></Project>",
+        );
+        let exe = t.path().join("Plain/bin/Debug/Plain.exe");
+        write(&exe, "");
+        assert_eq!(
+            output_program(&read_project(&plain).unwrap(), CONFIGURATION).unwrap(),
+            exe
+        );
+
+        // The launch configuration carries the kind; Mono's launch arguments and the run commands follow it.
+        let c = launch_config(&sdk, None).unwrap();
+        assert_eq!(c.kind, FrameworkKind::NetFramework);
+        let mono = Path::new("/opt/mono/bin/mono");
+        let v = c.mono_arguments(mono);
+        assert_eq!(v["type"], "mono");
+        assert!(v["program"].as_str().unwrap().ends_with("tool.exe"));
+        assert_eq!(v["runtimeExecutable"], "/opt/mono/bin/mono");
+        assert_eq!(v["stopAtEntry"], false);
+        assert_eq!(v["justMyCode"], true);
+        let (cmd, args) = c
+            .run_command(Platform::Linux, "dotnet", Some(mono))
+            .unwrap();
+        assert_eq!(cmd, "/opt/mono/bin/mono");
+        assert!(args[0].ends_with("tool.exe"));
+        let (cmd, args) = c.run_command(Platform::Windows, "dotnet", None).unwrap();
+        assert!(cmd.ends_with("tool.exe") && args.is_empty());
+        assert!(c.run_command(Platform::MacOs, "dotnet", None).is_err());
+    }
+
+    #[test]
+    fn the_adapter_follows_the_framework_and_the_platform() {
+        use FrameworkKind::*;
+        use Platform::*;
+        for p in [Linux, MacOs, Windows] {
+            assert_eq!(select_adapter(CoreClr, p), Ok(AdapterKind::Netcoredbg));
+            assert_eq!(runtime_name(CoreClr, p), "coreclr");
+        }
+        assert_eq!(select_adapter(NetFramework, Linux), Ok(AdapterKind::Mono));
+        assert_eq!(select_adapter(NetFramework, MacOs), Ok(AdapterKind::Mono));
+        let err = select_adapter(NetFramework, Windows).unwrap_err();
+        assert_eq!(
+            err,
+            "Debugging .NET Framework on Windows needs eludite-dbg-netfx (brief 0004), which is not built yet; on Linux \
+             and macOS Eludite debugs it under Mono"
+        );
+        assert_eq!(runtime_name(NetFramework, Linux), "mono");
+        assert_eq!(runtime_name(NetFramework, Windows), "netfx");
     }
 
     #[test]
