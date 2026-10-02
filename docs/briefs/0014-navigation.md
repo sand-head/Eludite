@@ -1,6 +1,6 @@
 # Brief 0014: Go to definition, Find All References and Error List filtering
 
-Status: open
+Status: done on Linux ([report](0014-report.md)); Find All References latency budget not met (Roslyn batches references with a fixed 500 ms delay); Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 3), 4.3, 4.11, 5.1, 8, 9
 Related ADR: ADR-0003
