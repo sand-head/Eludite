@@ -65,6 +65,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0032](0032-web-browser-window.md) | The Web Browser window: tabs, address bar, DevTools, dialogs, the Agent is driving strip, record, privacy switches (proposal 0002 B) | 2 | open |
 | [0033](0033-dap-conformance-corpus.md) | The DAP conformance corpus: recorded adapter sessions replayed through the shell on every platform (proposal 0001 G) | 2 | open |
 | [0034](0034-debug-suite-tuning.md) | Tuning the agent debugging suite from the proving run: guide, tool descriptions, compact answers, ACP usage events (proposal 0001 follow-up) | 2/4 | open |
+| [0035](0035-test-explorer.md) | Test Explorer over MTP, VSTest and cargo test, with Debug Test through the suite (Phase 1 close-out) | 1/2 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
