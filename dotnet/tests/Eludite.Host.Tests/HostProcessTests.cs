@@ -54,6 +54,9 @@ public sealed class HostProcessTests
             await SendAsync(input, new { jsonrpc = "2.0", id = 3, method = "eludite/solution/open", @params = new { path = sln } });
             await SendAsync(input, new { jsonrpc = "2.0", id = 4, method = "initialize", @params = new { } });
             await WaitForResponseAsync(stdout, gate, id: 4);
+            // The solution's status is a notification the open produces on its own time; wait for it before the
+            // shutdown so a slow machine cannot make the host exit first.
+            await WaitForNotificationAsync(stdout, gate, "eludite/solution/status");
             await SendAsync(input, new { jsonrpc = "2.0", id = 5, method = "eludite/host/shutdown" });
             await WaitForResponseAsync(stdout, gate, id: 5);
             await SendAsync(input, new { jsonrpc = "2.0", method = "eludite/host/exit" });
@@ -85,6 +88,28 @@ public sealed class HostProcessTests
     }
 
     /// <summary>Polls the captured stdout until a response with the given id has arrived, so the test never relies on sleeps.</summary>
+    private static async Task WaitForNotificationAsync(MemoryStream stdout, object gate, string method)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            byte[] snapshot;
+            lock (gate)
+            {
+                snapshot = stdout.ToArray();
+            }
+
+            if (ParseCompleteFrames(snapshot).Any(m => m.TryGetProperty("method", out var name) && name.ValueKind == JsonValueKind.String && name.GetString() == method))
+            {
+                return;
+            }
+
+            await Task.Delay(25, Ct);
+        }
+
+        Assert.Fail($"no {method} notification within 30 s");
+    }
+
     private static async Task WaitForResponseAsync(MemoryStream stdout, object gate, int id)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
