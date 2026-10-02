@@ -305,7 +305,8 @@ fn adapter_crash_fails_pending_requests_and_reports_closed() {
     session::start(&client, &plan(StartKind::Launch), T).unwrap();
     handle.trigger();
     rec.stopped(1);
-    handle.stall(Duration::from_millis(200));
+    // A long stall: the crash must land while the requests are still unanswered.
+    handle.stall(Duration::from_secs(10));
     let pending = client.request_channel("threads", Value::Null).unwrap();
     let sunk = client
         .request("stackTrace", json!({"threadId": 1}))
