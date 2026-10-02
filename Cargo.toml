@@ -83,6 +83,12 @@ todo = "warn"
 [patch."https://github.com/zed-industries/zed"]
 sum_tree = { path = "vendor/sum_tree" }
 
+# Zed's git crates assume the crates-io patches in Zed's own root manifest. Keep
+# this list in step with that manifest at the pinned rev: `util` needs the
+# async-process fork for `Child::adopt_raw_pid` on macOS.
+[patch.crates-io]
+async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
+
 [profile.dev.package."*"]
 # Optimize dependencies (GPUI in particular) so debug builds stay usable.
 opt-level = 2
