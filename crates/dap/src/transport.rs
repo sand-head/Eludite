@@ -106,6 +106,15 @@ pub fn describe(transport: &AdapterTransport) -> String {
 
 /// Open `transport`. Blocks for the spawn or the TCP connect: call it off the UI thread.
 pub fn connect(transport: &AdapterTransport) -> io::Result<Connection> {
+    connect_with_env(transport, &[])
+}
+
+/// [`connect`], with `env` added to a spawned adapter's environment (a relocated Mono's variables for
+/// `eludite-dbg-mono`; ignored for TCP).
+pub fn connect_with_env(
+    transport: &AdapterTransport,
+    env: &[(String, String)],
+) -> io::Result<Connection> {
     let description = describe(transport);
     match transport {
         AdapterTransport::Tcp { host, port } => {
@@ -122,6 +131,7 @@ pub fn connect(transport: &AdapterTransport) -> io::Result<Connection> {
             let (program, args) = command_line(other).expect("stdio and ssh have a command line");
             let mut child = Command::new(&program)
                 .args(&args)
+                .envs(env.iter().map(|(k, v)| (k, v)))
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
