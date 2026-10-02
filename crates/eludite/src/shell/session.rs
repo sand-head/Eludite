@@ -183,6 +183,8 @@ enum Cmd {
     Cancel(u64),
     /// Answer the host's `workspace/applyEdit`.
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
+    /// An untyped forwarded notification (`workspace/didChangeWatchedFiles`).
+    Notify(String, serde_json::Value),
     Shutdown(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -390,6 +392,11 @@ impl HostSession {
         self.send(Cmd::RespondApplyEdit(id, result));
     }
 
+    /// Send a forwarded notification without Eludite typing (after the document notifications queued before it).
+    pub fn notify_untyped(&self, method: &str, params: serde_json::Value) {
+        self.send(Cmd::Notify(method.to_owned(), params));
+    }
+
     /// Shuts the host down; the returned receiver fires when done (or the worker is gone).
     pub fn shutdown(&self) -> Receiver<()> {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -508,6 +515,11 @@ impl Worker {
                 Cmd::RespondApplyEdit(id, result) => {
                     if let Some(c) = &self.client {
                         let _ = c.respond_apply_edit(id, result);
+                    }
+                }
+                Cmd::Notify(method, params) => {
+                    if let Some(c) = &self.client {
+                        let _ = c.notify_untyped(&method, params);
                     }
                 }
                 Cmd::Shutdown(done) => {

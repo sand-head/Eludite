@@ -311,6 +311,16 @@ impl Buffer {
         self.text.finalize_last_transaction();
     }
 
+    /// The most recent undo step, if any.
+    pub fn last_transaction(&self) -> Option<TransactionId> {
+        self.text.peek_undo_stack().map(|e| e.transaction_id())
+    }
+
+    /// Move the edits of undo step `transaction` into `destination`, so they undo together.
+    pub fn merge_transactions(&mut self, transaction: TransactionId, destination: TransactionId) {
+        self.text.merge_transactions(transaction, destination);
+    }
+
     /// Undo the last step. Returns its transaction id, or `None` if there was nothing to undo.
     pub fn undo(&mut self) -> Option<TransactionId> {
         self.text.undo().map(|(id, _)| id)
