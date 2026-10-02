@@ -16,13 +16,15 @@
 //! are joined to its entry when they are accepted or rejected. [`policy`] is the per-solution permission policy file
 //! the MCP boundary applies to agents' calls (PLAN.md 5.3). [`agents`] holds the Agents window's `eludite.agents.*`
 //! commands and [`solution`] `eludite.solution.tree` (brief 0016). [`build`] holds the Build menu's `eludite.build.*`
-//! commands and the Output window's `eludite.output.*` (brief 0017).
+//! commands and the Output window's `eludite.output.*` (brief 0017). [`debug`] holds the debugger's `eludite.debug.*`
+//! commands (brief 0018), registered by the shell through a [`debug::DebugTarget`].
 
 pub mod agents;
 mod audit;
 pub mod build;
 pub mod builtins;
 mod caller;
+pub mod debug;
 pub mod diagnostics;
 mod id;
 pub mod policy;
