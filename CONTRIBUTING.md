@@ -1,45 +1,25 @@
-# Contributing to Niello
+# Contributing
 
-Humans and agents are both welcome. Niello is pre-alpha, so the most useful contribution is a finished brief.
+Niello is built by one person directing agents, but outside contributions are welcome. Read [CLAUDE.md](CLAUDE.md) first; it is the rulebook for humans and agents alike.
 
-## Before you start
+## Picking work
 
-- Read [docs/PLAN.md](docs/PLAN.md) for scope and [CLAUDE.md](CLAUDE.md) for the rules every contributor follows, including agents.
-- Read the ADRs in [docs/adr/](docs/adr/) that touch the area you will change.
-- Run `git fetch origin` and work from the current `main`.
+- Work is issued as briefs in `docs/briefs/`. Open briefs are listed in `docs/briefs/README.md`.
+- Comment on or open an issue naming the brief before starting, so two people do not take the same one.
+- One brief per branch and worktree. Name the branch `brief/NNNN-slug`.
+- If a brief cannot be satisfied as written, say so instead of widening it.
 
-## Picking a brief
+## Pull requests
 
-- Briefs live in [docs/briefs/](docs/briefs/). Each one states its goal, files in scope, contract, proving test, budget, exit criterion and out-of-scope list.
-- Open an issue or comment on an existing one saying which brief you are taking, so two people do not build the same thing.
-- Use one git worktree per brief and stay inside the files the brief lists.
-- If you want to do work no brief covers, open an issue first. Work that cannot be stated as a brief is not ready to be delegated.
+- Meet the definition of done in CLAUDE.md: green CI on every OS the job covers, a test for every behavior change, no benchmark regression over 5 percent, an ADR for structural decisions, and the crate map and README kept current.
+- State the SPDX license id of any new dependency in the PR description.
+- Spike briefs produce throwaway code plus a report; production code lands through a later brief.
 
-## Sign-off (Developer Certificate of Origin)
+## Commit messages
 
-Every commit needs a `Signed-off-by` line, added with `git commit -s`:
+One line, plain, direct, active voice. No body, no trailers, no co-author or sign-off lines. Say what the commit does, for example `Add schemas for the diagnostics.list command` or `Merge brief 0003`.
 
-```
-Signed-off-by: Your Name <you@example.com>
-```
+## Licensing
 
-This certifies the Developer Certificate of Origin 1.1 (https://developercertificate.org). There is no CLA. If an agent wrote the code, the human who directed it signs off and takes responsibility for it.
-
-## Pull request expectations
-
-The full checklist is the "Definition of done" in [CLAUDE.md](CLAUDE.md). In short:
-
-- CI is green on all supported OSes.
-- Behavior changes come with tests.
-- Benchmarks do not regress by more than 5 percent.
-- Structural decisions come with an ADR.
-- New dependencies list their SPDX license id in the PR description.
-- README and CLAUDE.md still match the repo.
-
-Prefer a few well-tested PRs over many small ones. Review time is the bottleneck.
-
-## License of contributions
-
-- Contributions to `protocol/` and `extension-sdk/` are licensed MIT.
-- Everything else is licensed GPL-3.0-or-later.
-- Do not add code you cannot license under those terms. Vendored code keeps its upstream license and is recorded in a `WHY.md` under `vendor/`.
+- The product (shell, hosts, debuggers, web tooling) is GPL-3.0-or-later. `protocol/`, `extension-sdk/` and `agents/claude-acp/` are MIT.
+- By submitting a contribution you agree it is licensed under the license of the directory it lands in. There is no CLA.
