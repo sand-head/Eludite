@@ -56,7 +56,7 @@
           "type": "string"
         },
         "program": {
-          "description": "The program run (the built DLL).",
+          "description": "The program run: the built DLL of a .NET (Core) project, the built .exe of a .NET Framework project.",
           "type": "string"
         },
         "args": {
@@ -76,8 +76,16 @@
           "type": "boolean"
         },
         "adapter": {
-          "description": "The debug adapter's executable and transport.",
+          "description": "The debug adapter's executable and transport: `netcoredbg --interpreter=vscode (stdio)`, or `eludite-dbg-mono under mono 6.8.0.105 (stdio)` (the version from `mono --version`).",
           "type": "string"
+        },
+        "runtime": {
+          "description": "What runs the program: `coreclr` (.NET 5 and later, .NET Core: `dotnet`, debugged with netcoredbg), `mono` (a .NET Framework program run by the located Mono off Windows, debugged with eludite-dbg-mono), `netfx` (a .NET Framework program run directly on Windows, debugged with eludite-dbg-netfx once brief 0004 builds it).",
+          "enum": [
+            "coreclr",
+            "mono",
+            "netfx"
+          ]
         },
         "process_id": {
           "type": "integer",
