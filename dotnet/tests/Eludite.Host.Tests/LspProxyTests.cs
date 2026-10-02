@@ -24,6 +24,11 @@ public sealed class LspProxyTests : IAsyncDisposable
     private readonly Channel<JsonElement> _solutionStatus = Channel.CreateUnbounded<JsonElement>();
     private readonly Channel<JsonElement> _serverStatus = Channel.CreateUnbounded<JsonElement>();
     private readonly Channel<JsonElement> _diagnostics = Channel.CreateUnbounded<JsonElement>();
+    private readonly Channel<JsonElement> _applyEdits = Channel.CreateUnbounded<JsonElement>();
+
+    /// <summary>How the test's shell answers <c>workspace/applyEdit</c>.</summary>
+    private Func<JsonElement, CancellationToken, Task<JsonElement>> _applyEdit =
+        (_, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { applied = true }));
 
     public LspProxyTests()
     {
@@ -35,6 +40,12 @@ public sealed class LspProxyTests : IAsyncDisposable
         Collect("eludite/solution/status", _solutionStatus);
         Collect("eludite/languageServer/status", _serverStatus);
         Collect("textDocument/publishDiagnostics", _diagnostics);
+        var applyEdit = new Func<JsonElement, CancellationToken, Task<JsonElement>>((p, ct) =>
+        {
+            _applyEdits.Writer.TryWrite(p.Clone());
+            return _applyEdit(p, ct);
+        });
+        _client.AddLocalRpcMethod(applyEdit.Method, applyEdit.Target, new JsonRpcMethodAttribute("workspace/applyEdit") { UseSingleObjectParameterDeserialization = true });
         _client.StartListening();
     }
 
@@ -193,6 +204,131 @@ public sealed class LspProxyTests : IAsyncDisposable
             Ct);
         Assert.Equal("M(int x)", result.GetProperty("signatures")[0].GetProperty("label").GetString());
         Assert.False(_fake.Last("textDocument/signatureHelp")!.Value.TryGetProperty(LspProxy.GenerationProperty, out _));
+    }
+
+    [Fact]
+    public async Task RenameAndCodeActions_AreTypedValidatedAndForwarded()
+    {
+        await InitializeAsync();
+
+        foreach (var method in new[] { "textDocument/prepareRename", "textDocument/rename", "textDocument/codeAction", "codeAction/resolve" })
+        {
+            Assert.Contains(method, LspProxy.TypedRequests);
+            Assert.DoesNotContain(method, LspProxy.UntypedRequests);
+        }
+
+        var position = new { line = 2, character = 5 };
+        var range = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/prepareRename", new { textDocument = new { uri = "file:///a.cs" }, position, eluditeGeneration = 0 }, Ct);
+        Assert.Equal(4, range.GetProperty("start").GetProperty("character").GetInt32());
+
+        var edit = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/rename", new { textDocument = new { uri = "file:///a.cs" }, position, newName = "Pong", eluditeGeneration = 0 }, Ct);
+        Assert.Equal("Pong", edit.GetProperty("documentChanges")[0].GetProperty("edits")[0].GetProperty("newText").GetString());
+        Assert.Equal("Pong", _fake.Last("textDocument/rename")!.Value.GetProperty("newName").GetString());
+
+        var actions = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/codeAction",
+            new { textDocument = new { uri = "file:///a.cs" }, range = new { start = position, end = position }, context = new { diagnostics = Array.Empty<object>(), triggerKind = 2 }, eluditeGeneration = 0 },
+            Ct);
+        var action = actions[0];
+        Assert.Equal("Use primary constructor", action.GetProperty("title").GetString());
+
+        // codeAction/resolve takes the action back with its data; a missing title is InvalidParams.
+        var resolved = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "codeAction/resolve", new { title = "Use primary constructor", kind = "quickfix", data = new { id = 1 }, eluditeGeneration = 0 }, Ct);
+        Assert.True(resolved.TryGetProperty("edit", out _));
+        Assert.Equal(1, _fake.Last("codeAction/resolve")!.Value.GetProperty("data").GetProperty("id").GetInt32());
+        var (code, _) = await TestRpc.ErrorOfAsync(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "codeAction/resolve", new { kind = "quickfix", eluditeGeneration = 0 }, Ct));
+        Assert.Equal(HostErrors.InvalidParams, code);
+        Assert.Equal(1, _fake.Count("codeAction/resolve"));
+        (code, _) = await TestRpc.ErrorOfAsync(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/rename", new { position, newName = "X", eluditeGeneration = 0 }, Ct));
+        Assert.Equal(HostErrors.InvalidParams, code);
+        foreach (var method in new[] { "textDocument/prepareRename", "textDocument/rename", "textDocument/codeAction", "codeAction/resolve" })
+        {
+            Assert.False(_fake.Last(method)!.Value.TryGetProperty(LspProxy.GenerationProperty, out _), method);
+        }
+    }
+
+    [Fact]
+    public async Task ClientCapabilities_AdvertiseWorkspaceEditsCodeActionsAndRename()
+    {
+        await InitializeAsync();
+        await _fake.WaitForAsync("initialize");
+
+        var caps = _fake.Last("initialize")!.Value.GetProperty("capabilities");
+        var workspace = caps.GetProperty("workspace");
+        Assert.True(workspace.GetProperty("applyEdit").GetBoolean());
+        var workspaceEdit = workspace.GetProperty("workspaceEdit");
+        Assert.True(workspaceEdit.GetProperty("documentChanges").GetBoolean());
+        Assert.Equal(["create", "rename", "delete"], workspaceEdit.GetProperty("resourceOperations").EnumerateArray().Select(e => e.GetString()));
+        var codeAction = caps.GetProperty("textDocument").GetProperty("codeAction");
+        Assert.Equal(["edit"], codeAction.GetProperty("resolveSupport").GetProperty("properties").EnumerateArray().Select(e => e.GetString()));
+        Assert.True(codeAction.GetProperty("dataSupport").GetBoolean());
+        Assert.Contains("quickfix", codeAction.GetProperty("codeActionLiteralSupport").GetProperty("codeActionKind").GetProperty("valueSet").EnumerateArray().Select(e => e.GetString()));
+        Assert.True(caps.GetProperty("textDocument").GetProperty("rename").GetProperty("prepareSupport").GetBoolean());
+    }
+
+    [Fact]
+    public async Task ApplyEdit_IsRelayedToTheShellWithTheGenerationAndAnswered()
+    {
+        await InitializeAsync();
+        var generation = await OpenAsync(await WriteSolutionAsync());
+        await _fake.WaitForAsync("solution/open");
+        var edit = new { changes = new Dictionary<string, object[]> { ["file:///a.cs"] = [new { range = new { start = new { line = 0, character = 0 }, end = new { line = 0, character = 0 } }, newText = "// x\n" }] } };
+
+        var answer = await _fake.ApplyEditAsync(new { label = "Fix", edit }, Ct);
+
+        Assert.True(answer.GetProperty("applied").GetBoolean());
+        var relayed = await NextAsync(_applyEdits);
+        Assert.Equal(generation, relayed.GetProperty(LspProxy.GenerationProperty).GetInt64());
+        Assert.Equal("Fix", relayed.GetProperty("label").GetString());
+        Assert.Equal("// x\n", relayed.GetProperty("edit").GetProperty("changes").GetProperty("file:///a.cs")[0].GetProperty("newText").GetString());
+
+        // The shell's refusal comes back unchanged.
+        _applyEdit = (_, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { applied = false, failureReason = "stale" }));
+        answer = await _fake.ApplyEditAsync(new { edit }, Ct);
+        Assert.False(answer.GetProperty("applied").GetBoolean());
+        Assert.Equal("stale", answer.GetProperty("failureReason").GetString());
+    }
+
+    [Fact]
+    public async Task ApplyEdit_ShellErrorIsNotAppliedAndCancellationIsRelayed()
+    {
+        await InitializeAsync();
+        await _fake.WaitForAsync("initialized");
+        var edit = new { changes = new Dictionary<string, object[]>() };
+
+        _applyEdit = (_, _) => throw new LocalRpcException("the applier failed") { ErrorCode = -32603 };
+        var answer = await _fake.ApplyEditAsync(new { edit }, Ct);
+        Assert.False(answer.GetProperty("applied").GetBoolean());
+        Assert.Contains("the applier failed", answer.GetProperty("failureReason").GetString());
+
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _applyEdit = async (_, ct) =>
+        {
+            started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                canceled.TrySetResult();
+                throw;
+            }
+
+            return default;
+        };
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        var pending = _fake.ApplyEditAsync(new { edit }, cts.Token);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await cts.CancelAsync();
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
     }
 
     [Fact]

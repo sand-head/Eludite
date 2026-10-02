@@ -446,6 +446,219 @@ pub struct CancelParams {
     pub id: Id,
 }
 
+/// LSP `TextEdit`; an `AnnotatedTextEdit`'s `annotationId` stays in `extra`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextEdit {
+    pub range: Range,
+    pub new_text: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl TextEdit {
+    pub fn new(range: Range, new_text: impl Into<String>) -> Self {
+        Self {
+            range,
+            new_text: new_text.into(),
+            extra: Map::new(),
+        }
+    }
+}
+
+/// `{ uri, version: integer | null }`: `null` means "whatever the client has" (the pinned Roslyn always sends it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OptionalVersionedTextDocumentIdentifier {
+    pub uri: String,
+    #[serde(default)]
+    pub version: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentEdit {
+    pub text_document: OptionalVersionedTextDocumentIdentifier,
+    pub edits: Vec<TextEdit>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFileOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_if_exists: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFileOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recursive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_if_not_exists: Option<bool>,
+}
+
+/// `CreateFile`, `RenameFile` or `DeleteFile` (by `kind`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ResourceOperation {
+    #[serde(rename_all = "camelCase")]
+    Create {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<CreateFileOptions>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotation_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Rename {
+        old_uri: String,
+        new_uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<CreateFileOptions>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotation_id: Option<String>,
+    },
+    #[serde(rename_all = "camelCase")]
+    Delete {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<DeleteFileOptions>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        annotation_id: Option<String>,
+    },
+}
+
+/// One entry of `WorkspaceEdit.documentChanges`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DocumentChange {
+    Edit(TextDocumentEdit),
+    Operation(ResourceOperation),
+}
+
+/// LSP 3.17 `WorkspaceEdit` (schema: `protocol/schemas/host/apply-edit.json` `$defs.workspaceEdit`). When both are
+/// present, `document_changes` wins (the LSP rule).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceEdit {
+    /// Document URI to edits (no versions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<std::collections::BTreeMap<String, Vec<TextEdit>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_changes: Option<Vec<DocumentChange>>,
+    /// `changeAnnotations` and anything else.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// `textDocument/prepareRename`'s answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PrepareRenameResponse {
+    Range(Range),
+    RangeWithPlaceholder {
+        range: Range,
+        placeholder: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    DefaultBehavior {
+        default_behavior: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+    pub new_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionContext {
+    pub diagnostics: Vec<Diagnostic>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub only: Option<Vec<String>>,
+    /// 1 = invoked, 2 = automatic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_kind: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+    pub context: CodeActionContext,
+}
+
+/// LSP `Command`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Command {
+    pub title: String,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeActionDisabled {
+    pub reason: String,
+}
+
+/// LSP `CodeAction` (schema: `protocol/schemas/host/code-action.json` `$defs.codeAction`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeAction {
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<Diagnostic>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_preferred: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<CodeActionDisabled>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<WorkspaceEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Command>,
+    /// Opaque; sent back unchanged in `codeAction/resolve`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+/// One entry of the `textDocument/codeAction` answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CodeActionOrCommand {
+    Command(Command),
+    Action(Box<CodeAction>),
+}
+
+/// `workspace/applyEdit` params (the host adds `eluditeGeneration`, see [`ApplyEdit`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApplyWorkspaceEditParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub edit: WorkspaceEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyWorkspaceEditResult {
+    pub applied: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_change: Option<u32>,
+}
+
 macro_rules! forwarded_request {
     ($(#[$m:meta])* $name:ident, $method:expr, $params:ty, $result:ty) => {
         $(#[$m])*
@@ -535,6 +748,46 @@ forwarded_request!(
     DocumentDiagnosticParams,
     DocumentDiagnosticReport
 );
+
+forwarded_request!(
+    /// `textDocument/prepareRename`.
+    PrepareRename,
+    "textDocument/prepareRename",
+    TextDocumentPositionParams,
+    Option<PrepareRenameResponse>
+);
+forwarded_request!(
+    /// `textDocument/rename`.
+    Rename,
+    "textDocument/rename",
+    RenameParams,
+    Option<WorkspaceEdit>
+);
+forwarded_request!(
+    /// `textDocument/codeAction`.
+    CodeActionRequest,
+    "textDocument/codeAction",
+    CodeActionParams,
+    Option<Vec<CodeActionOrCommand>>
+);
+forwarded_request!(
+    /// `codeAction/resolve`.
+    ResolveCodeAction,
+    "codeAction/resolve",
+    CodeAction,
+    CodeAction
+);
+
+/// `workspace/applyEdit`, the request the host sends the shell (host-rpc.md, "Messages the host sends"). Not
+/// generational in the forwarded sense: the host adds `eluditeGeneration` itself, and the shell answers it.
+#[derive(Debug)]
+pub enum ApplyEdit {}
+impl RequestType for ApplyEdit {
+    const METHOD: &'static str = methods::APPLY_EDIT;
+    const GENERATIONAL: bool = false;
+    type Params = WithGeneration<ApplyWorkspaceEditParams>;
+    type Result = ApplyWorkspaceEditResult;
+}
 
 notification!(
     /// `textDocument/didOpen`.
@@ -945,6 +1198,173 @@ mod tests {
             json!({"uri": "file:///a.cs", "version": 3, "eluditeGeneration": 1, "diagnostics": [
                 {"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}},
                  "severity": 2, "code": "CS0168", "message": "unused"}]}),
+        );
+    }
+
+    #[test]
+    fn workspace_edits_with_changes_document_changes_and_resource_operations() {
+        // The pinned Roslyn's rename answer: documentChanges, version null.
+        let roslyn = json!({"documentChanges": [
+            {"textDocument": {"uri": "file:///s/A.cs", "version": null},
+             "edits": [{"range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}, "newText": "Pong"}]},
+            {"kind": "create", "uri": "file:///s/New.cs", "options": {"ignoreIfExists": true}},
+            {"kind": "rename", "oldUri": "file:///s/Old.cs", "newUri": "file:///s/Renamed.cs", "options": {"overwrite": false}},
+            {"kind": "delete", "uri": "file:///s/Gone", "options": {"recursive": true}},
+            {"textDocument": {"uri": "file:///s/B.cs", "version": 4},
+             "edits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": "using X;\n", "annotationId": "a"}]}
+        ], "changeAnnotations": {"a": {"label": "imports"}}});
+        let edit: WorkspaceEdit = serde_json::from_value(roslyn.clone()).unwrap();
+        let changes = edit.document_changes.as_ref().unwrap();
+        assert!(
+            matches!(&changes[0], DocumentChange::Edit(e) if e.text_document.version.is_none() && e.edits[0].new_text == "Pong")
+        );
+        assert!(matches!(
+            &changes[1],
+            DocumentChange::Operation(ResourceOperation::Create {
+                options: Some(CreateFileOptions {
+                    ignore_if_exists: Some(true),
+                    ..
+                }),
+                ..
+            })
+        ));
+        assert!(matches!(
+            &changes[2],
+            DocumentChange::Operation(ResourceOperation::Rename { old_uri, new_uri, .. }) if old_uri.ends_with("Old.cs") && new_uri.ends_with("Renamed.cs")
+        ));
+        assert!(matches!(
+            &changes[3],
+            DocumentChange::Operation(ResourceOperation::Delete {
+                options: Some(DeleteFileOptions {
+                    recursive: Some(true),
+                    ..
+                }),
+                ..
+            })
+        ));
+        assert!(
+            matches!(&changes[4], DocumentChange::Edit(e) if e.text_document.version == Some(4) && e.edits[0].extra["annotationId"] == "a")
+        );
+        assert_eq!(edit.extra["changeAnnotations"]["a"]["label"], "imports");
+        round_trip(&edit, roslyn);
+        let plain = json!({"changes": {"file:///s/A.cs": [
+            {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "newText": "x"}]}});
+        let edit: WorkspaceEdit = serde_json::from_value(plain.clone()).unwrap();
+        assert_eq!(edit.changes.as_ref().unwrap()["file:///s/A.cs"].len(), 1);
+        round_trip(&edit, plain);
+    }
+
+    #[test]
+    fn rename_and_prepare_rename() {
+        round_trip(
+            &WithGeneration {
+                params: RenameParams {
+                    text_document: doc(),
+                    position: pos(4, 18),
+                    new_name: "Pong".into(),
+                },
+                generation: 2,
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 4, "character": 18},
+                   "newName": "Pong", "eluditeGeneration": 2}),
+        );
+        let r = json!({"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}});
+        let p: Option<PrepareRenameResponse> = serde_json::from_value(r.clone()).unwrap();
+        assert_eq!(p, Some(PrepareRenameResponse::Range(range())));
+        round_trip(&p, r.clone());
+        let with = json!({"range": r, "placeholder": "Ping"});
+        let p: PrepareRenameResponse = serde_json::from_value(with.clone()).unwrap();
+        assert!(
+            matches!(p, PrepareRenameResponse::RangeWithPlaceholder { ref placeholder, .. } if placeholder == "Ping")
+        );
+        round_trip(&p, with);
+        let default = json!({"defaultBehavior": true});
+        let p: PrepareRenameResponse = serde_json::from_value(default.clone()).unwrap();
+        assert_eq!(
+            p,
+            PrepareRenameResponse::DefaultBehavior {
+                default_behavior: true
+            }
+        );
+        round_trip(&p, default);
+        round_trip(&None::<PrepareRenameResponse>, Value::Null);
+        round_trip(&None::<WorkspaceEdit>, Value::Null);
+    }
+
+    #[test]
+    fn code_actions_as_roslyn_sends_them() {
+        round_trip(
+            &WithGeneration {
+                params: CodeActionParams {
+                    text_document: doc(),
+                    range: range(),
+                    context: CodeActionContext {
+                        diagnostics: vec![],
+                        only: None,
+                        trigger_kind: Some(2),
+                    },
+                },
+                generation: 1,
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"},
+                   "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}},
+                   "context": {"diagnostics": [], "triggerKind": 2}, "eluditeGeneration": 1}),
+        );
+        let data = json!({"UniqueIdentifier": "Use primary constructor", "CustomTags": [], "CodeActionPath": ["Use primary constructor"]});
+        let answer = json!([
+            {"title": "Use primary constructor", "kind": "quickfix", "diagnostics": [], "data": data},
+            {"title": "Fix All: Use primary constructor", "kind": "quickfix",
+             "command": {"title": "Fix All: Use primary constructor", "command": "roslyn.client.fixAllCodeAction", "arguments": [data]},
+             "data": data},
+            {"title": "Generate parameter", "kind": "refactor",
+             "command": {"title": "Generate parameter", "command": "roslyn.client.nestedCodeAction",
+                         "arguments": [{"NestedCodeActions": [{"title": "Generate parameter 'x'", "data": data}]}]},
+             "data": data},
+            {"title": "Organize", "command": "x.organize"}
+        ]);
+        let parsed: Option<Vec<CodeActionOrCommand>> =
+            serde_json::from_value(answer.clone()).unwrap();
+        let parsed = parsed.unwrap();
+        assert!(
+            matches!(&parsed[0], CodeActionOrCommand::Action(a) if a.edit.is_none() && a.data.is_some() && a.kind.as_deref() == Some("quickfix"))
+        );
+        assert!(
+            matches!(&parsed[1], CodeActionOrCommand::Action(a) if a.command.as_ref().unwrap().command == "roslyn.client.fixAllCodeAction")
+        );
+        assert!(
+            matches!(&parsed[2], CodeActionOrCommand::Action(a) if a.command.as_ref().unwrap().arguments.as_ref().unwrap()[0]["NestedCodeActions"][0]["title"] == "Generate parameter 'x'")
+        );
+        assert!(matches!(&parsed[3], CodeActionOrCommand::Command(c) if c.command == "x.organize"));
+        round_trip(&Some(parsed), answer);
+        let resolved = json!({"title": "Use primary constructor", "kind": "quickfix", "data": data,
+            "edit": {"documentChanges": [{"textDocument": {"uri": "file:///a.cs", "version": null}, "edits": []}]}});
+        let a: CodeAction = serde_json::from_value(resolved.clone()).unwrap();
+        assert!(a.edit.is_some());
+        round_trip(&a, resolved);
+    }
+
+    #[test]
+    fn apply_edit_from_the_host() {
+        use crate::typed::RequestType;
+        assert_eq!(ApplyEdit::METHOD, "workspace/applyEdit");
+        const { assert!(!ApplyEdit::GENERATIONAL) };
+        round_trip(
+            &WithGeneration {
+                params: ApplyWorkspaceEditParams {
+                    label: Some("Rename".into()),
+                    edit: WorkspaceEdit::default(),
+                },
+                generation: 3,
+            },
+            json!({"label": "Rename", "edit": {}, "eluditeGeneration": 3}),
+        );
+        round_trip(
+            &ApplyWorkspaceEditResult {
+                applied: false,
+                failure_reason: Some("stale".into()),
+                failed_change: Some(1),
+            },
+            json!({"applied": false, "failureReason": "stale", "failedChange": 1}),
         );
     }
 

@@ -314,3 +314,147 @@ fn typed_definition_and_references_through_the_fake_host() {
         assert_eq!(fake.received_params(method)[0]["eluditeGeneration"], 1);
     }
 }
+
+#[test]
+fn typed_rename_and_code_actions_through_the_fake_host() {
+    use eludite_lsp::fake::FakeReply;
+    use eludite_lsp::lsp::{
+        CodeActionContext, CodeActionOrCommand, CodeActionParams, DocumentChange, Position,
+        PrepareRenameResponse, Range, RenameParams, TextDocumentIdentifier,
+        TextDocumentPositionParams,
+    };
+    let fake = FakeHost::new();
+    let r = json!({"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 8}});
+    let r2 = r.clone();
+    fake.respond("textDocument/prepareRename", move |_| {
+        FakeReply::Result(r2.clone())
+    });
+    fake.respond("textDocument/rename", move |p| {
+        FakeReply::Result(json!({"documentChanges": [{"textDocument": {"uri": p["textDocument"]["uri"], "version": null},
+            "edits": [{"range": r, "newText": p["newName"]}]}]}))
+    });
+    fake.respond("textDocument/codeAction", |p| {
+        assert_eq!(p["context"]["triggerKind"], 2);
+        FakeReply::Result(
+            json!([{"title": "Use primary constructor", "kind": "quickfix", "data": {"id": 1}}]),
+        )
+    });
+    fake.respond("codeAction/resolve", |p| {
+        assert_eq!(p["data"]["id"], 1);
+        FakeReply::Result(json!({"title": p["title"], "data": p["data"], "edit": {"changes": {}}}))
+    });
+    let (client, _rx) = start(&fake, 0);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let doc = TextDocumentIdentifier {
+        uri: "file:///a.cs".into(),
+    };
+    let position = Position {
+        line: 2,
+        character: 5,
+    };
+    let prepared = client
+        .request::<lsp::PrepareRename>(TextDocumentPositionParams {
+            text_document: doc.clone(),
+            position,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(matches!(prepared, Some(PrepareRenameResponse::Range(r)) if r.start.character == 4));
+    let edit = client
+        .request::<lsp::Rename>(RenameParams {
+            text_document: doc.clone(),
+            position,
+            new_name: "Pong".into(),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("an edit");
+    assert!(
+        matches!(&edit.document_changes.as_ref().unwrap()[0], DocumentChange::Edit(e) if e.edits[0].new_text == "Pong")
+    );
+    let actions = client
+        .request::<lsp::CodeActionRequest>(CodeActionParams {
+            text_document: doc,
+            range: Range {
+                start: position,
+                end: position,
+            },
+            context: CodeActionContext {
+                diagnostics: vec![],
+                only: None,
+                trigger_kind: Some(2),
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("actions");
+    let CodeActionOrCommand::Action(action) = &actions[0] else {
+        panic!("{actions:?}")
+    };
+    let resolved = client
+        .request::<lsp::ResolveCodeAction>((**action).clone())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(resolved.edit.is_some());
+    for method in [
+        "textDocument/prepareRename",
+        "textDocument/rename",
+        "textDocument/codeAction",
+        "codeAction/resolve",
+    ] {
+        assert_eq!(
+            fake.received_params(method)[0]["eluditeGeneration"],
+            1,
+            "{method}"
+        );
+    }
+}
+
+#[test]
+fn apply_edit_requests_from_the_host_are_events_and_answered() {
+    let fake = FakeHost::new();
+    let (client, rx) = start(&fake, 0);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let edit = json!({"changes": {"file:///a.cs": [
+        {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": "// x\n"}]}});
+    let shell = {
+        let client = client.clone();
+        std::thread::spawn(move || {
+            let Event::ApplyEdit { id, params } =
+                next(&rx, |e| matches!(e, Event::ApplyEdit { .. }))
+            else {
+                unreachable!()
+            };
+            assert_eq!(params.generation, 1);
+            assert_eq!(params.params.label.as_deref(), Some("Fix"));
+            assert!(params.params.edit.changes.is_some());
+            client
+                .respond_apply_edit(
+                    id,
+                    lsp::ApplyWorkspaceEditResult {
+                        applied: true,
+                        failure_reason: None,
+                        failed_change: None,
+                    },
+                )
+                .unwrap();
+            rx
+        })
+    };
+    let response = fake
+        .apply_edit(json!({"label": "Fix", "edit": edit}), T)
+        .expect("the shell answers");
+    assert_eq!(response["result"], json!({"applied": true}));
+    let _rx = shell.join().unwrap();
+    // A malformed request is InvalidParams; any other method is MethodNotFound.
+    let bad = fake.apply_edit(json!({"edit": 3}), T).unwrap();
+    assert_eq!(bad["error"]["code"], -32602);
+    let other = fake
+        .request_shell("window/showDocument", json!({}), T)
+        .unwrap();
+    assert_eq!(other["error"]["code"], -32601);
+}
