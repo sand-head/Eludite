@@ -176,6 +176,112 @@ pub struct Hover {
     pub range: Option<Range>,
 }
 
+/// 1 = invoked, 2 = trigger character, 3 = content change (the cursor moved or the text changed while it was open).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelpContext {
+    pub trigger_kind: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_character: Option<String>,
+    pub is_retrigger: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_signature_help: Option<SignatureHelp>,
+}
+
+/// `textDocument/signatureHelp` params (schema: `protocol/schemas/host/signature-help.json`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelpParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<SignatureHelpContext>,
+}
+
+/// A parameter's label: a substring of the signature label, or `[start, end)` UTF-16 offsets into it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ParameterLabel {
+    Simple(String),
+    Offsets([u32; 2]),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParameterInformation {
+    pub label: ParameterLabel,
+    /// `string` or `MarkupContent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureInformation {
+    pub label: String,
+    /// `string` or `MarkupContent`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documentation: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<Vec<ParameterInformation>>,
+    /// Overrides [`SignatureHelp::active_parameter`] for this signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_parameter: Option<u32>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelp {
+    pub signatures: Vec<SignatureInformation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_signature: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_parameter: Option<u32>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl SignatureInformation {
+    /// The `[start, end)` byte range of parameter `index` in [`SignatureInformation::label`]: a string label is
+    /// searched after the opening parenthesis (then anywhere), UTF-16 offsets are converted.
+    pub fn parameter_range(&self, index: usize) -> Option<std::ops::Range<usize>> {
+        let label = &self.label;
+        match &self.parameters.as_ref()?.get(index)?.label {
+            ParameterLabel::Simple(p) if !p.is_empty() => {
+                // Parameters appear in order; start after the previous parameter's match.
+                let mut from = label.find('(').map_or(0, |i| i + 1);
+                for prev in 0..index {
+                    if let Some(r) = self.parameter_range(prev) {
+                        from = from.max(r.end);
+                    }
+                }
+                label[from..]
+                    .find(p.as_str())
+                    .map(|i| from + i..from + i + p.len())
+                    .or_else(|| label.find(p.as_str()).map(|i| i..i + p.len()))
+            }
+            ParameterLabel::Simple(_) => None,
+            ParameterLabel::Offsets([s, e]) => {
+                let byte = |units: u32| {
+                    let mut n = 0u32;
+                    for (i, ch) in label.char_indices() {
+                        if n >= units {
+                            return Some(i);
+                        }
+                        n += ch.len_utf16() as u32;
+                    }
+                    (n >= units).then_some(label.len())
+                };
+                let (s, e) = (byte(*s)?, byte(*e)?);
+                (s <= e).then_some(s..e)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DefinitionResponse {
@@ -368,6 +474,13 @@ forwarded_request!(
     "textDocument/hover",
     TextDocumentPositionParams,
     Option<Hover>
+);
+forwarded_request!(
+    /// `textDocument/signatureHelp`.
+    SignatureHelpRequest,
+    "textDocument/signatureHelp",
+    SignatureHelpParams,
+    Option<SignatureHelp>
 );
 forwarded_request!(
     /// `textDocument/definition`.
@@ -576,6 +689,70 @@ mod tests {
             json!({"contents": {"kind": "markdown", "value": "int x"},
                    "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}}),
         );
+    }
+
+    #[test]
+    fn signature_help() {
+        round_trip(
+            &WithGeneration {
+                params: SignatureHelpParams {
+                    text_document: doc(),
+                    position: pos(4, 18),
+                    context: Some(SignatureHelpContext {
+                        trigger_kind: 2,
+                        trigger_character: Some(",".into()),
+                        is_retrigger: true,
+                        active_signature_help: None,
+                    }),
+                },
+                generation: 3,
+            },
+            json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 4, "character": 18},
+                   "context": {"triggerKind": 2, "triggerCharacter": ",", "isRetrigger": true},
+                   "eluditeGeneration": 3}),
+        );
+        let roslyn = json!({"signatures": [
+            {"label": "void Console.WriteLine(string format, object? arg0)",
+             "documentation": {"kind": "plaintext", "value": "Writes."},
+             "parameters": [{"label": "string format", "documentation": "The format."},
+                            {"label": "object? arg0"}]},
+            {"label": "void M(int a, int b)", "parameters": [{"label": [7, 12]}, {"label": [14, 19]}],
+             "activeParameter": 1}],
+            "activeSignature": 0, "activeParameter": 1});
+        let parsed: Option<SignatureHelp> = serde_json::from_value(roslyn.clone()).unwrap();
+        let help = parsed.clone().unwrap();
+        assert_eq!(help.active_parameter, Some(1));
+        let s0 = &help.signatures[0];
+        assert_eq!(&s0.label[s0.parameter_range(0).unwrap()], "string format");
+        assert_eq!(&s0.label[s0.parameter_range(1).unwrap()], "object? arg0");
+        let s1 = &help.signatures[1];
+        assert_eq!(&s1.label[s1.parameter_range(0).unwrap()], "int a");
+        assert_eq!(&s1.label[s1.parameter_range(1).unwrap()], "int b");
+        assert_eq!(s1.parameter_range(2), None);
+        assert_eq!(s1.active_parameter, Some(1));
+        round_trip(&parsed, roslyn);
+        round_trip(&None::<SignatureHelp>, Value::Null);
+        // Repeated parameter text resolves to successive occurrences.
+        let twice = SignatureInformation {
+            label: "M(int x, int x)".into(),
+            documentation: None,
+            parameters: Some(vec![
+                ParameterInformation {
+                    label: ParameterLabel::Simple("int x".into()),
+                    documentation: None,
+                    extra: Map::new(),
+                },
+                ParameterInformation {
+                    label: ParameterLabel::Simple("int x".into()),
+                    documentation: None,
+                    extra: Map::new(),
+                },
+            ]),
+            active_parameter: None,
+            extra: Map::new(),
+        };
+        assert_eq!(twice.parameter_range(0), Some(2..7));
+        assert_eq!(twice.parameter_range(1), Some(9..14));
     }
 
     #[test]

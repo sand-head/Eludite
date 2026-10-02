@@ -188,6 +188,7 @@ requests additionally carry `eluditeGeneration`.
 | `textDocument/completion` | request | [completion](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion) | Result `CompletionList` or `CompletionItem[]` or `null` |
 | `completionItem/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#completionItem_resolve) | Params are a `CompletionItem` plus `eluditeGeneration` |
 | `textDocument/hover` | request | [hover](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover) | |
+| `textDocument/signatureHelp` | request | [signatureHelp](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_signatureHelp) | Typed since brief 0013; schema [signature-help.json](host/signature-help.json). Result `SignatureHelp` or `null` |
 | `textDocument/definition` | request | [definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition) | Result `Location`, `Location[]`, `LocationLink[]` or `null` |
 | `textDocument/references` | request | [references](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_references) | |
 | `textDocument/documentSymbol` | request | [documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) | Hierarchical `DocumentSymbol[]` (the host advertises hierarchical support) |
@@ -198,6 +199,17 @@ requests additionally carry `eluditeGeneration`.
 The typed requests are validated before forwarding: a missing `textDocument.uri` (or `query` for
 `workspace/symbol`, `label` for `completionItem/resolve`) is -32602.
 
+Typed requests have no schema file of their own except where Eludite reads members LSP leaves loose:
+[`host/signature-help.json`](host/signature-help.json) for `textDocument/signatureHelp` (brief 0013). The shell reads
+`signatures[].label`, `parameters[].label` (a substring of the signature label, or `[start, end)` UTF-16 offsets into
+it), `documentation` (a string or `MarkupContent`), `activeSignature` and `activeParameter` (also per signature).
+
+How the shell uses the IntelliSense requests (brief 0013): `textDocument/completion`, `completionItem/resolve`,
+`textDocument/hover` and `textDocument/signatureHelp` are sent after a pending `didChange` for the document, so they
+see the text the user sees. A newer request of the same kind for a document cancels the older one with
+`$/cancelRequest`; a result is dropped when it is not the newest request's, or when the generation or the document
+version it was computed for is no longer current. Completion documentation is resolved lazily, for the selected item.
+
 ### Forwarded LSP methods, untyped
 
 Forwarded verbatim (after the generation check) with no Eludite typing. `eludite-protocol` exposes them only as raw
@@ -205,7 +217,6 @@ JSON. Requests still require `eluditeGeneration`.
 
 | Method | Kind |
 |---|---|
-| `textDocument/signatureHelp` | request, forwarded, untyped |
 | `textDocument/typeDefinition` | request, forwarded, untyped |
 | `textDocument/implementation` | request, forwarded, untyped |
 | `textDocument/documentHighlight` | request, forwarded, untyped |

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-signature-help.output.json",
+  "title": "eludite.editor.signature_help output",
+  "description": "The Parameter Info tooltip. From the UI thread this is the state right after the request was sent; from another thread the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state",
+    "signatures"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column of the caret.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`, `open` (the tooltip is shown) or `closed` (no call around the caret).",
+      "enum": [
+        "loading",
+        "open",
+        "closed"
+      ]
+    },
+    "signatures": {
+      "description": "The overloads, as the language server lists them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "label",
+          "parameters"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "documentation": {
+            "type": "string"
+          },
+          "parameters": {
+            "description": "Each parameter's label as it appears in `label`.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "active_signature": {
+      "description": "0-based index of the signature shown.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "active_parameter": {
+      "description": "0-based index of the highlighted parameter.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

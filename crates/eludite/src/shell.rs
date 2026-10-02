@@ -8,6 +8,9 @@
 mod documents;
 pub mod error_list;
 pub mod explorer;
+pub mod intellisense;
+#[cfg(test)]
+mod intellisense_tests;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -145,6 +148,14 @@ pub struct Shell {
     diagnostics: BTreeMap<String, Vec<lsp::Diagnostic>>,
     /// The solution's load diagnostics (`eludite/solution/status`).
     host_diagnostics: Vec<HostDiagnostic>,
+    /// The language server's state and the solution's load state for the current generation: whether IntelliSense
+    /// asks the server, the syntax fallback, or both (brief 0013).
+    ls_state: Option<LanguageServerState>,
+    solution_state: Option<SolutionState>,
+    features: intellisense::ServerFeatures,
+    completion_timings: Vec<intellisense::CompletionTiming>,
+    /// Agents waiting for an IntelliSense answer: woken whenever an editor changes.
+    intellisense_waiters: Vec<futures::channel::oneshot::Sender<()>>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -263,9 +274,29 @@ impl Shell {
                 {
                     let _ = loaded.await;
                 }
-                let outcome = this
-                    .update_in(cx, |shell, window, cx| shell.apply(request, window, cx))
+                let mut outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply(request.clone(), window, cx)
+                    })
                     .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                // An agent asking for IntelliSense gets the answer, not the request: wait for it (up to 5 s), checking
+                // again whenever an editor changes.
+                let mut deadline = cx.background_executor().timer(intellisense::AGENT_WAIT);
+                while outcome.as_ref().is_ok_and(|o| o.is_loading()) {
+                    let Ok(changed) = this.update(cx, |shell, _| shell.intellisense_waiter())
+                    else {
+                        break;
+                    };
+                    if let futures::future::Either::Right(_) =
+                        futures::future::select(changed, &mut deadline).await
+                    {
+                        break;
+                    }
+                    match this.update(cx, |shell, cx| shell.intellisense_state(&request, cx)) {
+                        Ok(Some(o)) => outcome = o,
+                        _ => break,
+                    }
+                }
                 let _ = reply.send(outcome);
             }
         });
@@ -291,6 +322,11 @@ impl Shell {
             generation: 0,
             diagnostics: BTreeMap::new(),
             host_diagnostics: Vec::new(),
+            ls_state: None,
+            solution_state: None,
+            features: Default::default(),
+            completion_timings: Vec::new(),
+            intellisense_waiters: Vec::new(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -302,6 +338,16 @@ impl Shell {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
+    }
+
+    /// The active document tab's id (its path).
+    pub fn active_document(&self) -> Option<String> {
+        self.controller.active_document()
+    }
+
+    /// When the steps of each completion happened (oldest first, at most 4096).
+    pub fn completion_timings(&self) -> &[intellisense::CompletionTiming] {
+        &self.completion_timings
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -488,6 +534,34 @@ impl Shell {
                 query,
                 case_sensitive,
             } => self.find(path.as_deref(), query, case_sensitive, window, cx),
+            WorkspaceRequest::Complete {
+                path,
+                line,
+                column,
+                trigger,
+            } => self.complete_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                trigger,
+                cx,
+            ),
+            WorkspaceRequest::AcceptCompletion { path, label } => {
+                self.accept_completion_command(path.as_deref(), label.as_deref(), cx)
+            }
+            WorkspaceRequest::Hover { path, line, column } => {
+                self.hover_command(path.as_deref(), line.map(|l| (l, column.unwrap_or(1))), cx)
+            }
+            WorkspaceRequest::SignatureHelp {
+                path,
+                line,
+                column,
+                trigger,
+            } => self.signature_help_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                trigger,
+                cx,
+            ),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),
@@ -550,6 +624,10 @@ impl Shell {
                 );
             }
             SessionEvent::LanguageServer(s) => {
+                self.ls_state = Some(s.state);
+                if let Some(caps) = &s.capabilities {
+                    self.features = intellisense::ServerFeatures::from_capabilities(caps);
+                }
                 let text = match s.state {
                     LanguageServerState::Starting => "C#: starting\u{2026}".to_owned(),
                     LanguageServerState::Running => format!(
@@ -576,9 +654,16 @@ impl Shell {
                     // A new generation: everything computed under the old one is stale (CLAUDE.md invariant 12).
                     self.generation = status.generation;
                     self.diagnostics.clear();
-                    for doc in self.documents.values() {
+                    for doc in self.documents.values_mut() {
                         doc.clear_diagnostics(cx);
+                        doc.intellisense.cancel_all();
                     }
+                }
+                let was_loaded = self.solution_state == Some(SolutionState::Loaded);
+                self.solution_state =
+                    (status.state != SolutionState::Closed).then_some(status.state);
+                if status.state == SolutionState::Loaded && !was_loaded {
+                    self.refresh_fallback_lists(cx);
                 }
                 let name = Path::new(&status.path)
                     .file_name()
@@ -651,6 +736,7 @@ impl Shell {
             SessionEvent::Diagnostics(params) => self.on_diagnostics(params, cx),
             SessionEvent::Closed => {
                 self.solution = None;
+                self.solution_state = None;
                 self.diagnostics.clear();
                 self.host_diagnostics.clear();
                 for doc in self.documents.values() {

@@ -142,12 +142,12 @@ public sealed class LspProxyTests : IAsyncDisposable
         await InitializeAsync();
 
         var result = await _client.InvokeWithParameterObjectAsync<JsonElement>(
-            "textDocument/signatureHelp",
+            "textDocument/typeDefinition",
             new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 1, character = 2 }, custom = "kept", eluditeGeneration = 0 },
             Ct);
 
-        Assert.Equal("M(int x)", result.GetProperty("signatures")[0].GetProperty("label").GetString());
-        var forwarded = _fake.Last("textDocument/signatureHelp")!.Value;
+        Assert.Equal("file:///b.cs", result[0].GetProperty("uri").GetString());
+        var forwarded = _fake.Last("textDocument/typeDefinition")!.Value;
         Assert.Equal("kept", forwarded.GetProperty("custom").GetString());
         Assert.False(forwarded.TryGetProperty(LspProxy.GenerationProperty, out _));
     }
@@ -173,6 +173,26 @@ public sealed class LspProxyTests : IAsyncDisposable
             "textDocument/hover", new { position = new { line = 0, character = 0 }, eluditeGeneration = 0 }, Ct));
 
         Assert.Equal(HostErrors.InvalidParams, code);
+    }
+
+    [Fact]
+    public async Task SignatureHelp_IsTypedAndValidated()
+    {
+        await InitializeAsync();
+
+        Assert.Contains("textDocument/signatureHelp", LspProxy.TypedRequests);
+        Assert.DoesNotContain("textDocument/signatureHelp", LspProxy.UntypedRequests);
+        var (code, _) = await TestRpc.ErrorOfAsync(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/signatureHelp", new { position = new { line = 0, character = 0 }, eluditeGeneration = 0 }, Ct));
+        Assert.Equal(HostErrors.InvalidParams, code);
+        Assert.Null(_fake.Last("textDocument/signatureHelp"));
+
+        var result = await _client.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/signatureHelp",
+            new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 1, character = 2 }, eluditeGeneration = 0 },
+            Ct);
+        Assert.Equal("M(int x)", result.GetProperty("signatures")[0].GetProperty("label").GetString());
+        Assert.False(_fake.Last("textDocument/signatureHelp")!.Value.TryGetProperty(LspProxy.GenerationProperty, out _));
     }
 
     [Fact]
