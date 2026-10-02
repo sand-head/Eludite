@@ -1,6 +1,6 @@
 # Brief 0006: Native Rust ACP adapter for Claude Code
 
-Status: open
+Status: done (Linux). Report: [0006-report.md](0006-report.md)
 Plan reference: PLAN.md sections 2 (principles 2, 5, 7), 5.2, 13 (risk 9)
 Related ADR: ADR-0003
 Depends on: brief 0005 (report: docs/briefs/0005-report.md)

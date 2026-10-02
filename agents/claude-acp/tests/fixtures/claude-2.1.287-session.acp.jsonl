@@ -1,0 +1,97 @@
+{"prompt":"List the current errors in the Error List and tell me which file has the most."}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"I'll p"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ull the I"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"DE's diagnostics"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" list and tally err"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ors by file."}}}
+{"from":"stream_event","update":{"sessionUpdate":"tool_call","toolCallId":"toolu_redacted_01","title":"ToolSearch","name":"ToolSearch","rawInput":{},"_meta":{"claudeCode":{"toolName":"ToolSearch"}}}}
+{"from":"assistant","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_01","kind":"other","title":"ToolSearch","rawInput":{"query":"select:mcp__niello__diagnostics-list","max_results":1},"_meta":{"claudeCode":{"toolName":"ToolSearch"}}}}
+{"from":"user","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_01","status":"completed","content":[{"type":"content","content":{"type":"text","text":"Tool: mcp__niello__diagnostics-list"}}],"rawOutput":[{"type":"tool_reference","tool_name":"mcp__niello__diagnostics-list"}],"_meta":{"claudeCode":{"toolName":"ToolSearch"}}}}
+{"from":"stream_event","update":{"sessionUpdate":"tool_call","toolCallId":"toolu_redacted_02","title":"mcp__niello__diagnostics-list","name":"mcp__niello__diagnostics-list","rawInput":{},"_meta":{"claudeCode":{"toolName":"mcp__niello__diagnostics-list"}}}}
+{"from":"assistant","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_02","kind":"other","title":"mcp__niello__diagnostics-list","rawInput":{"severity":"error"},"_meta":{"claudeCode":{"toolName":"mcp__niello__diagnostics-list"}}}}
+{"from":"user","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_02","status":"completed","content":[{"type":"content","content":{"type":"text","text":"{\"result\":[{\"code\":\"CS0103\",\"column\":17,\"line\":42,\"message\":\"The name 'orderTotal' does not exist in the current context\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS1002\",\"column\":34,\"line\":57,\"message\":\"; expected\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS0029\",\"column\":24,\"line\":88,\"message\":\"Cannot implicitly convert type 'string' to 'int'\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS0246\",\"column\":9,\"line\":15,\"message\":\"The type or namespace name 'DiscountPolicy' could not be found (are you missing a using directive or an assembly reference?)\",\"path\":\"src/Contoso.Core/Services/PricingService.cs\",\"severity\":\"error\"}]}"}}],"rawOutput":"{\"result\":[{\"code\":\"CS0103\",\"column\":17,\"line\":42,\"message\":\"The name 'orderTotal' does not exist in the current context\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS1002\",\"column\":34,\"line\":57,\"message\":\"; expected\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS0029\",\"column\":24,\"line\":88,\"message\":\"Cannot implicitly convert type 'string' to 'int'\",\"path\":\"src/Contoso.Web/Controllers/OrderController.cs\",\"severity\":\"error\"},{\"code\":\"CS0246\",\"column\":9,\"line\":15,\"message\":\"The type or namespace name 'DiscountPolicy' could not be found (are you missing a using directive or an assembly reference?)\",\"path\":\"src/Contoso.Core/Services/PricingService.cs\",\"severity\":\"error\"}]}","_meta":{"claudeCode":{"toolName":"mcp__niello__diagnostics-list"}}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Error List has "}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"4 errors across"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" two files. `"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"src/Contoso."}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Web/Controllers/O"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"rderController.cs` has"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" the most, with 3 of"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" them.\n\n| File | Line"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Col | Code | Message"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" |\n|---|---|---"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"|---|\n| src/"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Contoso.Web/"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Controllers/OrderController"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":".cs | 42:17"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" | CS0103 |"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" The name 'orderTot"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"al' does not exist in the"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" current context |\n| src/"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Contoso.Web/"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Controllers/OrderController"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":".cs | 57:34"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" | CS1002 |"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" ; expected |\n| src"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"/Contoso.Web"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"/Controllers/Or"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"derController.cs | 88"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":24 | CS0029"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" | Cannot implic"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"itly convert type 'string"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"' to 'int' |"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n| src/Contoso."}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Core/Services/Pric"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ingService.cs | 15"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":9 | CS0246"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" | The type or namespace"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" name 'DiscountP"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"olicy' could not be found"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" |"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n\nCount by"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" file:\n\n- OrderController"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":".cs: 3 err"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ors"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n- PricingService.cs"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":": 1 error\n\nNote"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" that the missing semicolon"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" on line 57 of"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" OrderController.cs is"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" a sy"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ntax error."}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" The other two err"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ors in that file may be casc"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ading from it and"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" could"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" disappear once that"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" line"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" is fixed."}}}
+{"turn_end":"end_turn"}
+{"prompt":"Create a file named notes.txt in the current directory containing the word hello."}
+{"from":"stream_event","update":{"sessionUpdate":"tool_call","toolCallId":"toolu_redacted_03","title":"Write","name":"Write","kind":"edit","rawInput":{},"_meta":{"claudeCode":{"toolName":"Write"}}}}
+{"from":"assistant","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_03","kind":"edit","title":"Write notes.txt","content":[{"type":"diff","path":"/work/notes.txt","newText":"hello\n"}],"locations":[{"path":"/work/notes.txt"}],"rawInput":{"file_path":"/work/notes.txt","content":"hello\n"},"_meta":{"claudeCode":{"toolName":"Write"}}}}
+{"from":"user","update":{"sessionUpdate":"tool_call_update","toolCallId":"toolu_redacted_03","status":"failed","content":[{"type":"content","content":{"type":"text","text":"The user denied this tool call."}}],"rawOutput":"The user denied this tool call.","_meta":{"claudeCode":{"toolName":"Write"}}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"The write"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" to not"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"es.txt was decl"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ined, so the"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" file was not created."}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Nothing in the direct"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"ory changed.\n\nIf you'"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"d like it"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" created a"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" different way, such"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" as via a shell command, or"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" at"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" a different path, let me know and"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" I'll do that."}}}
+{"turn_end":"end_turn"}
+{"prompt":"Count from 1 to 300, one number per line, with no other text."}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"1"}}}
+{"cancel":true}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n2\n3\n4\n5"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n6\n7\n8\n9"}}}
+{"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n10\n11\n12\n13"}}}
+{"turn_end":"cancelled"}

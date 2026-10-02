@@ -297,7 +297,7 @@ fn login_required_surfaces_auth_methods_and_error() {
     let m = &init.auth_methods[0];
     assert_eq!(m.kind.as_deref(), Some("terminal"));
     assert_eq!(
-        niello_acp::default_agents()[0].terminal_auth_command(m),
+        niello_acp::npx_claude_agent().terminal_auth_command(m),
         "npx -y @agentclientprotocol/claude-agent-acp@0.85.0 --cli auth login --claudeai"
     );
     let s = h.client.new_session(Path::new("/work"), vec![], T).unwrap();
