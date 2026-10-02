@@ -43,6 +43,8 @@ pub(super) struct Ws {
     pub controller: DockController,
     pub fake: FakeHost,
     pub dir: TempDir,
+    /// The folders Open Containing Folder handed to the file manager (brief 0020).
+    pub opened: Arc<std::sync::Mutex<Vec<PathBuf>>>,
 }
 
 /// A one-project solution on disk, its tree in the fake host, and the shell.
@@ -126,6 +128,14 @@ pub(super) fn setup_debug(
             dotnet: "dotnet".into(),
         });
     }
+    let opened: Arc<std::sync::Mutex<Vec<PathBuf>>> = Arc::default();
+    if let Some(s) = services.as_mut() {
+        let record = opened.clone();
+        s.folder_opener = Arc::new(move |folder: &Path| {
+            record.lock().unwrap().push(folder.to_path_buf());
+            Ok(())
+        });
+    }
     let commands = Arc::new(commands);
     let window = cx.update(|cx| {
         bind_keymap(cx, &vs_keymap());
@@ -158,6 +168,7 @@ pub(super) fn setup_debug(
         controller,
         fake,
         dir,
+        opened,
     }
 }
 
