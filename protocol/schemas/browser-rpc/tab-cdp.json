@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-cdp.json",
+  "title": "tab/cdp",
+  "description": "Shell-to-engine notification: one Chrome DevTools Protocol message for the tab's DevTools agent (CefBrowserHost::SendDevToolsMessage). `message` is the CDP command object as on a DevTools websocket: `{id, method, params}`; the tab is the page target, so there is no sessionId. The answer and the events arrive as tab/cdpEvent.",
+  "x-eludite-method": "tab/cdp",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "message"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "object",
+          "required": [
+            "id",
+            "method"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "method": {
+              "type": "string"
+            },
+            "params": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-resize.json",
+  "title": "tab/resize",
+  "description": "Change a tab's view size or scale. The next frame has the new size; when it does not fit the tab's region, the engine first sends tab/resized with a larger one.",
+  "x-eludite-method": "tab/resize",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "description": "CSS pixels.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "height": {
+          "description": "CSS pixels.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "scale": {
+          "description": "Device scale factor: device pixels per CSS pixel. Default 1.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 8
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}
