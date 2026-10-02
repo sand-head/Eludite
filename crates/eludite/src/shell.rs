@@ -1204,6 +1204,11 @@ impl Shell {
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
                 self.publish_tree(&tree);
+                documents::trace(format_args!(
+                    "tree generation {}: {} projects",
+                    tree.generation,
+                    tree.projects.len()
+                ));
                 if let Some(f) = self.folder.as_mut() {
                     // The solution's node of the open folder (brief 0019).
                     f.tree = Some(tree);
@@ -1212,11 +1217,6 @@ impl Shell {
                     cx.notify();
                     return;
                 }
-                documents::trace(format_args!(
-                    "tree generation {}: {} projects",
-                    tree.generation,
-                    tree.projects.len()
-                ));
                 match SolutionModel::from_tree(&tree) {
                     Some(model) => {
                         // Show where the active document is (Visual Studio's Track Active Item).
