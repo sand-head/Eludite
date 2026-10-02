@@ -14,6 +14,8 @@
 //!   `<config dir>/eludite/breakpoints/solutions/`, written off the UI thread.
 
 pub mod state;
+#[cfg(test)]
+mod tests;
 pub mod windows;
 
 use std::cell::RefCell;
@@ -274,7 +276,7 @@ enum Pending {
 #[derive(Debug, Clone, Default)]
 pub struct DebugTimings {
     /// `eludite.debug.start` applied.
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub start: Option<Instant>,
     /// The first break of the session was shown (locals loaded).
     pub first_break: Option<Instant>,
@@ -628,7 +630,7 @@ fn launch_thread(job: LaunchJob) {
 }
 
 impl Shell {
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn debugger(&self) -> &Debugger {
         &self.debug
     }

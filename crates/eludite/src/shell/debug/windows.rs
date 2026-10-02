@@ -187,7 +187,7 @@ impl VarsWindow {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn rows(&self) -> &[FlatRow] {
         &self.rows
     }
@@ -367,7 +367,7 @@ impl CallStackWindow {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn rows(&self) -> &[StackRow] {
         &self.rows
     }
@@ -443,7 +443,7 @@ impl ThreadsWindow {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn rows(&self) -> &[ThreadLine] {
         &self.rows
     }
@@ -521,7 +521,7 @@ impl BreakpointsWindow {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn rows(&self) -> &[BreakpointRow] {
         &self.rows
     }
@@ -842,7 +842,7 @@ impl ConsoleWindow {
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn lines(&self) -> &VecDeque<String> {
         &self.lines
     }
