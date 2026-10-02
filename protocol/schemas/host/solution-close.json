@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/solution-close.json",
+  "title": "niello/solution/close",
+  "description": "Close the open solution. Increments the generation when a solution was open; otherwise returns the current one.",
+  "x-niello-method": "niello/solution/close",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

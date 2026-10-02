@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Threading.Channels;
 using Niello.Host.Lsp;
 using Niello.Host.Rpc;
 using StreamJsonRpc;
@@ -7,8 +8,9 @@ using StreamJsonRpc;
 namespace Niello.Host.Tests;
 
 /// <summary>
-/// Brief 0002 proving test: drives the real niello-host process, with the Roslyn language server built by
-/// tools/roslyn-pin, against the generated 200-project solution from bench/roslyn-200.
+/// Brief 0002 and 0007 proving test: drives the real niello-host process, with the Roslyn language server built by
+/// tools/roslyn-pin, against the generated 200-project solution from bench/roslyn-200, through the bridge contract
+/// (protocol/schemas/host-rpc.md): renamed lifecycle, solution generations, host-side semantics warming.
 /// Skipped (with a message) when either is absent, so a fresh clone stays green.
 /// </summary>
 public sealed class RoslynIntegrationTests
@@ -43,53 +45,82 @@ public sealed class RoslynIntegrationTests
         var stderr = host.StandardError.ReadToEndAsync(Ct);
         try
         {
-            using var rpc = HostServer.CreateConnection(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
-            var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            rpc.AddLocalRpcMethod("workspace/projectInitializationComplete", new Action(() => loaded.TrySetResult()));
+            using var rpc = TestRpc.Create(host.StandardInput.BaseStream, host.StandardOutput.BaseStream);
+            var loaded = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var published = Channel.CreateUnbounded<(JsonElement Params, bool AfterLoad)>();
+            TestRpc.On(rpc, "niello/solution/status", s =>
+            {
+                if (s.GetProperty("state").GetString() is "loaded" or "failed")
+                {
+                    loaded.TrySetResult(s.Clone());
+                }
+            });
+            TestRpc.On(rpc, "textDocument/publishDiagnostics", d => published.Writer.TryWrite((d.Clone(), loaded.Task.IsCompleted)));
             rpc.StartListening();
 
             var init = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
-                "initialize", new { clientName = "integration-test", clientVersion = "0", solutionPath = p.GetProperty("solution").GetString() }, Ct);
+                "niello/host/initialize", new { clientName = "integration-test", clientVersion = "0" }, Ct);
             Assert.Equal("niello-host", init.GetProperty("hostName").GetString());
+            Assert.True(init.GetProperty("capabilities").GetProperty("languageServer").GetBoolean());
             var ping = await rpc.InvokeWithCancellationAsync<JsonElement>("niello/ping", [], Ct);
             Assert.True(ping.GetProperty("pong").GetBoolean());
             var info = await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/info", [], Ct);
             Assert.Equal(JsonValueKind.Array, info.GetProperty("dotnetSdks").ValueKind);
+            var opened = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
+                "niello/solution/open", new { path = p.GetProperty("solution").GetString() }, Ct);
+            var generation = opened.GetProperty("generation").GetInt64();
+            Assert.Equal(1, generation);
 
             var uri = new Uri(file).AbsoluteUri;
             var text = await File.ReadAllTextAsync(file, Ct);
             await rpc.NotifyWithParameterObjectAsync("textDocument/didOpen", new { textDocument = new { uri, languageId = "csharp", version = 1, text } });
-            await loaded.Task.WaitAsync(TimeSpan.FromMinutes(5), Ct);
+            var status = await loaded.Task.WaitAsync(TimeSpan.FromMinutes(5), Ct);
+            Assert.Equal("loaded", status.GetProperty("state").GetString());
+            Assert.Equal(generation, status.GetProperty("generation").GetInt64());
+            Assert.Equal(200, status.GetProperty("counts").GetProperty("projects").GetInt32());
 
-            // Editor behavior: pull diagnostics for the open document once the solution is loaded. Roslyn's
-            // completion runs on frozen-partial semantics; this pull is what compiles the dependency chain.
-            await rpc.NotifyWithParameterObjectAsync("textDocument/didChange", new { textDocument = new { uri, version = 2 }, contentChanges = new[] { new { text } } });
-            await rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri } }, Ct);
-
-            var completion = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
-                "textDocument/completion",
-                new
+            // Brief 0002's failure case: the shell sends no diagnostic pull of its own. The host's warming pull after
+            // the load (published as textDocument/publishDiagnostics) is what gives Roslyn's frozen-partial completion
+            // the referenced projects' compilations, so the very first completion on a type from a project six
+            // references away must list its members.
+            using (var wait = CancellationTokenSource.CreateLinkedTokenSource(Ct))
+            {
+                wait.CancelAfter(TimeSpan.FromMinutes(2));
+                while (true)
                 {
-                    textDocument = new { uri },
-                    position = new { line = p.GetProperty("line").GetInt32(), character = p.GetProperty("character").GetInt32() },
-                    context = new { triggerKind = 2, triggerCharacter = "." },
-                },
-                Ct);
-            Assert.Equal(JsonValueKind.Object, completion.ValueKind);
-            var labels = completion.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("label").GetString()).ToList();
+                    var (d, afterLoad) = await published.Reader.ReadAsync(wait.Token);
+                    if (afterLoad && d.GetProperty("uri").GetString() == uri)
+                    {
+                        Assert.Equal(1, d.GetProperty("version").GetInt32());
+                        Assert.Equal(generation, d.GetProperty("nielloGeneration").GetInt64());
+                        break;
+                    }
+                }
+            }
+
+            var labels = await CompleteAsync(rpc, uri, p, generation);
             Assert.Contains(p.GetProperty("expectLabel").GetString(), labels);
 
+            // A new document version keeps working without waiting for its own (debounced) warming pull.
+            await rpc.NotifyWithParameterObjectAsync("textDocument/didChange", new { textDocument = new { uri, version = 2 }, contentChanges = new[] { new { text = text + "// edit\n" } } });
+            Assert.Contains(p.GetProperty("expectLabel").GetString(), await CompleteAsync(rpc, uri, p, generation));
+
+            // A stale generation is rejected without being forwarded.
+            var (staleCode, staleData) = await TestRpc.ErrorOfAsync(() => CompleteAsync(rpc, uri, p, generation - 1));
+            Assert.Equal(HostErrors.ContentModified, staleCode);
+            Assert.Equal(generation, staleData!.Value.GetProperty("currentGeneration").GetInt64());
+
             // A canceled request (a diagnostic pull on a new document version) comes back within 50 ms, as an error.
-            await rpc.NotifyWithParameterObjectAsync("textDocument/didChange", new { textDocument = new { uri, version = 3 }, contentChanges = new[] { new { text = text + "// edit\n" } } });
+            await rpc.NotifyWithParameterObjectAsync("textDocument/didChange", new { textDocument = new { uri, version = 3 }, contentChanges = new[] { new { text = text + "// edit 2\n" } } });
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-            var slow = rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri } }, cts.Token);
+            var slow = rpc.InvokeWithParameterObjectAsync<JsonElement>("textDocument/diagnostic", new { textDocument = new { uri }, nielloGeneration = generation }, cts.Token);
             var sw = Stopwatch.StartNew();
             await cts.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => slow);
             Assert.True(sw.ElapsedMilliseconds < 50, $"cancellation took {sw.ElapsedMilliseconds} ms");
 
-            await rpc.InvokeWithCancellationAsync<JsonElement>("shutdown", [], Ct);
-            await rpc.NotifyAsync("exit");
+            await rpc.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
+            await rpc.NotifyAsync("niello/host/exit");
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             Assert.Equal(0, host.ExitCode);
         }
@@ -103,6 +134,22 @@ public sealed class RoslynIntegrationTests
             var log = await stderr;
             TestContext.Current.TestOutputHelper?.WriteLine(log.Length > 4000 ? log[^4000..] : log);
         }
+    }
+
+    private static async Task<List<string?>> CompleteAsync(JsonRpc rpc, string uri, JsonElement probe, long generation)
+    {
+        var completion = await rpc.InvokeWithParameterObjectAsync<JsonElement>(
+            "textDocument/completion",
+            new
+            {
+                textDocument = new { uri },
+                position = new { line = probe.GetProperty("line").GetInt32(), character = probe.GetProperty("character").GetInt32() },
+                context = new { triggerKind = 2, triggerCharacter = "." },
+                nielloGeneration = generation,
+            },
+            Ct);
+        Assert.Equal(JsonValueKind.Object, completion.ValueKind);
+        return completion.GetProperty("items").EnumerateArray().Select(i => i.GetProperty("label").GetString()).ToList();
     }
 
     private static string? FindProbe()

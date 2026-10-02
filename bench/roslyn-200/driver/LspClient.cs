@@ -14,6 +14,8 @@ internal sealed class LspClient : IAsyncDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonObject>> _pending = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonNode?>> _notifications = new();
+    private readonly List<(string Method, Func<JsonNode?, bool> Match, TaskCompletionSource<JsonNode?> Tcs)> _waiters = new();
+    private readonly ConcurrentQueue<(long Timestamp, JsonNode? Params)> _diagnostics = new();
     private readonly Task _reader;
     private long _nextId;
 
@@ -29,6 +31,21 @@ internal sealed class LspClient : IAsyncDisposable
 
     public Task<JsonNode?> WaitForNotification(string method) =>
         _notifications.GetOrAdd(method, _ => new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+
+    /// <summary>Completes with the first notification of <paramref name="method"/> (from now on) that matches.</summary>
+    public Task<JsonNode?> WaitForNotification(string method, Func<JsonNode?, bool> match)
+    {
+        var tcs = new TaskCompletionSource<JsonNode?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_waiters)
+        {
+            _waiters.Add((method, match, tcs));
+        }
+
+        return tcs.Task;
+    }
+
+    /// <summary>Every textDocument/publishDiagnostics received, with its Stopwatch timestamp.</summary>
+    public IReadOnlyCollection<(long Timestamp, JsonNode? Params)> Diagnostics => _diagnostics;
 
     public (long Id, Task<JsonObject> Response) Send(string method, JsonNode? parameters)
     {
@@ -139,7 +156,25 @@ internal sealed class LspClient : IAsyncDisposable
 
         if (message["method"]?.GetValue<string>() is { } method && !message.ContainsKey("id"))
         {
-            _notifications.GetOrAdd(method, _ => new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult(message["params"]?.DeepClone());
+            var p = message["params"];
+            if (method == "textDocument/publishDiagnostics")
+            {
+                _diagnostics.Enqueue((Stopwatch.GetTimestamp(), p?.DeepClone()));
+            }
+
+            _notifications.GetOrAdd(method, _ => new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult(p?.DeepClone());
+            lock (_waiters)
+            {
+                for (var i = _waiters.Count - 1; i >= 0; i--)
+                {
+                    var (m, match, tcs) = _waiters[i];
+                    if (m == method && match(p))
+                    {
+                        tcs.TrySetResult(p?.DeepClone());
+                        _waiters.RemoveAt(i);
+                    }
+                }
+            }
         }
     }
 
