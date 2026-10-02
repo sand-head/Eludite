@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eludite_commands::{CommandRegistry, view};
+use eludite_ui::vertical_text::{RotatedLabelCache, rotated_label};
 use eludite_ui::{RunCommand, Theme};
 use gpui::{
     AnyElement, AppContext as _, Context, Entity, InteractiveElement, IntoElement, Modifiers,
@@ -312,6 +313,65 @@ fn auto_hide_fly_out_and_pin(cx: &mut TestAppContext) {
     assert_eq!(audit.first().map(String::as_str), Some(view::AUTO_HIDE));
     assert!(audit.contains(&view::DOCK.to_owned()));
     assert!(audit.iter().all(|c| c.starts_with("eludite.view.")));
+}
+
+#[gpui::test]
+fn side_strip_tabs_draw_titles_rotated_clockwise(cx: &mut TestAppContext) {
+    let mut h = open(cx, default_layout(), None);
+    h.click("hide-workspace");
+    // Toolbox on the left (VS default) and Workspace on the right: each tab
+    // is a tall, narrow box holding the rotated title.
+    for sel in ["strip-toolbox", "strip-workspace"] {
+        let b = h.bounds(sel);
+        assert!(
+            b.size.height > b.size.width * 2.,
+            "{sel} is a vertical tab: {b:?}"
+        );
+    }
+    let small = Theme::vs_dark().typography.small;
+    let built = h.vcx.update(|window, cx| {
+        let font = window.text_style().font();
+        let cache = cx.global::<RotatedLabelCache>();
+        let built = cache.len();
+        let label = cache
+            .get("Toolbox", &font, small)
+            .expect("the Toolbox tab built its rotated label");
+        assert!(label.size.height > label.size.width, "{:?}", label.size);
+        // Same inputs, same label: no second build.
+        let again = rotated_label(&"Toolbox".into(), &font, small, window, cx);
+        assert!(Arc::ptr_eq(&label, &again));
+        assert_eq!(cx.global::<RotatedLabelCache>().len(), built);
+        // Rasterized the way the sprite atlas does it, at the window's scale
+        // factor: non-empty, taller than wide, and the ink runs top to bottom.
+        let image = cx
+            .svg_renderer()
+            .render_single_frame(&label.svg, window.scale_factor())
+            .expect("the label SVG rasterizes");
+        let (w, h) = (
+            image.size(0).width.0 as usize,
+            image.size(0).height.0 as usize,
+        );
+        assert!(w > 0 && h > w, "image is {w}x{h}");
+        let px = image.as_bytes(0).unwrap();
+        let (mut x0, mut x1, mut y0, mut y1) = (w, 0, h, 0);
+        for (i, p) in px.as_chunks::<4>().0.iter().enumerate() {
+            if p[3] > 0 {
+                let (x, y) = (i % w, i / w);
+                (x0, x1, y0, y1) = (x0.min(x), x1.max(x), y0.min(y), y1.max(y));
+            }
+        }
+        assert!(x1 >= x0, "the label has ink");
+        assert!(
+            y1 - y0 > 2 * (x1 - x0),
+            "ink is taller than wide: x {x0}..{x1}, y {y0}..{y1}"
+        );
+        built
+    });
+    // Later frames reuse the cache.
+    h.hover("strip-toolbox");
+    h.click("documents");
+    let after = h.vcx.update(|_, cx| cx.global::<RotatedLabelCache>().len());
+    assert_eq!(after, built);
 }
 
 #[gpui::test]

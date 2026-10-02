@@ -16,6 +16,8 @@
 //! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
 //! - [`dialog`]: the frame of a modal dialog, push buttons, and the light bulb menu's rows and glyphs.
 //! - [`diff`]: the line diff, its hunks and the inline diff rows of the pending-change review view.
+//! - [`vertical_text`]: text rotated 90 degrees clockwise ([`vertical_label`]) for
+//!   the auto-hide strips on the left and right edges.
 //! - [`transcript`]: the Agents window's transcript rows: prompts, agent text, thinking, tool call cards with their
 //!   status, plans and notices.
 //!
@@ -33,6 +35,7 @@ pub mod status;
 mod theme;
 pub mod transcript;
 pub mod tree;
+pub mod vertical_text;
 
 pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};
 pub use elements::{
@@ -48,3 +51,4 @@ pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slots};
 pub use theme::{Theme, Typography};
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};
+pub use vertical_text::{VerticalLabel, vertical_label};

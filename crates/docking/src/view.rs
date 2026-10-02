@@ -24,7 +24,7 @@ use std::time::Instant;
 
 use eludite_commands::{CommandError, CommandRegistry, view, workspace};
 use eludite_ui::elements::TabStyle;
-use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
+use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab, vertical_label};
 use futures::StreamExt as _;
 use gpui::{
     AnyElement, App, Bounds as PxBounds, Context, Entity, FontWeight, InteractiveElement,
@@ -511,13 +511,13 @@ impl DockHost {
                     let title = self.snap.registry.title(id).to_owned();
                     let open = self.snap.flyout.as_deref() == Some(id.as_str());
                     let label: AnyElement = match side {
-                        // No rotated text in GPUI: stack the letters, as close
-                        // to VS's vertical tabs as it gets.
+                        // VS's vertical tabs: the title rotated 90 degrees
+                        // clockwise, reading top to bottom, on both edges.
                         DockSide::Left | DockSide::Right => div()
                             .flex()
-                            .flex_col()
-                            .items_center()
-                            .children(title.chars().map(|c| div().child(c.to_string())))
+                            .justify_center()
+                            .py_1()
+                            .child(vertical_label(title.clone()))
                             .into_any_element(),
                         DockSide::Bottom => div().child(title.clone()).into_any_element(),
                     };
