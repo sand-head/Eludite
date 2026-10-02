@@ -1,6 +1,6 @@
 # Brief 0023: Browser automation over CDP against an external Chrome: tabs, navigation and reading the page
 
-Status: open
+Status: in progress
 Phase: 2 (proposal 0002, brief A, first half)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 5, 6), 3 (D2, D3), 4.9, 5.1, 5.3, 5.4, 5.8, 9, 10 (Phase 2), 12; proposal 0002 sections 2 (the last row: an external Chrome as the first proving step), 4.1, 4.2, 4.3 (`evaluate` only), 5, 6, 7, 8 (A)
 Related ADRs: ADR-0002, ADR-0003, ADR-0008
