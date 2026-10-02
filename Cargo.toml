@@ -15,6 +15,7 @@ members = [
     "crates/terminal",
     "crates/extensions",
     "protocol/rust",
+    "protocol/cdp/generator",
     "extension-sdk",
     "debuggers/netfx",
 ]

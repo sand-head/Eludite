@@ -1563,6 +1563,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eludite-cdp-generator"
+version = "0.1.0"
+dependencies = [
+ "eludite-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "eludite-commands"
 version = "0.1.0"
 dependencies = [
