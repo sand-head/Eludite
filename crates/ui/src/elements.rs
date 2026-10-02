@@ -1,11 +1,38 @@
 //! Small stateless elements shared by the docking view and the shell.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
-    Div, FontWeight, HighlightStyle, InteractiveElement, ParentElement, SharedString, Stateful,
-    Styled, StyledText, div, px,
+    AnyElement, Bounds, Div, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
+    ParentElement, Pixels, SharedString, Stateful, Styled, StyledText, canvas, div, px,
 };
+
+/// Where probed elements were drawn, by key (the real-input drivers of the manual runs read it through
+/// `eludite --bounds-out`).
+pub type BoundsMap = Rc<RefCell<BTreeMap<String, Bounds<Pixels>>>>;
+
+/// When `map` is set, an invisible canvas filling its (relative) parent that records the parent's bounds under
+/// `key`.
+pub fn bounds_canvas(map: Option<&BoundsMap>, key: impl Into<String>) -> Option<AnyElement> {
+    let map = map?.clone();
+    let key = key.into();
+    Some(
+        canvas(
+            move |bounds, _, _| {
+                map.borrow_mut().insert(key, bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
 
 use crate::Theme;
 
@@ -94,6 +121,45 @@ pub fn toggle_button(
             .text_color(theme.text_muted)
             .hover(|s| s.bg(theme.menu_hover))
     }
+}
+
+/// A check box with its label (the Options dialog's switches, brief 0020): Visual Studio's square, checked or not,
+/// with element id `id`. The caller adds the click handler.
+pub fn check_box(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    checked: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let selector = id.clone();
+    let square = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .w(px(13.))
+        .h(px(13.))
+        .border_1()
+        .border_color(if checked { theme.accent } else { theme.border })
+        .bg(theme.background)
+        .text_size(theme.typography.small)
+        .text_color(theme.text)
+        .child(if checked { "\u{2713}" } else { "" });
+    div()
+        .id(id)
+        .debug_selector(move || selector.to_string())
+        .flex()
+        .flex_row()
+        .flex_none()
+        .items_center()
+        .gap_2()
+        .h(px(20.))
+        .text_size(theme.typography.ui)
+        .text_color(theme.text)
+        .cursor_pointer()
+        .child(square)
+        .child(label.into())
 }
 
 /// A one-line text box (the Error List's search box): `text`, or `placeholder` muted when empty, with a caret

@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-status.json",
+  "title": "eludite/build/status",
+  "description": "The running build, if any, with its output so far, and the last finished build. A shell that (re)connects to the host calls it to recover a build it did not see start or finish: it replays `running.output.text` into the Output window, then applies eludite/build/output chunks whose seq is at least `running.output.nextSeq` (chunks sent before the reply was read are already in the text). Allowed before eludite/host/initialize (it then reports no build). Never fails.",
+  "x-eludite-method": "eludite/build/status",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null or an empty object.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "running"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "running": {
+          "description": "The build that runs, or null. Its first members are those of the eludite/build/start result.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "buildId",
+            "generation",
+            "path",
+            "target",
+            "configuration",
+            "toolchain",
+            "commandLine",
+            "elapsedMs",
+            "output"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "buildId": {
+              "description": "The build's id, unique within one host process, from 1.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "generation": {
+              "description": "The solution generation the build started under.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "system": {
+              "description": "msbuild (omitted means msbuild).",
+              "enum": [
+                "msbuild"
+              ]
+            },
+            "path": {
+              "description": "The solution or project file being built.",
+              "type": "string",
+              "minLength": 1
+            },
+            "target": {
+              "enum": [
+                "build",
+                "rebuild",
+                "clean"
+              ]
+            },
+            "configuration": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platform": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "toolchain": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "dotnet",
+                    "mono",
+                    "buildTools"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                }
+              }
+            },
+            "binlog": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "commandLine": {
+              "type": "string"
+            },
+            "elapsedMs": {
+              "description": "Time since the build started.",
+              "type": "number",
+              "minimum": 0
+            },
+            "progress": {
+              "description": "The last eludite/build/progress sent for it (omitted before the first).",
+              "type": "object",
+              "required": [
+                "buildId",
+                "elapsedMs",
+                "projectsTotal",
+                "projectsCompleted",
+                "errors",
+                "warnings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "buildId": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "elapsedMs": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "projectsTotal": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "projectsCompleted": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "errors": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "warnings": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "currentProject": {
+                  "type": "string"
+                }
+              }
+            },
+            "output": {
+              "description": "The build's output so far, as the eludite/build/output chunks firstSeq to nextSeq - 1 carried it, concatenated. The host keeps the last 8 MiB of a running build's output; older whole chunks are dropped (truncated true, firstSeq above 0).",
+              "type": "object",
+              "required": [
+                "firstSeq",
+                "nextSeq",
+                "text",
+                "truncated"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "firstSeq": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "nextSeq": {
+                  "description": "The seq of the next eludite/build/output chunk for this build.",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "text": {
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "last": {
+          "description": "The last finished build of this host process: its eludite/build/finished params without the diagnostics list (omitted when no build has finished). A shell that missed the finished notification shows the result; the diagnostics come from the next build.",
+          "type": "object",
+          "required": [
+            "buildId",
+            "generation",
+            "target",
+            "path",
+            "result",
+            "elapsedMs",
+            "summary"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "buildId": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target": {
+              "enum": [
+                "build",
+                "rebuild",
+                "clean"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "result": {
+              "enum": [
+                "succeeded",
+                "failed",
+                "canceled"
+              ]
+            },
+            "elapsedMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "summary": {
+              "type": "object",
+              "required": [
+                "projectsSucceeded",
+                "projectsFailed",
+                "errors",
+                "warnings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "projectsSucceeded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "projectsFailed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "errors": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "warnings": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

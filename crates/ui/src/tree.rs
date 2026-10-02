@@ -3,7 +3,7 @@
 //! keeps the expanded set and adds ids and handlers.
 
 use gpui::{
-    App, ClickEvent, Div, InteractiveElement, ParentElement, SharedString, Stateful,
+    App, ClickEvent, Div, FontWeight, InteractiveElement, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Window, div, px,
 };
 
@@ -24,6 +24,8 @@ pub struct TreeRowStyle {
     pub selected: bool,
     /// Drawn muted (an unavailable project).
     pub muted: bool,
+    /// Drawn bold (the startup project, as Visual Studio shows it).
+    pub bold: bool,
 }
 
 /// One tree row: `[indent][triangle][glyph] label`, with element id `id`. Clicking the triangle calls `on_toggle`
@@ -82,6 +84,11 @@ pub fn tree_row(
                 .child(g)
         }))
         .child(label.into());
+    let row = if style.bold {
+        row.font_weight(FontWeight::BOLD)
+    } else {
+        row
+    };
     if style.selected {
         row.bg(theme.accent).text_color(theme.text_on_accent)
     } else {

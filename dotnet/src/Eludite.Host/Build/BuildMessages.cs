@@ -113,3 +113,25 @@ public sealed record BuildFinishedParams(
 
     public string? Message { get; init; }
 }
+
+/// <summary><c>eludite/build/status</c>: a running build's output so far (chunks <see cref="FirstSeq"/> to <see cref="NextSeq"/> - 1).</summary>
+public sealed record BuildStatusOutput(long FirstSeq, long NextSeq, string Text, bool Truncated);
+
+/// <summary><c>eludite/build/status</c>: the running build, with the members of its start result.</summary>
+public sealed record BuildStatusRunning(long BuildId, long Generation, string Path, string Target, string Configuration, BuildToolchain Toolchain, string CommandLine, double ElapsedMs, BuildStatusOutput Output)
+{
+    public string? Platform { get; init; }
+
+    public string? Binlog { get; init; }
+
+    public BuildProgressParams? Progress { get; init; }
+}
+
+/// <summary><c>eludite/build/status</c>: the last finished build, without its diagnostics.</summary>
+public sealed record BuildStatusLast(long BuildId, long Generation, string Target, string Path, string Result, double ElapsedMs, BuildSummary Summary);
+
+/// <summary><c>eludite/build/status</c> result.</summary>
+public sealed record BuildStatusResult([property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] BuildStatusRunning? Running)
+{
+    public BuildStatusLast? Last { get; init; }
+}

@@ -142,6 +142,10 @@ public sealed class HostRpcTarget
         return Build.Cancel(parameters);
     }
 
+    /// <summary>Allowed before <c>eludite/host/initialize</c>: no build can run before it, so the answer is empty.</summary>
+    [JsonRpcMethod("eludite/build/status", UseSingleObjectParameterDeserialization = true)]
+    public BuildStatusResult BuildStatus(object? parameters = null) => Build.Status();
+
     [JsonRpcMethod("eludite/host/shutdown")]
     public void Shutdown()
     {

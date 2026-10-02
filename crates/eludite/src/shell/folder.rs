@@ -211,6 +211,7 @@ impl Shell {
             },
             ticket,
         });
+        self.update_settings_dir();
         self.timings = super::Timings {
             open: Some(now),
             ..Default::default()
@@ -367,6 +368,7 @@ impl Shell {
                     dependencies: None,
                     files: p.files.iter().map(|f| f.path.clone()).collect(),
                     error: p.error.clone(),
+                    startup: None,
                 });
             }
         }
@@ -418,6 +420,7 @@ impl Shell {
                                     })
                                     .unwrap_or_default(),
                                 error: None,
+                                startup: None,
                             });
                         }
                     }
@@ -440,6 +443,7 @@ impl Shell {
                                 dependencies: None,
                                 files: Vec::new(),
                                 error: Some(why.clone()),
+                                startup: None,
                             });
                         }
                     }
@@ -470,6 +474,7 @@ impl Shell {
                             })
                             .unwrap_or_default(),
                         error: None,
+                        startup: None,
                     });
                 }
                 if f.listing.is_none() {
@@ -495,6 +500,17 @@ impl Shell {
                     (Some(_), None, _) => "loading",
                 }
                 .into();
+            }
+        }
+        // The startup project (brief 0020).
+        if let Some(startup) = self
+            .startup_project()
+            .map(|p| super::documents::normalize_path(&p))
+        {
+            for p in out.projects.iter_mut().filter(|p| p.kind == "csproj") {
+                if super::documents::normalize_path(Path::new(&p.path)) == startup {
+                    p.startup = Some(true);
+                }
             }
         }
         *self

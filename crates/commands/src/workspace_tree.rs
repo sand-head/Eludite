@@ -50,6 +50,9 @@ pub struct WorkspaceProject {
     pub files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The startup project (brief 0020): `Some(true)` on that one project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup: Option<bool>,
 }
 
 /// `workspace-tree.output.json`.
@@ -140,6 +143,7 @@ mod tests {
                         dependencies: None,
                         files: vec!["/w/dotnet/src/Eludite.Host/Program.cs".into()],
                         error: None,
+                        startup: None,
                     },
                     WorkspaceProject {
                         name: "eludite-editor".into(),
@@ -156,6 +160,7 @@ mod tests {
                         dependencies: Some(vec!["rope".into()]),
                         files: vec!["/w/crates/editor/src/buffer.rs".into()],
                         error: None,
+                        startup: None,
                     },
                 ],
             }),

@@ -126,6 +126,21 @@ pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App)
                 // Elements not drawn any more drop out on the next frame.
                 p.bounds.clear();
                 drop(p);
+                // The menu bar's titles and items, and the Options dialog's (brief 0020's manual run).
+                let ui = cx.update(|cx| shell.read(cx).ui_bounds().cloned());
+                if let Some(ui) = ui {
+                    for (k, b) in std::mem::take(&mut *ui.borrow_mut()) {
+                        map.insert(
+                            k,
+                            json!([
+                                f32::from(b.origin.x),
+                                f32::from(b.origin.y),
+                                f32::from(b.size.width),
+                                f32::from(b.size.height)
+                            ]),
+                        );
+                    }
+                }
                 // Where the active editor's caret is drawn, for pointing at text (brief 0013's hover run).
                 let caret = cx.update(|cx| {
                     let s = shell.read(cx);

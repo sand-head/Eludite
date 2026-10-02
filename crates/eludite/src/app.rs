@@ -112,7 +112,13 @@ pub fn run(args: Args, t_main: Instant) {
         view::register(&mut commands, Arc::new(controller.clone()))
             .expect("view commands register once");
         // The host starts on the first solution open, never at startup.
-        let mut services = crate::shell::register_workspace(&mut commands, HostLaunch::locate());
+        let mut services = crate::shell::register_workspace(
+            &mut commands,
+            HostLaunch::locate(),
+            crate::settings::SettingsSetup::from_env(
+                &eludite_commands::settings::SettingsSchema::builtin(),
+            ),
+        );
         services.agents.preferred = args.agent.clone();
         services.agents.transcript_out = args.transcript_out.clone();
         if let Some(fake) = &args.bench_agent_stream {
