@@ -248,6 +248,7 @@ pub fn run(args: Args, t_main: Instant) {
             let bench_navigate = args.bench_navigate;
             let bench_refactor = args.bench_refactor;
             let bench_build = args.bench_build;
+            let bench_debug = args.bench_debug;
             let _ = window.update(cx, |shell, window, cx| {
                 if let Some(solution) = &solution {
                     shell.run(
@@ -278,11 +279,14 @@ pub fn run(args: Args, t_main: Instant) {
                 if let (Some(count), Some(file)) = (bench_navigate, open_file.clone()) {
                     bench::navigate(cx.entity(), file, count, window, cx);
                 }
-                if let (Some(count), Some(file)) = (bench_refactor, open_file) {
+                if let (Some(count), Some(file)) = (bench_refactor, open_file.clone()) {
                     bench::refactor(cx.entity(), file, count, window, cx);
                 }
                 if let Some(count) = bench_build {
                     bench::build_keys(cx.entity(), count, window, cx);
+                }
+                if let (Some(sessions), Some(file)) = (bench_debug, open_file) {
+                    bench::debug(cx.entity(), file, sessions, window, cx);
                 }
             });
         }

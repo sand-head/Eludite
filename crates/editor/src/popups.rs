@@ -891,6 +891,27 @@ impl EditorView {
         id
     }
 
+    /// Open a data tip (brief 0018) for the expression at `range` (byte offsets), in Quick Info's popup: answer it
+    /// with [`EditorView::set_hover`] quoting the returned id. A data tip opened by the mouse closes when the mouse
+    /// leaves the expression, like Quick Info.
+    pub fn open_data_tip(&mut self, range: Range<usize>, cx: &mut Context<Self>) -> u64 {
+        let id = self.popups.next_id();
+        let from_mouse = self.popups.mouse_hover.take().is_some();
+        let buffer = self.editor.buffer();
+        let len = buffer.len();
+        self.popups.hover = Some(HoverState {
+            id,
+            offset: range.start.min(len),
+            range: buffer.anchor_before(range.start.min(len))
+                ..buffer.anchor_after(range.end.min(len)),
+            loading: true,
+            rendered: None,
+            from_mouse,
+        });
+        cx.notify();
+        id
+    }
+
     /// Answer Quick Info request `id` with Markdown; `None` or blank closes it. `range` (offsets) is the text it
     /// describes, which keeps a mouse hover open while the mouse stays on it.
     pub fn set_hover(

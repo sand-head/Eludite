@@ -85,6 +85,16 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       Ctrl+Shift+B, wait for the build to finish; report key
                       to the first Output line on screen and the host's
                       finished notification to the Error List rows on screen
+  --bench-debug N     with --solution and --open-file: once loaded, set a
+                      breakpoint on the first line of the file containing
+                      `ELUDITE_BENCH_BREAK` (default: Ping's first statement in
+                      HostRpcTarget.cs) and run N debugging sessions of the
+                      startup project (F5): each writes `ELUDITE_BENCH_PINGS`
+                      (default 20) eludite/ping requests into the debuggee's
+                      stdin (Linux), steps over twice at each break (F10) and
+                      continues; then Shift+F5. Report F5 to the first break,
+                      step round trips, frame cost while stepping, and the
+                      Locals window drawing 200 variables
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -123,6 +133,8 @@ pub struct Args {
     pub bench_output: Option<u64>,
     /// `--bench-build N` (brief 0017).
     pub bench_build: Option<usize>,
+    /// `--bench-debug N` (brief 0018).
+    pub bench_debug: Option<usize>,
 }
 
 impl Args {
@@ -144,6 +156,11 @@ impl Args {
                 "--no-persist" => a.no_persist = true,
                 "-h" | "--help" => a.help = true,
                 "--bench-start" => a.bench_start = true,
+                "--bench-debug" => {
+                    let n = value("--bench-debug")?;
+                    a.bench_debug =
+                        Some(n.parse().map_err(|_| format!("bad session count `{n}`"))?);
+                }
                 "--bench-drag" => {
                     let n = value("--bench-drag")?;
                     a.bench_drag = Some(n.parse().map_err(|_| format!("bad frame count `{n}`"))?);
@@ -220,6 +237,7 @@ impl Args {
             || self.bench_diff.is_some()
             || self.bench_output.is_some()
             || self.bench_build.is_some()
+            || self.bench_debug.is_some()
     }
 }
 

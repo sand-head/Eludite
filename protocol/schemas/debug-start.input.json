@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-start.input.json",
+  "title": "eludite.debug.start input",
+  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): run the startup project's built program (`dotnet` on its DLL) with its launchSettings.json profile's arguments and environment, under the netcoredbg debug adapter or, without debugging, with its output in the Debug Console. Build the project first; this command does not build. Refused while a session is running (use eludite.debug.continue to resume a break).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project to run: its path (absolute or relative to the solution folder) or its name as the Workspace window shows it. Default: the startup project, the solution's first executable project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "debug": {
+      "description": "False runs without the debugger (Ctrl+F5). Default true.",
+      "type": "boolean"
+    },
+    "profile": {
+      "description": "The launchSettings.json profile to use. Default: the first profile whose commandName is Project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "wait_ms": {
+      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    }
+  }
+}
