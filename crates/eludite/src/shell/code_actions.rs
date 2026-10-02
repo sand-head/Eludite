@@ -250,7 +250,6 @@ pub struct ApplyStatus {
 
 /// When the steps of one light bulb happened (the `--bench-lightbulb` harness and the report).
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct LightbulbTiming {
     /// The caret came to rest (the debounce started).
     pub moved: Option<Instant>,
@@ -388,12 +387,10 @@ impl CodeActionMenu {
             .collect()
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn selected(&self) -> usize {
         self.selected
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn list(&self) -> &ActionList {
         &self.list
     }
@@ -864,6 +861,15 @@ impl Shell {
             MenuEvent::Dismissed => shell.close_code_action_menu(window, cx),
         })
         .detach();
+        trace(format_args!(
+            "code action menu: selected {:?}; {:?}",
+            menu.read(cx).list().actions[menu.read(cx).selected()].title,
+            menu.read(cx)
+                .visible()
+                .iter()
+                .map(|&i| menu.read(cx).list().actions[i].title.clone())
+                .collect::<Vec<_>>()
+        ));
         menu.focus_handle(cx).focus(window, cx);
         self.code_actions.menu = Some(menu);
         self.finish_menu(MenuState::Open, None, cx);
@@ -1223,7 +1229,6 @@ impl Shell {
     }
 
     /// The light bulb timings so far (oldest first).
-    #[allow(dead_code)]
     pub fn lightbulb_timings(&self) -> &[LightbulbTiming] {
         &self.code_actions.timings
     }

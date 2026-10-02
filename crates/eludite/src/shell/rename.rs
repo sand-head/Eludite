@@ -115,7 +115,6 @@ pub struct RenameStatus {
 
 /// When the steps of a rename happened (the `--bench-rename` harness and the report).
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)]
 pub struct RenameTiming {
     /// `textDocument/rename` written and its reply read.
     pub sent: Option<Instant>,
@@ -1136,13 +1135,11 @@ impl Shell {
     }
 
     /// The rename timings so far (oldest first).
-    #[allow(dead_code)]
     pub fn rename_timings(&self) -> &[RenameTiming] {
         &self.rename.timings
     }
 
     /// The Rename dialog, while it is open.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn rename_dialog(&self) -> Option<&Entity<RenameDialog>> {
         self.rename.dialog.as_ref()
     }

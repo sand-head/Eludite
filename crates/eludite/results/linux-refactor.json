@@ -1,0 +1,594 @@
+{
+ "brief": "0015",
+ "drive": {
+  "rename": {
+   "mode": "rename",
+   "loaded_ms": 1790937068567,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+   "prepare": "prepareRename 1: \"Ping\"",
+   "prepare_ms": 72,
+   "preview": "rename 2: 1 edits in 1 files (host 417.3 ms)",
+   "shot_preview": "rename-preview.png",
+   "applied": "workspace edit Some(\"Rename 'Ping' to 'PingHost'\") in 0.1 ms: applied true, 1 edits in 1 files (1 open, 0 on disk) None",
+   "trace": [
+    "didChange file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version 2",
+    "workspace edit Some(\"Rename 'Ping' to 'PingHost'\") in 0.1 ms: applied true, 1 edits in 1 files (1 open, 0 on disk) None",
+    "codeAction 9 (light bulb) at 66:23 version 2",
+    "codeAction reply 9: 2 actions (host 80.3 ms)",
+    "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(2): 2 (0 errors)"
+   ],
+   "shot_applied": "rename-applied.png"
+  },
+  "action": {
+   "mode": "action",
+   "loaded_ms": 1790937082500,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version Some(1): 1 (0 errors)",
+   "lightbulb": "codeAction reply 30: 24 actions (host 184.9 ms)",
+   "shot_lightbulb": "lightbulb.png",
+   "menu": "code action menu: selected \"Use primary constructor\"; [\"Use primary constructor\", \"Use primary constructor (and remove fields)\", \"Suppress or configure issues\", \"Use expression body for constructor\"]",
+   "shot_menu": "code-action-menu.png",
+   "applied": "workspace edit Some(\"Use primary constructor\") in 0.2 ms: applied true, 2 edits in 1 files (1 open, 0 on disk) None",
+   "trace": [
+    "codeAction/resolve 31: edit true (host 222.7 ms)",
+    "didChange file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version 2",
+    "workspace edit Some(\"Use primary constructor\") in 0.2 ms: applied true, 2 edits in 1 files (1 open, 0 on disk) None",
+    "codeAction 32 (light bulb) at 5:42 version 2",
+    "codeAction reply 32: 5 actions (host 88.1 ms)",
+    "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version Some(2): 0 (0 errors)"
+   ],
+   "shot_applied": "primary-constructor.png"
+  },
+  "completion": {
+   "mode": "completion",
+   "loaded_ms": 1790937096736,
+   "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version Some(1): 1 (0 errors)",
+   "completion": "completion reply 15: 1000 items (host 26.1 ms)",
+   "shot_list": "completion-list.png",
+   "accepted": "accept completion \"StringBuilder\"",
+   "additional": "completion: 1 additional edits applied",
+   "trace": [
+    "didChange file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version 28",
+    "codeAction 39 (light bulb) at 17:28 version 28",
+    "didChange file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version 29",
+    "codeAction 40 (light bulb) at 17:29 version 29",
+    "codeAction reply 40: 10 actions (host 79.6 ms)",
+    "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs version Some(29): 2 (0 errors)",
+    "codeAction 41 (light bulb) at 0:0 version 29",
+    "codeAction reply 41: 0 actions (host 5.6 ms)"
+   ],
+   "shot_using": "completion-using.png"
+  }
+ },
+ "drive_loadavg": [
+  "x11-definition 11.69 6.18 4.31",
+  "x11-references 9.61 5.99 4.28",
+  "x11-errors 7.97 5.81 4.25",
+  "navigate-1 6.58 5.61 4.20",
+  "x11-rename 9.04 5.51 3.56",
+  "x11-action 7.69 5.38 3.55",
+  "x11-completion 6.56 5.25 3.54",
+  ""
+ ],
+ "bench": [
+  {
+   "bench": "refactor_in_shell",
+   "method": "light bulb: the caret moves between two positions with code actions; caret_stop_to_visible = caret moved to the end of the present of the frame showing the bulb (includes the 50 ms debounce); host = request written to reply read; ui = caret moved to request written less the debounce + reply read to bulb set + render to present. typing: 300 keys in a comment with the bulb active; frame cost = key handler + next frame's render to present. rename preview: one letter typed per run in the Rename dialog; name_change_to_visible includes the 150 ms debounce; host = textDocument/rename written to reply read; ui = key to request written less the debounce + reply read to preview handed to the dialog + render to present. apply: eludite.workspace.apply_edit of three empty inserts into each of 10 closed files (rewritten atomically with the same bytes); invoke to summary",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs",
+   "lightbulb": {
+    "positions": [
+     "DotnetCliSdkDiscoverer(",
+     "DiscoverAsync"
+    ],
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 50.0,
+    "kind_at_end": "Fix",
+    "actions": {
+     "n": 100,
+     "p50_ms": 2.0,
+     "p95_ms": 24.0,
+     "p99_ms": 24.0,
+     "max_ms": 24.0
+    },
+    "caret_moved_to_probe": {
+     "n": 100,
+     "p50_ms": 0.028,
+     "p95_ms": 0.055,
+     "p99_ms": 0.066,
+     "max_ms": 0.079
+    },
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 30.629,
+     "p95_ms": 66.582,
+     "p99_ms": 112.237,
+     "max_ms": 129.02
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.648,
+     "p95_ms": 5.965,
+     "p99_ms": 6.492,
+     "max_ms": 6.828
+    },
+    "caret_stop_to_visible": {
+     "n": 100,
+     "p50_ms": 85.903,
+     "p95_ms": 120.477,
+     "p99_ms": 166.414,
+     "max_ms": 183.466
+    }
+   },
+   "typing_with_lightbulb": {
+    "keystrokes": 300,
+    "lightbulb_requests": 12,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.643,
+     "p95_ms": 3.949,
+     "p99_ms": 5.513,
+     "max_ms": 6.289
+    }
+   },
+   "rename_preview": {
+    "symbol": "_dotnetPath",
+    "dialog_opened": true,
+    "edits": 3,
+    "files": 1,
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 150.0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 11.9,
+     "p95_ms": 14.579,
+     "p99_ms": 39.756,
+     "max_ms": 46.118
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 6.213,
+     "p95_ms": 7.203,
+     "p99_ms": 8.027,
+     "max_ms": 8.376
+    },
+    "name_change_to_visible": {
+     "n": 100,
+     "p50_ms": 168.342,
+     "p95_ms": 171.635,
+     "p99_ms": 196.2,
+     "max_ms": 202.461
+    }
+   },
+   "apply_10_closed_files": {
+    "files": [
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/BuildToolsInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/CommandLineMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/DesignTimeProperties.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/FailureClassifier.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/InProcessMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyDesignTime.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyProjectEvaluation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/PathCaseFixups.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/ReferenceAssemblies.cs"
+    ],
+    "failed": 0,
+    "invoke_to_summary": {
+     "n": 20,
+     "p50_ms": 17.39,
+     "p95_ms": 18.706,
+     "p99_ms": 19.137,
+     "max_ms": 19.137
+    }
+   },
+   "rss": {
+    "rss_mib": 99.8,
+    "peak_rss_mib": 99.8
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-990326",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "refactor_in_shell",
+   "method": "light bulb: the caret moves between two positions with code actions; caret_stop_to_visible = caret moved to the end of the present of the frame showing the bulb (includes the 50 ms debounce); host = request written to reply read; ui = caret moved to request written less the debounce + reply read to bulb set + render to present. typing: 300 keys in a comment with the bulb active; frame cost = key handler + next frame's render to present. rename preview: one letter typed per run in the Rename dialog; name_change_to_visible includes the 150 ms debounce; host = textDocument/rename written to reply read; ui = key to request written less the debounce + reply read to preview handed to the dialog + render to present. apply: eludite.workspace.apply_edit of three empty inserts into each of 10 closed files (rewritten atomically with the same bytes); invoke to summary",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs",
+   "lightbulb": {
+    "positions": [
+     "DotnetCliSdkDiscoverer(",
+     "DiscoverAsync"
+    ],
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 50.0,
+    "kind_at_end": "Fix",
+    "actions": {
+     "n": 100,
+     "p50_ms": 2.0,
+     "p95_ms": 24.0,
+     "p99_ms": 24.0,
+     "max_ms": 24.0
+    },
+    "caret_moved_to_probe": {
+     "n": 100,
+     "p50_ms": 0.028,
+     "p95_ms": 0.057,
+     "p99_ms": 0.063,
+     "max_ms": 0.063
+    },
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 30.575,
+     "p95_ms": 69.845,
+     "p99_ms": 118.842,
+     "max_ms": 124.242
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.566,
+     "p95_ms": 5.592,
+     "p99_ms": 5.861,
+     "max_ms": 5.979
+    },
+    "caret_stop_to_visible": {
+     "n": 100,
+     "p50_ms": 85.974,
+     "p95_ms": 124.076,
+     "p99_ms": 173.436,
+     "max_ms": 178.579
+    }
+   },
+   "typing_with_lightbulb": {
+    "keystrokes": 300,
+    "lightbulb_requests": 13,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.664,
+     "p95_ms": 4.106,
+     "p99_ms": 5.659,
+     "max_ms": 6.4
+    }
+   },
+   "rename_preview": {
+    "symbol": "_dotnetPath",
+    "dialog_opened": true,
+    "edits": 3,
+    "files": 1,
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 150.0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 11.715,
+     "p95_ms": 13.912,
+     "p99_ms": 23.241,
+     "max_ms": 44.084
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 6.31,
+     "p95_ms": 7.47,
+     "p99_ms": 7.961,
+     "max_ms": 7.988
+    },
+    "name_change_to_visible": {
+     "n": 100,
+     "p50_ms": 168.297,
+     "p95_ms": 170.181,
+     "p99_ms": 179.623,
+     "max_ms": 200.997
+    }
+   },
+   "apply_10_closed_files": {
+    "files": [
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/BuildToolsInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/CommandLineMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/DesignTimeProperties.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/FailureClassifier.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/InProcessMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyDesignTime.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyProjectEvaluation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/PathCaseFixups.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/ReferenceAssemblies.cs"
+    ],
+    "failed": 0,
+    "invoke_to_summary": {
+     "n": 20,
+     "p50_ms": 17.594,
+     "p95_ms": 18.828,
+     "p99_ms": 20.237,
+     "max_ms": 20.237
+    }
+   },
+   "rss": {
+    "rss_mib": 99.6,
+    "peak_rss_mib": 99.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-990326",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  },
+  {
+   "bench": "refactor_in_shell",
+   "method": "light bulb: the caret moves between two positions with code actions; caret_stop_to_visible = caret moved to the end of the present of the frame showing the bulb (includes the 50 ms debounce); host = request written to reply read; ui = caret moved to request written less the debounce + reply read to bulb set + render to present. typing: 300 keys in a comment with the bulb active; frame cost = key handler + next frame's render to present. rename preview: one letter typed per run in the Rename dialog; name_change_to_visible includes the 150 ms debounce; host = textDocument/rename written to reply read; ui = key to request written less the debounce + reply read to preview handed to the dialog + render to present. apply: eludite.workspace.apply_edit of three empty inserts into each of 10 closed files (rewritten atomically with the same bytes); invoke to summary",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs",
+   "lightbulb": {
+    "positions": [
+     "DotnetCliSdkDiscoverer(",
+     "DiscoverAsync"
+    ],
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 50.0,
+    "kind_at_end": "Fix",
+    "actions": {
+     "n": 100,
+     "p50_ms": 2.0,
+     "p95_ms": 24.0,
+     "p99_ms": 24.0,
+     "max_ms": 24.0
+    },
+    "caret_moved_to_probe": {
+     "n": 100,
+     "p50_ms": 0.029,
+     "p95_ms": 0.057,
+     "p99_ms": 0.071,
+     "max_ms": 0.071
+    },
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 30.567,
+     "p95_ms": 70.98,
+     "p99_ms": 110.254,
+     "max_ms": 123.012
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 4.493,
+     "p95_ms": 5.567,
+     "p99_ms": 5.885,
+     "max_ms": 5.934
+    },
+    "caret_stop_to_visible": {
+     "n": 100,
+     "p50_ms": 85.657,
+     "p95_ms": 125.611,
+     "p99_ms": 164.653,
+     "max_ms": 177.132
+    }
+   },
+   "typing_with_lightbulb": {
+    "keystrokes": 300,
+    "lightbulb_requests": 13,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.627,
+     "p95_ms": 4.099,
+     "p99_ms": 5.913,
+     "max_ms": 6.134
+    }
+   },
+   "rename_preview": {
+    "symbol": "_dotnetPath",
+    "dialog_opened": true,
+    "edits": 3,
+    "files": 1,
+    "runs": 100,
+    "timeouts": 0,
+    "debounce_ms": 150.0,
+    "host_latency": {
+     "n": 100,
+     "p50_ms": 11.974,
+     "p95_ms": 14.619,
+     "p99_ms": 25.104,
+     "max_ms": 42.837
+    },
+    "ui_latency": {
+     "n": 100,
+     "p50_ms": 6.219,
+     "p95_ms": 7.086,
+     "p99_ms": 7.372,
+     "max_ms": 7.453
+    },
+    "name_change_to_visible": {
+     "n": 100,
+     "p50_ms": 168.414,
+     "p95_ms": 171.196,
+     "p99_ms": 180.576,
+     "max_ms": 198.716
+    }
+   },
+   "apply_10_closed_files": {
+    "files": [
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/BuildToolsInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/CommandLineMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/DesignTimeProperties.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/FailureClassifier.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/InProcessMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyDesignTime.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyProjectEvaluation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/PathCaseFixups.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/ReferenceAssemblies.cs"
+    ],
+    "failed": 0,
+    "invoke_to_summary": {
+     "n": 20,
+     "p50_ms": 17.613,
+     "p95_ms": 18.377,
+     "p99_ms": 20.509,
+     "max_ms": 20.509
+    }
+   },
+   "rss": {
+    "rss_mib": 100.4,
+    "peak_rss_mib": 100.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-990326",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ ],
+ "bench_loadavg": [
+  "refactor-1 2.03 3.62 3.21",
+  "refactor-2 2.48 3.43 3.18",
+  "refactor-3 1.94 3.03 3.06",
+  ""
+ ],
+ "bench_rename_multi_file": [
+  {
+   "bench": "refactor_in_shell",
+   "method": "light bulb: the caret moves between two positions with code actions; caret_stop_to_visible = caret moved to the end of the present of the frame showing the bulb (includes the 50 ms debounce); host = request written to reply read; ui = caret moved to request written less the debounce + reply read to bulb set + render to present. typing: 300 keys in a comment with the bulb active; frame cost = key handler + next frame's render to present. rename preview: one letter typed per run in the Rename dialog; name_change_to_visible includes the 150 ms debounce; host = textDocument/rename written to reply read; ui = key to request written less the debounce + reply read to preview handed to the dialog + render to present. apply: eludite.workspace.apply_edit of three empty inserts into each of 10 closed files (rewritten atomically with the same bytes); invoke to summary",
+   "file": "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Sdk/DotnetCliSdkDiscoverer.cs",
+   "lightbulb": {
+    "positions": [
+     "DotnetCliSdkDiscoverer(",
+     "DiscoverAsync"
+    ],
+    "runs": 50,
+    "timeouts": 0,
+    "debounce_ms": 50.0,
+    "kind_at_end": "Fix",
+    "actions": {
+     "n": 50,
+     "p50_ms": 2.0,
+     "p95_ms": 24.0,
+     "p99_ms": 24.0,
+     "max_ms": 24.0
+    },
+    "caret_moved_to_probe": {
+     "n": 50,
+     "p50_ms": 0.028,
+     "p95_ms": 0.036,
+     "p99_ms": 0.049,
+     "max_ms": 0.049
+    },
+    "host_latency": {
+     "n": 50,
+     "p50_ms": 34.683,
+     "p95_ms": 123.661,
+     "p99_ms": 127.378,
+     "max_ms": 127.378
+    },
+    "ui_latency": {
+     "n": 50,
+     "p50_ms": 4.353,
+     "p95_ms": 5.102,
+     "p99_ms": 6.001,
+     "max_ms": 6.001
+    },
+    "caret_stop_to_visible": {
+     "n": 50,
+     "p50_ms": 89.422,
+     "p95_ms": 178.081,
+     "p99_ms": 182.482,
+     "max_ms": 182.482
+    }
+   },
+   "typing_with_lightbulb": {
+    "keystrokes": 300,
+    "lightbulb_requests": 13,
+    "keystroke_frame_cost": {
+     "n": 300,
+     "p50_ms": 2.496,
+     "p95_ms": 4.33,
+     "p99_ms": 6.067,
+     "max_ms": 6.651
+    }
+   },
+   "rename_preview": {
+    "symbol": "ISdkDiscoverer",
+    "dialog_opened": true,
+    "edits": 5,
+    "files": 4,
+    "runs": 50,
+    "timeouts": 0,
+    "debounce_ms": 150.0,
+    "host_latency": {
+     "n": 50,
+     "p50_ms": 15.35,
+     "p95_ms": 23.033,
+     "p99_ms": 28.972,
+     "max_ms": 28.972
+    },
+    "ui_latency": {
+     "n": 50,
+     "p50_ms": 6.48,
+     "p95_ms": 7.643,
+     "p99_ms": 7.708,
+     "max_ms": 7.708
+    },
+    "name_change_to_visible": {
+     "n": 50,
+     "p50_ms": 171.967,
+     "p95_ms": 178.823,
+     "p99_ms": 186.189,
+     "max_ms": 186.189
+    }
+   },
+   "apply_10_closed_files": {
+    "files": [
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/BuildToolsInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/CommandLineMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/DesignTimeProperties.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/FailureClassifier.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/InProcessMsBuildEvaluator.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyDesignTime.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/LegacyProjectEvaluation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/PathCaseFixups.cs",
+     "/home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0015-rename-and-code-actions/dotnet/src/Eludite.Host/Legacy/ReferenceAssemblies.cs"
+    ],
+    "failed": 0,
+    "invoke_to_summary": {
+     "n": 20,
+     "p50_ms": 10.23,
+     "p95_ms": 18.116,
+     "p99_ms": 18.332,
+     "max_ms": 18.332
+    }
+   },
+   "rss": {
+    "rss_mib": 100.2,
+    "peak_rss_mib": 100.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "wayland-eludite-993500",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   }
+  }
+ ],
+ "bench_rename_multi_file_loadavg": [
+  "refactor-1 2.02 2.75 2.96",
+  ""
+ ]
+}
