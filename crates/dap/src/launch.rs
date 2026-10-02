@@ -13,7 +13,9 @@
 //!   (then `bin/<Configuration>/`); an SDK-style .NET Framework project's `<AssemblyName>.exe` there; a legacy
 //!   project's `<AssemblyName>.exe` in its `OutputPath` (default `bin\Debug\`, backslashes normalized).
 //! - **The adapter** ([`select_adapter`]): netcoredbg for CoreCLR; `eludite-dbg-mono` under the located Mono for .NET
-//!   Framework on Linux and macOS; on Windows .NET Framework needs `eludite-dbg-netfx` (brief 0004), not built yet.
+//!   Framework on Linux and macOS; on Windows .NET Framework needs `eludite-dbg-netfx` (brief 0004), not built yet;
+//!   lldb-dap for a Cargo package's native executable ([`FrameworkKind::Native`], brief 0029; its launch configuration
+//!   is [`crate::cargo`]'s, made into a [`LaunchConfig`] by [`LaunchConfig::from_cargo`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -47,6 +49,9 @@ pub enum FrameworkKind {
     CoreClr,
     /// .NET Framework 2.0 to 4.8.1.
     NetFramework,
+    /// A native executable (a Cargo package's binary or test executable), run directly and debugged with lldb-dap
+    /// (brief 0029). No target framework classifies as this.
+    Native,
 }
 
 /// Classify a target framework moniker (`net472`, `net10.0`, `netcoreapp3.1`) or a legacy `TargetFrameworkVersion`
@@ -219,6 +224,12 @@ pub fn output_program(project: &ProjectInfo, configuration: &str) -> Result<Path
     let extension = match kind {
         FrameworkKind::CoreClr => "dll",
         FrameworkKind::NetFramework => "exe",
+        FrameworkKind::Native => {
+            return Err(format!(
+                "{} is not a .NET project: a Cargo package's executable comes from its Cargo build",
+                project.name
+            ));
+        }
     };
     let file = format!("{}.{extension}", project.assembly_name);
     let candidates: Vec<PathBuf> = if project.is_legacy() && kind == FrameworkKind::NetFramework {
@@ -280,6 +291,8 @@ pub enum AdapterKind {
     Netcoredbg,
     /// `mono eludite-dbg-mono.exe`, `adapterID` `mono`.
     Mono,
+    /// lldb-dap (or CodeLLDB), `adapterID` `lldb` (brief 0029).
+    Lldb,
 }
 
 /// Why F5 on a .NET Framework project fails on Windows.
@@ -292,6 +305,7 @@ pub fn select_adapter(kind: FrameworkKind, platform: Platform) -> Result<Adapter
         (FrameworkKind::CoreClr, _) => Ok(AdapterKind::Netcoredbg),
         (FrameworkKind::NetFramework, Platform::Windows) => Err(NETFX_ON_WINDOWS.to_owned()),
         (FrameworkKind::NetFramework, _) => Ok(AdapterKind::Mono),
+        (FrameworkKind::Native, _) => Ok(AdapterKind::Lldb),
     }
 }
 
@@ -301,6 +315,7 @@ pub fn runtime_name(kind: FrameworkKind, platform: Platform) -> &'static str {
         (FrameworkKind::CoreClr, _) => "coreclr",
         (FrameworkKind::NetFramework, Platform::Windows) => "netfx",
         (FrameworkKind::NetFramework, _) => "mono",
+        (FrameworkKind::Native, _) => "native",
     }
 }
 
@@ -479,6 +494,20 @@ impl LaunchConfig {
         })
     }
 
+    /// A Cargo package's launch configuration as the shell's session sees it: the package's `Cargo.toml` as the
+    /// project, the executable as the program, [`FrameworkKind::Native`], no launch profile.
+    pub fn from_cargo(c: &crate::cargo::CargoLaunch) -> Self {
+        Self {
+            project: c.manifest.clone(),
+            program: c.program.clone(),
+            kind: FrameworkKind::Native,
+            args: c.args.clone(),
+            cwd: c.cwd.clone(),
+            env: c.env.clone(),
+            profile: None,
+        }
+    }
+
     /// The command line of Start Without Debugging for a CoreCLR program: `dotnet <dll> <args>`.
     pub fn without_debugging(&self) -> (String, Vec<String>) {
         let mut args = vec![self.program.to_string_lossy().into_owned()];
@@ -487,7 +516,8 @@ impl LaunchConfig {
     }
 
     /// The command line of Start Without Debugging on `platform`: `<dotnet> <dll> <args>` for CoreCLR; for .NET
-    /// Framework `<mono> <exe> <args>` off Windows and `<exe> <args>` on Windows. `mono` is needed off Windows only.
+    /// Framework `<mono> <exe> <args>` off Windows and `<exe> <args>` on Windows; a native executable runs as
+    /// `<exe> <args>` everywhere. `mono` is needed off Windows only.
     pub fn run_command(
         &self,
         platform: Platform,
@@ -502,7 +532,9 @@ impl LaunchConfig {
         };
         Ok(match (self.kind, platform) {
             (FrameworkKind::CoreClr, _) => (dotnet.to_owned(), with(Some(program))),
-            (FrameworkKind::NetFramework, Platform::Windows) => (program, with(None)),
+            (FrameworkKind::NetFramework, Platform::Windows) | (FrameworkKind::Native, _) => {
+                (program, with(None))
+            }
             (FrameworkKind::NetFramework, _) => {
                 let mono = mono.ok_or("running a .NET Framework program off Windows needs Mono")?;
                 (mono.to_string_lossy().into_owned(), with(Some(program)))
@@ -747,6 +779,30 @@ mod tests {
         );
         assert_eq!(runtime_name(NetFramework, Linux), "mono");
         assert_eq!(runtime_name(NetFramework, Windows), "netfx");
+        // A Cargo package's executable: lldb-dap and `native` everywhere (brief 0029).
+        for p in [Linux, MacOs, Windows] {
+            assert_eq!(select_adapter(Native, p), Ok(AdapterKind::Lldb));
+            assert_eq!(runtime_name(Native, p), "native");
+        }
+        let cargo = crate::cargo::CargoLaunch {
+            manifest: "/w/app/Cargo.toml".into(),
+            package: "app".into(),
+            target: "app".into(),
+            test: false,
+            program: "/w/target/debug/app".into(),
+            args: vec!["--fast".into()],
+            env: BTreeMap::new(),
+            cwd: "/w".into(),
+        };
+        let c = LaunchConfig::from_cargo(&cargo);
+        assert_eq!((c.kind, c.profile.clone()), (Native, None));
+        assert_eq!(c.project, Path::new("/w/app/Cargo.toml"));
+        for p in [Linux, MacOs, Windows] {
+            assert_eq!(
+                c.run_command(p, "dotnet", None).unwrap(),
+                ("/w/target/debug/app".to_owned(), vec!["--fast".to_owned()])
+            );
+        }
     }
 
     #[test]

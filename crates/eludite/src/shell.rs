@@ -1164,7 +1164,12 @@ impl Shell {
             WorkspaceRequest::ApplyEdit { edit, label } => {
                 self.apply_edit_command(edit, label, window, cx)
             }
-            WorkspaceRequest::OpenFolder { path } => self.open_folder(&path, window, cx),
+            WorkspaceRequest::OpenFolder { path } => {
+                let opened = self.open_folder(&path, window, cx);
+                // A Cargo workspace without a solution keeps its breakpoints and startup project (brief 0029).
+                self.debug_folder_opened(cx);
+                opened
+            }
             WorkspaceRequest::CloseWorkspace => self.close_workspace(window, cx),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),

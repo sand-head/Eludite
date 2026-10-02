@@ -98,6 +98,17 @@ pub struct SourceBreakpoint {
     pub hit_condition: Option<String>,
 }
 
+/// One breakpoint asked for in `setFunctionBreakpoints`: a function by name (`rust_panic`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FunctionBreakpoint {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hit_condition: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetBreakpointsArguments {
@@ -440,6 +451,26 @@ mod tests {
         .unwrap();
         assert!(mono.supports_delayed_stack_trace_loading && mono.supports_log_points);
         assert!(!mono.supports_variable_paging && !mono.supports_goto_targets_request);
+        // lldb-dap 18.1.3's answer (brief 0029, protocol/schemas/dap-lldb.md): no goto targets, no terminate request.
+        let lldb: Capabilities = serde_json::from_value(json!({
+            "completionTriggerCharacters": [".", " ", "\t"],
+            "exceptionBreakpointFilters": [{"default": false, "filter": "cpp_catch", "label": "C++ Catch"},
+                                            {"default": false, "filter": "cpp_throw", "label": "C++ Throw"}],
+            "supportTerminateDebuggee": true, "supportsCompletionsRequest": true,
+            "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true,
+            "supportsDelayedStackTraceLoading": true, "supportsDisassembleRequest": true,
+            "supportsEvaluateForHovers": true, "supportsExceptionInfoRequest": true, "supportsExceptionOptions": true,
+            "supportsFunctionBreakpoints": true, "supportsGotoTargetsRequest": false,
+            "supportsHitConditionalBreakpoints": true, "supportsLoadedSourcesRequest": false, "supportsLogPoints": true,
+            "supportsModulesRequest": true, "supportsProgressReporting": true, "supportsRestartFrame": false,
+            "supportsRestartRequest": true, "supportsRunInTerminalRequest": true, "supportsSetVariable": true,
+            "supportsStepBack": false, "supportsStepInTargetsRequest": false, "supportsValueFormattingOptions": true
+        }))
+        .unwrap();
+        assert!(lldb.supports_hit_conditional_breakpoints && lldb.supports_log_points);
+        assert!(lldb.supports_restart_request && lldb.supports_modules_request);
+        assert!(!lldb.supports_goto_targets_request && !lldb.supports_terminate_request);
+        assert_eq!(lldb.exception_breakpoint_filters[1].filter, "cpp_throw");
         let info: ExceptionInfoResponse = serde_json::from_value(json!({
             "exceptionId": "System.InvalidOperationException", "description": "boom", "breakMode": "always",
             "details": {"message": "boom", "typeName": "InvalidOperationException",

@@ -756,7 +756,7 @@ impl Render for BreakpointsWindow {
     }
 }
 
-/// The Exception Settings window: Common Language Runtime Exceptions.
+/// The Exception Settings window: Common Language Runtime Exceptions, and Rust panics (brief 0029).
 pub struct ExceptionsWindow {
     theme: Theme,
     settings: ExceptionSettingsRow,
@@ -809,6 +809,13 @@ impl Render for ExceptionsWindow {
                 "Common Language Runtime Exceptions: user-unhandled",
                 s.break_when_user_unhandled,
                 "break_when_user_unhandled",
+            ))
+            // Brief 0029: a native (Cargo) session breaks at `rust_panic`.
+            .child(row(
+                "debug-exc-rust-panic",
+                "Rust panics",
+                s.break_on_rust_panic,
+                "break_on_rust_panic",
             ))
     }
 }

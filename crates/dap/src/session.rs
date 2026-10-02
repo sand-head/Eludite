@@ -1,6 +1,6 @@
 //! The start of a debug session, in DAP's order: `initialize`, then `launch` (or `attach`) sent without waiting, then
-//! after the adapter's `initialized` event the breakpoints, the exception filters and `configurationDone`, then the
-//! `launch` answer. It waits on the adapter at every step, so it runs on a worker thread.
+//! after the adapter's `initialized` event the breakpoints, the function breakpoints (when there are any and the
+//! adapter has them), the exception filters and `configurationDone`, then the `launch` answer. It waits on the adapter at every step, so it runs on a worker thread.
 
 use std::time::{Duration, Instant};
 
@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 
 use crate::client::{DapClient, DapError};
 use crate::types::{
-    Breakpoint, Capabilities, InitializeArguments, SetBreakpointsArguments, SetBreakpointsResponse,
-    Source, SourceBreakpoint,
+    Breakpoint, Capabilities, FunctionBreakpoint, InitializeArguments, SetBreakpointsArguments,
+    SetBreakpointsResponse, Source, SourceBreakpoint,
 };
 
 /// `launch` or `attach`.
@@ -38,6 +38,9 @@ pub struct StartPlan {
     pub arguments: Value,
     /// Breakpoints per source path.
     pub breakpoints: Vec<(String, Vec<SourceBreakpoint>)>,
+    /// Function breakpoints (the Rust panics row's `rust_panic`, brief 0029), sent with `setFunctionBreakpoints` when
+    /// there are any and the adapter supports them.
+    pub function_breakpoints: Vec<FunctionBreakpoint>,
     /// Exception filters to enable; those the adapter does not offer are left out.
     pub exception_filters: Vec<String>,
 }
@@ -48,6 +51,8 @@ pub struct Started {
     pub capabilities: Capabilities,
     /// The adapter's answer for each path of [`StartPlan::breakpoints`], in order.
     pub breakpoints: Vec<(String, Vec<Breakpoint>)>,
+    /// The adapter's answer for [`StartPlan::function_breakpoints`] (empty when none were sent).
+    pub function_breakpoints: Vec<Breakpoint>,
     pub exception_filters: Vec<String>,
 }
 
@@ -82,6 +87,23 @@ pub fn start(client: &DapClient, plan: &StartPlan, timeout: Duration) -> Result<
         let answer = set_breakpoints(client, path, bps, left())?;
         breakpoints.push((path.clone(), answer));
     }
+    let mut function_breakpoints = Vec::new();
+    if !plan.function_breakpoints.is_empty() && capabilities.supports_function_breakpoints {
+        // A function breakpoint the adapter refuses does not stop the launch: the answer is simply empty.
+        match client.request_wait(
+            "setFunctionBreakpoints",
+            json!({ "breakpoints": plan.function_breakpoints }),
+            left(),
+        ) {
+            Ok(body) => {
+                function_breakpoints = serde_json::from_value::<SetBreakpointsResponse>(body)
+                    .unwrap_or_default()
+                    .breakpoints;
+            }
+            Err(DapError::Failed { .. }) => {}
+            Err(e) => return Err(e),
+        }
+    }
     let offered: Vec<&str> = capabilities
         .exception_breakpoint_filters
         .iter()
@@ -112,6 +134,7 @@ pub fn start(client: &DapClient, plan: &StartPlan, timeout: Duration) -> Result<
     Ok(Started {
         capabilities,
         breakpoints,
+        function_breakpoints,
         exception_filters: filters,
     })
 }
