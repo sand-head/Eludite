@@ -44,6 +44,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
 | `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
+| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
 
 GPUI is a git dependency on zed-industries/zed at rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`, as the `gpui` and `gpui_platform` crates (both Apache-2.0; `gpui_platform` holds the window backends at this rev). Do not bump it without an ADR note.
 
