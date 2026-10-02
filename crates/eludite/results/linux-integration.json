@@ -1,0 +1,196 @@
+{
+  "brief": "0020",
+  "date": "2026-10-02",
+  "machine": "AMD Ryzen 9 7940HS (16 threads), 30 GiB, CachyOS; nested kwin_wayland --virtual 1280x960, X11 backend on its Xwayland, real XTest input; release build",
+  "script": "crates/eludite/tools/integration-linux.sh OUT_DIR (driver tools/integration.py)",
+  "notes": [
+    "The driver's click() waits 100 ms between moving the pointer and pressing, so options_on_save_*_applied_ms include that wait; settings_applied_after_seen_ms is the shell's own time from noticing a change to applying it.",
+    "reload_write_to_applied_ms: the user settings file replaced from outside the IDE (write to a temporary file and rename) to the shell's 'settings applied' trace line; the settings thread polls every 100 ms.",
+    "f5_fixed_launch: the shell's trace: F5 to the launch thread started, the build's own time (request to finished), and what F5 added.",
+    "run1 is the first run: the Options dialog's footer text pushed OK out of the dialog, so OK was not clicked (fixed: the footer wraps); its numbers agree with run2."
+  ],
+  "run2": {
+    "loaded_ms": 1790961636680,
+    "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+    "menu_tools": [
+      413.0,
+      0.0,
+      47.0,
+      24.0
+    ],
+    "menu_item_options": [
+      414.0,
+      62.0,
+      238.0,
+      24.0
+    ],
+    "shot_options": "integration-options.png",
+    "options_on_save_true_applied_ms": 102,
+    "settings_file_after_true": {
+      "build.onSave": true
+    },
+    "options_on_save_false_applied_ms": 105,
+    "settings_file_after_false": {
+      "build.onSave": false
+    },
+    "options_ok": [
+      933.0,
+      586.0,
+      73.0,
+      21.0
+    ],
+    "options_closed": true,
+    "reload_write_to_applied_ms": [
+      1,
+      81,
+      1,
+      80,
+      99,
+      98,
+      96,
+      92,
+      91,
+      91
+    ],
+    "f5_failing_at": 1790961651678,
+    "f5_failing_result": "debug start: Not started: the build failed (1 error, 0 warnings)",
+    "f5_failing_ms": 881,
+    "shot_failed": "integration-f5-build-failed.png",
+    "f5_failing_trace": [
+      "debug start: building the startup project first",
+      "build requested: build Msbuild /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj",
+      "debug start: build of /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj requested",
+      "build first output: Build started at 12:20:51\u202fPM...",
+      "build finished: Failed, 1 errors, 0 warnings, Error List rows set in 0.12 ms",
+      "debug start: Not started: the build failed (1 error, 0 warnings)",
+      "debug ended Some(\"Not started: the build failed (1 error, 0 warnings)\")"
+    ],
+    "f5_fixed_at": 1790961655587,
+    "f5_fixed_launch": "debug start: launched 1128.75 ms after F5; build 1126.74 ms; added 2.00 ms",
+    "f5_to_running_ms": 1160,
+    "shot_launched": "integration-f5-launched.png",
+    "f5_fixed_trace": [
+      "debug start: building the startup project first",
+      "build requested: build Msbuild /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj",
+      "debug start: build of /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj requested",
+      "build first output: Build started at 12:20:55\u202fPM...",
+      "build finished: Succeeded, 0 errors, 0 warnings, Error List rows set in 0.10 ms",
+      "debug start: build succeeded; launching",
+      "debug start: launched 1128.75 ms after F5; build 1126.74 ms; added 2.00 ms",
+      "debug launched /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host.dll debug=true adapter=Some(\"/home/sand_head/.cache/eludite/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --interpreter=vscode (stdio)\")",
+      "debug process Some(1875074)",
+      "debug running generation 2"
+    ],
+    "shift_f5_to_ended_ms": 45,
+    "loadavg_1_5_15": [
+      "8.37",
+      "6.46",
+      "4.71"
+    ],
+    "settings_applied_after_seen_ms": [
+      0.11,
+      0.09,
+      0.05,
+      0.09,
+      0.1,
+      0.17,
+      0.27,
+      0.13,
+      0.1,
+      0.2,
+      0.2,
+      0.29,
+      0.15,
+      0.2
+    ]
+  },
+  "run1": {
+    "loaded_ms": 1790961539325,
+    "diagnostics_after_load": "publishDiagnostics file:///home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs version Some(1): 2 (0 errors)",
+    "menu_tools": [
+      413.0,
+      0.0,
+      47.0,
+      24.0
+    ],
+    "menu_item_options": [
+      414.0,
+      62.0,
+      238.0,
+      24.0
+    ],
+    "shot_options": "integration-options.png",
+    "options_on_save_true_applied_ms": 102,
+    "settings_file_after_true": {
+      "build.onSave": true
+    },
+    "options_on_save_false_applied_ms": 104,
+    "settings_file_after_false": {
+      "build.onSave": false
+    },
+    "reload_write_to_applied_ms": [
+      3,
+      83,
+      81,
+      99,
+      98,
+      95,
+      94,
+      90,
+      88,
+      85
+    ],
+    "f5_failing_at": 1790961553651,
+    "f5_failing_result": "debug start: Not started: the build failed (1 error, 0 warnings)",
+    "f5_failing_ms": 1129,
+    "shot_failed": "integration-f5-build-failed.png",
+    "f5_failing_trace": [
+      "debug start: building the startup project first",
+      "build requested: build Msbuild /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj",
+      "debug start: build of /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj requested",
+      "build first output: Build started at 12:19:13\u202fPM...",
+      "build finished: Failed, 1 errors, 0 warnings, Error List rows set in 3.17 ms",
+      "debug start: Not started: the build failed (1 error, 0 warnings)",
+      "debug ended Some(\"Not started: the build failed (1 error, 0 warnings)\")"
+    ],
+    "f5_fixed_at": 1790961557801,
+    "f5_fixed_launch": "debug start: launched 1090.74 ms after F5; build 1087.69 ms; added 3.04 ms",
+    "f5_to_running_ms": 1127,
+    "shot_launched": "integration-f5-launched.png",
+    "f5_fixed_trace": [
+      "debug start: building the startup project first",
+      "build requested: build Msbuild /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj",
+      "debug start: build of /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/Eludite.Host.csproj requested",
+      "build first output: Build started at 12:19:17\u202fPM...",
+      "build finished: Succeeded, 0 errors, 0 warnings, Error List rows set in 0.13 ms",
+      "debug start: build succeeded; launching",
+      "debug start: launched 1090.74 ms after F5; build 1087.69 ms; added 3.04 ms",
+      "debug launched /home/sand_head/Source/Repos/sand-head/niello-ide/.worktrees/0020-integration-pass/dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host.dll debug=true adapter=Some(\"/home/sand_head/.cache/eludite/netcoredbg/3.2.0-1092/netcoredbg/netcoredbg --interpreter=vscode (stdio)\")",
+      "debug process Some(1870517)",
+      "debug running generation 2"
+    ],
+    "shift_f5_to_ended_ms": 43,
+    "loadavg_1_5_15": [
+      "7.31",
+      "6.49",
+      "4.58"
+    ],
+    "settings_applied_after_seen_ms": [
+      0.25,
+      0.06,
+      0.09,
+      0.05,
+      0.32,
+      0.13,
+      0.21,
+      0.22,
+      0.3,
+      0.13,
+      0.23,
+      0.26,
+      0.2,
+      0.12,
+      0.22
+    ]
+  }
+}
