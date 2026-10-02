@@ -71,6 +71,15 @@
 //! never merges with typing, and [`Editor::merge_transactions`] folds a later step into an earlier one (a
 //! completion's additional edits into its commit).
 //!
+//! # Debugging (brief 0018)
+//!
+//! [`EditorView::set_breakpoint_glyphs`] draws breakpoints in the margin at the far left (filled, hollow,
+//! conditional, unbound; [`BreakpointGlyph`]); a click there emits [`EditorEvent::BreakpointMarginClicked`] and the
+//! owner toggles the breakpoint. [`EditorView::set_execution_point`] draws the debugger's arrow and highlights the
+//! statement ([`ExecutionKind`]: yellow where execution stopped, green for a caller's frame).
+//! [`EditorView::expression_at`] gives the member-access expression under the mouse for data tips, which the owner
+//! shows with [`EditorView::open_data_tip`] and [`EditorView::set_hover`].
+//!
 //! # Known gaps
 //!
 //! No IME composition (composed text is inserted as typed), no soft wrap,
@@ -80,6 +89,7 @@
 //! must be UTF-8.
 
 mod buffer;
+mod debugging;
 pub mod display;
 mod editor;
 pub mod intellisense;
@@ -88,6 +98,7 @@ pub mod syntax;
 mod view;
 
 pub use buffer::{Buffer, LARGE_FILE_THRESHOLD, LineEnding, LoadError};
+pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
 pub use intellisense::{

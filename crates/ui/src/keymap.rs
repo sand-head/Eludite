@@ -97,6 +97,22 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("ctrl-shift-b", "Ctrl+Shift+B", "eludite.build.solution"),
         command("f6", "F6", "eludite.build.solution"),
         command("shift-f6", "Shift+F6", "eludite.build.project"),
+        // Debug (brief 0018): Debug.Start (F5, Continue while in break mode), Debug.StartWithoutDebugging,
+        // Debug.StopDebugging, Debug.ToggleBreakpoint, Debug.StepOver, Debug.StepInto, Debug.StepOut and
+        // Debug.RunToCursor.
+        command("f5", "F5", "eludite.debug.start"),
+        KeyBindingSpec {
+            keystrokes: "ctrl-f5",
+            display: "Ctrl+F5",
+            command: "eludite.debug.start",
+            args: json!({ "debug": false }),
+        },
+        command("shift-f5", "Shift+F5", "eludite.debug.stop"),
+        command("f9", "F9", "eludite.debug.toggle_breakpoint"),
+        command("f10", "F10", "eludite.debug.step_over"),
+        command("f11", "F11", "eludite.debug.step_into"),
+        command("shift-f11", "Shift+F11", "eludite.debug.step_out"),
+        command("ctrl-f10", "Ctrl+F10", "eludite.debug.run_to_cursor"),
     ]
 }
 
@@ -222,6 +238,24 @@ mod tests {
             shortcut_for(&k, "eludite.build.project", &json!({})),
             Some("Shift+F6")
         );
+        assert_eq!(
+            shortcut_for(&k, "eludite.debug.start", &json!({})),
+            Some("F5")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.debug.start", &json!({"debug": false})),
+            Some("Ctrl+F5")
+        );
+        for (cmd, key) in [
+            ("eludite.debug.stop", "Shift+F5"),
+            ("eludite.debug.toggle_breakpoint", "F9"),
+            ("eludite.debug.step_over", "F10"),
+            ("eludite.debug.step_into", "F11"),
+            ("eludite.debug.step_out", "Shift+F11"),
+            ("eludite.debug.run_to_cursor", "Ctrl+F10"),
+        ] {
+            assert_eq!(shortcut_for(&k, cmd, &json!({})), Some(key), "{cmd}");
+        }
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();
         keys.dedup();

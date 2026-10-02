@@ -793,6 +793,8 @@ impl Shell {
                 window,
                 cx,
             ),
+            // The debugger's (brief 0018).
+            EditorEvent::BreakpointMarginClicked { .. } => {}
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {

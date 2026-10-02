@@ -78,6 +78,10 @@ pub enum EditorEvent {
     LightbulbClicked {
         row: u32,
     },
+    /// The breakpoint margin of `row` (0-based) was clicked (brief 0018): the owner toggles a breakpoint there.
+    BreakpointMarginClicked {
+        row: u32,
+    },
 }
 
 /// Where the shown completion items come from.
