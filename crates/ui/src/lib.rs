@@ -35,7 +35,10 @@ pub mod transcript;
 pub mod tree;
 
 pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};
-pub use elements::{check_box, highlighted_code, icon_button, tab, text_box, toggle_button};
+pub use elements::{
+    BoundsMap, bounds_canvas, check_box, highlighted_code, icon_button, tab, text_box,
+    toggle_button,
+};
 pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
     vs_keymap,

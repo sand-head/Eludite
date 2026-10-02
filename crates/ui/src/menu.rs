@@ -274,6 +274,9 @@ pub struct MenuBar {
     theme: Theme,
     is_enabled: IsEnabled,
     open: Option<usize>,
+    /// Records where the titles (`menu-<title>`) and the open menu's items (`menu-item-<title>-<label>`) are drawn
+    /// (the manual runs' real-input drivers).
+    probe: Option<crate::BoundsMap>,
 }
 
 impl MenuBar {
@@ -289,7 +292,13 @@ impl MenuBar {
             theme,
             is_enabled,
             open: None,
+            probe: None,
         }
+    }
+
+    /// Record where the titles and the open menu's items are drawn (`eludite --bounds-out`).
+    pub fn set_probe(&mut self, probe: Option<crate::BoundsMap>) {
+        self.probe = probe;
     }
 
     pub fn open_menu(&self) -> Option<&str> {
@@ -364,8 +373,11 @@ impl MenuBar {
                     let enabled = (self.is_enabled)(command);
                     let shortcut = shortcut_for(&self.keymap, command, args).unwrap_or_default();
                     let selector = format!("menu-item-{title}-{label}");
+                    let probed = crate::bounds_canvas(self.probe.as_ref(), selector.clone());
                     let mut el = div()
                         .id(("menu-item", row))
+                        .relative()
+                        .children(probed)
                         .debug_selector(move || selector.clone())
                         .flex()
                         .flex_row()
@@ -445,6 +457,10 @@ impl Render for MenuBar {
                         cx.notify();
                     }
                 }))
+                .children(crate::bounds_canvas(
+                    self.probe.as_ref(),
+                    format!("menu-{title}"),
+                ))
                 .child(title);
             if is_open {
                 el = el.bg(t.menu_hover).child(

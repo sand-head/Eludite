@@ -1,11 +1,38 @@
 //! Small stateless elements shared by the docking view and the shell.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
-    Div, FontWeight, HighlightStyle, InteractiveElement, ParentElement, SharedString, Stateful,
-    Styled, StyledText, div, px,
+    AnyElement, Bounds, Div, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
+    ParentElement, Pixels, SharedString, Stateful, Styled, StyledText, canvas, div, px,
 };
+
+/// Where probed elements were drawn, by key (the real-input drivers of the manual runs read it through
+/// `eludite --bounds-out`).
+pub type BoundsMap = Rc<RefCell<BTreeMap<String, Bounds<Pixels>>>>;
+
+/// When `map` is set, an invisible canvas filling its (relative) parent that records the parent's bounds under
+/// `key`.
+pub fn bounds_canvas(map: Option<&BoundsMap>, key: impl Into<String>) -> Option<AnyElement> {
+    let map = map?.clone();
+    let key = key.into();
+    Some(
+        canvas(
+            move |bounds, _, _| {
+                map.borrow_mut().insert(key, bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .into_any_element(),
+    )
+}
 
 use crate::Theme;
 
