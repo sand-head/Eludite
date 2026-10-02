@@ -15,6 +15,8 @@
 //!   icons ([`CompletionKind`]) and the tooltip frame.
 //! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
 //! - [`dialog`]: the frame of a modal dialog, push buttons, and the light bulb menu's rows and glyphs.
+//! - [`transcript`]: the Agents window's transcript rows: prompts, agent text, thinking, tool call cards with their
+//!   status, plans and notices.
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.
@@ -27,6 +29,7 @@ pub mod menu;
 pub mod popup;
 pub mod status;
 mod theme;
+pub mod transcript;
 pub mod tree;
 
 pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};

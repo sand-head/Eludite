@@ -84,6 +84,9 @@ pub struct Options {
     pub rate_hz: f64,
     /// The files [`Scenario::Edit`] edits, relative to the session's cwd.
     pub edit_files: Vec<String>,
+    /// Reach a stdio MCP server whose arguments are `--mcp-relay ADDR` by connecting to ADDR directly with the
+    /// token from its environment, instead of launching it (an in-process fake agent in the shell's tests).
+    pub mcp_direct: bool,
 }
 
 impl Default for Options {
@@ -96,6 +99,7 @@ impl Default for Options {
                 "src/App/Program.cs".into(),
                 "src/App/Models/Order.cs".into(),
             ],
+            mcp_direct: false,
         }
     }
 }
@@ -438,15 +442,38 @@ impl<R: BufRead, W: Write> Agent<R, W> {
         else {
             return Err("no MCP server was passed".into());
         };
-        let mut child = Command::new(command)
-            .args(argv)
-            .envs(env.iter().map(|e| (&e.name, &e.value)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("spawn {command}: {e}"))?;
-        let mut stdin = child.stdin.take().expect("piped");
-        let mut stdout = BufReader::new(child.stdout.take().expect("piped"));
+        let (mut stdin, mut stdout, mut child): (
+            Box<dyn Write>,
+            Box<dyn BufRead>,
+            Option<std::process::Child>,
+        ) = if self.opts.mcp_direct {
+            let addr = argv
+                .iter()
+                .skip_while(|a| *a != "--mcp-relay")
+                .nth(1)
+                .ok_or("no --mcp-relay address")?;
+            let token = env
+                .iter()
+                .find(|e| e.name == "ELUDITE_MCP_TOKEN")
+                .map(|e| e.value.clone())
+                .ok_or("no token")?;
+            let mut sock = std::net::TcpStream::connect(addr.as_str())
+                .map_err(|e| format!("connect {addr}: {e}"))?;
+            writeln!(sock, "{token}").map_err(|e| e.to_string())?;
+            let read = sock.try_clone().map_err(|e| e.to_string())?;
+            (Box::new(sock), Box::new(BufReader::new(read)), None)
+        } else {
+            let mut child = Command::new(command)
+                .args(argv)
+                .envs(env.iter().map(|e| (&e.name, &e.value)))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("spawn {command}: {e}"))?;
+            let stdin = child.stdin.take().expect("piped");
+            let stdout = BufReader::new(child.stdout.take().expect("piped"));
+            (Box::new(stdin), Box::new(stdout), Some(child))
+        };
         let mut send = |v: Value| {
             writeln!(stdin, "{v}")
                 .and_then(|()| stdin.flush())
@@ -471,8 +498,10 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 result = Some(v);
             }
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        if let Some(c) = child.as_mut() {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
         let v = result.ok_or("MCP server closed before answering")?;
         if let Some(e) = v.get("error") {
             return Err(e.to_string());

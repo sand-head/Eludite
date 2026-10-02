@@ -106,10 +106,24 @@ pub enum PolicyAnswer {
 /// Decides permission requests on the reader thread.
 pub type PermissionPolicy = Arc<dyn Fn(&RequestPermissionRequest) -> PolicyAnswer + Send + Sync>;
 
+/// Connects to an agent without spawning its command (in-process agents for tests): the agent's stdout and stdin.
+pub type StreamConnector = Arc<
+    dyn Fn(
+            &AgentDescriptor,
+            &std::path::Path,
+        ) -> std::io::Result<(
+            Box<dyn std::io::Read + Send>,
+            Box<dyn std::io::Write + Send>,
+        )> + Send
+        + Sync,
+>;
+
 /// What a session needs.
 #[derive(Clone)]
 pub struct SessionConfig {
     pub agent: AgentDescriptor,
+    /// Instead of spawning `agent.command`.
+    pub connect: Option<StreamConnector>,
     pub cwd: PathBuf,
     /// The MCP servers passed in `session/new` (Eludite's relay).
     pub mcp_servers: Vec<McpServer>,
@@ -411,7 +425,12 @@ fn drive(
         })
     };
 
-    let client = match AcpClient::spawn(&config.agent, &config.cwd, events) {
+    let spawned = match &config.connect {
+        Some(connect) => connect(&config.agent, &config.cwd)
+            .map(|(from_agent, to_agent)| AcpClient::connect(from_agent, to_agent, events)),
+        None => AcpClient::spawn(&config.agent, &config.cwd, events),
+    };
+    let client = match spawned {
         Ok(c) => c,
         Err(e) => {
             return emit(SessionEvent::State(AgentState::Error(format!(

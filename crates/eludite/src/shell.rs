@@ -1,7 +1,7 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Workspace,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
-//! and the workspace-edit applier (brief 0015).
+//! and the workspace-edit applier (brief 0015), and the Agents window (brief 0016).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -89,6 +89,8 @@ pub struct Services {
     pub jobs: UnboundedReceiver<UiJob>,
     /// The Error List rows `diagnostics.list` reads, on any thread.
     pub published: Arc<Mutex<Vec<ListedDiagnostic>>>,
+    /// Where the Agents window's agents come from.
+    pub agents: agents::AgentsSetup,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
@@ -116,6 +118,7 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         events,
         jobs,
         published,
+        agents: agents::AgentsSetup::from_env(),
     }
 }
 
@@ -183,6 +186,8 @@ pub struct Shell {
     code_actions: code_actions::CodeActions,
     /// The last `eludite.workspace.apply_edit` (state, summary).
     apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
+    /// The Agents window and its sessions (brief 0016).
+    agents: agents::Agents,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -191,6 +196,7 @@ fn tool_body(
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
     references: Entity<ReferencesWindow>,
+    agents: Entity<agents::window::AgentsWindow>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -203,6 +209,10 @@ fn tool_body(
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
         ids::FIND_ALL_REFERENCES => references
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::AGENTS => agents
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
@@ -256,6 +266,14 @@ impl Shell {
         let error_list = cx.new(|cx| ErrorList::new(theme, cx));
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
+        let Services {
+            session,
+            mut events,
+            mut jobs,
+            published,
+            agents: agents_setup,
+        } = services;
+        let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
@@ -265,6 +283,7 @@ impl Shell {
                     explorer.clone(),
                     error_list.clone(),
                     references_window.clone(),
+                    agents.window.clone(),
                 )),
                 Rc::new(document_body(views.clone())),
                 persistence,
@@ -284,9 +303,12 @@ impl Shell {
             },
         )
         .detach();
+        cx.subscribe_in(&agents.window, window, Self::on_agents_window_event)
+            .detach();
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
+        status.add_slot(agents::AGENTS_SLOT, SlotAlign::Right);
         // The status bar reads the version through the command bus, like an agent would.
         let version = commands
             .invoke(builtins::ABOUT, json!({}))
@@ -295,12 +317,6 @@ impl Shell {
             .unwrap_or_else(|| builtins::VERSION.to_owned());
         status.set(slots::VERSION, format!("Eludite {version}"));
 
-        let Services {
-            session,
-            mut events,
-            mut jobs,
-            published,
-        } = services;
         let event_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(event) = events.next().await {
                 if this
@@ -347,6 +363,22 @@ impl Shell {
                 let _ = reply.send(outcome);
             }
         });
+        // Agent events arrive from the agents' threads; everything queued is applied as one batch, so a burst of
+        // streamed chunks costs one frame.
+        let agent_task = cx.spawn(async move |this, cx| {
+            while let Some(first) = agent_msgs.next().await {
+                let mut batch = vec![first];
+                while let Ok(more) = agent_msgs.try_recv() {
+                    batch.push(more);
+                }
+                if this
+                    .update(cx, |shell, cx| shell.on_agent_batch(batch, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
         Self {
             theme,
             commands,
@@ -380,8 +412,9 @@ impl Shell {
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
             apply_edit: None,
+            agents,
             timings: Timings::default(),
-            _tasks: vec![event_task, job_task],
+            _tasks: vec![event_task, job_task, agent_task],
         }
     }
 
