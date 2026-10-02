@@ -6,10 +6,42 @@ Each `eludite.debug.<name>` command is the MCP tool `eludite-debug-<name>` (Clau
 `max_value_chars`, and the commands that run the program answer with the compact stop summary. Read this once per
 session; the tool descriptions say the rest.
 
+The person's solution or folder is already open, and it is where you work. Do not call `eludite.solution.open` or
+`eludite.workspace.open_folder` to debug: they replace what the person has open. `eludite.debug.start` takes a project
+file's path whether or not the open solution contains it, and the file tools take any path.
+
+## Find the statement that produces a wrong value
+
+When you are asked which statement is wrong, show it stopped there, with the locals that prove it:
+
+1. Read the source first and pick the statement you suspect: where the wrong value is computed or decided (a loop
+   bound, a `switch` without the case, an assignment under an `if`), not where it is noticed (the check that fails,
+   the dereference that throws).
+2. Set a breakpoint on that statement: `eludite.debug.toggle_breakpoint` with `action: set`, `remove_after: true` and a
+   `condition` for the case that goes wrong (`i == count - 1`, `coin == Coin.Quarter`, `parent == null`). If the
+   program is already at a break, `eludite.debug.run_until` with that line and `condition` sets it and runs there in
+   one call (skip steps 3 and 4).
+3. `eludite.debug.start` with the `project` (or `eludite.debug.restart` when a session is already running). It answers
+   as soon as the program runs (`mode: running`), not at your breakpoint.
+4. `eludite.debug.wait` with `until: stopped` and `depth: 2`: its answer is the stop summary at your statement, with the
+   locals two levels deep.
+5. Name the location that summary shows (`stopped.location`: file, line, function) and the locals it lists. If it
+   stopped elsewhere (an exception, another breakpoint) or the program ended, your suspect or your condition was wrong:
+   read the summary, move the breakpoint and run again. Do not name a statement you never stopped on.
+
+That is three debug calls when the source shows the suspect, five when you first run the program to see how it fails.
+A stop after the statement, or at the exception it causes, shows the symptom: stop on the statement itself before you
+name it.
+
+**Cleanup costs calls; skip it.** A breakpoint set with `remove_after` deletes itself at its stop, and `run_until`'s
+points are removed at theirs: do not delete them. Leave the session at the stop that shows the bug, where the person
+can see what you saw; call `eludite.debug.stop` only when the person asks.
+
 ## 1. Read `snapshot` before acting
 
-Call `eludite.debug.snapshot` first, and again whenever you are unsure what state the debugger is in. It never runs
-program code and never moves the person's windows. It answers:
+Call `eludite.debug.snapshot` first when a session may already be running, and again whenever you are unsure what
+state the debugger is in (a stop summary you just received is as good). It never runs program code and never moves
+the person's windows. It answers:
 
 - `mode`: `design` (no session), `building`, `launching`, `running`, `break`, `stopping` or `running_without_debugging`;
 - `stop`: a number that grows with every break; quote it (section 3);
@@ -43,9 +75,11 @@ Each command costs a round trip. Get to where you need to be in one call:
   printed, in order, with each hit, until `until` holds (`terminated`, `stopped`, or `hits` with `count`) or `wait_ms`
   runs out. Use it to watch a value change across many iterations without stopping each time. A visible stop ends it
   (`stopped_by: stopped`, with the summary).
-- **Breakpoints that stay:** `eludite.debug.toggle_breakpoint` with `condition`, `hit_condition` (`5`, `>=5`, `%2`),
-  `log_message` (a tracepoint that prints and continues), or `function` (`Namespace.Type.Method`).
-  `eludite.debug.exception_settings` with `types` stops on specific exception types.
+- **Breakpoints:** `eludite.debug.toggle_breakpoint` with `condition`, `hit_condition` (`5`, `>=5`, `%2`),
+  `log_message` (a tracepoint that prints and continues), `function` (`Namespace.Type.Method`), or `remove_after`
+  (deleted at its first stop). It answers with that breakpoint's row, whether a running session bound it, and the
+  count; `eludite.debug.state` lists them all. `eludite.debug.exception_settings` with `types` stops on specific
+  exception types.
 
 Single steps (`eludite.debug.step_over`, `step_into`, `step_out`) and `eludite.debug.run_to_cursor` are for the last
 few lines, when you need to watch one statement at a time. `eludite.debug.continue` resumes until the next breakpoint,
@@ -57,10 +91,15 @@ To start: `eludite.debug.start` (F5; it builds first by default), or `eludite.de
 did not start asks the person first. `eludite.debug.restart` starts the same configuration again;
 `eludite.debug.stop` ends the session (an attached process is detached and keeps running).
 
-Every resuming command takes `wait_ms` (default 5,000, at most 30,000) and answers once the program settles: the
-summary of the next stop, the end of the session (`mode: design` with `exit_code`), or `timed_out: true` with
-`mode: running`. While it runs, `eludite.debug.wait` waits without driving (`until`: `stopped`, `terminated`,
-`output`, `any`).
+**`start`, `restart` and `attach` answer as soon as the program runs** (`mode: running`), not at its first stop: set
+your breakpoints before, and call `eludite.debug.wait` with `until: stopped` next. Only a break or an end that came
+before the program was seen running is in their answer. `eludite.debug.trace` with `run: start` starts and collects
+in one call.
+
+The other resuming commands (`continue`, the steps, `run_to_cursor`, `run_until`, `set_next_statement`, `pause`) take
+`wait_ms` (default 5,000, at most 30,000) and answer once the program settles: the summary of the next stop, the end
+of the session (`mode: design` with `exit_code`), or `timed_out: true` with `mode: running`. While it runs,
+`eludite.debug.wait` waits without driving (`until`: `stopped`, `terminated`, `output`, `any`).
 
 ## 3. Pass `stop` on every resuming call
 
