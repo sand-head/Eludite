@@ -325,8 +325,13 @@ fn open_solution_edit_diagnostics_and_error_list(cx: &mut TestAppContext) {
     assert_eq!(opened.params["textDocument"]["version"], 1);
     assert_eq!(opened.params["textDocument"]["text"], PROGRAM);
 
-    // Typing marks the tab dirty at once; didChange waits for the debounce.
-    w.vcx.simulate_input("int y;");
+    // An edit marks the tab dirty at once; didChange waits for the debounce. (Typed identifier characters also
+    // trigger completion, which sends the text at once so the request sees it; brief 0013. This edit is made the
+    // way an agent or a paste does, which triggers nothing.)
+    view.update(&mut w.vcx, |v, cx| {
+        v.update_editor(cx, |e| e.insert("int y;"))
+    });
+    w.vcx.run_until_parked();
     assert!(w.text(&view).starts_with("int y;class Program"));
     assert!(w.dirty(&id));
     w.vcx

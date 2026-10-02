@@ -22,6 +22,8 @@ eludite-commands.workspace = true
 eludite-docking.workspace = true
 eludite-editor.workspace = true
 eludite-lsp.workspace = true
+# Typed request markers for the shell's IntelliSense requests (MIT; already a dependency of eludite-lsp).
+eludite-protocol.workspace = true
 eludite-ui.workspace = true
 eludite-workspace.workspace = true
 serde_json.workspace = true

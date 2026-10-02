@@ -8,6 +8,7 @@
 mod documents;
 pub mod error_list;
 pub mod explorer;
+pub mod intellisense;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -145,6 +146,12 @@ pub struct Shell {
     diagnostics: BTreeMap<String, Vec<lsp::Diagnostic>>,
     /// The solution's load diagnostics (`eludite/solution/status`).
     host_diagnostics: Vec<HostDiagnostic>,
+    /// The language server's state and the solution's load state for the current generation: whether IntelliSense
+    /// asks the server, the syntax fallback, or both (brief 0013).
+    ls_state: Option<LanguageServerState>,
+    solution_state: Option<SolutionState>,
+    features: intellisense::ServerFeatures,
+    completion_timings: Vec<intellisense::CompletionTiming>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -291,6 +298,10 @@ impl Shell {
             generation: 0,
             diagnostics: BTreeMap::new(),
             host_diagnostics: Vec::new(),
+            ls_state: None,
+            solution_state: None,
+            features: Default::default(),
+            completion_timings: Vec::new(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -302,6 +313,12 @@ impl Shell {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
+    }
+
+    /// When the steps of each completion happened (oldest first, at most 4096).
+    #[allow(dead_code)] // Read by the measurement harness.
+    pub fn completion_timings(&self) -> &[intellisense::CompletionTiming] {
+        &self.completion_timings
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -550,6 +567,10 @@ impl Shell {
                 );
             }
             SessionEvent::LanguageServer(s) => {
+                self.ls_state = Some(s.state);
+                if let Some(caps) = &s.capabilities {
+                    self.features = intellisense::ServerFeatures::from_capabilities(caps);
+                }
                 let text = match s.state {
                     LanguageServerState::Starting => "C#: starting\u{2026}".to_owned(),
                     LanguageServerState::Running => format!(
@@ -576,9 +597,16 @@ impl Shell {
                     // A new generation: everything computed under the old one is stale (CLAUDE.md invariant 12).
                     self.generation = status.generation;
                     self.diagnostics.clear();
-                    for doc in self.documents.values() {
+                    for doc in self.documents.values_mut() {
                         doc.clear_diagnostics(cx);
+                        doc.intellisense.cancel_all();
                     }
+                }
+                let was_loaded = self.solution_state == Some(SolutionState::Loaded);
+                self.solution_state =
+                    (status.state != SolutionState::Closed).then_some(status.state);
+                if status.state == SolutionState::Loaded && !was_loaded {
+                    self.refresh_fallback_lists(cx);
                 }
                 let name = Path::new(&status.path)
                     .file_name()
@@ -651,6 +679,7 @@ impl Shell {
             SessionEvent::Diagnostics(params) => self.on_diagnostics(params, cx),
             SessionEvent::Closed => {
                 self.solution = None;
+                self.solution_state = None;
                 self.diagnostics.clear();
                 self.host_diagnostics.clear();
                 for doc in self.documents.values() {
