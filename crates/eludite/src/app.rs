@@ -20,14 +20,21 @@ use crate::bench;
 use crate::shell::Shell;
 use crate::shell::session::HostLaunch;
 
-/// The editor's key bindings, except the keys whose actions are commands (`eludite.editor.undo`, `redo`, `find`):
-/// those keys dispatch `RunCommand` in the editor's context, so they reach the command bus first.
+/// The editor's key bindings, except the keys whose actions are commands (`eludite.editor.undo`, `redo`, `find`,
+/// and IntelliSense's `complete`, `signature_help`, `hover` and `accept_completion`): those keys dispatch
+/// `RunCommand` in the editor's context, so they reach the command bus first.
 pub fn bind_editor_keys(cx: &mut App) {
     let commands = vs_keymap();
     cx.bind_keys(eludite_editor::key_bindings().into_iter().filter(|b| {
         !matches!(
             b.action().name(),
-            "editor::Undo" | "editor::Redo" | "editor::Find"
+            "editor::Undo"
+                | "editor::Redo"
+                | "editor::Find"
+                | "editor::ShowCompletions"
+                | "editor::ShowSignatureHelp"
+                | "editor::ShowHover"
+                | "editor::AcceptCompletion"
         )
     }));
     cx.bind_keys(EDITOR_COMMAND_KEYS.iter().filter_map(|keys| {
@@ -41,6 +48,16 @@ pub fn bind_editor_keys(cx: &mut App) {
             Some(eludite_editor::KEY_CONTEXT),
         ))
     }));
+    // Committing a completion item: Tab, and Enter on a selected (not soft-selected) item, while the list shows.
+    let accept = || RunCommand::new(workspace::EDITOR_ACCEPT_COMPLETION, json!({}));
+    cx.bind_keys([
+        KeyBinding::new("tab", accept(), Some(eludite_editor::COMPLETION_CONTEXT)),
+        KeyBinding::new(
+            "enter",
+            accept(),
+            Some(eludite_editor::COMPLETION_SELECTED_CONTEXT),
+        ),
+    ]);
 }
 
 /// What the loader thread hands back.
