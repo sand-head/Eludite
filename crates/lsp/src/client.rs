@@ -15,8 +15,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use eludite_protocol::host::{
-    self, ContentModifiedData, Generation, GenerationResult, InitializeParams, InitializeResult,
-    LanguageServerStatus, SolutionOpenParams, SolutionStatus, WithGeneration, error_codes, methods,
+    self, BuildFinished, BuildOutput, BuildProgress, ContentModifiedData, Generation,
+    GenerationResult, InitializeParams, InitializeResult, LanguageServerStatus, SolutionOpenParams,
+    SolutionStatus, WithGeneration, error_codes, methods,
 };
 use eludite_protocol::jsonrpc::ResponsePayload;
 use eludite_protocol::lsp::{
@@ -134,6 +135,12 @@ pub enum Event {
     Diagnostics(WithGeneration<PublishDiagnosticsParams>),
     /// Untyped notifications (`window/showMessage`, `$/progress`).
     Notification(Notification),
+    /// A chunk of the build log (`eludite/build/output`, brief 0017), in order.
+    BuildOutput(BuildOutput),
+    /// `eludite/build/progress`.
+    BuildProgress(BuildProgress),
+    /// `eludite/build/finished`: the build's result and diagnostics.
+    BuildFinished(BuildFinished),
     /// `workspace/applyEdit` from the host (relayed from the language server). Answer it with
     /// [`HostClient::respond_apply_edit`] and `id`; until then the language server waits.
     ApplyEdit {
@@ -664,6 +671,18 @@ impl HostClient {
                     Err(_) => Event::Notification(n),
                 }
             }
+            methods::BUILD_OUTPUT => match serde_json::from_value::<BuildOutput>(params) {
+                Ok(o) => Event::BuildOutput(o),
+                Err(_) => Event::Notification(n),
+            },
+            methods::BUILD_PROGRESS => match serde_json::from_value::<BuildProgress>(params) {
+                Ok(p) => Event::BuildProgress(p),
+                Err(_) => Event::Notification(n),
+            },
+            methods::BUILD_FINISHED => match serde_json::from_value::<BuildFinished>(params) {
+                Ok(f) => Event::BuildFinished(f),
+                Err(_) => Event::Notification(n),
+            },
             _ => Event::Notification(n),
         };
         let _ = self.inner.events.send(event);

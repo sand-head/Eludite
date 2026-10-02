@@ -458,3 +458,107 @@ fn apply_edit_requests_from_the_host_are_events_and_answered() {
         .unwrap();
     assert_eq!(other["error"]["code"], -32601);
 }
+
+/// Brief 0017: the build messages arrive typed and in order; a second start is refused with BuildInProgress; cancel
+/// ends the build as canceled.
+#[test]
+fn build_messages_are_typed_and_a_concurrent_build_is_refused() {
+    let fake = FakeHost::new();
+    fake.set_tree(
+        json!([{"name": "App", "path": "/src/App/App.csproj", "kind": "sdk",
+                          "targetFrameworks": ["net10.0"], "files": []}]),
+    );
+    let (client, rx) = start(&fake, 0);
+    let start_build = |target| {
+        client
+            .request::<host::BuildStart>(host::BuildStartParams {
+                target,
+                project: None,
+                configuration: None,
+                platform: None,
+            })
+            .unwrap()
+            .wait_timeout(T)
+    };
+    // No solution open yet.
+    assert!(matches!(
+        start_build(host::BuildTarget::Build),
+        Err(eludite_lsp::Error::Rpc(e)) if e.code == -32602
+    ));
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let started = start_build(host::BuildTarget::Build).unwrap();
+    assert_eq!(started.build_id, 1);
+    assert_eq!(started.configuration, "Debug");
+    assert_eq!(started.toolchain.kind, host::ToolchainKind::Dotnet);
+    let Event::BuildOutput(first) = next(&rx, |e| matches!(e, Event::BuildOutput(_))) else {
+        unreachable!()
+    };
+    assert_eq!((first.build_id, first.seq), (1, 0));
+    assert!(first.text.starts_with("Build started"));
+
+    let refused = start_build(host::BuildTarget::Rebuild);
+    let Err(eludite_lsp::Error::Rpc(e)) = refused else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(e.code, host::error_codes::BUILD_IN_PROGRESS);
+    let data: host::BuildInProgressData = serde_json::from_value(e.data.unwrap()).unwrap();
+    assert_eq!(data.build_id, 1);
+
+    for i in 0..50 {
+        fake.build_output(&format!("line {i}\n"));
+    }
+    fake.build_progress(0, 1, 0, 0);
+    let mut seqs = Vec::new();
+    while seqs.len() < 50 {
+        if let Event::BuildOutput(o) = next(&rx, |e| matches!(e, Event::BuildOutput(_))) {
+            assert_eq!(o.text, format!("line {}\n", seqs.len()));
+            seqs.push(o.seq);
+        }
+    }
+    assert_eq!(seqs, (1..=50).collect::<Vec<_>>(), "chunks arrive in order");
+    let Event::BuildProgress(p) = next(&rx, |e| matches!(e, Event::BuildProgress(_))) else {
+        unreachable!()
+    };
+    assert_eq!(p.projects_total, 1);
+
+    let cancel = client
+        .request::<host::BuildCancel>(host::BuildCancelParams::default())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(
+        cancel,
+        host::BuildCancelResult {
+            canceled: true,
+            build_id: Some(1)
+        }
+    );
+    let Event::BuildFinished(f) = next(&rx, |e| matches!(e, Event::BuildFinished(_))) else {
+        unreachable!()
+    };
+    assert_eq!(f.result, host::BuildResult::Canceled);
+    assert_eq!(f.projects[0].result, host::BuildResult::Canceled);
+    assert_eq!(fake.running_build(), None);
+
+    // A new build after the cancel; it fails with one error.
+    let again = start_build(host::BuildTarget::Build).unwrap();
+    assert_eq!(again.build_id, 2);
+    fake.finish_build(
+        "failed",
+        json!([{"severity": "error", "code": "CS0103", "message": "x", "file": "/src/App/Program.cs",
+                "line": 3, "column": 9, "project": "/src/App/App.csproj"}]),
+    );
+    let Event::BuildFinished(f) = next(&rx, |e| matches!(e, Event::BuildFinished(_))) else {
+        unreachable!()
+    };
+    assert_eq!(f.build_id, 2);
+    assert_eq!(f.result, host::BuildResult::Failed);
+    assert_eq!(f.summary.errors, 1);
+    assert_eq!(f.diagnostics[0].line, Some(3));
+    let cancel = client
+        .request::<host::BuildCancel>(host::BuildCancelParams::default())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(!cancel.canceled);
+}
