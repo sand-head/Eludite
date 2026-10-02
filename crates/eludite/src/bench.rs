@@ -319,3 +319,47 @@ fn report(b: &DragBench, window: &Window, _cx: &App) {
     });
     println!("{out}");
 }
+
+/// `--timings-out PATH`: once editable text, the tree and the first diagnostics have all arrived (or after 180 s),
+/// write how long each took from the `eludite.solution.open` command, as JSON.
+pub fn timings_out(
+    shell: Entity<Shell>,
+    path: std::path::PathBuf,
+    window: &mut Window,
+    cx: &mut gpui::Context<Shell>,
+) {
+    let started = Instant::now();
+    cx.spawn_in(window, async move |_, cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(20))
+                .await;
+            let Ok(t) = cx.update(|_, cx| shell.read(cx).timings().clone()) else {
+                return;
+            };
+            let done =
+                t.editable.is_some() && t.tree.is_some() && t.first_nonempty_diagnostics.is_some();
+            if !done && started.elapsed() < Duration::from_secs(180) {
+                continue;
+            }
+            let since = |x: Option<Instant>| match (t.open, x) {
+                (Some(o), Some(x)) => json!(ms(x.saturating_duration_since(o))),
+                _ => Value::Null,
+            };
+            let out = json!({
+                "bench": "open_solution",
+                "open_to_editable_ms": since(t.editable),
+                "open_to_tree_ms": since(t.tree),
+                "open_to_first_diagnostics_ms": since(t.first_diagnostics),
+                "open_to_first_nonempty_diagnostics_ms": since(t.first_nonempty_diagnostics),
+                "open_to_loaded_ms": since(t.loaded),
+                "rss": rss_mib(),
+            });
+            if let Err(e) = std::fs::write(&path, format!("{out}\n")) {
+                eprintln!("eludite: --timings-out {}: {e}", path.display());
+            }
+            return;
+        }
+    })
+    .detach();
+}
