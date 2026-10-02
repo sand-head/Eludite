@@ -10,6 +10,11 @@
 //!   thread on [`BuildShared`] until the build finishes (or is canceled), unless it passed `wait: false`.
 //! - **One build at a time.** While one runs, a second start is refused here (the host refuses one too), and the
 //!   Build menu's start items are disabled ([`Builds::building`]); Cancel is enabled only then.
+//! - **Two build systems** (brief 0019). MSBuild runs in the host; Cargo runs in the shell (`cargo_build`), reported
+//!   in the same `eludite/build/*` shapes, so both stream into the same Output pane, Error List rows and status bar.
+//!   Ctrl+Shift+B builds the active system: the one owning the active document (a file of a Cargo package: cargo; a
+//!   file of the solution: MSBuild), or every system the workspace has, one after the other, when no document is
+//!   active or it belongs to neither. Build Project builds the active document's project or Cargo package.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -22,15 +27,15 @@ use std::time::{Duration, Instant};
 
 use eludite_commands::CommandError;
 use eludite_commands::build::{
-    BuildCommandOutput, BuildCommands, BuildKind, BuildRequest, BuildResultOutput, CancelOutput,
-    MAX_RESULT_DIAGNOSTICS, OutputClearOutput, OutputShowOutput, OutputSource, ResultDiagnostic,
-    ResultProject,
+    BuildCommandOutput, BuildCommands, BuildKind, BuildRequest, BuildResultOutput,
+    BuildSystemChoice, CancelOutput, MAX_RESULT_DIAGNOSTICS, OutputClearOutput, OutputShowOutput,
+    OutputSource, ResultDiagnostic, ResultProject,
 };
 use eludite_commands::view::{ViewRequest, ViewTarget as _};
 use eludite_docking::ids;
 use eludite_lsp::host::{
     BuildDiagnostic, BuildDiagnosticSeverity, BuildFinished, BuildProgress, BuildResult,
-    BuildStartParams, BuildStartResult, BuildTarget,
+    BuildStartParams, BuildStartResult, BuildSummary, BuildSystem, BuildTarget,
 };
 use eludite_ui::{Theme, toggle_button};
 use futures::channel::mpsc::UnboundedSender;
@@ -40,6 +45,8 @@ use gpui::{
 };
 
 use super::Shell;
+use super::cargo_build::{self, CargoBuildSpec, CargoRun, Member};
+use super::folder::CargoState;
 
 /// Status bar slot: the build's state (left, after the solution's).
 pub const BUILD_SLOT: &str = "build";
@@ -165,6 +172,10 @@ impl BuildCommands for BuildBus {
 #[derive(Debug, Clone)]
 pub struct CurrentBuild {
     pub ticket: u64,
+    /// Which build system runs it (brief 0019).
+    pub system: BuildSystem,
+    /// What the command asked for (`all` while a build of every system runs).
+    pub choice: BuildSystemChoice,
     /// The host's id, once its reply (or its first output chunk) arrived.
     pub id: Option<u64>,
     pub kind: BuildKind,
@@ -202,6 +213,11 @@ pub struct Builds {
     /// The last finished build, and its diagnostics for the Error List (replaced by the next build's).
     pub last: Option<BuildFinished>,
     pub diagnostics: Vec<BuildDiagnostic>,
+    /// The running Cargo build, to cancel it (brief 0019).
+    pub cargo: Option<CargoRun>,
+    next_cargo_id: u64,
+    /// A build of every system: what is left to run, and what the finished ones produced.
+    pub chain: Option<Chain>,
     /// The toolbar's selection.
     pub configuration: String,
     /// `None`: the solution's default platform.
@@ -223,6 +239,9 @@ impl Builds {
             next_ticket: 1,
             last: None,
             diagnostics: Vec::new(),
+            cargo: None,
+            next_cargo_id: cargo_build::CARGO_BUILD_ID_BASE,
+            chain: None,
             configuration: CONFIGURATIONS[0].to_owned(),
             platform: None,
             platforms: vec!["Any CPU".into()],
@@ -235,6 +254,21 @@ impl Builds {
     pub fn is_building(&self) -> bool {
         self.current.is_some()
     }
+}
+
+/// One step of a build plan: the system and the MSBuild project or Cargo package (`None`: all of it).
+pub type BuildStep = (BuildSystem, Option<String>);
+
+/// A build of every system of the workspace (brief 0019): one after the other, into one result.
+#[derive(Debug, Clone, Default)]
+pub struct Chain {
+    /// The systems still to run, in order.
+    pub next: Vec<BuildStep>,
+    pub diagnostics: Vec<BuildDiagnostic>,
+    pub summary: BuildSummary,
+    pub projects: Vec<eludite_lsp::host::BuildProjectResult>,
+    pub failed: bool,
+    pub elapsed_ms: f64,
 }
 
 /// Whether menu item `command` is enabled given whether a build runs.
@@ -338,15 +372,22 @@ impl Shell {
                 project,
                 configuration,
                 platform,
+                system,
                 ..
-            } => match self.start_build(kind, project, configuration, platform, window, cx) {
+            } => match self.start_build(kind, project, configuration, platform, system, window, cx)
+            {
                 Ok((out, ticket)) => (Ok(out), Some(ticket)),
                 Err(e) => (Err(e), None),
             },
             BuildRequest::Cancel => {
                 let out = match &self.builds.current {
                     Some(b) => {
-                        self.session.build_cancel();
+                        // The rest of a build of every system is dropped too.
+                        self.builds.chain = None;
+                        match (&b.system, &self.builds.cargo) {
+                            (BuildSystem::Cargo, Some(run)) => run.cancel(),
+                            _ => self.session.build_cancel(),
+                        }
                         self.status.set(BUILD_SLOT, "Canceling build\u{2026}");
                         cx.notify();
                         CancelOutput {
@@ -447,29 +488,176 @@ impl Shell {
         }
     }
 
+    /// The Cargo package a build command names: a package name, or the path of its `Cargo.toml` or folder.
+    fn cargo_package(&self, project: &str) -> Option<String> {
+        let ws = self.cargo_workspace()?;
+        if let Some(p) = ws.package(project) {
+            return Some(p.name.clone());
+        }
+        let path = Path::new(project);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            ws.root.join(path)
+        };
+        let wanted = super::documents::normalize_path(&path);
+        ws.members
+            .iter()
+            .find(|p| {
+                super::documents::normalize_path(&p.manifest_path) == wanted
+                    || super::documents::normalize_path(p.dir()) == wanted
+            })
+            .map(|p| p.name.clone())
+    }
+
+    /// The open folder's Cargo workspace, once read.
+    pub(super) fn cargo_workspace(&self) -> Option<&eludite_workspace::cargo::CargoWorkspace> {
+        match self.folder.as_ref()?.cargo.as_ref()? {
+            CargoState::Loaded(ws) => Some(ws),
+            _ => None,
+        }
+    }
+
+    /// The Cargo package of the active document, if it is in the Cargo workspace.
+    fn active_cargo_package(&self) -> Option<String> {
+        let ws = self.cargo_workspace()?;
+        let active = self
+            .controller
+            .active_document()
+            .filter(|id| self.documents.contains_key(id))?;
+        ws.package_of(Path::new(&active)).map(|p| p.name.clone())
+    }
+
+    /// Whether the active document is a file of the open solution.
+    fn active_in_solution(&self) -> bool {
+        let Some(active) = self
+            .controller
+            .active_document()
+            .filter(|id| self.documents.contains_key(id))
+        else {
+            return false;
+        };
+        let active = super::documents::normalize_path(Path::new(&active));
+        self.tree
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .projects
+            .iter()
+            .any(|p| {
+                p.files
+                    .iter()
+                    .any(|f| super::documents::normalize_path(Path::new(f)) == active)
+            })
+    }
+
+    /// Which systems a build command runs, in order, with the Cargo package or MSBuild project for each.
+    fn plan_build(
+        &self,
+        project: Option<Option<String>>,
+        system: Option<BuildSystemChoice>,
+    ) -> Result<(BuildSystemChoice, Vec<BuildStep>), CommandError> {
+        let has_msbuild = self.solution.is_some();
+        let has_cargo = self.cargo_workspace().is_some();
+        match project {
+            // One project: a Cargo package by name or path, else an MSBuild project.
+            Some(Some(p)) => {
+                if let Some(pkg) = self.cargo_package(&p) {
+                    return Ok((
+                        BuildSystemChoice::Cargo,
+                        vec![(BuildSystem::Cargo, Some(pkg))],
+                    ));
+                }
+                let path = self.resolve_project(Some(p))?;
+                Ok((
+                    BuildSystemChoice::Msbuild,
+                    vec![(
+                        BuildSystem::Msbuild,
+                        Some(path.to_string_lossy().into_owned()),
+                    )],
+                ))
+            }
+            Some(None) => {
+                if let Some(pkg) = self.active_cargo_package() {
+                    return Ok((
+                        BuildSystemChoice::Cargo,
+                        vec![(BuildSystem::Cargo, Some(pkg))],
+                    ));
+                }
+                let path = self.resolve_project(None)?;
+                Ok((
+                    BuildSystemChoice::Msbuild,
+                    vec![(
+                        BuildSystem::Msbuild,
+                        Some(path.to_string_lossy().into_owned()),
+                    )],
+                ))
+            }
+            None => {
+                let choice = system.unwrap_or_else(|| {
+                    if has_cargo && self.active_cargo_package().is_some() {
+                        BuildSystemChoice::Cargo
+                    } else if has_msbuild && self.active_in_solution() {
+                        BuildSystemChoice::Msbuild
+                    } else {
+                        BuildSystemChoice::All
+                    }
+                });
+                let plan: Vec<BuildStep> = match choice {
+                    BuildSystemChoice::Msbuild if has_msbuild => vec![(BuildSystem::Msbuild, None)],
+                    BuildSystemChoice::Cargo if has_cargo => vec![(BuildSystem::Cargo, None)],
+                    BuildSystemChoice::Msbuild => {
+                        return Err(CommandError::Failed("no solution is open".into()));
+                    }
+                    BuildSystemChoice::Cargo => {
+                        return Err(CommandError::Failed(
+                            "no Cargo workspace is open (File > Open > Folder)".into(),
+                        ));
+                    }
+                    BuildSystemChoice::All => {
+                        let mut v = Vec::new();
+                        if has_msbuild {
+                            v.push((BuildSystem::Msbuild, None));
+                        }
+                        if has_cargo {
+                            v.push((BuildSystem::Cargo, None));
+                        }
+                        v
+                    }
+                };
+                if plan.is_empty() {
+                    return Err(CommandError::Failed("no solution is open".into()));
+                }
+                // A single system of an "all" plan is that system.
+                let choice = match (choice, plan.as_slice()) {
+                    (BuildSystemChoice::All, [(BuildSystem::Msbuild, _)]) => {
+                        BuildSystemChoice::Msbuild
+                    }
+                    (BuildSystemChoice::All, [(BuildSystem::Cargo, _)]) => BuildSystemChoice::Cargo,
+                    (c, _) => c,
+                };
+                Ok((choice, plan))
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn start_build(
         &mut self,
         kind: BuildKind,
         project: Option<Option<String>>,
         configuration: Option<String>,
         platform: Option<String>,
+        system: Option<BuildSystemChoice>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(BuildCommandOutput, u64), CommandError> {
-        let solution = self
-            .solution
-            .clone()
-            .ok_or_else(|| CommandError::Failed("no solution is open".into()))?;
         if let Some(b) = &self.builds.current {
             return Err(CommandError::Failed(format!(
                 "a build is already running{}",
                 b.id.map(|id| format!(" (build {id})")).unwrap_or_default()
             )));
         }
-        let project = match project {
-            Some(p) => Some(self.resolve_project(p)?),
-            None => None,
-        };
+        let (choice, mut plan) = self.plan_build(project, system)?;
         // An explicit configuration or platform becomes the toolbar's selection, as choosing it there would.
         if let Some(c) = &configuration {
             self.builds.configuration = c.clone();
@@ -481,28 +669,12 @@ impl Shell {
         let platform = self.builds.platform.clone();
         let ticket = self.builds.next_ticket;
         self.builds.next_ticket += 1;
-        let path = project.clone().unwrap_or(solution);
         let requested = Instant::now();
-        self.builds.current = Some(CurrentBuild {
-            ticket,
-            id: None,
-            kind,
-            path: path.clone(),
-            configuration: configuration.clone(),
-            platform: platform.clone(),
-            started: None,
-            progress: None,
-        });
         self.builds.timings = BuildTimings {
             requested: Some(requested),
             ..BuildTimings::default()
         };
         self.set_building(true, cx);
-        super::documents::trace(format_args!(
-            "build requested: {} {}",
-            kind.as_str(),
-            path.display()
-        ));
         // Visual Studio's "Show Output window when build starts".
         let _ = self.controller.apply(ViewRequest::Show {
             id: ids::OUTPUT.into(),
@@ -513,20 +685,17 @@ impl Shell {
         });
         self.status
             .set(BUILD_SLOT, format!("{} started\u{2026}", verb(kind)));
-        self.session.build_start(
-            ticket,
-            BuildStartParams {
-                target: kind_target(kind),
-                project: project.map(|p| p.to_string_lossy().into_owned()),
-                configuration: Some(configuration.clone()),
-                platform: platform.clone(),
-            },
-        );
-        let _ = window;
+        let first = plan.remove(0);
+        self.builds.chain = (!plan.is_empty()).then(|| Chain {
+            next: plan,
+            ..Chain::default()
+        });
+        let path = self.begin_system(ticket, kind, first, choice, window, cx);
         cx.notify();
         Ok((
             BuildCommandOutput::Result(Box::new(BuildResultOutput {
                 state: "running".into(),
+                system: Some(choice),
                 build_id: None,
                 target: kind,
                 path: path.to_string_lossy().into_owned(),
@@ -542,6 +711,101 @@ impl Shell {
             })),
             ticket,
         ))
+    }
+
+    /// Start one system's build for `ticket`; returns the path built (folder, manifest, solution or project).
+    fn begin_system(
+        &mut self,
+        ticket: u64,
+        kind: BuildKind,
+        (system, target): BuildStep,
+        choice: BuildSystemChoice,
+        window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> PathBuf {
+        let configuration = self.builds.configuration.clone();
+        let platform = self.builds.platform.clone();
+        let path = match system {
+            BuildSystem::Msbuild => target
+                .clone()
+                .map(PathBuf::from)
+                .or_else(|| self.solution.clone())
+                .unwrap_or_default(),
+            BuildSystem::Cargo => self
+                .cargo_workspace()
+                .map(|ws| ws.manifest.clone())
+                .unwrap_or_default(),
+        };
+        let shown = if choice == BuildSystemChoice::All {
+            self.workspace_root().unwrap_or_else(|| path.clone())
+        } else {
+            path.clone()
+        };
+        super::documents::trace(format_args!(
+            "build requested: {} {:?} {}",
+            kind.as_str(),
+            system,
+            path.display()
+        ));
+        let id = match system {
+            BuildSystem::Cargo => {
+                let id = self.builds.next_cargo_id;
+                self.builds.next_cargo_id += 1;
+                Some(id)
+            }
+            BuildSystem::Msbuild => None,
+        };
+        self.builds.current = Some(CurrentBuild {
+            ticket,
+            system,
+            choice,
+            id,
+            kind,
+            path: shown.clone(),
+            configuration: configuration.clone(),
+            platform: platform.clone(),
+            started: None,
+            progress: None,
+        });
+        match system {
+            BuildSystem::Msbuild => self.session.build_start(
+                ticket,
+                BuildStartParams {
+                    target: kind_target(kind),
+                    system: None,
+                    project: target,
+                    configuration: Some(configuration.clone()),
+                    platform: platform.clone(),
+                },
+            ),
+            BuildSystem::Cargo => {
+                let ws = self.cargo_workspace().cloned().unwrap_or_else(|| {
+                    unreachable!("planned a Cargo build without a Cargo workspace")
+                });
+                let spec = CargoBuildSpec {
+                    ticket,
+                    id: id.unwrap_or_default(),
+                    generation: self.generation,
+                    kind,
+                    manifest: ws.manifest.clone(),
+                    root: ws.root.clone(),
+                    package: target,
+                    release: configuration.eq_ignore_ascii_case("release"),
+                    members: ws
+                        .members
+                        .iter()
+                        .map(|p| Member {
+                            name: p.name.clone(),
+                            manifest: p.manifest_path.clone(),
+                        })
+                        .collect(),
+                    program: std::env::var_os("ELUDITE_CARGO").unwrap_or_else(|| "cargo".into()),
+                };
+                self.builds.cargo = Some(cargo_build::start(spec, self.build_events.clone()));
+            }
+        }
+        let _ = window;
+        shown
     }
 
     fn set_building(&mut self, building: bool, cx: &mut Context<Self>) {
@@ -579,10 +843,12 @@ impl Shell {
             BUILD_SLOT,
             format!("{} did not start: {message}", verb(b.kind)),
         );
+        self.builds.chain = None;
         self.builds.shared.publish(
             ticket,
             BuildResultOutput {
                 state: "failed".into(),
+                system: Some(b.choice),
                 build_id: None,
                 target: b.kind,
                 path: b.path.to_string_lossy().into_owned(),
@@ -663,7 +929,7 @@ impl Shell {
 
     pub(super) fn on_build_finished(
         &mut self,
-        finished: BuildFinished,
+        mut finished: BuildFinished,
         received: Instant,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -674,8 +940,46 @@ impl Shell {
         let Some(b) = self.builds.current.take() else {
             return;
         };
-        self.set_building(false, cx);
+        if b.system == BuildSystem::Cargo {
+            self.builds.cargo = None;
+        }
         self.builds.timings.finished_received = Some(received);
+        // A build of every system (brief 0019): collect this one's result, then run the next one, or report the
+        // sum as one build.
+        if let Some(chain) = self.builds.chain.as_mut() {
+            if finished.generation >= self.generation {
+                chain
+                    .diagnostics
+                    .extend(finished.diagnostics.iter().cloned());
+            }
+            chain.summary.errors += finished.summary.errors;
+            chain.summary.warnings += finished.summary.warnings;
+            chain.summary.projects_succeeded += finished.summary.projects_succeeded;
+            chain.summary.projects_failed += finished.summary.projects_failed;
+            chain.projects.extend(finished.projects.iter().cloned());
+            chain.failed |= finished.result == BuildResult::Failed;
+            chain.elapsed_ms += finished.elapsed_ms;
+            if finished.result != BuildResult::Canceled && !chain.next.is_empty() {
+                let next = chain.next.remove(0);
+                self.builds.diagnostics = chain.diagnostics.clone();
+                self.update_error_list(cx);
+                self.begin_system(b.ticket, b.kind, next, b.choice, window, cx);
+                cx.notify();
+                return;
+            }
+            let chain = self.builds.chain.take().unwrap_or_default();
+            finished.result = match finished.result {
+                BuildResult::Canceled => BuildResult::Canceled,
+                _ if chain.failed => BuildResult::Failed,
+                _ => BuildResult::Succeeded,
+            };
+            finished.summary = chain.summary;
+            finished.projects = chain.projects;
+            finished.elapsed_ms = chain.elapsed_ms;
+            finished.diagnostics = chain.diagnostics;
+            finished.path = b.path.to_string_lossy().into_owned();
+        }
+        self.set_building(false, cx);
         let s = finished.summary;
         let plural = |n: u32, w: &str| format!("{n} {w}{}", if n == 1 { "" } else { "s" });
         let text = match finished.result {
@@ -719,16 +1023,23 @@ impl Shell {
 
     /// The host went away mid-build: the build is over.
     pub(super) fn on_build_lost(&mut self, why: &str, cx: &mut Context<Self>) {
-        let Some(b) = self.builds.current.take() else {
+        // Only the host's builds end with the host (a Cargo build runs in the shell).
+        let Some(b) = self
+            .builds
+            .current
+            .take_if(|b| b.system == BuildSystem::Msbuild)
+        else {
             return;
         };
         self.set_building(false, cx);
         self.status
             .set(BUILD_SLOT, format!("{} canceled: {why}", verb(b.kind)));
+        self.builds.chain = None;
         self.builds.shared.publish(
             b.ticket,
             BuildResultOutput {
                 state: "canceled".into(),
+                system: Some(b.choice),
                 build_id: b.id,
                 target: b.kind,
                 path: b.path.to_string_lossy().into_owned(),
@@ -748,12 +1059,7 @@ impl Shell {
     fn result_output(&self, b: &CurrentBuild, f: &BuildFinished) -> BuildResultOutput {
         let root = self.solution_dir();
         let rel = |p: &str| super::relative_path(Path::new(p), root.as_deref());
-        let name = |p: &str| {
-            Path::new(p)
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default()
-        };
+        let name = |p: &str| self.project_display(p);
         let result = |r: BuildResult| match r {
             BuildResult::Succeeded => "succeeded",
             BuildResult::Failed => "failed",
@@ -761,6 +1067,7 @@ impl Shell {
         };
         BuildResultOutput {
             state: result(f.result).into(),
+            system: Some(b.choice),
             build_id: Some(f.build_id),
             target: b.kind,
             path: f.path.clone(),
@@ -771,6 +1078,7 @@ impl Shell {
                     eludite_lsp::host::ToolchainKind::Dotnet => "dotnet",
                     eludite_lsp::host::ToolchainKind::Mono => "mono",
                     eludite_lsp::host::ToolchainKind::BuildTools => "buildTools",
+                    eludite_lsp::host::ToolchainKind::Cargo => "cargo",
                 }
                 .to_owned()
             }),
@@ -815,6 +1123,8 @@ impl Shell {
     pub fn bench_stream_begin(&mut self, cx: &mut Context<Self>) {
         self.builds.current = Some(CurrentBuild {
             ticket: 0,
+            system: BuildSystem::Msbuild,
+            choice: BuildSystemChoice::Msbuild,
             id: Some(BENCH_BUILD_ID),
             kind: BuildKind::Build,
             path: PathBuf::from("bench"),
@@ -1045,6 +1355,7 @@ mod tests {
         let waiter = std::thread::spawn(move || s2.wait(2, Duration::from_secs(5)));
         let result = |state: &str| BuildResultOutput {
             state: state.into(),
+            system: None,
             build_id: Some(1),
             target: BuildKind::Build,
             path: "/s/A.slnx".into(),

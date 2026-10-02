@@ -187,6 +187,7 @@ fn real_host_builds_a_project() {
     let started = client
         .request::<host::BuildStart>(host::BuildStartParams {
             target: host::BuildTarget::Build,
+            system: None,
             project: None,
             configuration: None,
             platform: None,

@@ -584,6 +584,7 @@ fn build_messages_conform_to_their_schemas() {
         "params",
         &BuildStartParams {
             target: BuildTarget::Build,
+            system: None,
             project: None,
             configuration: None,
             platform: None,
@@ -594,6 +595,7 @@ fn build_messages_conform_to_their_schemas() {
         "params",
         &BuildStartParams {
             target: BuildTarget::Clean,
+            system: Some(BuildSystem::Msbuild),
             project: Some("/s/A/A.csproj".into()),
             configuration: Some("Release".into()),
             platform: Some("Any CPU".into()),
@@ -618,6 +620,7 @@ fn build_messages_conform_to_their_schemas() {
         &BuildStartResult {
             build_id: 1,
             generation: 2,
+            system: None,
             path: "/s/A.slnx".into(),
             target: BuildTarget::Build,
             configuration: "Debug".into(),
@@ -632,6 +635,32 @@ fn build_messages_conform_to_their_schemas() {
         "result",
         json!({"buildId": 0, "generation": 0, "path": "/a", "target": "build", "configuration": "Debug",
                "toolchain": {"kind": "dotnet"}, "commandLine": "x"}),
+    );
+    // The shell's own Cargo builds share the shape (brief 0019).
+    conforms(
+        "build-start.json",
+        "result",
+        &BuildStartResult {
+            build_id: 1 << 32,
+            generation: 0,
+            system: Some(BuildSystem::Cargo),
+            path: "/w/Cargo.toml".into(),
+            target: BuildTarget::Build,
+            configuration: "Debug".into(),
+            platform: None,
+            toolchain: Toolchain {
+                kind: ToolchainKind::Cargo,
+                path: Some("cargo".into()),
+                source: Some("PATH".into()),
+            },
+            binlog: None,
+            command_line: "cargo build --message-format=json-diagnostic-rendered-ansi".into(),
+        },
+    );
+    rejects(
+        "build-start.json",
+        "params",
+        json!({"target": "build", "system": "make"}),
     );
     conforms(
         "errors.json",

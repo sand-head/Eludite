@@ -473,6 +473,7 @@ fn build_messages_are_typed_and_a_concurrent_build_is_refused() {
         client
             .request::<host::BuildStart>(host::BuildStartParams {
                 target,
+                system: None,
                 project: None,
                 configuration: None,
                 platform: None,
