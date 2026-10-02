@@ -1,6 +1,6 @@
 # Debugging with Eludite: a guide for agents
 
-Eludite's debugger is one session that you and the person at the keyboard drive together, through the same commands.
+Eludite's debugger is a set of sessions (one per started project or attached process, usually one) that you and the person at the keyboard drive together, through the same commands.
 Each `eludite.debug.<name>` command is the MCP tool `eludite-debug-<name>` (Claude Code shows it as
 `mcp__eludite__eludite-debug-<name>`). Every answer is budgeted: lists say `total` and `truncated`, values are cut at
 `max_value_chars`, and the commands that run the program answer with the compact stop summary. Read this once per
@@ -127,3 +127,10 @@ The person stays in charge of what you may do to a session.
 
 Everything you do is audited, and the Agents window shows each of your debug commands as the person would read it in
 the Debug toolbar, for example `Step Over → stopped at Program.cs:42 (breakpoint)`, with the summary you received.
+
+## 7. More than one session
+
+- Every started project and every attached process is a session with an `id`. `eludite.debug.sessions` lists them (id, name, mode, active); `eludite.debug.state` and the stop summaries carry `session`.
+- Every command that acts on a session takes `session`; without it, the active session (the one the windows show) is used. Name the session when more than one is live: the active one changes when another session breaks.
+- `start` with `compound: "startup"` starts the solution's startup projects together; a compound answer is the first session to break, or every session's mode on a timeout. Naming a project that is already being debugged starts another instance.
+- `stop` without `session` ends every session; with one, that session only. Breakpoints, exception settings and watch expressions are shared by all sessions; the stop counter, `allow_agents` and `interrupted_by` are per session.
