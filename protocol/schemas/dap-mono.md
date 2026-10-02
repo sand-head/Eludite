@@ -120,7 +120,8 @@ explicit `long` or `double` casts when the evaluator's numeric unboxing fails, a
 the frame's namespace outwards and then `System`; namespace-qualified names (`System.Math.Max(a, b)`,
 `MyApp.Program.Hang()`) and `global::` names work too. A type of an assembly the debuggee has not loaded (LINQ's
 `System.Linq.Enumerable` in a program that never used `System.Core`) is not found. Lambdas, array creation,
-`default(T)`, `checked`, `nameof`, interpolated strings and `++`/`--` are not supported by the evaluator.
+`default(T)`, `checked`, `nameof` and `++`/`--` are not supported by the evaluator. NRefactory 5.5 reads an
+interpolated string (`$"{x}"`) as its literal text, so the adapter refuses one with an error naming `string.Format`.
 
 ## Stepping
 
