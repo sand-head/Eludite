@@ -115,8 +115,10 @@ impl Args {
         Ok(a)
     }
 
+    /// Measurement runs: no saved layout, and no frame-rate limit when the compositor withholds focus (a nested
+    /// session gives the window none, and GPUI would then draw at most every 33 ms).
     pub fn benching(&self) -> bool {
-        self.bench_start || self.bench_drag.is_some()
+        self.bench_start || self.bench_drag.is_some() || self.bench_complete.is_some()
     }
 }
 
