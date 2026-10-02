@@ -690,9 +690,15 @@ impl DebugModel {
             console: ConsoleRow {
                 lines: self.console_total,
                 tail: self.console.iter().skip(tail_from).cloned().collect(),
+                next: 0,
             },
             last_driver: self.last_driver.clone(),
             message: self.message.clone(),
+            capabilities: None,
+            agent_driving: self
+                .last_driver
+                .as_deref()
+                .is_some_and(|d| d.starts_with("agent:")),
         }
     }
 
@@ -727,6 +733,7 @@ mod tests {
             thread: None,
             stop,
             wait_ms: None,
+            budget: Default::default(),
         }
     }
 
@@ -746,7 +753,8 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
-                wait_ms: None
+                wait_ms: None,
+                budget: Default::default()
             })
             .is_ok()
         );
@@ -758,7 +766,8 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
-                wait_ms: None
+                wait_ms: None,
+                budget: Default::default()
             })
             .unwrap_err()
             .to_string()
