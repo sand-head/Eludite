@@ -1,5 +1,5 @@
-//! The plain-folder model (brief 0019, File > Open Folder): the folder's files, and what at its root Eludite knows
-//! how to load (a .NET solution, a Cargo workspace). Listing walks the disk, so the shell calls it off the UI thread.
+//! The plain-folder model (brief 0019, File > Open Folder): the folder's files, and what Eludite knows how to load
+//! there (a .NET solution at the root or one folder down, a Cargo workspace at the root). Listing walks the disk, so the shell calls it off the UI thread.
 
 use std::path::{Path, PathBuf};
 
@@ -59,26 +59,54 @@ pub fn list_folder(root: &Path, max_files: usize) -> FolderListing {
     }
 }
 
-/// The .NET solution at `root` (not below it): an `.slnx` before an `.sln`, then by name.
+/// The .NET solution of a folder: at `root`, else in a folder directly below it (this repository keeps
+/// `dotnet/Eludite.slnx`); an `.slnx` before an `.sln`, then by path. Hidden and [`SKIPPED_FOLDERS`] are not searched.
 pub fn find_solution(root: &Path) -> Option<PathBuf> {
-    let mut found: Vec<PathBuf> = std::fs::read_dir(root)
+    let is_solution = |p: &Path| {
+        p.is_file()
+            && p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("slnx") || e.eq_ignore_ascii_case("sln"))
+    };
+    let pick = |dir: &Path| -> Option<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| is_solution(p))
+            .collect();
+        found.sort_by_key(|p| {
+            let slnx = p
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("slnx"));
+            (!slnx, p.clone())
+        });
+        found.into_iter().next()
+    };
+    if let Some(found) = pick(root) {
+        return Some(found);
+    }
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
         .ok()?
         .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            p.is_file()
-                && p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                    e.eq_ignore_ascii_case("slnx") || e.eq_ignore_ascii_case("sln")
-                })
+        .filter(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            e.file_type().is_ok_and(|t| t.is_dir())
+                && !name.starts_with('.')
+                && !SKIPPED_FOLDERS.contains(&name.as_ref())
         })
+        .map(|e| e.path())
         .collect();
-    found.sort_by_key(|p| {
+    dirs.sort();
+    let mut candidates: Vec<PathBuf> = dirs.iter().filter_map(|d| pick(d)).collect();
+    candidates.sort_by_key(|p| {
         let slnx = p
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("slnx"));
         (!slnx, p.clone())
     });
-    found.into_iter().next()
+    candidates.into_iter().next()
 }
 
 /// `root/Cargo.toml`, when it exists.
@@ -159,5 +187,21 @@ mod tests {
         );
         assert_eq!(find_cargo_manifest(&dir.path().join("docs")), None);
         assert_eq!(find_solution(&dir.path().join("docs")), None);
+        // One level down, as this repository's dotnet/Eludite.slnx; not deeper, not in build outputs.
+        let mixed = tempfile::tempdir().unwrap();
+        for rel in [
+            "dotnet/Eludite.slnx",
+            "dotnet/old/Old.sln",
+            "target/x/Y.slnx",
+            "a/b/Deep.slnx",
+        ] {
+            let p = mixed.path().join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        }
+        assert_eq!(
+            find_solution(mixed.path()),
+            Some(mixed.path().join("dotnet/Eludite.slnx"))
+        );
     }
 }

@@ -20,7 +20,7 @@
       "const": "loading"
     },
     "solution": {
-      "description": "Absolute path of the .NET solution found at the root and handed to eludite-host, when there is one.",
+      "description": "Absolute path of the .NET solution found at the root (or in a folder directly below it) and handed to eludite-host, when there is one.",
       "type": "string",
       "minLength": 1
     },
