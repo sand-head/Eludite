@@ -56,6 +56,9 @@ pub struct SurfaceStats {
     pub copy_ms: Vec<f64>,
     /// The engine's `OnPaint` to the end of the present that showed the frame, ms.
     pub latency_ms: Vec<f64>,
+    /// When each paint of the `img` element ended, and whether it carried a new image: the bench splits a frame
+    /// into the CPU work up to the image and the rest (the present, where a software rasterizer does its work).
+    pub painted: Vec<(Instant, bool)>,
     /// The dirty rectangles of the last uploaded frame (device pixels).
     pub last_dirty: Vec<DirtyRect>,
     pub last_sequence: u64,
@@ -69,6 +72,7 @@ impl SurfaceStats {
         self.paint_ms.clear();
         self.copy_ms.clear();
         self.latency_ms.clear();
+        self.painted.clear();
     }
 }
 
@@ -414,7 +418,8 @@ impl Render for BrowserSurface {
                     .w(px(w))
                     .h(px(h))
                     .into_any_element(),
-                stats: fresh.map(|_| self.stats.clone()),
+                stats: self.stats.clone(),
+                fresh: fresh.is_some(),
             })
             .into_any_element()
     }
@@ -439,7 +444,8 @@ impl BrowserSurface {
 /// The `img` element, its paint timed when it carries a new image.
 struct Timed {
     child: AnyElement,
-    stats: Option<Stats>,
+    stats: Stats,
+    fresh: bool,
 }
 
 impl IntoElement for Timed {
@@ -496,11 +502,13 @@ impl Element for Timed {
     ) {
         let t0 = Instant::now();
         self.child.paint(window, cx);
-        if let Some(stats) = &self.stats {
-            stats
-                .borrow_mut()
-                .paint_ms
-                .push(t0.elapsed().as_secs_f64() * 1e3);
+        let end = Instant::now();
+        let mut s = self.stats.borrow_mut();
+        if self.fresh {
+            s.paint_ms.push((end - t0).as_secs_f64() * 1e3);
+        }
+        if s.painted.len() < 100_000 {
+            s.painted.push((end, self.fresh));
         }
     }
 }
