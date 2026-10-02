@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Brief 0030's recorded real run: a real Claude Code session in the Agents window debugs each seeded-bug corpus
+# Brief 0030's recorded real run (repeated by brief 0034): a real Claude Code session in the Agents window debugs each seeded-bug corpus
 # program (corpus/debugging) with Eludite's tools, RUNS times (default 3), on an X11 display (an Xvfb screen on
 # DISPLAY :99 with Mesa's software Vulkan, as tools/xvfb-linux.sh starts it, or the display already set).
 #
@@ -11,12 +11,13 @@
 #   2. work/.eludite/agents-policy.json: execute allowed, Claude's Bash denied (the prompt asks for Eludite's tools),
 #      the debug policy's defaults (agents drive and evaluate).
 #   3. eludite --solution work/<Program>.slnx --agent "Claude Code" --transcript-out transcript.json, with a fresh
-#      config folder; `claude` runs through a wrapper that copies its stream-json output, stamped, to stream.jsonl
-#      (Claude Code's own token counts: eludite-claude-acp sends no ACP usage events).
+#      config folder. The turn's tokens and cost are the transcript's usage line (eludite-claude-acp's ACP
+#      `usage_update`, brief 0034). `claude` still runs through a wrapper that copies its stream-json output, stamped,
+#      to stream.jsonl: each tool call's time and the model come from it, and its `result` checks the usage line.
 #   4. debug_agent.py drive: shows the Agents window, types the prompt, waits for the turn's end (screenshots
 #      <Program>-<n>-prompt.png and -end.png), then debug_agent.py summarize writes summary.json.
 # At the end, debug_agent.py report writes OUT_DIR/report/{numbers.md,calls.json,transcript.md}; copy them and the
-# screenshots to docs/briefs/0030-run/.
+# screenshots to docs/briefs/<BRIEF>-run/ (BRIEF, default 0034, names the report's titles).
 #
 # Usage: crates/eludite/tools/debug-agent-linux.sh OUT_DIR [PROGRAM...]   (default: OffByOne MissingCase NullField)
 #   RUNS=3; ELUDITE_BIN (default target/debug/eludite), ELUDITE_CLAUDE_ACP (default
@@ -116,7 +117,7 @@ POLICY
 done
 
 mkdir -p "$out/report"
-python3 "$here/debug_agent.py" report --runs "$out" --dest "$out/report" --date "$(date -I)" \
+python3 "$here/debug_agent.py" report --runs "$out" --dest "$out/report" --date "$(date -I)" --brief "${BRIEF:-0034}" \
   --machine "$(uname -sr), $(nproc) cores, Xvfb $DISPLAY" --adapter "$adapter_name" \
   --claude "$("$claude" --version 2>/dev/null | head -1)"
 ls "$out/report"
