@@ -19,6 +19,7 @@ use gpui::TestAppContext;
 use serde_json::{Value, json};
 
 use super::super::tests::{T, Ws, setup_full};
+use super::scenario;
 use super::window::StateKind;
 use super::{AgentsSetup, Shell};
 
@@ -1047,4 +1048,470 @@ fn a_scripted_agent_fills_the_form_in_a_real_chrome_through_mcp(cx: &mut TestApp
     assert!(took < Duration::from_secs(10), "{took:?}");
     let done = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
     done.recv_timeout(Duration::from_secs(10)).unwrap();
+}
+
+// ----- Brief 0030: the agent debugging proving scenario. -----
+
+/// `corpus/debugging`.
+fn corpus() -> std::path::PathBuf {
+    std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/debugging"),
+    )
+    .expect("corpus/debugging")
+}
+
+/// One program's expected answer, from `corpus/debugging/README.md`'s table.
+#[derive(Debug)]
+struct Expected {
+    message: String,
+    statement: String,
+    line: u64,
+    /// (name, part of the value): `this.Path` names a member of a local.
+    locals: Vec<(String, String)>,
+}
+
+/// The text between each pair of backticks in `cell`.
+fn quoted(cell: &str) -> Vec<String> {
+    cell.split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn expected(program: &str) -> Expected {
+    let readme = std::fs::read_to_string(corpus().join("README.md")).unwrap();
+    let row = readme
+        .lines()
+        .find(|l| l.starts_with(&format!("| `{program}` |")))
+        .unwrap_or_else(|| panic!("no row for {program} in corpus/debugging/README.md"));
+    let cells: Vec<&str> = row.split(" | ").collect();
+    let line = quoted(cells[4])[0]
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let locals = quoted(cells[5])
+        .chunks(2)
+        .map(|p| (p[0].clone(), p[1].clone()))
+        .collect();
+    Expected {
+        message: quoted(cells[2])[0].clone(),
+        statement: quoted(cells[3])[0].clone(),
+        line,
+        locals,
+    }
+}
+
+/// The value of local `name` (`this.Path`: a member, from the rows' children) in a stop summary's locals.
+fn local_value(rows: &Value, name: &str) -> Option<String> {
+    let mut parts = name.split('.');
+    let first = parts.next()?;
+    let mut row = rows.as_array()?.iter().find(|r| r["name"] == first)?;
+    for part in parts {
+        row = row["children"]
+            .as_array()?
+            .iter()
+            .find(|r| r["name"] == part)?;
+    }
+    row["value"].as_str().map(str::to_owned)
+}
+
+#[test]
+fn the_corpus_programs_fail_their_checks_with_the_expected_message_and_line() {
+    let root = corpus();
+    for program in ["OffByOne", "MissingCase", "NullField"] {
+        let e = expected(program);
+        // The README's line holds its statement.
+        let source = std::fs::read_to_string(root.join(program).join("Program.cs")).unwrap();
+        assert_eq!(
+            source.lines().nth(e.line as usize - 1).map(str::trim),
+            Some(e.statement.as_str()),
+            "{program}"
+        );
+        let dir = root.join(program).join("bin/Debug");
+        let runs: [(&str, Vec<String>, std::path::PathBuf); 2] = [
+            (
+                "dotnet",
+                vec![
+                    dir.join(format!("net10.0/{program}.dll"))
+                        .to_string_lossy()
+                        .into_owned(),
+                ],
+                dir.join(format!("net10.0/{program}.dll")),
+            ),
+            (
+                "mono",
+                vec![
+                    dir.join(format!("net472/{program}.exe"))
+                        .to_string_lossy()
+                        .into_owned(),
+                ],
+                dir.join(format!("net472/{program}.exe")),
+            ),
+        ];
+        for (runtime, args, built) in runs {
+            if !built.is_file() {
+                println!(
+                    "SKIPPED: {program} under {runtime}: not built (corpus/debugging/build.sh)"
+                );
+                continue;
+            }
+            if runtime == "mono" && cfg!(windows) {
+                continue;
+            }
+            let out = match std::process::Command::new(runtime).args(&args).output() {
+                Ok(o) => o,
+                Err(e) => {
+                    println!("SKIPPED: {program} under {runtime}: {e}");
+                    continue;
+                }
+            };
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert_eq!(
+                out.status.code(),
+                Some(1),
+                "{program} under {runtime}: {stdout}"
+            );
+            assert!(
+                stdout.trim_end().starts_with(&e.message),
+                "{program} under {runtime}: {stdout:?} does not start with {:?}",
+                e.message
+            );
+            println!("{program} under {runtime}: exit 1, {}", stdout.trim_end());
+        }
+    }
+}
+
+/// The adapter the scenario runs a corpus program under: netcoredbg where found, else eludite-dbg-mono under Mono.
+enum CorpusAdapter {
+    Netcoredbg(std::path::PathBuf),
+    Mono {
+        prefix: std::path::PathBuf,
+        adapter: std::path::PathBuf,
+    },
+}
+
+impl CorpusAdapter {
+    fn find() -> Result<Self, String> {
+        if let Ok(found) = eludite_dap::discovery::AdapterSearch::from_env().find_netcoredbg() {
+            return Ok(CorpusAdapter::Netcoredbg(found.path));
+        }
+        if cfg!(windows) {
+            return Err(
+                "netcoredbg was not found (tools/netcoredbg/fetch.sh, ELUDITE_NETCOREDBG)".into(),
+            );
+        }
+        let mono = eludite_dap::discovery::MonoSearch::from_env()
+            .find_mono()
+            .map_err(|e| format!("neither netcoredbg nor Mono was found: {e}"))?;
+        let adapter = std::env::var_os("ELUDITE_DBG_MONO")
+            .filter(|v| !v.is_empty())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../debuggers/mono/Eludite.Debugger.Mono/bin/Debug/net472/eludite-dbg-mono.exe")
+            });
+        if !adapter.is_file() {
+            return Err(format!(
+                "netcoredbg was not found and eludite-dbg-mono is not built at {} (dotnet build dotnet/Eludite.slnx)",
+                adapter.display()
+            ));
+        }
+        Ok(CorpusAdapter::Mono {
+            prefix: mono.prefix,
+            adapter,
+        })
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            CorpusAdapter::Netcoredbg(_) => "netcoredbg (net10.0)",
+            CorpusAdapter::Mono { .. } => "eludite-dbg-mono (net472)",
+        }
+    }
+
+    /// The built program it runs.
+    fn program(&self, dir: &std::path::Path, program: &str) -> std::path::PathBuf {
+        match self {
+            CorpusAdapter::Netcoredbg(_) => dir.join(format!("bin/Debug/net10.0/{program}.dll")),
+            CorpusAdapter::Mono { .. } => dir.join(format!("bin/Debug/net472/{program}.exe")),
+        }
+    }
+}
+
+/// Visual Studio's `ActiveDebugFramework` for a corpus project while the scenario runs (net472 under Mono; none, the
+/// project's first framework, under netcoredbg); removed at the end.
+struct ActiveDebugFramework(std::path::PathBuf);
+
+impl ActiveDebugFramework {
+    fn set(project: &std::path::Path, framework: Option<&str>) -> Self {
+        let user = std::path::PathBuf::from(format!("{}.user", project.display()));
+        match framework {
+            Some(f) => std::fs::write(
+                &user,
+                format!(
+                    "<Project>\n  <PropertyGroup>\n    <ActiveDebugFramework>{f}</ActiveDebugFramework>\n  </PropertyGroup>\n</Project>\n"
+                ),
+            )
+            .unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&user);
+            }
+        }
+        Self(user)
+    }
+}
+
+impl Drop for ActiveDebugFramework {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// An Agents window offering the fake agent's planned scenario with `planner`, in-process over pipes.
+fn planned_agent(name: &str, planner: Arc<std::sync::Mutex<scenario::DebugAgent>>) -> AgentsSetup {
+    let mut setup = fake_agents(vec![(
+        name.to_owned(),
+        vec!["--scenario".into(), "planned".into()],
+    )]);
+    setup.connect = Some(Arc::new(move |agent, _cwd| {
+        let mut opts = Options::from_args(agent.args.clone()).map_err(std::io::Error::other)?;
+        opts.mcp_direct = true;
+        opts.planner = Some(fake_agent::PlannerHandle(planner.clone()));
+        let (agent_in_r, agent_in_w) = std::io::pipe()?;
+        let (agent_out_r, agent_out_w) = std::io::pipe()?;
+        std::thread::Builder::new()
+            .name("fake-agent".into())
+            .spawn(move || {
+                let _ = fake_agent::run(std::io::BufReader::new(agent_in_r), agent_out_w, opts);
+            })?;
+        Ok((Box::new(agent_out_r), Box::new(agent_in_w)))
+    }));
+    setup
+}
+
+impl Ws {
+    /// Set a path setting through the bus and wait until `applied` sees it.
+    fn set_path(&mut self, key: &str, value: &std::path::Path, applied: impl Fn(&Shell) -> bool) {
+        self.commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": key, "value": value.to_string_lossy()}),
+            )
+            .unwrap();
+        self.wait(key, |w| w.shell.read_with(&w.vcx, |s, _| applied(s)));
+    }
+
+    /// Wait up to `limit` for `done`.
+    fn wait_long(&mut self, what: &str, limit: Duration, mut done: impl FnMut(&mut Self) -> bool) {
+        let deadline = Instant::now() + limit;
+        loop {
+            self.vcx.run_until_parked();
+            if done(self) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+/// The summary budget of brief 0025, and brief 0030's for a whole scenario's answers.
+const SUMMARY_BUDGET: usize = 8 * 1024;
+const SCENARIO_BUDGET: usize = 40 * 1024;
+
+/// Brief 0030's scripted scenario for corpus program `program`: the fake agent, given the proving prompt, debugs it
+/// through Eludite's MCP tools (`steps` step_overs after its breakpoint's stop) against the adapter found here; the test
+/// checks the stop against the README's answer, counts the debug calls from the audit log (at most eight), the
+/// answers' sizes (each summary under 8 KB, all under 40 KB) and the time (under 15 s, adapter launches included).
+fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
+    let dir = corpus().join(program);
+    let project = dir.join(format!("{program}.csproj"));
+    let adapter = match CorpusAdapter::find() {
+        Ok(a) => a,
+        Err(why) => return println!("SKIPPED: the {program} scenario: {why}"),
+    };
+    if !adapter.program(&dir, program).is_file() {
+        return println!(
+            "SKIPPED: the {program} scenario: {} is not built (corpus/debugging/build.sh)",
+            adapter.program(&dir, program).display()
+        );
+    }
+    let _framework = ActiveDebugFramework::set(
+        &project,
+        matches!(adapter, CorpusAdapter::Mono { .. }).then_some("net472"),
+    );
+    let e = expected(program);
+    let planner = Arc::new(std::sync::Mutex::new(scenario::DebugAgent::new(steps)));
+    let store = tempfile::tempdir().unwrap();
+    let debug = crate::shell::debug::DebugSetup {
+        connect: None,
+        search: eludite_dap::discovery::AdapterSearch::default(),
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store.path().to_path_buf()),
+        dotnet: "dotnet".into(),
+    };
+    let mut w = super::super::tests::setup_debug(
+        cx,
+        |_| {},
+        Some(planned_agent("Fake debugger", planner.clone())),
+        Some(debug),
+    );
+    match &adapter {
+        CorpusAdapter::Netcoredbg(path) => {
+            let want = Some(path.clone().into_os_string());
+            w.set_path("debugger.netcoredbgPath", path, move |s| {
+                s.debugger().setup().search.env == want
+            });
+        }
+        CorpusAdapter::Mono { prefix, adapter } => {
+            let (p, a) = (Some(prefix.clone()), Some(adapter.clone()));
+            w.set_path("debugger.monoPrefix", prefix, move |s| {
+                s.debugger().setup().mono.configured == p
+            });
+            w.set_path("debugger.monoAdapterPath", adapter, move |s| {
+                s.debugger().setup().mono_adapter.configured == a
+            });
+        }
+    }
+    w.open_solution();
+    // The corpus is built (corpus/debugging/build.sh): F5 launches it at once.
+    w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "build.beforeRun", "value": false}),
+        )
+        .unwrap();
+    w.wait("build before run off", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.builds().build_before_run)
+    });
+    // The policy runs execute without asking; the debug policy's defaults let agents drive and evaluate.
+    let file = eludite_commands::policy::AgentPolicy::path_for(w.dir.path());
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, r#"{"version": 1, "execute": "allow"}"#).unwrap();
+
+    w.start_agent("Fake debugger");
+    let started = Instant::now();
+    let prompt = scenario::prompt(&project);
+    w.shell
+        .update(&mut w.vcx, |s, cx| s.agents_prompt(&prompt, cx))
+        .unwrap();
+    w.wait_long("the scenario's turn", Duration::from_secs(120), |w| {
+        w.turn_ended()
+    });
+    let took = started.elapsed();
+    let stop = w
+        .shell
+        .read_with(&w.vcx, |s, _| s.agents().last_stop.clone().unwrap());
+    let text = w.agent_text();
+    let p = planner.lock().unwrap();
+    assert_eq!(stop, "end_turn", "{text}");
+    assert!(p.gave_up.is_none(), "{text}\n{:#?}", p.calls);
+
+    // The calls, as the audit log has them: at most eight debug commands, all the agent's.
+    let audited: Vec<String> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.caller.is_agent())
+        .map(|e| e.command)
+        .collect();
+    let debug_calls: Vec<&String> = audited
+        .iter()
+        .filter(|c| c.starts_with("eludite.debug."))
+        .collect();
+    println!(
+        "{program} scenario under {}: {} tool calls, {} debug calls, {:.0} ms from the prompt to the turn's end",
+        adapter.name(),
+        audited.len(),
+        debug_calls.len(),
+        took.as_secs_f64() * 1e3
+    );
+    let mut total = 0;
+    for (n, c) in p.calls.iter().enumerate() {
+        total += c.bytes;
+        println!(
+            "  {:>2}. {:<34} {:>6} bytes {:>8.1} ms",
+            n + 1,
+            c.tool,
+            c.bytes,
+            c.ms
+        );
+    }
+    println!("  answers: {total} bytes in all\n  the agent's answer: {text}");
+    assert_eq!(audited.len(), p.calls.len(), "{audited:?}");
+    assert!(debug_calls.len() <= 8, "{debug_calls:?}");
+
+    // The stop: the README's statement, with the locals that show the bug.
+    let last = p.last.clone().expect("a stop summary");
+    let location = &last["stopped"]["location"];
+    let path = std::path::PathBuf::from(location["path"].as_str().unwrap_or_default());
+    assert!(
+        path.ends_with(std::path::Path::new(program).join("Program.cs")),
+        "{location}"
+    );
+    assert_eq!(location["line"], e.line, "{last:#}");
+    for (name, value) in &e.locals {
+        let shown = local_value(&last["locals"]["rows"], name);
+        assert!(
+            shown.as_deref().is_some_and(|v| v.contains(value.as_str())),
+            "{name}: {shown:?}, want {value:?}: {:#}",
+            last["locals"]
+        );
+        assert!(text.contains(&format!("- {name} = ")), "{text}");
+    }
+    assert!(
+        text.contains(&format!("Program.cs:{}", e.line)),
+        "the answer names the line: {text}"
+    );
+
+    // Token cost: each summary under brief 0025's 8 KB, the whole scenario under 40 KB.
+    for c in p
+        .calls
+        .iter()
+        .filter(|c| c.tool.starts_with("eludite-debug-"))
+    {
+        assert!(
+            c.bytes < SUMMARY_BUDGET,
+            "{} answered {} bytes",
+            c.tool,
+            c.bytes
+        );
+    }
+    assert!(total < SCENARIO_BUDGET, "{total} bytes");
+    assert!(took < Duration::from_secs(15), "{took:?}");
+    drop(p);
+
+    // End the session the scenario left at its break.
+    w.shell
+        .update_in(&mut w.vcx, |s, window, cx| {
+            s.invoke("eludite.debug.stop", json!({}), window, cx)
+        })
+        .unwrap();
+    w.wait_long("the session's end", Duration::from_secs(20), |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.mode == crate::shell::debug::state::Mode::Design
+        })
+    });
+}
+
+#[gpui::test]
+fn a_scripted_agent_finds_the_off_by_one_in_the_corpus(cx: &mut TestAppContext) {
+    debug_scenario(cx, "OffByOne", 1);
+}
+
+#[gpui::test]
+fn a_scripted_agent_finds_the_missing_case_in_the_corpus(cx: &mut TestAppContext) {
+    debug_scenario(cx, "MissingCase", 1);
+}
+
+#[gpui::test]
+fn a_scripted_agent_finds_the_null_field_in_the_corpus(cx: &mut TestAppContext) {
+    debug_scenario(cx, "NullField", 1);
 }
