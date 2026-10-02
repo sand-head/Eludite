@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-project.input.json",
   "title": "eludite.build.project input",
-  "description": "Build one project of the open solution and the projects it references (Build > Build Project, Shift+F6). Same rules as eludite.build.solution.",
+  "description": "Build one project of the open solution and the projects it references, or one package of the Cargo workspace and its dependencies (Build > Build Project, Shift+F6). Same rules as eludite.build.solution.",
   "type": "object",
   "properties": {
     "project": {
-      "description": "The project to build: its name as Workspace shows it (Eludite.Host), or the path of its project file (absolute, or relative to the solution folder). Omitted: the project of the active document.",
+      "description": "The project to build: its name as Workspace shows it (Eludite.Host, or a Cargo package such as eludite-editor), or the path of its project file or Cargo.toml (absolute, or relative to the solution or workspace folder). Omitted: the project (or Cargo package) of the active document. A Cargo package builds with `cargo build -p <name>`.",
       "type": "string",
       "minLength": 1
     },

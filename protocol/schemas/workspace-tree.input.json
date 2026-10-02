@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-tree.input.json",
+  "title": "eludite.workspace.tree input",
+  "description": "List the open workspace's projects as the Workspace window shows them, whatever their build system (`eludite/workspace/tree` of brief 0019): .NET projects of the open solution (kind csproj), Cargo packages of the Cargo workspace (kind cargo, with their targets) and, for a plain folder, the folder itself (kind folder). Optionally only one project.",
+  "type": "object",
+  "properties": {
+    "project": {
+      "description": "Only the project with this name (as the Workspace window shows it).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
