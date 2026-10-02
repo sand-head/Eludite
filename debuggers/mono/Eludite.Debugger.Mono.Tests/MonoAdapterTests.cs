@@ -82,17 +82,15 @@ public sealed class MonoAdapterTests
         return clock;
     }
 
-    private void RecordLaunch(Stopwatch clock, string what)
+    private void RecordLaunch(DapTestClient c, Stopwatch clock, string what)
     {
         var ms = clock.Elapsed.TotalMilliseconds;
-        bool cold;
         lock (LaunchToStop)
         {
-            cold = LaunchToStop.Count == 0;
             LaunchToStop.Add(ms);
         }
 
-        _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: launch to the first stopped ({what}, {(cold ? "cold: the first session of this test run" : "warm")}): {ms:F0} ms"));
+        _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: launch to the first stopped ({what}, {(c.First ? "the first adapter of this test run" : "warm")}): {ms:F0} ms; from the adapter's spawn: {c.SinceSpawn.Elapsed.TotalMilliseconds:F0} ms"));
         Assert.True(ms < 20_000, "launch to the first stop took " + ms + " ms");
     }
 
@@ -134,7 +132,7 @@ public sealed class MonoAdapterTests
         JObject? asked = null;
         var clock = Launch(c, c => asked = (JObject)SetBreakpoints(c, Bp("add-sum"))["breakpoints"]![0]!);
         var stopped = c.WaitEvent("stopped");
-        RecordLaunch(clock, "stdio");
+        RecordLaunch(c, clock, "stdio");
         var body = (JObject)stopped["body"]!;
         Assert.Equal("breakpoint", (string?)body["reason"]);
         Assert.True((bool?)body["allThreadsStopped"]);
@@ -213,6 +211,11 @@ public sealed class MonoAdapterTests
         Assert.Equal("true", Eval(c, top, "a < b && b == 3"));
         Assert.Equal("\"Contoso #7\"", Eval(c, mainId, "order.Describe()"));
         Assert.Equal("6", Eval(c, mainId, "Calculator.Twice(3)"));
+        // Framework types not loaded yet, and namespace-qualified names.
+        Assert.Equal("3", Eval(c, top, "Math.Max(a, b)"));
+        Assert.Equal("3", Eval(c, top, "System.Math.Max(a, b)"));
+        Assert.Equal("true", Eval(c, top, "Environment.NewLine.Length > 0"));
+        Assert.Equal("10", Eval(c, top, "Eludite.Debugger.Mono.TestApp.Calculator.Twice(5)"));
         Assert.Equal("\"name4\"", Eval(c, mainId, "names[4]"));
         // A failed hover is an error answer and writes nothing.
         var outputs = c.Events("output").Count;
@@ -307,8 +310,9 @@ public sealed class MonoAdapterTests
         using (var c = DapTestClient.Stdio(mono, env))
         {
             // A condition that skips the first five hits.
-            Launch(c, c => SetBreakpoints(c, Bp("loop-body", new JObject { ["condition"] = "i == 5" })));
+            var clock = Launch(c, c => SetBreakpoints(c, Bp("loop-body", new JObject { ["condition"] = "i == 5" })));
             var s = c.WaitEvent("stopped");
+            RecordLaunch(c, clock, "conditional breakpoint skipping five hits");
             Assert.Equal("breakpoint", (string)s["body"]!["reason"]!);
             var top = Top(c, (long)s["body"]!["threadId"]!);
             Assert.Equal("5", Eval(c, (int)top["id"]!, "i"));
@@ -350,11 +354,45 @@ public sealed class MonoAdapterTests
     }
 
     [Fact]
+    public void Stop_at_entry_stops_in_main_and_just_my_code_steps_over_framework_calls()
+    {
+        var (mono, env) = RequireMono();
+        using var c = DapTestClient.Stdio(mono, env);
+        var clock = Launch(c, _ => { }, new JObject { ["stopAtEntry"] = true });
+        var s = c.WaitEvent("stopped");
+        RecordLaunch(c, clock, "stop at entry");
+        Assert.Equal("entry", (string)s["body"]!["reason"]!);
+        var thread = (long)s["body"]!["threadId"]!;
+        var entry = Top(c, thread);
+        Assert.StartsWith("Eludite.Debugger.Mono.TestApp.Program.Main(", (string)entry["name"]!, StringComparison.Ordinal);
+        Assert.True((int)entry["line"]! <= Built.Line("entry"), "the entry stop is at or before Main's first line");
+
+        // Just My Code (the default): stepIn on a line that calls only framework code (Console.WriteLine, string
+        // concatenation) lands on the next line of Main, not inside mscorlib.
+        SetBreakpoints(c, Bp("print-result"));
+        c.Body("continue", new JObject { ["threadId"] = thread });
+        Assert.Equal("breakpoint", (string)c.WaitEvent("stopped", 2)["body"]!["reason"]!);
+        c.Body("stepIn", new JObject { ["threadId"] = thread });
+        Assert.Equal("step", (string)c.WaitEvent("stopped", 3)["body"]!["reason"]!);
+        var after = Top(c, thread);
+        Assert.StartsWith("Eludite.Debugger.Mono.TestApp.Program.Main(", (string)after["name"]!, StringComparison.Ordinal);
+        Assert.Equal(Built.Line("total"), (int)after["line"]!);
+        c.WaitEvent("output", match: e => (string)e["body"]!["output"]! == "result 10\n");
+
+        SetBreakpoints(c);
+        c.Body("continue", new JObject { ["threadId"] = thread });
+        Assert.Equal(3, (int)c.WaitEvent("exited")["body"]!["exitCode"]!);
+        c.WaitEvent("terminated");
+        Assert.Equal(3, c.Events("stopped").Count);
+        c.Body("disconnect");
+    }
+
+    [Fact]
     public void A_function_breakpoint_stops_in_the_method_named()
     {
         var (mono, env) = RequireMono();
         using var c = DapTestClient.Stdio(mono, env);
-        Launch(c, c =>
+        var clock = Launch(c, c =>
         {
             var answer = c.Body("setFunctionBreakpoints", new JObject
             {
@@ -363,6 +401,7 @@ public sealed class MonoAdapterTests
             Assert.Single((JArray)answer["breakpoints"]!);
         });
         var s = c.WaitEvent("stopped");
+        RecordLaunch(c, clock, "function breakpoint");
         Assert.Equal("function breakpoint", (string)s["body"]!["reason"]!);
         var top = Top(c, (long)s["body"]!["threadId"]!);
         Assert.Equal("Eludite.Debugger.Mono.TestApp.Calculator.Twice(int x)", (string)top["name"]!);
@@ -381,7 +420,7 @@ public sealed class MonoAdapterTests
         {
             var clock = Launch(c, c => c.Body("setExceptionBreakpoints", new JObject { ["filters"] = new JArray("all", "user-unhandled") }));
             var s = c.WaitEvent("stopped");
-            RecordLaunch(clock, "first-chance exception");
+            RecordLaunch(c, clock, "first-chance exception");
             var body = (JObject)s["body"]!;
             Assert.Equal("exception", (string)body["reason"]!);
             Assert.Contains("System.InvalidOperationException", (string)body["description"]!, StringComparison.Ordinal);
@@ -450,7 +489,7 @@ public sealed class MonoAdapterTests
         using var c = DapTestClient.Tcp(mono, env);
         var clock = Launch(c, c => SetBreakpoints(c, Bp("add-sum")));
         var s = c.WaitEvent("stopped");
-        RecordLaunch(clock, "tcp");
+        RecordLaunch(c, clock, "tcp");
         Assert.Equal("breakpoint", (string)s["body"]!["reason"]!);
         Assert.Equal(Built.Line("add-sum"), (int)Top(c, (long)s["body"]!["threadId"]!)["line"]!);
         var unknown = c.Request("restart");

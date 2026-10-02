@@ -31,6 +31,7 @@ internal sealed class MonoAdapter
     private readonly EvaluationOptions _evaluation;
 
     private SoftDebuggerSession? _session;
+    private MonoEvaluator? _evaluator;
     private SoftDebuggerStartInfo? _startInfo;
     private DebuggerSessionOptions? _sessionOptions;
     private TargetProcess? _process;
@@ -46,6 +47,8 @@ internal sealed class MonoAdapter
     private ThreadInfo? _stopThread;
     private ThreadInfo[]? _threads;
     private FunctionBreakpoint? _entryBreakpoint;
+    private (long Thread, int Depth, string Method, string File, int Line)? _stepInFrom;
+    private int _stepInRetries;
     private ExceptionSettings _exceptions = ExceptionSettings.Parse(new JObject { ["filters"] = new JArray(ExceptionSettings.UserUnhandled) });
     private int _nextBreakpointId = 1;
     private int _lineBase = 1;
@@ -82,7 +85,7 @@ internal sealed class MonoAdapter
         _d.Register("setVariable", SetVariable);
         _d.Register("continue", a => Resume(a, s => s.Continue()));
         _d.Register("next", a => Resume(a, s => s.NextLine()));
-        _d.Register("stepIn", a => Resume(a, s => s.StepLine()));
+        _d.Register("stepIn", StepIn);
         _d.Register("stepOut", a => Resume(a, s => s.Finish()));
         _d.Register("pause", Pause);
         _d.Register("exceptionInfo", ExceptionInfoRequest);
@@ -119,6 +122,7 @@ internal sealed class MonoAdapter
         s.BreakpointTraceHandler = (be, trace) => _d.Post(() => Output("console", trace.EndsWith("\n", StringComparison.Ordinal) ? trace : trace + "\n"));
         EvaluateSynchronously(s);
         var evaluator = new MonoEvaluator(s);
+        _evaluator = evaluator;
         s.GetExpressionEvaluator = extension => evaluator;
         s.TypeResolverHandler = evaluator.ResolveType;
         s.TargetEvent += (sender, e) => _d.Post(() => OnTargetEvent(e));
@@ -650,6 +654,12 @@ internal sealed class MonoAdapter
                 OnBreakpointHit(e);
                 break;
             case TargetEventType.TargetStopped:
+                if (!_pausing && StepInReturnedToItsLine(e))
+                {
+                    _session?.StepLine();
+                    break;
+                }
+
                 Stopped(e, _pausing ? "pause" : "step");
                 break;
             case TargetEventType.TargetInterrupted:
@@ -801,8 +811,68 @@ internal sealed class MonoAdapter
             : type + "." + LastSegment(method);
     }
 
+    /// <summary>Where a step in started: the thread, its stack depth, and the top frame's method and line.</summary>
+    private static (long Thread, int Depth, string Method, string File, int Line)? OriginOf(long thread, Backtrace? backtrace)
+    {
+        if (backtrace is null || backtrace.FrameCount == 0)
+        {
+            return null;
+        }
+
+        var top = backtrace.GetFrame(0).SourceLocation;
+        return (thread, backtrace.FrameCount, top.MethodName ?? string.Empty, top.FileName ?? string.Empty, top.Line);
+    }
+
+    /// <summary>
+    /// Step in with Just My Code: Mono steps out of a method of an assembly without symbols (string concatenation,
+    /// <c>Console.WriteLine</c>) and stops back on the calling line, part way through it. Visual Studio goes on to the
+    /// next line, so a step in that comes back to the frame and the line it started on steps in again (Mono's line
+    /// steps never stop twice on one line of one frame otherwise). Bounded, so a line that calls external code in a
+    /// loop still stops.
+    /// </summary>
+    private bool StepInReturnedToItsLine(TargetEventArgs e)
+    {
+        var from = _stepInFrom;
+        if (from is null || e.Thread is null || e.Thread.Id != from.Value.Thread || _stepInRetries >= MaxStepInRetries)
+        {
+            return false;
+        }
+
+        var here = OriginOf(e.Thread.Id, e.Backtrace);
+        if (here is null || here.Value != from.Value)
+        {
+            return false;
+        }
+
+        _stepInRetries++;
+        return true;
+    }
+
+    private const int MaxStepInRetries = 32;
+
+    private JToken? StepIn(JObject args)
+    {
+        (long Thread, int Depth, string Method, string File, int Line)? from = null;
+        if (_stopped)
+        {
+            var thread = Json.Int(args, "threadId") is int id && _stopThread is { } stopped && stopped.Id != id
+                ? AllThreads().FirstOrDefault(t => t.Id == id)
+                : _stopThread;
+            if (thread is not null)
+            {
+                from = OriginOf(thread.Id, _backtraces.TryGetValue(thread.Id, out var bt) ? bt : thread.Backtrace);
+            }
+        }
+
+        var answer = Resume(args, s => s.StepLine());
+        _stepInFrom = _justMyCode ? from : null;
+        _stepInRetries = 0;
+        return answer;
+    }
+
     private void Stopped(TargetEventArgs e, string reason, JArray? hitIds = null)
     {
+        _stepInFrom = null;
         ClearStop();
         _stopped = true;
         _pausing = false;
@@ -865,6 +935,7 @@ internal sealed class MonoAdapter
         _threads = null;
         _stopThread = null;
         _unhandledStop = false;
+        _evaluator?.ForgetMisses();
     }
 
     private JToken? Resume(JObject args, Action<SoftDebuggerSession> resume)
@@ -882,6 +953,7 @@ internal sealed class MonoAdapter
         }
 
         _stopped = false;
+        _stepInFrom = null;
         ClearStop();
         resume(s);
         _d.Post(() => _d.SendEvent("continued", new JObject { ["threadId"] = Json.Int(args, "threadId") ?? 0, ["allThreadsContinued"] = true }));

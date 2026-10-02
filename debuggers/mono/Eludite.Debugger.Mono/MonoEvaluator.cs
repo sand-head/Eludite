@@ -14,9 +14,11 @@ namespace Eludite.Debugger.Mono;
 /// each numeric operand cast to <c>long</c> or <c>double</c> explicitly, which the evaluator handles, and the result cast
 /// back to the type C# gives it (<c>int</c> for two <c>int</c>s). Finding the operands' types evaluates them, so an
 /// operand with side effects runs twice in that retry.</item>
-/// <item>Type names (<c>Program.Hang()</c>, <c>Calculator.Twice(2)</c>) are unknown identifiers without an IDE's type
-/// system: <see cref="ResolveType"/> resolves them against the types loaded in the debuggee, from the frame's type
-/// outwards through its namespaces.</item>
+/// <item>Type names (<c>Program.Hang()</c>, <c>Calculator.Twice(2)</c>, <c>Math.Max(a, b)</c>) are unknown identifiers
+/// without an IDE's type system: <see cref="ResolveType"/> resolves them against the debuggee's types, from the frame's
+/// type outwards through its namespaces and then <c>System</c>, and answers a namespace's first segment (<c>System</c>,
+/// <c>Microsoft</c>, the frame's own) as itself so a namespace-qualified name (<c>System.Math.Max(a, b)</c>) evaluates
+/// as the evaluator's <c>global::</c> form does.</item>
 /// </list>
 /// </summary>
 internal sealed class MonoEvaluator : IExpressionEvaluator
@@ -40,38 +42,82 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
             return null;
         }
 
-        var candidates = new List<string>();
         var method = location?.MethodName ?? string.Empty;
         var dot = method.LastIndexOf('.');
         var scope = dot > 0 ? method.Substring(0, dot) : string.Empty;
-        while (scope.Length > 0)
+        var key = scope + "|" + identifier;
+        lock (_resolved)
         {
-            candidates.Add(scope + "." + identifier);
-            candidates.Add(scope + "+" + identifier);
-            var d = scope.LastIndexOf('.');
-            scope = d > 0 ? scope.Substring(0, d) : string.Empty;
+            if (_resolved.TryGetValue(key, out var known))
+            {
+                return known;
+            }
+        }
+
+        var candidates = new List<string>();
+        for (var s = scope; s.Length > 0;)
+        {
+            candidates.Add(s + "." + identifier);
+            candidates.Add(s + "+" + identifier);
+            var d = s.LastIndexOf('.');
+            s = d > 0 ? s.Substring(0, d) : string.Empty;
         }
 
         candidates.Add(identifier);
         candidates.Add("System." + identifier);
-        foreach (var c in candidates)
+        string? found = candidates.FirstOrDefault(c => IsType(c, char.IsUpper(identifier[0])));
+        if (found is null && IsNamespaceRoot(identifier, scope))
         {
-            try
-            {
-                if (_session.GetType(c) is not null)
-                {
-                    return c;
-                }
-            }
-#pragma warning disable CA1031 // An unresolvable name is simply not a type.
-            catch (Exception)
-#pragma warning restore CA1031
-            {
-                return null;
-            }
+            found = identifier;
         }
 
-        return null;
+        lock (_resolved)
+        {
+            _resolved[key] = found;
+        }
+
+        return found;
+    }
+
+    /// <summary>Names resolved per scope (breakpoint conditions resolve on Mono.Debugging's thread, hence the lock).</summary>
+    private readonly Dictionary<string, string?> _resolved = new(StringComparer.Ordinal);
+
+    /// <summary>Forget the names that did not resolve: the debuggee may load their types before the next stop.</summary>
+    public void ForgetMisses()
+    {
+        lock (_resolved)
+        {
+            foreach (var k in _resolved.Where(kv => kv.Value is null).Select(kv => kv.Key).ToList())
+            {
+                _resolved.Remove(k);
+            }
+        }
+    }
+
+    private static bool IsNamespaceRoot(string identifier, string scope) =>
+        identifier is "System" or "Microsoft" || scope == identifier || scope.StartsWith(identifier + ".", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether <paramref name="name"/> is a type in the debuggee: one Mono.Debugging has seen loaded, else (for a
+    /// capitalized name, so locals cost no round trip) one the debuggee's assemblies define, loaded or not.
+    /// </summary>
+    private bool IsType(string name, bool askTheDebuggee)
+    {
+        try
+        {
+            if (_session.GetType(name) is not null)
+            {
+                return true;
+            }
+
+            return askTheDebuggee && _session.VirtualMachine is { } vm && vm.GetTypes(name, false).Count > 0;
+        }
+#pragma warning disable CA1031 // A name the debuggee cannot look up is not a type.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            return false;
+        }
     }
 
     /// <summary>The C# evaluator, retrying an expression that hit the numeric cast bug with explicit casts.</summary>
