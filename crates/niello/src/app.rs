@@ -138,6 +138,9 @@ pub fn run(args: Args, t_main: Instant) {
         if let Some(frames) = args.bench_drag {
             bench::drag(&shell, window.into(), frames, cx);
         }
+        if let Some(path) = args.bounds_out.clone() {
+            bench::bounds_out(&shell, path, cx);
+        }
         if let Some(after) = args.exit_after_ms {
             cx.spawn(async move |cx| {
                 cx.background_executor()
