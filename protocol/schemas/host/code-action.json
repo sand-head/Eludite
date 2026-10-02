@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/code-action.json",
+  "title": "textDocument/codeAction",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::CodeActionRequest). The shell sends it for the light bulb (triggerKind 2, after the caret rests) and for Ctrl+. (triggerKind 1). Params carry eluditeGeneration like every forwarded request (forwarded-request.json). The pinned Roslyn answers CodeAction literals without an edit: each carries data for codeAction/resolve (code-action-resolve.json). An action with nested actions carries the client-side command roslyn.client.nestedCodeAction whose first argument's NestedCodeActions are CodeActions of their own; a Fix All action carries roslyn.client.fixAllCodeAction. Both are client commands, not workspace/executeCommand commands (host-rpc.md).",
+  "x-eludite-method": "textDocument/codeAction",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "range",
+        "context",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "context": {
+          "type": "object",
+          "required": [
+            "diagnostics"
+          ],
+          "properties": {
+            "diagnostics": {
+              "description": "The diagnostics the shell shows on the range's line (publish-diagnostics.json items).",
+              "type": "array"
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "triggerKind": {
+              "description": "1 invoked (Ctrl+.), 2 automatic (the light bulb).",
+              "enum": [
+                1,
+                2
+              ]
+            }
+          }
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "(Command | CodeAction)[] or null.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "codeAction": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "quickfix, refactor, refactor.extract, refactor.inline, refactor.rewrite, source, ...",
+          "type": "string"
+        },
+        "diagnostics": {
+          "type": "array"
+        },
+        "isPreferred": {
+          "type": "boolean"
+        },
+        "disabled": {
+          "type": "object",
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "edit": {
+          "description": "A WorkspaceEdit (apply-edit.json $defs.workspaceEdit); absent until resolved with the pinned Roslyn.",
+          "type": "object"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "data": {
+          "description": "Opaque; sent back unchanged in codeAction/resolve."
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": [
+        "title",
+        "command"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "array"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "character": {
+          "description": "UTF-16 code units.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

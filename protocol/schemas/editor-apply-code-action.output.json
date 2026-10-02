@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-apply-code-action.output.json",
+  "title": "eludite.editor.apply_code_action output",
+  "description": "What applying the action did. From the UI thread the state is usually `resolving`; from another thread (an agent) the call waits up to 5 s for the outcome.",
+  "type": "object",
+  "required": [
+    "state",
+    "title"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "`resolving`: waiting for codeAction/resolve; `applying`: closed files are being written; `applied`: done (see `summary`); `expanded`: the action's nested actions are shown; `unsupported`: the action is a command Eludite cannot run; `failed`: the request failed or the edit was refused.",
+      "enum": [
+        "resolving",
+        "applying",
+        "applied",
+        "expanded",
+        "unsupported",
+        "failed"
+      ]
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "description": "What the workspace-edit applier did (the same shape as the eludite.workspace.apply_edit output without `state`).",
+      "type": "object",
+      "required": [
+        "applied",
+        "files",
+        "edits",
+        "open_documents",
+        "files_on_disk",
+        "created",
+        "renamed",
+        "deleted",
+        "paths"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "applied": {
+          "description": "True when every change was applied; false when the edit was refused (nothing was applied) or a write failed (see `message`).",
+          "type": "boolean"
+        },
+        "files": {
+          "description": "Distinct files touched (edited, created, renamed or deleted).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "edits": {
+          "description": "Text edits applied.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "open_documents": {
+          "description": "Open documents edited in their buffers (one undo step each, not saved).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_on_disk": {
+          "description": "Closed files written on disk (atomically: a temporary file, then a rename).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "created": {
+          "description": "Files created.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "renamed": {
+          "description": "Files renamed.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "deleted": {
+          "description": "Files or folders deleted.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "paths": {
+          "description": "The absolute paths touched, sorted (at most 1000).",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "description": "Why the edit was refused or failed.",
+          "type": "string"
+        }
+      }
+    },
+    "message": {
+      "description": "Why `unsupported` or `failed`.",
+      "type": "string"
+    }
+  }
+}

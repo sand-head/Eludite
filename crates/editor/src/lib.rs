@@ -63,6 +63,14 @@
 //! buffer's tree-sitter tree while no server can answer. Nothing here is
 //! specific to a language or to LSP.
 //!
+//! # Code actions (brief 0015)
+//!
+//! [`EditorView::set_lightbulb`] shows Visual Studio's light bulb in the margin at the left of the line numbers
+//! (yellow for fixes, blue-gray for refactorings only); clicking it emits [`EditorEvent::LightbulbClicked`]. The owner
+//! decides when code actions exist. [`Editor::apply_edits`] applies a workspace edit's ranges as one undo step that
+//! never merges with typing, and [`Editor::merge_transactions`] folds a later step into an earlier one (a
+//! completion's additional edits into its commit).
+//!
 //! # Known gaps
 //!
 //! No IME composition (composed text is inserted as typed), no soft wrap,
@@ -90,7 +98,7 @@ pub use intellisense::{
 pub use text;
 pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
-    EditorView, KEY_CONTEXT, SIGNATURES_CONTEXT, default_font_family, key_bindings,
+    EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
 /// Editor actions, for binding keys and dispatching from commands.
 pub mod actions {

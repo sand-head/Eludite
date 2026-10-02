@@ -84,6 +84,12 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("ctrl-shift--", "Ctrl+Shift+-", "eludite.navigation.forward"),
         // The same keys where the layout reports Shift+- as `_`.
         command("ctrl-_", "Ctrl+Shift+-", "eludite.navigation.forward"),
+        // Refactoring (brief 0015): Refactor.Rename (Ctrl+R, Ctrl+R; F2 too) and View.QuickActions (Ctrl+.; Alt+Enter
+        // too).
+        command("ctrl-r ctrl-r", "Ctrl+R, Ctrl+R", "eludite.editor.rename"),
+        command("f2", "F2", "eludite.editor.rename"),
+        command("ctrl-.", "Ctrl+.", "eludite.editor.code_actions"),
+        command("alt-enter", "Alt+Enter", "eludite.editor.code_actions"),
     ]
 }
 
@@ -183,6 +189,18 @@ mod tests {
         assert_eq!(
             shortcut_for(&k, "eludite.navigation.forward", &json!({})),
             Some("Ctrl+Shift+-")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.rename", &json!({})),
+            Some("Ctrl+R, Ctrl+R")
+        );
+        assert!(
+            k.iter()
+                .any(|b| b.keystrokes == "f2" && b.command == "eludite.editor.rename")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.editor.code_actions", &json!({})),
+            Some("Ctrl+.")
         );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();

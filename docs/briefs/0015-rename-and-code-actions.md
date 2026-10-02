@@ -1,6 +1,6 @@
 # Brief 0015: Rename, code actions and the workspace-edit applier
 
-Status: open
+Status: done on Linux (report: [0015-report.md](0015-report.md)); Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 3), 4.3, 5.1, 5.6, 8, 9
 Related ADR: ADR-0003

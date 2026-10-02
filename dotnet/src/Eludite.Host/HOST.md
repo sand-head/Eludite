@@ -24,6 +24,7 @@ The full contract is `protocol/schemas/host-rpc.md` (brief 0007), with a JSON sc
 | `eludite/solution/tree` | request | `Projects/SolutionTreeProvider.cs`; projects and source files from `Projects/MsBuildProjectTreeEvaluator.cs`, once per generation |
 | forwarded LSP (typed and untyped lists) | request / notification | `Lsp/LspProxy.cs` (`TypedRequests`, `UntypedRequests`, `UntypedNotifications`) |
 | `eludite/solution/status`, `eludite/languageServer/status`, `textDocument/publishDiagnostics` | host-to-shell notification | `Lsp/LspProxy.cs` |
+| `workspace/applyEdit` | host-to-shell request, relayed from the language server with `eluditeGeneration` added | `Lsp/LspProxy.cs` (`RelayApplyEditAsync`) |
 
 Plain LSP `initialize`, `shutdown` and `exit` are not host methods (renamed in brief 0007; they return
 MethodNotFound). SDK discovery is behind `ISdkDiscoverer` so tests never spawn `dotnet`.
@@ -67,6 +68,8 @@ In-process loading was tried and rejected; see `docs/briefs/0002-report.md`.
   upstream and answers -32801.
 - Server-to-client requests (`workspace/configuration`, `client/registerCapability`, the refresh requests, ...) are
   answered by the host; `workspace/configuration` turns `projects.dotnet_enable_file_based_programs` off.
+  `workspace/applyEdit` is the exception: it is relayed to the shell, whose answer goes back to the server (a shell
+  error or a lost connection is `applied: false`; the server's cancellation is passed on).
 
 ## Semantics warming (brief 0002 finding)
 

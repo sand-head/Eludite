@@ -1,12 +1,14 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Solution Explorer,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
-//! the navigation history, Find All References and the Error List's filters (brief 0014).
+//! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
+//! and the workspace-edit applier (brief 0015).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
-mod documents;
+pub mod code_actions;
+pub mod documents;
 pub mod error_list;
 pub mod explorer;
 pub mod intellisense;
@@ -15,11 +17,17 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+#[cfg(test)]
+mod refactor_tests;
 pub mod references;
+pub mod rename;
 pub mod session;
 pub mod target;
 #[cfg(test)]
 mod tests;
+pub mod workspace_edit;
+#[cfg(test)]
+mod workspace_edit_tests;
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -168,6 +176,12 @@ pub struct Shell {
     navigation: Navigation,
     /// Find All References in flight (brief 0014).
     references: References,
+    /// Rename and its dialog (brief 0015).
+    rename: rename::Rename,
+    /// The light bulb and its menu (brief 0015).
+    code_actions: code_actions::CodeActions,
+    /// The last `eludite.workspace.apply_edit` (state, summary).
+    apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -362,6 +376,9 @@ impl Shell {
             intellisense_waiters: Vec::new(),
             navigation: Navigation::default(),
             references: References::default(),
+            rename: rename::Rename::default(),
+            code_actions: code_actions::CodeActions::default(),
+            apply_edit: None,
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -373,6 +390,14 @@ impl Shell {
 
     pub fn timings(&self) -> &Timings {
         &self.timings
+    }
+
+    /// The folder of the open solution.
+    pub fn solution_dir(&self) -> Option<PathBuf> {
+        self.solution
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
     }
 
     /// The active document tab's id (its path).
@@ -634,6 +659,32 @@ impl Shell {
                     e.filter_output()
                 })),
             ),
+            WorkspaceRequest::Rename {
+                path,
+                line,
+                column,
+                new_name,
+                apply,
+            } => self.rename_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                new_name,
+                apply,
+                window,
+                cx,
+            ),
+            WorkspaceRequest::CodeActions { path, line, column } => self.code_actions_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                window,
+                cx,
+            ),
+            WorkspaceRequest::ApplyCodeAction { index, title } => {
+                self.apply_code_action_command(index, title.as_deref(), window, cx)
+            }
+            WorkspaceRequest::ApplyEdit { edit, label } => {
+                self.apply_edit_command(edit, label, window, cx)
+            }
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),
@@ -731,6 +782,13 @@ impl Shell {
                         doc.intellisense.cancel_all();
                     }
                     self.navigation.cancel();
+                    self.rename.cancel();
+                    self.close_rename_dialog(window, cx);
+                    self.code_actions.cancel();
+                    self.close_code_action_menu(window, cx);
+                    for doc in self.documents.values() {
+                        doc.view.update(cx, |v, cx| v.set_lightbulb(None, cx));
+                    }
                     if self.references.cancel() {
                         // Never show results computed for the old solution.
                         self.references_window
@@ -812,6 +870,11 @@ impl Shell {
                 self.update_error_list(cx);
             }
             SessionEvent::Diagnostics(params) => self.on_diagnostics(params, cx),
+            SessionEvent::ApplyEdit {
+                id,
+                generation,
+                params,
+            } => self.on_host_apply_edit(id, generation, params, window, cx),
             SessionEvent::Closed => {
                 self.solution = None;
                 self.solution_state = None;
@@ -1009,6 +1072,8 @@ impl Render for Shell {
             .child(self.dock.clone())
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())
+            .children(self.rename.dialog.clone())
+            .children(self.code_actions.menu.clone())
     }
 }
 

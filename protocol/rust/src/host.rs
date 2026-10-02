@@ -32,6 +32,8 @@ pub mod methods {
     /// Host-to-shell notification (LSP shape plus `eluditeGeneration`).
     pub const PUBLISH_DIAGNOSTICS: &str = "textDocument/publishDiagnostics";
     pub const CANCEL_REQUEST: &str = "$/cancelRequest";
+    /// Host-to-shell request (relayed from the language server).
+    pub const APPLY_EDIT: &str = "workspace/applyEdit";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -53,6 +55,10 @@ pub mod methods {
         "textDocument/signatureHelp",
         "textDocument/definition",
         "textDocument/references",
+        "textDocument/prepareRename",
+        "textDocument/rename",
+        "textDocument/codeAction",
+        "codeAction/resolve",
         "textDocument/documentSymbol",
         "workspace/symbol",
         "textDocument/diagnostic",
@@ -73,23 +79,25 @@ pub mod methods {
         "textDocument/documentHighlight",
         "textDocument/semanticTokens/full",
         "textDocument/semanticTokens/range",
-        "textDocument/codeAction",
         "textDocument/formatting",
-        "textDocument/rename",
     ];
 
     /// Forwarded LSP notifications passed through as raw JSON.
     pub const FORWARDED_UNTYPED_NOTIFICATIONS: &[&str] =
         &["textDocument/didSave", "workspace/didChangeWatchedFiles"];
 
-    /// Notifications the host sends to the shell.
+    /// Messages the host sends to the shell: notifications, and the requests in [`HOST_TO_SHELL_REQUESTS`].
     pub const HOST_TO_SHELL: &[&str] = &[
         SOLUTION_STATUS,
         LANGUAGE_SERVER_STATUS,
         PUBLISH_DIAGNOSTICS,
         "window/showMessage",
         "$/progress",
+        APPLY_EDIT,
     ];
+
+    /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
+    pub const HOST_TO_SHELL_REQUESTS: &[&str] = &[APPLY_EDIT];
 }
 
 /// Error codes the host returns (host-rpc.md, "Error codes").

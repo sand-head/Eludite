@@ -521,6 +521,10 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<lsp::SignatureHelpRequest>(),
         req::<lsp::GotoDefinition>(),
         req::<lsp::References>(),
+        req::<lsp::PrepareRename>(),
+        req::<lsp::Rename>(),
+        req::<lsp::CodeActionRequest>(),
+        req::<lsp::ResolveCodeAction>(),
         req::<lsp::DocumentSymbolRequest>(),
         req::<lsp::WorkspaceSymbolRequest>(),
         req::<lsp::DocumentDiagnosticRequest>(),
@@ -554,6 +558,234 @@ fn typed_marker_methods_match_the_method_lists() {
     ];
     assert_eq!(notes.as_slice(), methods::FORWARDED_TYPED_NOTIFICATIONS);
     assert!(methods::HOST_TO_SHELL.contains(&lsp::PublishDiagnostics::METHOD));
+    assert!(methods::HOST_TO_SHELL.contains(&lsp::ApplyEdit::METHOD));
+    assert_eq!(methods::HOST_TO_SHELL_REQUESTS, [lsp::ApplyEdit::METHOD]);
     assert!(methods::HOST_TO_SHELL.contains(&host::SolutionStatusNotification::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&host::LanguageServerStatusNotification::METHOD));
+}
+
+fn sample_edit() -> lsp::WorkspaceEdit {
+    let range = lsp::Range {
+        start: lsp::Position {
+            line: 1,
+            character: 2,
+        },
+        end: lsp::Position {
+            line: 1,
+            character: 6,
+        },
+    };
+    lsp::WorkspaceEdit {
+        changes: None,
+        document_changes: Some(vec![
+            lsp::DocumentChange::Edit(lsp::TextDocumentEdit {
+                text_document: lsp::OptionalVersionedTextDocumentIdentifier {
+                    uri: "file:///s/A.cs".into(),
+                    version: None,
+                },
+                edits: vec![lsp::TextEdit::new(range, "Pong")],
+            }),
+            lsp::DocumentChange::Operation(lsp::ResourceOperation::Create {
+                uri: "file:///s/New.cs".into(),
+                options: None,
+                annotation_id: None,
+            }),
+            lsp::DocumentChange::Operation(lsp::ResourceOperation::Rename {
+                old_uri: "file:///s/Old.cs".into(),
+                new_uri: "file:///s/Renamed.cs".into(),
+                options: Some(lsp::CreateFileOptions {
+                    overwrite: Some(true),
+                    ignore_if_exists: None,
+                }),
+                annotation_id: None,
+            }),
+            lsp::DocumentChange::Operation(lsp::ResourceOperation::Delete {
+                uri: "file:///s/Gone.cs".into(),
+                options: None,
+                annotation_id: None,
+            }),
+        ]),
+        extra: Default::default(),
+    }
+}
+
+#[test]
+fn rename_code_action_and_apply_edit_conform_to_their_schemas() {
+    use crate::typed::RequestType;
+    for (file, method) in [
+        ("prepare-rename.json", lsp::PrepareRename::METHOD),
+        ("rename.json", lsp::Rename::METHOD),
+        ("code-action.json", lsp::CodeActionRequest::METHOD),
+        ("code-action-resolve.json", lsp::ResolveCodeAction::METHOD),
+    ] {
+        assert_eq!(load(file)["x-eludite-method"], method, "{file}");
+        assert!(methods::FORWARDED_TYPED_REQUESTS.contains(&method));
+        assert!(!methods::FORWARDED_UNTYPED_REQUESTS.contains(&method));
+    }
+    assert_eq!(
+        load("apply-edit.json")["x-eludite-method"],
+        lsp::ApplyEdit::METHOD
+    );
+    let doc = lsp::TextDocumentIdentifier {
+        uri: "file:///s/A.cs".into(),
+    };
+    let position = lsp::Position {
+        line: 1,
+        character: 3,
+    };
+    let range = lsp::Range {
+        start: position,
+        end: position,
+    };
+    conforms(
+        "prepare-rename.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::TextDocumentPositionParams {
+                text_document: doc.clone(),
+                position,
+            },
+            generation: 1,
+        },
+    );
+    conforms(
+        "prepare-rename.json",
+        "result",
+        &Some(lsp::PrepareRenameResponse::Range(range)),
+    );
+    conforms(
+        "prepare-rename.json",
+        "result",
+        &Some(lsp::PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: "Ping".into(),
+        }),
+    );
+    conforms(
+        "prepare-rename.json",
+        "result",
+        &None::<lsp::PrepareRenameResponse>,
+    );
+    rejects(
+        "prepare-rename.json",
+        "params",
+        json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 0}}),
+    );
+    conforms(
+        "rename.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::RenameParams {
+                text_document: doc.clone(),
+                position,
+                new_name: "Pong".into(),
+            },
+            generation: 1,
+        },
+    );
+    conforms("rename.json", "result", &Some(sample_edit()));
+    conforms("rename.json", "result", &None::<lsp::WorkspaceEdit>);
+    rejects(
+        "rename.json",
+        "params",
+        json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 0},
+               "newName": "", "eluditeGeneration": 0}),
+    );
+    conforms(
+        "code-action.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::CodeActionParams {
+                text_document: doc,
+                range,
+                context: lsp::CodeActionContext {
+                    diagnostics: vec![],
+                    only: None,
+                    trigger_kind: Some(1),
+                },
+            },
+            generation: 1,
+        },
+    );
+    rejects(
+        "code-action.json",
+        "params",
+        json!({"textDocument": {"uri": "file:///a.cs"},
+               "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+               "context": {"triggerKind": 1}, "eluditeGeneration": 0}),
+    );
+    let action = lsp::CodeAction {
+        title: "Use primary constructor".into(),
+        kind: Some("quickfix".into()),
+        data: Some(json!({"UniqueIdentifier": "Use primary constructor"})),
+        ..Default::default()
+    };
+    conforms(
+        "code-action.json",
+        "result",
+        &Some(vec![
+            lsp::CodeActionOrCommand::Action(Box::new(action.clone())),
+            lsp::CodeActionOrCommand::Command(lsp::Command {
+                title: "Organize".into(),
+                command: "x.organize".into(),
+                arguments: None,
+            }),
+        ]),
+    );
+    conforms("code-action.json", "codeAction", &action);
+    conforms(
+        "code-action-resolve.json",
+        "params",
+        &host::WithGeneration {
+            params: action.clone(),
+            generation: 2,
+        },
+    );
+    let resolved = lsp::CodeAction {
+        edit: Some(sample_edit()),
+        ..action
+    };
+    conforms("code-action-resolve.json", "result", &resolved);
+    rejects(
+        "code-action-resolve.json",
+        "params",
+        json!({"kind": "quickfix", "eluditeGeneration": 0}),
+    );
+    conforms(
+        "apply-edit.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::ApplyWorkspaceEditParams {
+                label: Some("Use primary constructor".into()),
+                edit: sample_edit(),
+            },
+            generation: 1,
+        },
+    );
+    conforms(
+        "apply-edit.json",
+        "result",
+        &lsp::ApplyWorkspaceEditResult {
+            applied: true,
+            failure_reason: None,
+            failed_change: None,
+        },
+    );
+    rejects("apply-edit.json", "result", json!({"failureReason": "x"}));
+    rejects("apply-edit.json", "params", json!({"edit": {}}));
+    conforms("apply-edit.json", "workspaceEdit", &sample_edit());
+    let edit = serde_json::to_value(sample_edit()).unwrap();
+    for (i, def) in ["textDocumentEdit", "createFile", "renameFile", "deleteFile"]
+        .iter()
+        .enumerate()
+    {
+        let schema = load("apply-edit.json");
+        validate(&schema["$defs"][*def], &edit["documentChanges"][i], def)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+    rejects(
+        "apply-edit.json",
+        "createFile",
+        json!({"kind": "rename", "uri": "file:///a.cs"}),
+    );
 }

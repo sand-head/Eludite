@@ -14,10 +14,12 @@
 //! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
 //!   icons ([`CompletionKind`]) and the tooltip frame.
 //! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
+//! - [`dialog`]: the frame of a modal dialog, push buttons, and the light bulb menu's rows and glyphs.
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.
 
+pub mod dialog;
 pub mod elements;
 pub mod keymap;
 pub mod markdown;
@@ -27,6 +29,7 @@ pub mod status;
 mod theme;
 pub mod tree;
 
+pub use dialog::{LightbulbKind, dialog_panel, menu_row, push_button, section_heading};
 pub use elements::{highlighted_code, icon_button, tab, text_box, toggle_button};
 pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,

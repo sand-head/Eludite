@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/code-action-resolve.json",
+  "title": "codeAction/resolve",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::ResolveCodeAction). The shell resolves the chosen action lazily, when it has no edit (the pinned Roslyn never sends one in textDocument/codeAction). Params are the CodeAction as received (code-action.json $defs.codeAction, data unchanged) plus eluditeGeneration; the result is the same action with its edit (a WorkspaceEdit, apply-edit.json $defs.workspaceEdit). The host advertises codeAction.resolveSupport for edit. The host validates that params.title is a string.",
+  "x-eludite-method": "codeAction/resolve",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "title",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "data": {
+          "description": "Opaque, as received."
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "edit": {
+          "description": "A WorkspaceEdit (apply-edit.json $defs.workspaceEdit).",
+          "type": "object"
+        },
+        "command": {
+          "type": "object",
+          "required": [
+            "title",
+            "command"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string"
+            },
+            "arguments": {
+              "type": "array"
+            }
+          }
+        }
+      }
+    }
+  }
+}
