@@ -42,4 +42,5 @@ Negative:
 ## Revisit when
 
 - A hook needs state beyond the input and `PolicyView`, such as the target of a running session.
+  - Note, 2026-10-03 (brief 0027): `PolicyView` grew a snapshot of the processes Eludite launched, so `eludite.debug.attach` escalates only for processes the IDE did not start. The hook still reads a snapshot, never live session state.
 - Agents or MCP clients start treating `_meta` `eludite/escalates` as insufficient and ask for per-call class previews.
