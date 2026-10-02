@@ -610,6 +610,31 @@ fn the_commands_against_a_headless_chrome() {
     assert_eq!(big["total"], 5000, "every link is interactive");
     assert_eq!(big["nodes"].as_array().unwrap().len(), 500);
     assert_eq!(big["truncated"], true);
+    // Read element by element (the page has more than 1,500 elements): the same rows, depths and boxes.
+    let first = &big["nodes"][0];
+    assert_eq!(
+        (first["role"].as_str(), first["name"].as_str()),
+        (Some("link"), Some("Item 1")),
+        "{first}"
+    );
+    assert_eq!(first["depth"], 0);
+    assert!(first["box"]["height"].as_f64().unwrap() > 0., "{first}");
+    assert_eq!(big["nodes"][499]["name"], "Item 500");
+    let by_find = run.ok(
+        cmds::FIND,
+        json!({"role": "link", "name": "Item 1", "max": 1}),
+    );
+    assert_eq!(
+        by_find["matches"][0]["ref"], first["ref"],
+        "the same element keeps its ref"
+    );
+    let boxed = &by_find["matches"][0]["box"];
+    for k in ["x", "y", "width", "height"] {
+        assert!(
+            (boxed[k].as_f64().unwrap() - first["box"][k].as_f64().unwrap()).abs() <= 0.2,
+            "{k}: {boxed} {first}"
+        );
+    }
     let size = serde_json::to_string(&big).unwrap().len();
     println!(
         "read_page on 5,000 items: {} nodes listed of {}, answer {size} bytes (budget < 64 KB)",
