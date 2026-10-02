@@ -1,21 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-continue.input.json",
-  "title": "eludite.debug.continue input",
-  "description": "Debug > Continue (F5 in break mode): resume every thread of the debuggee until the next breakpoint, exception or exit. Refused unless the debuggee is in break mode. The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-wait.input.json",
+  "title": "eludite.debug.wait input",
+  "description": "Wait for the debuggee to settle without driving it: until it breaks, the session ends or the program prints (`until`), at most `wait_ms`. It never resumes anything and is never refused for the mode, so it is the cheap way to wait after starting a program, after the person resumed it, or while a request you triggered runs. It answers the stop summary (debug-stop-summary.output.json) with `satisfied` naming the condition that held, or `mode` `running` and `timed_out` on a timeout; it wakes as soon as the stop is shown. Next: eludite.debug.snapshot to look closer, or a resuming command.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "stop": {
-      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
-      "type": "integer",
-      "minimum": 1
+    "until": {
+      "description": "`stopped`: the debuggee breaks (a stop newer than `stop` when given; at once when it is already in break mode without `stop`). `terminated`: the session ends. `output`: the program prints a new line (after `output_since` when given). `any` (default): the first of these. Every condition also ends when the session ends.",
+      "enum": [
+        "stopped",
+        "terminated",
+        "output",
+        "any"
+      ]
     },
     "wait_ms": {
-      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+      "description": "How long to wait, in milliseconds (default 5000, at most 30000).",
       "type": "integer",
       "minimum": 0,
       "maximum": 30000
+    },
+    "stop": {
+      "description": "The stop the caller saw: `stopped` then waits for a newer one. Never refused for being old.",
+      "type": "integer",
+      "minimum": 1
     },
     "depth": {
       "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stack.input.json",
+  "title": "eludite.debug.stack input",
+  "description": "The call stack of the thread that stopped (or `thread`), or of every thread with `all_threads`, a page at a time: `start` and `count` (default 20 frames). Use it when the stop summary's 10 frames are not enough to see how execution got here, or to see what another thread is doing. Frames without source are marked `external` (Visual Studio's [External Code]). It runs no debuggee code and costs one adapter round trip per thread (none for frames the debugger already shows). Only in break mode. Next: eludite.debug.snapshot or eludite.debug.variables with `thread` and `frame` to read a frame's locals without moving the windows' selection.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "description": "A thread id (from `threads` in eludite.debug.state). Default: the thread that stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "start": {
+      "description": "The first frame to list (0 is the top). Default 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "count": {
+      "description": "How many frames to list (default 20, at most 200).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "all_threads": {
+      "description": "List every thread's stack (each within `start` and `count`) instead of one thread's.",
+      "type": "boolean"
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state or a stop summary). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

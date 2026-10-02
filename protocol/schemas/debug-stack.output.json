@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stack.output.json",
+  "title": "eludite.debug.stack output",
+  "description": "Call stacks, a page per thread.",
+  "type": "object",
+  "required": [
+    "threads",
+    "stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "threads": {
+      "description": "One entry, or every thread with `all_threads` (the thread that stopped first).",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "frames",
+          "total",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The thread id.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "frames": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "type": "object",
+              "required": [
+                "index",
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "index": {
+                  "description": "The frame's index in its thread's stack (0 is the top).",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "name": {
+                  "description": "The method, as the Call Stack window shows it.",
+                  "type": "string"
+                },
+                "path": {
+                  "description": "The source file, when the frame has one.",
+                  "type": "string"
+                },
+                "line": {
+                  "description": "1-based.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "column": {
+                  "description": "1-based.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end_line": {
+                  "description": "The statement's end, when the adapter gives it.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end_column": {
+                  "description": "The statement's end column.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "external": {
+                  "description": "True for a frame without source (Visual Studio's [External Code]); absent otherwise.",
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "total": {
+            "description": "How many frames the thread's stack has (the adapter's `totalFrames`, or all the frames read).",
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "description": "More frames follow the listed ones.",
+            "type": "boolean"
+          },
+          "next": {
+            "description": "When `truncated`: the `start` of the next page.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "stop": {
+      "description": "The stop the frames belong to (frame indices are valid until the debuggee moves).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

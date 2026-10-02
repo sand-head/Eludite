@@ -20,6 +20,17 @@
 //!   refused or canceled build ends the start with the reason in the status bar, and a failed one brings the Error
 //!   List forward. Shift+F5 during the build cancels both. MSBuild's incremental build makes an up-to-date project
 //!   cost a check, so the build always runs rather than the shell guessing whether the project is stale.
+//! - **Inspection for agents** (brief 0025). `snapshot`, `stack`, `variables`, `exception_info`, `output`, `wait` and
+//!   `pause`, and the stop summary every command that runs the debuggee answers with. An agent's command is applied on
+//!   the UI thread like any other; what it then waits for (the debuggee to settle, a condition of `wait`, the adapter's
+//!   answers to the requests a read needs) is awaited in a task of its own, never on the UI thread. Those requests are
+//!   tagged with the session generation and the stop ([`Pending::Agent`]): an answer for an older stop is a stale
+//!   error, never a value (rule 4). Reads take the thread and frame as parameters and never move the windows'
+//!   selection, the Locals window or the execution point (proposal 0001 rule 3). The UI thread cannot wait, so from
+//!   it the summary is the model's ([`state::DebugModel::summary`]) and reads that need the adapter are refused.
+//! - **Output by source.** The program's lines (stdout, stderr), the debugger's own messages and the adapter's
+//!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
+//!   Output window's Debug source still shows the program's output and the debugger's messages together.
 
 pub mod state;
 #[cfg(test)]
@@ -36,8 +47,11 @@ use std::time::{Duration, Instant};
 
 use eludite_commands::build::OutputSource;
 use eludite_commands::debug::{
-    self as cmds, BreakpointAction, DebugOutput, DebugRequest, EvalContext, EvaluateOutput,
-    SessionRow, StoppedRow, ThreadRow, VariableRow,
+    self as cmds, BreakpointAction, Budget, CapabilitiesRow, DebugOutput, DebugRequest,
+    EvalContext, EvaluateOutput, ExceptionDetailsRow, ExceptionInfoOutput, FramesBlock,
+    LocalsBlock, OutputKind, OutputPage, ScopeKind, SessionRow, StackFrameRow, StackOutput,
+    StackThread, StopSummary, StoppedRow, ThreadRow, VarRow, VariableRow, VariablesOutput,
+    VariablesTarget, WaitUntil,
 };
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
 use eludite_commands::{Caller, CommandError};
@@ -45,19 +59,20 @@ use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
 use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform};
 use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
 use eludite_dap::types::{
-    Capabilities, EvaluateResponse, Event, ExceptionInfoResponse, ScopesResponse,
-    SetBreakpointsResponse, StackTraceResponse, StoppedEvent, ThreadsResponse, VariablesResponse,
+    Capabilities, EvaluateResponse, Event, ExceptionDetails, ExceptionInfoResponse, ScopesResponse,
+    SetBreakpointsResponse, StackTraceResponse, StoppedEvent, ThreadsResponse, Variable,
+    VariablesResponse,
 };
 use eludite_dap::{ClientEvent, Connection, DapClient, launch, transport};
 use eludite_docking::ids;
 use eludite_editor::{EditorEvent, ExecutionKind};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
-use gpui::{AppContext as _, Context, Window};
+use gpui::{AppContext as _, AsyncWindowContext, Context, WeakEntity, Window};
 use serde_json::{Value, json};
 
 use self::state::{
-    DebugModel, Frame, Mode, Persisted, VarNode, exception_filters, flatten, node_mut,
+    DebugModel, Frame, Mode, Persisted, VarNode, exception_filters, flatten, node_mut, row_at_mut,
 };
 use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
@@ -199,6 +214,8 @@ pub enum DebugMsg {
     Started {
         generation: u64,
         result: Result<Started, String>,
+        /// `initialize`'s `adapterID` (`coreclr`, `mono`), or `fake` for the tests' fake adapter.
+        adapter_id: String,
     },
     LaunchFailed {
         generation: u64,
@@ -208,9 +225,11 @@ pub enum DebugMsg {
         generation: u64,
         event: ClientEvent,
     },
+    /// A program run without debugging wrote a line: on `stdout` or `stderr`.
     Output {
         generation: u64,
         text: String,
+        stream: &'static str,
     },
     ProgramExited {
         generation: u64,
@@ -223,6 +242,54 @@ pub enum DebugMsg {
     },
     StopTimeout {
         generation: u64,
+    },
+}
+
+/// What an agent's command waits for after it was applied, off the UI thread (brief 0025).
+pub enum Followup {
+    /// `evaluate`'s answer.
+    Eval(oneshot::Receiver<EvaluateOutput>),
+    /// A command that runs the debuggee: wait until it settles (a start: until it runs), then answer the summary.
+    /// `pause`: Break All of that generation, which fails when the adapter refuses it.
+    Settle {
+        start: bool,
+        pause: Option<u64>,
+        wait: Duration,
+        budget: Budget,
+    },
+    /// `stop`: until the session ended, then the state (as before brief 0025).
+    Ended {
+        wait: Duration,
+    },
+    /// `wait`: until the condition holds (`baseline`: the program output's cursor it waits past).
+    Wait {
+        until: WaitUntil,
+        stop: Option<u64>,
+        baseline: u64,
+        wait: Duration,
+        budget: Budget,
+    },
+    Snapshot {
+        thread: Option<i64>,
+        frame: Option<usize>,
+        budget: Budget,
+    },
+    Stack {
+        thread: Option<i64>,
+        start: usize,
+        count: usize,
+        all_threads: bool,
+    },
+    Variables {
+        target: VariablesTarget,
+        start: usize,
+        count: usize,
+        depth: usize,
+        filter: Option<String>,
+        max_value_chars: usize,
+    },
+    ExceptionInfo {
+        thread: i64,
     },
 }
 
@@ -294,6 +361,17 @@ enum Pending {
         generation: u64,
         stop: u64,
     },
+    /// Break All was sent.
+    Pause {
+        generation: u64,
+    },
+    /// A request an agent's read waits for (brief 0025): its answer goes to `reply` when it is for the generation and
+    /// the stop it was asked in, else the read hears that it is stale.
+    Agent {
+        generation: u64,
+        stop: u64,
+        reply: oneshot::Sender<Result<Value, String>>,
+    },
     Other,
 }
 
@@ -307,6 +385,10 @@ pub struct DebugTimings {
     pub first_break: Option<Instant>,
     /// A step was sent and not yet shown.
     pub step_sent: Option<Instant>,
+    /// When each agent's read held the UI thread, and for how long (brief 0025's frame cost while an agent polls).
+    pub agent_ui: Vec<(Instant, Duration)>,
+    /// The last `wait` answered.
+    pub wait_answered: Option<Instant>,
     /// Step sent to its break shown (locals loaded and the windows given them).
     pub steps: Vec<Duration>,
     /// The last time the windows were given a break's locals.
@@ -378,6 +460,11 @@ pub struct Debugger {
     pub timings: DebugTimings,
     /// F5's build, while it runs (brief 0020).
     pub pending_launch: Option<PendingLaunch>,
+    /// Break All failed in this generation: the adapter's message.
+    pause_error: Option<(u64, String)>,
+    /// How many members each variables reference of the current stop has, as the adapter said (`indexedVariables`,
+    /// `namedVariables`): the `total` of `eludite.debug.variables` by reference.
+    counts: HashMap<i64, usize>,
 }
 
 impl Debugger {
@@ -408,6 +495,8 @@ impl Debugger {
                 early_breakpoints: Vec::new(),
                 timings: DebugTimings::default(),
                 pending_launch: None,
+                pause_error: None,
+                counts: HashMap::new(),
             },
             rx,
         )
@@ -424,6 +513,46 @@ impl Debugger {
             .map_err(|e| CommandError::Failed(e.to_string()))?;
         self.pending.insert(seq, pending);
         Ok(seq)
+    }
+
+    /// The program wrote `text` (`stdout` or `stderr`): its ring, and the Output window's Debug source.
+    fn program_output(&mut self, text: &str, stream: &'static str) {
+        self.model
+            .output_mut(OutputKind::Program)
+            .push_text(text, Some(stream));
+        self.console(text);
+    }
+
+    /// A request for an agent's read, tagged with the generation and the stop it reads (rule 4 of brief 0018).
+    fn agent_request(
+        &mut self,
+        generation: u64,
+        stop: u64,
+        command: &str,
+        args: Value,
+    ) -> Result<oneshot::Receiver<Result<Value, String>>, String> {
+        let m = &self.model;
+        if m.generation != generation || m.stop != stop || m.mode != Mode::Break {
+            return Err(format!(
+                "stale: the debuggee moved on (now {}, stop {}, generation {}) before the read finished; read it \
+                 again",
+                m.mode.as_str(),
+                m.stop,
+                m.generation
+            ));
+        }
+        let (tx, rx) = oneshot::channel();
+        self.send(
+            command,
+            args,
+            Pending::Agent {
+                generation,
+                stop,
+                reply: tx,
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(rx)
     }
 
     fn console(&mut self, text: &str) {
@@ -446,6 +575,9 @@ impl Debugger {
             self.output_queue.push('\n');
         }
         let line = line.into();
+        self.model
+            .output_mut(OutputKind::Debug)
+            .push_line(line.clone(), None);
         self.output_queue.push_str(&line);
         self.output_queue.push('\n');
         self.model.push_console(line);
@@ -684,7 +816,8 @@ fn launch_thread(job: LaunchJob) {
             run: Some(handle.clone()),
         });
         let mut readers = Vec::new();
-        for s in streams.into_iter().flatten() {
+        for (s, stream) in streams.into_iter().zip(["stdout", "stderr"]) {
+            let Some(s) = s else { continue };
             let tx = tx.clone();
             readers.push(std::thread::spawn(move || {
                 for line in std::io::BufReader::new(s).lines() {
@@ -692,6 +825,7 @@ fn launch_thread(job: LaunchJob) {
                     let _ = tx.unbounded_send(DebugMsg::Output {
                         generation,
                         text: format!("{line}\n"),
+                        stream,
                     });
                 }
             }));
@@ -792,7 +926,17 @@ fn launch_thread(job: LaunchJob) {
         exception_filters: filters,
     };
     let result = dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
-    let _ = tx.unbounded_send(DebugMsg::Started { generation, result });
+    // The tests' fake adapter says so in its connection's description.
+    let adapter_id = if client.description().starts_with("fake adapter") {
+        "fake".to_owned()
+    } else {
+        plan.adapter_id.clone()
+    };
+    let _ = tx.unbounded_send(DebugMsg::Started {
+        generation,
+        result,
+        adapter_id,
+    });
 }
 
 impl Shell {
@@ -828,7 +972,6 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> (gpui::Task<()>, gpui::Task<()>) {
         use futures::StreamExt as _;
-        use futures::future::Either;
         let msg_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = msgs.next().await {
                 let mut batch = vec![first];
@@ -852,62 +995,44 @@ impl Shell {
                     reply,
                     caller,
                 } = job;
-                let resumes = request.resumes();
-                let start = matches!(request, DebugRequest::Start { .. });
-                let wait = request
-                    .wait_ms()
-                    .map(Duration::from_millis)
-                    .unwrap_or(AGENT_WAIT);
+                // One queue (rule 1): the command is applied here, in order; what it then waits for runs in a task of
+                // its own, so a long `wait` never holds the next agent's command.
                 let applied = this.update_in(cx, |shell, window, cx| {
-                    eludite_commands::with_caller(caller.clone(), || {
+                    let t = Instant::now();
+                    let r = eludite_commands::with_caller(caller.clone(), || {
                         shell.apply_debug(request, &caller, true, window, cx)
-                    })
+                    });
+                    shell.debug.timings.agent_ui.push((t, t.elapsed()));
+                    r
                 });
-                let outcome = match applied {
-                    Err(_) => Err(CommandError::Failed("the window is closed".into())),
-                    Ok(Err(e)) => Err(e),
-                    Ok(Ok((out, Some(rx)))) => {
-                        let timer = cx.background_executor().timer(AGENT_WAIT);
-                        match futures::future::select(rx, timer).await {
-                            Either::Left((Ok(e), _)) => Ok(DebugOutput::Evaluate(e)),
-                            Either::Left((Err(_), _)) => Ok(match out {
-                                DebugOutput::Evaluate(p) => DebugOutput::Evaluate(eval_failed(
-                                    &p.expression,
-                                    p.stop,
-                                    "the session ended before the answer arrived",
-                                )),
-                                other => other,
-                            }),
-                            Either::Right(_) => Ok(out),
-                        }
+                match applied {
+                    Err(_) => {
+                        let _ =
+                            reply.send(Err(CommandError::Failed("the window is closed".into())));
                     }
-                    Ok(Ok((out, None))) if resumes && !wait.is_zero() => {
-                        let deadline = Instant::now() + wait;
-                        loop {
-                            let Ok((settled, waiter)) =
-                                this.update(cx, |s, _| (s.debug_settled(start), s.debug_waiter()))
-                            else {
-                                break;
-                            };
-                            let left = deadline.saturating_duration_since(Instant::now());
-                            if settled || left.is_zero() {
-                                break;
-                            }
-                            let timer = cx.background_executor().timer(left);
-                            let _ = futures::future::select(waiter, timer).await;
-                        }
-                        Ok(this.update(cx, |s, _| s.debug_state()).unwrap_or(out))
+                    Ok(Err(e)) => {
+                        let _ = reply.send(Err(e));
                     }
-                    Ok(Ok((out, None))) => Ok(out),
-                };
-                let _ = reply.send(outcome);
+                    Ok(Ok((out, None))) => {
+                        let _ = reply.send(Ok(out));
+                    }
+                    Ok(Ok((out, Some(follow)))) => {
+                        let this = this.clone();
+                        cx.spawn(async move |cx| {
+                            let outcome = follow_up(this, cx, out, follow).await;
+                            let _ = reply.send(outcome);
+                        })
+                        .detach();
+                    }
+                }
             }
         });
         (msg_task, job_task)
     }
 
-    /// Apply a debug command (the UI-thread half of [`DebugBus`]). An agent's evaluate also returns a receiver for
-    /// the answer.
+    /// Apply a debug command (the UI-thread half of [`DebugBus`]). For an agent (`agent`: the caller waits off the
+    /// UI thread) a command may also return what to wait for before answering ([`Followup`]); the UI thread gets its
+    /// answer at once.
     pub fn apply_debug(
         &mut self,
         request: DebugRequest,
@@ -915,29 +1040,63 @@ impl Shell {
         agent: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Result<(DebugOutput, Option<oneshot::Receiver<EvaluateOutput>>), CommandError> {
+    ) -> Result<(DebugOutput, Option<Followup>), CommandError> {
         self.debug.model.check(&request)?;
         let driver = driver_of(caller);
-        match request {
-            DebugRequest::State => {}
+        let budget = request.budget().unwrap_or_default();
+        let wait = request
+            .wait_ms()
+            .map(Duration::from_millis)
+            .unwrap_or(AGENT_WAIT);
+        // Commands that run the debuggee answer with the summary once it settles (an agent waits for that).
+        let settle = |start: bool, pause: Option<u64>| {
+            (agent && !wait.is_zero()).then_some(Followup::Settle {
+                start,
+                pause,
+                wait,
+                budget,
+            })
+        };
+        let follow = match request {
+            DebugRequest::State => {
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
+            }
             DebugRequest::Start {
                 project,
                 debug,
                 profile,
                 build,
                 ..
-            } => self.debug_start(project, debug, profile, build, &driver, window, cx),
-            DebugRequest::Stop => self.debug_stop(&driver, window, cx),
-            DebugRequest::Continue { .. } => self.debug_resume("continue", None, &driver)?,
+            } => {
+                self.debug_start(project, debug, profile, build, &driver, window, cx);
+                settle(true, None)
+            }
+            DebugRequest::Stop => {
+                self.debug_stop(&driver, window, cx);
+                self.refresh_debug(cx);
+                let follow = (agent && !wait.is_zero()).then_some(Followup::Ended { wait });
+                return Ok((self.debug_state(), follow));
+            }
+            DebugRequest::Continue { .. } => {
+                self.debug_resume("continue", None, &driver)?;
+                settle(false, None)
+            }
             DebugRequest::Step { kind, thread, .. } => {
                 self.debug.timings.step_sent = Some(Instant::now());
                 self.debug_resume(kind.dap_command(), thread, &driver)?;
+                settle(false, None)
             }
             DebugRequest::RunToCursor { path, line, .. } => {
                 let (path, line) = self.debug_location(path.as_deref(), line, cx)?;
                 self.debug.run_to_cursor = Some((path.clone(), line));
                 self.debug_send_breakpoints(&path);
                 self.debug_resume("continue", None, &driver)?;
+                settle(false, None)
+            }
+            DebugRequest::Pause { thread, .. } => {
+                let generation = self.debug_pause(thread, &driver)?;
+                settle(false, Some(generation))
             }
             DebugRequest::Breakpoint {
                 path,
@@ -947,7 +1106,9 @@ impl Shell {
                 condition,
                 hit_condition,
             } => {
-                self.debug_breakpoint(path, line, action, enabled, condition, hit_condition, cx)?
+                self.debug_breakpoint(path, line, action, enabled, condition, hit_condition, cx)?;
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
             }
             DebugRequest::Evaluate {
                 expression,
@@ -967,19 +1128,23 @@ impl Shell {
                             stop,
                             ..Default::default()
                         }),
-                        Some(rx),
+                        Some(Followup::Eval(rx)),
                     ),
                     Err(pending) => (DebugOutput::Evaluate(pending), None),
                 });
             }
             DebugRequest::SelectFrame { thread, frame, .. } => {
-                self.debug_select(thread, frame, window, cx)?
+                self.debug_select(thread, frame, window, cx)?;
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
             }
             DebugRequest::AddWatch(expression) => {
                 self.debug.model.watches.push(VarNode::watch(&expression));
                 let ix = self.debug.model.watches.len() - 1;
                 self.debug_eval_watch(ix);
                 self.debug_persist(cx);
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
             }
             DebugRequest::RemoveWatch(ix) => {
                 if ix >= self.debug.model.watches.len() {
@@ -990,6 +1155,8 @@ impl Shell {
                 }
                 self.debug.model.watches.remove(ix);
                 self.debug_persist(cx);
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
             }
             DebugRequest::ExceptionSettings {
                 break_when_thrown,
@@ -1011,10 +1178,133 @@ impl Shell {
                     );
                 }
                 self.debug_persist(cx);
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
             }
-        }
+            DebugRequest::Output {
+                source,
+                since,
+                max_lines,
+                pattern,
+            } => {
+                let (lines, next, dropped, total, truncated) = self
+                    .debug
+                    .model
+                    .output(source)
+                    .read(since, max_lines, pattern.as_ref());
+                return Ok((
+                    DebugOutput::Output(OutputPage {
+                        source,
+                        lines,
+                        next,
+                        dropped,
+                        total,
+                        truncated,
+                    }),
+                    None,
+                ));
+            }
+            DebugRequest::Snapshot { thread, frame, .. } => {
+                let m = &self.debug.model;
+                let selected = thread.is_none_or(|t| Some(t) == m.thread)
+                    && frame.is_none_or(|f| f == m.frame);
+                if agent && m.mode == Mode::Break {
+                    Some(Followup::Snapshot {
+                        thread,
+                        frame,
+                        budget,
+                    })
+                } else if m.mode != Mode::Break || selected {
+                    None
+                } else {
+                    return Err(ui_thread_refusal(cmds::SNAPSHOT));
+                }
+            }
+            DebugRequest::Stack {
+                thread,
+                start,
+                count,
+                all_threads,
+                ..
+            } => {
+                if agent {
+                    Some(Followup::Stack {
+                        thread,
+                        start,
+                        count,
+                        all_threads,
+                    })
+                } else {
+                    return self
+                        .debug
+                        .stack_from_model(thread, start, count, all_threads)
+                        .map(|o| (DebugOutput::Stack(o), None))
+                        .ok_or_else(|| ui_thread_refusal(cmds::STACK));
+                }
+            }
+            DebugRequest::Variables {
+                target,
+                start,
+                count,
+                depth,
+                filter,
+                max_value_chars,
+                ..
+            } => {
+                if !agent {
+                    return Err(ui_thread_refusal(cmds::VARIABLES));
+                }
+                Some(Followup::Variables {
+                    target,
+                    start,
+                    count,
+                    depth,
+                    filter,
+                    max_value_chars,
+                })
+            }
+            DebugRequest::ExceptionInfo { thread, .. } => {
+                let m = &self.debug.model;
+                let stopped = m.stopped.as_ref().map(|s| s.thread).unwrap_or_default();
+                let thread = thread.unwrap_or(stopped);
+                if thread == stopped {
+                    return Ok((
+                        DebugOutput::ExceptionInfo(self.debug.exception_from_model(thread)),
+                        None,
+                    ));
+                }
+                if !agent {
+                    return Err(ui_thread_refusal(cmds::EXCEPTION_INFO));
+                }
+                Some(Followup::ExceptionInfo { thread })
+            }
+            DebugRequest::Wait { until, stop, .. } => {
+                let m = &self.debug.model;
+                let baseline = budget
+                    .output_since
+                    .unwrap_or_else(|| m.output(OutputKind::Program).next());
+                if agent {
+                    Some(Followup::Wait {
+                        until,
+                        stop,
+                        baseline,
+                        wait,
+                        budget,
+                    })
+                } else {
+                    // The UI thread cannot wait: what holds now.
+                    let mut out = m.summary(&budget);
+                    match wait_satisfied(m, until, stop, baseline) {
+                        Some(why) => out.satisfied = Some(why.into()),
+                        None => out.timed_out = Some(true),
+                    }
+                    return Ok((DebugOutput::Summary(Box::new(out)), None));
+                }
+            }
+        };
         self.refresh_debug(cx);
-        Ok((self.debug_state(), None))
+        let out = DebugOutput::Summary(Box::new(self.debug.model.summary(&budget)));
+        Ok((out, follow))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1388,6 +1678,25 @@ impl Shell {
         Ok(())
     }
 
+    /// Break All: ask the adapter to pause `thread` (default: the last one that stopped, else 0, all threads). Nothing
+    /// moves until its `stopped` event (reason `pause`) arrives; then it is shown as any break. Returns the session
+    /// generation the pause belongs to.
+    fn debug_pause(&mut self, thread: Option<i64>, driver: &str) -> Result<u64, CommandError> {
+        let d = &mut self.debug;
+        let tid = thread.or(d.model.thread).unwrap_or(0);
+        let generation = d.generation();
+        d.send(
+            "pause",
+            json!({ "threadId": tid }),
+            Pending::Pause { generation },
+        )?;
+        d.pause_error = None;
+        // Who stopped it drives, as for a resume (the status bar's `agent driving`).
+        d.model.last_driver = Some(driver.to_owned());
+        trace(format_args!("debug pause thread {tid} by {driver}"));
+        Ok(generation)
+    }
+
     /// The path (normalized) and line a command names, defaulting to the active document and its caret.
     fn debug_location(
         &self,
@@ -1638,6 +1947,8 @@ impl Shell {
         let d = &mut self.debug;
         d.model.frame = ix;
         d.model.locals.clear();
+        d.model.locals_reference = 0;
+        d.model.locals_total = 0;
         let Some(f) = d.model.frames.get(ix).cloned() else {
             d.model.locals_loading = false;
             return;
@@ -1965,11 +2276,17 @@ impl Shell {
             .map(|s| file_name(&s.project))
             .map(|n| n.trim_end_matches(".csproj").to_owned())
             .unwrap_or_default();
+        // While an agent's command drove the debuggee last, the slot says so (proposal 0001 section 7).
+        let driving = if m.agent_driving() {
+            ", agent driving"
+        } else {
+            ""
+        };
         let status = match m.mode {
             Mode::Design => m.message.clone().unwrap_or_default(),
             Mode::Building => "Debugging: building before starting\u{2026}".to_owned(),
             Mode::Launching => format!("Debugging: starting {name}\u{2026}"),
-            Mode::Running => format!("Debugging: {name} (running)"),
+            Mode::Running => format!("Debugging: {name} (running{driving})"),
             Mode::Break => {
                 let at = m
                     .frames
@@ -1983,7 +2300,7 @@ impl Shell {
                     })
                     .unwrap_or_default();
                 format!(
-                    "Debugging: {name} (break: {}{at})",
+                    "Debugging: {name} (break: {}{at}{driving})",
                     m.stopped.as_ref().map_or("", |s| s.reason.as_str())
                 )
             }
@@ -2088,9 +2405,15 @@ impl Shell {
                 }
                 self.debug.client = Some(client);
             }
-            DebugMsg::Started { generation, result } if generation == current => match result {
+            DebugMsg::Started {
+                generation,
+                result,
+                adapter_id,
+            } if generation == current => match result {
                 Ok(started) => {
                     self.debug.caps = started.capabilities.clone();
+                    self.debug.model.capabilities =
+                        Some(capabilities_row(&started.capabilities, &adapter_id));
                     for (path, answer) in &started.breakpoints {
                         let (lines, _) = self
                             .debug
@@ -2131,10 +2454,15 @@ impl Shell {
                 self.debug.console_line(message.clone());
                 self.end_session(Some(message), cx);
             }
-            DebugMsg::Output { generation, text } if generation == current => {
-                self.debug.console(&text);
+            DebugMsg::Output {
+                generation,
+                text,
+                stream,
+            } if generation == current => {
+                self.debug.program_output(&text, stream);
             }
             DebugMsg::ProgramExited { generation, code } if generation == current => {
+                self.debug.model.exit_code = code.map(i64::from);
                 self.debug.console_line(format!(
                     "The program has exited with code {}.",
                     code.map_or("unknown".to_owned(), |c| c.to_string())
@@ -2158,6 +2486,12 @@ impl Shell {
     fn on_client_event(&mut self, event: ClientEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             ClientEvent::Event(e) => self.on_dap_event(e, cx),
+            ClientEvent::Stderr(line) => {
+                self.debug
+                    .model
+                    .output_mut(OutputKind::Adapter)
+                    .push_line(line, Some("stderr"));
+            }
             ClientEvent::Response {
                 request_seq,
                 result,
@@ -2198,11 +2532,25 @@ impl Shell {
     fn on_dap_event(&mut self, event: Event, cx: &mut Context<Self>) {
         let d = &mut self.debug;
         match event {
-            Event::Output(o) => {
-                if o.category.as_deref() != Some("telemetry") {
+            Event::Output(o) => match o.category.as_deref() {
+                Some("telemetry") => {}
+                // The program's own output.
+                Some(stream @ ("stdout" | "stderr")) => {
+                    let stream = if stream == "stdout" {
+                        "stdout"
+                    } else {
+                        "stderr"
+                    };
+                    d.program_output(&o.output, stream);
+                }
+                // `console` (DAP's default), `important` and the rest: the adapter's messages.
+                _ => {
+                    d.model
+                        .output_mut(OutputKind::Adapter)
+                        .push_text(&o.output, None);
                     d.console(&o.output);
                 }
-            }
+            },
             Event::Process(p) => {
                 trace(format_args!("debug process {:?}", p.system_process_id));
                 if let Some(s) = d.model.session.as_mut() {
@@ -2224,8 +2572,17 @@ impl Shell {
                 if !c.exception_breakpoint_filters.is_empty() {
                     d.caps.exception_breakpoint_filters = c.exception_breakpoint_filters;
                 }
+                // A change after the handshake: what the client merged.
+                if let (Some(row), Some(client)) = (d.model.capabilities.as_mut(), &d.client) {
+                    let adapter = std::mem::take(&mut row.adapter);
+                    let merged = client.capabilities();
+                    d.caps.supports_delayed_stack_trace_loading =
+                        merged.supports_delayed_stack_trace_loading;
+                    *row = capabilities_row(&merged, &adapter);
+                }
             }
             Event::Exited(e) => {
+                d.model.exit_code = Some(e.exit_code);
                 let pid = d
                     .model
                     .session
@@ -2318,6 +2675,11 @@ impl Shell {
             } if generation == current && stop == stop_now => {
                 if let Ok(b) = result {
                     let st: StackTraceResponse = serde_json::from_value(b).unwrap_or_default();
+                    self.debug.model.frames_total = st
+                        .total_frames
+                        .and_then(|t| usize::try_from(t).ok())
+                        .unwrap_or(0)
+                        .max(st.stack_frames.len());
                     self.debug.model.thread = Some(thread);
                     self.debug.model.frames = st
                         .stack_frames
@@ -2337,6 +2699,7 @@ impl Shell {
                 let scope = scopes.scopes.iter().find(|s| !s.expensive);
                 match scope {
                     Some(s) => {
+                        self.debug.model.locals_reference = s.variables_reference;
                         let _ = self.debug.send(
                             "variables",
                             json!({ "variablesReference": s.variables_reference }),
@@ -2355,18 +2718,33 @@ impl Shell {
                 stop,
                 target,
             } if generation == current && stop == stop_now => {
-                let vars: Vec<VarNode> = match &result {
-                    Ok(b) => serde_json::from_value::<VariablesResponse>(b.clone())
-                        .unwrap_or_default()
-                        .variables
-                        .iter()
-                        .take(state::MAX_VARIABLES)
-                        .map(VarNode::from_dap)
-                        .collect(),
+                let all = match &result {
+                    Ok(b) => {
+                        serde_json::from_value::<VariablesResponse>(b.clone())
+                            .unwrap_or_default()
+                            .variables
+                    }
                     Err(_) => Vec::new(),
                 };
+                let count = all.len();
+                let vars: Vec<VarNode> = all
+                    .iter()
+                    .take(state::MAX_VARIABLES)
+                    .map(VarNode::from_dap)
+                    .collect();
+                for v in &vars {
+                    if v.reference > 0 && (v.indexed.is_some() || v.named.is_some()) {
+                        let n = v.indexed.unwrap_or(0) + v.named.unwrap_or(0);
+                        self.debug
+                            .counts
+                            .insert(v.reference, usize::try_from(n).unwrap_or(0));
+                    }
+                }
                 match target {
-                    VarTarget::Locals(path) if path.is_empty() => self.locals_done(vars),
+                    VarTarget::Locals(path) if path.is_empty() => {
+                        self.debug.model.locals_total = count;
+                        self.locals_done(vars)
+                    }
                     VarTarget::Locals(path) => {
                         set_children(&mut self.debug.model.locals, &path, vars)
                     }
@@ -2399,8 +2777,10 @@ impl Shell {
             Pending::ExceptionInfo { generation, stop }
                 if generation == current && stop == stop_now =>
             {
+                self.debug.model.exception_loading = false;
                 if let Ok(b) = result {
                     let e: ExceptionInfoResponse = serde_json::from_value(b).unwrap_or_default();
+                    self.debug.model.exception_info = Some(e.clone());
                     if let Some(s) = self.debug.model.stopped.as_mut() {
                         s.exception = Some(cmds::ExceptionRow {
                             id: Some(e.exception_id.clone()).filter(|x| !x.is_empty()),
@@ -2428,6 +2808,31 @@ impl Shell {
                         .apply_answer(&path, &lines, &r.breakpoints);
                     self.refresh_glyphs(cx);
                 }
+            }
+            Pending::Pause { generation } if generation == current => {
+                if let Err(e) = result {
+                    // The adapter refused: the debuggee runs on.
+                    trace(format_args!("debug pause failed: {e}"));
+                    self.debug.model.message = Some(format!("Break All: {e}"));
+                    self.debug.pause_error = Some((generation, e));
+                }
+            }
+            Pending::Agent {
+                generation,
+                stop,
+                reply,
+            } => {
+                let fresh = generation == current
+                    && stop == stop_now
+                    && self.debug.model.mode == Mode::Break;
+                let _ = reply.send(if fresh {
+                    result
+                } else {
+                    Err(format!(
+                        "stale: the debuggee moved on (now stop {stop_now}, generation {current}) before the \
+                         answer arrived; read it again"
+                    ))
+                });
             }
             Pending::Resume { generation, stop } if generation == current => {
                 if let Err(e) = result {
@@ -2468,6 +2873,11 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let frames_total = st
+            .total_frames
+            .and_then(|t| usize::try_from(t).ok())
+            .unwrap_or(st.stack_frames.len())
+            .max(st.stack_frames.len());
         let d = &mut self.debug;
         if !matches!(d.model.mode, Mode::Running | Mode::Launching | Mode::Break) {
             return;
@@ -2523,6 +2933,8 @@ impl Shell {
         });
         d.model.thread = Some(thread);
         d.model.frames = frames;
+        d.model.frames_total = frames_total;
+        d.counts.clear();
         trace(format_args!(
             "debug break stop {} {} at {:?}",
             d.model.stop,
@@ -2531,11 +2943,13 @@ impl Shell {
         ));
         if s.reason == "exception" && d.caps.supports_exception_info_request {
             let (generation, stop) = (d.generation(), d.model.stop);
-            let _ = d.send(
-                "exceptionInfo",
-                json!({ "threadId": thread }),
-                Pending::ExceptionInfo { generation, stop },
-            );
+            d.model.exception_loading = d
+                .send(
+                    "exceptionInfo",
+                    json!({ "threadId": thread }),
+                    Pending::ExceptionInfo { generation, stop },
+                )
+                .is_ok();
         }
         self.debug_show_frame(0, window, cx);
     }
@@ -2663,6 +3077,1083 @@ impl Shell {
             },
         }
     }
+}
+
+/// A timer in real time for agents' waits: one thread for every pending deadline. (The executor's timers follow the
+/// test executor's simulated clock in headless tests, which a `wait` timing out has to see pass.)
+fn real_timer(after: Duration) -> oneshot::Receiver<()> {
+    use std::sync::{Condvar, OnceLock};
+    type Queue = (Mutex<Vec<(Instant, oneshot::Sender<()>)>>, Condvar);
+    static QUEUE: OnceLock<Arc<Queue>> = OnceLock::new();
+    let queue = QUEUE.get_or_init(|| {
+        let q: Arc<Queue> = Arc::default();
+        let worker = q.clone();
+        std::thread::Builder::new()
+            .name("debug-agent-timer".into())
+            .spawn(move || {
+                let (m, cv) = &*worker;
+                let mut due = m.lock().unwrap_or_else(|e| e.into_inner());
+                loop {
+                    let now = Instant::now();
+                    let (fire, keep): (Vec<_>, Vec<_>) = std::mem::take(&mut *due)
+                        .into_iter()
+                        .partition(|(at, _)| *at <= now);
+                    *due = keep;
+                    for (_, tx) in fire {
+                        let _ = tx.send(());
+                    }
+                    let next = due.iter().map(|(at, _)| *at).min();
+                    due = match next {
+                        Some(at) => {
+                            cv.wait_timeout(due, at.saturating_duration_since(now))
+                                .unwrap_or_else(|e| e.into_inner())
+                                .0
+                        }
+                        None => cv.wait(due).unwrap_or_else(|e| e.into_inner()),
+                    };
+                }
+            })
+            .expect("spawn debug-agent-timer");
+        q
+    });
+    let (tx, rx) = oneshot::channel();
+    let (m, cv) = &**queue;
+    m.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((Instant::now() + after, tx));
+    cv.notify_one();
+    rx
+}
+
+// ----- Agents' reads (brief 0025): run off the UI thread, reading the adapter through tagged requests. -----
+
+/// An agent's read of one stop: the requests it sends carry the session generation and the stop, and an answer for an
+/// older one is a stale error (rule 4 of brief 0018).
+struct Reader {
+    this: WeakEntity<Shell>,
+    generation: u64,
+    stop: u64,
+}
+
+const WINDOW_CLOSED: &str = "the window is closed";
+
+impl Reader {
+    fn new(this: &WeakEntity<Shell>, cx: &mut AsyncWindowContext) -> Result<Self, String> {
+        let (generation, stop) = this
+            .update(cx, |s, _| (s.debug.model.generation, s.debug.model.stop))
+            .map_err(|_| WINDOW_CLOSED.to_owned())?;
+        Ok(Self {
+            this: this.clone(),
+            generation,
+            stop,
+        })
+    }
+
+    fn model<R>(
+        &self,
+        cx: &mut AsyncWindowContext,
+        f: impl FnOnce(&Debugger) -> R,
+    ) -> Result<R, String> {
+        self.this
+            .update(cx, |s, _| f(&s.debug))
+            .map_err(|_| WINDOW_CLOSED.to_owned())
+    }
+
+    /// Send `requests` together and wait for every answer (at most [`AGENT_WAIT`]); the UI thread only sends them.
+    async fn dap(
+        &self,
+        cx: &mut AsyncWindowContext,
+        requests: Vec<(&'static str, Value)>,
+    ) -> Result<Vec<Result<Value, String>>, String> {
+        let (g, s) = (self.generation, self.stop);
+        let receivers = self
+            .this
+            .update(cx, |shell, _| {
+                let t = Instant::now();
+                let r: Result<Vec<_>, String> = requests
+                    .into_iter()
+                    .map(|(c, a)| shell.debug.agent_request(g, s, c, a))
+                    .collect();
+                shell.debug.timings.agent_ui.push((t, t.elapsed()));
+                r
+            })
+            .map_err(|_| WINDOW_CLOSED.to_owned())??;
+        let timer = real_timer(AGENT_WAIT);
+        match futures::future::select(futures::future::join_all(receivers), timer).await {
+            futures::future::Either::Left((answers, _)) => Ok(answers
+                .into_iter()
+                .map(|a| {
+                    a.unwrap_or_else(|_| Err("the session ended before the answer arrived".into()))
+                })
+                .collect()),
+            futures::future::Either::Right(_) => {
+                Err("the debug adapter did not answer in time".into())
+            }
+        }
+    }
+
+    async fn one(
+        &self,
+        cx: &mut AsyncWindowContext,
+        command: &'static str,
+        args: Value,
+    ) -> Result<Value, String> {
+        self.dap(cx, vec![(command, args)])
+            .await?
+            .pop()
+            .expect("one answer")
+    }
+
+    /// Frames `start..start + count` of `thread`: (the adapter's frame id and the row, the stack's total when known).
+    /// From what the Call Stack window has when that is enough; else `stackTrace` with `startFrame` and `levels` when
+    /// the adapter loads stacks lazily, or the whole stack paged here.
+    async fn frames(
+        &self,
+        cx: &mut AsyncWindowContext,
+        thread: i64,
+        start: usize,
+        count: usize,
+    ) -> Result<(Vec<(i64, StackFrameRow)>, Option<usize>), String> {
+        let (cached, delayed) = self.model(cx, |d| {
+            let m = &d.model;
+            let complete = m.frames.len() >= m.frames_total || start + count <= m.frames.len();
+            let cached =
+                (m.thread == Some(thread) && !m.frames.is_empty() && complete).then(|| {
+                    let rows = m
+                        .frames
+                        .iter()
+                        .skip(start)
+                        .take(count)
+                        .map(|f| (f.id, f.stack_row()))
+                        .collect::<Vec<_>>();
+                    (rows, m.frames_total.max(m.frames.len()))
+                });
+            (cached, d.caps.supports_delayed_stack_trace_loading)
+        })?;
+        if let Some((rows, total)) = cached {
+            return Ok((rows, Some(total)));
+        }
+        let args = if delayed {
+            json!({"threadId": thread, "startFrame": start, "levels": count})
+        } else {
+            json!({ "threadId": thread })
+        };
+        let st: StackTraceResponse =
+            serde_json::from_value(self.one(cx, "stackTrace", args).await?)
+                .map_err(|e| format!("stackTrace: {e}"))?;
+        let total = st.total_frames.and_then(|t| usize::try_from(t).ok());
+        let skip = if delayed { 0 } else { start };
+        let rows: Vec<(i64, StackFrameRow)> = st
+            .stack_frames
+            .iter()
+            .skip(skip)
+            .take(count)
+            .enumerate()
+            .map(|(i, f)| (f.id, Frame::from_dap(start + i, f).stack_row()))
+            .collect();
+        let total = if delayed {
+            total
+        } else {
+            Some(total.unwrap_or(st.stack_frames.len()))
+        };
+        Ok((rows, total))
+    }
+
+    /// Whether the adapter pages `variables` by `start` and `count`.
+    fn paging(&self, cx: &mut AsyncWindowContext) -> Result<bool, String> {
+        self.model(cx, |d| {
+            d.model
+                .capabilities
+                .as_ref()
+                .is_some_and(|c| c.variable_paging)
+        })
+    }
+
+    /// Every member of `reference`.
+    async fn all_vars(
+        &self,
+        cx: &mut AsyncWindowContext,
+        reference: i64,
+    ) -> Result<Vec<Variable>, String> {
+        let r: VariablesResponse = serde_json::from_value(
+            self.one(cx, "variables", json!({ "variablesReference": reference }))
+                .await?,
+        )
+        .map_err(|e| format!("variables: {e}"))?;
+        Ok(r.variables)
+    }
+
+    /// A page of `reference`'s members: (rows, total, more follow). Through the adapter's paging when it has it
+    /// (asking one row more to learn whether more follow when it gave no count), else all of them paged here.
+    async fn page(
+        &self,
+        cx: &mut AsyncWindowContext,
+        reference: i64,
+        start: usize,
+        count: usize,
+        known: Option<usize>,
+    ) -> Result<(Vec<Variable>, usize, bool), String> {
+        let known = match known {
+            Some(k) => Some(k),
+            None => self.model(cx, |d| d.counts.get(&reference).copied())?,
+        };
+        if !self.paging(cx)? {
+            let all = self.all_vars(cx, reference).await?;
+            let total = all.len();
+            let rows: Vec<Variable> = all.into_iter().skip(start).take(count).collect();
+            let more = start + rows.len() < total;
+            return Ok((rows, total, more));
+        }
+        let ask = if known.is_some() { count } else { count + 1 };
+        let r: VariablesResponse = serde_json::from_value(
+            self.one(
+                cx,
+                "variables",
+                json!({"variablesReference": reference, "start": start, "count": ask}),
+            )
+            .await?,
+        )
+        .map_err(|e| format!("variables: {e}"))?;
+        let mut rows = r.variables;
+        let more = rows.len() > count || known.is_some_and(|k| start + count < k);
+        rows.truncate(count);
+        let total = known.unwrap_or(start + rows.len() + usize::from(more));
+        Ok((rows, total, more))
+    }
+
+    /// The top-level rows of a frame's `scope` from `start` (at most `count`, those named with the prefix `filter`):
+    /// (rows, total, more follow). The Locals window's rows serve when they are that frame's.
+    #[allow(clippy::too_many_arguments)]
+    async fn frame_rows(
+        &self,
+        cx: &mut AsyncWindowContext,
+        thread: i64,
+        frame: usize,
+        scope: ScopeKind,
+        start: usize,
+        count: usize,
+        filter: Option<&str>,
+        max_chars: usize,
+    ) -> Result<(Vec<VarRow>, usize, bool), String> {
+        let plain = scope == ScopeKind::Locals && filter.is_none();
+        let cached = self.model(cx, |d| {
+            let m = &d.model;
+            let shown = m.mode == Mode::Break
+                && m.thread == Some(thread)
+                && m.frame == frame
+                && !m.locals_loading
+                && m.locals_reference > 0;
+            let complete = m.locals.len() >= m.locals_total || start + count <= m.locals.len();
+            (plain && shown && complete).then(|| {
+                let total = m.locals_total.max(m.locals.len());
+                let rows: Vec<VarRow> = m
+                    .locals
+                    .iter()
+                    .skip(start)
+                    .take(count)
+                    .map(|v| v.var_row(max_chars))
+                    .collect();
+                let more = start + rows.len() < total;
+                (rows, total, more)
+            })
+        })?;
+        if let Some(c) = cached {
+            return Ok(c);
+        }
+        let (ids, total) = self.frames(cx, thread, frame, 1).await?;
+        let Some((frame_id, _)) = ids.first().cloned() else {
+            return Err(format!(
+                "there is no frame {frame} (the call stack of thread {thread} has {})",
+                total.map_or("fewer".to_owned(), |t| t.to_string())
+            ));
+        };
+        let scopes: ScopesResponse = serde_json::from_value(
+            self.one(cx, "scopes", json!({ "frameId": frame_id }))
+                .await?,
+        )
+        .map_err(|e| format!("scopes: {e}"))?;
+        let named = |s: &eludite_dap::types::Scope, hint: &str, names: &[&str]| {
+            s.presentation_hint.as_deref() == Some(hint)
+                || names.iter().any(|n| s.name.eq_ignore_ascii_case(n))
+        };
+        let locals = scopes
+            .scopes
+            .iter()
+            .find(|s| named(s, "locals", &["locals"]))
+            .or_else(|| scopes.scopes.iter().find(|s| !s.expensive))
+            .or(scopes.scopes.first())
+            .cloned();
+        let own = match scope {
+            ScopeKind::Locals => locals.clone(),
+            ScopeKind::Arguments => scopes
+                .scopes
+                .iter()
+                .find(|s| named(s, "arguments", &["arguments", "parameters"]))
+                .cloned(),
+            ScopeKind::This => scopes
+                .scopes
+                .iter()
+                .find(|s| s.name.eq_ignore_ascii_case("this"))
+                .cloned(),
+        };
+        let count_of =
+            |s: &eludite_dap::types::Scope| match (s.named_variables, s.indexed_variables) {
+                (None, None) => None,
+                (n, i) => usize::try_from(n.unwrap_or(0) + i.unwrap_or(0)).ok(),
+            };
+        if let Some(s) = own.as_ref().filter(|_| filter.is_none()) {
+            let (rows, total, more) = self
+                .page(cx, s.variables_reference, start, count, count_of(s))
+                .await?;
+            self.record(cx, &rows)?;
+            return Ok((
+                rows.iter().map(|v| dap_row(v, max_chars)).collect(),
+                total,
+                more,
+            ));
+        }
+        // Filtered: read the whole scope (or the locals, for a scope the adapter does not have) and page here.
+        let Some(source) = own.or(locals) else {
+            return Ok((Vec::new(), 0, false));
+        };
+        let mut all = self.all_vars(cx, source.variables_reference).await?;
+        if !scopes.scopes.iter().any(|s| {
+            matches!(scope, ScopeKind::Arguments)
+                && named(s, "arguments", &["arguments", "parameters"])
+                || matches!(scope, ScopeKind::This) && s.name.eq_ignore_ascii_case("this")
+                || matches!(scope, ScopeKind::Locals)
+        }) {
+            match scope {
+                ScopeKind::Arguments => {
+                    let hinted = all.iter().any(|v| v.presentation_hint.is_some());
+                    if !hinted {
+                        let adapter = self.model(cx, |d| {
+                            d.model
+                                .capabilities
+                                .as_ref()
+                                .map(|c| c.adapter.clone())
+                                .unwrap_or_default()
+                        })?;
+                        return Err(format!(
+                            "the debug adapter (`{adapter}`) keeps arguments and locals in one scope and does not \
+                             mark which is which: read `scope: \"locals\"` (arguments come first)"
+                        ));
+                    }
+                    all.retain(|v| {
+                        v.presentation_hint
+                            .as_ref()
+                            .is_some_and(|h| h.kind.as_deref() == Some("parameter"))
+                    });
+                }
+                ScopeKind::This => all.retain(|v| v.name == "this"),
+                ScopeKind::Locals => {}
+            }
+        }
+        if let Some(f) = filter {
+            let f = f.to_lowercase();
+            all.retain(|v| v.name.to_lowercase().starts_with(&f));
+        }
+        self.record(cx, &all)?;
+        let total = all.len();
+        let rows: Vec<VarRow> = all
+            .iter()
+            .skip(start)
+            .take(count)
+            .map(|v| dap_row(v, max_chars))
+            .collect();
+        let more = start + rows.len() < total;
+        Ok((rows, total, more))
+    }
+
+    /// Remember the member counts the adapter gave for these rows (the `total` of a later read by reference).
+    fn record(&self, cx: &mut AsyncWindowContext, rows: &[Variable]) -> Result<(), String> {
+        let counts: Vec<(i64, usize)> = rows
+            .iter()
+            .filter(|v| v.variables_reference > 0)
+            .filter_map(|v| {
+                let n = v.indexed_variables.unwrap_or(0) + v.named_variables.unwrap_or(0);
+                (v.indexed_variables.is_some() || v.named_variables.is_some())
+                    .then(|| (v.variables_reference, usize::try_from(n).unwrap_or(0)))
+            })
+            .collect();
+        let stop = self.stop;
+        self.this
+            .update(cx, |s, _| {
+                if s.debug.model.stop == stop {
+                    s.debug.counts.extend(counts);
+                }
+            })
+            .map_err(|_| WINDOW_CLOSED.to_owned())
+    }
+
+    /// Expand `rows` breadth-first to `depth` levels within `left` more rows (counted down); `cut` is set when the
+    /// budget left members out. Each level's members are asked for together.
+    async fn expand(
+        &self,
+        cx: &mut AsyncWindowContext,
+        rows: &mut [VarRow],
+        depth: usize,
+        left: &mut usize,
+        max_chars: usize,
+        cut: &mut bool,
+    ) -> Result<(), String> {
+        let mut frontier: Vec<Vec<usize>> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.reference > 0)
+            .map(|(i, _)| vec![i])
+            .collect();
+        let paging = self.paging(cx)?;
+        for _ in 1..depth {
+            if frontier.is_empty() {
+                break;
+            }
+            if *left == 0 {
+                for p in &frontier {
+                    if let Some(r) = row_at_mut(rows, p) {
+                        r.truncated = true;
+                    }
+                }
+                *cut = true;
+                break;
+            }
+            let requests: Vec<(&'static str, Value)> = frontier
+                .iter()
+                .map(|p| {
+                    let reference = row_at_mut(rows, p).map_or(0, |r| r.reference);
+                    let args = if paging {
+                        json!({"variablesReference": reference, "start": 0, "count": *left + 1})
+                    } else {
+                        json!({ "variablesReference": reference })
+                    };
+                    ("variables", args)
+                })
+                .collect();
+            let answers = self.dap(cx, requests).await?;
+            let mut next = Vec::new();
+            for (path, answer) in frontier.iter().zip(answers) {
+                let Ok(body) = answer else { continue };
+                let vars = serde_json::from_value::<VariablesResponse>(body)
+                    .unwrap_or_default()
+                    .variables;
+                self.record(cx, &vars)?;
+                let Some(row) = row_at_mut(rows, path) else {
+                    continue;
+                };
+                let n = vars.len().min(*left);
+                *left -= n;
+                if n < vars.len() {
+                    row.truncated = true;
+                    *cut = true;
+                }
+                if n == 0 && !vars.is_empty() {
+                    continue;
+                }
+                row.children = Some(vars[..n].iter().map(|v| dap_row(v, max_chars)).collect());
+                for (i, v) in vars[..n].iter().enumerate() {
+                    if v.variables_reference > 0 {
+                        let mut p = path.clone();
+                        p.push(i);
+                        next.push(p);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        Ok(())
+    }
+
+    /// The stop summary for `thread` (default: the one that stopped) and `frame` (default 0), through the adapter
+    /// where the model does not have it.
+    async fn summary(
+        &self,
+        cx: &mut AsyncWindowContext,
+        thread: Option<i64>,
+        frame: Option<usize>,
+        budget: &Budget,
+    ) -> Result<StopSummary, String> {
+        let (mut out, stopped, selected, threads) = self.model(cx, |d| {
+            let m = &d.model;
+            (
+                m.summary_base(budget),
+                (m.mode == Mode::Break)
+                    .then(|| m.stopped.as_ref().map(|s| s.thread))
+                    .flatten(),
+                (m.thread, m.frame),
+                m.threads.iter().map(|t| t.id).collect::<Vec<_>>(),
+            )
+        })?;
+        let Some(stopped) = stopped else {
+            return Ok(out);
+        };
+        let thread = thread.unwrap_or(stopped);
+        if !threads.is_empty() && !threads.contains(&thread) {
+            return Err(format!(
+                "there is no thread {thread} (threads: {threads:?})"
+            ));
+        }
+        let frame = frame.unwrap_or(0);
+        let (rows, total) = self
+            .frames(cx, thread, 0, budget.max_frames.max(frame + 1))
+            .await?;
+        if frame >= rows.len() {
+            return Err(format!(
+                "there is no frame {frame} (the call stack of thread {thread} has {})",
+                total.unwrap_or(rows.len())
+            ));
+        }
+        let top = if thread == stopped {
+            rows.first().map(|(_, r)| r.clone())
+        } else {
+            self.frames(cx, stopped, 0, 1)
+                .await?
+                .0
+                .first()
+                .map(|(_, r)| r.clone())
+        };
+        out.stopped = self.model(cx, |d| d.model.summary_stopped(top.as_ref()))?;
+        let shown: Vec<StackFrameRow> = rows
+            .iter()
+            .take(budget.max_frames)
+            .map(|(_, r)| r.clone())
+            .collect();
+        let total = total.unwrap_or(rows.len() + usize::from(rows.len() > shown.len()));
+        let frames = FramesBlock {
+            thread,
+            truncated: shown.len() < total,
+            rows: shown,
+            total,
+        };
+        let mut locals = LocalsBlock {
+            thread,
+            frame,
+            ..Default::default()
+        };
+        match self
+            .frame_rows(
+                cx,
+                thread,
+                frame,
+                ScopeKind::Locals,
+                0,
+                budget.max_variables,
+                None,
+                budget.max_value_chars,
+            )
+            .await
+        {
+            Ok((mut rows, total, more)) => {
+                let mut left = budget.max_variables - rows.len();
+                let mut cut = false;
+                self.expand(
+                    cx,
+                    &mut rows,
+                    budget.depth,
+                    &mut left,
+                    budget.max_value_chars,
+                    &mut cut,
+                )
+                .await?;
+                locals.next = more.then_some(rows.len());
+                locals.truncated = more || cut;
+                locals.total = total;
+                locals.rows = rows;
+            }
+            // A frame without locals the adapter can read (external code): the summary says why.
+            Err(e) if !e.starts_with("stale") => {
+                out.message = Some(format!("locals of frame {frame}: {e}"));
+            }
+            Err(e) => return Err(e),
+        }
+        // The Watch window's values are the selected frame's: listed when that is the frame read (evaluating them in
+        // another would run code, which a read does not).
+        if (Some(thread), frame) == selected {
+            out.watches =
+                Some(self.model(cx, |d| d.model.summary_watches(budget.max_value_chars))?);
+        }
+        out.truncated |= frames.truncated || locals.truncated;
+        out.frames = Some(frames);
+        out.locals = Some(locals);
+        Ok(out)
+    }
+
+    async fn stack(
+        &self,
+        cx: &mut AsyncWindowContext,
+        thread: Option<i64>,
+        start: usize,
+        count: usize,
+        all_threads: bool,
+    ) -> Result<StackOutput, String> {
+        let (stopped, mut threads) = self.model(cx, |d| {
+            (
+                d.model.stopped.as_ref().map(|s| s.thread),
+                d.model
+                    .threads
+                    .iter()
+                    .map(|t| (t.id, t.name.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        })?;
+        if threads.is_empty() {
+            let t: ThreadsResponse =
+                serde_json::from_value(self.one(cx, "threads", Value::Null).await?)
+                    .unwrap_or_default();
+            threads = t.threads.into_iter().map(|t| (t.id, t.name)).collect();
+        }
+        let wanted: Vec<(i64, String)> = if all_threads {
+            // The thread that stopped first, then the others in the adapter's order.
+            let mut v = threads.clone();
+            v.sort_by_key(|(id, _)| Some(*id) != stopped);
+            v
+        } else {
+            let id = thread
+                .or(stopped)
+                .ok_or_else(|| "no thread has stopped".to_owned())?;
+            let name = threads
+                .iter()
+                .find(|(t, _)| *t == id)
+                .map(|(_, n)| n.clone())
+                .ok_or_else(|| format!("there is no thread {id}"))?;
+            vec![(id, name)]
+        };
+        let mut out = Vec::new();
+        for (id, name) in wanted {
+            let (rows, total) = self.frames(cx, id, start, count).await?;
+            let end = start + rows.len();
+            let total = total.unwrap_or(end + usize::from(rows.len() == count));
+            out.push(StackThread {
+                id,
+                name,
+                frames: rows.into_iter().map(|(_, r)| r).collect(),
+                truncated: end < total,
+                next: (end < total).then_some(end),
+                total,
+            });
+        }
+        Ok(StackOutput {
+            threads: out,
+            stop: self.stop,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn variables(
+        &self,
+        cx: &mut AsyncWindowContext,
+        target: VariablesTarget,
+        start: usize,
+        count: usize,
+        depth: usize,
+        filter: Option<String>,
+        max_chars: usize,
+    ) -> Result<VariablesOutput, String> {
+        let (mut rows, total, more) = match target {
+            VariablesTarget::Reference(reference) => match &filter {
+                None => {
+                    let (vars, total, more) = self.page(cx, reference, start, count, None).await?;
+                    self.record(cx, &vars)?;
+                    (
+                        vars.iter().map(|v| dap_row(v, max_chars)).collect(),
+                        total,
+                        more,
+                    )
+                }
+                Some(f) => {
+                    let f = f.to_lowercase();
+                    let mut all = self.all_vars(cx, reference).await?;
+                    all.retain(|v| v.name.to_lowercase().starts_with(&f));
+                    self.record(cx, &all)?;
+                    let total = all.len();
+                    let rows: Vec<VarRow> = all
+                        .iter()
+                        .skip(start)
+                        .take(count)
+                        .map(|v| dap_row(v, max_chars))
+                        .collect();
+                    let more = start + rows.len() < total;
+                    (rows, total, more)
+                }
+            },
+            VariablesTarget::Frame {
+                thread,
+                frame,
+                scope,
+            } => {
+                let stopped = self.model(cx, |d| d.model.stopped.as_ref().map(|s| s.thread))?;
+                let thread = thread
+                    .or(stopped)
+                    .ok_or_else(|| "no thread has stopped".to_owned())?;
+                self.frame_rows(
+                    cx,
+                    thread,
+                    frame.unwrap_or(0),
+                    scope,
+                    start,
+                    count,
+                    filter.as_deref(),
+                    max_chars,
+                )
+                .await?
+            }
+        };
+        let mut left = count - rows.len();
+        let mut cut = false;
+        self.expand(cx, &mut rows, depth, &mut left, max_chars, &mut cut)
+            .await?;
+        Ok(VariablesOutput {
+            next: more.then_some(start + rows.len()),
+            truncated: more,
+            total,
+            rows,
+            stop: self.stop,
+        })
+    }
+}
+
+/// What an agent's command waited for, then its answer (brief 0025).
+async fn follow_up(
+    this: WeakEntity<Shell>,
+    cx: &mut AsyncWindowContext,
+    out: DebugOutput,
+    follow: Followup,
+) -> Outcome {
+    let closed = || CommandError::Failed(WINDOW_CLOSED.into());
+    match follow {
+        Followup::Eval(rx) => {
+            let timer = real_timer(AGENT_WAIT);
+            Ok(match futures::future::select(rx, timer).await {
+                futures::future::Either::Left((Ok(e), _)) => DebugOutput::Evaluate(e),
+                futures::future::Either::Left((Err(_), _)) => match out {
+                    DebugOutput::Evaluate(p) => DebugOutput::Evaluate(eval_failed(
+                        &p.expression,
+                        p.stop,
+                        "the session ended before the answer arrived",
+                    )),
+                    other => other,
+                },
+                futures::future::Either::Right(_) => out,
+            })
+        }
+        Followup::Settle {
+            start,
+            pause,
+            wait,
+            budget,
+        } => {
+            let deadline = Instant::now() + wait;
+            let settled = loop {
+                let (done, failed, waiter) = this
+                    .update(cx, |s, _| {
+                        let failed = pause.and_then(|g| {
+                            s.debug
+                                .pause_error
+                                .as_ref()
+                                .filter(|(pg, _)| *pg == g)
+                                .map(|(_, m)| m.clone())
+                        });
+                        let done = s.debug_settled(start);
+                        // A waiter only while waiting: none is left behind once the command answers.
+                        let waiter = (!done && failed.is_none()).then(|| s.debug_waiter());
+                        (done, failed, waiter)
+                    })
+                    .map_err(|_| closed())?;
+                if let Some(m) = failed {
+                    return Err(CommandError::Failed(format!("Break All failed: {m}")));
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break done;
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            };
+            let mut summary = summarize(&this, cx, None, None, &budget).await?;
+            if !settled {
+                summary.timed_out = Some(true);
+            }
+            Ok(DebugOutput::Summary(Box::new(summary)))
+        }
+        Followup::Ended { wait } => {
+            let deadline = Instant::now() + wait;
+            loop {
+                let waiter = this
+                    .update(cx, |s, _| {
+                        (!s.debug_settled(false)).then(|| s.debug_waiter())
+                    })
+                    .map_err(|_| closed())?;
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break;
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            }
+            this.update(cx, |s, _| s.debug_state())
+                .map_err(|_| closed())
+        }
+        Followup::Wait {
+            until,
+            stop,
+            baseline,
+            wait,
+            budget,
+        } => {
+            let deadline = Instant::now() + wait;
+            let satisfied = loop {
+                let (holds, waiter) = this
+                    .update(cx, |s, _| {
+                        let holds = wait_satisfied(&s.debug.model, until, stop, baseline);
+                        (holds, holds.is_none().then(|| s.debug_waiter()))
+                    })
+                    .map_err(|_| closed())?;
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break holds;
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            };
+            let mut summary = summarize(&this, cx, None, None, &budget).await?;
+            match satisfied {
+                Some(why) => summary.satisfied = Some(why.into()),
+                None => summary.timed_out = Some(true),
+            }
+            this.update(cx, |s, _| {
+                s.debug.timings.wait_answered = Some(Instant::now())
+            })
+            .map_err(|_| closed())?;
+            Ok(DebugOutput::Summary(Box::new(summary)))
+        }
+        Followup::Snapshot {
+            thread,
+            frame,
+            budget,
+        } => {
+            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            r.summary(cx, thread, frame, &budget)
+                .await
+                .map(|s| DebugOutput::Summary(Box::new(s)))
+                .map_err(CommandError::Failed)
+        }
+        Followup::Stack {
+            thread,
+            start,
+            count,
+            all_threads,
+        } => {
+            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            r.stack(cx, thread, start, count, all_threads)
+                .await
+                .map(DebugOutput::Stack)
+                .map_err(CommandError::Failed)
+        }
+        Followup::Variables {
+            target,
+            start,
+            count,
+            depth,
+            filter,
+            max_value_chars,
+        } => {
+            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            r.variables(cx, target, start, count, depth, filter, max_value_chars)
+                .await
+                .map(DebugOutput::Variables)
+                .map_err(CommandError::Failed)
+        }
+        Followup::ExceptionInfo { thread } => {
+            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let body = r
+                .one(cx, "exceptionInfo", json!({ "threadId": thread }))
+                .await
+                .map_err(CommandError::Failed)?;
+            let e: ExceptionInfoResponse = serde_json::from_value(body)
+                .map_err(|e| CommandError::Failed(format!("exceptionInfo: {e}")))?;
+            Ok(DebugOutput::ExceptionInfo(exception_output(
+                &e, thread, r.stop,
+            )))
+        }
+    }
+}
+
+/// The stop summary once the debuggee settled: read through the adapter, again if the debuggee moved meanwhile
+/// (another driver), and as the model has it if it keeps moving.
+async fn summarize(
+    this: &WeakEntity<Shell>,
+    cx: &mut AsyncWindowContext,
+    thread: Option<i64>,
+    frame: Option<usize>,
+    budget: &Budget,
+) -> Result<StopSummary, CommandError> {
+    for _ in 0..3 {
+        let r = Reader::new(this, cx).map_err(CommandError::Failed)?;
+        match r.summary(cx, thread, frame, budget).await {
+            Ok(s) => return Ok(s),
+            Err(e) if e.starts_with("stale") => continue,
+            Err(e) => return Err(CommandError::Failed(e)),
+        }
+    }
+    this.update(cx, |s, _| s.debug.model.summary(budget))
+        .map_err(|_| CommandError::Failed(WINDOW_CLOSED.into()))
+}
+
+/// Reads that need the adapter cannot wait on the UI thread.
+fn ui_thread_refusal(command: &str) -> CommandError {
+    CommandError::Failed(format!(
+        "{command} waits for the debug adapter, which the UI thread never does: call it from another thread (agents \
+         and the MCP server do); from the UI thread only what the debugger windows show is answered"
+    ))
+}
+
+/// Which of `wait`'s conditions holds now, if one does.
+fn wait_satisfied(
+    m: &DebugModel,
+    until: WaitUntil,
+    stop: Option<u64>,
+    baseline: u64,
+) -> Option<&'static str> {
+    // Every condition ends when the session does.
+    if m.mode == Mode::Design {
+        return Some("terminated");
+    }
+    let stopped = m.mode == Mode::Break && m.settled() && stop.is_none_or(|s| m.stop > s);
+    let printed = m.output(OutputKind::Program).next() > baseline;
+    match until {
+        WaitUntil::Terminated => None,
+        WaitUntil::Stopped => stopped.then_some("stopped"),
+        WaitUntil::Output => printed.then_some("output"),
+        WaitUntil::Any if stopped => Some("stopped"),
+        WaitUntil::Any => printed.then_some("output"),
+    }
+}
+
+/// The adapter's exception details as `eludite.debug.exception_info` lists them, inner exceptions at most
+/// [`cmds::MAX_INNER_EXCEPTIONS`] deep.
+fn details_row(d: &ExceptionDetails, depth: usize) -> ExceptionDetailsRow {
+    ExceptionDetailsRow {
+        message: d.message.clone(),
+        type_name: d.type_name.clone(),
+        full_type_name: d.full_type_name.clone(),
+        stack_trace: d.stack_trace.clone(),
+        inner_exceptions: if depth < cmds::MAX_INNER_EXCEPTIONS {
+            d.inner_exception
+                .iter()
+                .map(|i| details_row(i, depth + 1))
+                .collect()
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+fn exception_output(e: &ExceptionInfoResponse, thread: i64, stop: u64) -> ExceptionInfoOutput {
+    ExceptionInfoOutput {
+        supported: true,
+        type_name: Some(e.exception_id.clone()).filter(|x| !x.is_empty()),
+        message: e.description.clone(),
+        break_mode: Some(e.break_mode.clone()).filter(|x| !x.is_empty()),
+        details: e.details.as_ref().map(|d| details_row(d, 1)),
+        thread,
+        stop,
+    }
+}
+
+/// What the session's adapter supports, for `capabilities` (brief 0025). `eludite-dbg-mono` pages variables by `start`
+/// and `count` without advertising it (brief 0022 report, section 9).
+fn capabilities_row(c: &Capabilities, adapter: &str) -> CapabilitiesRow {
+    let by = |adapter: bool| if adapter { "adapter" } else { "shell" }.to_owned();
+    CapabilitiesRow {
+        adapter: adapter.to_owned(),
+        pause: true,
+        set_variable: c.supports_set_variable,
+        exception_info: c.supports_exception_info_request,
+        function_breakpoints: c.supports_function_breakpoints,
+        log_points: by(c.supports_log_points),
+        hit_conditions: by(c.supports_hit_conditional_breakpoints),
+        exception_filter_options: c.supports_exception_filter_options,
+        set_next_statement: c.supports_goto_targets_request,
+        data_breakpoints: c.supports_data_breakpoints,
+        step_back: c.supports_step_back,
+        restart: c.supports_restart_request,
+        terminate: c.supports_terminate_request,
+        modules: c.supports_modules_request,
+        memory: c.supports_read_memory_request,
+        disassembly: c.supports_disassemble_request,
+        delayed_stack_loading: c.supports_delayed_stack_trace_loading,
+        variable_paging: c.supports_variable_paging || adapter == "mono",
+    }
+}
+
+/// A variable as a row, its value cut at `max_chars`.
+fn dap_row(v: &Variable, max_chars: usize) -> VarRow {
+    VarNode::from_dap(v).var_row(max_chars)
+}
+
+impl Debugger {
+    /// `eludite.debug.stack` from what the Call Stack window has, when that is enough (the UI thread).
+    fn stack_from_model(
+        &self,
+        thread: Option<i64>,
+        start: usize,
+        count: usize,
+        all_threads: bool,
+    ) -> Option<StackOutput> {
+        let m = &self.model;
+        let id = thread.or(m.stopped.as_ref().map(|s| s.thread))?;
+        let complete = m.frames.len() >= m.frames_total || start + count <= m.frames.len();
+        if all_threads || Some(id) != m.thread || !complete {
+            return None;
+        }
+        let total = m.frames_total.max(m.frames.len());
+        let frames: Vec<StackFrameRow> = m
+            .frames
+            .iter()
+            .skip(start)
+            .take(count)
+            .map(Frame::stack_row)
+            .collect();
+        let end = start + frames.len();
+        Some(StackOutput {
+            threads: vec![StackThread {
+                id,
+                name: thread_name(m, id),
+                truncated: end < total,
+                next: (end < total).then_some(end),
+                frames,
+                total,
+            }],
+            stop: m.stop,
+        })
+    }
+
+    /// `eludite.debug.exception_info` for the thread that stopped: what the shell read at the stop.
+    fn exception_from_model(&self, thread: i64) -> ExceptionInfoOutput {
+        let m = &self.model;
+        match &m.exception_info {
+            Some(e) => exception_output(e, thread, m.stop),
+            None => {
+                let brief = m.summary_stopped(None).and_then(|s| s.exception);
+                ExceptionInfoOutput {
+                    supported: m.capabilities.as_ref().is_some_and(|c| c.exception_info),
+                    type_name: brief.as_ref().and_then(|b| b.type_name.clone()),
+                    message: brief.as_ref().and_then(|b| b.message.clone()),
+                    break_mode: brief.and_then(|b| b.break_mode),
+                    details: None,
+                    thread,
+                    stop: m.stop,
+                }
+            }
+        }
+    }
+}
+
+fn thread_name(m: &DebugModel, id: i64) -> String {
+    m.threads
+        .iter()
+        .find(|t| t.id == id)
+        .map(|t| t.name.clone())
+        .unwrap_or_default()
 }
 
 fn set_children(nodes: &mut [VarNode], path: &[usize], vars: Vec<VarNode>) {
