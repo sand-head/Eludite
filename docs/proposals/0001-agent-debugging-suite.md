@@ -1,6 +1,6 @@
 # Proposal 0001: The agent debugging suite
 
-Status: Proposed, 2026-10-02
+Status: Accepted, 2026-10-02 (PLAN.md v0.5 carries its section 10 changes)
 Plan reference: PLAN.md sections 2 (principles 1 to 3), 4.5, 5.1, 5.3, 5.4, 5.5, 10 (Phase 4), 11
 Related: brief 0018 (debugging), brief 0020 (settings, F5 builds first), ADR-0007, proposal 0002 (browser control and JavaScript debugging)
 Builds on: `crates/commands/src/debug.rs`, `crates/dap`, `crates/eludite/src/shell/debug/`

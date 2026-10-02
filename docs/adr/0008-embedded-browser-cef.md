@@ -1,6 +1,6 @@
 # ADR-0008: Embedded browser: Chromium through CEF, out of process, CDP as the automation substrate
 
-Status: Proposed, 2026-10-02
+Status: Accepted, 2026-10-02
 Plan reference: PLAN.md sections 1, 2 (principles 1 to 3, 5), 3 (D2), 4.9, 5.1 to 5.4, 7; proposal 0002
 
 ## Context

@@ -1,6 +1,6 @@
 # Eludite IDE — Master Plan
 
-*Status: proposal, v0.3 (2026-10-01). Scaffold exists; nothing is usable yet. v0.1 open questions are resolved in section 14; v0.3 widens the language scope (section 7).*
+*Status: proposal, v0.5 (2026-10-02). Scaffold exists; nothing is usable yet. v0.1 open questions are resolved in section 14; v0.3 widens the language scope (section 7); v0.5 records the acceptance of proposals [0001](proposals/0001-agent-debugging-suite.md) (the agent debugging suite) and [0002](proposals/0002-web-browser-window.md) (the Web Browser window).*
 
 Eludite is a native, cross-platform, agent-first IDE. It is .NET-first, not .NET-only: the first-class workloads are .NET in all its languages (C#, F#, VB.NET) including .NET Framework, WebForms and WCF; modern web development (TypeScript, JavaScript and the front-end stack); and Rust. The goal is feature parity with Visual Studio Community and JetBrains Rider for the .NET workload, with the responsiveness and restraint of Zed, a layout and keymap that a Visual Studio user recognizes on day one, and agents as a peer of the human at every surface of the product.
 
@@ -13,7 +13,7 @@ It is built by one person directing many agents. That shapes the plan as much as
 **Vision.** A developer opens a 400-project .NET Framework solution and is editing with full IntelliSense in seconds, not minutes. Keystrokes never wait on analysis. An agent sits in the same workspace, can build, run tests, set a breakpoint, inspect locals and propose a fix, and the human sees exactly what it did and can veto any step. Windows, Linux and macOS are all first-class for the shell. The IDE is honest about what each platform can and cannot do for legacy .NET.
 
 **Non-goals (for the foreseeable future).**
-- Not a web app, not Electron, not Tauri, not a WebView in a native frame. The UI is drawn by our own GPU-accelerated renderer.
+- Not a web app, not Electron, not Tauri, not a WebView in a native frame. The UI is drawn by our own GPU-accelerated renderer. A browser engine may render the user's web application inside a tool window (the Web Browser window, section 4.9, ADR-0008); it never draws any part of the IDE.
 - Not a VS Code extension host. We will not run VS Code extensions. We speak the open protocols those extensions are built on (LSP, DAP, ACP, MCP) so the ecosystem is reachable without the runtime.
 - Not a Zed skin. We use Zed's rendering framework and may vendor some of its low-level text crates; we do not inherit its chrome, panels, themes or interaction model (section 8).
 - No WYSIWYG designers (WebForms, WinForms, WPF) in the first two years. Markup editing, code-behind generation and preview, yes. Drag-and-drop surfaces, no.
@@ -131,6 +131,8 @@ Incremental, cancelable builds producing a binary log rendered into Error List w
 ### 4.5 Debugging
 DAP client with VS windows: Locals, Autos, Watch, Call Stack, Threads, Modules, Breakpoints (conditional, hit-count, tracepoints), Exception Settings, Immediate; Memory and Disassembly later. Data tips, pin to source, Run to Cursor, Set Next Statement, Edit and Continue (Roslyn EnC service plus adapter support), Hot Reload for .NET 6+, attach to process, remote attach, Just My Code, symbol server, Source Link.
 
+What an adapter lacks, the shell implements on every adapter: hit counts and Run to Cursor already (brief 0018), then tracepoints, `run_until` (one-shot breakpoints, resume, answer with the stop) and `trace` (install tracepoints, run, answer with the collected lines), per proposal 0001 section 5. Attach to process and the Attach to Process dialog land in Phase 2 (proposal 0001, brief C). Each session has an "Allow agents to drive" toggle (Debug toolbar and status bar, default on, policy-settable) that refuses agents' resuming and mutating commands while off; reads keep working.
+
 Adapters:
 - **.NET Core/5+:** netcoredbg (MIT). Fixes go upstream, not into a fork.
 - **.NET Framework:** no permissive adapter exists and `vsdbg` is license-restricted to Microsoft products. We write `eludite-dbg-netfx`, a DAP server over the ICorDebug COM interfaces (`mscoree`/`mscordbi`), in Rust using the `windows` crate. Windows-only by nature. Largest single piece of new systems work in the plan.
@@ -152,7 +154,8 @@ Git via libgit2 in the shell: status, staged/unstaged, hunks, blame, log graph, 
 ### 4.9 Web: WebForms, MVC, Razor, Blazor
 - `.aspx`, `.ascx`, `.master`, `.ashx`: our own parser (tree-sitter grammar for markup plus control-tree analysis) producing the same partial class the ASP.NET page parser would, feeding Roslyn so IntelliSense works in `<% %>` blocks and code-behind. Automatic `.designer.cs` regeneration on markup change, validated byte-for-byte against VS output over a corpus of real projects. Control type resolution from references and `web.config` `<pages><controls>`.
 - `web.config` / `app.config`: schema-aware editing with completion for `system.web`, `system.serviceModel`, `connectionStrings`, `appSettings`; transform preview.
-- Launch: IIS Express on Windows (detected, not bundled), Kestrel for modern projects, browser launch and attach.
+- Launch: IIS Express on Windows (detected, not bundled), Kestrel for modern projects, browser launch and attach: F5 on a web project opens its `launchUrl` in the Web Browser window when the engine is present ("Start in external browser" stays in the Debug menu), and a tab is a debug target for vscode-js-debug (proposal 0002 section 4.4).
+- The Web Browser window (View > Other Windows > Web Browser): Chromium through CEF in its own process, `eludite-browser`, started when the window first opens, never at startup (ADR-0008, proposal 0002). Tabs, address bar, DevTools as a tab, a per-workspace profile under `.eludite/browser/`, and the `eludite.browser.*` commands of section 5.8 for both drivers. It renders the user's application only; no part of the IDE is HTML.
 - Razor and Blazor: the Razor language server from dotnet/razor (MIT), hosted beside Roslyn.
 
 ### 4.10 WCF
@@ -185,17 +188,22 @@ Every action (open file, apply edit, build project, run tests matching filter, s
 ### 5.3 Permission model
 Four classes: read (always), edit-in-buffer (shown as pending diff until accepted, or auto-accept per policy), execute (build, test, run; per-workspace policy), dangerous (push, delete, external network; prompt unless whitelisted). Policies are per solution and committable.
 
+`agents-policy.json` has, besides rules by tool name, a `debug` object (`drive`: `allow` default, `prompt`, `deny`, whether agents may resume, mutate or start sessions; `attach`: `prompt` default, `deny`; `evaluate`: `allow` default, `prompt`, `deny`, whether agents may run `evaluate`, `set_variable` and expression tracepoints; reads are always allowed) per proposal 0001 section 5.5, and a `browser` object (`origins`: the allowed navigation origins, default `localhost`, `127.0.0.1`, `::1`, the workspace's launch urls and `file://` under the workspace, navigation elsewhere being `dangerous`; `network_bodies`: `allow` default, `deny`; `evaluate`: `allow` default, `prompt`, `deny`) per proposal 0002 section 5.
+
 ### 5.4 Agent-visible state
 Open editors and selections, Error List, build output, test results with stack traces, debugger state (frame, locals, breakpoints hit), git status, solution graph. Typed data, never screenshots.
 
 ### 5.5 Agent-driven debugging
-The headline feature. An agent sets a breakpoint, runs tests to it, inspects locals, evaluates expressions, steps, and presents a hypothesis and fix in the normal debugger windows. The human can take over at any time. It falls out of the command bus plus DAP; the work is making the debugger state machine safe for two drivers.
+The headline feature. An agent sets a breakpoint, runs tests to it, inspects locals, evaluates expressions, steps, and presents a hypothesis and fix in the normal debugger windows. The human can take over at any time. Brief 0018 built the foundation (the `eludite.debug.*` commands, one state machine for two drivers, one state both read); [proposal 0001](proposals/0001-agent-debugging-suite.md) (accepted 2026-10-02) fixes the rest: its section 4 gives the rules every debug command follows (one command for both drivers, budgeted outputs, the agent's frame as a parameter, resuming commands settle before they answer, the person always wins, shell-side implementations of what adapters lack, named side effects, everything audited and visible) and its section 5 the command surface (`snapshot`, `stack`, `variables`, `output`, `exception_info`, `wait`, `processes`, `modules`, tracepoints and function breakpoints, exception filters by type, `pause`, `attach`, `restart`, `set_variable`, `set_next_statement`, `run_until`, `trace`, multi-session). Its briefs are listed in its section 8.
 
 ### 5.6 Review surface
 Agent edits land as reviewable changesets: per-file diffs, accept/reject per hunk, "explain this hunk" against the transcript, and a link from every edit to the tool call that made it. Background agents report into a queue, not into your open editor.
 
 ### 5.7 Context quality
 Agents get what an IDE knows and a terminal does not: semantic symbol search, call hierarchy, the project graph, test-to-code mapping, and build errors with precise locations. The quality of the IDE's own indexing is the quality of the agent.
+
+### 5.8 Agent control of the browser
+An agent drives the Web Browser window's tabs (section 4.9) through `eludite.browser.*` commands modeled on Claude in Chrome: `tabs`, `tab_open`, `tab_close`, `tab_select`, `navigate`, `resize`, `screenshot`, `read_page` (an accessibility tree with stable refs), `find`, `page_text`, `console`, `network`, `network_body`, `wait`, `input`, `form_input`, `evaluate`, `upload`, `storage`, `record`, `devtools`, `open_external`. The person uses the same commands from the window's toolbar, context menu and address bar, sees an "Agent is driving" strip while an agent's call is in flight, and can take over at any moment. The command surface, its differences from Claude in Chrome (deterministic `find`, refs over coordinates, an isolated profile, the origin policy) and its budgets are [proposal 0002](proposals/0002-web-browser-window.md) sections 4, 5 and 7 (accepted 2026-10-02).
 
 ---
 
@@ -225,7 +233,7 @@ Eludite is .NET-first, not .NET-only. Three language families are first-class. F
 | Family | Languages | Intelligence | Debugging | Tests | Packages and projects | Phase |
 |---|---|---|---|---|---|---|
 | .NET | C#, F#, VB.NET | Roslyn language server for C# and VB; FsAutoComplete (MIT) for F# | netcoredbg; `eludite-dbg-netfx` | MTP and VSTest; Expecto and NUnit for F# | NuGet; `.sln`/`.slnx`/`.csproj`/`.fsproj`/`.vbproj` | C# in Phase 1; F# and VB.NET in Phase 2 |
-| Web | TypeScript, JavaScript, HTML, CSS/SCSS/Less, JSON; framework servers for Vue, Svelte, Astro, Tailwind; Razor and Blazor share this stack | typescript-language-server over tsserver (MIT); the HTML, CSS and JSON language services extracted from VS Code (MIT); ESLint; Prettier or Biome; Emmet | vscode-js-debug (MIT) as a DAP adapter: Node, Chrome and Edge attach, browser debugging of ASP.NET front-ends | Vitest, Jest, Playwright adapters | npm, pnpm, yarn, bun with a package UI like NuGet's; `package.json` scripts as run targets; workspaces | Phase 2 |
+| Web | TypeScript, JavaScript, HTML, CSS/SCSS/Less, JSON; framework servers for Vue, Svelte, Astro, Tailwind; Razor and Blazor share this stack | typescript-language-server over tsserver (MIT); the HTML, CSS and JSON language services extracted from VS Code (MIT); ESLint; Prettier or Biome; Emmet | vscode-js-debug (MIT) as a DAP adapter: Node, Chrome and Edge attach, browser debugging of ASP.NET front-ends, with the embedded Web Browser window's tabs as the js-debug target (compound launch: Kestrel under netcoredbg, the page under js-debug) | Vitest, Jest, Playwright adapters | npm, pnpm, yarn, bun with a package UI like NuGet's; `package.json` scripts as run targets; workspaces | Phase 2 |
 | Rust | Rust | rust-analyzer (MIT or Apache-2.0) | CodeLLDB (MIT) or lldb-dap | `cargo test` and cargo-nextest listing and running in Test Explorer | Cargo workspaces as the project model; `Cargo.toml` completion; crates.io search in the package UI | Basic editing, diagnostics and navigation in Phase 1 (Eludite's shell is Rust, so dogfooding needs it); parity in Phase 2 |
 
 Mixed solutions are the normal case, not an edge case: an ASP.NET project with a `ClientApp` or `wwwroot` front-end shows both in one Solution Explorer, builds both, and has compound launch configurations (start Kestrel, then attach the browser debugger). Rust projects inside a .NET repository (native interop) load beside the solution.
@@ -285,13 +293,13 @@ Exit: a written go/no-go on D1, a list of vendored crates, and a sized brief for
 Editor core, docking and tool windows, Solution Explorer, Roslyn intelligence, build with Error List and Output, run and debug with netcoredbg, Test Explorer via MTP, git basics, terminal, settings, VS keymap and layout, Agents window with ACP (Claude Code) and the MCP server covering open/edit/build/test/diagnostics. rust-analyzer through the generic LSP path, with Cargo workspaces in the explorer, so the Rust shell can be developed in Eludite too. All three OSes. Exit: the owner develops both the Rust shell and the .NET host in Eludite, with agents working through the Agents window.
 
 ### Phase 2: VS Community parity for modern .NET
-Full refactoring and navigation set, NuGet UI, project property pages, launch profiles, multi-config and multi-target, Razor/Blazor, CodeLens, decompiled navigation, Find in Files and structural search, resx editor, snippets, extension system v1 and registry, auto-update, signed installers. The other first-class families from section 7: F# and VB.NET; TypeScript, JavaScript and the web stack with vscode-js-debug and a package UI; Rust at parity with CodeLLDB and cargo test in Test Explorer. Exit: a Rider or VS user can switch for ASP.NET Core, front-end and console/library work without missing features they use weekly.
+Full refactoring and navigation set, NuGet UI, project property pages, launch profiles, multi-config and multi-target, Razor/Blazor, CodeLens, decompiled navigation, Find in Files and structural search, resx editor, snippets, extension system v1 and registry, auto-update, signed installers. The other first-class families from section 7: F# and VB.NET; TypeScript, JavaScript and the web stack with vscode-js-debug and a package UI; Rust at parity with CodeLLDB and cargo test in Test Explorer. Agent-driven debugging (proposal 0001 briefs A to C: inspection depth, run control, attach and policy, needing nothing from Phase 3) and the Web Browser window (proposal 0002 briefs S, A, B, C: the spike, the automation commands, the window, the launch integration). Exit: a Rider or VS user can switch for ASP.NET Core, front-end and console/library work without missing features they use weekly.
 
 ### Phase 3: .NET Framework, WebForms, WCF (Windows-first)
 Legacy project system, Build Tools and Mono MSBuild, `eludite-dbg-netfx` with remote transport, config tooling, IIS Express, ASPX parsing and designer generation, WCF service references, test client and config editor, EnC on Core. Exit: a real WebForms plus WCF solution loads, builds, runs, debugs and ships from Eludite on Windows; edits, builds and remote-debugs from Linux.
 
 ### Phase 4: Agentic depth (overlaps Phase 3)
-Agent-driven debugging and testing, background agents in worktrees, review changesets, permission policies, multi-agent orchestration, semantic context tools, transcripts linked to edits. Exit: an agent takes a failing test to a reviewed, passing fix without the human leaving the IDE.
+Test-to-fix orchestration over the agent debugging suite of Phase 2 (proposal 0001 brief F's proving scenario), agent-driven testing of web applications with full-stack breakpoints (proposal 0002 brief D: JavaScript debugging in the Web Browser window beside the server's C#), background agents in worktrees, review changesets, permission policies, multi-agent orchestration, semantic context tools, transcripts linked to edits. Exit: an agent takes a failing test to a reviewed, passing fix without the human leaving the IDE.
 
 ### Phase 5: More languages and ecosystem (ongoing)
 Python, C/C++, Go and others via extensions; profiler views; Server Explorer; EF tooling; Hot Reload everywhere; Mono and Wine debugging investigations; WinForms/WPF designers only if demand justifies the cost.
@@ -336,6 +344,7 @@ Eludite/
     terminal/
     extensions/          wasmtime host
     ui/                  widgets, themes, keymaps, icons
+    browser/             eludite.browser.* commands over CDP, engine-neutral (proposal 0002)
   vendor/                pinned Zed crates with WHY.md each
   dotnet/                .NET solution (Eludite.slnx, hosts)
     src/Eludite.Host/    Roslyn LSP embedding, project system, NuGet, EnC
@@ -345,10 +354,14 @@ Eludite/
     tests/               one xunit v3 project per src project
   debuggers/
     netfx/               eludite-dbg-netfx (Rust, Windows)
+  browsers/
+    chromium/            eludite-browser: CEF browser process (proposal 0002, ADR-0008)
   protocol/              MIT: schemas, generated bindings
+    cdp/                 pinned Chrome DevTools Protocol JSON and the generated domain types
   extension-sdk/         MIT: WASM extension API
   corpus/                real solutions used as golden tests (submodules)
   bench/                 performance suite and reference solutions
+  tools/                 pinned external tools located at run time (Roslyn LS, netcoredbg, rust-analyzer, cef/)
   docs/
     PLAN.md
     adr/
@@ -389,5 +402,6 @@ Build: Cargo for the shell, `dotnet` for hosts, one `cargo xtask` entry point. G
 | 11 | Workspace window | The Solution Explorer window is named Workspace (id `workspace`) so one window serves .NET solutions, Cargo and npm workspaces and folders; VS semantics kept (section 8). |
 | 12 | Workspace terminology | "Solution" and "project" are .NET words and stay only where they name a .NET artifact (a solution file, a csproj node, the startup project). The whole-directory context is a workspace everywhere in the UI: File > Open Workspace..., Close Workspace, "No workspace is open", workspace settings (owner's decision, 2026-10-02). |
 | 10 | Name (v0.4) | Eludite, replacing Niello, 2026-10-02. Repository sand-head/Eludite. |
+| 13 | Embedded browser engine (v0.5) | Chromium through CEF, out of process (`eludite-browser`), CDP as the automation substrate, the command layer engine-neutral so Servo can follow; the engine renders user content only and never the IDE. [ADR-0008](adr/0008-embedded-browser-cef.md), proposal 0002, 2026-10-02. |
 
 **Still open.** Which Zed crates actually pass the vendoring audit (Phase 0 output), and whether the Phase 0 GPUI spike on Windows clears the bar.

@@ -1,6 +1,6 @@
 # Proposal 0002: The Web Browser window and agent control of it
 
-Status: Proposed, 2026-10-02
+Status: Accepted, 2026-10-02 (PLAN.md v0.5 carries its section 10 changes; ADR-0008 accepted)
 Plan reference: PLAN.md sections 1 (non-goals), 2 (principles 1 to 3, 5), 3 (D2), 4.9, 5.1 to 5.4, 7 (web row), 9, 10 (Phases 2 and 4), 11
 Related: ADR-0002, ADR-0008 (proposed with this document), proposal 0001 (multi-session debugging, js-debug)
 New paths: `crates/browser`, `browsers/chromium` (`eludite-browser`), `tools/cef/`, `protocol/schemas/browser-*.json`, `protocol/cdp/`
