@@ -144,3 +144,112 @@ fn killed_in_process_host_restarts() {
     assert_eq!(client.generation(), 0);
     client.shutdown(T).unwrap();
 }
+
+#[test]
+fn typed_signature_help_scripted_replies_and_cancel() {
+    use eludite_lsp::fake::FakeReply;
+    use eludite_lsp::lsp::{Position, SignatureHelpParams, TextDocumentIdentifier};
+    let fake = FakeHost::new();
+    fake.respond("textDocument/signatureHelp", |p| {
+        assert_eq!(p["position"]["character"], 9);
+        FakeReply::Result(json!({"signatures": [{"label": "void M(int a, int b)",
+            "parameters": [{"label": "int a"}, {"label": "int b"}]}], "activeSignature": 0, "activeParameter": 1}))
+    });
+    fake.respond("textDocument/completion", |_| FakeReply::Hold);
+    let (client, _rx) = start(&fake, 0);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    let params = SignatureHelpParams {
+        text_document: TextDocumentIdentifier {
+            uri: "file:///a.cs".into(),
+        },
+        position: Position {
+            line: 0,
+            character: 9,
+        },
+        context: None,
+    };
+    let help = client
+        .request::<lsp::SignatureHelpRequest>(params)
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("a signature");
+    let s = &help.signatures[0];
+    assert_eq!(help.active_parameter, Some(1));
+    assert_eq!(&s.label[s.parameter_range(1).unwrap()], "int b");
+    let sent = fake.received_params("textDocument/signatureHelp");
+    assert_eq!(sent[0]["eluditeGeneration"], 1);
+
+    // A held request ends with RequestCancelled once canceled.
+    let completion = client
+        .request::<lsp::Completion>(lsp::CompletionParams {
+            text_document: TextDocumentIdentifier {
+                uri: "file:///a.cs".into(),
+            },
+            position: Position {
+                line: 0,
+                character: 1,
+            },
+            context: None,
+        })
+        .unwrap();
+    let deadline = Instant::now() + T;
+    while fake.inflight() == 0 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    completion.cancel();
+    assert!(matches!(
+        completion.wait_timeout(T),
+        Err(eludite_lsp::Error::Canceled)
+    ));
+    assert_eq!(fake.inflight(), 0);
+    assert_eq!(fake.received_params("$/cancelRequest").len(), 1);
+
+    // With cancels ignored, a delayed result still arrives after a raw `$/cancelRequest`.
+    fake.set_ignore_cancel(true);
+    fake.respond("textDocument/completion", |_| {
+        FakeReply::After(
+            Duration::from_millis(20),
+            json!({"isIncomplete": false, "items": [{"label": "Late"}]}),
+        )
+    });
+    let late = client
+        .request::<lsp::Completion>(lsp::CompletionParams {
+            text_document: TextDocumentIdentifier {
+                uri: "file:///a.cs".into(),
+            },
+            position: Position {
+                line: 0,
+                character: 1,
+            },
+            context: None,
+        })
+        .unwrap();
+    client
+        .notify::<lsp::Cancel>(lsp::CancelParams { id: late.id() })
+        .unwrap();
+    let items = late.wait_timeout(T).unwrap().unwrap();
+    assert_eq!(items.items()[0].label, "Late");
+}
+
+#[test]
+fn held_load_stays_loading_until_finished() {
+    let fake = FakeHost::new();
+    fake.set_hold_load(true);
+    let (client, rx) = start(&fake, 0);
+    client.open_solution("/src/App.slnx", T).unwrap();
+    next(
+        &rx,
+        |e| matches!(e, Event::SolutionStatus(s) if s.state == SolutionState::Loading),
+    );
+    assert!(rx.recv_timeout(Duration::from_millis(50)).map_or(
+        true,
+        |e| !matches!(e, Event::SolutionStatus(s) if s.state == SolutionState::Loaded)
+    ));
+    fake.finish_load();
+    next(
+        &rx,
+        |e| matches!(e, Event::SolutionStatus(s) if s.state == SolutionState::Loaded),
+    );
+}

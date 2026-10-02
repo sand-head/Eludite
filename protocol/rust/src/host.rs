@@ -50,6 +50,7 @@ pub mod methods {
         "textDocument/completion",
         "completionItem/resolve",
         "textDocument/hover",
+        "textDocument/signatureHelp",
         "textDocument/definition",
         "textDocument/references",
         "textDocument/documentSymbol",
@@ -67,7 +68,6 @@ pub mod methods {
 
     /// Forwarded LSP requests passed through as raw JSON ("forwarded, untyped").
     pub const FORWARDED_UNTYPED_REQUESTS: &[&str] = &[
-        "textDocument/signatureHelp",
         "textDocument/typeDefinition",
         "textDocument/implementation",
         "textDocument/documentHighlight",

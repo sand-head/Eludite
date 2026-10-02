@@ -131,6 +131,8 @@ fn rejects(file: &str, def: &str, value: Value) {
 fn every_schema_file_names_a_documented_method() {
     let mut documented: BTreeSet<&str> = methods::ELUDITE_ACCEPTED.iter().copied().collect();
     documented.extend(methods::HOST_TO_SHELL);
+    // Typed forwarded requests may have a schema for the members Eludite reads (signature-help.json).
+    documented.extend(methods::FORWARDED_TYPED_REQUESTS);
     let mut seen = BTreeSet::new();
     for entry in std::fs::read_dir(schemas_dir().join("host")).unwrap() {
         let path = entry.unwrap().path();
@@ -434,6 +436,79 @@ fn eludite_messages_conform_to_their_schemas() {
 }
 
 #[test]
+fn signature_help_conforms_to_its_schema() {
+    use crate::typed::RequestType;
+    let schema = load("signature-help.json");
+    assert_eq!(
+        schema["x-eludite-method"],
+        lsp::SignatureHelpRequest::METHOD
+    );
+    assert!(methods::FORWARDED_TYPED_REQUESTS.contains(&lsp::SignatureHelpRequest::METHOD));
+    assert!(!methods::FORWARDED_UNTYPED_REQUESTS.contains(&lsp::SignatureHelpRequest::METHOD));
+    conforms(
+        "signature-help.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::SignatureHelpParams {
+                text_document: lsp::TextDocumentIdentifier {
+                    uri: "file:///a.cs".into(),
+                },
+                position: lsp::Position {
+                    line: 3,
+                    character: 9,
+                },
+                context: Some(lsp::SignatureHelpContext {
+                    trigger_kind: 2,
+                    trigger_character: Some("(".into()),
+                    is_retrigger: false,
+                    active_signature_help: None,
+                }),
+            },
+            generation: 1,
+        },
+    );
+    let help = lsp::SignatureHelp {
+        signatures: vec![lsp::SignatureInformation {
+            label: "void M(int a)".into(),
+            documentation: Some(json!({"kind": "markdown", "value": "M"})),
+            parameters: Some(vec![lsp::ParameterInformation {
+                label: lsp::ParameterLabel::Offsets([7, 12]),
+                documentation: None,
+                extra: Default::default(),
+            }]),
+            active_parameter: None,
+            extra: Default::default(),
+        }],
+        active_signature: Some(0),
+        active_parameter: Some(0),
+        extra: Default::default(),
+    };
+    conforms("signature-help.json", "result", &Some(help.clone()));
+    conforms("signature-help.json", "result", &None::<lsp::SignatureHelp>);
+    conforms(
+        "signature-help.json",
+        "signatureInformation",
+        &help.signatures[0],
+    );
+    rejects(
+        "signature-help.json",
+        "params",
+        json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 0}}),
+    );
+    rejects(
+        "signature-help.json",
+        "params",
+        json!({"textDocument": {"uri": "file:///a.cs"}, "position": {"line": 0, "character": 0},
+               "context": {"triggerKind": 4, "isRetrigger": false}, "eluditeGeneration": 0}),
+    );
+    rejects(
+        "signature-help.json",
+        "result",
+        json!({"activeSignature": 0}),
+    );
+}
+
+#[test]
 fn typed_marker_methods_match_the_method_lists() {
     use crate::typed::{NotificationType, RequestType};
     fn req<R: RequestType>() -> (&'static str, bool) {
@@ -443,6 +518,7 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<lsp::Completion>(),
         req::<lsp::ResolveCompletionItem>(),
         req::<lsp::HoverRequest>(),
+        req::<lsp::SignatureHelpRequest>(),
         req::<lsp::GotoDefinition>(),
         req::<lsp::References>(),
         req::<lsp::DocumentSymbolRequest>(),
