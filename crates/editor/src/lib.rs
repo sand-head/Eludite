@@ -35,7 +35,7 @@
 //!
 //! # Hooks for LSP features (next brief)
 //!
-//! [`EditorView::set_decorations`] takes named layers of [`Decoration`]s
+//! [`EditorView::set_decorations`] (read back with [`EditorView::decorations`]) takes named layers of [`Decoration`]s
 //! (anchor ranges styled as background, underline or wavy underline, or
 //! foreground color). Diagnostics map to wavy underlines, semantic tokens to
 //! foreground colors, document highlights to backgrounds. Anchors keep them

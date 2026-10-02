@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
 
-use eludite_commands::{CommandError, CommandRegistry, view};
+use eludite_commands::{CommandError, CommandRegistry, view, workspace};
 use eludite_ui::elements::TabStyle;
 use eludite_ui::{RunCommand, SHELL_CONTEXT, Theme, icon_button, tab};
 use futures::StreamExt as _;
@@ -329,7 +329,36 @@ impl DockHost {
                 pinned: d.pinned,
             };
             let sel = format!("doc-tab-{}", d.id);
-            tab(&t, d.title.clone(), style)
+            let dirty = self.snap.dirty.contains(&d.id);
+            let title = if dirty {
+                format!("{}*", d.title)
+            } else {
+                d.title.clone()
+            };
+            let close_id = d.id.clone();
+            // Closing goes through `eludite.file.close` (the shell asks about unsaved changes first).
+            let close = icon_button(
+                SharedString::from(format!("doc-close-{}", d.id)),
+                "\u{00D7}",
+                &t,
+            )
+            .debug_selector({
+                let s = format!("doc-close-{}", d.id);
+                move || s
+            })
+            .ml_1()
+            .on_click(cx.listener(move |_, _, window, cx| {
+                cx.stop_propagation();
+                window.dispatch_action(
+                    Box::new(RunCommand::new(
+                        workspace::FILE_CLOSE,
+                        json!({ "path": close_id }),
+                    )),
+                    cx,
+                );
+            }));
+            tab(&t, title, style)
+                .child(close)
                 .id(SharedString::from(sel.clone()))
                 .debug_selector({
                     let s = sel.clone();
@@ -373,9 +402,12 @@ impl DockHost {
                     .children(tabs),
             )
             .child(
+                // The body fills the area; a document view (the editor) brings its own margins.
                 div()
+                    .flex()
+                    .flex_col()
                     .flex_1()
-                    .p_4()
+                    .min_h_0()
                     .overflow_hidden()
                     .text_color(t.text)
                     .text_size(t.typography.body)
