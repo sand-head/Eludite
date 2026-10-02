@@ -1,6 +1,6 @@
 # Brief 0013: Completion, hover and signature help in the editor
 
-Status: open
+Status: done on Linux; Windows and macOS not run. Report: [0013-report.md](0013-report.md)
 Phase: 1
 Plan reference: PLAN.md sections 2 (principles 1, 3), 4.3, 5.1, 8, 9
 Related ADR: ADR-0003
