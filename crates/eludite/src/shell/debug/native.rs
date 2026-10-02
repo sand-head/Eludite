@@ -448,6 +448,7 @@ impl Shell {
             .or_else(|| self.native_store_key())
             .unwrap_or_else(|| ctx.manifest.clone());
         Some(Ok(ProjectOutput::StartupProject(StartupProjectOutput {
+            projects: Vec::new(),
             project: member.name,
             path: member.manifest.to_string_lossy().into_owned(),
             solution: solution.to_string_lossy().into_owned(),

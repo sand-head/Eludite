@@ -188,7 +188,12 @@ pub struct DebugBus {
 }
 
 impl cmds::DebugTarget for DebugBus {
-    fn apply(&self, request: DebugRequest) -> Outcome {
+    fn apply(&self, session: Option<u32>, request: DebugRequest) -> Outcome {
+        if session.is_some() {
+            return Err(CommandError::Failed(
+                "`session` is not supported yet".into(),
+            ));
+        }
         if std::thread::current().id() == self.ui_thread {
             return STAGED.with(|s| s.borrow_mut().take()).unwrap_or_else(|| {
                 Err(CommandError::Failed(format!(
@@ -1782,6 +1787,7 @@ fn launch_thread(job: LaunchJob) {
     };
     let platform = setup.platform;
     let mut session = SessionRow {
+        id: None,
         project: config.project.to_string_lossy().into_owned(),
         program: config.program.to_string_lossy().into_owned(),
         args: config.args.clone(),
@@ -2061,6 +2067,7 @@ fn attach_thread(job: AttachJob) {
         Err(e) => return fail(format!("Cannot attach to process {}: {e}", info.pid)),
     };
     let mut session = SessionRow {
+        id: None,
         project: info.name.clone(),
         program: info
             .argv
@@ -2342,6 +2349,9 @@ impl Shell {
             })
         };
         let follow = match request {
+            DebugRequest::Sessions => {
+                return Err(CommandError::Failed("not supported yet".into()));
+            }
             DebugRequest::State => {
                 self.refresh_debug(cx);
                 return Ok((self.debug_state(), None));

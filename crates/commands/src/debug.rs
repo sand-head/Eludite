@@ -24,6 +24,12 @@
 //! apply the solution policy's `debug` object ([`crate::policy::DebugPolicy`]); an attach to a process Eludite did not
 //! start is dangerous.
 //!
+//! Brief 0028 (proposal 0001 brief D) debugs several processes at once: `session` (an id) on every command that acts
+//! on a session ([`parse_with_session`], [`SESSION_COMMANDS`]; default: the active session), `sessions` (read class:
+//! [`SessionsOutput`]), `start`'s `compound` ([`Compound`]: the solution's multiple startup projects or a list), and
+//! `sessions` in the state, `session` and `sessions` on the stop summary, and each breakpoint's binding per session
+//! ([`BreakpointSessionRow`]).
+//!
 //! The keys, the Debug menu, the margin, the debugger windows and agents all run these, against one state machine
 //! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `toggle_breakpoint`, `state`, `select_frame`, `watch` and
 //! `exception_settings` answer with the debugger's state ([`DebugState`], `debug-state.output.json`), which is what
@@ -70,8 +76,9 @@ pub const ATTACH: &str = "eludite.debug.attach";
 pub const PROCESSES: &str = "eludite.debug.processes";
 pub const RESTART: &str = "eludite.debug.restart";
 pub const ALLOW_AGENTS: &str = "eludite.debug.allow_agents";
+pub const SESSIONS: &str = "eludite.debug.sessions";
 
-pub const ALL: [&str; 28] = [
+pub const ALL: [&str; 29] = [
     START,
     STOP,
     CONTINUE,
@@ -98,6 +105,36 @@ pub const ALL: [&str; 28] = [
     SET_NEXT_STATEMENT,
     ATTACH,
     PROCESSES,
+    RESTART,
+    ALLOW_AGENTS,
+    SESSIONS,
+];
+
+/// The commands that act on one debugging session and take `session` (brief 0028). `toggle_breakpoint` and
+/// `exception_settings` change the shared settings of every session; `attach` adds a session; `processes` and
+/// `sessions` act on none.
+pub const SESSION_COMMANDS: [&str; 23] = [
+    STOP,
+    CONTINUE,
+    STEP_OVER,
+    STEP_INTO,
+    STEP_OUT,
+    RUN_TO_CURSOR,
+    EVALUATE,
+    STATE,
+    SELECT_FRAME,
+    WATCH,
+    SNAPSHOT,
+    STACK,
+    VARIABLES,
+    OUTPUT,
+    EXCEPTION_INFO,
+    PAUSE,
+    WAIT,
+    RUN_UNTIL,
+    TRACE,
+    SET_VARIABLE,
+    SET_NEXT_STATEMENT,
     RESTART,
     ALLOW_AGENTS,
 ];
@@ -132,6 +169,8 @@ pub const MAX_EXCEPTION_TYPES: usize = 100;
 pub const MAX_PROCESSES: usize = 500;
 /// A process's command line is cut at this many characters.
 pub const MAX_COMMAND_LINE: usize = 500;
+/// The most projects a compound start lists (brief 0028).
+pub const MAX_COMPOUND: usize = 20;
 /// What an agent's command is refused with while Allow Agents to Drive is off.
 pub const AGENTS_NOT_ALLOWED: &str =
     "agents are not allowed to drive this session (Debug > Allow Agents to Drive)";
@@ -301,6 +340,13 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             input!("debug-allow-agents.input.json"),
             input!("debug-allow-agents.output.json"),
             Execute,
+        ),
+        // The list of sessions (brief 0028) runs no debuggee code.
+        SESSIONS => (
+            "Debug: Sessions",
+            input!("debug-sessions.input.json"),
+            input!("debug-sessions.output.json"),
+            Read,
         ),
         // Watches, frame selection and exception settings change what the debugger shows and where it stops, not
         // files or processes.
@@ -649,6 +695,26 @@ pub struct ExceptionTypeRow {
     pub break_when_user_unhandled: bool,
 }
 
+/// One project of a compound start (brief 0028): the project, whether to debug it, its launch profile.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompoundEntry {
+    pub project: String,
+    #[serde(default = "yes")]
+    pub debug: bool,
+    #[serde(default)]
+    pub profile: Option<String>,
+}
+
+/// `start`'s `compound` (brief 0028).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Compound {
+    /// The solution's multiple startup projects with their actions.
+    Startup,
+    /// These projects, each in its own session.
+    Projects(Vec<CompoundEntry>),
+}
+
 /// Which process `attach` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachTarget {
@@ -670,6 +736,8 @@ pub enum DebugRequest {
         build: Option<bool>,
         /// A Cargo package's target, test executable and arguments (brief 0029).
         cargo: CargoOptions,
+        /// Several projects, each in its own session (brief 0028).
+        compound: Option<Compound>,
         wait_ms: Option<u64>,
         budget: Budget,
     },
@@ -829,6 +897,8 @@ pub enum DebugRequest {
     AllowAgents {
         enabled: bool,
     },
+    /// The live sessions (brief 0028).
+    Sessions,
 }
 
 impl DebugRequest {
@@ -860,6 +930,7 @@ impl DebugRequest {
             DebugRequest::Processes { .. } => PROCESSES,
             DebugRequest::Restart { .. } => RESTART,
             DebugRequest::AllowAgents { .. } => ALLOW_AGENTS,
+            DebugRequest::Sessions => SESSIONS,
         }
     }
 
@@ -957,6 +1028,9 @@ pub struct VariableRow {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionRow {
+    /// The session's id (brief 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u32>,
     pub project: String,
     pub program: String,
     pub args: Vec<String>,
@@ -1075,6 +1149,65 @@ pub struct BreakpointRow {
     /// `run_until`'s or `trace`'s, for the length of that call.
     #[serde(default, skip_serializing_if = "is_false")]
     pub temporary: bool,
+    /// Its binding in each live session (brief 0028).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<BreakpointSessionRow>,
+}
+
+/// A breakpoint's binding in one session (`debug-state.output.json`'s `breakpoints[].sessions`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BreakpointSessionRow {
+    pub session: u32,
+    pub verified: bool,
+    pub hits: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// A debugging session as `eludite.debug.sessions` and the state's `sessions` list it (brief 0028).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionInfo {
+    pub id: u32,
+    pub name: String,
+    pub mode: String,
+    pub active: bool,
+    pub generation: u64,
+    pub stop: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub attached: bool,
+    #[serde(default = "yes")]
+    pub agents_allowed: bool,
+    /// In break mode: the stop's reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<String>,
+}
+
+/// `debug-sessions.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionsOutput {
+    pub sessions: Vec<SessionInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<u32>,
+}
+
+/// A session of a compound start's answer (`debug-stop-summary.output.json`'s `sessions`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompoundSessionRow {
+    pub id: u32,
+    pub name: String,
+    pub mode: String,
 }
 
 impl BreakpointRow {
@@ -1170,6 +1303,9 @@ pub struct DebugState {
     /// Agents may drive the session (Debug > Allow Agents to Drive; brief 0027).
     #[serde(default = "yes")]
     pub agents_allowed: bool,
+    /// Every live session (brief 0028).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<SessionInfo>,
 }
 
 fn yes() -> bool {
@@ -1371,6 +1507,9 @@ pub struct OutputBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StopSummary {
+    /// The session it describes (brief 0028).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<u32>,
     pub mode: String,
     pub generation: u64,
     pub stop: u64,
@@ -1400,6 +1539,9 @@ pub struct StopSummary {
     /// (proposal 0001 rule 5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupted_by: Option<String>,
+    /// A compound start that timed out before any session broke: every session's mode (brief 0028).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sessions: Vec<CompoundSessionRow>,
 }
 
 /// One thread's page of `debug-stack.output.json`.
@@ -1610,6 +1752,7 @@ pub enum DebugOutput {
     SetVariable(SetVariableOutput),
     Processes(ProcessesOutput),
     AllowAgents(AllowAgentsOutput),
+    Sessions(SessionsOutput),
 }
 
 impl DebugOutput {
@@ -1626,20 +1769,27 @@ impl DebugOutput {
             DebugOutput::SetVariable(v) => serde_json::to_value(v),
             DebugOutput::Processes(p) => serde_json::to_value(p),
             DebugOutput::AllowAgents(a) => serde_json::to_value(a),
+            DebugOutput::Sessions(s) => serde_json::to_value(s),
         }
         .expect("debug outputs serialize")
     }
 }
 
-/// Whatever owns the debugger (the shell). Called on the invoking thread.
+/// Whatever owns the debugger (the shell). Called on the invoking thread with the session the call named (brief 0028;
+/// `None`: the active one, or for `stop` every one).
 pub trait DebugTarget: Send + Sync {
-    fn apply(&self, request: DebugRequest) -> Result<DebugOutput, CommandError>;
+    fn apply(
+        &self,
+        session: Option<u32>,
+        request: DebugRequest,
+    ) -> Result<DebugOutput, CommandError>;
 }
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct StartIn {
     project: Option<String>,
+    compound: Option<Value>,
     debug: Option<bool>,
     profile: Option<String>,
     build: Option<bool>,
@@ -2021,8 +2171,35 @@ fn non_empty(field: &str, s: Option<String>) -> Result<Option<String>, CommandEr
     }
 }
 
-/// Parse and validate the input of debug command `id`.
-pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
+/// Parse and validate the input of debug command `id`, without its `session` (see [`parse_with_session`]).
+pub fn parse(id: &str, value: Value) -> Result<DebugRequest, CommandError> {
+    parse_with_session(id, value).map(|(_, r)| r)
+}
+
+/// Parse and validate the input of debug command `id` and the session it names (brief 0028): `session` is an id from
+/// 1 on, taken by the commands of [`SESSION_COMMANDS`] only.
+pub fn parse_with_session(
+    id: &str,
+    mut value: Value,
+) -> Result<(Option<u32>, DebugRequest), CommandError> {
+    let session = match value.as_object_mut().and_then(|o| o.remove("session")) {
+        None | Some(Value::Null) => None,
+        Some(_) if !SESSION_COMMANDS.contains(&id) => {
+            return Err(invalid(format!(
+                "{id} takes no `session`: it acts on every session or adds one"
+            )));
+        }
+        Some(v) => Some(
+            v.as_u64()
+                .filter(|n| *n >= 1)
+                .and_then(|n| u32::try_from(n).ok())
+                .ok_or_else(|| invalid("`session` is a session id, an integer from 1"))?,
+        ),
+    };
+    parse_request(id, value).map(|r| (session, r))
+}
+
+fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
     // The commands that answer with the stop summary take its budget parameters.
     let budget = match id {
         START | CONTINUE | STEP_OVER | STEP_INTO | STEP_OUT | RUN_TO_CURSOR | SNAPSHOT | PAUSE
@@ -2037,7 +2214,49 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
             if i.args.as_ref().is_some_and(|a| a.len() > 100) {
                 return Err(invalid("`args` takes at most 100 arguments"));
             }
+            let compound = match i.compound {
+                None | Some(Value::Null) => None,
+                Some(Value::String(s)) if s == "startup" => Some(Compound::Startup),
+                Some(Value::String(s)) => {
+                    return Err(invalid(format!(
+                        "`compound` is \"startup\" or a list of projects, not `{s}`"
+                    )));
+                }
+                Some(v @ Value::Array(_)) => {
+                    let entries: Vec<CompoundEntry> = serde_json::from_value(v)
+                        .map_err(|e| invalid(format!("`compound`: {e}")))?;
+                    if entries.is_empty() || entries.len() > MAX_COMPOUND {
+                        return Err(invalid(format!(
+                            "`compound` lists 1 to {MAX_COMPOUND} projects"
+                        )));
+                    }
+                    for e in &entries {
+                        if e.project.trim().is_empty() {
+                            return Err(invalid("a compound project must not be empty"));
+                        }
+                        non_empty("profile", e.profile.clone())?;
+                    }
+                    Some(Compound::Projects(entries))
+                }
+                Some(_) => {
+                    return Err(invalid(
+                        "`compound` is \"startup\" or a list of `{ project, debug?, profile? }`",
+                    ));
+                }
+            };
+            if compound.is_some()
+                && (i.project.is_some()
+                    || i.profile.is_some()
+                    || i.target.is_some()
+                    || i.test.is_some()
+                    || i.args.is_some())
+            {
+                return Err(invalid(
+                    "`compound` names its projects: not with `project`, `profile`, `target`, `test` or `args`",
+                ));
+            }
             DebugRequest::Start {
+                compound,
                 project: non_empty("project", i.project)?,
                 debug: i.debug.unwrap_or(true),
                 profile: non_empty("profile", i.profile)?,
@@ -2487,6 +2706,10 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
                 budget,
             }
         }
+        SESSIONS => {
+            let _: Empty = input(value)?;
+            DebugRequest::Sessions
+        }
         ALLOW_AGENTS => {
             if value.is_null() {
                 return Err(invalid("`enabled` is required"));
@@ -2618,8 +2841,8 @@ pub fn register(registry: &CommandRegistry, target: Arc<dyn DebugTarget>) {
     for id in ALL {
         let target = target.clone();
         registry.replace_with_escalation(spec(id), escalation(id), move |input| {
-            let request = parse(id, input)?;
-            target.apply(request).map(|out| out.to_json())
+            let (session, request) = parse_with_session(id, input)?;
+            target.apply(session, request).map(|out| out.to_json())
         });
     }
 }
@@ -2739,6 +2962,7 @@ mod tests {
         assert_eq!(
             parse(START, json!({})).unwrap(),
             DebugRequest::Start {
+                compound: None,
                 project: None,
                 debug: true,
                 profile: None,
@@ -2756,6 +2980,7 @@ mod tests {
             )
             .unwrap(),
             DebugRequest::Start {
+                compound: None,
                 project: Some("app".into()),
                 debug: true,
                 profile: None,
@@ -2778,6 +3003,7 @@ mod tests {
             )
             .unwrap(),
             DebugRequest::Start {
+                compound: None,
                 project: Some("App".into()),
                 debug: false,
                 profile: Some("App".into()),
@@ -2980,6 +3206,7 @@ mod tests {
             generation: 2,
             stop: 3,
             session: Some(SessionRow {
+                id: Some(1),
                 project: "/s/App.csproj".into(),
                 program: "/s/bin/Debug/net10.0/App.dll".into(),
                 args: vec![],
@@ -3046,6 +3273,7 @@ mod tests {
             capabilities: None,
             agent_driving: true,
             agents_allowed: false,
+            sessions: Vec::new(),
         }))
         .to_json();
         schema_keys_match(STATE_OUTPUT, &state);
@@ -3469,6 +3697,8 @@ mod tests {
             truncated: false,
         };
         let summary = DebugOutput::Summary(Box::new(StopSummary {
+            session: Some(1),
+            sessions: Vec::new(),
             mode: "break".into(),
             generation: 1,
             stop: 3,
@@ -4382,7 +4612,7 @@ mod tests {
         // Through the registry: the call's class and the audit.
         struct Nothing;
         impl DebugTarget for Nothing {
-            fn apply(&self, _: DebugRequest) -> Result<DebugOutput, CommandError> {
+            fn apply(&self, _: Option<u32>, _: DebugRequest) -> Result<DebugOutput, CommandError> {
                 Ok(DebugOutput::AllowAgents(AllowAgentsOutput::default()))
             }
         }
@@ -4404,5 +4634,242 @@ mod tests {
             r.classify(CONTINUE, &json!({})).unwrap(),
             crate::CallClass::declared(PermissionClass::Execute)
         );
+    }
+
+    /// Brief 0028: `session` on every command that acts on a session, `sessions`, `compound`, and the outputs.
+    #[test]
+    fn the_multi_session_commands_parse_and_follow_their_schemas() {
+        // `session` parses on every command that acts on a session, and each schema declares it.
+        let minimal = |id: &str| match id {
+            EVALUATE => json!({"expression": "x"}),
+            WATCH => json!({"add": "x"}),
+            RUN_UNTIL => json!({"points": [{"path": "a.cs", "line": 1}]}),
+            TRACE => json!({"points": [{"path": "a.cs", "line": 1, "message": "m"}]}),
+            SET_VARIABLE => json!({"name": "x", "value": "1"}),
+            ALLOW_AGENTS => json!({"enabled": false}),
+            _ => json!({}),
+        };
+        for id in SESSION_COMMANDS {
+            let mut v = minimal(id);
+            v["session"] = json!(2);
+            let (session, request) = parse_with_session(id, v.clone()).unwrap();
+            assert_eq!(session, Some(2), "{id}");
+            assert_eq!(request.command(), id);
+            // Without it: the active session.
+            assert_eq!(parse_with_session(id, minimal(id)).unwrap().0, None, "{id}");
+            for bad in [json!(0), json!(-1), json!("2"), json!(1.5)] {
+                let mut v = minimal(id);
+                v["session"] = bad.clone();
+                assert!(parse_with_session(id, v).is_err(), "{id} {bad}");
+            }
+            let schema = spec(id).input_schema;
+            assert_eq!(schema["properties"]["session"]["type"], "integer", "{id}");
+            assert_eq!(schema["properties"]["session"]["minimum"], 1, "{id}");
+            assert!(
+                schema["properties"]["session"]["description"]
+                    .as_str()
+                    .unwrap()
+                    .contains("live sessions"),
+                "{id}"
+            );
+        }
+        // The commands that change every session, add one or act on none refuse it, and their schemas lack it.
+        for id in ALL.iter().filter(|id| !SESSION_COMMANDS.contains(id)) {
+            let mut v = match *id {
+                TOGGLE_BREAKPOINT => json!({"path": "a.cs", "line": 1}),
+                ATTACH => json!({"pid": 1}),
+                _ => json!({}),
+            };
+            v["session"] = json!(1);
+            assert!(parse_with_session(id, v).is_err(), "{id}");
+            assert!(
+                spec(id).input_schema["properties"].get("session").is_none(),
+                "{id}"
+            );
+        }
+        // `parse` keeps answering the request alone.
+        assert_eq!(
+            parse(CONTINUE, json!({"session": 3, "stop": 2})).unwrap(),
+            DebugRequest::Continue {
+                stop: Some(2),
+                wait_ms: None,
+                budget: Budget::default()
+            }
+        );
+        // `sessions` reads.
+        assert_eq!(parse(SESSIONS, json!({})).unwrap(), DebugRequest::Sessions);
+        assert!(parse(SESSIONS, json!({"x": 1})).is_err());
+        assert_eq!(spec(SESSIONS).permission, PermissionClass::Read);
+        assert!(spec(SESSIONS).agent_visible);
+        assert!(escalation(SESSIONS).is_none());
+        assert!(!DebugRequest::Sessions.drives() && !DebugRequest::Sessions.resumes());
+        // `compound`: the startup projects, or a list.
+        let start = |v: Value| match parse(START, v).unwrap() {
+            DebugRequest::Start { compound, .. } => compound,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(start(json!({})), None);
+        assert_eq!(
+            start(json!({"compound": "startup"})),
+            Some(Compound::Startup)
+        );
+        assert_eq!(
+            start(json!({"compound": "startup", "debug": false, "wait_ms": 100})),
+            Some(Compound::Startup)
+        );
+        assert_eq!(
+            start(json!({"compound": [
+                {"project": "App"},
+                {"project": "src/Web/Web.csproj", "debug": false, "profile": "https"}
+            ]})),
+            Some(Compound::Projects(vec![
+                CompoundEntry {
+                    project: "App".into(),
+                    debug: true,
+                    profile: None
+                },
+                CompoundEntry {
+                    project: "src/Web/Web.csproj".into(),
+                    debug: false,
+                    profile: Some("https".into())
+                },
+            ]))
+        );
+        for bad in [
+            json!({"compound": "all"}),
+            json!({"compound": []}),
+            json!({"compound": [{"project": ""}]}),
+            json!({"compound": [{"project": "A", "bogus": 1}]}),
+            json!({"compound": [{"project": "A", "profile": " "}]}),
+            json!({"compound": 3}),
+            json!({"compound": "startup", "project": "A"}),
+            json!({"compound": "startup", "profile": "p"}),
+            json!({"compound": "startup", "test": true}),
+            json!({"compound": (0..21).map(|i| json!({"project": format!("P{i}")})).collect::<Vec<_>>()}),
+        ] {
+            assert!(parse(START, bad.clone()).is_err(), "{bad}");
+        }
+        let schema = spec(START).input_schema;
+        assert_eq!(
+            schema["properties"]["compound"]["oneOf"][0]["const"],
+            "startup"
+        );
+        assert!(
+            spec(START).input_schema["properties"]
+                .get("session")
+                .is_none()
+        );
+
+        // Outputs: `sessions`, the state's `sessions`, `session.id` and per-session bindings, the summary's
+        // `session` and `sessions`.
+        let rows = vec![
+            SessionInfo {
+                id: 1,
+                name: "App".into(),
+                mode: "break".into(),
+                active: true,
+                generation: 3,
+                stop: 2,
+                runtime: Some("coreclr".into()),
+                adapter: Some("fake (stdio)".into()),
+                process_id: Some(4242),
+                project: Some("/s/App/App.csproj".into()),
+                attached: false,
+                agents_allowed: true,
+                stopped: Some("breakpoint".into()),
+            },
+            SessionInfo {
+                id: 2,
+                name: "Web".into(),
+                mode: "running".into(),
+                active: false,
+                generation: 4,
+                stop: 0,
+                agents_allowed: false,
+                ..Default::default()
+            },
+        ];
+        let out = DebugOutput::Sessions(SessionsOutput {
+            sessions: rows.clone(),
+            active: Some(1),
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-sessions.output.json"),
+            &out,
+        );
+        assert_eq!(out["sessions"][1]["agents_allowed"], false);
+        conforms(
+            include_str!("../../../protocol/schemas/debug-sessions.output.json"),
+            &DebugOutput::Sessions(SessionsOutput::default()).to_json(),
+        );
+        let state = DebugOutput::State(Box::new(DebugState {
+            mode: "break".into(),
+            generation: 3,
+            stop: 2,
+            session: Some(SessionRow {
+                id: Some(1),
+                project: "/s/App/App.csproj".into(),
+                program: "/s/App/bin/App.dll".into(),
+                ..Default::default()
+            }),
+            breakpoints: vec![BreakpointRow {
+                path: Some("/s/App/Program.cs".into()),
+                line: Some(6),
+                enabled: true,
+                verified: true,
+                hits: 2,
+                sessions: vec![
+                    BreakpointSessionRow {
+                        session: 1,
+                        verified: true,
+                        hits: 1,
+                        message: None,
+                    },
+                    BreakpointSessionRow {
+                        session: 2,
+                        verified: false,
+                        hits: 1,
+                        message: Some("No code at this line".into()),
+                    },
+                ],
+                ..Default::default()
+            }],
+            sessions: rows,
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(STATE_OUTPUT, &state);
+        assert_eq!(state["session"]["id"], 1);
+        assert_eq!(state["breakpoints"][0]["sessions"][1]["verified"], false);
+        let back: DebugState = serde_json::from_value(state).unwrap();
+        assert_eq!(back.sessions.len(), 2);
+        let summary = DebugOutput::Summary(Box::new(StopSummary {
+            session: Some(2),
+            mode: "running".into(),
+            timed_out: Some(true),
+            sessions: vec![
+                CompoundSessionRow {
+                    id: 1,
+                    name: "App".into(),
+                    mode: "running".into(),
+                },
+                CompoundSessionRow {
+                    id: 2,
+                    name: "Web".into(),
+                    mode: "running_without_debugging".into(),
+                },
+            ],
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(SUMMARY_OUTPUT, &summary);
+        assert_eq!(summary["session"], 2);
+        // A summary of brief 0027 (no `session`) still reads.
+        let old: StopSummary = serde_json::from_value(json!({"mode": "design", "generation": 0,
+            "stop": 0, "output": {"lines": [], "next": 0, "dropped": 0, "total": 0, "truncated": false},
+            "agent_driving": false, "truncated": false}))
+        .unwrap();
+        assert_eq!(old.session, None);
     }
 }

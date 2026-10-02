@@ -1023,6 +1023,7 @@ impl Breakpoints {
             log_message: b.log_message.clone(),
             remove_after: b.remove_after,
             temporary: b.temporary,
+            sessions: Vec::new(),
         });
         let functions = self.functions.iter().map(|f| BreakpointRow {
             kind: BreakpointKind::Function,
@@ -1038,6 +1039,7 @@ impl Breakpoints {
             log_message: None,
             remove_after: f.remove_after,
             temporary: false,
+            sessions: Vec::new(),
         });
         lines.chain(functions).collect()
     }
@@ -1442,6 +1444,7 @@ impl DebugModel {
             capabilities: self.capabilities.clone(),
             agent_driving: self.agent_driving(),
             agents_allowed: self.agents_allowed,
+            sessions: Vec::new(),
         }
     }
 
@@ -1521,6 +1524,8 @@ impl DebugModel {
             .block(budget.output_since, budget.max_output_lines);
         let ended = self.mode == Mode::Design && self.generation > 0;
         StopSummary {
+            session: None,
+            sessions: Vec::new(),
             mode: self.mode.as_str().into(),
             generation: self.generation,
             stop: self.stop,
@@ -1711,6 +1716,7 @@ mod tests {
         assert!(m.check(&DebugRequest::Stop).is_err());
         assert!(
             m.check(&DebugRequest::Start {
+                compound: None,
                 project: None,
                 debug: true,
                 profile: None,
@@ -1725,6 +1731,7 @@ mod tests {
         assert_eq!(m.generation, 1);
         assert!(
             m.check(&DebugRequest::Start {
+                compound: None,
                 project: None,
                 debug: true,
                 profile: None,
