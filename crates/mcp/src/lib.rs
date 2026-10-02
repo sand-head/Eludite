@@ -1,16 +1,18 @@
 //! MCP server (PLAN.md D3, 5.1, 5.2).
 //!
-//! Exposes the command bus to hosted agents: every exposed `CommandSpec`
-//! becomes an MCP tool with the same input/output schemas, so there is no
-//! feature the human can use that an agent cannot. Transport is JSON-RPC 2.0
-//! (`eludite-protocol`), newline-delimited as in MCP's stdio transport.
+//! Exposes the command bus to hosted agents: every agent-visible `CommandSpec`
+//! becomes an MCP tool with the same input/output schemas
+//! (`protocol/schemas/mcp-tool.json`), so there is no feature the human can use
+//! that an agent cannot. Transport is JSON-RPC 2.0 (`eludite-protocol`),
+//! newline-delimited as in MCP's stdio transport.
 //!
 //! Public API: the tool mapping in this module ([`tool_from_command`],
-//! [`tool_name`], [`mcp_output_schema`]), [`McpServer`] (the protocol), and
-//! [`transport`] (stdio serving, the IDE's local TCP endpoint and the stdio
-//! relay an agent launches). Hand-written rather than built on `rmcp`: three
-//! methods over the existing `eludite-protocol` types, no async runtime, and the
-//! schemas come from `protocol/` rather than being derived from Rust types.
+//! [`tool_name`], [`mcp_output_schema`]), [`McpServer`] (the protocol, with the
+//! permission gate and the invoker hook the shell supplies), and [`transport`]
+//! (stdio serving, the IDE's local TCP endpoint and the stdio relay an agent
+//! launches). Hand-written rather than built on `rmcp`: four methods over the
+//! existing `eludite-protocol` types, no async runtime, and the schemas come
+//! from `protocol/` rather than being derived from Rust types.
 
 use eludite_commands::{CommandId, CommandSpec, PermissionClass};
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,8 @@ mod server;
 pub mod transport;
 
 pub use server::{
-    CallObserver, McpServer, PermissionGate, SUPPORTED_PROTOCOL_VERSIONS, ToolCallRecord,
+    CallContext, CallObserver, GateDecision, Invoker, McpServer, NO_GATE, PermissionGate,
+    SUPPORTED_PROTOCOL_VERSIONS, ToolCallRecord,
 };
 
 /// MCP `Tool` as returned by `tools/list`.
@@ -37,6 +40,17 @@ pub struct McpToolDescriptor {
     pub input_schema: Value,
     pub output_schema: Value,
     pub annotations: ToolAnnotations,
+    #[serde(rename = "_meta")]
+    pub meta: ToolMeta,
+}
+
+/// The descriptor's `_meta`: which command a tool is and its permission class.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolMeta {
+    #[serde(rename = "eludite/command")]
+    pub command: String,
+    #[serde(rename = "eludite/permission")]
+    pub permission: PermissionClass,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,6 +88,10 @@ pub fn tool_from_command(spec: &CommandSpec) -> McpToolDescriptor {
         annotations: ToolAnnotations {
             read_only_hint: spec.permission == PermissionClass::Read,
             destructive_hint: spec.permission == PermissionClass::Dangerous,
+        },
+        meta: ToolMeta {
+            command: spec.id.to_string(),
+            permission: spec.permission,
         },
     }
 }
@@ -133,7 +151,7 @@ mod mapping_tests {
     fn tool_from_builtin_command() {
         let registry = builtins::default_registry();
         let spec = registry.lookup(builtins::FILE_OPEN).unwrap();
-        let tool = tool_from_command(spec);
+        let tool = tool_from_command(&spec);
         assert_eq!(tool.name, "eludite-file-open");
         assert_eq!(tool.title, "File: Open");
         assert_eq!(tool.input_schema, spec.input_schema);
@@ -144,6 +162,8 @@ mod mapping_tests {
         let v = serde_json::to_value(&tool).unwrap();
         assert_eq!(v["inputSchema"]["required"], json!(["path"]));
         assert_eq!(v["annotations"]["readOnlyHint"], json!(true));
+        assert_eq!(v["_meta"]["eludite/command"], json!("eludite.file.open"));
+        assert_eq!(v["_meta"]["eludite/permission"], json!("read"));
     }
 
     #[test]
@@ -154,6 +174,7 @@ mod mapping_tests {
             input_schema: json!({"type": "object", "properties": {}}),
             output_schema: json!({}),
             permission: PermissionClass::Dangerous,
+            agent_visible: true,
         };
         let tool = tool_from_command(&spec);
         assert!(tool.annotations.destructive_hint);

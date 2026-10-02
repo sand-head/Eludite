@@ -1,12 +1,21 @@
 //! The MCP server proper: `initialize`, `ping`, `tools/list`, `tools/call`.
 //!
-//! Transport-agnostic: [`McpServer::handle`] maps one JSON-RPC message to at
-//! most one reply. See `transport` for stdio and the local TCP endpoint.
+//! Transport-agnostic: [`McpServer::handle`] maps one JSON-RPC message to at most one reply. See `transport` for
+//! stdio and the local TCP endpoint.
+//!
+//! The tool list is the command bus's agent-visible commands ([`CommandRegistry::agent_visible`]), computed afresh on
+//! every `tools/list`, so a command registered at runtime appears on the next list. Every call is a bus invocation
+//! made as the agent ([`eludite_commands::with_caller`]), so the audit log records it with its arguments, and the
+//! permission class is applied here, at the boundary (PLAN.md 5.3): class read runs; every other class asks the
+//! [`PermissionGate`], which may block this connection's thread while the user answers (never the UI thread).
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use eludite_commands::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
+use eludite_commands::{
+    Caller, CommandError, CommandId, CommandRegistry, CommandSpec, Outcome, PermissionClass,
+    next_call_id, with_caller,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -14,16 +23,53 @@ use crate::{
     tool_from_command,
 };
 
-/// MCP revisions this server speaks, newest first. `outputSchema`,
-/// `structuredContent` and tool `title` exist from 2025-06-18 on.
+/// MCP revisions this server speaks, newest first. `outputSchema`, `structuredContent` and tool `title` exist from
+/// 2025-06-18 on.
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
     &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
-/// Decides whether a tool call that is not class read may run. Read is always
-/// allowed (PLAN.md 5.3) and never reaches the gate.
-pub type PermissionGate = Arc<dyn Fn(&CommandSpec, &Value) -> bool + Send + Sync>;
+/// One `tools/call` as the gate and the invoker see it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallContext {
+    /// The agent's name ([`McpServer::with_agent`]).
+    pub agent: String,
+    /// This call's id ([`eludite_commands::next_call_id`]), also the audit entry's caller call.
+    pub call: u64,
+    /// The agent's own id for the tool call, when the client sends it in the request's `_meta` (a key ending in
+    /// `toolUseId` or `toolCallId`).
+    pub tool_call: Option<String>,
+}
 
-/// What happened on one `tools/call`, for the audit log line and the UI.
+impl CallContext {
+    /// The caller the bus records for this call.
+    pub fn caller(&self) -> Caller {
+        Caller::Agent {
+            agent: self.agent.clone(),
+            call: self.call,
+            tool_call: self.tool_call.clone(),
+        }
+    }
+}
+
+/// The gate's answer for a call that is not class read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GateDecision {
+    Allow,
+    /// Denied, with the reason the agent is told.
+    Deny(String),
+}
+
+/// Decides whether a tool call that is not class read may run. Read is always allowed (PLAN.md 5.3) and never
+/// reaches the gate. It runs on the connection's thread and may block while the user answers a prompt.
+pub type PermissionGate =
+    Arc<dyn Fn(&CommandSpec, &Value, &CallContext) -> GateDecision + Send + Sync>;
+
+/// Runs an allowed call. The default invokes the bus as the agent; the shell's replaces it to hold the agent's
+/// edits as pending changes and answer once they are reviewed.
+pub type Invoker =
+    Arc<dyn Fn(&CommandSpec, Value, &CallContext) -> Result<Value, CommandError> + Send + Sync>;
+
+/// What happened on one `tools/call`, for the audit line and the UI.
 #[derive(Debug, Clone)]
 pub struct ToolCallRecord {
     pub tool: String,
@@ -33,17 +79,24 @@ pub struct ToolCallRecord {
     /// `Ok(output)` or `Err(message)`.
     pub outcome: Result<Value, String>,
     pub elapsed: Duration,
+    pub call: u64,
+    pub tool_call: Option<String>,
+    /// The name of the thread that served the call (proof that it was not the UI thread).
+    pub thread: String,
 }
 
 pub type CallObserver = Arc<dyn Fn(&ToolCallRecord) + Send + Sync>;
 
-/// Exposes an allow-listed subset of a [`CommandRegistry`] as MCP tools.
+/// Exposes the agent-visible commands of a [`CommandRegistry`] as MCP tools.
 #[derive(Clone)]
 pub struct McpServer {
     registry: Arc<CommandRegistry>,
-    exposed: Vec<CommandId>,
+    /// An allow-list on top of `agent_visible` (tests, the fixture example).
+    only: Option<Vec<CommandId>>,
     gate: PermissionGate,
+    invoker: Option<Invoker>,
     observer: Option<CallObserver>,
+    agent: String,
     name: String,
     version: String,
 }
@@ -51,34 +104,50 @@ pub struct McpServer {
 impl std::fmt::Debug for McpServer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("McpServer")
-            .field("exposed", &self.exposed)
+            .field("agent", &self.agent)
+            .field("only", &self.only)
             .finish_non_exhaustive()
     }
 }
 
+/// The reason a call is denied when no gate is set.
+pub const NO_GATE: &str = "no one is there to allow it";
+
 impl McpServer {
-    /// Serve the commands in `exposed` (ids that are not registered are ignored).
-    /// Calls to anything but class read are denied until a gate is set.
-    pub fn new(
-        registry: Arc<CommandRegistry>,
-        exposed: impl IntoIterator<Item = CommandId>,
-    ) -> Self {
-        let exposed = exposed
-            .into_iter()
-            .filter(|id| registry.lookup(id.as_str()).is_some())
-            .collect();
+    /// Serve every agent-visible command of `registry`. Calls to anything but class read are denied until a gate is
+    /// set.
+    pub fn new(registry: Arc<CommandRegistry>) -> Self {
         Self {
             registry,
-            exposed,
-            gate: Arc::new(|_, _| false),
+            only: None,
+            gate: Arc::new(|_, _, _| GateDecision::Deny(NO_GATE.into())),
+            invoker: None,
             observer: None,
+            agent: "agent".into(),
             name: "eludite".into(),
             version: env!("CARGO_PKG_VERSION").into(),
         }
     }
 
+    /// Serve only these of the agent-visible commands.
+    pub fn with_only(mut self, ids: impl IntoIterator<Item = CommandId>) -> Self {
+        self.only = Some(ids.into_iter().collect());
+        self
+    }
+
+    /// The agent's name, recorded as the caller of its calls.
+    pub fn with_agent(mut self, agent: impl Into<String>) -> Self {
+        self.agent = agent.into();
+        self
+    }
+
     pub fn with_permission_gate(mut self, gate: PermissionGate) -> Self {
         self.gate = gate;
+        self
+    }
+
+    pub fn with_invoker(mut self, invoker: Invoker) -> Self {
+        self.invoker = Some(invoker);
         self
     }
 
@@ -91,14 +160,22 @@ impl McpServer {
         &self.registry
     }
 
-    fn specs(&self) -> impl Iterator<Item = &CommandSpec> {
-        self.exposed
-            .iter()
-            .filter_map(|id| self.registry.lookup(id.as_str()))
+    /// The commands advertised right now, sorted by id.
+    pub fn specs(&self) -> Vec<CommandSpec> {
+        self.registry
+            .agent_visible()
+            .into_iter()
+            .filter(|s| self.only.as_ref().is_none_or(|o| o.contains(&s.id)))
+            .collect()
     }
 
-    /// Handle one incoming message. Returns the reply for requests, `None` for
-    /// notifications and stray responses.
+    fn spec_for_tool(&self, name: &str) -> Option<CommandSpec> {
+        let id = command_id_from_tool_name(name)?;
+        let spec = self.registry.lookup(id.as_str())?;
+        (spec.agent_visible && self.only.as_ref().is_none_or(|o| o.contains(&id))).then_some(spec)
+    }
+
+    /// Handle one incoming message. Returns the reply for requests, `None` for notifications and stray responses.
     pub fn handle(&self, msg: Message) -> Option<Response> {
         match msg {
             Message::Request(req) => Some(self.handle_request(req)),
@@ -154,16 +231,17 @@ impl McpServer {
             .unwrap_or(SUPPORTED_PROTOCOL_VERSIONS[0]);
         json!({
             "protocolVersion": version,
-            "capabilities": {"tools": {"listChanged": false}},
+            "capabilities": {"tools": {"listChanged": true}},
             "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
-            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE."
+            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first."
         })
     }
 
     fn tools_list(&self, _params: &Value) -> Value {
-        // One page: the exposed list is small, so `cursor` is ignored and no `nextCursor` is sent.
+        // One page: the list is small, so `cursor` is ignored and no `nextCursor` is sent.
         let tools: Vec<Value> = self
             .specs()
+            .iter()
             .map(|s| serde_json::to_value(tool_from_command(s)).expect("descriptor serializes"))
             .collect();
         json!({"tools": tools})
@@ -178,21 +256,43 @@ impl McpServer {
             .get("arguments")
             .cloned()
             .unwrap_or_else(|| json!({}));
-        let spec = command_id_from_tool_name(name)
-            .filter(|id| self.exposed.contains(id))
-            .and_then(|id| self.registry.lookup(id.as_str()))
-            .ok_or_else(|| {
-                ErrorObject::new(ErrorObject::INVALID_PARAMS, format!("unknown tool: {name}"))
-            })?;
+        let spec = self.spec_for_tool(name).ok_or_else(|| {
+            ErrorObject::new(ErrorObject::INVALID_PARAMS, format!("unknown tool: {name}"))
+        })?;
+        let ctx = CallContext {
+            agent: self.agent.clone(),
+            call: next_call_id(),
+            tool_call: tool_call_id(params),
+        };
 
-        let allowed = spec.permission == PermissionClass::Read || (self.gate)(spec, &arguments);
-        let outcome = if allowed {
-            self.registry.invoke(spec.id.as_str(), arguments.clone())
+        let decision = if spec.permission == PermissionClass::Read {
+            GateDecision::Allow
         } else {
-            Err(CommandError::Failed(format!(
-                "permission denied: `{}` is class {:?} and the user did not allow it",
-                spec.id, spec.permission
-            )))
+            (self.gate)(&spec, &arguments, &ctx)
+        };
+        let outcome = match decision {
+            GateDecision::Allow => match &self.invoker {
+                Some(invoke) => invoke(&spec, arguments.clone(), &ctx),
+                None => with_caller(ctx.caller(), || {
+                    self.registry.invoke(spec.id.as_str(), arguments.clone())
+                }),
+            },
+            GateDecision::Deny(reason) => {
+                let err = CommandError::Failed(format!(
+                    "permission denied: `{}` is class {} and {reason}",
+                    spec.id,
+                    spec.permission.as_str()
+                ));
+                // Denied calls never reach the bus; record them so every tool call is audited.
+                self.registry.audit_log().record_call(
+                    spec.id.as_str(),
+                    Some(spec.permission),
+                    Outcome::Err(err.to_string()),
+                    ctx.caller(),
+                    Some(arguments.clone()),
+                );
+                Err(err)
+            }
         };
         let record = ToolCallRecord {
             tool: name.to_owned(),
@@ -201,16 +301,19 @@ impl McpServer {
             arguments,
             outcome: outcome.clone().map_err(|e| e.to_string()),
             elapsed: started.elapsed(),
+            call: ctx.call,
+            tool_call: ctx.tool_call.clone(),
+            thread: std::thread::current().name().unwrap_or("?").to_owned(),
         };
         if let Some(obs) = &self.observer {
             obs(&record);
         }
-        // Tool failures are results with `isError`, so the model can see them;
-        // only unknown tools and malformed requests are JSON-RPC errors.
+        // Tool failures are results with `isError`, so the model can see them; only unknown tools and malformed
+        // requests are JSON-RPC errors.
         Ok(match outcome {
             Ok(output) => json!({
                 "content": [{"type": "text", "text": serde_json::to_string(&output).expect("serializes")}],
-                "structuredContent": mcp_structured_output(spec, output),
+                "structuredContent": mcp_structured_output(&spec, output),
                 "isError": false
             }),
             Err(e) => json!({
@@ -219,4 +322,15 @@ impl McpServer {
             }),
         })
     }
+}
+
+/// The client's id for the tool call, from the request's `_meta` (Claude Code sends `claudecode/toolUseId`).
+fn tool_call_id(params: &Value) -> Option<String> {
+    params
+        .get("_meta")?
+        .as_object()?
+        .iter()
+        .find(|(k, _)| k.ends_with("toolUseId") || k.ends_with("toolCallId"))
+        .and_then(|(_, v)| v.as_str())
+        .map(str::to_owned)
 }

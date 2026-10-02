@@ -37,6 +37,7 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
                 "required": ["name", "version"]
             }),
             permission: PermissionClass::Read,
+            agent_visible: true,
         },
         |_| Ok(json!({"name": "Eludite", "version": VERSION})),
     )?;
@@ -57,6 +58,7 @@ pub fn register_builtins(registry: &mut CommandRegistry) -> Result<(), CommandEr
                 "required": ["id", "toggled"]
             }),
             permission: PermissionClass::Read,
+            agent_visible: false,
         },
         |input| {
             let id = required_string(&input, "id")?;
@@ -132,14 +134,14 @@ mod tests {
     #[test]
     fn builtins_registered() {
         let r = default_registry();
-        let ids: Vec<_> = r.list().map(|s| s.id.as_str().to_owned()).collect();
+        let ids: Vec<_> = r.list().iter().map(|s| s.id.as_str().to_owned()).collect();
         assert_eq!(ids, [FILE_OPEN, ABOUT, TOGGLE_TOOL_WINDOW]);
     }
 
     #[test]
     fn every_input_schema_is_object_schema() {
         let r = default_registry();
-        for spec in r.list() {
+        for spec in r.list().iter() {
             assert_object_schema(spec.id.as_str(), &spec.input_schema);
         }
     }

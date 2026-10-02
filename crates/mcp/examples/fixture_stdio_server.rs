@@ -14,16 +14,18 @@ fn main() -> io::Result<()> {
     let mut registry = CommandRegistry::new();
     diagnostics::register(&mut registry, Arc::new(diagnostics::fixture)).expect("register");
     let id = CommandId::new(DIAGNOSTICS_LIST).expect("valid id");
-    let server = McpServer::new(Arc::new(registry), [id]).with_observer(Arc::new(|r| {
-        // stdout carries protocol only (CLAUDE.md invariant 10).
-        eprintln!(
-            "[audit] {} {:?} args={} ok={} {:?}",
-            r.tool,
-            r.permission,
-            r.arguments,
-            r.outcome.is_ok(),
-            r.elapsed
-        );
-    }));
+    let server = McpServer::new(Arc::new(registry))
+        .with_only([id])
+        .with_observer(Arc::new(|r| {
+            // stdout carries protocol only (CLAUDE.md invariant 10).
+            eprintln!(
+                "[audit] {} {:?} args={} ok={} {:?}",
+                r.tool,
+                r.permission,
+                r.arguments,
+                r.outcome.is_ok(),
+                r.elapsed
+            );
+        }));
     serve_lines(&server, io::stdin().lock(), io::stdout().lock())
 }
