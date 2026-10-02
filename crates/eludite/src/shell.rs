@@ -1,5 +1,6 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Solution Explorer,
-//! the open documents and the Error List (brief 0012).
+//! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
+//! the navigation history, Find All References and the Error List's filters (brief 0014).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -11,6 +12,10 @@ pub mod explorer;
 pub mod intellisense;
 #[cfg(test)]
 mod intellisense_tests;
+pub mod navigation;
+#[cfg(test)]
+mod navigation_tests;
+pub mod references;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -50,6 +55,8 @@ use serde_json::{Value, json};
 use self::documents::{Document, uri_to_path};
 use self::error_list::{ErrorList, ErrorRow};
 use self::explorer::{Placeholder, SolutionExplorer};
+use self::navigation::Navigation;
+use self::references::{References, ReferencesEvent, ReferencesWindow};
 use self::session::{HostLaunch, HostSession, SessionEvent};
 use self::target::{ShellTarget, UiJob};
 
@@ -128,6 +135,7 @@ pub struct Shell {
     dock: Entity<DockHost>,
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
+    references_window: Entity<ReferencesWindow>,
     status: StatusBar,
     focus: FocusHandle,
     on_first_render: Option<AfterPresent>,
@@ -156,6 +164,10 @@ pub struct Shell {
     completion_timings: Vec<intellisense::CompletionTiming>,
     /// Agents waiting for an IntelliSense answer: woken whenever an editor changes.
     intellisense_waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    /// Go To Definition, the picker and the history (brief 0014).
+    navigation: Navigation,
+    /// Find All References in flight (brief 0014).
+    references: References,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -163,6 +175,7 @@ pub struct Shell {
 fn tool_body(
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
+    references: Entity<ReferencesWindow>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -171,6 +184,10 @@ fn tool_body(
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
         ids::ERROR_LIST => error_list
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::FIND_ALL_REFERENCES => references
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
@@ -221,14 +238,19 @@ impl Shell {
         // Document tabs saved in a layout have no editor behind them after a restart.
         controller.retain_documents(|id| id == WELCOME);
         let explorer = cx.new(|_| SolutionExplorer::new(theme));
-        let error_list = cx.new(|_| ErrorList::new(theme));
+        let error_list = cx.new(|cx| ErrorList::new(theme, cx));
+        let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
                 commands.clone(),
                 theme,
-                Rc::new(tool_body(explorer.clone(), error_list.clone())),
+                Rc::new(tool_body(
+                    explorer.clone(),
+                    error_list.clone(),
+                    references_window.clone(),
+                )),
                 Rc::new(document_body(views.clone())),
                 persistence,
                 cx,
@@ -237,6 +259,16 @@ impl Shell {
         cx.observe(&dock, |_, _, cx| cx.notify()).detach();
         cx.observe(&explorer, |_, _, cx| cx.notify()).detach();
         cx.observe(&error_list, |_, _, cx| cx.notify()).detach();
+        cx.observe(&references_window, |_, _, cx| cx.notify())
+            .detach();
+        cx.subscribe_in(
+            &references_window,
+            window,
+            |shell, _, event: &ReferencesEvent, window, cx| match event {
+                ReferencesEvent::Navigate(ix) => shell.navigate_to_reference(*ix, window, cx),
+            },
+        )
+        .detach();
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
@@ -308,6 +340,7 @@ impl Shell {
             dock,
             explorer,
             error_list,
+            references_window,
             status,
             focus: cx.focus_handle(),
             on_first_render: None,
@@ -327,6 +360,8 @@ impl Shell {
             features: Default::default(),
             completion_timings: Vec::new(),
             intellisense_waiters: Vec::new(),
+            navigation: Navigation::default(),
+            references: References::default(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -355,9 +390,18 @@ impl Shell {
         &self.explorer
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn error_list(&self) -> &Entity<ErrorList> {
         &self.error_list
+    }
+
+    pub fn references_window(&self) -> &Entity<ReferencesWindow> {
+        &self.references_window
+    }
+
+    /// The Go To Definition picker, while it is open.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn definition_picker(&self) -> Option<&Entity<navigation::DefinitionPicker>> {
+        self.navigation.picker.as_ref()
     }
 
     /// The editor of the open document at `path`.
@@ -562,6 +606,33 @@ impl Shell {
                 trigger,
                 cx,
             ),
+            WorkspaceRequest::GoToDefinition {
+                path,
+                line,
+                column,
+                target,
+            } => self.go_to_definition_command(
+                path.as_deref(),
+                line.map(|l| (l, column.unwrap_or(1))),
+                target,
+                window,
+                cx,
+            ),
+            WorkspaceRequest::FindReferences { path, line, column } => self
+                .find_references_command(
+                    path.as_deref(),
+                    line.map(|l| (l, column.unwrap_or(1))),
+                    window,
+                    cx,
+                ),
+            WorkspaceRequest::NavigateBack => self.navigate_history(true, window, cx),
+            WorkspaceRequest::NavigateForward => self.navigate_history(false, window, cx),
+            WorkspaceRequest::ErrorListFilter(input) => Ok(
+                workspace::WorkspaceOutput::ErrorListFilter(self.error_list.update(cx, |e, cx| {
+                    e.set_filter(&input, cx);
+                    e.filter_output()
+                })),
+            ),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),
@@ -657,6 +728,12 @@ impl Shell {
                     for doc in self.documents.values_mut() {
                         doc.clear_diagnostics(cx);
                         doc.intellisense.cancel_all();
+                    }
+                    self.navigation.cancel();
+                    if self.references.cancel() {
+                        // Never show results computed for the old solution.
+                        self.references_window
+                            .update(cx, |w, cx| w.fail(navigation::OUTDATED.to_owned(), cx));
                     }
                 }
                 let was_loaded = self.solution_state == Some(SolutionState::Loaded);
@@ -930,6 +1007,7 @@ impl Render for Shell {
             .child(self.menu.clone())
             .child(self.dock.clone())
             .child(self.status.render(&t))
+            .children(self.navigation.picker.clone())
     }
 }
 
