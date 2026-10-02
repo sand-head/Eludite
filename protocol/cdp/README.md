@@ -43,6 +43,15 @@ required members all have defaults derive `Default`, so parameters read `..Defau
 Size at this pin: 13 domains, 960 structs, 140 enums, 32 aliases, 337 commands, 121 events; 14 files, about 24,400
 lines and 800 KB. The generator is about 840 lines, with 180 lines of tests.
 
+## How `crates/browser` uses them
+
+Commands whose answers it reads in full go through the typed `Params` and `Returns` (`Page.navigate`,
+`Page.getLayoutMetrics`, `Page.getNavigationHistory`, `Accessibility.getFullAXTree` and `getPartialAXTree`,
+`DOM.getBoxModel`; `Accessibility.AXNode` is how `read_page` reads the tree). Events are read field by field from
+their JSON instead of through the generated event structs: a Chrome older or newer than this pin may leave out a member
+the pin marks required, and an event that failed to decode would be lost from a tab's state (its page generation, the
+console and network rings). The Chrome tests pass against Chromium 141 and Chrome for Testing 154.
+
 ## Regenerating
 
 ```
