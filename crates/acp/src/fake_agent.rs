@@ -20,13 +20,22 @@
 //! wait for the result and read its text. [`McpClient`] is the MCP connection,
 //! also usable from tests.
 //!
+//! Brief 0030 adds the `planned` scenario: a script whose next tool call is
+//! decided from what the agent has seen so far ([`Planner`], given the prompt,
+//! the tools from `tools/list`, the debugging guide from `resources/read` and
+//! every answer with its size), as the agent debugging proving scenario needs:
+//! a breakpoint's line comes from a find, a step from the stop it quotes.
+//! [`McpClient`] gained `tools/list` and `resources/read`.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
-//! `--script JSON`, `--url URL`).
+//! `--script JSON`, `--url URL`). `planned` needs a [`Planner`] in [`Options`],
+//! so it runs in-process only.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -73,7 +82,67 @@ pub enum Scenario {
     Script,
     /// Proposal 0002 brief A's proof: fill the form at `--url` through the browser tools and read the result.
     BrowserForm,
+    /// Brief 0030: tool calls decided one at a time by [`Options::planner`] from the prompt, the tool list, the
+    /// debugging guide and the answers so far; then the planner's answer.
+    Planned,
 }
+
+/// The MCP resource the planned scenario reads before its first call (brief 0027's guide).
+pub const GUIDE_URI: &str = "eludite://guides/debugging";
+
+/// What a [`Planner`] knows when it picks the next step: what a model would have in its context.
+#[derive(Debug, Clone, Default)]
+pub struct Seen {
+    /// The prompt's text.
+    pub prompt: String,
+    /// The tools `tools/list` returned (name, description, input schema).
+    pub tools: Vec<Value>,
+    /// The text of [`GUIDE_URI`], empty when the server has none.
+    pub guide: String,
+    /// The calls made so far, in order.
+    pub steps: Vec<Step>,
+}
+
+/// One tool call of the planned scenario and its answer.
+#[derive(Debug, Clone)]
+pub struct Step {
+    /// The MCP tool name (`eludite-debug-start`).
+    pub tool: String,
+    pub arguments: Value,
+    /// The result's `structuredContent`, or the error text.
+    pub result: Result<Value, String>,
+    /// The bytes of the answer's text content: what the model reads.
+    pub bytes: usize,
+    /// The call's wall time, in milliseconds.
+    pub ms: f64,
+}
+
+/// The planner's decision.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Next {
+    /// Call `tool` (the MCP name) with `arguments`.
+    Call { tool: String, arguments: Value },
+    /// End the turn with this message.
+    Answer(String),
+}
+
+/// Picks the planned scenario's next step from what has been seen.
+pub trait Planner: Send {
+    fn next(&mut self, seen: &Seen) -> Next;
+}
+
+/// A shared [`Planner`] in [`Options`] (the test that made it keeps a handle to read it afterwards).
+#[derive(Clone)]
+pub struct PlannerHandle(pub Arc<Mutex<dyn Planner>>);
+
+impl std::fmt::Debug for PlannerHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PlannerHandle")
+    }
+}
+
+/// The most calls the planned scenario makes before it gives up.
+pub const MAX_PLANNED_STEPS: usize = 30;
 
 /// What the `browser-form` scenario fills in, and the result text it expects to read.
 pub const FORM_NAME: &str = "Ada Lovelace";
@@ -94,6 +163,7 @@ impl std::str::FromStr for Scenario {
             "exit" => Scenario::Exit,
             "script" => Scenario::Script,
             "browser-form" => Scenario::BrowserForm,
+            "planned" => Scenario::Planned,
             other => return Err(format!("unknown scenario {other}")),
         })
     }
@@ -113,6 +183,8 @@ pub struct Options {
     pub script: Vec<Value>,
     /// [`Scenario::BrowserForm`]'s page.
     pub url: Option<String>,
+    /// [`Scenario::Planned`]'s planner.
+    pub planner: Option<PlannerHandle>,
 }
 
 impl Default for Options {
@@ -128,6 +200,7 @@ impl Default for Options {
             mcp_direct: false,
             script: Vec::new(),
             url: None,
+            planner: None,
         }
     }
 }
@@ -180,6 +253,8 @@ struct Agent<R, W> {
     backlog: VecDeque<Value>,
     cancelled: bool,
     next_id: u64,
+    /// The text of the prompt being answered.
+    prompt: String,
 }
 
 /// Serve one client until its stdin closes.
@@ -194,6 +269,7 @@ pub fn run(input: impl BufRead, output: impl Write, opts: Options) -> io::Result
         backlog: VecDeque::new(),
         cancelled: false,
         next_id: 0,
+        prompt: String::new(),
     };
     while let Some(msg) = agent.next_message()? {
         agent.dispatch(msg)?;
@@ -286,6 +362,13 @@ impl<R: BufRead, W: Write> Agent<R, W> {
             }
             (methods::SESSION_PROMPT, Some(id)) => {
                 self.cancelled = false;
+                self.prompt = params["prompt"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|b| b["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 let stop = match self.opts.scenario {
                     Scenario::LoginRequired => {
                         return self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": AUTH_REQUIRED, "message": "Authentication required"}}));
@@ -297,6 +380,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                     Scenario::Write => self.write_file()?,
                     Scenario::Script => self.script()?,
                     Scenario::BrowserForm => self.browser_form()?,
+                    Scenario::Planned => self.planned()?,
                     Scenario::Exit => {
                         self.say("Starting on it")?;
                         return Err(io::Error::other("the fake agent exits mid-turn"));
@@ -698,6 +782,36 @@ impl McpClient {
         }
     }
 
+    /// Every tool of `tools/list`, following its cursor.
+    pub fn list_tools(&mut self) -> Result<Vec<Value>, String> {
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let params = match &cursor {
+                Some(c) => json!({ "cursor": c }),
+                None => json!({}),
+            };
+            let r = self.request("tools/list", params)?;
+            tools.extend(r["tools"].as_array().cloned().unwrap_or_default());
+            match r["nextCursor"].as_str() {
+                Some(c) if !c.is_empty() => cursor = Some(c.to_owned()),
+                _ => return Ok(tools),
+            }
+        }
+    }
+
+    /// The text of resource `uri` (`resources/read`).
+    pub fn read_resource(&mut self, uri: &str) -> Result<String, String> {
+        let r = self.request("resources/read", json!({ "uri": uri }))?;
+        Ok(r["contents"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| c["text"].as_str())
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
     /// `tools/call` with the agent's tool use id in `_meta`, as Claude sends it. Returns the call's `result`.
     pub fn call(&mut self, tool: &str, args: &Value, tool_use_id: &str) -> Result<Value, String> {
         self.request(
@@ -900,6 +1014,118 @@ impl<R: BufRead, W: Write> Agent<R, W> {
     }
 }
 
+impl<R: BufRead, W: Write> Agent<R, W> {
+    /// One tool call as [`Agent::tool`] makes it, returning the whole MCP result (or the error text).
+    fn tool_raw(
+        &mut self,
+        client: &mut McpClient,
+        n: usize,
+        tool: &str,
+        args: &Value,
+    ) -> io::Result<Result<Value, String>> {
+        let tc = format!("toolu_fake_step_{n}");
+        let full = format!("mcp__eludite__{tool}");
+        self.update(Self::tool_call(&tc, &full, &full, "other", json!({})))?;
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "rawInput": args, "_meta": {"claudeCode": {"toolName": full}}}))?;
+        if !self.ask(Self::mcp_tool_call(&tc, &full, args))? {
+            self.rejected(&tc)?;
+            return Ok(Err("the user rejected the tool use".into()));
+        }
+        self.update(
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "in_progress"}),
+        )?;
+        let result = client.call(tool, args, &tc);
+        let (status, content) = match &result {
+            Ok(r) => (
+                if r["isError"] == true {
+                    "failed"
+                } else {
+                    "completed"
+                },
+                acp_content(r),
+            ),
+            Err(e) => (
+                "failed",
+                vec![
+                    json!({"type": "content", "content": {"type": "text", "text": format!("MCP call failed: {e}")}}),
+                ],
+            ),
+        };
+        self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": status, "content": content}))?;
+        Ok(result)
+    }
+
+    /// [`Scenario::Planned`]: read the tools and the guide, then call what the planner picks until it answers.
+    fn planned(&mut self) -> io::Result<&'static str> {
+        let Some(planner) = self.opts.planner.clone() else {
+            self.say("The planned scenario has no planner.")?;
+            return Ok("end_turn");
+        };
+        let mut client = match McpClient::connect(&self.mcp, self.opts.mcp_direct) {
+            Ok(c) => c,
+            Err(e) => {
+                self.say(&format!("I could not reach Eludite's tools: {e}"))?;
+                return Ok("end_turn");
+            }
+        };
+        let mut seen = Seen {
+            prompt: self.prompt.clone(),
+            tools: client.list_tools().unwrap_or_default(),
+            guide: client.read_resource(GUIDE_URI).unwrap_or_default(),
+            steps: Vec::new(),
+        };
+        for n in 1..=MAX_PLANNED_STEPS {
+            let next = planner
+                .0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .next(&seen);
+            let (tool, arguments) = match next {
+                Next::Answer(text) => {
+                    self.say(&text)?;
+                    return Ok(self.stop());
+                }
+                Next::Call { tool, arguments } => (tool, arguments),
+            };
+            let started = Instant::now();
+            let raw = self.tool_raw(&mut client, n, &tool, &arguments)?;
+            let ms = started.elapsed().as_secs_f64() * 1e3;
+            if self.cancelled {
+                return Ok("cancelled");
+            }
+            let (result, bytes) = match raw {
+                Ok(r) => {
+                    let bytes = r["content"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c["text"].as_str())
+                        .map(str::len)
+                        .sum();
+                    let text = r["content"][0]["text"].as_str().unwrap_or("tool error");
+                    if r["isError"] == true {
+                        (Err(text.to_owned()), bytes)
+                    } else {
+                        (Ok(r["structuredContent"].clone()), bytes)
+                    }
+                }
+                Err(e) => (Err(e), 0),
+            };
+            seen.steps.push(Step {
+                tool,
+                arguments,
+                result,
+                bytes,
+                ms,
+            });
+        }
+        self.say(&format!(
+            "I stopped after {MAX_PLANNED_STEPS} tool calls without an answer."
+        ))?;
+        Ok(self.stop())
+    }
+}
+
 /// A `file://` URI for an absolute path.
 fn file_uri(path: &std::path::Path) -> String {
     let p = path.to_string_lossy().replace('\\', "/");
@@ -960,6 +1186,8 @@ mod tests {
             "browser-form".parse::<Scenario>().unwrap(),
             Scenario::BrowserForm
         );
+        assert_eq!("planned".parse::<Scenario>().unwrap(), Scenario::Planned);
+        assert!(o.planner.is_none());
         let page = json!({"nodes": [{"ref": "e1", "role": "textbox", "name": "Notes"}, {"ref": "e2", "role": "textbox", "name": "Name"}, {"ref": "e3", "role": "radio", "name": "Large"}]});
         assert_eq!(ref_of(&page, "textbox", "Name").as_deref(), Some("e2"));
         assert_eq!(ref_of(&page, "radio", "Large").as_deref(), Some("e3"));
@@ -971,5 +1199,120 @@ mod tests {
         ]}));
         assert_eq!(content.len(), 2);
         assert_eq!(content[1]["content"]["type"], "image");
+    }
+
+    /// A planner that echoes once, then answers with what it saw.
+    struct Echo;
+
+    impl Planner for Echo {
+        fn next(&mut self, seen: &Seen) -> Next {
+            match seen.steps.as_slice() {
+                [] => Next::Call {
+                    tool: "echo".into(),
+                    arguments: json!({"text": seen.prompt}),
+                },
+                [step] => Next::Answer(format!(
+                    "tools {}, guide {:?}, echo {} in {} bytes",
+                    seen.tools.len(),
+                    seen.guide,
+                    step.result.as_ref().unwrap()["text"],
+                    step.bytes
+                )),
+                _ => Next::Answer("too many".into()),
+            }
+        }
+    }
+
+    /// A one-connection MCP server on loopback: two pages of tools, the guide, and `echo`.
+    fn mcp_server() -> (String, std::thread::JoinHandle<Vec<String>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            let (sock, _) = listener.accept().unwrap();
+            let mut methods = Vec::new();
+            let mut out = sock.try_clone().unwrap();
+            let mut lines = BufReader::new(sock).lines();
+            assert_eq!(lines.next().unwrap().unwrap(), "token");
+            for line in lines {
+                let m: Value = serde_json::from_str(&line.unwrap()).unwrap();
+                let method = m["method"].as_str().unwrap_or_default().to_owned();
+                methods.push(method.clone());
+                let result = match method.as_str() {
+                    "initialize" => json!({"capabilities": {}}),
+                    "tools/list" if m["params"]["cursor"].is_null() => {
+                        json!({"tools": [{"name": "echo"}], "nextCursor": "2"})
+                    }
+                    "tools/list" => json!({"tools": [{"name": "other"}]}),
+                    "resources/read" => {
+                        json!({"contents": [{"uri": m["params"]["uri"], "text": "the guide"}]})
+                    }
+                    "tools/call" => {
+                        let text = m["params"]["arguments"]["text"].clone();
+                        let out = json!({ "text": text });
+                        json!({"content": [{"type": "text", "text": out.to_string()}], "structuredContent": out})
+                    }
+                    _ => continue,
+                };
+                writeln!(
+                    out,
+                    "{}",
+                    json!({"jsonrpc": "2.0", "id": m["id"], "result": result})
+                )
+                .unwrap();
+            }
+            methods
+        });
+        (addr, server)
+    }
+
+    #[test]
+    fn the_planned_scenario_reads_the_tools_and_the_guide_and_calls_what_the_planner_picks() {
+        let (addr, server) = mcp_server();
+        let opts = Options {
+            scenario: Scenario::Planned,
+            mcp_direct: true,
+            planner: Some(PlannerHandle(Arc::new(Mutex::new(Echo)))),
+            ..Options::default()
+        };
+        let session_new = json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+            "cwd": "/", "mcpServers": [{"name": "eludite", "command": "eludite", "args": ["--mcp-relay", addr],
+                                        "env": [{"name": "ELUDITE_MCP_TOKEN", "value": "token"}]}]}});
+        let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_PROMPT, "params": {
+            "sessionId": "fake-session-1", "prompt": [{"type": "text", "text": "hello"}]}});
+        let input = format!("{session_new}\n{prompt}\n");
+        let mut output = Vec::new();
+        // Every permission request is answered from the backlog: the agent reads stdin until it is answered.
+        let allow = json!({"jsonrpc": "2.0", "id": "perm-1", "result": {"outcome": {"outcome": "selected", "optionId": "allow-once"}}});
+        let input = format!("{input}{allow}\n");
+        run(input.as_bytes(), &mut output, opts).unwrap();
+        let out = String::from_utf8(output).unwrap();
+        let said: String = out
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap())
+            .filter(|m| m["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            .map(|m| {
+                m["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(
+            said,
+            "tools 2, guide \"the guide\", echo \"hello\" in 16 bytes"
+        );
+        assert!(out.contains("toolu_fake_step_1"), "{out}");
+        assert!(out.contains(r#""stopReason":"end_turn""#), "{out}");
+        assert_eq!(
+            server.join().unwrap(),
+            [
+                "initialize",
+                "notifications/initialized",
+                "tools/list",
+                "tools/list",
+                "resources/read",
+                "tools/call"
+            ]
+        );
     }
 }
