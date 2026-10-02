@@ -44,6 +44,9 @@ use super::Shell;
 /// Status bar slot: the build's state (left, after the solution's).
 pub const BUILD_SLOT: &str = "build";
 
+/// The build id of `--bench-output`'s stand-in build.
+const BENCH_BUILD_ID: u64 = u64::MAX;
+
 /// How long an agent's build command waits for the build at most.
 const AGENT_BUILD_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
@@ -495,6 +498,11 @@ impl Shell {
             ..BuildTimings::default()
         };
         self.set_building(true, cx);
+        super::documents::trace(format_args!(
+            "build requested: {} {}",
+            kind.as_str(),
+            path.display()
+        ));
         // Visual Studio's "Show Output window when build starts".
         let _ = self.controller.apply(ViewRequest::Show {
             id: ids::OUTPUT.into(),
@@ -609,10 +617,13 @@ impl Shell {
         if !self.is_current_build(id) {
             return;
         }
-        self.builds
-            .timings
-            .first_output
-            .get_or_insert_with(Instant::now);
+        if self.builds.timings.first_output.is_none() {
+            self.builds.timings.first_output = Some(Instant::now());
+            super::documents::trace(format_args!(
+                "build first output: {}",
+                text.lines().next().unwrap_or_default()
+            ));
+        }
         self.builds.timings.lines += text.matches('\n').count();
         self.output
             .update(cx, |o, cx| o.append(OutputSource::Build, text, cx));
@@ -685,6 +696,13 @@ impl Shell {
             self.builds.diagnostics = finished.diagnostics.clone();
             self.update_error_list(cx);
             self.builds.timings.rows_set = Some(Instant::now());
+            super::documents::trace(format_args!(
+                "build finished: {:?}, {} errors, {} warnings, Error List rows set in {:.2} ms",
+                finished.result,
+                s.errors,
+                s.warnings,
+                received.elapsed().as_secs_f64() * 1e3
+            ));
             // Visual Studio's "Always show Error List if build finishes with errors".
             if finished.result == BuildResult::Failed && s.errors > 0 {
                 let _ = self.controller.apply(ViewRequest::Show {
@@ -791,6 +809,37 @@ impl Shell {
                 .collect(),
             message: f.message.clone(),
         }
+    }
+
+    /// `--bench-output`: a stand-in build whose output the harness streams through [`Shell::bench_stream_chunk`].
+    pub fn bench_stream_begin(&mut self, cx: &mut Context<Self>) {
+        self.builds.current = Some(CurrentBuild {
+            ticket: 0,
+            id: Some(BENCH_BUILD_ID),
+            kind: BuildKind::Build,
+            path: PathBuf::from("bench"),
+            configuration: "Debug".into(),
+            platform: None,
+            started: None,
+            progress: None,
+        });
+        let _ = self.controller.apply(ViewRequest::Show {
+            id: ids::OUTPUT.into(),
+        });
+        self.output.update(cx, |o, cx| {
+            o.clear(OutputSource::Build, cx);
+            o.select(OutputSource::Build, cx);
+        });
+    }
+
+    /// One chunk of the stand-in build's output, through the same handler as the host's.
+    pub fn bench_stream_chunk(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.on_build_output(BENCH_BUILD_ID, text, cx);
+    }
+
+    /// Lines in the Output window's Build source.
+    pub fn output_lines(&self, cx: &gpui::App) -> usize {
+        self.output.read(cx).pane(OutputSource::Build).len()
     }
 
     /// Build on save (off by default): build the saved file's project.
