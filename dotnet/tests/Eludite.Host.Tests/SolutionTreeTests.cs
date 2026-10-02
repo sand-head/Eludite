@@ -183,13 +183,13 @@ public sealed class SolutionTreeTests : IDisposable
         Assert.Equal(expected, MsBuildProjectTreeEvaluator.ShortFramework(version));
 
     [Fact]
-    public void EluditeSolution_ListsItsEightProjects()
+    public void EluditeSolution_ListsItsTwelveProjects()
     {
         var slnx = FindRepoFile("dotnet/Eludite.slnx");
         Assert.SkipWhen(slnx is null, "dotnet/Eludite.slnx not found above the test directory.");
         var tree = new MsBuildProjectTreeEvaluator().Evaluate(SolutionProjects.Read(slnx!), Ct);
 
-        Assert.Equal(8, tree.Count);
+        Assert.Equal(12, tree.Count);
         Assert.All(tree, p => Assert.Null(p.Error));
         var host = tree.Single(p => p.Name == "Eludite.Host");
         Assert.Equal(["net10.0"], host.TargetFrameworks);

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- eludite-dbg-mono: the DAP server that debugs .NET Framework programs under Mono (brief 0022,
+       protocol/schemas/dap-mono.md). It runs under the located Mono (`mono eludite-dbg-mono.exe`): Mono.Debugging.Soft
+       needs Mono's runtime (it uses delegate BeginInvoke, which .NET 10 does not support). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>eludite-dbg-mono</AssemblyName>
+    <RootNamespace>Eludite.Debugger.Mono</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Debugging.Soft" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Eludite.Debugger.Mono.Protocol/Eludite.Debugger.Mono.Protocol.csproj" />
+  </ItemGroup>
+
+</Project>
