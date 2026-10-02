@@ -92,6 +92,11 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("f2", "F2", "eludite.editor.rename"),
         command("ctrl-.", "Ctrl+.", "eludite.editor.code_actions"),
         command("alt-enter", "Alt+Enter", "eludite.editor.code_actions"),
+        // Build (brief 0017): Build.BuildSolution (Ctrl+Shift+B; F6 in the C# profile) and Build.BuildSelection
+        // (Shift+F6).
+        command("ctrl-shift-b", "Ctrl+Shift+B", "eludite.build.solution"),
+        command("f6", "F6", "eludite.build.solution"),
+        command("shift-f6", "Shift+F6", "eludite.build.project"),
     ]
 }
 
@@ -204,6 +209,18 @@ mod tests {
         assert_eq!(
             shortcut_for(&k, "eludite.editor.code_actions", &json!({})),
             Some("Ctrl+.")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.build.solution", &json!({})),
+            Some("Ctrl+Shift+B")
+        );
+        assert!(
+            k.iter()
+                .any(|b| b.keystrokes == "f6" && b.command == "eludite.build.solution")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.build.project", &json!({})),
+            Some("Shift+F6")
         );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();

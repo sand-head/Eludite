@@ -158,6 +158,19 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Rebuild Solution", "eludite.build.rebuild"),
                 item("Clean Solution", "eludite.build.clean"),
                 Separator,
+                // The active document's project (Visual Studio names it in the label).
+                item("Build Project", "eludite.build.project"),
+                MenuEntry::Item {
+                    label: "Rebuild Project",
+                    command: "eludite.build.project",
+                    args: json!({ "target": "rebuild" }),
+                },
+                MenuEntry::Item {
+                    label: "Clean Project",
+                    command: "eludite.build.project",
+                    args: json!({ "target": "clean" }),
+                },
+                Separator,
                 item("Cancel", "eludite.build.cancel"),
             ],
         ),
@@ -526,5 +539,21 @@ mod tests {
         assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
         assert!(shortcuts.contains(&("Error List", Some("Ctrl+\\, Ctrl+E"))));
         assert!(shortcuts.contains(&("Command Palette", None)));
+        let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
+        let shortcuts: Vec<_> = build
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item {
+                    label,
+                    command,
+                    args,
+                } => Some((*label, shortcut_for(&keymap, command, args))),
+                MenuEntry::Separator => None,
+            })
+            .collect();
+        assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
+        assert!(shortcuts.contains(&("Build Project", Some("Shift+F6"))));
+        assert!(shortcuts.contains(&("Rebuild Project", None)));
     }
 }
