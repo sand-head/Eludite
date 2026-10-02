@@ -27,7 +27,21 @@ public sealed class HostProcessTests
         psi.ArgumentList.Add("--no-roslyn");
         using var host = Process.Start(psi)!;
         var stdout = new MemoryStream();
-        var copy = host.StandardOutput.BaseStream.CopyToAsync(stdout, Ct);
+        var gate = new object();
+        var copy = Task.Run(
+            async () =>
+            {
+                var buffer = new byte[8192];
+                int read;
+                while ((read = await host.StandardOutput.BaseStream.ReadAsync(buffer, Ct)) > 0)
+                {
+                    lock (gate)
+                    {
+                        stdout.Write(buffer, 0, read);
+                    }
+                }
+            },
+            Ct);
         var stderr = host.StandardError.ReadToEndAsync(Ct);
         var input = host.StandardInput.BaseStream;
         var dir = Directory.CreateTempSubdirectory("niello-0007-");
@@ -39,9 +53,9 @@ public sealed class HostProcessTests
             await SendAsync(input, new { jsonrpc = "2.0", id = 2, method = "niello/ping" });
             await SendAsync(input, new { jsonrpc = "2.0", id = 3, method = "niello/solution/open", @params = new { path = sln } });
             await SendAsync(input, new { jsonrpc = "2.0", id = 4, method = "initialize", @params = new { } });
-            await Task.Delay(500, Ct);
+            await WaitForResponseAsync(stdout, gate, id: 4);
             await SendAsync(input, new { jsonrpc = "2.0", id = 5, method = "niello/host/shutdown" });
-            await Task.Delay(200, Ct);
+            await WaitForResponseAsync(stdout, gate, id: 5);
             await SendAsync(input, new { jsonrpc = "2.0", method = "niello/host/exit" });
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             await copy;
@@ -68,6 +82,65 @@ public sealed class HostProcessTests
 
             dir.Delete(recursive: true);
         }
+    }
+
+    /// <summary>Polls the captured stdout until a response with the given id has arrived, so the test never relies on sleeps.</summary>
+    private static async Task WaitForResponseAsync(MemoryStream stdout, object gate, int id)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            byte[] snapshot;
+            lock (gate)
+            {
+                snapshot = stdout.ToArray();
+            }
+
+            if (ParseCompleteFrames(snapshot).Any(m => m.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.Number && i.GetInt32() == id))
+            {
+                return;
+            }
+
+            await Task.Delay(25, Ct);
+        }
+
+        Assert.Fail($"no response with id {id} within 30 s");
+    }
+
+    /// <summary>Like <see cref="ParseFrames"/> but stops at a partial trailing frame instead of asserting.</summary>
+    private static List<JsonElement> ParseCompleteFrames(byte[] bytes)
+    {
+        var messages = new List<JsonElement>();
+        var at = 0;
+        while (at < bytes.Length)
+        {
+            var headerEnd = bytes.AsSpan(at).IndexOf("\r\n\r\n"u8);
+            if (headerEnd <= 0)
+            {
+                break;
+            }
+
+            var length = -1;
+            foreach (var line in Encoding.ASCII.GetString(bytes, at, headerEnd).Split("\r\n"))
+            {
+                var parts = line.Split(':', 2);
+                if (parts.Length == 2 && parts[0].Trim().Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+                {
+                    length = int.Parse(parts[1].Trim(), System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+
+            var start = at + headerEnd + 4;
+            if (length < 0 || start + length > bytes.Length)
+            {
+                break;
+            }
+
+            messages.Add(JsonDocument.Parse(bytes.AsMemory(start, length)).RootElement.Clone());
+            at = start + length;
+        }
+
+        return messages;
     }
 
     private static async Task SendAsync(Stream input, object message)
