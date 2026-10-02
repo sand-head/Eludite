@@ -764,8 +764,10 @@ impl Shell {
                 .filter(|d| d.severity.is_none_or(|s| s == 1))
                 .count()
         ));
-        let id = uri_to_path(&params.uri).map(|p| p.to_string_lossy().into_owned());
-        if let Some(doc) = id.as_deref().and_then(|id| self.documents.get(id)) {
+        // Match by URI, not by a path string: the document id is whatever path string the tree or
+        // dialog produced (on Windows possibly with mixed separators), while every document and the
+        // host agree on the URI form (the Windows CI failure after brief 0012).
+        if let Some(doc) = self.documents.values().find(|d| d.uri == params.uri) {
             // A result for an older version than the editor last sent is stale; a newer one is coming.
             if params.version.is_some_and(|v| v < doc.lsp_version) {
                 return;
