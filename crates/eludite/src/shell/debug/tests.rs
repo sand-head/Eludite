@@ -2402,7 +2402,8 @@ fn break_all_from_the_menu_and_an_agent_and_who_drives(cx: &mut TestAppContext) 
     );
     d.w.click("menu-item-Debug-Break All");
     assert!(d.w.audit().contains(&cmds::PAUSE.to_owned()));
-    assert!(d.fake().commands().contains(&"pause".to_owned()));
+    // The fake records the request on its own thread: wait for it rather than race it.
+    assert!(d.fake().wait_for("pause", 1, T));
     d.wait_break(4);
     let s = d.state();
     assert_eq!(s["stopped"]["reason"], "pause");
