@@ -714,7 +714,9 @@ impl Worker {
                 .unbounded_send(SessionEvent::BuildRefused { ticket, message });
         };
         let Some(client) = self.host() else {
-            return refuse("eludite-host is not running; open a solution first".into());
+            return refuse(
+                "eludite-host is not running; open a workspace with a .NET solution first".into(),
+            );
         };
         let pending = match client.request::<host::BuildStart>(params) {
             Ok(p) => p,

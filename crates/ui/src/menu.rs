@@ -74,15 +74,16 @@ pub fn vs_menus() -> Vec<Menu> {
             "File",
             vec![
                 item("New Project...", "eludite.file.new_project"),
-                item("Open Project/Solution...", "eludite.solution.open"),
-                // File > Open > Folder (brief 0019): a folder or a Cargo workspace.
-                item("Open Folder...", "eludite.workspace.open_folder"),
+                // A workspace is any folder: a Cargo workspace, a .NET solution, both, or neither.
+                item("Open Workspace...", "eludite.workspace.open_folder"),
+                // .NET-specific: open a solution or project file directly.
+                item("Open Solution or Project File...", "eludite.solution.open"),
                 item("Open File...", "eludite.file.open_file_dialog"),
                 Separator,
                 item("Save", "eludite.editor.save"),
                 item("Save All", "eludite.file.save_all"),
                 Separator,
-                item("Close Solution", "eludite.solution.close"),
+                item("Close Workspace", "eludite.workspace.close"),
                 item("Exit", "eludite.file.exit"),
             ],
         ),

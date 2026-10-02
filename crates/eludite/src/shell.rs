@@ -411,7 +411,7 @@ fn document_body(
             return review.clone().into_any_element();
         }
         let text = if tab.id == WELCOME {
-            "Open a solution with File > Open > Project/Solution (Ctrl+Shift+O)."
+            "Open a workspace with File > Open > Workspace... (Ctrl+Shift+Alt+O), or a .NET solution file with Ctrl+Shift+O."
         } else {
             "Loading\u{2026}"
         };
@@ -1148,6 +1148,7 @@ impl Shell {
                 self.apply_edit_command(edit, label, window, cx)
             }
             WorkspaceRequest::OpenFolder { path } => self.open_folder(&path, window, cx),
+            WorkspaceRequest::CloseWorkspace => self.close_workspace(window, cx),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),

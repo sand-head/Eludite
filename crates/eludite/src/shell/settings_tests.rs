@@ -27,7 +27,7 @@ impl Ws {
     }
 
     /// Invoke a command from another thread, as an agent's MCP call does.
-    fn agent_invoke(&self, command: &str, args: Value) -> Result<Value, String> {
+    pub(super) fn agent_invoke(&self, command: &str, args: Value) -> Result<Value, String> {
         let c = self.commands.clone();
         let command = command.to_owned();
         std::thread::spawn(move || c.invoke(&command, args).map_err(|e| e.to_string()))
@@ -163,7 +163,7 @@ fn agents_get_and_set_settings_through_the_bus(cx: &mut gpui::TestAppContext) {
             json!({"key": "build.onSave", "value": false, "scope": "solution"})
         )
         .unwrap_err()
-        .contains("no solution")
+        .contains("no workspace")
     );
     w.open_solution();
     w.wait("the solution layer", |w| {

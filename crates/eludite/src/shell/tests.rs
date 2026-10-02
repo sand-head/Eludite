@@ -666,7 +666,7 @@ fn agents_open_save_and_find_from_another_thread(cx: &mut TestAppContext) {
 fn file_open_solution_menu_uses_the_path_prompt(cx: &mut TestAppContext) {
     let mut w = setup(cx);
     w.click("menu-File");
-    w.click("menu-item-File-Open Project/Solution...");
+    w.click("menu-item-File-Open Solution or Project File...");
     assert!(w.vcx.did_prompt_for_paths());
     let sln = w.path("App.slnx");
     w.vcx
@@ -756,4 +756,36 @@ fn missing_host_is_reported_not_fatal(cx: &mut TestAppContext) {
         assert!(Instant::now() < deadline, "{status:?}");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[gpui::test]
+fn close_workspace_closes_the_solution_and_clears_the_window(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.open_solution();
+    // Drive the command from another thread, as an agent would, pumping the UI meanwhile.
+    let invoke = |w: &mut Ws| {
+        let commands = w.commands.clone();
+        let agent = std::thread::spawn(move || {
+            commands
+                .invoke(workspace::WORKSPACE_CLOSE, json!({}))
+                .unwrap()
+        });
+        let deadline = std::time::Instant::now() + T;
+        while !agent.is_finished() {
+            assert!(std::time::Instant::now() < deadline, "the agent timed out");
+            w.vcx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        agent.join().unwrap()
+    };
+    let out = invoke(&mut w);
+    assert_eq!(out["closed"], true);
+    assert!(out["solution"].is_string());
+    w.wait("the window cleared", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_none())
+    });
+    // Closing again is a no-op that says so.
+    let again = invoke(&mut w);
+    assert_eq!(again["closed"], false);
 }

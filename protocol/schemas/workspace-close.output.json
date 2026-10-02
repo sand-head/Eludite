@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-close.output.json",
+  "title": "eludite.workspace.close output",
+  "description": "What was closed.",
+  "type": "object",
+  "required": [
+    "closed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "closed": {
+      "description": "True when a folder or a solution was open.",
+      "type": "boolean"
+    },
+    "folder": {
+      "description": "The folder that was closed, if one was open.",
+      "type": "string"
+    },
+    "solution": {
+      "description": "The .NET solution that was closed, if one was open.",
+      "type": "string"
+    }
+  }
+}

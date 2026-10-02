@@ -43,9 +43,11 @@ pub const EDITOR_CODE_ACTIONS: &str = "eludite.editor.code_actions";
 pub const EDITOR_APPLY_CODE_ACTION: &str = "eludite.editor.apply_code_action";
 pub const WORKSPACE_APPLY_EDIT: &str = "eludite.workspace.apply_edit";
 pub const WORKSPACE_OPEN_FOLDER: &str = "eludite.workspace.open_folder";
+/// File > Close Workspace: the folder and any .NET solution open with it.
+pub const WORKSPACE_CLOSE: &str = "eludite.workspace.close";
 
 /// Every command this module registers.
-pub const ALL: [&str; 22] = [
+pub const ALL: [&str; 23] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -68,6 +70,7 @@ pub const ALL: [&str; 22] = [
     EDITOR_APPLY_CODE_ACTION,
     WORKSPACE_APPLY_EDIT,
     WORKSPACE_OPEN_FOLDER,
+    WORKSPACE_CLOSE,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
@@ -90,6 +93,12 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/workspace-open-folder.input.json"),
             include_str!("../../../protocol/schemas/workspace-open-folder.output.json"),
             Execute,
+        ),
+        WORKSPACE_CLOSE => (
+            "File: Close Workspace",
+            include_str!("../../../protocol/schemas/workspace-close.input.json"),
+            include_str!("../../../protocol/schemas/workspace-close.output.json"),
+            Read,
         ),
         SOLUTION_CLOSE => (
             "File: Close Solution",
@@ -328,6 +337,8 @@ pub enum WorkspaceRequest {
     OpenFolder {
         path: String,
     },
+    /// Close the open folder and any .NET solution with it (File > Close Workspace).
+    CloseWorkspace,
 }
 
 /// `error-list-filter.input.json`.
@@ -366,6 +377,7 @@ impl WorkspaceRequest {
             WorkspaceRequest::ApplyCodeAction { .. } => EDITOR_APPLY_CODE_ACTION,
             WorkspaceRequest::ApplyEdit { .. } => WORKSPACE_APPLY_EDIT,
             WorkspaceRequest::OpenFolder { .. } => WORKSPACE_OPEN_FOLDER,
+            WorkspaceRequest::CloseWorkspace => WORKSPACE_CLOSE,
         }
     }
 
@@ -394,7 +406,8 @@ impl WorkspaceRequest {
             | WorkspaceRequest::ErrorListFilter(_)
             | WorkspaceRequest::ApplyCodeAction { .. }
             | WorkspaceRequest::ApplyEdit { .. }
-            | WorkspaceRequest::OpenFolder { .. } => None,
+            | WorkspaceRequest::OpenFolder { .. }
+            | WorkspaceRequest::CloseWorkspace => None,
         }
     }
 }
@@ -902,6 +915,17 @@ pub enum WorkspaceOutput {
     ApplyCodeAction(ApplyCodeActionOutput),
     ApplyEdit(ApplyEditOutput),
     OpenFolder(OpenFolderOutput),
+    WorkspaceClose(WorkspaceCloseOutput),
+}
+
+/// `workspace-close.output.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceCloseOutput {
+    pub closed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solution: Option<String>,
 }
 
 impl WorkspaceOutput {
@@ -927,6 +951,7 @@ impl WorkspaceOutput {
             WorkspaceOutput::ApplyCodeAction(o) => serde_json::to_value(o),
             WorkspaceOutput::ApplyEdit(o) => serde_json::to_value(o),
             WorkspaceOutput::OpenFolder(o) => serde_json::to_value(o),
+            WorkspaceOutput::WorkspaceClose(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
     }
@@ -1153,6 +1178,7 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
             let _: Empty = input(value)?;
             WorkspaceRequest::SolutionClose
         }
+        WORKSPACE_CLOSE => WorkspaceRequest::CloseWorkspace,
         WORKSPACE_OPEN_FOLDER => {
             let i: PathIn = required(value)?;
             non_empty("path", &i.path)?;
