@@ -88,8 +88,9 @@ lldb-dap echoes the commands as `output` events with category `console` (the she
 
 ## Breakpoints and exceptions
 
-- Source breakpoints with `condition` (an LLDB expression), `hitCondition` (a number: lldb-dap sets LLDB's ignore
-  count to N-1, so it breaks on the Nth hit and every one after; not exercised by Eludite's tests) and `logMessage`
+- Source breakpoints with `condition` (an LLDB expression), `hitCondition` (a bare number: lldb-dap sets LLDB's
+  ignore count to N-1, so it breaks on the Nth hit counted from when the breakpoint was set, and on every hit after;
+  `>=N` and `%N` do not parse and the breakpoint breaks on every hit) and `logMessage`
   (`{expression}` interpolated; the line is an `output` event with category `console`, and the program does not stop).
   Answers are `verified` with the bound line, column and `instructionReference`.
 - Function breakpoints by name. The Exception Settings window's **Rust panics** row (`break_on_rust_panic`, default on)
@@ -155,5 +156,7 @@ lldb-dap echoes the commands as `output` events with category `console` (the she
 - No `--version` output, no `terminate` request, no `exceptionFilterOptions`, no data breakpoints, no `readMemory`.
 - A pause is an `exception` stop; `setVariable`'s answer names `result`; scope references follow the last `scopes`
   request (above).
+- Hit conditions are not Visual Studio's (above), so the shell does not send them to lldb-dap: it counts hits itself,
+  as for netcoredbg (`capabilities.hit_conditions` is `shell`).
 - The program's output comes through a pseudo-terminal: lines end with `\r\n`, and long writes arrive in pieces.
 - `env` must be a list of `NAME=value` strings; an object is ignored.
