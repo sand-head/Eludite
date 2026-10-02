@@ -124,6 +124,14 @@ pub fn decorations(
         .collect()
 }
 
+/// The path form document ids use: components re-joined with the native separator, so on Windows
+/// `C:\\a/b.cs` (a tree path built with `/`) and `C:\\a\\b.cs` (the same file back from a URI or a dialog)
+/// name one document. Without this, click-through from the Error List opened a second tab for an
+/// already open file on Windows CI (brief 0012).
+pub fn normalize_path(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
 /// `file:///abs/path` with reserved and non-ASCII bytes percent-encoded.
 pub fn path_to_uri(path: &Path) -> String {
     let s = path.to_string_lossy().replace('\\', "/");
@@ -237,7 +245,7 @@ impl Shell {
 
     fn resolve_file(&self, path: &str) -> PathBuf {
         let p = Path::new(path);
-        if p.is_absolute() {
+        let resolved = if p.is_absolute() {
             p.to_path_buf()
         } else {
             self.solution
@@ -246,7 +254,8 @@ impl Shell {
                 .map(|d| d.join(p))
                 .or_else(|| std::path::absolute(p).ok())
                 .unwrap_or_else(|| p.to_path_buf())
-        }
+        };
+        normalize_path(&resolved)
     }
 
     /// The document `path` names, or the active one.
@@ -661,6 +670,16 @@ mod tests {
 
     /// The round trip must reproduce the native path *string*, not just an equal `Path`,
     /// because documents are keyed by that string (the Windows CI failure after brief 0012).
+    #[test]
+    fn normalize_path_joins_components_with_the_native_separator() {
+        let mixed = Path::new("/a/b").join("c/d.cs");
+        let native = Path::new("/a").join("b").join("c").join("d.cs");
+        assert_eq!(
+            normalize_path(&mixed).to_string_lossy(),
+            native.to_string_lossy()
+        );
+    }
+
     #[test]
     fn uri_round_trip_keeps_the_native_path_string() {
         let native = std::env::temp_dir().join("eludite uri").join("Program.cs");
