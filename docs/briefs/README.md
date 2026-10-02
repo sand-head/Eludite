@@ -57,6 +57,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0024](0024-browser-automation-act.md) | Browser automation over CDP: acting on the page, the browser policy, transcript thumbnails and the fake-agent proof (proposal 0002 A, second half) | 2 | open |
 | [0025](0025-debug-inspection-depth.md) | Inspection depth for the agent debugging suite (proposal 0001 A) | 2 | [report](0025-report.md): done on Linux; snapshot 3 to 9 ms p95 (fake), summary 7.6 KB at the corpus stop, wait wakes in 2.5 to 11 ms; netcoredbg not run |
 | [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | open |
+| [0027](0027-debug-attach-and-policy.md) | Attach, restart and the debug policy for the agent debugging suite (proposal 0001 C) | 2 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
