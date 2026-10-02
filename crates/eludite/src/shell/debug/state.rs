@@ -1224,6 +1224,7 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
+                cargo: Default::default(),
                 wait_ms: None,
                 budget: Default::default()
             })
@@ -1237,6 +1238,7 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
+                cargo: Default::default(),
                 wait_ms: None,
                 budget: Default::default()
             })

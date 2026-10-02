@@ -8,6 +8,7 @@
 //! | `build.onSave`, `build.showOutputOnStart`, `build.showErrorListOnFailure`, `build.cargoPath` | builds (`build`) |
 //! | `debugger.netcoredbgPath` | the next debugging session's adapter search |
 //! | `debugger.monoPrefix`, `debugger.monoAdapterPath` | the next session's Mono and `eludite-dbg-mono` searches |
+//! | `debugger.lldbDapPath`, `debugger.rustFormatters` | the next native (Cargo) session's lldb-dap and Rust formatters |
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
@@ -15,7 +16,7 @@
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
 //! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`, `ELUDITE_CHROME`; brief 0022's `ELUDITE_MONO_PREFIX`
-//! and `ELUDITE_DBG_MONO`) still override the files: the store resolves them, so nothing here reads the environment.
+//! and `ELUDITE_DBG_MONO`; brief 0029's `ELUDITE_LLDB_DAP`) still override the files: the store resolves them, so nothing here reads the environment.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -104,6 +105,8 @@ pub struct Applied {
     pub netcoredbg: Option<PathBuf>,
     pub mono_prefix: Option<PathBuf>,
     pub mono_adapter: Option<PathBuf>,
+    pub lldb_dap: Option<PathBuf>,
+    pub rust_formatters: bool,
     pub rust_analyzer: Option<PathBuf>,
     pub agents: super::agents::RegistryConfig,
     pub keyboard_preset: String,
@@ -130,6 +133,8 @@ impl Shell {
                 netcoredbg: s.path("debugger.netcoredbgPath"),
                 mono_prefix: s.path("debugger.monoPrefix"),
                 mono_adapter: s.path("debugger.monoAdapterPath"),
+                lldb_dap: s.path("debugger.lldbDapPath"),
+                rust_formatters: s.bool("debugger.rustFormatters"),
                 rust_analyzer: s.path("languageServers.rustAnalyzerPath"),
                 agents: super::agents::RegistryConfig::from_store(&s),
                 keyboard_preset: s.string("keyboard.preset"),
@@ -156,6 +161,8 @@ impl Shell {
         self.debug.set_mono_prefix(applied.mono_prefix.clone());
         self.debug
             .set_mono_adapter_path(applied.mono_adapter.clone());
+        self.debug.set_lldb_dap_path(applied.lldb_dap.clone());
+        self.debug.set_rust_formatters(applied.rust_formatters);
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
         let agents_changed = self

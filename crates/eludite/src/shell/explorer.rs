@@ -5,8 +5,9 @@
 //!
 //! A right-click on a project (or a Cargo package) opens its context menu (brief 0020), in Visual Studio's order:
 //! Build, Rebuild and Clean (`eludite.build.project` with the project and a target), Set as Startup Project
-//! (`eludite.workspace.set_startup_project`, .NET projects only: only they can be debugged yet) and Open Containing
-//! Folder (`eludite.workspace.open_containing_folder`). Every item runs its command through the bus.
+//! (`eludite.workspace.set_startup_project`, .NET projects and Cargo packages: brief 0029 debugs Cargo packages with
+//! lldb-dap) and Open Containing Folder (`eludite.workspace.open_containing_folder`). Every item runs its command
+//! through the bus.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -127,8 +128,10 @@ impl SolutionExplorer {
     }
 
     fn is_startup(&self, row: &Row) -> bool {
-        matches!(row.kind, NodeKind::Project { .. })
-            && self.startup.is_some()
+        matches!(
+            row.kind,
+            NodeKind::Project { .. } | NodeKind::CargoPackage { .. }
+        ) && self.startup.is_some()
             && row.path.as_deref().map(super::documents::normalize_path) == self.startup
     }
 
@@ -160,9 +163,8 @@ impl SolutionExplorer {
 
     fn context_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let (ix, at) = self.menu?;
-        let row = self.rows.get(ix)?;
+        self.rows.get(ix)?;
         let t = self.theme;
-        let dotnet = matches!(row.kind, NodeKind::Project { .. });
         let mut items = Vec::new();
         for (i, (item, label)) in CONTEXT_ITEMS.into_iter().enumerate() {
             if i == 3 || i == 4 {
@@ -175,24 +177,23 @@ impl SolutionExplorer {
                         .into_any_element(),
                 );
             }
-            // Only .NET projects can be started (Rust debugging is a later brief).
-            let enabled = item != "startup" || dotnet;
+            // Every item applies to .NET projects and Cargo packages alike (brief 0029 starts Cargo packages).
             let el = menu_row(
                 context_item_selector(item),
                 label,
                 0,
                 false,
                 false,
-                !enabled,
+                false,
                 &t,
             )
             .min_w(px(220.));
-            items.push(if enabled {
-                el.on_click(cx.listener(move |this, _, window, cx| this.run_item(item, window, cx)))
-                    .into_any_element()
-            } else {
-                el.into_any_element()
-            });
+            items.push(
+                el.on_click(
+                    cx.listener(move |this, _, window, cx| this.run_item(item, window, cx)),
+                )
+                .into_any_element(),
+            );
         }
         Some(
             deferred(

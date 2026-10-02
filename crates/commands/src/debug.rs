@@ -460,6 +460,22 @@ impl OutputPattern {
     }
 }
 
+/// What `eludite.debug.start` asks of a Cargo package (brief 0029): the binary target (or test target), whether to
+/// debug the test executable, and the arguments (with `test`, the harness's filter). `.NET` projects take none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CargoOptions {
+    pub target: Option<String>,
+    pub test: bool,
+    pub args: Option<Vec<String>>,
+}
+
+impl CargoOptions {
+    /// Whether any is given (a .NET project refuses them).
+    pub fn is_set(&self) -> bool {
+        self.target.is_some() || self.test || self.args.is_some()
+    }
+}
+
 /// A parsed, validated debug command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugRequest {
@@ -469,6 +485,8 @@ pub enum DebugRequest {
         profile: Option<String>,
         /// Build the project first (brief 0020); `None`: the setting `build.beforeRun`.
         build: Option<bool>,
+        /// A Cargo package's target, test executable and arguments (brief 0029).
+        cargo: CargoOptions,
         wait_ms: Option<u64>,
         budget: Budget,
     },
@@ -520,6 +538,8 @@ pub enum DebugRequest {
     ExceptionSettings {
         break_when_thrown: Option<bool>,
         break_when_user_unhandled: Option<bool>,
+        /// The Rust panics row (brief 0029).
+        break_on_rust_panic: Option<bool>,
     },
     Snapshot {
         thread: Option<i64>,
@@ -654,7 +674,7 @@ pub struct SessionRow {
     pub debug: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
-    /// What runs the program (brief 0022): `coreclr`, `mono` or `netfx`.
+    /// What runs the program (brief 0022): `coreclr`, `mono` or `netfx`; `native` for a Cargo package (brief 0029).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -743,14 +763,23 @@ pub struct BreakpointRow {
 pub struct ExceptionSettingsRow {
     pub break_when_thrown: bool,
     pub break_when_user_unhandled: bool,
+    /// Rust panics (brief 0029): a native session breaks at `rust_panic`. Absent from files saved before: on.
+    #[serde(default = "rust_panics_default")]
+    pub break_on_rust_panic: bool,
+}
+
+fn rust_panics_default() -> bool {
+    true
 }
 
 impl Default for ExceptionSettingsRow {
-    /// Visual Studio's default: break on exceptions user code does not handle, not on every throw.
+    /// Visual Studio's default: break on exceptions user code does not handle, not on every throw; and on Rust panics
+    /// (what rust-lldb users set).
     fn default() -> Self {
         Self {
             break_when_thrown: false,
             break_when_user_unhandled: true,
+            break_on_rust_panic: true,
         }
     }
 }
@@ -1158,6 +1187,9 @@ struct StartIn {
     debug: Option<bool>,
     profile: Option<String>,
     build: Option<bool>,
+    target: Option<String>,
+    test: Option<bool>,
+    args: Option<Vec<String>>,
     wait_ms: Option<u64>,
 }
 
@@ -1229,6 +1261,7 @@ struct WatchIn {
 struct ExceptionsIn {
     break_when_thrown: Option<bool>,
     break_when_user_unhandled: Option<bool>,
+    break_on_rust_panic: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1422,11 +1455,19 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
     Ok(match id {
         START => {
             let i: StartIn = input(value)?;
+            if i.args.as_ref().is_some_and(|a| a.len() > 100) {
+                return Err(invalid("`args` takes at most 100 arguments"));
+            }
             DebugRequest::Start {
                 project: non_empty("project", i.project)?,
                 debug: i.debug.unwrap_or(true),
                 profile: non_empty("profile", i.profile)?,
                 build: i.build,
+                cargo: CargoOptions {
+                    target: non_empty("target", i.target)?,
+                    test: i.test.unwrap_or(false),
+                    args: i.args,
+                },
                 wait_ms: check_wait(i.wait_ms)?,
                 budget,
             }
@@ -1536,6 +1577,7 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
             DebugRequest::ExceptionSettings {
                 break_when_thrown: i.break_when_thrown,
                 break_when_user_unhandled: i.break_when_user_unhandled,
+                break_on_rust_panic: i.break_on_rust_panic,
             }
         }
         SNAPSHOT => {
@@ -1790,10 +1832,34 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
+                cargo: CargoOptions::default(),
                 wait_ms: None,
                 budget: Budget::default()
             }
         );
+        // A Cargo package's test executable with a filter (brief 0029).
+        assert_eq!(
+            parse(
+                START,
+                json!({"project": "app", "test": true, "args": ["my_test"], "target": "app"})
+            )
+            .unwrap(),
+            DebugRequest::Start {
+                project: Some("app".into()),
+                debug: true,
+                profile: None,
+                build: None,
+                cargo: CargoOptions {
+                    target: Some("app".into()),
+                    test: true,
+                    args: Some(vec!["my_test".into()])
+                },
+                wait_ms: None,
+                budget: Budget::default()
+            }
+        );
+        assert!(parse(START, json!({"target": ""})).is_err());
+        assert!(parse(START, json!({"args": "my_test"})).is_err());
         assert_eq!(
             parse(
                 START,
@@ -1805,6 +1871,7 @@ mod tests {
                 debug: false,
                 profile: Some("App".into()),
                 build: Some(false),
+                cargo: CargoOptions::default(),
                 wait_ms: None,
                 budget: Budget::default()
             }
@@ -1925,9 +1992,24 @@ mod tests {
             parse(EXCEPTION_SETTINGS, json!({"break_when_thrown": true})).unwrap(),
             DebugRequest::ExceptionSettings {
                 break_when_thrown: Some(true),
-                break_when_user_unhandled: None
+                break_when_user_unhandled: None,
+                break_on_rust_panic: None
             }
         );
+        assert_eq!(
+            parse(EXCEPTION_SETTINGS, json!({"break_on_rust_panic": false})).unwrap(),
+            DebugRequest::ExceptionSettings {
+                break_when_thrown: None,
+                break_when_user_unhandled: None,
+                break_on_rust_panic: Some(false)
+            }
+        );
+        // Settings saved before brief 0029 have no Rust panics row: it is on.
+        let old: ExceptionSettingsRow = serde_json::from_value(
+            json!({"break_when_thrown": false, "break_when_user_unhandled": true}),
+        )
+        .unwrap();
+        assert!(old.break_on_rust_panic);
         for id in ALL {
             let s = spec(id);
             assert!(s.agent_visible, "{id}");
