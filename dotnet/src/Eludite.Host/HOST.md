@@ -26,6 +26,7 @@ The full contract is `protocol/schemas/host-rpc.md` (brief 0007), with a JSON sc
 | `eludite/solution/status`, `eludite/languageServer/status`, `textDocument/publishDiagnostics` | host-to-shell notification | `Lsp/LspProxy.cs` |
 | `workspace/applyEdit` | host-to-shell request, relayed from the language server with `eluditeGeneration` added | `Lsp/LspProxy.cs` (`RelayApplyEditAsync`) |
 | `eludite/build/start`, `eludite/build/cancel` | request | `Build/BuildService.cs` (brief 0017) |
+| `eludite/build/status` | request | `Build/BuildService.cs`, `Build/OutputHistory.cs` (brief 0020): the running build with its last 8 MiB of output, and the last result |
 | `eludite/build/output`, `eludite/build/progress`, `eludite/build/finished` | host-to-shell notification | `Build/BuildService.cs`, `Build/OutputPipe.cs` |
 
 Plain LSP `initialize`, `shutdown` and `exit` are not host methods (renamed in brief 0007; they return

@@ -10,6 +10,8 @@ namespace Eludite.Host.Build;
 /// <c>eludite/build/start</c> and <c>eludite/build/cancel</c> (brief 0017; host-rpc.md, "Build"): one build at a time,
 /// run out of process, its console output streamed as <c>eludite/build/output</c>, progress as
 /// <c>eludite/build/progress</c>, and the result, read from the binary log, as <c>eludite/build/finished</c>.
+/// <c>eludite/build/status</c> (brief 0020) answers the running build with its output so far and the last finished
+/// build, so a shell that (re)connects can replay it.
 /// </summary>
 public sealed class BuildService : IAsyncDisposable
 {
@@ -28,6 +30,7 @@ public sealed class BuildService : IAsyncDisposable
     private readonly Lock _lock = new();
     private JsonRpc? _shell;
     private BuildRun? _current;
+    private BuildStatusLast? _last;
     private long _nextId;
 
     /// <param name="currentSolution">The generation, the open solution (or null) and a token canceled when the generation moves on.</param>
@@ -110,15 +113,25 @@ public sealed class BuildService : IAsyncDisposable
             var id = ++_nextId;
             var binlog = BinlogPath(id);
             var plan = BuildPlan.Create(parameters.Target!, path, configuration, platform, binlog, hasLegacy, _toolchains.Value);
-            var run = new BuildRun(this, id, generation, parameters.Target!, path, configuration, platform, projects.Count, plan, binlog, generationChanged);
-            _current = run;
-            run.Start();
-            _log.WriteLine($"[build] #{id} {parameters.Target} {path}: {plan.CommandLine}");
-            return new BuildStartResult(id, generation, path, parameters.Target!, configuration, plan.Toolchain, plan.CommandLine)
+            var started = new BuildStartResult(id, generation, path, parameters.Target!, configuration, plan.Toolchain, plan.CommandLine)
             {
                 Platform = platform,
                 Binlog = binlog,
             };
+            var run = new BuildRun(this, started, projects.Count, plan, binlog, generationChanged);
+            _current = run;
+            run.Start();
+            _log.WriteLine($"[build] #{id} {parameters.Target} {path}: {plan.CommandLine}");
+            return started;
+        }
+    }
+
+    /// <summary><c>eludite/build/status</c>: the running build with its output so far, and the last finished build.</summary>
+    public BuildStatusResult Status()
+    {
+        lock (_lock)
+        {
+            return new BuildStatusResult(_current?.Status()) { Last = _last };
         }
     }
 
@@ -157,7 +170,7 @@ public sealed class BuildService : IAsyncDisposable
 
     internal TextWriter Log => _log;
 
-    internal void Finished(BuildRun run)
+    internal void Finished(BuildRun run, BuildFinishedParams finished)
     {
         lock (_lock)
         {
@@ -165,6 +178,8 @@ public sealed class BuildService : IAsyncDisposable
             {
                 _current = null;
             }
+
+            _last = new BuildStatusLast(finished.BuildId, finished.Generation, finished.Target, finished.Path, finished.Result, finished.ElapsedMs, finished.Summary);
         }
     }
 
@@ -226,6 +241,8 @@ internal sealed class BuildRun
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(100);
 
     private readonly BuildService _service;
+    private readonly BuildStartResult _started;
+    private readonly OutputHistory _history = new();
     private readonly string _target;
     private readonly string _path;
     private readonly string _configuration;
@@ -248,16 +265,18 @@ internal sealed class BuildRun
     private int _progressVersion;
     private bool _afterTaskFailure;
     private bool _stackNoted;
+    private BuildProgressParams? _lastProgress;
 
-    public BuildRun(BuildService service, long id, long generation, string target, string path, string configuration, string? platform, int projectsTotal, BuildPlan plan, string? binlog, CancellationToken generationChanged)
+    public BuildRun(BuildService service, BuildStartResult started, int projectsTotal, BuildPlan plan, string? binlog, CancellationToken generationChanged)
     {
         _service = service;
-        Id = id;
-        Generation = generation;
-        _target = target;
-        _path = path;
-        _configuration = configuration;
-        _platform = platform;
+        _started = started;
+        Id = started.BuildId;
+        Generation = started.Generation;
+        _target = started.Target;
+        _path = started.Path;
+        _configuration = started.Configuration;
+        _platform = started.Platform;
         _projectsTotal = Math.Max(projectsTotal, 1);
         _plan = plan;
         _binlog = binlog;
@@ -271,6 +290,34 @@ internal sealed class BuildRun
     public Task Completion => _done.Task;
 
     public void Start() => _ = Task.Run(RunAsync);
+
+    /// <summary>For <c>eludite/build/status</c>: the start result's members, the elapsed time, the last progress and the output so far.</summary>
+    public BuildStatusRunning Status()
+    {
+        BuildProgressParams? progress;
+        lock (_lock)
+        {
+            progress = _lastProgress;
+        }
+
+        return new BuildStatusRunning(Id, Generation, _path, _target, _configuration, _started.Toolchain, _started.CommandLine, _elapsed.Elapsed.TotalMilliseconds, _history.Snapshot())
+        {
+            Platform = _platform,
+            Binlog = _started.Binlog,
+            Progress = progress,
+        };
+    }
+
+    /// <summary>Sends <c>eludite/build/progress</c>, remembering it for <see cref="Status"/>.</summary>
+    private Task SendProgressAsync(BuildProgressParams progress)
+    {
+        lock (_lock)
+        {
+            _lastProgress = progress;
+        }
+
+        return _service.NotifyAsync("eludite/build/progress", progress);
+    }
 
     public void Cancel(string message)
     {
@@ -292,7 +339,12 @@ internal sealed class BuildRun
 
     private async Task RunAsync()
     {
-        var pipe = new OutputPipe((seq, text) => _service.NotifyAsync("eludite/build/output", new BuildOutputParams(Id, seq, text)));
+        // Recorded before it is sent: a status answered after the notification always holds the chunk.
+        var pipe = new OutputPipe((seq, text) =>
+        {
+            _history.Add(seq, text);
+            return _service.NotifyAsync("eludite/build/output", new BuildOutputParams(Id, seq, text));
+        });
         int? exitCode = null;
         string? failure = null;
         try
@@ -415,7 +467,7 @@ internal sealed class BuildRun
         }
 
         // The final counts, also when the build ended within one progress interval of its last change.
-        await _service.NotifyAsync("eludite/build/progress", last).ConfigureAwait(false);
+        await SendProgressAsync(last).ConfigureAwait(false);
         return (process.HasExited && !Canceled ? process.ExitCode : null, null);
     }
 
@@ -511,7 +563,7 @@ internal sealed class BuildRun
 
             if (p is not null)
             {
-                await _service.NotifyAsync("eludite/build/progress", p).ConfigureAwait(false);
+                await SendProgressAsync(p).ConfigureAwait(false);
             }
         }
     }
@@ -635,7 +687,7 @@ internal sealed class BuildRun
         };
         _service.Log.WriteLine($"[build] #{Id} {result} in {elapsed.TotalMilliseconds:0} ms: {summary.Errors} errors, {summary.Warnings} warnings");
         // Free the service first: a client that starts the next build on this notification is not refused.
-        _service.Finished(this);
+        _service.Finished(this, finished);
         await _service.NotifyAsync("eludite/build/finished", finished).ConfigureAwait(false);
     }
 

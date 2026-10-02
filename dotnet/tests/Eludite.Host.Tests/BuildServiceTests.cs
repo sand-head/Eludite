@@ -155,6 +155,94 @@ public sealed class BuildServiceTests
     }
 
     [Fact]
+    public async Task Status_ReturnsTheRunningBuildWithItsOutputSoFar_ThenTheLastResult()
+    {
+        using var dir = new TempDir();
+        var marker = "eludite-slow-" + Guid.NewGuid().ToString("N")[..12];
+        var slnx = SlowFixture(dir.Path, marker);
+        await using var host = await WireHost.OpenAsync(slnx);
+
+        // Nothing has run yet.
+        var idle = await host.StatusAsync();
+        Assert.Equal(JsonValueKind.Null, idle.GetProperty("running").ValueKind);
+        Assert.False(idle.TryGetProperty("last", out _));
+
+        await host.StartAsync(new { target = "build", configuration = "Release" });
+        await host.WaitForOutputAsync(marker);
+        var status = await host.StatusAsync();
+        var running = status.GetProperty("running");
+        Assert.Equal(1, running.GetProperty("buildId").GetInt64());
+        Assert.Equal("build", running.GetProperty("target").GetString());
+        Assert.Equal("Release", running.GetProperty("configuration").GetString());
+        Assert.Equal(slnx, running.GetProperty("path").GetString());
+        Assert.Equal("dotnet", running.GetProperty("toolchain").GetProperty("kind").GetString());
+        Assert.Contains("-bl:", running.GetProperty("commandLine").GetString(), StringComparison.Ordinal);
+        Assert.True(running.GetProperty("elapsedMs").GetDouble() > 0);
+        var output = running.GetProperty("output");
+        Assert.Equal(0, output.GetProperty("firstSeq").GetInt64());
+        Assert.False(output.GetProperty("truncated").GetBoolean());
+        var nextSeq = output.GetProperty("nextSeq").GetInt64();
+        Assert.True(nextSeq >= 1);
+        var text = output.GetProperty("text").GetString()!;
+        Assert.StartsWith("Build started at ", text, StringComparison.Ordinal);
+        Assert.Contains(marker, text, StringComparison.Ordinal);
+
+        // The text is exactly the chunks 0 to nextSeq - 1 the shell was sent.
+        var deadline = Stopwatch.StartNew();
+        while (host.Output.Count < nextSeq)
+        {
+            Assert.True(deadline.Elapsed < BuildTimeout, "chunks before nextSeq never arrived");
+            await Task.Delay(10, Ct);
+        }
+
+        var sent = host.Output.Where(c => c.GetProperty("seq").GetInt64() < nextSeq).OrderBy(c => c.GetProperty("seq").GetInt64());
+        Assert.Equal(string.Concat(sent.Select(c => c.GetProperty("text").GetString())), text);
+
+        await host.Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/build/cancel", new { }, Ct);
+        var finished = await host.FinishedAsync();
+        var after = await host.StatusAsync();
+        Assert.Equal(JsonValueKind.Null, after.GetProperty("running").ValueKind);
+        var last = after.GetProperty("last");
+        Assert.Equal(1, last.GetProperty("buildId").GetInt64());
+        Assert.Equal("canceled", last.GetProperty("result").GetString());
+        Assert.Equal(finished.GetProperty("elapsedMs").GetDouble(), last.GetProperty("elapsedMs").GetDouble());
+        Assert.False(last.TryGetProperty("diagnostics", out _));
+    }
+
+    [Fact]
+    public async Task Status_IsAnsweredBeforeInitialize_WithNoBuild()
+    {
+        await using var host = new WireHost();
+        var status = await host.StatusAsync();
+        Assert.Equal(JsonValueKind.Null, status.GetProperty("running").ValueKind);
+        var withNull = await host.Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/build/status", null, Ct);
+        Assert.Equal(JsonValueKind.Null, withNull.GetProperty("running").ValueKind);
+    }
+
+    [Fact]
+    public void OutputHistory_KeepsTheLastWholeChunks_WithinItsLimit()
+    {
+        var history = new OutputHistory(maxBytes: 10);
+        var empty = history.Snapshot();
+        Assert.Equal((0L, 0L, "", false), (empty.FirstSeq, empty.NextSeq, empty.Text, empty.Truncated));
+
+        history.Add(0, "aaaa\n");
+        history.Add(1, "bbbb\n");
+        var both = history.Snapshot();
+        Assert.Equal((0L, 2L, "aaaa\nbbbb\n", false), (both.FirstSeq, both.NextSeq, both.Text, both.Truncated));
+
+        // Over the limit: the oldest chunk goes, whole.
+        history.Add(2, "cc\n");
+        var kept = history.Snapshot();
+        Assert.Equal((1L, 3L, "bbbb\ncc\n", true), (kept.FirstSeq, kept.NextSeq, kept.Text, kept.Truncated));
+
+        // A chunk larger than the limit is kept alone (the latest output is never dropped).
+        history.Add(3, "0123456789abcdef\n");
+        var big = history.Snapshot();
+        Assert.Equal((3L, 4L, "0123456789abcdef\n"), (big.FirstSeq, big.NextSeq, big.Text));
+    }
+
+    [Fact]
     public async Task Start_IsRefused_BeforeInitialize_WithoutASolution_AndForAForeignProject()
     {
         await using var host = new WireHost();
@@ -592,6 +680,9 @@ public sealed class BuildServiceTests
 
         public Task InitializeAsync() =>
             Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/host/initialize", new { clientName = "test", clientVersion = "0" }, Ct);
+
+        public Task<JsonElement> StatusAsync() =>
+            Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/build/status", new { }, Ct);
 
         public Task<JsonElement> StartAsync(object parameters) =>
             Client.InvokeWithParameterObjectAsync<JsonElement>("eludite/build/start", parameters, Ct);
