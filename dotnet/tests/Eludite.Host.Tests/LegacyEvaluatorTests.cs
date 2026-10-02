@@ -13,14 +13,10 @@ public sealed class LegacyEvaluatorTests : IDisposable
     {
         try
         {
-            _dir.Delete(recursive: true);
+            TestDirectory.Delete(_dir.FullName);
         }
         catch (IOException)
         {
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Windows: the recursive delete removes MergedRoot's junctions but still reports access denied.
         }
     }
 
