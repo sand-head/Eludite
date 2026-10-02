@@ -52,7 +52,7 @@ crates/            Rust workspace (shell)
   niello/          binary: entry, window, layout
   docking/ ui/ editor/ commands/ workspace/
   lsp/ dap/ acp/ mcp/ git/ terminal/ extensions/
-vendor/            pinned Zed crates, each with WHY.md (after the audit)
+vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), each with WHY.md
 dotnet/            .NET solution (hosts)
 debuggers/netfx/   niello-dbg-netfx (Rust, Windows)
 protocol/          MIT: schemas, generated bindings
