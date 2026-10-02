@@ -1552,6 +1552,7 @@ version = "0.1.0"
 dependencies = [
  "clock",
  "eludite-acp",
+ "eludite-browser",
  "eludite-commands",
  "eludite-dap",
  "eludite-docking",

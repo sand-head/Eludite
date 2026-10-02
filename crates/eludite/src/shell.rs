@@ -3,13 +3,17 @@
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
 //! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), builds with the Output window and
 //! the build's rows in the Error List (brief 0017), run and debug (brief 0018), and File > Open Folder
-//! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`).
+//! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`), and
+//! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
 pub mod agents;
+pub mod browser;
+#[cfg(test)]
+mod browser_tests;
 pub mod build;
 #[cfg(test)]
 mod build_tests;
@@ -137,6 +141,9 @@ pub struct Services {
     pub project_jobs: UnboundedReceiver<startup::ProjectJob>,
     /// Shows a folder in the system's file manager (tests record instead).
     pub folder_opener: startup::FolderOpener,
+    /// The browser of `eludite.browser.*` (brief 0023) and its lines for the Output window.
+    pub browser: browser::BrowserBus,
+    pub browser_log: UnboundedReceiver<String>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -221,6 +228,7 @@ pub fn register_workspace(
         }),
     );
     let debug_jobs = debug::register(commands);
+    let (browser, browser_log) = browser::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -248,6 +256,8 @@ pub fn register_workspace(
         options_jobs,
         project_jobs,
         folder_opener: startup::system_folder_opener(),
+        browser,
+        browser_log,
     }
 }
 
@@ -345,6 +355,8 @@ pub struct Shell {
     settings_applied: Vec<std::time::Duration>,
     /// Tools > Options, while open.
     options: Option<Entity<options::OptionsDialog>>,
+    /// The browser of `eludite.browser.*` (brief 0023).
+    browser: browser::BrowserBus,
     /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
     folder_opener: startup::FolderOpener,
     default_startup: Option<PathBuf>,
@@ -475,6 +487,8 @@ impl Shell {
             mut options_jobs,
             mut project_jobs,
             folder_opener,
+            browser,
+            browser_log,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -672,6 +686,7 @@ impl Shell {
             }
         });
         let debug_task = Self::debug_tasks(debug_msgs, debug_jobs, window, cx);
+        let browser_task = Self::browser_output_task(browser_log, window, cx);
         // Settings changes (a file edited on disk, or eludite.settings.set): applied in one update per burst.
         let settings_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = settings_changed.next().await {
@@ -758,6 +773,7 @@ impl Shell {
             applied_settings: None,
             settings_applied: Vec::new(),
             options: None,
+            browser,
             folder_opener,
             default_startup: None,
             ui_bounds: None,
@@ -774,6 +790,7 @@ impl Shell {
                 settings_task,
                 options_task,
                 project_task,
+                browser_task,
             ],
         };
         this.apply_settings(None, cx);

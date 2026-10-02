@@ -19,6 +19,8 @@ futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
 gpui_platform.workspace = true
 eludite-acp.workspace = true
+# The browser of eludite.browser.* (brief 0023): the engine trait, the external Chrome over CDP.
+eludite-browser.workspace = true
 eludite-commands.workspace = true
 # The DAP client, netcoredbg discovery and launch configuration (brief 0018).
 eludite-dap.workspace = true
