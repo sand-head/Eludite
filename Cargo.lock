@@ -1573,9 +1573,11 @@ dependencies = [
 name = "eludite-dap"
 version = "0.1.0"
 dependencies = [
+ "eludite-dap",
  "eludite-protocol",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
