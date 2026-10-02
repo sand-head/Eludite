@@ -341,3 +341,86 @@ fn decorations_follow_edits(cx: &mut TestAppContext) {
     });
     assert_eq!(offset, 12);
 }
+
+#[gpui::test]
+fn read_only_documents_navigate_but_do_not_edit(cx: &mut TestAppContext) {
+    let (view, mut cx) = open(cx, "class JsonRpc\n{\n}\n", None);
+    view.update(&mut cx, |v, cx| v.set_read_only(true, cx));
+    assert!(view.read_with(&cx, |v, _| v.is_read_only()));
+    cx.simulate_input("x");
+    cx.simulate_keystrokes("enter backspace delete tab ctrl-v ctrl-x ctrl-z");
+    assert_eq!(text(&view, &mut cx), "class JsonRpc\n{\n}\n");
+    // Movement, selection and find still work.
+    cx.simulate_keystrokes("ctrl-right shift-end");
+    assert_eq!(
+        view.read_with(&cx, |v, _| v.editor().selected_text()),
+        "JsonRpc"
+    );
+    cx.simulate_keystrokes("ctrl-f");
+    assert!(view.read_with(&cx, |v, _| v.is_find_bar_open()));
+    cx.simulate_keystrokes("escape");
+    // Programmatic edits (the owner) still apply; editable again afterwards.
+    view.update(&mut cx, |v, cx| {
+        v.set_read_only(false, cx);
+    });
+    cx.simulate_input("x");
+    assert!(text(&view, &mut cx).contains("x"));
+}
+
+#[gpui::test]
+fn ctrl_click_moves_the_caret_and_asks_for_the_definition(cx: &mut TestAppContext) {
+    use eludite_editor::EditorEvent;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let (view, mut cx) = open(cx, "var rpc = new JsonRpc();\n", None);
+    let events: Rc<RefCell<Vec<usize>>> = Rc::default();
+    let sink = events.clone();
+    cx.update(|_, cx| {
+        cx.subscribe(&view, move |_, e: &EditorEvent, _| {
+            if let EditorEvent::GoToDefinition { offset } = e {
+                sink.borrow_mut().push(*offset);
+            }
+        })
+        .detach()
+    });
+    cx.run_until_parked();
+    let offset = "var rpc = new Js".len();
+    let at = position_of(&view, &mut cx, offset);
+    let click = |cx: &mut VisualTestContext, modifiers: Modifiers| {
+        cx.simulate_event(MouseDownEvent {
+            position: at,
+            modifiers,
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        });
+        cx.simulate_event(MouseUpEvent {
+            position: at,
+            modifiers,
+            button: MouseButton::Left,
+            click_count: 1,
+        });
+    };
+    click(&mut cx, Modifiers::none());
+    assert!(
+        events.borrow().is_empty(),
+        "a plain click only moves the caret"
+    );
+    view.update(&mut cx, |v, cx| v.update_editor(cx, |e| e.set_caret(0)));
+    click(&mut cx, Modifiers::control());
+    assert_eq!(*events.borrow(), [offset]);
+    assert_eq!(
+        view.read_with(&cx, |v, _| v.editor().primary_selection().head),
+        offset
+    );
+    // Ctrl+Alt+click still adds a caret and is not a navigation.
+    click(
+        &mut cx,
+        Modifiers {
+            control: true,
+            alt: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(events.borrow().len(), 1);
+}
