@@ -1,0 +1,26 @@
+[package]
+name = "eludite-browser"
+description = "Eludite's browser automation: the engine trait, the CDP client and the eludite.browser.* commands."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+eludite-commands.workspace = true
+# The generated Chrome DevTools Protocol types (protocol/rust/src/cdp/, brief 0023).
+eludite-protocol = { workspace = true, features = ["cdp"] }
+# `/regex/` patterns of console and network filters. MIT OR Apache-2.0; already in the build through GPUI.
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+# The CDP websocket over std::net::TcpStream: no TLS, no async runtime. MIT OR Apache-2.0.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
