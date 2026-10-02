@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-close.input.json",
+  "title": "eludite.workspace.close input",
+  "description": "Close the open workspace (File > Close Workspace): the folder and any .NET solution open with it. Open documents stay open. Does nothing when no workspace is open.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

@@ -322,7 +322,7 @@ impl SettingsStore {
             })?,
             SettingScope::Solution => self.solution.as_mut().ok_or_else(|| {
                 CommandError::Failed(
-                    "no solution or folder is open: there is no solution settings file".into(),
+                    "no workspace is open: there is no workspace settings file".into(),
                 )
             })?,
         };
@@ -606,7 +606,7 @@ mod tests {
         assert!(
             s.set("build.onSave", json!(true), SettingScope::Solution)
                 .is_err(),
-            "no solution open"
+            "no workspace open"
         );
 
         std::fs::write(&user, "{ not json").unwrap();

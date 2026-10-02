@@ -399,7 +399,7 @@ impl Render for OptionsDialog {
             .map(|spec| self.setting_row(spec, focused, cx))
             .collect();
         let files = match &self.solution_file {
-            Some(s) => format!("User settings: {}\nSolution settings: {s}", self.user_file),
+            Some(s) => format!("User settings: {}\nWorkspace settings: {s}", self.user_file),
             None => format!("User settings: {}", self.user_file),
         };
         let ok = push_button(OK, "OK", true, true, &t)

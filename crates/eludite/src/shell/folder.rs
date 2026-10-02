@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use eludite_commands::CommandError;
-use eludite_commands::workspace::{self, OpenFolderOutput, WorkspaceOutput};
+use eludite_commands::workspace::{self, OpenFolderOutput, WorkspaceCloseOutput, WorkspaceOutput};
 use eludite_commands::workspace_tree::{WorkspaceProject, WorkspaceTarget, WorkspaceTreeOutput};
 use eludite_lsp::ServerRegistration;
 use eludite_lsp::host::{SolutionState, SolutionTree, TreeProjectKind};
@@ -295,6 +295,34 @@ impl Shell {
     }
 
     /// The open folder's Workspace tree and `eludite.workspace.tree`, from what has loaded so far.
+    /// File > Close Workspace: drop the open folder and close any .NET solution with it.
+    pub(super) fn close_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<WorkspaceOutput, CommandError> {
+        let folder = self
+            .folder
+            .take()
+            .map(|f| f.root.to_string_lossy().into_owned());
+        let solution = self
+            .session
+            .close()
+            .map(|p| p.to_string_lossy().into_owned());
+        if solution.is_none() {
+            // No `SessionEvent::Closed` will follow, so clear the window here.
+            self.explorer.update(cx, |e, cx| e.clear(cx));
+            window.set_window_title("Eludite");
+            self.publish_workspace_tree();
+            cx.notify();
+        }
+        Ok(WorkspaceOutput::WorkspaceClose(WorkspaceCloseOutput {
+            closed: folder.is_some() || solution.is_some(),
+            folder,
+            solution,
+        }))
+    }
+
     pub(super) fn recompose(&mut self, cx: &mut Context<Self>) {
         let Some(f) = &self.folder else {
             return;

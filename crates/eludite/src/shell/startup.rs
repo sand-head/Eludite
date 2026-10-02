@@ -110,7 +110,7 @@ impl Shell {
             ProjectRequest::SetStartupProject { project } => {
                 let solution = self.solution.clone().ok_or_else(|| {
                     CommandError::Failed(
-                        "no solution is open: there is no startup project to set".into(),
+                        "no .NET solution is open: there is no startup project to set".into(),
                     )
                 })?;
                 let (name, path) = self.find_solution_project(&project)?;

@@ -628,11 +628,11 @@ impl Shell {
                     BuildSystemChoice::Msbuild if has_msbuild => vec![(BuildSystem::Msbuild, None)],
                     BuildSystemChoice::Cargo if has_cargo => vec![(BuildSystem::Cargo, None)],
                     BuildSystemChoice::Msbuild => {
-                        return Err(CommandError::Failed("no solution is open".into()));
+                        return Err(CommandError::Failed("no workspace is open".into()));
                     }
                     BuildSystemChoice::Cargo => {
                         return Err(CommandError::Failed(
-                            "no Cargo workspace is open (File > Open > Folder)".into(),
+                            "no Cargo workspace is open (File > Open > Workspace...)".into(),
                         ));
                     }
                     BuildSystemChoice::All => {
@@ -647,7 +647,7 @@ impl Shell {
                     }
                 };
                 if plan.is_empty() {
-                    return Err(CommandError::Failed("no solution is open".into()));
+                    return Err(CommandError::Failed("no workspace is open".into()));
                 }
                 // A single system of an "all" plan is that system.
                 let choice = match (choice, plan.as_slice()) {

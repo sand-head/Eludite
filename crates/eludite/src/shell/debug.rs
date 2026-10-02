@@ -536,9 +536,9 @@ pub(super) fn resolve_project(
         }
         None => launch::startup_project(projects).ok_or_else(|| {
             if projects.is_empty() {
-                "open a solution first: there is no startup project".to_owned()
+                "open a .NET solution first: there is no startup project".to_owned()
             } else {
-                "the solution has no executable project to start".to_owned()
+                "the .NET solution has no executable project to start".to_owned()
             }
         })?,
     })
