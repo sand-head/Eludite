@@ -6,6 +6,7 @@
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
+pub mod code_actions;
 mod documents;
 pub mod error_list;
 pub mod explorer;
@@ -174,6 +175,8 @@ pub struct Shell {
     references: References,
     /// Rename and its dialog (brief 0015).
     rename: rename::Rename,
+    /// The light bulb and its menu (brief 0015).
+    code_actions: code_actions::CodeActions,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -369,6 +372,7 @@ impl Shell {
             navigation: Navigation::default(),
             references: References::default(),
             rename: rename::Rename::default(),
+            code_actions: code_actions::CodeActions::default(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
@@ -740,6 +744,11 @@ impl Shell {
                     self.navigation.cancel();
                     self.rename.cancel();
                     self.close_rename_dialog(window, cx);
+                    self.code_actions.cancel();
+                    self.close_code_action_menu(window, cx);
+                    for doc in self.documents.values() {
+                        doc.view.update(cx, |v, cx| v.set_lightbulb(None, cx));
+                    }
                     if self.references.cancel() {
                         // Never show results computed for the old solution.
                         self.references_window
@@ -1024,6 +1033,7 @@ impl Render for Shell {
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())
             .children(self.rename.dialog.clone())
+            .children(self.code_actions.menu.clone())
     }
 }
 

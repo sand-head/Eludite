@@ -437,6 +437,8 @@ impl Shell {
 
     fn on_editor_changed(&mut self, id: &str, cx: &mut Context<Self>) {
         self.wake_intellisense_waiters();
+        // The light bulb follows the caret (brief 0015).
+        self.probe_lightbulb(id, cx);
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };

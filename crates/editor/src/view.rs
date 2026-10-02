@@ -22,6 +22,10 @@ use crate::display::{
 };
 use crate::editor::{ClickKind, Editor, FindQuery, SelectionRange};
 use crate::intellisense::{CompletionTrigger, EditorEvent, SignatureTrigger};
+pub use eludite_ui::LightbulbKind;
+
+/// Width of the light bulb margin at the left of the line numbers.
+const LIGHTBULB_MARGIN: Pixels = px(20.);
 use crate::popups::Popups;
 use crate::syntax::{
     HighlightStats, HighlightUpdate, Highlighter, Language, LineHighlights, Span, SyntaxTheme,
@@ -258,6 +262,8 @@ pub(crate) struct LastLayout {
     pub char_width: Pixels,
     pub scroll: Point<Pixels>,
     pub rows: Vec<(u32, String, ShapedLine)>,
+    /// Where the light bulb was painted.
+    pub lightbulb: Option<Bounds<Pixels>>,
 }
 
 /// A GPUI view showing one [`Editor`].
@@ -284,6 +290,8 @@ pub struct EditorView {
     /// typing and every editing action do nothing. Programmatic edits through [`EditorView::update_editor`] still
     /// apply.
     read_only: bool,
+    /// Visual Studio's light bulb in the margin (brief 0015): the start of its line, and which bulb.
+    lightbulb: Option<(Anchor, LightbulbKind)>,
 }
 
 impl EditorView {
@@ -317,6 +325,7 @@ impl EditorView {
             find_match_count: 0,
             dragging: false,
             read_only: false,
+            lightbulb: None,
         };
         this.schedule_highlight(cx);
         this
@@ -391,6 +400,40 @@ impl EditorView {
     /// The decorations of one layer, as last set.
     pub fn decorations(&self, layer: &str) -> &[Decoration] {
         self.decorations.get(layer).map_or(&[], Vec::as_slice)
+    }
+
+    /// Show the light bulb in the margin of the line holding `offset` (code actions are available there), or hide
+    /// it. It stays on its line as the text changes; the owner moves or hides it as the caret moves.
+    pub fn set_lightbulb(&mut self, at: Option<(usize, LightbulbKind)>, cx: &mut Context<Self>) {
+        let next = at.map(|(offset, kind)| {
+            let b = self.editor.buffer();
+            let row = b.offset_to_point(offset.min(b.len())).row;
+            (
+                b.anchor_before(b.point_to_offset(text::Point::new(row, 0))),
+                kind,
+            )
+        });
+        let changed = match (&self.lightbulb, &next) {
+            (None, None) => false,
+            (Some((a, k)), Some((b, l))) => k != l || a != b,
+            _ => true,
+        };
+        if changed {
+            self.lightbulb = next;
+            cx.notify();
+        }
+    }
+
+    /// The row (0-based) and kind of the light bulb shown.
+    pub fn lightbulb(&self) -> Option<(u32, LightbulbKind)> {
+        let (anchor, kind) = self.lightbulb.as_ref()?;
+        let b = self.editor.buffer();
+        Some((b.offset_to_point(b.offset_for_anchor(anchor)).row, *kind))
+    }
+
+    /// Where the light bulb was painted in the last frame (window coordinates).
+    pub fn lightbulb_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.layout.as_ref()?.lightbulb
     }
 
     // ----- scrolling -----
@@ -762,6 +805,14 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.focus, cx);
+        if event.button == MouseButton::Left
+            && let Some(bulb) = self.lightbulb_bounds()
+            && bulb.contains(&event.position)
+            && let Some((row, _)) = self.lightbulb()
+        {
+            cx.emit(EditorEvent::LightbulbClicked { row });
+            return;
+        }
         let Some(offset) = self.offset_for_position(event.position) else {
             return;
         };
@@ -1133,6 +1184,8 @@ struct RowLayout {
 
 pub struct PrepaintState {
     rows: Vec<RowLayout>,
+    /// The light bulb's bounds and color.
+    lightbulb: Option<(Bounds<Pixels>, Rgba)>,
     quads: Vec<gpui::PaintQuad>,
     carets: Vec<gpui::PaintQuad>,
     gutter_width: Pixels,
@@ -1196,7 +1249,8 @@ impl Element for EditorElement {
             .map(|s| s.width)
             .unwrap_or(font_size * 0.6);
         let digits = line_count.to_string().len().max(3);
-        let gutter_width = char_width * (digits as f32 + 2.5);
+        // Line numbers, plus the light bulb margin at the left (brief 0015).
+        let gutter_width = char_width * (digits as f32 + 2.5) + LIGHTBULB_MARGIN;
         let text_width = bounds.size.width - gutter_width;
         self.view.update(cx, |v, _| {
             v.prepare_frame(bounds.size, text_width, char_width)
@@ -1349,8 +1403,22 @@ impl Element for EditorElement {
                 number,
             });
         }
+        let lightbulb = v.lightbulb.as_ref().and_then(|(anchor, kind)| {
+            let row = snapshot
+                .offset_to_point(snapshot.offset_for_anchor(anchor))
+                .row;
+            (first..last).contains(&row).then(|| {
+                let size = (lh - px(4.)).min(px(14.));
+                let top = row_top(row) + (lh - size) / 2.;
+                (
+                    Bounds::new(point(bounds.left() + px(3.), top), gpui::size(size, size)),
+                    kind.color(),
+                )
+            })
+        });
         PrepaintState {
             rows,
+            lightbulb,
             quads,
             carets,
             gutter_width,
@@ -1395,6 +1463,24 @@ impl Element for EditorElement {
                 )
                 .ok();
         }
+        if let Some((b, color)) = state.lightbulb {
+            // A bulb on a darker base, as Visual Studio draws it.
+            let base_h = b.size.height * 0.3;
+            let bulb = Bounds::new(b.origin, gpui::size(b.size.width, b.size.height - base_h));
+            window.paint_quad(fill(bulb, hsla(color)).corner_radii(b.size.width / 2.));
+            let base = Bounds::new(
+                point(
+                    b.origin.x + b.size.width * 0.3,
+                    b.origin.y + b.size.height - base_h,
+                ),
+                gpui::size(b.size.width * 0.4, base_h),
+            );
+            let mut dark = color;
+            dark.r *= 0.6;
+            dark.g *= 0.6;
+            dark.b *= 0.6;
+            window.paint_quad(fill(base, hsla(dark)));
+        }
         let text_bounds =
             Bounds::from_corners(point(text_left, bounds.top()), bounds.bottom_right());
         window.with_content_mask(
@@ -1435,6 +1521,7 @@ impl Element for EditorElement {
             char_width: state.char_width,
             scroll: state.scroll,
             rows,
+            lightbulb: state.lightbulb.map(|(b, _)| b),
         };
         self.view.update(cx, |v, _| v.layout = Some(layout));
     }

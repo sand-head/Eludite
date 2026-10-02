@@ -85,6 +85,8 @@ pub struct ServerFeatures {
     completion_triggers: Vec<String>,
     resolve: bool,
     signature_triggers: Vec<String>,
+    /// `codeActionProvider.resolveProvider` (brief 0015).
+    pub code_action_resolve: bool,
 }
 
 impl ServerFeatures {
@@ -106,6 +108,8 @@ impl ServerFeatures {
             completion_triggers: strings(&caps["completionProvider"]["triggerCharacters"]),
             resolve: caps["completionProvider"]["resolveProvider"].as_bool() == Some(true),
             signature_triggers,
+            code_action_resolve: caps["codeActionProvider"]["resolveProvider"].as_bool()
+                == Some(true),
         }
     }
 }
@@ -756,6 +760,9 @@ impl Shell {
                     doc.intellisense.last_signature = None;
                 }
             }
+            // A click on the light bulb opens its menu, as Ctrl+. does.
+            // (The bulb is on the caret's line: the menu is for the caret.)
+            EditorEvent::LightbulbClicked { .. } => self.show_code_actions(id, None, window, cx),
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {
