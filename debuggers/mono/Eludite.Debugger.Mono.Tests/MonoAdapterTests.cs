@@ -189,6 +189,14 @@ public sealed class MonoAdapterTests
         Assert.Equal(["[2]", "[3]", "[4]"], page.Keys);
         Assert.Equal("\"name3\"", (string)page["[3]"]["value"]!);
         Assert.Equal("names[3]", (string)page["[3]"]["evaluateName"]!);
+        // A long array is listed in Mono.Debugging's ranges, without indexedVariables or evaluate names for them.
+        var big = mainLocals["big"];
+        Assert.Equal("{int[1000]}", (string)big["value"]!);
+        Assert.Null(big["indexedVariables"]);
+        var ranges = Vars(c, (int)big["variablesReference"]!);
+        Assert.Equal("[0..99]", ranges.Keys.First());
+        Assert.Null(ranges["[0..99]"]["evaluateName"]);
+        Assert.Equal("0", (string)Vars(c, (int)ranges["[0..99]"]["variablesReference"]!)["[42]"]["value"]!);
         var order = Vars(c, (int)mainLocals["order"]["variablesReference"]!);
         Assert.Equal("\"Contoso\"", (string)order["Customer"]["value"]!);
         Assert.Equal("7", (string)order["Id"]["value"]!);
@@ -286,6 +294,7 @@ public sealed class MonoAdapterTests
         var stdout = string.Concat(c.Events("output").Where(e => (string?)e["body"]!["category"] == "stdout").Select(e => (string?)e["body"]!["output"]));
         var stderr = string.Concat(c.Events("output").Where(e => (string?)e["body"]!["category"] == "stderr").Select(e => (string?)e["body"]!["output"]));
         Assert.Contains("result 26", stdout, StringComparison.Ordinal);
+        Assert.Contains("done 4950 Contoso #7 25 1000", stdout, StringComparison.Ordinal);
         Assert.Contains("caught boom", stderr, StringComparison.Ordinal);
         c.Body("disconnect", new JObject());
         Assert.True(c.WaitForExit(TimeSpan.FromSeconds(10)), "the adapter exits after disconnect");
