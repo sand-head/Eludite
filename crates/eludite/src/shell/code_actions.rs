@@ -265,6 +265,8 @@ pub struct LightbulbTiming {
 struct Pending {
     handle: RequestHandle,
     ticket: u64,
+    /// Ctrl+. (not the light bulb): the caret moving does not cancel it.
+    invoked: bool,
     _task: Task<()>,
 }
 
@@ -551,7 +553,13 @@ impl Shell {
         if view.read(cx).lightbulb().is_some_and(|(r, _)| r != row) {
             view.update(cx, |v, cx| v.set_lightbulb(None, cx));
         }
-        if let Some(p) = self.code_actions.pending.take() {
+        if self
+            .code_actions
+            .pending
+            .as_ref()
+            .is_some_and(|p| !p.invoked)
+            && let Some(p) = self.code_actions.pending.take()
+        {
             p.handle.cancel();
         }
         let moved = Instant::now();
@@ -576,6 +584,16 @@ impl Shell {
         window: Option<&mut Window>,
         cx: &mut Context<Self>,
     ) {
+        // The light bulb never replaces a Ctrl+. request in flight.
+        if !invoked
+            && self
+                .code_actions
+                .pending
+                .as_ref()
+                .is_some_and(|p| p.invoked)
+        {
+            return;
+        }
         if let Some(p) = self.code_actions.pending.take() {
             p.handle.cancel();
         }
@@ -752,6 +770,7 @@ impl Shell {
         self.code_actions.pending = Some(Pending {
             handle,
             ticket,
+            invoked,
             _task: task,
         });
     }
@@ -1031,6 +1050,7 @@ impl Shell {
         self.code_actions.resolve = Some(Pending {
             handle,
             ticket,
+            invoked: true,
             _task: task,
         });
         self.wake_intellisense_waiters();

@@ -17,6 +17,8 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+#[cfg(test)]
+mod refactor_tests;
 pub mod references;
 pub mod rename;
 pub mod session;
