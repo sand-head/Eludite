@@ -362,6 +362,12 @@ impl Browser {
                 return_by_value,
                 max_chars,
             )?),
+            other => {
+                return Err(failed(format!(
+                    "{} is not implemented yet",
+                    other.command()
+                )));
+            }
         };
         Ok(out)
     }
