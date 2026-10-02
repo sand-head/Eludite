@@ -88,9 +88,10 @@ lldb-dap echoes the commands as `output` events with category `console` (the she
 
 ## Breakpoints and exceptions
 
-- Source breakpoints with `condition` (an LLDB expression), `hitCondition` (`N`: break from the Nth hit on, LLDB's
-  ignore count) and `logMessage` (`{expression}` interpolated; the line is an `output` event with category `console`,
-  and the program does not stop). Answers are `verified` with the bound line and column.
+- Source breakpoints with `condition` (an LLDB expression), `hitCondition` (a number: lldb-dap sets LLDB's ignore
+  count to N-1, so it breaks on the Nth hit and every one after; not exercised by Eludite's tests) and `logMessage`
+  (`{expression}` interpolated; the line is an `output` event with category `console`, and the program does not stop).
+  Answers are `verified` with the bound line, column and `instructionReference`.
 - Function breakpoints by name. The Exception Settings window's **Rust panics** row (`break_on_rust_panic`, default on)
   is a function breakpoint on `rust_panic`, sent with `setFunctionBreakpoints` before `configurationDone`; a panic stops
   with reason `breakpoint` in `__rustc::rust_panic` (`library/std/src/panicking.rs`), the stack running through
@@ -113,34 +114,46 @@ lldb-dap echoes the commands as `output` events with category `console` (the she
 
 ## Values
 
-- Scopes: `Locals` (`presentationHint: locals`, with `namedVariables`), `Globals`, `Registers`.
+- Scopes: `Locals` (`presentationHint: locals`, with `namedVariables`), `Globals`, `Registers`. Their
+  `variablesReference`s are always 1, 2 and 3 and mean the frame of the **last** `scopes` request: after `scopes` of
+  frame 1, reference 1 is frame 1's locals, also for `setVariable`. A client that reads another frame must ask
+  `scopes` again before using the first frame's top-level references (children keep their own references until the
+  program resumes).
 - `variables` honors `start` and `count` (a page of a 10,000-element `Vec`), so the shell treats adapter `lldb` as
   paging (`capabilities.variable_paging`). A `Vec` or slice gives `indexedVariables`.
 - With the formatters: `String` `"hello"` (children are its bytes), `Vec<i32>` `size=3` with `[0]`..., `&[i32]`
   `size=2`, `Option<i32>` `Some(5)` (child `0`) and `None`, an enum `Rect{w:2, h:3}`, `Circle(1.5)`, `Empty`; integers
-  as numbers (`i32` reads type `int`). Without them: `alloc::string::String @ 0x7fffffffc428` with the `vec`, `buf` and
-  `len` fields as children, `core::option::Option<i32> @ 0x...`, and `Vec` already `size=3` (LLDB's own formatter).
+  as numbers (`i32` reads type `int`). Without them every Rust aggregate reads as its type and address
+  (`alloc::string::String @ 0x7fffffffbec0`, `alloc::vec::Vec<int, alloc::alloc::Global> @ 0x...`,
+  `core::option::Option<i32> @ 0x...`, `lldbtest::Shape @ 0x...`) with its raw fields as children.
 - `evaluate` (`watch`, `hover`, `repl`) runs LLDB's expression evaluator, which is C++-flavored: locals, fields,
   `v[1]` and arithmetic (`count + 1`) work; method calls do not (`v.len()`: "called object type 'unsigned long' is not
   a function"), nor Rust syntax (`&v[..]`, `as`, closures, macros). A `hover` answer is LLDB's whole `frame variable`
   text (`(alloc::string::String) text = "hello" {\n  [0] = 'h' ...`); a `repl` one names a `$0` result variable.
-- `setVariable` sets a scalar (`count` to `40`).
+- `setVariable` sets a scalar (`count` to `40`, which the program then reads). lldb-dap 18 answers with `result` where
+  DAP says `value`. A function's parameter set at a breakpoint on the function's first line may not change what the
+  function computes: at `-O0` rustc may already hold it in a register.
 
 ## Stepping, pause, stack
 
 - `next`, `stepIn`, `stepOut` stop with reason `step`; `stepIn` enters user functions and steps over the standard
-  library (initCommand 1). `pause` stops with reason `pause`. `continue` answers `allThreadsContinued`.
+  library (initCommand 1); `next` from a function's last statement may stop on its closing brace (rustc gives a tail
+  expression no line entry of its own). `continue` answers `allThreadsContinued`.
+- `pause` stops the program with SIGSTOP, and lldb-dap 18 reports that as reason `exception` with description
+  `signal SIGSTOP`; the shell reports it as reason `pause`.
 - Frames of the standard library carry the path rustc recorded, `/rustc/<commit>/library/...`, which does not exist on
   the machine; the shell maps it to `<sysroot>/lib/rustlib/src/rust/library/...` when the `rust-src` component is
   installed (they then open) and shows them as external code otherwise. Frames without source (`main`, `_start`) have
   `presentationHint: subtle`.
 - `restart` relaunches the program (thread ids change); `disconnect` with `terminateDebuggee` ends it (`exited`
-  with the signal's code, then `terminated`).
+  with code 9, the signal that killed it, then `terminated`) and the adapter exits.
 
 ## What lldb-dap 18 lacks
 
 - **An unknown request aborts the adapter** (SIGABRT, exit -6) instead of answering with an error: a client must send
   only what the capabilities allow. `gotoTargets` (Set Next Statement) is not offered and must not be sent.
 - No `--version` output, no `terminate` request, no `exceptionFilterOptions`, no data breakpoints, no `readMemory`.
+- A pause is an `exception` stop; `setVariable`'s answer names `result`; scope references follow the last `scopes`
+  request (above).
 - The program's output comes through a pseudo-terminal: lines end with `\r\n`, and long writes arrive in pieces.
 - `env` must be a list of `NAME=value` strings; an object is ignored.
