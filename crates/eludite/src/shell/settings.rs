@@ -7,13 +7,14 @@
 //! | `build.beforeRun` | F5 and Ctrl+F5 (`debug`) |
 //! | `build.onSave`, `build.showOutputOnStart`, `build.showErrorListOnFailure`, `build.cargoPath` | builds (`build`) |
 //! | `debugger.netcoredbgPath` | the next debugging session's adapter search |
+//! | `debugger.monoPrefix`, `debugger.monoAdapterPath` | the next session's Mono and `eludite-dbg-mono` searches |
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
-//! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`) still override the files: the store resolves
-//! them, so nothing here reads the environment.
+//! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`; brief 0022's `ELUDITE_MONO_PREFIX` and
+//! `ELUDITE_DBG_MONO`) still override the files: the store resolves them, so nothing here reads the environment.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -100,6 +101,8 @@ pub struct Applied {
     pub show_error_list_on_failure: bool,
     pub cargo: Option<PathBuf>,
     pub netcoredbg: Option<PathBuf>,
+    pub mono_prefix: Option<PathBuf>,
+    pub mono_adapter: Option<PathBuf>,
     pub rust_analyzer: Option<PathBuf>,
     pub agents: super::agents::RegistryConfig,
     pub keyboard_preset: String,
@@ -123,6 +126,8 @@ impl Shell {
                 show_error_list_on_failure: s.bool("build.showErrorListOnFailure"),
                 cargo: s.path("build.cargoPath"),
                 netcoredbg: s.path("debugger.netcoredbgPath"),
+                mono_prefix: s.path("debugger.monoPrefix"),
+                mono_adapter: s.path("debugger.monoAdapterPath"),
                 rust_analyzer: s.path("languageServers.rustAnalyzerPath"),
                 agents: super::agents::RegistryConfig::from_store(&s),
                 keyboard_preset: s.string("keyboard.preset"),
@@ -138,6 +143,9 @@ impl Shell {
             .clone()
             .map_or_else(|| "cargo".into(), PathBuf::into_os_string);
         self.debug.set_adapter_path(applied.netcoredbg.clone());
+        self.debug.set_mono_prefix(applied.mono_prefix.clone());
+        self.debug
+            .set_mono_adapter_path(applied.mono_adapter.clone());
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         let agents_changed = self
             .applied_settings
