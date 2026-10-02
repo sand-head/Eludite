@@ -279,6 +279,51 @@ fn eludite_messages_conform_to_their_schemas() {
         "result",
         &host::GenerationResult { generation: 2 },
     );
+    conforms("solution-tree.json", "params", &());
+    let project = host::TreeProject {
+        name: "Shop".into(),
+        path: "/src/Shop/Shop.csproj".into(),
+        kind: host::TreeProjectKind::Legacy,
+        web: true,
+        target_frameworks: vec!["net48".into()],
+        files: vec![host::TreeFile {
+            path: "/src/Shop/Default.aspx.cs".into(),
+            item_type: host::TreeItemType::Compile,
+            dependent_upon: Some("/src/Shop/Default.aspx".into()),
+            link: None,
+        }],
+        error: None,
+    };
+    conforms("solution-tree.json", "project", &project);
+    conforms("solution-tree.json", "file", &project.files[0]);
+    conforms(
+        "solution-tree.json",
+        "result",
+        &host::SolutionTree {
+            generation: 3,
+            path: Some("/src/Shop.sln".into()),
+            projects: vec![project],
+        },
+    );
+    conforms(
+        "solution-tree.json",
+        "result",
+        &host::SolutionTree {
+            generation: 0,
+            path: None,
+            projects: vec![],
+        },
+    );
+    rejects(
+        "solution-tree.json",
+        "project",
+        json!({"name": "A", "path": "/a.csproj", "kind": "vb", "targetFrameworks": [], "files": []}),
+    );
+    rejects(
+        "solution-tree.json",
+        "file",
+        json!({"path": "/a.cs", "itemType": "none"}),
+    );
     conforms(
         "solution-status.json",
         "params",
@@ -416,6 +461,7 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::HostShutdown>(),
         req::<host::SolutionOpen>(),
         req::<host::SolutionClose>(),
+        req::<host::SolutionTreeRequest>(),
     ];
     assert!(
         eludite

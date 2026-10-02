@@ -24,6 +24,7 @@ pub mod methods {
     pub const HOST_EXIT: &str = "eludite/host/exit";
     pub const SOLUTION_OPEN: &str = "eludite/solution/open";
     pub const SOLUTION_CLOSE: &str = "eludite/solution/close";
+    pub const SOLUTION_TREE: &str = "eludite/solution/tree";
     /// Host-to-shell notification.
     pub const SOLUTION_STATUS: &str = "eludite/solution/status";
     /// Host-to-shell notification.
@@ -41,6 +42,7 @@ pub mod methods {
         HOST_EXIT,
         SOLUTION_OPEN,
         SOLUTION_CLOSE,
+        SOLUTION_TREE,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -169,6 +171,65 @@ pub struct SolutionOpenParams {
 #[serde(rename_all = "camelCase")]
 pub struct GenerationResult {
     pub generation: Generation,
+}
+
+/// `eludite/solution/tree` result: the projects of the open solution and their source files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionTree {
+    /// The generation the tree was computed under.
+    pub generation: Generation,
+    /// The open solution or project file; `None` when no solution is open.
+    #[serde(default)]
+    pub path: Option<String>,
+    pub projects: Vec<TreeProject>,
+}
+
+/// `sdk` or `legacy` (non-SDK MSBuild 2003 format).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TreeProjectKind {
+    Sdk,
+    Legacy,
+}
+
+/// One project of [`SolutionTree`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeProject {
+    pub name: String,
+    pub path: String,
+    pub kind: TreeProjectKind,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub web: bool,
+    /// Short monikers (`net10.0`, `net48`).
+    pub target_frameworks: Vec<String>,
+    pub files: Vec<TreeFile>,
+    /// Why the project did not evaluate; `files` is then empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// The MSBuild item type of a [`TreeFile`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TreeItemType {
+    Compile,
+    Content,
+}
+
+/// A source file of a [`TreeProject`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeFile {
+    pub path: String,
+    pub item_type: TreeItemType,
+    /// Absolute path of the file this one nests under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependent_upon: Option<String>,
+    /// Project-relative display path of a linked file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,6 +446,13 @@ request!(
     (),
     GenerationResult
 );
+request!(
+    /// `eludite/solution/tree`.
+    SolutionTreeRequest,
+    methods::SOLUTION_TREE,
+    (),
+    SolutionTree
+);
 
 /// `eludite/host/exit`.
 #[derive(Debug)]
@@ -483,6 +551,95 @@ mod tests {
         round_trip(
             &GenerationResult { generation: 3 },
             json!({"generation": 3}),
+        );
+    }
+
+    #[test]
+    fn solution_tree() {
+        round_trip(
+            &SolutionTree {
+                generation: 2,
+                path: Some("/src/App.slnx".into()),
+                projects: vec![
+                    TreeProject {
+                        name: "App".into(),
+                        path: "/src/App/App.csproj".into(),
+                        kind: TreeProjectKind::Sdk,
+                        web: false,
+                        target_frameworks: vec!["net8.0".into(), "net10.0".into()],
+                        files: vec![TreeFile {
+                            path: "/src/App/Program.cs".into(),
+                            item_type: TreeItemType::Compile,
+                            dependent_upon: None,
+                            link: None,
+                        }],
+                        error: None,
+                    },
+                    TreeProject {
+                        name: "Shop".into(),
+                        path: "/src/Shop/Shop.csproj".into(),
+                        kind: TreeProjectKind::Legacy,
+                        web: true,
+                        target_frameworks: vec!["net48".into()],
+                        files: vec![
+                            TreeFile {
+                                path: "/src/Shop/Default.aspx".into(),
+                                item_type: TreeItemType::Content,
+                                dependent_upon: None,
+                                link: None,
+                            },
+                            TreeFile {
+                                path: "/src/Shop/Default.aspx.cs".into(),
+                                item_type: TreeItemType::Compile,
+                                dependent_upon: Some("/src/Shop/Default.aspx".into()),
+                                link: None,
+                            },
+                            TreeFile {
+                                path: "/src/Shared/Version.cs".into(),
+                                item_type: TreeItemType::Compile,
+                                dependent_upon: None,
+                                link: Some("Properties/Version.cs".into()),
+                            },
+                        ],
+                        error: None,
+                    },
+                    TreeProject {
+                        name: "Broken".into(),
+                        path: "/src/Broken/Broken.csproj".into(),
+                        kind: TreeProjectKind::Sdk,
+                        web: false,
+                        target_frameworks: vec![],
+                        files: vec![],
+                        error: Some("MSB4025: invalid XML".into()),
+                    },
+                ],
+            },
+            json!({
+                "generation": 2,
+                "path": "/src/App.slnx",
+                "projects": [
+                    {"name": "App", "path": "/src/App/App.csproj", "kind": "sdk", "targetFrameworks": ["net8.0", "net10.0"],
+                     "files": [{"path": "/src/App/Program.cs", "itemType": "compile"}]},
+                    {"name": "Shop", "path": "/src/Shop/Shop.csproj", "kind": "legacy", "web": true, "targetFrameworks": ["net48"],
+                     "files": [
+                        {"path": "/src/Shop/Default.aspx", "itemType": "content"},
+                        {"path": "/src/Shop/Default.aspx.cs", "itemType": "compile", "dependentUpon": "/src/Shop/Default.aspx"},
+                        {"path": "/src/Shared/Version.cs", "itemType": "compile", "link": "Properties/Version.cs"}
+                     ]},
+                    {"name": "Broken", "path": "/src/Broken/Broken.csproj", "kind": "sdk", "targetFrameworks": [], "files": [],
+                     "error": "MSB4025: invalid XML"}
+                ]
+            }),
+        );
+        // No solution open: path is null on the wire.
+        let empty = SolutionTree {
+            generation: 0,
+            path: None,
+            projects: vec![],
+        };
+        round_trip(
+            &empty,
+            json!({"generation": 0, "path": null, "projects": []}),
         );
     }
 
