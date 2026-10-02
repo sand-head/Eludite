@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>Lists the C# projects of a <c>.sln</c>, <c>.slnx</c> or a single <c>.csproj</c>.</summary>
 public static partial class SolutionProjects

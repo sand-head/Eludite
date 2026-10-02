@@ -2,10 +2,10 @@
 //!
 //! Every action is a registered command with a dotted id, JSON schemas for
 //! input and output, a permission class and an audit record. The UI invokes
-//! commands through `CommandRegistry`; the MCP server (`niello-mcp`) exposes the
+//! commands through `CommandRegistry`; the MCP server (`eludite-mcp`) exposes the
 //! same specs to agents. `diagnostics` holds `diagnostics.list`, the Error List
 //! read command (brief 0005), registered separately because it needs a source.
-//! `view` holds the `niello.view.*` docking commands (brief 0008), registered
+//! `view` holds the `eludite.view.*` docking commands (brief 0008), registered
 //! by whoever owns the layout through a [`view::ViewTarget`].
 
 mod audit;

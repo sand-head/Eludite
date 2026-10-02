@@ -1,6 +1,6 @@
-using Niello.Host.Rpc;
+using Eludite.Host.Rpc;
 
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>
 /// Work the host does on a solution before the language server opens it (brief 0003: legacy design-time
@@ -11,7 +11,7 @@ public interface ISolutionPreparer
     Task<SolutionPreparation> PrepareAsync(string solutionPath, CancellationToken cancellationToken);
 }
 
-/// <summary>What <see cref="ISolutionPreparer"/> did, as reported in <c>niello/solution/status</c>.</summary>
+/// <summary>What <see cref="ISolutionPreparer"/> did, as reported in <c>eludite/solution/status</c>.</summary>
 public sealed record SolutionPreparation(
     MsBuildInfo? MsBuild,
     IReadOnlyList<Correction> Corrections,

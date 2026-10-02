@@ -1,16 +1,16 @@
 //! Where layouts live on disk, and a background writer so saving never runs on
 //! the UI thread.
 //!
-//! Layout directory: `<config dir>/niello/layouts/`, where `<config dir>` is
+//! Layout directory: `<config dir>/eludite/layouts/`, where `<config dir>` is
 //! the OS user config directory (the `dirs` crate's `config_dir()`):
 //!
 //! | OS | Layout directory |
 //! |---|---|
-//! | Linux | `$XDG_CONFIG_HOME/niello/layouts/`, default `~/.config/niello/layouts/` |
-//! | Windows | `%APPDATA%\niello\layouts\` (`C:\Users\<user>\AppData\Roaming\niello\layouts\`) |
-//! | macOS | `~/Library/Application Support/niello/layouts/` |
+//! | Linux | `$XDG_CONFIG_HOME/eludite/layouts/`, default `~/.config/eludite/layouts/` |
+//! | Windows | `%APPDATA%\eludite\layouts\` (`C:\Users\<user>\AppData\Roaming\eludite\layouts\`) |
+//! | macOS | `~/Library/Application Support/eludite/layouts/` |
 //!
-//! `NIELLO_CONFIG_DIR`, when set, replaces `<config dir>/niello`.
+//! `ELUDITE_CONFIG_DIR`, when set, replaces `<config dir>/eludite`.
 //!
 //! Files in it:
 //! - `default.json`: the layout used when no solution is open, and the starting
@@ -29,12 +29,12 @@ use std::time::{Duration, Instant};
 
 use crate::model::{DockLayout, ToolWindowRegistry};
 
-/// `<config dir>/niello`, or `NIELLO_CONFIG_DIR`.
-pub fn niello_config_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("NIELLO_CONFIG_DIR") {
+/// `<config dir>/eludite`, or `ELUDITE_CONFIG_DIR`.
+pub fn eludite_config_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("ELUDITE_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
-    dirs::config_dir().map(|d| d.join("niello"))
+    dirs::config_dir().map(|d| d.join("eludite"))
 }
 
 /// FNV-1a, 64-bit: stable across Rust versions and platforms (unlike `std`'s hasher).
@@ -84,7 +84,7 @@ impl LayoutStore {
 
     /// The per-user store described in the module docs.
     pub fn user() -> Option<Self> {
-        niello_config_dir().map(|d| Self::new(d.join("layouts")))
+        eludite_config_dir().map(|d| Self::new(d.join("layouts")))
     }
 
     pub fn dir(&self) -> &Path {
@@ -182,7 +182,7 @@ pub fn read_layout(path: &Path) -> Option<DockLayout> {
     match DockLayout::from_json(&text) {
         Ok(l) => Some(l),
         Err(e) => {
-            eprintln!("niello: ignoring layout {}: {e}", path.display());
+            eprintln!("eludite: ignoring layout {}: {e}", path.display());
             None
         }
     }
@@ -227,7 +227,7 @@ impl LayoutWriter {
     pub fn spawn(debounce: Duration, observer: Option<WriteObserver>) -> Self {
         let (tx, rx) = mpsc::channel::<Msg>();
         thread::Builder::new()
-            .name("niello-layout-writer".into())
+            .name("eludite-layout-writer".into())
             .spawn(move || writer_loop(rx, debounce, observer))
             .expect("spawn layout writer thread");
         Self { tx }
@@ -255,7 +255,7 @@ fn writer_loop(rx: mpsc::Receiver<Msg>, debounce: Duration, observer: Option<Wri
         for (path, text) in std::mem::take(pending) {
             let result = write_atomic(&path, &text);
             if let Err(e) = &result {
-                eprintln!("niello: failed to save layout {}: {e}", path.display());
+                eprintln!("eludite: failed to save layout {}: {e}", path.display());
             }
             if let Some(o) = &observer {
                 o(&path, &result);
@@ -302,10 +302,10 @@ mod tests {
 
     #[test]
     fn paths_per_solution() {
-        let store = LayoutStore::new("/cfg/niello/layouts");
+        let store = LayoutStore::new("/cfg/eludite/layouts");
         assert_eq!(
             store.default_path(),
-            Path::new("/cfg/niello/layouts/default.json")
+            Path::new("/cfg/eludite/layouts/default.json")
         );
         let a = store.solution_path(Path::new("/src/a/App.sln"));
         let b = store.solution_path(Path::new("/src/b/App.sln"));
@@ -317,10 +317,10 @@ mod tests {
             "{name}"
         );
         assert_eq!(name.len(), "App-".len() + 16 + ".json".len());
-        assert!(a.starts_with("/cfg/niello/layouts/solutions"));
+        assert!(a.starts_with("/cfg/eludite/layouts/solutions"));
         assert_eq!(
             store.named_path("Debug / x"),
-            Path::new("/cfg/niello/layouts/named/Debug___x.json")
+            Path::new("/cfg/eludite/layouts/named/Debug___x.json")
         );
         assert_eq!(store.path_for(None), store.default_path());
         // FNV-1a test vector.

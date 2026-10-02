@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>Global properties shared by every evaluator: a design-time pass, never a compile.</summary>
 public static partial class DesignTimeProperties

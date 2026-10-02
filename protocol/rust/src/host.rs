@@ -1,4 +1,4 @@
-//! Niello-specific messages between the shell and `niello-host`.
+//! Eludite-specific messages between the shell and `eludite-host`.
 //!
 //! This is the Rust mirror of `protocol/schemas/host-rpc.md` and the JSON schemas in `protocol/schemas/host/`;
 //! field names are camelCase on the wire. Forwarded LSP messages are in [`crate::lsp`].
@@ -12,28 +12,28 @@ use crate::typed::{NotificationType, RequestType};
 pub type Generation = u64;
 
 /// Params member every forwarded LSP request carries.
-pub const GENERATION_FIELD: &str = "nielloGeneration";
+pub const GENERATION_FIELD: &str = "eluditeGeneration";
 
 /// Method name constants.
 pub mod methods {
-    pub const HOST_INITIALIZE: &str = "niello/host/initialize";
-    pub const PING: &str = "niello/ping";
-    pub const HOST_INFO: &str = "niello/host/info";
-    pub const HOST_SHUTDOWN: &str = "niello/host/shutdown";
+    pub const HOST_INITIALIZE: &str = "eludite/host/initialize";
+    pub const PING: &str = "eludite/ping";
+    pub const HOST_INFO: &str = "eludite/host/info";
+    pub const HOST_SHUTDOWN: &str = "eludite/host/shutdown";
     /// Notification, no response.
-    pub const HOST_EXIT: &str = "niello/host/exit";
-    pub const SOLUTION_OPEN: &str = "niello/solution/open";
-    pub const SOLUTION_CLOSE: &str = "niello/solution/close";
+    pub const HOST_EXIT: &str = "eludite/host/exit";
+    pub const SOLUTION_OPEN: &str = "eludite/solution/open";
+    pub const SOLUTION_CLOSE: &str = "eludite/solution/close";
     /// Host-to-shell notification.
-    pub const SOLUTION_STATUS: &str = "niello/solution/status";
+    pub const SOLUTION_STATUS: &str = "eludite/solution/status";
     /// Host-to-shell notification.
-    pub const LANGUAGE_SERVER_STATUS: &str = "niello/languageServer/status";
-    /// Host-to-shell notification (LSP shape plus `nielloGeneration`).
+    pub const LANGUAGE_SERVER_STATUS: &str = "eludite/languageServer/status";
+    /// Host-to-shell notification (LSP shape plus `eluditeGeneration`).
     pub const PUBLISH_DIAGNOSTICS: &str = "textDocument/publishDiagnostics";
     pub const CANCEL_REQUEST: &str = "$/cancelRequest";
 
-    /// Niello requests and notifications the host accepts.
-    pub const NIELLO_ACCEPTED: &[&str] = &[
+    /// Eludite requests and notifications the host accepts.
+    pub const ELUDITE_ACCEPTED: &[&str] = &[
         HOST_INITIALIZE,
         PING,
         HOST_INFO,
@@ -92,18 +92,18 @@ pub mod methods {
 
 /// Error codes the host returns (host-rpc.md, "Error codes").
 pub mod error_codes {
-    /// `niello/solution/*` or a forwarded request before `niello/host/initialize`.
+    /// `eludite/solution/*` or a forwarded request before `eludite/host/initialize`.
     pub const SERVER_NOT_INITIALIZED: i64 = -32002;
     /// The request was canceled with `$/cancelRequest`.
     pub const REQUEST_CANCELLED: i64 = -32800;
-    /// Stale `nielloGeneration`, or the generation changed while the request was in flight.
+    /// Stale `eluditeGeneration`, or the generation changed while the request was in flight.
     pub const CONTENT_MODIFIED: i64 = -32801;
     /// The language server is unavailable.
     pub const REQUEST_FAILED: i64 = -32803;
 }
 
 /// The `hostName` value every conforming host reports.
-pub const HOST_NAME: &str = "niello-host";
+pub const HOST_NAME: &str = "eludite-host";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,13 +122,13 @@ pub struct HostCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResult {
-    /// Always `"niello-host"`.
+    /// Always `"eludite-host"`.
     pub host_name: String,
     pub host_version: String,
     pub capabilities: HostCapabilities,
 }
 
-/// `niello/ping` takes no params.
+/// `eludite/ping` takes no params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PingResult {
@@ -145,7 +145,7 @@ pub struct DotnetSdk {
     pub path: String,
 }
 
-/// `niello/host/info` takes no params.
+/// `eludite/host/info` takes no params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostInfoResult {
@@ -154,7 +154,7 @@ pub struct HostInfoResult {
     pub os: String,
 }
 
-/// `niello/host/shutdown` takes no params and returns `null`.
+/// `eludite/host/shutdown` takes no params and returns `null`.
 pub type ShutdownResult = ();
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,7 +164,7 @@ pub struct SolutionOpenParams {
     pub path: String,
 }
 
-/// Result of `niello/solution/open` and `niello/solution/close`.
+/// Result of `eludite/solution/open` and `eludite/solution/close`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationResult {
@@ -238,7 +238,7 @@ pub enum HostDiagnosticSeverity {
     Info,
 }
 
-/// A project-load diagnostic (codes `NIELLO0001`.. in host-rpc.md).
+/// A project-load diagnostic (codes `ELUDITE0001`.. in host-rpc.md).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostDiagnostic {
@@ -251,7 +251,7 @@ pub struct HostDiagnostic {
     pub class: Option<String>,
 }
 
-/// `niello/solution/status` params.
+/// `eludite/solution/status` params.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SolutionStatus {
@@ -290,7 +290,7 @@ pub struct ServerInfo {
     pub version: Option<String>,
 }
 
-/// `niello/languageServer/status` params.
+/// `eludite/languageServer/status` params.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LanguageServerStatus {
@@ -325,7 +325,7 @@ pub struct RequestFailedData {
 pub struct WithGeneration<T> {
     #[serde(flatten)]
     pub params: T,
-    #[serde(rename = "nielloGeneration")]
+    #[serde(rename = "eluditeGeneration")]
     pub generation: Generation,
 }
 
@@ -344,49 +344,49 @@ macro_rules! request {
 }
 
 request!(
-    /// `niello/host/initialize`.
+    /// `eludite/host/initialize`.
     HostInitialize,
     methods::HOST_INITIALIZE,
     InitializeParams,
     InitializeResult
 );
 request!(
-    /// `niello/ping`.
+    /// `eludite/ping`.
     Ping,
     methods::PING,
     (),
     PingResult
 );
 request!(
-    /// `niello/host/info`.
+    /// `eludite/host/info`.
     HostInfo,
     methods::HOST_INFO,
     (),
     HostInfoResult
 );
 request!(
-    /// `niello/host/shutdown`.
+    /// `eludite/host/shutdown`.
     HostShutdown,
     methods::HOST_SHUTDOWN,
     (),
     ShutdownResult
 );
 request!(
-    /// `niello/solution/open`.
+    /// `eludite/solution/open`.
     SolutionOpen,
     methods::SOLUTION_OPEN,
     SolutionOpenParams,
     GenerationResult
 );
 request!(
-    /// `niello/solution/close`.
+    /// `eludite/solution/close`.
     SolutionClose,
     methods::SOLUTION_CLOSE,
     (),
     GenerationResult
 );
 
-/// `niello/host/exit`.
+/// `eludite/host/exit`.
 #[derive(Debug)]
 pub enum HostExit {}
 impl NotificationType for HostExit {
@@ -394,7 +394,7 @@ impl NotificationType for HostExit {
     type Params = ();
 }
 
-/// `niello/solution/status` (host to shell).
+/// `eludite/solution/status` (host to shell).
 #[derive(Debug)]
 pub enum SolutionStatusNotification {}
 impl NotificationType for SolutionStatusNotification {
@@ -402,7 +402,7 @@ impl NotificationType for SolutionStatusNotification {
     type Params = SolutionStatus;
 }
 
-/// `niello/languageServer/status` (host to shell).
+/// `eludite/languageServer/status` (host to shell).
 #[derive(Debug)]
 pub enum LanguageServerStatusNotification {}
 impl NotificationType for LanguageServerStatusNotification {
@@ -420,10 +420,10 @@ mod tests {
     fn initialize() {
         round_trip(
             &InitializeParams {
-                client_name: "niello".into(),
+                client_name: "eludite".into(),
                 client_version: "0.1.0".into(),
             },
-            json!({"clientName": "niello", "clientVersion": "0.1.0"}),
+            json!({"clientName": "eludite", "clientVersion": "0.1.0"}),
         );
         round_trip(
             &InitializeResult {
@@ -433,7 +433,7 @@ mod tests {
                     language_server: true,
                 },
             },
-            json!({"hostName": "niello-host", "hostVersion": "0.1.0", "capabilities": {"languageServer": true}}),
+            json!({"hostName": "eludite-host", "hostVersion": "0.1.0", "capabilities": {"languageServer": true}}),
         );
     }
 
@@ -525,7 +525,7 @@ mod tests {
                 }],
                 diagnostics: vec![HostDiagnostic {
                     severity: HostDiagnosticSeverity::Warning,
-                    code: "NIELLO0003".into(),
+                    code: "ELUDITE0003".into(),
                     message: "did not evaluate".into(),
                     project: Some("/src/Web.UI.csproj".into()),
                     class: Some("webTargets".into()),
@@ -537,7 +537,7 @@ mod tests {
                 "counts": {"projects": 15, "legacyProjects": 15, "legacyEvaluationFailures": 1},
                 "msbuild": {"kind": "mono", "path": "/usr/lib/mono/msbuild/Current/bin/MSBuild.dll", "source": "PATH"},
                 "corrections": [{"kind": "caseFixups", "project": "/src/Core.csproj", "count": 9}],
-                "diagnostics": [{"severity": "warning", "code": "NIELLO0003", "message": "did not evaluate",
+                "diagnostics": [{"severity": "warning", "code": "ELUDITE0003", "message": "did not evaluate",
                                  "project": "/src/Web.UI.csproj", "class": "webTargets"}],
                 "elapsedMs": 7000.0
             }),
@@ -561,7 +561,7 @@ mod tests {
                 corrections: vec![],
                 diagnostics: vec![HostDiagnostic {
                     severity: HostDiagnosticSeverity::Error,
-                    code: "NIELLO0001".into(),
+                    code: "ELUDITE0001".into(),
                     message: "no language server".into(),
                     project: None,
                     class: None,
@@ -569,7 +569,7 @@ mod tests {
                 elapsed_ms: None,
             },
             json!({"generation": 2, "path": "/src/App.sln", "state": "failed", "msbuild": {"kind": "sdk"},
-                   "diagnostics": [{"severity": "error", "code": "NIELLO0001", "message": "no language server"}]}),
+                   "diagnostics": [{"severity": "error", "code": "ELUDITE0001", "message": "no language server"}]}),
         );
         for (state, s) in [
             (SolutionState::Closed, "closed"),
@@ -653,7 +653,7 @@ mod tests {
                 params: SolutionOpenParams { path: "/a".into() },
                 generation: 4,
             },
-            json!({"path": "/a", "nielloGeneration": 4}),
+            json!({"path": "/a", "eluditeGeneration": 4}),
         );
     }
 }

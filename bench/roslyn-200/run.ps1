@@ -2,15 +2,15 @@
 #   pwsh bench/roslyn-200/run.ps1                # 10 cold + 10 warm
 #   $env:COLD=3; $env:WARM=3; pwsh bench/roslyn-200/run.ps1
 #   pwsh bench/roslyn-200/run.ps1 -PrepareOnly
-# Peak memory on Windows is the PeakWorkingSet64 of niello-host only; the driver's process-tree sampling is Linux-only.
+# Peak memory on Windows is the PeakWorkingSet64 of eludite-host only; the driver's process-tree sampling is Linux-only.
 param([switch]$PrepareOnly)
 $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $here '../..')
-$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '.cache/niello/roslyn' }
+$src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '.cache/eludite/roslyn' }
 $lsDir = Join-Path $src 'artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0'
-$lsDll = if ($env:NIELLO_ROSLYN_LS) { $env:NIELLO_ROSLYN_LS } else { Join-Path $lsDir 'Microsoft.CodeAnalysis.LanguageServer.dll' }
+$lsDll = if ($env:ELUDITE_ROSLYN_LS) { $env:ELUDITE_ROSLYN_LS } else { Join-Path $lsDir 'Microsoft.CodeAnalysis.LanguageServer.dll' }
 $cold = if ($env:COLD) { $env:COLD } else { 10 }
 $warm = if ($env:WARM) { $env:WARM } else { 10 }
 $t3 = if ($env:T3) { $env:T3 } else { 1000 }
@@ -22,7 +22,7 @@ if (-not (Test-Path (Join-Path $here 'out/probe.json')) -or $env:REGENERATE -eq 
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }
 dotnet restore (Join-Path $here 'out/Bench200.slnx') -v q; if ($LASTEXITCODE) { exit $LASTEXITCODE }
-dotnet build (Join-Path $repo 'dotnet/src/Niello.Host/Niello.Host.csproj') -c Release -v q -nologo; if ($LASTEXITCODE) { exit $LASTEXITCODE }
+dotnet build (Join-Path $repo 'dotnet/src/Eludite.Host/Eludite.Host.csproj') -c Release -v q -nologo; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 dotnet build (Join-Path $here 'driver/Bench.Driver.csproj') -c Release -v q -nologo; if ($LASTEXITCODE) { exit $LASTEXITCODE }
 if ($PrepareOnly) { exit 0 }
 
@@ -45,7 +45,7 @@ $disk = Get-PhysicalDisk | Select-Object -First 1
 
 $reset = (Join-Path $lsDir 'cache') + [IO.Path]::PathSeparator + (Join-Path ([IO.Path]::GetTempPath()) 'roslyn-canonical-misc')
 dotnet (Join-Path $here 'driver/bin/Release/net10.0/Bench.Driver.dll') `
-  --host (Join-Path $repo 'dotnet/src/Niello.Host/bin/Release/net10.0/niello-host.dll') `
+  --host (Join-Path $repo 'dotnet/src/Eludite.Host/bin/Release/net10.0/eludite-host.dll') `
   --roslyn-ls $lsDll --probe (Join-Path $here 'out/probe.json') --results $results `
   --cold $cold --warm $warm --t3 $t3 --cancel-trials $cancel --cold-reset-paths $reset
 exit $LASTEXITCODE

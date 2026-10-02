@@ -1,6 +1,6 @@
 [package]
-name = "niello-ui"
-description = "Niello's own widgets and theme tokens."
+name = "eludite-ui"
+description = "Eludite's own widgets and theme tokens."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,6 +1,6 @@
 [package]
-name = "niello-editor"
-description = "Niello editor core: buffer, editor view and syntax highlighting."
+name = "eludite-editor"
+description = "Eludite editor core: buffer, editor view and syntax highlighting."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ publish.workspace = true
 clock.workspace = true
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
-niello-ui.workspace = true
+eludite-ui.workspace = true
 text.workspace = true
 # tree-sitter and its grammars (all MIT); versions recorded in docs/briefs/0009-report.md.
 tree-sitter = "0.27"

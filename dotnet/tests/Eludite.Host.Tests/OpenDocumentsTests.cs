@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Niello.Host.Lsp;
+using Eludite.Host.Lsp;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>The host's copy of open documents, used to replay them into a restarted language server.</summary>
 public sealed class OpenDocumentsTests

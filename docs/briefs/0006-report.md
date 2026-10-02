@@ -1,12 +1,12 @@
 # Brief 0006 report: native Rust ACP adapter for Claude Code
 
-Brief: [0006-native-claude-acp-adapter.md](0006-native-claude-acp-adapter.md). Code: [`agents/claude-acp/`](../../agents/claude-acp/) (package `niello-claude-acp`, MIT) and `crates/acp/src/lib.rs` (`default_agents()`).
+Brief: [0006-native-claude-acp-adapter.md](0006-native-claude-acp-adapter.md). Code: [`agents/claude-acp/`](../../agents/claude-acp/) (package `eludite-claude-acp`, MIT) and `crates/acp/src/lib.rs` (`default_agents()`).
 
 ## 1. Summary
 
-- **It works on Linux with no Node.** `niello-claude-acp` speaks ACP v1 on stdio and drives the installed `claude` 2.1.287 over its headless stream-json protocol. It uses the owner's existing login and reads no credential.
+- **It works on Linux with no Node.** `eludite-claude-acp` speaks ACP v1 on stdio and drives the installed `claude` 2.1.287 over its headless stream-json protocol. It uses the owner's existing login and reads no credential.
 - **The brief 0005 panel works unchanged against it.** The spike's source and lock file are untouched. It picks the native adapter through `default_agents()`.
-  - On the diagnostics prompt, Claude called `mcp__niello__diagnostics-list` through Niello's MCP relay, and the panel auto-allowed it as class read. The answer was correct: OrderController.cs has 3 of the 4 errors.
+  - On the diagnostics prompt, Claude called `mcp__eludite__diagnostics-list` through Eludite's MCP relay, and the panel auto-allowed it as class read. The answer was correct: OrderController.cs has 3 of the 4 errors.
   - On the Write prompt the panel showed Yes / Yes, allow all edits / No / No, and don't ask again. The harness pressed No. The tool call failed, the agent reported the denial, and no file exists.
   - Both runs had `PATH` reduced to one directory holding only a `claude` symlink (section 8).
 - **ACP crate:** `agent-client-protocol` **2.2.0** (Apache-2.0), with `agent-client-protocol-schema` 1.9.1 (Apache-2.0), protocol version 1. The adapter runs it on `futures::executor::block_on` with no async runtime.
@@ -19,11 +19,11 @@ Brief: [0006-native-claude-acp-adapter.md](0006-native-claude-acp-adapter.md). C
   | Hot path at 200 chunks/s | no visible per-chunk cost | 1.0 to 1.1 % of one core; RSS unchanged |
   | Binary size, release, stripped | under 10 MB | 2.3 MB |
 
-- **`default_agents()`** returns the native adapter first when it is found: at the configured path (`$NIELLO_CLAUDE_ACP`), beside the IDE's executable, or on `PATH`. `npx -y @agentclientprotocol/claude-agent-acp@0.85.0` always follows as the fallback. Tests cover the order and the fallback.
+- **`default_agents()`** returns the native adapter first when it is found: at the configured path (`$ELUDITE_CLAUDE_ACP`), beside the IDE's executable, or on `PATH`. `npx -y @agentclientprotocol/claude-agent-acp@0.85.0` always follows as the fallback. Tests cover the order and the fallback.
 - **Session resume (`loadSession`) is deferred.** It is sized in section 7. `claude --resume` does not replay history on stdout, so resume needs a transcript reader.
 - **Tests:**
   - adapter: 18, all passing (8 unit, 8 conformance against the fake `claude`, 2 golden mapping);
-  - `niello-acp`: 11 (4 unit, 7 integration);
+  - `eludite-acp`: 11 (4 unit, 7 integration);
   - the root workspace gate is clean.
 - **Not done:** Windows and macOS runs (out of scope; the discovery code is written), and reject-always against the real CLI (section 6).
 
@@ -55,19 +55,19 @@ GUI runs used brief 0005's nested `kwin_wayland --virtual` method (`spikes/0005-
 | `src/process.rs` | One `claude` child per session. A reader thread routes replies to the adapter's own control requests by `request_id` and sends everything else, in order, to an unbounded channel. A second thread copies the child's stderr to the log. |
 | `src/translate.rs` | Pure translation of one turn from stream-json to `session/update`. |
 | `src/mapping.rs` | Pure mappings: tool title, kind, locations and diff; tool results; the four permission options and their `control_response`; the `--mcp-config` document; prompt content. |
-| `src/discovery.rs` | Finding `claude`: `--claude`, `$NIELLO_CLAUDE_PATH`, `PATH`, then `~/.local/bin`; `claude.exe` on Windows. The result is made absolute because the child runs in the session's cwd. Also the version check and the list of session variables to strip. |
-| `src/fake_claude.rs`, built as the test-only binary `niello-fake-claude` | Replays a recorded session and checks each input against the recording. |
+| `src/discovery.rs` | Finding `claude`: `--claude`, `$ELUDITE_CLAUDE_PATH`, `PATH`, then `~/.local/bin`; `claude.exe` on Windows. The result is made absolute because the child runs in the session's cwd. Also the version check and the list of session variables to strip. |
+| `src/fake_claude.rs`, built as the test-only binary `eludite-fake-claude` | Replays a recorded session and checks each input against the recording. |
 | `tools/record.py`, `tools/redact.py` | Record a real session and redact it into a fixture. |
 | `examples/bench.rs` | The budget measurements. |
 | `LICENSE` (MIT), `NOTICE`, `README.md` | `NOTICE` credits the Apache-2.0 Node adapter for the mapping and states that no adapter or SDK code was copied. |
 
 The binary has three forms:
 
-- `niello-claude-acp [--claude PATH] [--model M]` serves ACP on stdio.
-- `niello-claude-acp auth login` runs `claude auth login`. This is the ACP terminal login method.
+- `eludite-claude-acp [--claude PATH] [--model M]` serves ACP on stdio.
+- `eludite-claude-acp auth login` runs `claude auth login`. This is the ACP terminal login method.
 - `--version` and `--help`.
 
-`NIELLO_CLAUDE_ACP_LOG=stderr|PATH` turns on the verbose log. stdout carries only ACP.
+`ELUDITE_CLAUDE_ACP_LOG=stderr|PATH` turns on the verbose log. stdout carries only ACP.
 
 **Dependencies** (SPDX ids):
 
@@ -77,7 +77,7 @@ The binary has three forms:
 - `serde_json` 1: MIT OR Apache-2.0
 - `uuid` 1: Apache-2.0 OR MIT
 - Transitive dependencies: MIT, Apache-2.0, or both; `memchr` is Unlicense OR MIT; `unicode-ident` (build time) is (MIT OR Apache-2.0) AND Unicode-3.0. All are compatible with MIT and GPL-3.0-or-later.
-- Dev-only: `niello-acp`, path, GPL-3.0-or-later. It is used only by the tests to drive the adapter as Niello does, and is not linked into the binary.
+- Dev-only: `eludite-acp`, path, GPL-3.0-or-later. It is used only by the tests to drive the adapter as Eludite does, and is not linked into the binary.
 
 **Using the official crate.** It fitted without needing any hand-written ACP types:
 
@@ -88,7 +88,7 @@ The binary has three forms:
 
 **`crates/acp`** gains:
 
-- `NATIVE_CLAUDE_ADAPTER`, `NATIVE_CLAUDE_ADAPTER_ENV` (`NIELLO_CLAUDE_ACP`), `AdapterSearch`, `find_native_claude_adapter`, `native_claude_agent`, `npx_claude_agent` and `default_agents_with`;
+- `NATIVE_CLAUDE_ADAPTER`, `NATIVE_CLAUDE_ADAPTER_ENV` (`ELUDITE_CLAUDE_ACP`), `AdapterSearch`, `find_native_claude_adapter`, `native_claude_agent`, `npx_claude_agent` and `default_agents_with`;
 - `default_agents()`, which now returns native then npx;
 - four unit tests. These replace the old `claude_code_is_default`, which assumed npx was first.
 
@@ -164,7 +164,7 @@ The adapter refuses `claude` older than **2.1.287**, with a message telling the 
 
 - protocol version `min(requested, 1)`;
 - `agentCapabilities {loadSession: false, promptCapabilities: text only, mcpCapabilities {http: true, sse: false}}`;
-- `agentInfo {name: "niello-claude-acp", title: "Claude Code"}`;
+- `agentInfo {name: "eludite-claude-acp", title: "Claude Code"}`;
 - when the client declares `auth.terminal`, as brief 0005's adapter required, the method `{type: terminal, id: claude-login, args: ["auth", "login"]}`. The panel shows it as `<adapter path> auth login`.
 
 `authenticate` succeeds with no action.
@@ -175,7 +175,7 @@ The adapter refuses `claude` older than **2.1.287**, with a message telling the 
 - writes the client's `mcpServers` to a `0600` temporary file: stdio servers as `{type: stdio, command, args, env}`, HTTP servers as `{type: http, url, headers}`;
 - starts the child and completes the `initialize` handshake;
 - **then deletes the file.** The child keeps the config in memory. This was checked with an `mcp_status` request after deletion: the server was still connected. A token in the file therefore does not outlive session start, even if the adapter is killed.
-- Model: `--model`, then `$NIELLO_CLAUDE_MODEL`, then `_meta.claudeCode.options.model`. None is hard-coded.
+- Model: `--model`, then `$ELUDITE_CLAUDE_MODEL`, then `_meta.claudeCode.options.model`. None is hard-coded.
 
 `session/prompt` and the stream:
 
@@ -227,7 +227,7 @@ Titles and kinds follow the Node adapter:
 |---|---|---|
 | `src/*` | 8 unit | Version parsing and refusal, discovery order and absolutizing, tool mapping, tool results, the four permission outcomes, the MCP config |
 | `tests/golden.rs` | 2 | Feeds every recorded message through the translator and compares the full ACP output, line by line, with `tests/fixtures/*.acp.jsonl`: 97 lines for the session (81 message chunks, 3 tool calls, 6 updates, turn ends `end_turn`, `end_turn`, `cancelled`), plus the logged-out session (`auth_required`). |
-| `tests/conformance.rs` | 8 | The real adapter binary, driven by brief 0005's `AcpClient`, against `niello-fake-claude` replaying the redacted recording (listed below) |
+| `tests/conformance.rs` | 8 | The real adapter binary, driven by brief 0005's `AcpClient`, against `eludite-fake-claude` replaying the redacted recording (listed below) |
 
 The 8 conformance tests:
 
@@ -242,7 +242,7 @@ The 8 conformance tests:
   - on the child side: every flag, the cwd, no leaked session variables (the test sets `CLAUDECODE` and `CLAUDE_CODE_ENTRYPOINT`), the exact MCP config, the behaviours `allow` then `deny`, the control requests `initialize` then `interrupt`, and that the temporary config is gone.
 - `allow_always_and_reject_always_carry_updated_permissions`: the child's own suggestion is passed back for allow-always; reject-always sends a session deny rule.
 - `cancel_while_permission_pending`: interrupt first, then the client's `cancelled` answer becomes `{deny, interrupt: true}`, and the prompt ends `cancelled`.
-- `logged_out_claude_is_auth_required`: `-32000`, no stray text, and the login method shown as `niello-claude-acp auth login`.
+- `logged_out_claude_is_auth_required`: `-32000`, no stray text, and the login method shown as `eludite-claude-acp auth login`.
 - `refuses_claude_older_than_validated`: 2.1.200 is refused with the message, and no child is started.
 - `missing_claude_is_a_clear_error`.
 - `model_comes_from_the_environment_never_hard_coded`.
@@ -264,7 +264,7 @@ It removed the initialize reply's account (email, organization, plan), rate-limi
 
 The suite ran 10 times in a row without a failure.
 
-**`cargo test -p niello-acp`:** 11 tests (4 unit, 7 integration). The new unit tests are:
+**`cargo test -p eludite-acp`:** 11 tests (4 unit, 7 integration). The new unit tests are:
 
 - `npx_adapter_is_the_fallback`;
 - `native_adapter_is_preferred_when_found` (configured path, then beside the IDE, then `PATH`; native first, npx second);
@@ -311,12 +311,12 @@ Sessions started by the adapter are persisted by `claude` today, because `--no-s
 
 **Run 1 (diagnostics).** `tools/shots.sh RUN -- --cwd <empty dir> --prompt "List the current errors in the Error List and tell me which file has the most."`
 
-- Header: `Claude Code ready (niello-claude-acp 0.1.0, ACP v1). MCP: niello via stdio relay to 127.0.0.1:34551`.
+- Header: `Claude Code ready (eludite-claude-acp 0.1.0, ACP v1). MCP: eludite via stdio relay to 127.0.0.1:34551`.
 - **User:** List the current errors in the Error List and tell me which file has the most.
 - **Agent:** I'll pull the IDE's diagnostics list and tally errors per file.
-- **Tool call** `ToolSearch` (other), completed. Arguments `{"query": "select:mcp__niello__diagnostics-list", "max_results": 1}`. Result `Tool: mcp__niello__diagnostics-list`.
-- **Tool call** `mcp__niello__diagnostics-list` (other), completed. Arguments `{"severity": "error"}`. Result: the four errors, as `{"result":[...]}` (OrderController.cs lines 42, 57, 88; PricingService.cs line 15).
-- **Permission** `mcp__niello__diagnostics-list` `{"severity":"error"}`. Options: Yes / Yes, and don't ask again for Diagnostics-List / No / No, and don't ask again for Diagnostics-List. The panel showed "Allowed without prompt: `diagnostics.list` is class read".
+- **Tool call** `ToolSearch` (other), completed. Arguments `{"query": "select:mcp__eludite__diagnostics-list", "max_results": 1}`. Result `Tool: mcp__eludite__diagnostics-list`.
+- **Tool call** `mcp__eludite__diagnostics-list` (other), completed. Arguments `{"severity": "error"}`. Result: the four errors, as `{"result":[...]}` (OrderController.cs lines 42, 57, 88; PricingService.cs line 15).
+- **Permission** `mcp__eludite__diagnostics-list` `{"severity":"error"}`. Options: Yes / Yes, and don't ask again for Diagnostics-List / No / No, and don't ask again for Diagnostics-List. The panel showed "Allowed without prompt: `diagnostics.list` is class read".
 - **Agent:**
   > The Error List currently shows 4 errors. **OrderController.cs has the most**, with 3 of the 4.
   >
@@ -399,11 +399,11 @@ Each chunk costs one line parse and one notification serialization, a few alloca
 
 **What remains for the owner to confirm against Anthropic's terms.** These are brief 0005's questions, sharpened:
 
-1. Whether a third-party program (Niello, or another editor using this MIT adapter) may start and drive the user's installed Claude Code CLI headlessly under a consumer or organization subscription login (Pro, Max, Team, Enterprise). The owner's case is an organization plan.
+1. Whether a third-party program (Eludite, or another editor using this MIT adapter) may start and drive the user's installed Claude Code CLI headlessly under a consumer or organization subscription login (Pro, Max, Team, Enterprise). The owner's case is an organization plan.
 2. Whether the Agent SDK's terms attach to the headless stream-json protocol itself, or only to the SDK package. Put another way: does avoiding the SDK change anything, or is the relevant fact that a program, not a person, drives the session?
 3. Whether such an integration should identify itself to the CLI, for example with an entry-point or client name, and with what value.
 4. Whether usage through the adapter counts toward the plan's limits like interactive use. The CLI reports plan utilization in `rate_limit_event`, which the adapter does not show.
-5. Whether Niello may name Claude Code and document "use your Claude subscription" for this adapter, and distribute the adapter as a separate MIT binary for other editors.
+5. Whether Eludite may name Claude Code and document "use your Claude subscription" for this adapter, and distribute the adapter as a separate MIT binary for other editors.
 
 ## 12. Deviations and notes
 
@@ -412,10 +412,10 @@ Each chunk costs one line parse and one notification serialization, a few alloca
 - **Not touched:**
   - `docs/briefs/README.md`'s index row, and the crate map in `CLAUDE.md` and `README.md` (the new `agents/` directory). Both are outside this brief's files; a follow-up should add the row and the map entry.
   - ADR-0003. It is not in scope; the adapter does not change its decisions.
-  - The `protocol/` schemas. The adapter is a bridge between two external protocols, so no Niello schema was needed.
+  - The `protocol/` schemas. The adapter is a bridge between two external protocols, so no Eludite schema was needed.
 - **Workspace membership:** the adapter is its own workspace, as the brief says. Joining the root workspace later will add the ACP crate's dependency tree to the root `Cargo.lock`. The root `Cargo.lock` is unchanged by this brief.
 - **Windows:**
-  - Discovery looks for `claude.exe` (and `niello-claude-acp.exe` in `crates/acp`).
+  - Discovery looks for `claude.exe` (and `eludite-claude-acp.exe` in `crates/acp`).
   - `std::process::Command` quotes arguments for `CreateProcess`, and `claude.exe` is a real executable, so `cmd.exe` quoting rules do not apply.
   - The temporary MCP config file gets no ACL change on Windows; only Unix sets mode `0600`.
   - **Not run.** macOS is also not run.

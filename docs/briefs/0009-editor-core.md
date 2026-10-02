@@ -8,7 +8,7 @@ Depends on: brief 0001 (report, section on the vendoring audit)
 
 ## Goal
 
-Give Niello a real editor core. Vendor the Zed crates the brief 0001 audit approved, replace the `ropey` stand-in in `crates/editor` with them, and build the editor view: a GPUI element that renders a buffer with line numbers, scrolls at refresh rate on 100,000 lines, supports cursors, selections, typing, undo and redo, and highlights C# and Rust with tree-sitter. After this brief, any later brief can show a file in the document area and wire LSP features to it.
+Give Eludite a real editor core. Vendor the Zed crates the brief 0001 audit approved, replace the `ropey` stand-in in `crates/editor` with them, and build the editor view: a GPUI element that renders a buffer with line numbers, scrolls at refresh rate on 100,000 lines, supports cursors, selections, typing, undo and redo, and highlights C# and Rust with tree-sitter. After this brief, any later brief can show a file in the document area and wire LSP features to it.
 
 ## Files in scope
 
@@ -18,7 +18,7 @@ Give Niello a real editor core. Vendor the Zed crates the brief 0001 audit appro
 - `crates/editor/**`
 - `docs/briefs/0009-report.md` (new)
 
-Do not touch `crates/niello`, `crates/docking`, `crates/ui`, `crates/lsp`, the host, `docs/adr/**`, `spikes/**`. The editor is exposed as a library element plus an example binary (`cargo run -p niello-editor --example viewer -- <file>`) so it can be verified without the app; wiring into the document area is the next brief.
+Do not touch `crates/eludite`, `crates/docking`, `crates/ui`, `crates/lsp`, the host, `docs/adr/**`, `spikes/**`. The editor is exposed as a library element plus an example binary (`cargo run -p eludite-editor --example viewer -- <file>`) so it can be verified without the app; wiring into the document area is the next brief.
 
 ## Contract
 
@@ -30,7 +30,7 @@ Do not touch `crates/niello`, `crates/docking`, `crates/ui`, `crates/lsp`, the h
 
 ## Proving test
 
-- `cargo test -p niello-editor`: buffer edits and undo, anchor stability across edits, line-ending and BOM preservation, multi-cursor insert, selection semantics, highlighting of C# and Rust fixtures (assert token kinds at positions), and headless GPUI tests for keyboard and mouse input.
+- `cargo test -p eludite-editor`: buffer edits and undo, anchor stability across edits, line-ending and BOM preservation, multi-cursor insert, selection semantics, highlighting of C# and Rust fixtures (assert token kinds at positions), and headless GPUI tests for keyboard and mouse input.
 - `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check` green with the vendored crates in the workspace (if a vendored crate fails workspace lints, scope the lint exception to `vendor/*` in the root manifest and say so).
 - `cargo build --workspace` shows a single copy of each vendored crate (`cargo tree -d` has no duplicates for them).
 - The example viewer on a generated 100k-line C# file and on a 20k-line Rust file, with a `--bench-scroll` and `--bench-type` flag printing frame-cost p50/p95/p99 as JSON, run under the nested compositor if the session is locked (method in `spikes/0005-acp-panel/tools/nested.sh`).

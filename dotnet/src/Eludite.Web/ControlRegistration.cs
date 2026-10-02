@@ -1,4 +1,4 @@
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>
 /// A tag-prefix registration, from a <c>&lt;%@ Register %&gt;</c> directive or a web.config

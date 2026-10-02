@@ -13,14 +13,14 @@ Roslyn's own language server is built for VS Code and changes with it (PLAN.md s
 
 Run each of these in its own process, and talk to them over a protocol:
 
-- `niello` (Rust, GPUI): window, docking, editor core, command bus, settings, tree-sitter highlighting, search, terminal, git via libgit2, ACP client, MCP server, WASM extension host.
-- `niello-host` (.NET): one long-lived process per solution. It embeds the Roslyn language server (`Microsoft.CodeAnalysis.LanguageServer`, MIT, from dotnet/roslyn), the MSBuild-based project system, the NuGet client libraries and the Edit and Continue service.
+- `eludite` (Rust, GPUI): window, docking, editor core, command bus, settings, tree-sitter highlighting, search, terminal, git via libgit2, ACP client, MCP server, WASM extension host.
+- `eludite-host` (.NET): one long-lived process per solution. It embeds the Roslyn language server (`Microsoft.CodeAnalysis.LanguageServer`, MIT, from dotnet/roslyn), the MSBuild-based project system, the NuGet client libraries and the Edit and Continue service.
 - Debug adapters, test hosts and agents: separate processes per ADR-0003 and ADR-0007.
 
 Transport and message rules:
 - JSON-RPC 2.0 over stdio with Content-Length framing for control. A pipe or shared-memory side channel carries bulk data (semantic tokens for a 20k-line file, a full-solution symbol index, test output).
 - Every message is cancelable and carries a solution generation number. The shell drops stale results instead of rendering them.
-- Build `niello-host` from source at a pinned dotnet/roslyn commit. Do not consume the Azure-feed binaries.
+- Build `eludite-host` from source at a pinned dotnet/roslyn commit. Do not consume the Azure-feed binaries.
 - Host stdout carries protocol messages only. Logs go to stderr or a file.
 - Every boundary has a schema in `protocol/` before code on either side (CLAUDE.md invariant 4).
 
@@ -48,6 +48,6 @@ Negative:
 ## Revisit when
 
 - Measured host round-trip latency blocks the completion budget (50 ms p95) after tuning the side channel.
-- Process startup of `niello-host` prevents meeting the 1 s solution-to-editable budget.
+- Process startup of `eludite-host` prevents meeting the 1 s solution-to-editable budget.
 - Roslyn ships a supported embedding API that makes in-process hosting safe.
 - Brief 0002 finds the pinned-source build of the Roslyn language server impractical to maintain.

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>
 /// Schedules the host's warming <c>textDocument/diagnostic</c> pulls (protocol/schemas/host-rpc.md, "Semantics
@@ -14,7 +14,7 @@ namespace Niello.Host.Lsp;
 /// </remarks>
 public sealed class DiagnosticsWarmer : IDisposable
 {
-    /// <summary>Default debounce after a change: 150 ms. <c>NIELLO_DIAGNOSTICS_DEBOUNCE_MS</c> overrides it.</summary>
+    /// <summary>Default debounce after a change: 150 ms. <c>ELUDITE_DIAGNOSTICS_DEBOUNCE_MS</c> overrides it.</summary>
     public static readonly TimeSpan DefaultDebounce = TimeSpan.FromMilliseconds(150);
 
     private readonly Func<string, CancellationToken, Task> _pull;
@@ -39,9 +39,9 @@ public sealed class DiagnosticsWarmer : IDisposable
     /// <summary>Number of pulls started so far.</summary>
     public long PullsStarted => Interlocked.Read(ref _started);
 
-    /// <summary>Reads <c>NIELLO_DIAGNOSTICS_DEBOUNCE_MS</c>; null when unset or invalid.</summary>
+    /// <summary>Reads <c>ELUDITE_DIAGNOSTICS_DEBOUNCE_MS</c>; null when unset or invalid.</summary>
     public static TimeSpan? DebounceFromEnvironment() =>
-        int.TryParse(Environment.GetEnvironmentVariable("NIELLO_DIAGNOSTICS_DEBOUNCE_MS"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms) && ms >= 0
+        int.TryParse(Environment.GetEnvironmentVariable("ELUDITE_DIAGNOSTICS_DEBOUNCE_MS"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var ms) && ms >= 0
             ? TimeSpan.FromMilliseconds(ms)
             : null;
 

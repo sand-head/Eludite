@@ -171,7 +171,7 @@ impl ClaudeProcess {
         request: Value,
         timeout: Duration,
     ) -> io::Result<oneshot::Receiver<Result<Value, String>>> {
-        let id = format!("niello_{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+        let id = format!("eludite_{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let (tx, rx) = oneshot::channel();
         if let Ok(mut w) = self.waiters.lock() {
             w.insert(id.clone(), tx);

@@ -1,8 +1,8 @@
-//! Wire types for Niello's protocols (PLAN.md D2, D3, D5).
+//! Wire types for Eludite's protocols (PLAN.md D2, D3, D5).
 //!
 //! `jsonrpc`: minimal JSON-RPC 2.0 messages shared by the LSP, ACP and MCP crates.
-//! `framing`: `Content-Length` framing used by LSP and DAP. `host`: the Niello messages between the shell and
-//! `niello-host` (see `protocol/schemas/host-rpc.md`). `lsp`: the typed subset of LSP 3.17 the host forwards.
+//! `framing`: `Content-Length` framing used by LSP and DAP. `host`: the Eludite messages between the shell and
+//! `eludite-host` (see `protocol/schemas/host-rpc.md`). `lsp`: the typed subset of LSP 3.17 the host forwards.
 //! `typed`: method-to-type traits a client uses to send typed requests.
 //! MIT-licensed so alternative hosts and clients can use it under any license.
 

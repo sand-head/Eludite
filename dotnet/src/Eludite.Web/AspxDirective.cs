@@ -1,4 +1,4 @@
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>The main directive kind of a WebForms markup file.</summary>
 public enum DirectiveKind

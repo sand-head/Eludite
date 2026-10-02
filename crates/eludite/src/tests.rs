@@ -1,5 +1,5 @@
 //! Headless GPUI tests of the shell: key bindings and menu items dispatch
-//! `niello.view.*` (and other) commands through the command bus; disabled menu
+//! `eludite.view.*` (and other) commands through the command bus; disabled menu
 //! items dispatch nothing.
 
 use std::sync::Arc;
@@ -7,9 +7,9 @@ use std::sync::Arc;
 use gpui::{
     AppContext as _, Entity, Focusable as _, Modifiers, TestAppContext, VisualTestContext, px, size,
 };
-use niello_commands::{CommandRegistry, builtins, view};
-use niello_docking::{DockController, DockLayout, DockSide, Place, ToolWindowRegistry, ids};
-use niello_ui::{Theme, bind_keymap, slots, vs_keymap};
+use eludite_commands::{CommandRegistry, builtins, view};
+use eludite_docking::{DockController, DockLayout, DockSide, Place, ToolWindowRegistry, ids};
+use eludite_ui::{Theme, bind_keymap, slots, vs_keymap};
 
 use crate::shell::Shell;
 
@@ -165,13 +165,13 @@ fn menu_items_dispatch_commands(cx: &mut TestAppContext) {
     let tools = ToolWindowRegistry::vs_default();
     assert_eq!(h.controller.layout(), DockLayout::default_vs(&tools));
 
-    // Help > About Niello shows the version in the status bar.
+    // Help > About Eludite shows the version in the status bar.
     h.click("menu-Help");
-    h.click("menu-item-Help-About Niello");
+    h.click("menu-item-Help-About Eludite");
     let status = h.shell.read_with(&h.vcx, |s, _| {
         s.status().get(slots::STATE).map(str::to_owned)
     });
-    assert_eq!(status, Some(format!("Niello {}", builtins::VERSION)));
+    assert_eq!(status, Some(format!("Eludite {}", builtins::VERSION)));
     assert_eq!(
         h.audit(),
         [
@@ -225,7 +225,7 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
 #[gpui::test]
 fn every_menu_opens(cx: &mut TestAppContext) {
     let mut h = open(cx);
-    for title in niello_ui::MENU_TITLES {
+    for title in eludite_ui::MENU_TITLES {
         let sel: &'static str = Box::leak(format!("menu-{title}").into_boxed_str());
         h.click(sel);
         let open = h.shell.read_with(&h.vcx, |s, cx| {

@@ -4,7 +4,7 @@
 //!   spike-acp-panel [OPTIONS]                 the panel, hosting Claude Code over ACP
 //!   spike-acp-panel --fake-agent [ARGS]       run the scripted ACP agent on stdio
 //!                                             (ARGS: --scenario S --chunks N --rate HZ)
-//!   spike-acp-panel --mcp-relay ADDR          stdio <-> Niello MCP endpoint relay (token in NIELLO_MCP_TOKEN);
+//!   spike-acp-panel --mcp-relay ADDR          stdio <-> Eludite MCP endpoint relay (token in ELUDITE_MCP_TOKEN);
 //!                                             the agent launches this, not the user
 //! Options:
 //!   --agent claude|fake         default claude (npx -y @agentclientprotocol/claude-agent-acp@0.85.0)
@@ -26,7 +26,7 @@ use std::time::Duration;
 use gpui::{
     App, AppContext as _, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
-use niello_acp::{AgentDescriptor, default_agents};
+use eludite_acp::{AgentDescriptor, default_agents};
 use serde_json::json;
 use spike_acp_panel::bench::rss_mib;
 use spike_acp_panel::panel::Panel;
@@ -91,9 +91,9 @@ fn main() {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     // Child-process modes: no window.
     if argv.first().map(String::as_str) == Some("--fake-agent") {
-        let opts = niello_acp::fake_agent::Options::from_args(argv.drain(1..))
+        let opts = eludite_acp::fake_agent::Options::from_args(argv.drain(1..))
             .unwrap_or_else(|e| panic!("{e}"));
-        niello_acp::fake_agent::run(std::io::stdin().lock(), std::io::stdout().lock(), opts)
+        eludite_acp::fake_agent::run(std::io::stdin().lock(), std::io::stdout().lock(), opts)
             .expect("fake agent");
         return;
     }
@@ -102,8 +102,8 @@ fn main() {
             .get(1)
             .and_then(|a| a.parse().ok())
             .expect("--mcp-relay ADDR");
-        let token = std::env::var(niello_mcp::transport::TOKEN_ENV).expect("token in environment");
-        if let Err(e) = niello_mcp::transport::relay_stdio(addr, &token) {
+        let token = std::env::var(eludite_mcp::transport::TOKEN_ENV).expect("token in environment");
+        if let Err(e) = eludite_mcp::transport::relay_stdio(addr, &token) {
             eprintln!("mcp relay: {e}");
             std::process::exit(1);
         }
@@ -165,8 +165,8 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(960.), px(820.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some("Niello spike 0005: Agents (ACP)".into()), ..Default::default() }),
-            app_id: Some("niello-spike".into()),
+            titlebar: Some(TitlebarOptions { title: Some("Eludite spike 0005: Agents (ACP)".into()), ..Default::default() }),
+            app_id: Some("eludite-spike".into()),
             inactive_frame_interval: if a.bench_stream { None } else { WindowOptions::default().inactive_frame_interval },
             ..Default::default()
         };

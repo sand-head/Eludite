@@ -1,4 +1,4 @@
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>
 /// A located Mono runtime with Mono's MSBuild (PLAN.md D4: located, not bundled, unless brief 0003 says otherwise).
@@ -11,7 +11,7 @@ public sealed record MonoInstallation(string Prefix, string MonoExecutable, stri
         System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".local", "opt", "mono-root", "usr");
 
     /// <summary>
-    /// Finds Mono and its MSBuild: <c>NIELLO_MONO_PREFIX</c>, then <c>mono</c> on <c>PATH</c>, then
+    /// Finds Mono and its MSBuild: <c>ELUDITE_MONO_PREFIX</c>, then <c>mono</c> on <c>PATH</c>, then
     /// <see cref="UserSpacePrefix"/>, then <c>/usr</c>, <c>/usr/local</c> and the macOS framework. Returns null on Windows
     /// or when none has <c>lib/mono/msbuild/{Current,15.0}/bin/MSBuild.dll</c>.
     /// </summary>
@@ -23,9 +23,9 @@ public sealed record MonoInstallation(string Prefix, string MonoExecutable, stri
         }
 
         var candidates = new List<(string Prefix, string Source)>();
-        if (System.Environment.GetEnvironmentVariable("NIELLO_MONO_PREFIX") is { Length: > 0 } explicitPrefix)
+        if (System.Environment.GetEnvironmentVariable("ELUDITE_MONO_PREFIX") is { Length: > 0 } explicitPrefix)
         {
-            candidates.Add((explicitPrefix, "NIELLO_MONO_PREFIX"));
+            candidates.Add((explicitPrefix, "ELUDITE_MONO_PREFIX"));
         }
 
         foreach (var dir in (System.Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))

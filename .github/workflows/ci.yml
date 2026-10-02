@@ -69,7 +69,7 @@ jobs:
           global-json-file: global.json
 
       - name: Build
-        run: dotnet build dotnet/Niello.slnx --configuration Release
+        run: dotnet build dotnet/Eludite.slnx --configuration Release
 
       - name: Test
-        run: dotnet test dotnet/Niello.slnx --configuration Release --no-build
+        run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build

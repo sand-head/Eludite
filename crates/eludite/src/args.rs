@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 pub const USAGE: &str = "\
-Usage: niello [OPTIONS]
+Usage: eludite [OPTIONS]
 
 Options:
   --solution PATH     use the window layout saved for this solution path
@@ -16,7 +16,7 @@ Options:
 
 Measurement harness (prints one JSON line to stdout, then exits):
   --bench-start       time from process start to the first presented frame;
-                      set NIELLO_LAUNCH_WALL_NS to the launch time (ns since
+                      set ELUDITE_LAUNCH_WALL_NS to the launch time (ns since
                       the Unix epoch) to include process creation
   --bench-drag N      drag the Output tab over the document area with the
                       docking guides visible for N frames; per-frame cost
@@ -27,7 +27,7 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       pointer and key events)
 
 Environment:
-  NIELLO_CONFIG_DIR   replaces <user config dir>/niello (layouts go in its
+  ELUDITE_CONFIG_DIR   replaces <user config dir>/eludite (layouts go in its
                       layouts/ subdirectory)
 ";
 
@@ -54,7 +54,7 @@ impl Args {
                 "--solution" => a.solution = Some(value("--solution")?.into()),
                 "--theme" => {
                     let t = value("--theme")?;
-                    if niello_ui::Theme::by_name(&t).is_none() {
+                    if eludite_ui::Theme::by_name(&t).is_none() {
                         return Err(format!("unknown theme `{t}` (dark, light, blue)"));
                     }
                     a.theme = Some(t);

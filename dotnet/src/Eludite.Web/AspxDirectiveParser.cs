@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Finds and parses the main <c>Page</c>, <c>Control</c> or <c>Master</c> directive of WebForms markup.</summary>
 public static partial class AspxDirectiveParser

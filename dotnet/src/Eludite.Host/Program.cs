@@ -1,13 +1,13 @@
-using Niello.Host.Legacy;
-using Niello.Host.Lsp;
-using Niello.Host.Rpc;
-using Niello.Host.Sdk;
+using Eludite.Host.Legacy;
+using Eludite.Host.Lsp;
+using Eludite.Host.Rpc;
+using Eludite.Host.Sdk;
 
-namespace Niello.Host;
+namespace Eludite.Host;
 
 internal static class Program
 {
-    private const string Usage = "usage: niello-host [--stdio] [--roslyn-ls <path to Microsoft.CodeAnalysis.LanguageServer.dll> | --no-roslyn]";
+    private const string Usage = "usage: eludite-host [--stdio] [--roslyn-ls <path to Microsoft.CodeAnalysis.LanguageServer.dll> | --no-roslyn]";
 
     private static async Task<int> Main(string[] args)
     {
@@ -49,9 +49,9 @@ internal static class Program
             {
                 await log.WriteLineAsync("Roslyn language server not found (see tools/roslyn-pin); LSP forwarding disabled").ConfigureAwait(false);
             }
-            else if (Environment.GetEnvironmentVariable("NIELLO_LEGACY") == "0")
+            else if (Environment.GetEnvironmentVariable("ELUDITE_LEGACY") == "0")
             {
-                // Brief 0003: NIELLO_LEGACY=0 turns the legacy preparation and the extra environment off.
+                // Brief 0003: ELUDITE_LEGACY=0 turns the legacy preparation and the extra environment off.
                 launcher = new RoslynProcessLauncher(located, log);
             }
             else

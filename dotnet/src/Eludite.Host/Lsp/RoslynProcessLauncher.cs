@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>
 /// Spawns <c>Microsoft.CodeAnalysis.LanguageServer.dll</c> (built from source, see tools/roslyn-pin)
@@ -22,13 +22,13 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
     {
         _serverDllPath = serverDllPath;
         _log = log;
-        _logDirectory = logDirectory ?? Path.Combine(Path.GetTempPath(), "niello-host", "roslyn-logs");
+        _logDirectory = logDirectory ?? Path.Combine(Path.GetTempPath(), "eludite-host", "roslyn-logs");
         _environment = environment;
     }
 
     /// <summary>
-    /// Resolves the language server DLL from <c>--roslyn-ls</c>, then <c>NIELLO_ROSLYN_LS</c>, then the
-    /// default tools/roslyn-pin output under <c>ROSLYN_SRC_DIR</c> (default ~/.cache/niello/roslyn).
+    /// Resolves the language server DLL from <c>--roslyn-ls</c>, then <c>ELUDITE_ROSLYN_LS</c>, then the
+    /// default tools/roslyn-pin output under <c>ROSLYN_SRC_DIR</c> (default ~/.cache/eludite/roslyn).
     /// Returns null when none exists.
     /// </summary>
     public static string? Locate(string? explicitPath)
@@ -38,7 +38,7 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
             return File.Exists(explicitPath) ? Path.GetFullPath(explicitPath) : null;
         }
 
-        var fromEnv = Environment.GetEnvironmentVariable("NIELLO_ROSLYN_LS");
+        var fromEnv = Environment.GetEnvironmentVariable("ELUDITE_ROSLYN_LS");
         if (!string.IsNullOrEmpty(fromEnv))
         {
             return File.Exists(fromEnv) ? Path.GetFullPath(fromEnv) : null;
@@ -47,7 +47,7 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
         var src = Environment.GetEnvironmentVariable("ROSLYN_SRC_DIR");
         if (string.IsNullOrEmpty(src))
         {
-            src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "niello", "roslyn");
+            src = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "eludite", "roslyn");
         }
 
         var candidate = Path.Combine(
@@ -82,7 +82,7 @@ public sealed class RoslynProcessLauncher : ILanguageServerLauncher
         psi.ArgumentList.Add(_serverDllPath);
         psi.ArgumentList.Add("--stdio");
         psi.ArgumentList.Add("--logLevel");
-        psi.ArgumentList.Add(Environment.GetEnvironmentVariable("NIELLO_ROSLYN_LOGLEVEL") is { Length: > 0 } level ? level : "Information");
+        psi.ArgumentList.Add(Environment.GetEnvironmentVariable("ELUDITE_ROSLYN_LOGLEVEL") is { Length: > 0 } level ? level : "Information");
         psi.ArgumentList.Add("--telemetryLevel");
         psi.ArgumentList.Add("off");
         psi.ArgumentList.Add("--extensionLogDirectory");

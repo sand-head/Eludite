@@ -1,6 +1,6 @@
 [package]
-name = "niello-protocol"
-description = "Wire types shared between the Niello shell, niello-host and third-party clients."
+name = "eludite-protocol"
+description = "Wire types shared between the Eludite shell, eludite-host and third-party clients."
 version.workspace = true
 edition.workspace = true
 license = "MIT"

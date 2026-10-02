@@ -3,10 +3,10 @@
 const list = workspace.windowList();
 for (let i = 0; i < list.length; i++) {
     const w = list[i];
-    if (w.resourceClass == "niello-spike" || w.caption.indexOf("Niello spike") === 0) {
+    if (w.resourceClass == "eludite-spike" || w.caption.indexOf("Eludite spike") === 0) {
         workspace.currentDesktop = w.desktops.length ? w.desktops[0] : workspace.currentDesktop;
         w.minimized = false;
         workspace.activeWindow = w;
-        print("niello-spike activated " + w.caption);
+        print("eludite-spike activated " + w.caption);
     }
 }

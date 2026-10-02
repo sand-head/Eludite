@@ -6,7 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Niello.Host/Niello.Host.csproj" />
+    <ProjectReference Include="../../src/Eludite.Host/Eludite.Host.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>A Compile item whose declared path differs only in letter case from the file on disk.</summary>
 public sealed record PathCaseFixup(string Declared, string OnDisk);

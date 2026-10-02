@@ -1,8 +1,8 @@
 using System.Text.Json.Serialization;
 
-namespace Niello.Host.Rpc;
+namespace Eludite.Host.Rpc;
 
-// Wire shapes for the niello-host JSON-RPC contract shared with the Rust shell (protocol/schemas/host-rpc.md and
+// Wire shapes for the eludite-host JSON-RPC contract shared with the Rust shell (protocol/schemas/host-rpc.md and
 // protocol/schemas/host/*.json). Property names are serialized camelCase; null members are omitted.
 
 public sealed record InitializeParams(string ClientName, string ClientVersion);
@@ -21,10 +21,10 @@ public sealed record SdkInfo(string Version, string Path);
 
 public sealed record SolutionOpenParams(string? Path);
 
-/// <summary>Result of <c>niello/solution/open</c> and <c>niello/solution/close</c>.</summary>
+/// <summary>Result of <c>eludite/solution/open</c> and <c>eludite/solution/close</c>.</summary>
 public sealed record GenerationResult(long Generation);
 
-/// <summary><c>niello/solution/status</c> state names.</summary>
+/// <summary><c>eludite/solution/status</c> state names.</summary>
 public static class SolutionStates
 {
     public const string Loading = "loading";
@@ -33,7 +33,7 @@ public static class SolutionStates
     public const string Closed = "closed";
 }
 
-/// <summary><c>niello/solution/status</c> params.</summary>
+/// <summary><c>eludite/solution/status</c> params.</summary>
 public sealed record SolutionStatus(long Generation, string Path, string State)
 {
     /// <summary><c>legacyEvaluation</c> or <c>projectLoad</c>; only with state loading.</summary>
@@ -66,7 +66,7 @@ public sealed record HostDiagnostic(string Severity, string Code, string Message
     public string? Class { get; init; }
 }
 
-/// <summary><c>niello/languageServer/status</c> params.</summary>
+/// <summary><c>eludite/languageServer/status</c> params.</summary>
 public sealed record LanguageServerStatus(string State)
 {
     [JsonPropertyName("serverInfo")]

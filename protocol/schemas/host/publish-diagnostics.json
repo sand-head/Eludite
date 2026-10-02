@@ -1,18 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/publish-diagnostics.json",
+  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/publish-diagnostics.json",
   "title": "textDocument/publishDiagnostics (host to shell)",
   "description": "LSP 3.17 PublishDiagnosticsParams plus the generation the warming pull ran under. Diagnostic objects are LSP 3.17 Diagnostic.",
-  "x-niello-method": "textDocument/publishDiagnostics",
-  "x-niello-kind": "notification",
-  "x-niello-direction": "hostToShell",
+  "x-eludite-method": "textDocument/publishDiagnostics",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
   "$defs": {
     "params": {
       "type": "object",
       "required": [
         "uri",
         "diagnostics",
-        "nielloGeneration"
+        "eluditeGeneration"
       ],
       "properties": {
         "uri": {
@@ -34,7 +34,7 @@
             ]
           }
         },
-        "nielloGeneration": {
+        "eluditeGeneration": {
           "description": "Solution generation (see host-rpc.md).",
           "type": "integer",
           "minimum": 0

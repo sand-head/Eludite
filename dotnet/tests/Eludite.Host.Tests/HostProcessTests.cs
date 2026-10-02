@@ -2,10 +2,10 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>
-/// The real niello-host process, without a language server: stdout carries nothing but framed JSON-RPC messages
+/// The real eludite-host process, without a language server: stdout carries nothing but framed JSON-RPC messages
 /// (CLAUDE.md invariant 10), and the renamed lifecycle exits with code 0.
 /// </summary>
 public sealed class HostProcessTests
@@ -22,7 +22,7 @@ public sealed class HostProcessTests
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "niello-host.dll"));
+        psi.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "eludite-host.dll"));
         psi.ArgumentList.Add("--stdio");
         psi.ArgumentList.Add("--no-roslyn");
         using var host = Process.Start(psi)!;
@@ -44,33 +44,33 @@ public sealed class HostProcessTests
             Ct);
         var stderr = host.StandardError.ReadToEndAsync(Ct);
         var input = host.StandardInput.BaseStream;
-        var dir = Directory.CreateTempSubdirectory("niello-0007-");
+        var dir = Directory.CreateTempSubdirectory("eludite-0007-");
         try
         {
             var sln = Path.Combine(dir.FullName, "App.slnx");
             await File.WriteAllTextAsync(sln, "<Solution />", Ct);
-            await SendAsync(input, new { jsonrpc = "2.0", id = 1, method = "niello/host/initialize", @params = new { clientName = "t", clientVersion = "0" } });
-            await SendAsync(input, new { jsonrpc = "2.0", id = 2, method = "niello/ping" });
-            await SendAsync(input, new { jsonrpc = "2.0", id = 3, method = "niello/solution/open", @params = new { path = sln } });
+            await SendAsync(input, new { jsonrpc = "2.0", id = 1, method = "eludite/host/initialize", @params = new { clientName = "t", clientVersion = "0" } });
+            await SendAsync(input, new { jsonrpc = "2.0", id = 2, method = "eludite/ping" });
+            await SendAsync(input, new { jsonrpc = "2.0", id = 3, method = "eludite/solution/open", @params = new { path = sln } });
             await SendAsync(input, new { jsonrpc = "2.0", id = 4, method = "initialize", @params = new { } });
             await WaitForResponseAsync(stdout, gate, id: 4);
-            await SendAsync(input, new { jsonrpc = "2.0", id = 5, method = "niello/host/shutdown" });
+            await SendAsync(input, new { jsonrpc = "2.0", id = 5, method = "eludite/host/shutdown" });
             await WaitForResponseAsync(stdout, gate, id: 5);
-            await SendAsync(input, new { jsonrpc = "2.0", method = "niello/host/exit" });
+            await SendAsync(input, new { jsonrpc = "2.0", method = "eludite/host/exit" });
             await host.WaitForExitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
             await copy;
 
             Assert.Equal(0, host.ExitCode);
             var messages = ParseFrames(stdout.ToArray());
             var byId = messages.Where(m => m.TryGetProperty("id", out _)).ToDictionary(m => m.GetProperty("id").GetInt32());
-            Assert.Equal("niello-host", byId[1].GetProperty("result").GetProperty("hostName").GetString());
+            Assert.Equal("eludite-host", byId[1].GetProperty("result").GetProperty("hostName").GetString());
             Assert.True(byId[2].GetProperty("result").GetProperty("pong").GetBoolean());
             Assert.Equal(1, byId[3].GetProperty("result").GetProperty("generation").GetInt64());
             Assert.Equal(-32601, byId[4].GetProperty("error").GetProperty("code").GetInt32());
             Assert.Equal(JsonValueKind.Null, byId[5].GetProperty("result").ValueKind);
             var methods = messages.Where(m => m.TryGetProperty("method", out _)).Select(m => m.GetProperty("method").GetString()).ToList();
-            Assert.Contains("niello/languageServer/status", methods);
-            Assert.Contains("niello/solution/status", methods);
+            Assert.Contains("eludite/languageServer/status", methods);
+            Assert.Contains("eludite/solution/status", methods);
             Assert.Contains("listening on stdio", await stderr, StringComparison.Ordinal);
         }
         finally

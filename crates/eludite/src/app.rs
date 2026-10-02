@@ -7,12 +7,12 @@ use gpui::{
     App, AppContext as _, Bounds, Focusable as _, TitlebarOptions, WindowBounds, WindowOptions, px,
     size,
 };
-use niello_commands::{builtins, view};
-use niello_docking::{
+use eludite_commands::{builtins, view};
+use eludite_docking::{
     DockController, DockHost, DockLayout, LayoutSource, LayoutStore, LayoutWriter, Persistence,
     ToolWindowRegistry,
 };
-use niello_ui::{Theme, bind_keymap, vs_keymap};
+use eludite_ui::{Theme, bind_keymap, vs_keymap};
 
 use crate::args::Args;
 use crate::bench;
@@ -62,7 +62,7 @@ pub fn run(args: Args, t_main: Instant) {
         } = loader.join().expect("layout loader thread");
         let join_wait = t_join.elapsed();
         if !args.benching() {
-            eprintln!("niello: layout from {source:?}");
+            eprintln!("eludite: layout from {source:?}");
         }
 
         let controller = DockController::new(layout, ToolWindowRegistry::vs_default());
@@ -78,11 +78,11 @@ pub fn run(args: Args, t_main: Instant) {
         bind_keymap(cx, &vs_keymap());
         let title = match &args.solution {
             Some(s) => format!(
-                "{} - Niello",
+                "{} - Eludite",
                 s.file_stem()
                     .map_or("Solution".into(), |n| n.to_string_lossy())
             ),
-            None => "Niello".to_owned(),
+            None => "Eludite".to_owned(),
         };
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
         let options = WindowOptions {
@@ -91,7 +91,7 @@ pub fn run(args: Args, t_main: Instant) {
                 title: Some(title.into()),
                 ..Default::default()
             }),
-            app_id: Some("niello".into()),
+            app_id: Some("eludite".into()),
             // The harness must not be throttled if the compositor withholds focus.
             inactive_frame_interval: if args.benching() {
                 None
@@ -106,7 +106,7 @@ pub fn run(args: Args, t_main: Instant) {
                 shell.focus_handle(cx).focus(window, cx);
                 shell
             })
-            .expect("failed to open the Niello window");
+            .expect("failed to open the Eludite window");
         let shell = window.entity(cx).expect("shell entity");
         let dock = shell.read(cx).dock().clone();
         // Closing the main window quits, floating tool windows included.

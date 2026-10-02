@@ -1,9 +1,9 @@
 using System.Text.Json;
-using Niello.Host.Rpc;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 using StreamJsonRpc.Protocol;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>Test-side JSON-RPC client helpers.</summary>
 internal static class TestRpc

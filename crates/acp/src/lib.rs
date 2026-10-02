@@ -1,9 +1,9 @@
 //! ACP (Agent Client Protocol) client (PLAN.md D3, 5.2).
 //!
-//! Niello hosts any ACP-speaking agent in its Agents tool window. Agents run as
+//! Eludite hosts any ACP-speaking agent in its Agents tool window. Agents run as
 //! child processes speaking JSON-RPC 2.0, newline-delimited, over stdio; Claude
 //! Code (through its ACP adapter, [`default_agents`]) is the first one: the
-//! native `niello-claude-acp` adapter when it is installed (brief 0006), else
+//! native `eludite-claude-acp` adapter when it is installed (brief 0006), else
 //! the Node adapter through `npx`.
 //!
 //! Public API: [`AgentDescriptor`], [`default_agents`] and
@@ -12,12 +12,12 @@
 //! `session/new`, `session/prompt`, `session/cancel`, streamed
 //! `session/update`, `session/request_permission`), [`protocol`] (the typed
 //! subset of ACP v1), and [`fake_agent`] (a scripted agent for tests and
-//! benchmarks, also built as the `niello-fake-acp-agent` binary).
+//! benchmarks, also built as the `eludite-fake-acp-agent` binary).
 //!
 //! The wire types are hand-written instead of using the official
 //! `agent-client-protocol` crate (Apache-2.0): that crate brings an async
 //! runtime stack (`async-io`, `futures`, `schemars`) the shell does not use
-//! elsewhere, and Niello needs only a small, tolerant subset (brief 0005 report).
+//! elsewhere, and Eludite needs only a small, tolerant subset (brief 0005 report).
 
 mod client;
 pub mod fake_agent;
@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 pub use client::{AcpClient, AcpError, ClientEvent, EventSink};
-pub use niello_protocol::jsonrpc::{
+pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
 
@@ -49,10 +49,10 @@ pub struct AgentDescriptor {
 }
 
 /// The Claude Code ACP adapter verified by brief 0005, pinned to the version
-/// tested. It reuses the user's existing Claude Code login; Niello reads no key.
+/// tested. It reuses the user's existing Claude Code login; Eludite reads no key.
 pub const CLAUDE_ADAPTER_PACKAGE: &str = "@agentclientprotocol/claude-agent-acp@0.85.0";
 
-/// Set by Claude Code in its own child processes. If Niello was started from a
+/// Set by Claude Code in its own child processes. If Eludite was started from a
 /// Claude Code terminal they would leak into the agent and make it think it is
 /// nested; older adapters refuse to start ("cannot be launched inside another
 /// Claude Code session").
@@ -72,14 +72,14 @@ pub const CLAUDE_SESSION_ENV: &[&str] = &[
 /// The native Claude Code adapter's executable name (brief 0006): a Rust
 /// binary that drives the user's `claude` CLI directly, with no Node.
 pub const NATIVE_CLAUDE_ADAPTER: &str = if cfg!(windows) {
-    "niello-claude-acp.exe"
+    "eludite-claude-acp.exe"
 } else {
-    "niello-claude-acp"
+    "eludite-claude-acp"
 };
 
 /// Environment variable naming the native adapter explicitly (the configured
-/// path, until Niello has settings).
-pub const NATIVE_CLAUDE_ADAPTER_ENV: &str = "NIELLO_CLAUDE_ACP";
+/// path, until Eludite has settings).
+pub const NATIVE_CLAUDE_ADAPTER_ENV: &str = "ELUDITE_CLAUDE_ACP";
 
 /// Where to look for the native adapter: the configured path, the directory
 /// of the IDE's own executable (where it ships), then `PATH`.
@@ -91,7 +91,7 @@ pub struct AdapterSearch {
 }
 
 impl AdapterSearch {
-    /// From `$NIELLO_CLAUDE_ACP`, the current executable and `$PATH`.
+    /// From `$ELUDITE_CLAUDE_ACP`, the current executable and `$PATH`.
     pub fn from_env() -> Self {
         Self {
             configured: std::env::var_os(NATIVE_CLAUDE_ADAPTER_ENV)
@@ -196,7 +196,7 @@ mod tests {
 
     fn temp_dir(name: &str) -> PathBuf {
         let d =
-            std::env::temp_dir().join(format!("niello-acp-agents-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("eludite-acp-agents-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -315,9 +315,9 @@ mod tests {
             args: vec!["auth".into(), "login".into()],
         };
         assert_eq!(
-            native_claude_agent(Path::new("/opt/niello/niello-claude-acp"))
+            native_claude_agent(Path::new("/opt/eludite/eludite-claude-acp"))
                 .terminal_auth_command(&native),
-            "/opt/niello/niello-claude-acp auth login"
+            "/opt/eludite/eludite-claude-acp auth login"
         );
     }
 }

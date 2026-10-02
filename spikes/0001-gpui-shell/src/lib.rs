@@ -1,4 +1,4 @@
-//! Brief 0001 spike: a throwaway GPUI prototype of Niello's shell.
+//! Brief 0001 spike: a throwaway GPUI prototype of Eludite's shell.
 //!
 //! - `layout`: VS-style docking model with JSON persistence.
 //! - `shell`: the window's root view (docks, guides, floating windows, auto-hide).

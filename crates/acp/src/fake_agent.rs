@@ -7,7 +7,7 @@
 //! honours permission answers and, when `session/new` passes a stdio MCP
 //! server, really launches it and calls `diagnostics-list` through it.
 //!
-//! Run it with [`run`] over any streams, or as the `niello-fake-acp-agent`
+//! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`).
 
 use std::collections::{BTreeMap, VecDeque};
@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use crate::protocol::{AUTH_REQUIRED, McpServer, methods};
 
 /// The tool names the fake agent uses, as Claude's adapter reports them.
-pub const DIAGNOSTICS_TOOL: &str = "mcp__niello__diagnostics-list";
+pub const DIAGNOSTICS_TOOL: &str = "mcp__eludite__diagnostics-list";
 pub const SHELL_TOOL: &str = "Bash";
 pub const SHELL_COMMAND: &str = "rm -rf obj/";
 
@@ -87,7 +87,7 @@ impl Options {
 }
 
 /// Key in a stream chunk's content `_meta` holding its send time (ns since the Unix epoch).
-pub const SENT_AT_META: &str = "niello/sentAtNs";
+pub const SENT_AT_META: &str = "eludite/sentAtNs";
 
 pub fn wall_ns() -> u128 {
     SystemTime::now()
@@ -192,7 +192,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 self.reply(&id, json!({
                     "protocolVersion": 1,
                     "agentCapabilities": {"loadSession": false, "promptCapabilities": {"image": false, "embeddedContext": false}, "mcpCapabilities": {"http": false, "sse": false}},
-                    "agentInfo": {"name": "niello-fake-acp-agent", "title": "Fake agent", "version": env!("CARGO_PKG_VERSION")},
+                    "agentInfo": {"name": "eludite-fake-acp-agent", "title": "Fake agent", "version": env!("CARGO_PKG_VERSION")},
                     "authMethods": auth_methods
                 }))
             }
@@ -298,7 +298,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
         call.as_object_mut()
             .expect("object")
             .remove("sessionUpdate");
-        call["_meta"]["claudeCode"]["mcpServer"] = json!({"name": "niello", "source": "dynamic"});
+        call["_meta"]["claudeCode"]["mcpServer"] = json!({"name": "eludite", "source": "dynamic"});
         if !self.ask(call)? {
             self.update(json!({"sessionUpdate": "tool_call_update", "toolCallId": tc, "status": "failed", "content": [{"type": "content", "content": {"type": "text", "text": "The user doesn't want to proceed with this tool use. The tool use was rejected."}}]}))?;
             if self.cancelled {
@@ -382,7 +382,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 .map_err(|e| e.to_string())
         };
         send(
-            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "niello-fake-acp-agent", "version": "0"}}}),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "eludite-fake-acp-agent", "version": "0"}}}),
         )?;
         send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))?;
         send(

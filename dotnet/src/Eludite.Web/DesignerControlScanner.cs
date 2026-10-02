@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>A server control that gets a designer field, with its start-tag attributes.</summary>
 public sealed record DesignerControl(string? TagPrefix, string TagName, string Id, IReadOnlyDictionary<string, string> Attributes);

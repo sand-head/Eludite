@@ -2,7 +2,7 @@ use gpui::{Pixels, Rgba, px, rgb};
 
 /// Color tokens. Field names describe roles, not widgets. Values approximate
 /// Visual Studio 2022's Dark, Light and Blue themes (PLAN.md 8); they are
-/// Niello's own token sets, not copied theme files.
+/// Eludite's own token sets, not copied theme files.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Theme {
     pub name: &'static str,

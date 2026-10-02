@@ -1,10 +1,10 @@
-# niello-claude-acp: an ACP agent that drives the user's installed `claude`
+# eludite-claude-acp: an ACP agent that drives the user's installed `claude`
 # CLI over its headless stream-json protocol (brief 0006). Its own workspace
 # root during the spike, so the production workspace does not build it yet.
 [workspace]
 
 [package]
-name = "niello-claude-acp"
+name = "eludite-claude-acp"
 description = "Agent Client Protocol adapter for Claude Code, driving the installed `claude` CLI directly (no Node)."
 version = "0.1.0"
 edition = "2024"
@@ -13,13 +13,13 @@ rust-version = "1.98"
 publish = false
 
 [[bin]]
-name = "niello-claude-acp"
+name = "eludite-claude-acp"
 path = "src/main.rs"
 
 # Test-only: a fake `claude` that replays recorded stream-json sessions. Not
 # under `src/bin/`: the repository's .gitignore ignores `bin/` (.NET output).
 [[bin]]
-name = "niello-fake-claude"
+name = "eludite-fake-claude"
 path = "src/fake_claude_main.rs"
 test = false
 
@@ -31,8 +31,8 @@ uuid = { version = "1", features = ["v4"] } # Apache-2.0 OR MIT
 
 [dev-dependencies]
 # The brief 0005 ACP client (GPL-3.0-or-later), used only by the tests to drive
-# the adapter as Niello does; it is not linked into the shipped binary.
-niello-acp = { path = "../../crates/acp" }
+# the adapter as Eludite does; it is not linked into the shipped binary.
+eludite-acp = { path = "../../crates/acp" }
 
 [profile.release]
 lto = "thin"

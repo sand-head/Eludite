@@ -1,10 +1,10 @@
 using System.Text.Json;
 using Nerdbank.Streams;
-using Niello.Host.Lsp;
-using Niello.Host.Rpc;
+using Eludite.Host.Lsp;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>
 /// An in-memory LSP server standing in for Roslyn. Each <see cref="LaunchAsync"/> is a fresh server process; the

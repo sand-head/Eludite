@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="../../src/Niello.TestBridge/Niello.TestBridge.csproj" />
+    <ProjectReference Include="../../src/Eludite.TestBridge/Eludite.TestBridge.csproj" />
   </ItemGroup>
 
 </Project>

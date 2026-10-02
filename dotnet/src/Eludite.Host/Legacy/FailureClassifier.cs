@@ -1,4 +1,4 @@
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>Buckets evaluation failures and diagnostics into the classes the brief 0003 report uses.</summary>
 public static class FailureClassifier

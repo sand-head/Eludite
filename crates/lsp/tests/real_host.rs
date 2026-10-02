@@ -1,4 +1,4 @@
-//! The client against the real `niello-host` (built by `dotnet build dotnet/Niello.slnx`), without a language
+//! The client against the real `eludite-host` (built by `dotnet build dotnet/Eludite.slnx`), without a language
 //! server: proves the Rust types and the .NET host agree on the wire. Skips with a message when the host is not
 //! built or `dotnet` is missing, so `cargo test` stays green on a machine without .NET.
 
@@ -6,14 +6,14 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use niello_lsp::host::{self, HostDiagnosticSeverity, LanguageServerState, SolutionState};
-use niello_lsp::lsp::{self, Position, TextDocumentIdentifier, TextDocumentPositionParams};
-use niello_lsp::{ClientInfo, Error, Event, HostClient, HostCommand, RestartPolicy, StderrMode};
+use eludite_lsp::host::{self, HostDiagnosticSeverity, LanguageServerState, SolutionState};
+use eludite_lsp::lsp::{self, Position, TextDocumentIdentifier, TextDocumentPositionParams};
+use eludite_lsp::{ClientInfo, Error, Event, HostClient, HostCommand, RestartPolicy, StderrMode};
 
 const T: Duration = Duration::from_secs(30);
 
 fn host_dll() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("NIELLO_HOST_DLL") {
+    if let Some(p) = std::env::var_os("ELUDITE_HOST_DLL") {
         return Some(PathBuf::from(p));
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -21,7 +21,7 @@ fn host_dll() -> Option<PathBuf> {
         .iter()
         .map(|c| {
             root.join(format!(
-                "dotnet/src/Niello.Host/bin/{c}/net10.0/niello-host.dll"
+                "dotnet/src/Eludite.Host/bin/{c}/net10.0/eludite-host.dll"
             ))
         })
         .find(|p| p.exists())
@@ -43,7 +43,7 @@ fn next<T>(rx: &Receiver<Event>, pick: impl Fn(Event) -> Option<T>) -> T {
 fn real_host_without_language_server() {
     let Some(dll) = host_dll() else {
         eprintln!(
-            "skipped: niello-host.dll not built (dotnet build dotnet/Niello.slnx) and NIELLO_HOST_DLL unset"
+            "skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx) and ELUDITE_HOST_DLL unset"
         );
         return;
     };
@@ -60,7 +60,7 @@ fn real_host_without_language_server() {
             .arg("--no-roslyn")
             .stderr(StderrMode::Discard),
         ClientInfo {
-            name: "niello-lsp-test".into(),
+            name: "eludite-lsp-test".into(),
             version: "0".into(),
         },
         RestartPolicy {
@@ -68,7 +68,7 @@ fn real_host_without_language_server() {
             backoff: Duration::ZERO,
         },
     )
-    .expect("start niello-host");
+    .expect("start eludite-host");
 
     let init = client.initialize_result().unwrap();
     assert_eq!(init.host_name, host::HOST_NAME);
@@ -85,7 +85,7 @@ fn real_host_without_language_server() {
         .unwrap();
     assert!(!info.runtime.is_empty());
 
-    let dir = std::env::temp_dir().join(format!("niello-lsp-real-host-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("eludite-lsp-real-host-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let sln = dir.join("App.slnx");
     std::fs::write(&sln, "<Solution />").unwrap();
@@ -96,7 +96,7 @@ fn real_host_without_language_server() {
         _ => None,
     });
     assert_eq!(failed.generation, 1);
-    assert_eq!(failed.diagnostics[0].code, "NIELLO0001");
+    assert_eq!(failed.diagnostics[0].code, "ELUDITE0001");
     assert_eq!(
         failed.diagnostics[0].severity,
         HostDiagnosticSeverity::Error

@@ -1,6 +1,6 @@
 [package]
-name = "niello-git"
-description = "Niello git integration (libgit2)."
+name = "eludite-git"
+description = "Eludite git integration (libgit2)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

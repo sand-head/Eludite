@@ -6,7 +6,7 @@ using Microsoft.Build.Execution;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Locator;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>
 /// Evaluates projects in-process with the .NET SDK's MSBuild, located by Microsoft.Build.Locator

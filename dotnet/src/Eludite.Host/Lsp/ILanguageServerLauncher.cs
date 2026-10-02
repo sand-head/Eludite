@@ -1,4 +1,4 @@
-namespace Niello.Host.Lsp;
+namespace Eludite.Host.Lsp;
 
 /// <summary>Starts an upstream LSP server and hands back its duplex streams.</summary>
 public interface ILanguageServerLauncher

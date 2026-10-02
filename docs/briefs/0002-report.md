@@ -1,14 +1,14 @@
-# Brief 0002 report: `niello-host` with Roslyn, time-to-IntelliSense
+# Brief 0002 report: `eludite-host` with Roslyn, time-to-IntelliSense
 
 Status: Linux done; Windows not run on this machine (none available). Spike code, not production.
-Branch: `brief/0002-niello-host-roslyn`. Date: 2026-10-01.
+Branch: `brief/0002-eludite-host-roslyn`. Date: 2026-10-01.
 
 ## Summary
 
 - The Roslyn language server builds from source at the pinned commit with one command
   (`tools/roslyn-pin/build.sh`) in **117 s** wall time on Linux, with 0 warnings. That time
   includes downloading Roslyn's own SDK.
-- niello-host **spawns** the server as a child process and proxies LSP over its existing stdio
+- eludite-host **spawns** the server as a child process and proxies LSP over its existing stdio
   connection. Loading the server in-process was tried and fails at this commit (see "Embed vs
   spawn").
 - The 200-project solution loads in about 9.2 to 9.6 s. Completion in the depth-6 project
@@ -22,7 +22,7 @@ Branch: `brief/0002-niello-host-roslyn`. Date: 2026-10-01.
   compile dependencies in the background on its own. If the client never sends a request that
   needs full semantics (a `textDocument/diagnostic` pull or a hover), member completion on types
   from referenced projects stays **empty indefinitely** for that document version. The VS Code
-  client hides this because it pulls diagnostics on every change. Niello's shell must do the
+  client hides this because it pulls diagnostics on every change. Eludite's shell must do the
   same, or the host must warm compilations itself.
 
 ## Machine
@@ -44,15 +44,15 @@ written but untested.
 | Path | What |
 |---|---|
 | `tools/roslyn-pin/COMMIT` | Pinned commit (the `main` tip on 2026-10-01; no release tag was tried because `main` built cleanly on the first attempt) |
-| `tools/roslyn-pin/build.sh`, `build.ps1` | Clone or fetch into `$ROSLYN_SRC_DIR` (default `~/.cache/niello/roslyn`), check out the pin, build the language server. The ps1 is untested. |
-| `dotnet/src/Niello.Host/Lsp/` | `ILanguageServerLauncher`, `RoslynProcessLauncher` (spawn plus locate), `LspProxy` (forwarding, upstream handshake, cancellation, solution generation) |
-| `dotnet/src/Niello.Host/{Program.cs, Rpc/*}` | `--roslyn-ls <path>` and `--no-roslyn` flags; `initialize` starts the server in the background; the proxy is attached to the same connection |
-| `dotnet/tests/Niello.Host.Tests/LspProxyTests.cs` | 9 tests against an in-memory fake LSP server |
-| `dotnet/tests/Niello.Host.Tests/RoslynIntegrationTests.cs` | Proving test against the real host, the real Roslyn server and the generated solution. Skips with a message when either is absent. |
+| `tools/roslyn-pin/build.sh`, `build.ps1` | Clone or fetch into `$ROSLYN_SRC_DIR` (default `~/.cache/eludite/roslyn`), check out the pin, build the language server. The ps1 is untested. |
+| `dotnet/src/Eludite.Host/Lsp/` | `ILanguageServerLauncher`, `RoslynProcessLauncher` (spawn plus locate), `LspProxy` (forwarding, upstream handshake, cancellation, solution generation) |
+| `dotnet/src/Eludite.Host/{Program.cs, Rpc/*}` | `--roslyn-ls <path>` and `--no-roslyn` flags; `initialize` starts the server in the background; the proxy is attached to the same connection |
+| `dotnet/tests/Eludite.Host.Tests/LspProxyTests.cs` | 9 tests against an in-memory fake LSP server |
+| `dotnet/tests/Eludite.Host.Tests/RoslynIntegrationTests.cs` | Proving test against the real host, the real Roslyn server and the generated solution. Skips with a message when either is absent. |
 | `bench/roslyn-200/generate.py` | Deterministic generator for the 200-project solution |
 | `bench/roslyn-200/run.sh`, `run.ps1`, `driver/` | Bench driver (C#, so `run.ps1` can reuse it); `run.ps1` is untested |
 
-Test counts: `dotnet test dotnet/Niello.slnx` gives 55 tests, all passing. The 24 host tests are
+Test counts: `dotnet test dotnet/Eludite.slnx` gives 55 tests, all passing. The 24 host tests are
 the 14 existing ones, 9 proxy tests and 1 integration test. On a fresh clone the integration test
 is skipped.
 
@@ -76,12 +76,12 @@ is skipped.
 **Windows: not run on this machine.** `build.ps1` calls `Build.cmd` with the same arguments and
 is untested.
 
-### 2. Handshake, `niello/ping`, `niello/host/info`
+### 2. Handshake, `eludite/ping`, `eludite/host/info`
 
 **Pass.**
 - The 14 existing host tests still pass unchanged. That includes the one asserting
-  `capabilities` is `{}`, and the one asserting that `niello/nope` returns MethodNotFound.
-- The integration test runs `initialize`, `niello/ping`, `niello/host/info`, `shutdown` and
+  `capabilities` is `{}`, and the one asserting that `eludite/nope` returns MethodNotFound.
+- The integration test runs `initialize`, `eludite/ping`, `eludite/host/info`, `shutdown` and
   `exit` against the real process with Roslyn attached, and checks for exit code 0.
 - Host stdout stayed protocol-only: the bench client's strict framing parser read every byte of
   20 runs without error. Roslyn's stdout is a private pipe to the host, and its stderr is copied
@@ -128,7 +128,7 @@ from it.
 | T3-typing (`didChange`, then completion) p50 | 12.7 ms (8.4 to 14.1) | 12.8 ms (10.5 to 14.3) |
 | T3-typing p95 | 34.9 ms (15.3 to 39.4) | 36.5 ms (14.5 to 39.6) |
 | T3-typing p99 | 48.2 ms (39.4 to 52.8) | 49.1 ms (36.8 to 65.5) |
-| Peak RSS of niello-host (VmHWM) | 72.0 MB (71.6 to 74.0) | 71.9 MB (71.5 to 72.3) |
+| Peak RSS of eludite-host (VmHWM) | 72.0 MB (71.6 to 74.0) | 71.9 MB (71.5 to 72.3) |
 | Peak RSS of the Roslyn LS child (VmHWM) | 1,582 MB (1,116 to 1,853) | 1,417 MB (1,079 to 1,888) |
 | Peak RSS of the whole host tree (host, LS and BuildHost processes, sampled every 50 ms) | 2,575 MB (2,537 to 2,616) | 2,544 MB (2,508 to 2,662) |
 
@@ -149,7 +149,7 @@ Notes on these numbers:
   T3-typing adds a new document version before each request, which is closer to real typing; its
   p95 is still under 50 ms, and its p99 sits right at the line.
 - **Proxy overhead.** I compared 1,000 completions driven by the same Python client straight at
-  the Roslyn server against the same requests through niello-host, alternating twice. Results:
+  the Roslyn server against the same requests through eludite-host, alternating twice. Results:
   direct p50 4.4 / 4.9 ms and p95 6.2 / 8.1 ms; through the host p50 4.6 / 4.8 ms and
   p95 6.6 / 7.8 ms. The extra hop is within run-to-run noise (under 0.5 ms).
 
@@ -203,7 +203,7 @@ How it works:
 **Solution generation.**
 - `LspProxy.Generation` counts completed solution loads. It goes up by one on each
   `workspace/projectInitializationComplete`, and its value is 0 until the first load finishes.
-- A forwarded request may carry `params.nielloGeneration`. The host strips that field before
+- A forwarded request may carry `params.eluditeGeneration`. The host strips that field before
   forwarding.
 - If the value does not match the current generation, the request fails at once with -32801
   (ContentModified) and is never forwarded.
@@ -265,7 +265,7 @@ Present at this commit but not used: `project/open`, `roslyn/resolveContext@2`,
 5. **`$/progress` collides with StreamJsonRpc.** StreamJsonRpc has built-in `$/progress` handling
    that expects numeric tokens; LSP uses string GUIDs. Every Roslyn progress notification logs a
    deserialization error. Relaying still works, but tracing is off by default for that reason
-   (`NIELLO_LSP_TRACE=1|warn` turns it on).
+   (`ELUDITE_LSP_TRACE=1|warn` turns it on).
 6. **No-params notifications don't bind.** `workspace/projectInitializationComplete` has no
    `params` member, so it does not bind to a single-object handler. The host registers a
    parameterless overload as well. This was found against the real server; the fake server in
@@ -274,7 +274,7 @@ Present at this commit but not used: `project/open`, `roslyn/resolveContext@2`,
 
 ### Embed vs spawn
 
-**Decision: spawn**, with the server as a child of niello-host and LSP proxied over the host's
+**Decision: spawn**, with the server as a child of eludite-host and LSP proxied over the host's
 stdio on the same connection.
 
 - The child runs `dotnet <dll> --stdio --clientProcessId <host pid> --telemetryLevel off`.
@@ -324,7 +324,7 @@ realized:
 - Time-to-semantic is load-bound (about 9.6 s for 200 projects), not latency-bound. Caching
   project load results is the main lever for the 1 s experience.
 
-**Follow-up brief: "niello-host LSP bridge, production cut" (medium, about one agent-week).**
+**Follow-up brief: "eludite-host LSP bridge, production cut" (medium, about one agent-week).**
 - Specify LSP forwarding, generation and readiness in `protocol/schemas/host-rpc.md` first (the
   gaps below), plus Rust bindings.
 - Move the forwarding table, the configuration answers and the server-to-client requests to a
@@ -340,27 +340,27 @@ realized:
 
 **A separate, larger item (its own brief, medium to large): project-load caching to bring T2
 toward 2 to 3 s.** It may need changes upstream in Roslyn's `LanguageServerProjectSystem`, or a
-niello-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs.
+eludite-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs.
 
 ## Protocol gaps (not edited; `protocol/**` is out of scope)
 
 1. **`host-rpc.md` does not describe LSP forwarding at all.** The spike forwards plain LSP 3.17
    method names on the same connection (the list is in `LspProxy.ForwardedRequests` and
-   `ForwardedNotifications`). The schema should list them, or say "any non-`niello/` LSP method".
-2. **Name collision on `initialize`, `shutdown` and `exit`.** The niello handshake and LSP use the
+   `ForwardedNotifications`). The schema should list them, or say "any non-`eludite/` LSP method".
+2. **Name collision on `initialize`, `shutdown` and `exit`.** The eludite handshake and LSP use the
    same method names, so the host owns the upstream LSP handshake. As a result, the shell cannot
    send LSP `ClientCapabilities` or see Roslyn's `ServerCapabilities`. Proposal: add
    `lspClientCapabilities` to `initialize` params and `capabilities.lsp` (Roslyn's server
    capabilities) to the result. `capabilities` stays `{}` today because the existing test pins it
    and the schema leaves its keys unspecified.
-3. **Solution generation has no schema.** The spike uses an optional `params.nielloGeneration`
+3. **Solution generation has no schema.** The spike uses an optional `params.eluditeGeneration`
    and error -32801. The schema needs:
    - where the generation travels (params or a JSON-RPC envelope extension);
-   - how the shell learns the current value (for example a `niello/solution/generation`
+   - how the shell learns the current value (for example a `eludite/solution/generation`
      notification);
    - whether responses echo it.
 4. **Readiness.** The spike relays Roslyn's `workspace/projectInitializationComplete` verbatim.
-   The protocol should either adopt it or define a `niello/solution/loaded` notification
+   The protocol should either adopt it or define a `eludite/solution/loaded` notification
    carrying the generation.
 5. **Server-to-client requests** (`workspace/configuration`, `client/registerCapability`,
    `window/workDoneProgress/create`, the `workspace/*/refresh` requests) are answered by the host.
@@ -388,6 +388,6 @@ niello-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs.
 ```
 tools/roslyn-pin/build.sh                    # ~2 min; clone + build at tools/roslyn-pin/COMMIT
 bench/roslyn-200/run.sh --prepare-only       # generate, restore (offline), build host + driver
-dotnet test dotnet/Niello.slnx               # includes the integration test once the above exist
+dotnet test dotnet/Eludite.slnx               # includes the integration test once the above exist
 bench/roslyn-200/run.sh                      # 10 cold + 10 warm; COLD=3 WARM=3 for a quick run
 ```

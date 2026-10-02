@@ -1,11 +1,11 @@
-using Niello.Host.Legacy;
+using Eludite.Host.Legacy;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
 /// <summary>Brief 0003: the legacy design-time evaluators, on a synthetic non-SDK WebForms project.</summary>
 public sealed class LegacyEvaluatorTests : IDisposable
 {
-    private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("niello-legacy-");
+    private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("eludite-legacy-");
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

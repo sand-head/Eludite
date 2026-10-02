@@ -35,7 +35,7 @@ use crate::translate::{Translator, TurnEnd};
 
 /// Environment variable choosing the model (`--model`) when the session does
 /// not.
-pub const MODEL_ENV: &str = "NIELLO_CLAUDE_MODEL";
+pub const MODEL_ENV: &str = "ELUDITE_CLAUDE_MODEL";
 
 /// The terminal login method's id.
 pub const LOGIN_METHOD_ID: &str = "claude-login";
@@ -48,7 +48,7 @@ const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(10);
 pub struct Config {
     /// `--claude PATH`.
     pub claude: Option<PathBuf>,
-    /// `--model M` (else `$NIELLO_CLAUDE_MODEL`, else the session's `_meta`).
+    /// `--model M` (else `$ELUDITE_CLAUDE_MODEL`, else the session's `_meta`).
     pub model: Option<String>,
 }
 
@@ -132,7 +132,7 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
     );
     let result = Agent
         .builder()
-        .name("niello-claude-acp")
+        .name("eludite-claude-acp")
         .on_receive_request(
             async move |req: InitializeRequest,
                         responder: Responder<InitializeResponse>,
@@ -212,12 +212,12 @@ fn initialize(state: &State, req: InitializeRequest) -> InitializeResponse {
     let mut resp = InitializeResponse::new(version)
         .agent_capabilities(caps)
         .agent_info(
-            Implementation::new("niello-claude-acp", env!("CARGO_PKG_VERSION"))
+            Implementation::new("eludite-claude-acp", env!("CARGO_PKG_VERSION"))
                 .title("Claude Code".to_owned()),
         );
     // Like the Node adapter, list the terminal login only to clients that can
     // show it. Its args are appended to this adapter's own command line:
-    // `niello-claude-acp auth login` runs `claude auth login`.
+    // `eludite-claude-acp auth login` runs `claude auth login`.
     if auth_terminal {
         resp = resp.auth_methods(vec![AuthMethod::Terminal(
             AuthMethodTerminal::new(LOGIN_METHOD_ID, "Log in to Claude Code")
@@ -232,7 +232,7 @@ fn initialize(state: &State, req: InitializeRequest) -> InitializeResponse {
     resp
 }
 
-/// The model for a new session: `--model`, then `$NIELLO_CLAUDE_MODEL`, then
+/// The model for a new session: `--model`, then `$ELUDITE_CLAUDE_MODEL`, then
 /// the session's `_meta.claudeCode.options.model` (the Node adapter's key).
 fn session_model(config: &Config, meta: Option<&serde_json::Map<String, Value>>) -> Option<String> {
     config
@@ -254,7 +254,7 @@ async fn new_session(state: &State, req: NewSessionRequest) -> Result<NewSession
         return Err(Error::invalid_params().data(json!("cwd must be an absolute path")));
     }
     let id = uuid::Uuid::new_v4().to_string();
-    let config_path = std::env::temp_dir().join(format!("niello-claude-acp-{id}.mcp.json"));
+    let config_path = std::env::temp_dir().join(format!("eludite-claude-acp-{id}.mcp.json"));
     write_mcp_config(&config_path, &mcp_config(&req.mcp_servers))
         .map_err(|e| failure(format!("could not write the MCP config: {e}")))?;
     let launch = Launch {
@@ -387,7 +387,7 @@ async fn drive_turn(
                     log::info(format_args!("unsupported control request {subtype}"));
                     let _ = session
                         .process
-                        .respond_error(&request_id, "not supported by niello-claude-acp");
+                        .respond_error(&request_id, "not supported by eludite-claude-acp");
                 }
             }
             Event::Exited => break,

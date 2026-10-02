@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Reads <c>&lt;%@ Register %&gt;</c> directives from WebForms markup.</summary>
 public static partial class RegisterDirectiveParser

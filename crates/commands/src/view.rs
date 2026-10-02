@@ -1,10 +1,10 @@
-//! `niello.view.*`: show, hide, float, auto-hide, dock and reset tool windows
+//! `eludite.view.*`: show, hide, float, auto-hide, dock and reset tool windows
 //! (PLAN.md 5.1, 8; brief 0008).
 //!
 //! The schemas are the files in `protocol/schemas/view-*.json` (checked in
 //! first, CLAUDE.md invariant 4), embedded at compile time. This module only
 //! parses and validates input into a typed [`ViewRequest`] and serializes the
-//! typed [`ViewOutput`]; the docking layout itself lives in `niello-docking`,
+//! typed [`ViewOutput`]; the docking layout itself lives in `eludite-docking`,
 //! which implements [`ViewTarget`]. The menu bar, the keymap, the docking
 //! guides and agents all reach the layout through these commands.
 
@@ -15,12 +15,12 @@ use serde_json::Value;
 
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
-pub const SHOW: &str = "niello.view.show";
-pub const HIDE: &str = "niello.view.hide";
-pub const FLOAT: &str = "niello.view.float";
-pub const AUTO_HIDE: &str = "niello.view.auto_hide";
-pub const DOCK: &str = "niello.view.dock";
-pub const RESET_LAYOUT: &str = "niello.view.reset_layout";
+pub const SHOW: &str = "eludite.view.show";
+pub const HIDE: &str = "eludite.view.hide";
+pub const FLOAT: &str = "eludite.view.float";
+pub const AUTO_HIDE: &str = "eludite.view.auto_hide";
+pub const DOCK: &str = "eludite.view.dock";
+pub const RESET_LAYOUT: &str = "eludite.view.reset_layout";
 
 /// Every command this module registers.
 pub const ALL: [&str; 6] = [SHOW, HIDE, FLOAT, AUTO_HIDE, DOCK, RESET_LAYOUT];
@@ -85,7 +85,7 @@ pub struct FloatBounds {
     pub height: f32,
 }
 
-/// Where `niello.view.dock` sends a window.
+/// Where `eludite.view.dock` sends a window.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DockTarget {
     /// Back where it belongs: a floating window to its last dock, an
@@ -97,7 +97,7 @@ pub enum DockTarget {
     TabWith(String),
 }
 
-/// A parsed, validated `niello.view.*` invocation. `id: None` means the
+/// A parsed, validated `eludite.view.*` invocation. `id: None` means the
 /// active tool window.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewRequest {
@@ -298,7 +298,7 @@ pub fn spec(id: &str) -> CommandSpec {
     }
 }
 
-/// Register every `niello.view.*` command, applying them to `target`.
+/// Register every `eludite.view.*` command, applying them to `target`.
 pub fn register(
     registry: &mut CommandRegistry,
     target: Arc<dyn ViewTarget>,

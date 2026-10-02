@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use niello_acp::protocol::{
+use eludite_acp::protocol::{
     PermissionOption, RequestPermissionRequest, SessionUpdate, ToolCall, ToolCallStatus,
 };
 use serde_json::{Value, json};
@@ -301,7 +301,7 @@ pub fn status_label(s: Option<ToolCallStatus>) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use niello_acp::protocol::ContentBlock;
+    use eludite_acp::protocol::ContentBlock;
 
     #[test]
     fn agent_lines_split_and_only_tail_is_dirty() {

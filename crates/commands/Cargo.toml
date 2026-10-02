@@ -1,6 +1,6 @@
 [package]
-name = "niello-commands"
-description = "Niello command bus."
+name = "eludite-commands"
+description = "Eludite command bus."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

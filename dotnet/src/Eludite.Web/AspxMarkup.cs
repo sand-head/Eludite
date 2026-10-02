@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace Niello.Web;
+namespace Eludite.Web;
 
 /// <summary>Regexes shared by the ASPX scanners.</summary>
 internal static partial class AspxMarkup

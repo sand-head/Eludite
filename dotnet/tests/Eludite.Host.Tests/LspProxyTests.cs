@@ -3,14 +3,14 @@ using System.Text.Json;
 using System.Threading.Channels;
 using Microsoft.Extensions.Time.Testing;
 using Nerdbank.Streams;
-using Niello.Host.Lsp;
-using Niello.Host.Rpc;
+using Eludite.Host.Lsp;
+using Eludite.Host.Rpc;
 using StreamJsonRpc;
 using StreamJsonRpc.Protocol;
 
-namespace Niello.Host.Tests;
+namespace Eludite.Host.Tests;
 
-/// <summary>The LSP bridge in niello-host against an in-memory fake language server.</summary>
+/// <summary>The LSP bridge in eludite-host against an in-memory fake language server.</summary>
 public sealed class LspProxyTests : IAsyncDisposable
 {
     private readonly FakeLanguageServer _fake = new();
@@ -20,7 +20,7 @@ public sealed class LspProxyTests : IAsyncDisposable
     private readonly HostRpcTarget _target;
     private readonly Task<int> _server;
     private readonly JsonRpc _client;
-    private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("niello-0007-");
+    private readonly DirectoryInfo _dir = Directory.CreateTempSubdirectory("eludite-0007-");
     private readonly Channel<JsonElement> _solutionStatus = Channel.CreateUnbounded<JsonElement>();
     private readonly Channel<JsonElement> _serverStatus = Channel.CreateUnbounded<JsonElement>();
     private readonly Channel<JsonElement> _diagnostics = Channel.CreateUnbounded<JsonElement>();
@@ -32,8 +32,8 @@ public sealed class LspProxyTests : IAsyncDisposable
         _target = new HostRpcTarget(new FakeSdkDiscoverer(), TextWriter.Null, languageServer: _proxy);
         _server = HostServer.RunAsync(serverStream, serverStream, _target);
         _client = TestRpc.Create(clientStream);
-        Collect("niello/solution/status", _solutionStatus);
-        Collect("niello/languageServer/status", _serverStatus);
+        Collect("eludite/solution/status", _solutionStatus);
+        Collect("eludite/languageServer/status", _serverStatus);
         Collect("textDocument/publishDiagnostics", _diagnostics);
         _client.StartListening();
     }
@@ -63,7 +63,7 @@ public sealed class LspProxyTests : IAsyncDisposable
     }
 
     private Task InitializeAsync() =>
-        _client.InvokeWithParameterObjectAsync<JsonElement>("niello/host/initialize", new { clientName = "t", clientVersion = "0" }, Ct);
+        _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/host/initialize", new { clientName = "t", clientVersion = "0" }, Ct);
 
     private async Task<string> WriteSolutionAsync(string name = "App.slnx", bool legacy = false)
     {
@@ -82,14 +82,14 @@ public sealed class LspProxyTests : IAsyncDisposable
 
     private async Task<long> OpenAsync(string sln)
     {
-        var r = await _client.InvokeWithParameterObjectAsync<JsonElement>("niello/solution/open", new { path = sln }, Ct);
+        var r = await _client.InvokeWithParameterObjectAsync<JsonElement>("eludite/solution/open", new { path = sln }, Ct);
         return r.GetProperty("generation").GetInt64();
     }
 
     private Task<JsonElement> CompleteAsync(long generation, string uri = "file:///a.cs", CancellationToken? ct = null) =>
         _client.InvokeWithParameterObjectAsync<JsonElement>(
             "textDocument/completion",
-            new { textDocument = new { uri }, position = new { line = 3, character = 7 }, nielloGeneration = generation },
+            new { textDocument = new { uri }, position = new { line = 3, character = 7 }, eluditeGeneration = generation },
             ct ?? Ct);
 
     private Task DidOpenAsync(string uri, string text, int version = 1) =>
@@ -143,7 +143,7 @@ public sealed class LspProxyTests : IAsyncDisposable
 
         var result = await _client.InvokeWithParameterObjectAsync<JsonElement>(
             "textDocument/signatureHelp",
-            new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 1, character = 2 }, custom = "kept", nielloGeneration = 0 },
+            new { textDocument = new { uri = "file:///a.cs" }, position = new { line = 1, character = 2 }, custom = "kept", eluditeGeneration = 0 },
             Ct);
 
         Assert.Equal("M(int x)", result.GetProperty("signatures")[0].GetProperty("label").GetString());
@@ -170,7 +170,7 @@ public sealed class LspProxyTests : IAsyncDisposable
         await InitializeAsync();
 
         var (code, _) = await TestRpc.ErrorOfAsync(() => _client.InvokeWithParameterObjectAsync<JsonElement>(
-            "textDocument/hover", new { position = new { line = 0, character = 0 }, nielloGeneration = 0 }, Ct));
+            "textDocument/hover", new { position = new { line = 0, character = 0 }, eluditeGeneration = 0 }, Ct));
 
         Assert.Equal(HostErrors.InvalidParams, code);
     }
@@ -243,7 +243,7 @@ public sealed class LspProxyTests : IAsyncDisposable
         Assert.Equal(1, loaded.GetProperty("counts").GetProperty("legacyEvaluationFailures").GetInt32());
         Assert.Equal("mono", loaded.GetProperty("msbuild").GetProperty("kind").GetString());
         Assert.Equal("caseFixups", loaded.GetProperty("corrections")[0].GetProperty("kind").GetString());
-        Assert.Equal("NIELLO0106", loaded.GetProperty("diagnostics")[0].GetProperty("code").GetString());
+        Assert.Equal("ELUDITE0106", loaded.GetProperty("diagnostics")[0].GetProperty("code").GetString());
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public sealed class LspProxyTests : IAsyncDisposable
         var published = await NextAsync(_diagnostics);
         Assert.Equal(uri, published.GetProperty("uri").GetString());
         Assert.Equal(4, published.GetProperty("version").GetInt32());
-        Assert.Equal(0, published.GetProperty("nielloGeneration").GetInt64());
+        Assert.Equal(0, published.GetProperty("eluditeGeneration").GetInt64());
         Assert.Equal("CS0168", published.GetProperty("diagnostics")[0].GetProperty("code").GetString());
         var order = _fake.Snapshot();
         Assert.True(order.IndexOf("textDocument/didOpen") < order.IndexOf("textDocument/diagnostic"));
@@ -431,17 +431,17 @@ public sealed class LspProxyTests : IAsyncDisposable
 
         Assert.Equal("exited", (await NextAsync(_serverStatus, s => s.GetProperty("state").GetString() == "exited")).GetProperty("state").GetString());
         var failed = await NextAsync(_solutionStatus, s => s.GetProperty("state").GetString() == "failed");
-        Assert.Equal("NIELLO0002", failed.GetProperty("diagnostics")[0].GetProperty("code").GetString());
+        Assert.Equal("ELUDITE0002", failed.GetProperty("diagnostics")[0].GetProperty("code").GetString());
         var ex = await Assert.ThrowsAsync<RemoteInvocationException>(() => CompleteAsync(1));
         Assert.Equal(HostErrors.RequestFailed, ex.ErrorCode);
     }
 
     [Fact]
-    public async Task NielloMethodsStillWorkAndUnknownMethodsAreNotForwarded()
+    public async Task EluditeMethodsStillWorkAndUnknownMethodsAreNotForwarded()
     {
         await InitializeAsync();
 
-        var ping = await _client.InvokeWithCancellationAsync<JsonElement>("niello/ping", [], Ct);
+        var ping = await _client.InvokeWithCancellationAsync<JsonElement>("eludite/ping", [], Ct);
         Assert.True(ping.GetProperty("pong").GetBoolean());
         var ex = await Assert.ThrowsAsync<RemoteMethodNotFoundException>(
             () => _client.InvokeWithCancellationAsync<JsonElement>("textDocument/notAThing", [], Ct));
@@ -454,8 +454,8 @@ public sealed class LspProxyTests : IAsyncDisposable
         await InitializeAsync();
         await NextAsync(_serverStatus, s => s.GetProperty("state").GetString() == "running");
 
-        await _client.InvokeWithCancellationAsync<JsonElement>("niello/host/shutdown", [], Ct);
-        await _client.NotifyAsync("niello/host/exit");
+        await _client.InvokeWithCancellationAsync<JsonElement>("eludite/host/shutdown", [], Ct);
+        await _client.NotifyAsync("eludite/host/exit");
 
         Assert.Equal(0, await _server.WaitAsync(TimeSpan.FromSeconds(10), Ct));
         Assert.Contains("shutdown", _fake.Snapshot());
@@ -487,7 +487,7 @@ public sealed class LspProxyTests : IAsyncDisposable
             return Task.FromResult(new SolutionPreparation(
                 new MsBuildInfo("mono", "/usr/lib/mono/msbuild/Current/bin/MSBuild.dll", "system"),
                 [new Correction("caseFixups", "/src/Lib.csproj", 1)],
-                [new HostDiagnostic("warning", "NIELLO0106", "case") { Project = "/src/Lib.csproj" }],
+                [new HostDiagnostic("warning", "ELUDITE0106", "case") { Project = "/src/Lib.csproj" }],
                 1));
         }
     }

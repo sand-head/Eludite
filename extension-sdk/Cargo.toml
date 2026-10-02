@@ -1,6 +1,6 @@
 [package]
-name = "niello-extension-sdk"
-description = "Types for writing Niello extensions."
+name = "eludite-extension-sdk"
+description = "Types for writing Eludite extensions."
 version.workspace = true
 edition.workspace = true
 license = "MIT"

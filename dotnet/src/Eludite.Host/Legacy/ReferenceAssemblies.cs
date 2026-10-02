@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Niello.Host.Legacy;
+namespace Eludite.Host.Legacy;
 
 /// <summary>
 /// .NET Framework reference assemblies from the <c>Microsoft.NETFramework.ReferenceAssemblies.net4*</c> NuGet packages

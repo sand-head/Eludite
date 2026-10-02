@@ -6,7 +6,7 @@
 #   ROSLYN_SRC_DIR=/path tools/roslyn-pin/build.sh
 #   ROSLYN_CONFIGURATION=Debug tools/roslyn-pin/build.sh
 #
-# The clone lives outside this repository (default $HOME/.cache/niello/roslyn).
+# The clone lives outside this repository (default $HOME/.cache/eludite/roslyn).
 # Roslyn's own eng/ scripts download the SDK pinned in its global.json into
 # $ROSLYN_SRC_DIR/.dotnet; we let them. Output:
 #   $ROSLYN_SRC_DIR/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/<Config>/net10.0/Microsoft.CodeAnalysis.LanguageServer.dll
@@ -14,7 +14,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 commit="$(tr -d '[:space:]' < "$here/COMMIT")"
-src="${ROSLYN_SRC_DIR:-$HOME/.cache/niello/roslyn}"
+src="${ROSLYN_SRC_DIR:-$HOME/.cache/eludite/roslyn}"
 config="${ROSLYN_CONFIGURATION:-Release}"
 project="src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj"
 
