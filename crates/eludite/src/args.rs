@@ -32,7 +32,8 @@ Application Support/eludite on macOS; ELUDITE_CONFIG_DIR replaces it) and in
 .eludite/settings.json beside the solution, which wins. These environment
 variables override them while set: ELUDITE_BUILD_ON_SAVE (build.onSave, 1 or
 0), ELUDITE_CARGO (build.cargoPath), ELUDITE_NETCOREDBG
-(debugger.netcoredbgPath), ELUDITE_RUST_ANALYZER
+(debugger.netcoredbgPath), ELUDITE_MONO_PREFIX (debugger.monoPrefix),
+ELUDITE_DBG_MONO (debugger.monoAdapterPath), ELUDITE_RUST_ANALYZER
 (languageServers.rustAnalyzerPath), ELUDITE_CLAUDE_ACP
 (agents.claudeCodeAdapterPath).
 
