@@ -61,6 +61,7 @@ protocol/          MIT: schemas, generated bindings
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
 corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
+tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer)
 docs/              PLAN.md, adr/, briefs/
 ```
 
