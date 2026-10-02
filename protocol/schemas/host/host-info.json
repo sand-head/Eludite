@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-info.json",
+  "title": "niello/host/info",
+  "description": "The .NET SDKs, runtime and OS the host sees.",
+  "x-niello-method": "niello/host/info",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "dotnetSdks",
+        "runtime",
+        "os"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dotnetSdks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "version",
+              "path"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

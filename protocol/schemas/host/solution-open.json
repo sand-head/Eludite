@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/solution-open.json",
+  "title": "niello/solution/open",
+  "description": "Open a solution or project file. Increments the solution generation and returns it; load progress follows as niello/solution/status.",
+  "x-niello-method": "niello/solution/open",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "description": "Path to a .sln, .slnx or project file (.csproj, .vbproj).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

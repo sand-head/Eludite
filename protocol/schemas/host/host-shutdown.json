@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-shutdown.json",
+  "title": "niello/host/shutdown",
+  "description": "Stop accepting work; the host stays alive until niello/host/exit.",
+  "x-niello-method": "niello/host/shutdown",
+  "x-niello-kind": "request",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    },
+    "result": {
+      "type": "null"
+    }
+  }
+}

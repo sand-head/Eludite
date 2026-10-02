@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/errors.json",
+  "title": "niello-host error data",
+  "description": "The data member of host error responses.",
+  "x-niello-method": "*",
+  "x-niello-kind": "error",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "contentModified": {
+      "description": "Error -32801.",
+      "type": "object",
+      "required": [
+        "requestedGeneration",
+        "currentGeneration"
+      ],
+      "properties": {
+        "requestedGeneration": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "currentGeneration": {
+          "description": "Solution generation (see host-rpc.md).",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "requestFailed": {
+      "description": "Error -32803.",
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "enum": [
+            "languageServerUnavailable"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/language-server-status.json",
+  "title": "niello/languageServer/status",
+  "description": "Host-to-shell notification: state of the language server the host supervises.",
+  "x-niello-method": "niello/languageServer/status",
+  "x-niello-kind": "notification",
+  "x-niello-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "starting",
+            "running",
+            "restarting",
+            "unavailable",
+            "exited"
+          ]
+        },
+        "serverInfo": {
+          "description": "LSP serverInfo from the server's initialize result (state running).",
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "capabilities": {
+          "description": "LSP ServerCapabilities from the server's initialize result (state running).",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

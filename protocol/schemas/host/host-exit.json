@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/niello-ide/protocol/schemas/host/host-exit.json",
+  "title": "niello/host/exit",
+  "description": "Notification: the host process exits (0 after niello/host/shutdown, else 1).",
+  "x-niello-method": "niello/host/exit",
+  "x-niello-kind": "notification",
+  "x-niello-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    }
+  }
+}
