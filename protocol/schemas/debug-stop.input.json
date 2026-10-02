@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stop.input.json",
+  "title": "eludite.debug.stop input",
+  "description": "Debug > Stop Debugging (Shift+F5): end the session and terminate the debuggee, or end a program started without debugging.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}
