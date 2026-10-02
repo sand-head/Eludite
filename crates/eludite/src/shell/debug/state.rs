@@ -65,7 +65,7 @@ use eludite_commands::debug::{
     ConsoleRow, DebugRequest, DebugState, ExceptionBrief, ExceptionSettingsRow, ExceptionTypeRow,
     FrameRow, FramesBlock, HitCondition, LocalsBlock, LocationRow, OutputBlock, OutputKind,
     OutputLine, OutputPattern, SessionRow, StackFrameRow, StopSummary, StoppedRow, SummaryStopped,
-    SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow, cut_value,
+    SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow, cut_value, null_spelling,
 };
 use eludite_commands::project::StartupAction;
 use eludite_dap::types::{
@@ -559,10 +559,11 @@ pub struct VarNode {
 }
 
 impl VarNode {
+    /// A DAP variable as a node, its null spelled `null` on every adapter (brief 0034).
     pub fn from_dap(v: &eludite_dap::types::Variable) -> Self {
         Self {
             name: v.name.clone(),
-            value: v.value.clone(),
+            value: null_spelling(v.value.clone()),
             type_name: v.type_name.clone().filter(|t| !t.is_empty()),
             reference: v.variables_reference,
             evaluate_name: v.evaluate_name.clone(),
