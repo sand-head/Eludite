@@ -1,6 +1,6 @@
 # Brief 0003: Legacy project load, WebForms code-behind IntelliSense
 
-Status: open
+Status: done on Linux; Windows not run (see [0003-report.md](0003-report.md))
 Plan reference: PLAN.md sections 3 (D4), 4.9, 6, 10 (Phase 0 item 3), 13 (risk 4)
 Related ADR: ADR-0004
 

@@ -1,0 +1,4 @@
+<Project>
+  <!-- Package pins for the brief 0003 runner live with the rest of the .NET code. -->
+  <Import Project="../../dotnet/Directory.Packages.props" />
+</Project>

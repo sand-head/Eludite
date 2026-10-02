@@ -1,3 +1,4 @@
+using Niello.Host.Legacy;
 using Niello.Host.Lsp;
 using Niello.Host.Rpc;
 using Niello.Host.Sdk;
@@ -46,7 +47,22 @@ internal static class Program
             }
             else
             {
-                languageServer = new LspProxy(new RoslynProcessLauncher(located, log), log);
+                // Brief 0003: legacy projects. NIELLO_LEGACY=0 turns the preparation and the extra environment off.
+                if (Environment.GetEnvironmentVariable("NIELLO_LEGACY") == "0")
+                {
+                    languageServer = new LspProxy(new RoslynProcessLauncher(located, log), log);
+                }
+                else
+                {
+                    var legacy = new LegacyDesignTime(log);
+                    await log.WriteLineAsync(legacy.Mono is { } mono
+                        ? $"[legacy] Mono MSBuild: {mono.MsBuildDll} ({mono.Source})"
+                        : "[legacy] Mono MSBuild not found; non-SDK projects load with the .NET SDK's MSBuild").ConfigureAwait(false);
+                    languageServer = new LspProxy(
+                        new RoslynProcessLauncher(located, log, environment: legacy.RoslynEnvironment()),
+                        log,
+                        legacy.PrepareAsync);
+                }
             }
         }
 
