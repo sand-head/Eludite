@@ -12,7 +12,7 @@ use std::time::Duration;
 use eludite_lsp::lsp;
 use serde_json::{Value, json};
 
-use super::documents::path_to_uri;
+use super::documents::{normalize_path, path_to_uri};
 use super::tests::{PROGRAM, T, Ws, setup};
 use super::workspace_edit::{ApplyOptions, ApplySummary};
 
@@ -38,7 +38,7 @@ impl Ws {
     pub(super) fn undo(&mut self, path: &Path) -> Value {
         self.bus(
             eludite_commands::workspace::EDITOR_UNDO,
-            json!({"path": path.to_string_lossy()}),
+            json!({"path": normalize_path(path).to_string_lossy()}),
         )
     }
 
@@ -94,8 +94,8 @@ fn open_buffers_closed_files_and_mixed_edits(cx: &mut gpui::TestAppContext) {
         ),
         (2, 3, 1, 1)
     );
-    let program_path = program.to_string_lossy().into_owned();
-    let order_path = order.to_string_lossy().into_owned();
+    let program_path = normalize_path(&program).to_string_lossy().into_owned();
+    let order_path = normalize_path(&order).to_string_lossy().into_owned();
     let mut paths = vec![program_path.clone(), order_path.clone()];
     paths.sort();
     assert_eq!(summary.paths, paths);
@@ -158,7 +158,7 @@ fn stale_versions_and_generations_refuse_the_whole_edit(cx: &mut gpui::TestAppCo
         "class Order { }\n"
     );
     // The version a request was made at counts too.
-    let id = program.to_string_lossy().into_owned();
+    let id = normalize_path(&program).to_string_lossy().into_owned();
     let summary = w.apply_edit(
         both(None),
         ApplyOptions {
@@ -221,7 +221,7 @@ fn file_operations_and_open_tabs_follow_them(cx: &mut gpui::TestAppContext) {
     w.undo(&program);
     w.bus(
         eludite_commands::workspace::EDITOR_SAVE,
-        json!({"path": program.to_string_lossy()}),
+        json!({"path": normalize_path(&program).to_string_lossy()}),
     );
 
     // Create, edit the new file, rename the open (saved) document, delete a file.
