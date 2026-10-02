@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-set-variable.output.json",
+  "title": "eludite.debug.set_variable output",
+  "description": "The changed row, as eludite.debug.variables lists it.",
+  "type": "object",
+  "required": [
+    "name",
+    "value",
+    "reference",
+    "stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "value": {
+      "description": "The new value as the debugger shows it (from the UI thread, before the adapter answers: the value asked for, with `pending`).",
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "reference": {
+      "description": "Non-zero when the new value has members: pass it to eludite.debug.variables with this stop.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "request": {
+      "description": "The DAP request used: `setVariable` or `setExpression`.",
+      "enum": [
+        "setVariable",
+        "setExpression"
+      ]
+    },
+    "pending": {
+      "description": "Only from the UI thread, which never waits for the adapter: the change was sent and the windows show it when it is answered.",
+      "type": "boolean"
+    },
+    "stop": {
+      "description": "The stop the change was made at.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

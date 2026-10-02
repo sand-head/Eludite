@@ -16,8 +16,9 @@
 //!   (no path, `subtle`).
 //! - **Hit counts** ([`adapt_capabilities`]): lldb-dap's `hitCondition` is a bare number with LLDB's ignore-count
 //!   meaning, so the shell counts hits itself for `N`, `>=N` and `%N`.
-//! - **Rust panics** ([`function_breakpoints`]): the Exception Settings row is a function breakpoint on `rust_panic`,
-//!   sent before `configurationDone` and again when the row changes during a session.
+//! - **Rust panics** ([`function_breakpoints`], [`with_rust_panics`]): the Exception Settings row is a function
+//!   breakpoint on `rust_panic`, sent before `configurationDone` and again when the row changes during a session, in
+//!   one `setFunctionBreakpoints` list after the user's function breakpoints (brief 0026).
 
 use std::path::{Path, PathBuf};
 
@@ -294,6 +295,21 @@ pub fn function_breakpoints(rust_panics: bool) -> Vec<FunctionBreakpoint> {
     }
 }
 
+/// One `setFunctionBreakpoints` list for a native session (DAP replaces the whole list on every request): the user's
+/// function breakpoints (brief 0026) in their order, then `rust_panic` while the Rust panics row is on, unless the user
+/// already has it.
+pub fn with_rust_panics(
+    mut user: Vec<FunctionBreakpoint>,
+    rust_panics: bool,
+) -> Vec<FunctionBreakpoint> {
+    for f in function_breakpoints(rust_panics) {
+        if !user.iter().any(|u| u.name == f.name) {
+            user.push(f);
+        }
+    }
+    user
+}
+
 /// What the shell takes from lldb-dap's capabilities: its hit conditions are not Visual Studio's (lldb-dap 18 reads
 /// `hitCondition` as a number N and breaks on the Nth hit and every one after; `>=N` and `%N` do not parse, so it
 /// breaks on every hit), so the shell counts hits itself, as it does for netcoredbg (brief 0018).
@@ -311,9 +327,27 @@ pub fn console_event(line: &str) -> ClientEvent {
 
 /// What lldb-dap 18 says, as the shell expects it (on the client's reader thread): a stop described `signal SIGSTOP`
 /// (what `pause` causes) is reason `pause`; a standard library frame's `/rustc/<commit>/` path is mapped under
-/// `rust_src`, or removed (the frame is then external code, `subtle`) when `rust-src` is not installed.
+/// `rust_src`, or removed (the frame is then external code, `subtle`) when `rust-src` is not installed; `setVariable`'s
+/// answer names the new value `result` where DAP says `value` (brief 0026's `set_variable` reads `value`).
 pub fn adapt(event: ClientEvent, rust_src: Option<&Path>) -> ClientEvent {
     match event {
+        ClientEvent::Response {
+            request_seq,
+            command,
+            result: Ok(mut body),
+        } if command == "setVariable" => {
+            if body.get("value").is_none()
+                && let Some(result) = body.get("result").cloned()
+                && let Some(o) = body.as_object_mut()
+            {
+                o.insert("value".into(), result);
+            }
+            ClientEvent::Response {
+                request_seq,
+                command,
+                result: Ok(body),
+            }
+        }
         ClientEvent::Event(Event::Stopped(mut s))
             if s.reason == "exception" && s.description.as_deref() == Some("signal SIGSTOP") =>
         {
@@ -516,6 +550,18 @@ mod tests {
             ..Default::default()
         }));
         assert_eq!(adapt(other.clone(), None), other);
+        // setVariable's `result` is DAP's `value` (lldb-dap 18).
+        let set = |body: Value| ClientEvent::Response {
+            request_seq: 2,
+            command: "setVariable".into(),
+            result: Ok(body),
+        };
+        match adapt(set(json!({"result": "40", "variablesReference": 0})), None) {
+            ClientEvent::Response { result: Ok(b), .. } => assert_eq!(b["value"], "40"),
+            other => panic!("{other:?}"),
+        }
+        let dap = set(json!({"value": "41", "result": "x"}));
+        assert_eq!(adapt(dap.clone(), None), dap);
         let stack = || ClientEvent::Response {
             request_seq: 3,
             command: "stackTrace".into(),
@@ -553,5 +599,29 @@ mod tests {
         adapt_capabilities(&mut caps);
         assert!(!caps.supports_hit_conditional_breakpoints && caps.supports_log_points);
         assert!(function_breakpoints(false).is_empty());
+        // With the user's function breakpoints (brief 0026): one list, the user's first, `rust_panic` once.
+        let user = |names: &[&str]| -> Vec<FunctionBreakpoint> {
+            names
+                .iter()
+                .map(|n| FunctionBreakpoint {
+                    name: (*n).to_owned(),
+                    ..Default::default()
+                })
+                .collect()
+        };
+        let names = |l: Vec<FunctionBreakpoint>| l.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        assert_eq!(
+            names(with_rust_panics(user(&["app::run"]), true)),
+            ["app::run", "rust_panic"]
+        );
+        assert_eq!(
+            names(with_rust_panics(user(&["app::run"]), false)),
+            ["app::run"]
+        );
+        assert_eq!(
+            names(with_rust_panics(user(&["rust_panic", "app::run"]), true)),
+            ["rust_panic", "app::run"]
+        );
+        assert!(with_rust_panics(Vec::new(), false).is_empty());
     }
 }

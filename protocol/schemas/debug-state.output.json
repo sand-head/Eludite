@@ -280,21 +280,33 @@
       "items": {
         "type": "object",
         "required": [
-          "path",
-          "line",
+          "kind",
           "enabled",
           "verified",
           "hits"
         ],
         "additionalProperties": false,
         "properties": {
+          "kind": {
+            "description": "`line` (a breakpoint on a line), `tracepoint` (a line breakpoint with `log_message`: When Hit, print a message and continue) or `function` (a function breakpoint, by `function`; no path or line).",
+            "enum": [
+              "line",
+              "tracepoint",
+              "function"
+            ]
+          },
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The source file (absent for a function breakpoint)."
           },
           "line": {
-            "description": "1-based line.",
+            "description": "1-based line (absent for a function breakpoint).",
             "type": "integer",
             "minimum": 1
+          },
+          "function": {
+            "description": "A function breakpoint's function, `Namespace.Type.Method`.",
+            "type": "string"
           },
           "enabled": {
             "type": "boolean"
@@ -310,16 +322,29 @@
             "type": "string"
           },
           "hits": {
-            "description": "Times it was reached in this session.",
+            "description": "Times it was reached in this session (a tracepoint's hits count its lines).",
             "type": "integer",
             "minimum": 0
           },
           "message": {
             "description": "Why it is not bound, from the adapter.",
             "type": "string"
+          },
+          "log_message": {
+            "description": "A tracepoint's message (eludite.debug.toggle_breakpoint's `log_message`).",
+            "type": "string"
+          },
+          "remove_after": {
+            "description": "Deleted at its first visible stop (\"Delete breakpoint when hit\").",
+            "type": "boolean"
+          },
+          "temporary": {
+            "description": "Set by eludite.debug.run_until or eludite.debug.trace for the length of that call and removed after it; never persisted. The Breakpoints window marks it.",
+            "type": "boolean"
           }
         }
-      }
+      },
+      "description": "The Breakpoints window's rows: line breakpoints and tracepoints by file and line, then function breakpoints by name."
     },
     "exceptions": {
       "type": "object",
@@ -338,6 +363,31 @@
         "break_on_rust_panic": {
           "description": "The Exception Settings window's Rust panics row: a native (Cargo) session breaks when a Rust panic starts, through a function breakpoint on `rust_panic` (what rust-lldb users set). Default true; persisted with the other exception settings.",
           "type": "boolean"
+        },
+        "types": {
+          "description": "Exception types under Common Language Runtime Exceptions (eludite.debug.exception_settings `types`).",
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "break_when_thrown",
+              "break_when_user_unhandled"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "break_when_thrown": {
+                "type": "boolean"
+              },
+              "break_when_user_unhandled": {
+                "type": "boolean"
+              }
+            }
+          }
         }
       }
     },
@@ -404,7 +454,7 @@
           "type": "boolean"
         },
         "set_variable": {
-          "description": "Values can be changed (DAP setVariable).",
+          "description": "Values can be changed (eludite.debug.set_variable: DAP setVariable, or setExpression when the adapter has only that).",
           "type": "boolean"
         },
         "exception_info": {
@@ -412,11 +462,11 @@
           "type": "boolean"
         },
         "function_breakpoints": {
-          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints).",
+          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints); eludite.debug.toggle_breakpoint with `function` is refused where false.",
           "type": "boolean"
         },
         "log_points": {
-          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them).",
+          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them with a stop, the message's evaluation and a resume per hit).",
           "enum": [
             "adapter",
             "shell"
@@ -430,11 +480,11 @@
           ]
         },
         "exception_filter_options": {
-          "description": "Exception settings can name exception types (DAP exceptionFilterOptions).",
+          "description": "Exception settings can name exception types (DAP exceptionFilterOptions); eludite.debug.exception_settings with `types` is refused where false.",
           "type": "boolean"
         },
         "set_next_statement": {
-          "description": "Set Next Statement (DAP gotoTargets and goto).",
+          "description": "Set Next Statement (eludite.debug.set_next_statement: DAP gotoTargets and goto); refused where false.",
           "type": "boolean"
         },
         "data_breakpoints": {

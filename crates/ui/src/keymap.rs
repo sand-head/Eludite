@@ -121,6 +121,13 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("ctrl-f10", "Ctrl+F10", "eludite.debug.run_to_cursor"),
         // Debug.BreakAll (brief 0025): Ctrl+Alt+Break, which a Linux keyboard sends as Pause.
         command("ctrl-alt-pause", "Ctrl+Alt+Break", "eludite.debug.pause"),
+        // Debug.SetNextStatement and Debug.Breakpoints (brief 0026).
+        command(
+            "ctrl-shift-f10",
+            "Ctrl+Shift+F10",
+            "eludite.debug.set_next_statement",
+        ),
+        show("ctrl-alt-b", "Ctrl+Alt+B", "breakpoints"),
     ]
 }
 
@@ -262,6 +269,7 @@ mod tests {
             ("eludite.debug.step_out", "Shift+F11"),
             ("eludite.debug.run_to_cursor", "Ctrl+F10"),
             ("eludite.debug.pause", "Ctrl+Alt+Break"),
+            ("eludite.debug.set_next_statement", "Ctrl+Shift+F10"),
         ] {
             assert_eq!(shortcut_for(&k, cmd, &json!({})), Some(key), "{cmd}");
         }

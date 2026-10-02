@@ -1,6 +1,8 @@
 //! The debugger's tool windows (brief 0018), as Visual Studio lays them out: Locals and Watch 1 (Name, Value, Type,
-//! expanding lazily), Call Stack, Threads, Breakpoints (enable, condition, hit count, delete), Exception Settings
-//! (Common Language Runtime Exceptions). The program's output goes to the Output window's Debug source (brief 0020
+//! expanding lazily; a selected local's value is edited below the Locals list, brief 0026), Call Stack, Threads,
+//! Breakpoints (enable, condition, hit count, When Hit's message, delete; tracepoints with Visual Studio's diamond,
+//! function breakpoints by name with a name box to add one, `run_until`'s and `trace`'s points marked temporary),
+//! Exception Settings (Common Language Runtime Exceptions, with exception types under it: Add, Remove, Clear). The program's output goes to the Output window's Debug source (brief 0020
 //! retired the Debug Console window); expressions are evaluated in the Watch window.
 //!
 //! Each window shows a snapshot the shell gives it after the debugger's state changes, and turns clicks into the
@@ -8,7 +10,7 @@
 //! a variable is view state (like expanding a Workspace folder): it is an event the shell answers by fetching the
 //! members.
 
-use eludite_commands::debug::{self as cmds, BreakpointRow, ExceptionSettingsRow};
+use eludite_commands::debug::{self as cmds, BreakpointKind, BreakpointRow, ExceptionSettingsRow};
 use eludite_ui::{RunCommand, Theme, text_box, toggle_button};
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight,
@@ -163,6 +165,10 @@ pub struct VarsWindow {
     note: Option<String>,
     selected: Option<usize>,
     input: Option<LineInput>,
+    /// The Locals window's value box for the selected row (brief 0026).
+    value: Option<LineInput>,
+    /// Each row's parent value's variables reference (0 at the top).
+    parents: Vec<i64>,
 }
 
 impl EventEmitter<ToggleVariable> for VarsWindow {}
@@ -176,7 +182,42 @@ impl VarsWindow {
             note: None,
             selected: None,
             input: (kind == VarsKind::Watch).then(|| LineInput::new(cx)),
+            value: (kind == VarsKind::Locals).then(|| LineInput::new(cx)),
+            parents: Vec::new(),
         }
+    }
+
+    /// The rows' parents' variables references, as [`super::state::flatten_parents`] lists them.
+    pub fn set_parents(&mut self, parents: Vec<i64>) {
+        self.parents = parents;
+    }
+
+    /// Enter in the value box: `eludite.debug.set_variable` for the selected row (a member through its parent's
+    /// reference).
+    fn value_key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.value.as_mut() else {
+            return;
+        };
+        match input.key(e) {
+            InputKey::Ignored => return,
+            InputKey::Changed => {}
+            InputKey::Submit(text) => {
+                if let Some(ix) = self.selected
+                    && let Some(r) = self.rows.get(ix)
+                    && !text.trim().is_empty()
+                {
+                    let parent = self.parents.get(ix).copied().unwrap_or(0);
+                    let args = if parent > 0 {
+                        json!({"name": r.name, "value": text.trim(), "reference": parent})
+                    } else {
+                        json!({"name": r.name, "value": text.trim()})
+                    };
+                    run(window, cx, cmds::SET_VARIABLE, args);
+                }
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
     }
 
     pub fn set_rows(&mut self, rows: Vec<FlatRow>, note: Option<String>, cx: &mut Context<Self>) {
@@ -305,6 +346,9 @@ impl Render for VarsWindow {
                             .children(remove)
                             .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                                 this.selected = Some(ix);
+                                if let Some(v) = this.value.as_mut() {
+                                    v.text = r.value.clone();
+                                }
                                 if e.click_count() >= 2 && r.expanded.is_some() {
                                     cx.emit(ToggleVariable(path.clone()));
                                 }
@@ -336,6 +380,48 @@ impl Render for VarsWindow {
             ))
             .children(self.note.as_deref().map(|n| empty_note(&t, n)))
             .child(list)
+            .children(self.value_editor(window, cx))
+    }
+}
+
+impl VarsWindow {
+    /// The Locals window's "Value:" box under the list while a row is selected.
+    fn value_editor(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Div> {
+        let t = self.theme;
+        let input = self.value.as_ref()?;
+        let r = self.selected.and_then(|i| self.rows.get(i))?;
+        let focused = input.focus.is_focused(window);
+        Some(
+            div()
+                .flex()
+                .flex_row()
+                .flex_none()
+                .gap_2()
+                .items_center()
+                .p_2()
+                .border_t_1()
+                .border_color(t.border)
+                .text_size(t.typography.ui)
+                .child(format!("Value of {}:", r.name))
+                .child(
+                    text_box(
+                        "debug-locals-value",
+                        &input.text,
+                        "C# expression",
+                        focused,
+                        &t,
+                    )
+                    .track_focus(&input.focus)
+                    .key_context("DebugLocalsValue")
+                    .on_key_down(cx.listener(Self::value_key))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(v) = &this.value {
+                            v.focus.focus(window, cx);
+                        }
+                        cx.notify();
+                    })),
+                ),
+        )
     }
 }
 
@@ -486,14 +572,44 @@ impl Render for ThreadsWindow {
     }
 }
 
-/// The Breakpoints window: every breakpoint with its enabled box, condition and hit count; a selected one's
-/// condition and hit count are edited in the fields below the list.
+/// The Breakpoints window: every breakpoint with its enabled box, glyph (Visual Studio's diamond for a tracepoint),
+/// name (the file and line, or a function breakpoint's function), condition, hit count and When Hit message; a
+/// selected one's condition, hit count and message are edited in the fields below the list, and the toolbar's name box
+/// adds a function breakpoint. Every edit is `eludite.debug.toggle_breakpoint`.
 pub struct BreakpointsWindow {
     theme: Theme,
     rows: Vec<BreakpointRow>,
     selected: Option<usize>,
     condition: LineInput,
     hit: LineInput,
+    message: LineInput,
+    function: LineInput,
+}
+
+/// Which text box of the Breakpoints window a key is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BpField {
+    Condition,
+    Hit,
+    Message,
+    Function,
+}
+
+/// The arguments naming a row's breakpoint: its function, or its file and line.
+fn target(r: &BreakpointRow) -> serde_json::Value {
+    match &r.function {
+        Some(f) => json!({ "function": f }),
+        None => json!({"path": r.path, "line": r.line}),
+    }
+}
+
+fn with(mut base: serde_json::Value, extra: serde_json::Value) -> serde_json::Value {
+    if let (Some(b), Some(e)) = (base.as_object_mut(), extra.as_object()) {
+        for (k, v) in e {
+            b.insert(k.clone(), v.clone());
+        }
+    }
+    base
 }
 
 impl BreakpointsWindow {
@@ -504,19 +620,18 @@ impl BreakpointsWindow {
             selected: None,
             condition: LineInput::new(cx),
             hit: LineInput::new(cx),
+            message: LineInput::new(cx),
+            function: LineInput::new(cx),
         }
     }
 
     pub fn set_rows(&mut self, rows: Vec<BreakpointRow>, cx: &mut Context<Self>) {
         if self.rows != rows {
             // Keep the selection on the same breakpoint.
-            let was = self
-                .selected
-                .and_then(|i| self.rows.get(i))
-                .map(|r| (r.path.clone(), r.line));
+            let key = |r: &BreakpointRow| (r.path.clone(), r.line, r.function.clone());
+            let was = self.selected.and_then(|i| self.rows.get(i)).map(key);
             self.rows = rows;
-            self.selected =
-                was.and_then(|(p, l)| self.rows.iter().position(|r| r.path == p && r.line == l));
+            self.selected = was.and_then(|k| self.rows.iter().position(|r| key(r) == k));
             cx.notify();
         }
     }
@@ -531,53 +646,102 @@ impl BreakpointsWindow {
         if let Some(r) = self.rows.get(ix) {
             self.condition.text = r.condition.clone().unwrap_or_default();
             self.hit.text = r.hit_condition.clone().unwrap_or_default();
+            self.message.text = r.log_message.clone().unwrap_or_default();
         }
         cx.notify();
     }
 
+    /// Apply the fields to the selected breakpoint: its condition, hit count and (a line's) When Hit message.
     fn apply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(r) = self.selected.and_then(|i| self.rows.get(i)) else {
             return;
         };
-        run(
-            window,
-            cx,
-            cmds::TOGGLE_BREAKPOINT,
-            json!({"action": "set", "path": r.path, "line": r.line,
-                   "condition": self.condition.text, "hit_condition": self.hit.text}),
+        let mut args = with(
+            target(r),
+            json!({"action": "set", "condition": self.condition.text, "hit_condition": self.hit.text}),
         );
+        if r.function.is_none() {
+            args["log_message"] = json!(self.message.text);
+        }
+        run(window, cx, cmds::TOGGLE_BREAKPOINT, args);
+    }
+
+    fn add_function(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = std::mem::take(&mut self.function.text);
+        if !name.trim().is_empty() {
+            run(
+                window,
+                cx,
+                cmds::TOGGLE_BREAKPOINT,
+                json!({"action": "set", "function": name.trim()}),
+            );
+        }
+        cx.notify();
+    }
+
+    fn input(&mut self, field: BpField) -> &mut LineInput {
+        match field {
+            BpField::Condition => &mut self.condition,
+            BpField::Hit => &mut self.hit,
+            BpField::Message => &mut self.message,
+            BpField::Function => &mut self.function,
+        }
     }
 
     fn field_key(
         &mut self,
-        hit: bool,
+        field: BpField,
         e: &KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let input = if hit {
-            &mut self.hit
-        } else {
-            &mut self.condition
-        };
-        match input.key(e) {
+        match self.input(field).key(e) {
             InputKey::Ignored => return,
             InputKey::Changed => {}
             InputKey::Submit(text) => {
-                input.text = text;
-                self.apply(window, cx);
+                self.input(field).text = text;
+                if field == BpField::Function {
+                    self.add_function(window, cx);
+                } else {
+                    self.apply(window, cx);
+                }
             }
         }
         cx.stop_propagation();
         cx.notify();
     }
-}
 
-fn file_name(path: &str) -> String {
-    std::path::Path::new(path)
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_owned())
+    fn text_field(
+        &self,
+        field: BpField,
+        selector: &'static str,
+        placeholder: &'static str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        let t = self.theme;
+        let input = match field {
+            BpField::Condition => &self.condition,
+            BpField::Hit => &self.hit,
+            BpField::Message => &self.message,
+            BpField::Function => &self.function,
+        };
+        let focus = input.focus.clone();
+        text_box(
+            selector,
+            &input.text,
+            placeholder,
+            input.focus.is_focused(window),
+            &t,
+        )
+        .track_focus(&input.focus)
+        .key_context("DebugBreakpointField")
+        .on_key_down(cx.listener(move |this, e, window, cx| this.field_key(field, e, window, cx)))
+        .on_click(cx.listener(move |_, _, window, cx| {
+            focus.focus(window, cx);
+            cx.notify();
+        }))
+    }
 }
 
 impl Render for BreakpointsWindow {
@@ -595,12 +759,8 @@ impl Render for BreakpointsWindow {
                 toggle_button("debug-bp-delete", "\u{2715} Delete", false, &t).on_click(
                     cx.listener(|this, _, window, cx| {
                         if let Some(r) = this.selected.and_then(|i| this.rows.get(i)) {
-                            run(
-                                window,
-                                cx,
-                                cmds::TOGGLE_BREAKPOINT,
-                                json!({"action": "delete", "path": r.path, "line": r.line}),
-                            );
+                            let args = with(target(r), json!({"action": "delete"}));
+                            run(window, cx, cmds::TOGGLE_BREAKPOINT, args);
                         }
                     }),
                 ),
@@ -616,9 +776,22 @@ impl Render for BreakpointsWindow {
                         )
                     }),
                 ),
+            )
+            .child(div().flex_none().px_1().child("New Function Breakpoint:"))
+            .child(self.text_field(
+                BpField::Function,
+                "debug-bp-function",
+                "Namespace.Type.Method",
+                window,
+                cx,
+            ))
+            .child(
+                toggle_button("debug-bp-function-add", "Add", false, &t)
+                    .on_click(cx.listener(|this, _, window, cx| this.add_function(window, cx))),
             );
         let rows = self.rows.iter().enumerate().map(|(ix, r)| {
-            let (path, line, enabled) = (r.path.clone(), r.line, r.enabled);
+            let enabled = r.enabled;
+            let toggle_args = with(target(r), json!({"action": "set", "enabled": !enabled}));
             let check_sel = format!("debug-bp-enabled-{ix}");
             let check = div()
                 .id(SharedString::from(check_sel.clone()))
@@ -629,42 +802,60 @@ impl Render for BreakpointsWindow {
                 .child(if enabled { "\u{2611}" } else { "\u{2610}" })
                 .on_click(cx.listener(move |_, _, window, cx| {
                     cx.stop_propagation();
-                    run(
-                        window,
-                        cx,
-                        cmds::TOGGLE_BREAKPOINT,
-                        json!({"action": "set", "path": path, "line": line, "enabled": !enabled}),
-                    );
+                    run(window, cx, cmds::TOGGLE_BREAKPOINT, toggle_args.clone());
                 }));
             let glyph_color = if !r.enabled || !r.verified {
                 gpui::rgb(0x9C9C9C)
             } else {
                 gpui::rgb(0xE51400)
             };
-            let open_path = r.path.clone();
+            // Visual Studio's glyphs: a circle, a tracepoint's diamond; hollow when disabled.
+            let glyph = match (r.kind, r.enabled) {
+                (BreakpointKind::Tracepoint, true) => "\u{25C6}",
+                (BreakpointKind::Tracepoint, false) => "\u{25C7}",
+                (_, true) => "\u{25CF}",
+                (_, false) => "\u{25CB}",
+            };
+            let glyph_sel = format!("debug-bp-glyph-{ix}");
+            let mut label = r.label();
+            if r.temporary {
+                label.push_str(" (temporary)");
+            }
+            let open = r.path.clone().zip(r.line);
             let row = row_base(&t, format!("debug-bp-row-{ix}"))
                 .child(check)
-                .child(cell("\u{25CF}", Some(16.)).text_color(glyph_color))
-                .child(cell(
-                    format!("{}, line {}", file_name(&r.path), r.line),
-                    None,
-                ))
-                .child(cell(r.condition.clone().unwrap_or_default(), Some(160.)))
+                .child(
+                    cell(glyph, Some(16.))
+                        .text_color(glyph_color)
+                        .id(SharedString::from(glyph_sel.clone()))
+                        .debug_selector(move || glyph_sel),
+                )
+                .child(cell(label, None))
+                .child(cell(r.condition.clone().unwrap_or_default(), Some(140.)))
                 .child(cell(
                     r.hit_condition
                         .as_deref()
                         .map(|h| format!("{h} (hit {})", r.hits))
                         .unwrap_or_else(|| format!("hit {}", r.hits)),
-                    Some(120.),
+                    Some(110.),
+                ))
+                .child(cell(
+                    r.log_message
+                        .as_deref()
+                        .map(|m| format!("Print: {m}"))
+                        .unwrap_or_default(),
+                    Some(180.),
                 ))
                 .on_click(cx.listener(move |this, e: &ClickEvent, window, cx| {
                     this.select(ix, cx);
-                    if e.click_count() >= 2 {
+                    if e.click_count() >= 2
+                        && let Some((path, line)) = open.clone()
+                    {
                         run(
                             window,
                             cx,
                             eludite_commands::workspace::FILE_OPEN,
-                            json!({"path": open_path, "line": line}),
+                            json!({"path": path, "line": line}),
                         );
                     }
                 }));
@@ -674,62 +865,93 @@ impl Render for BreakpointsWindow {
                 row.text_color(t.text).hover(|s| s.bg(t.menu_hover))
             }
         });
-        let editor = self.selected.filter(|i| *i < self.rows.len()).map(|_| {
-            let cond_focused = self.condition.focus.is_focused(window);
-            let hit_focused = self.hit.focus.is_focused(window);
-            div()
-                .flex()
-                .flex_row()
-                .flex_none()
-                .gap_2()
-                .items_center()
-                .p_2()
-                .border_t_1()
-                .border_color(t.border)
-                .text_size(t.typography.ui)
-                .child("Condition:")
-                .child(
-                    text_box(
+        let rows: Vec<_> = rows.collect();
+        let editor = self
+            .selected
+            .and_then(|i| self.rows.get(i))
+            .map(|r| (r.function.is_none(), r.remove_after))
+            .map(|(line_bp, remove_after)| {
+                let fields = div()
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .gap_2()
+                    .items_center()
+                    .child("Condition:")
+                    .child(self.text_field(
+                        BpField::Condition,
                         "debug-bp-condition",
-                        &self.condition.text,
                         "C# expression",
-                        cond_focused,
-                        &t,
-                    )
-                    .track_focus(&self.condition.focus)
-                    .key_context("DebugBreakpointCondition")
-                    .on_key_down(
-                        cx.listener(|this, e, window, cx| this.field_key(false, e, window, cx)),
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.condition.focus.focus(window, cx);
-                        cx.notify();
-                    })),
-                )
-                .child("Hit count:")
-                .child(
-                    text_box(
+                        window,
+                        cx,
+                    ))
+                    .child("Hit count:")
+                    .child(self.text_field(
+                        BpField::Hit,
                         "debug-bp-hit",
-                        &self.hit.text,
                         "N, >=N or %N",
-                        hit_focused,
-                        &t,
+                        window,
+                        cx,
+                    ));
+                // When Hit... Print a message and continue (a line breakpoint becomes a tracepoint).
+                let when_hit = line_bp.then(|| {
+                    div()
+                        .flex()
+                        .flex_row()
+                        .flex_none()
+                        .gap_2()
+                        .items_center()
+                        .child("When hit, print a message and continue:")
+                        .child(self.text_field(
+                            BpField::Message,
+                            "debug-bp-message",
+                            "{expression}, $FUNCTION, $CALLER, $TID, $TNAME",
+                            window,
+                            cx,
+                        ))
+                });
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .gap_1()
+                    .p_2()
+                    .border_t_1()
+                    .border_color(t.border)
+                    .text_size(t.typography.ui)
+                    .child(fields)
+                    .children(when_hit)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_none()
+                            .gap_2()
+                            .child(
+                                toggle_button("debug-bp-apply", "Apply", false, &t).on_click(
+                                    cx.listener(|this, _, window, cx| this.apply(window, cx)),
+                                ),
+                            )
+                            // Visual Studio's "Delete breakpoint when hit" (`remove_after`).
+                            .child(
+                                toggle_button(
+                                    "debug-bp-remove-after",
+                                    "Delete breakpoint when hit",
+                                    remove_after,
+                                    &t,
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    if let Some(r) = this.selected.and_then(|i| this.rows.get(i)) {
+                                        let args = with(
+                                            target(r),
+                                            json!({"action": "set", "remove_after": !remove_after}),
+                                        );
+                                        run(window, cx, cmds::TOGGLE_BREAKPOINT, args);
+                                    }
+                                })),
+                            ),
                     )
-                    .track_focus(&self.hit.focus)
-                    .key_context("DebugBreakpointHit")
-                    .on_key_down(
-                        cx.listener(|this, e, window, cx| this.field_key(true, e, window, cx)),
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.hit.focus.focus(window, cx);
-                        cx.notify();
-                    })),
-                )
-                .child(
-                    toggle_button("debug-bp-apply", "Apply", false, &t)
-                        .on_click(cx.listener(|this, _, window, cx| this.apply(window, cx))),
-                )
-        });
+            });
         div()
             .id("debug-breakpoints")
             .size_full()
@@ -741,8 +963,9 @@ impl Render for BreakpointsWindow {
                 vec![
                     cell("", Some(38.)),
                     cell("Name", None),
-                    cell("Condition", Some(160.)),
-                    cell("Hit Count", Some(120.)),
+                    cell("Condition", Some(140.)),
+                    cell("Hit Count", Some(110.)),
+                    cell("When Hit", Some(180.)),
                 ],
             ))
             .child(
@@ -756,17 +979,22 @@ impl Render for BreakpointsWindow {
     }
 }
 
-/// The Exception Settings window: Common Language Runtime Exceptions, and Rust panics (brief 0029).
+/// The Exception Settings window: Common Language Runtime Exceptions with its Thrown and User-Unhandled boxes, and the
+/// exception types under it with theirs and Remove; a name box and Add add a type, Clear removes them all; then Rust
+/// panics (brief 0029, one box in the Thrown column: a native session breaks at `rust_panic`). Every edit is
+/// `eludite.debug.exception_settings`.
 pub struct ExceptionsWindow {
     theme: Theme,
     settings: ExceptionSettingsRow,
+    add: LineInput,
 }
 
 impl ExceptionsWindow {
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: Theme, cx: &mut App) -> Self {
         Self {
             theme,
             settings: ExceptionSettingsRow::default(),
+            add: LineInput::new(cx),
         }
     }
 
@@ -776,47 +1004,179 @@ impl ExceptionsWindow {
             cx.notify();
         }
     }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn settings(&self) -> &ExceptionSettingsRow {
+        &self.settings
+    }
+
+    fn add_type(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let name = std::mem::take(&mut self.add.text);
+        if !name.trim().is_empty() {
+            run(
+                window,
+                cx,
+                cmds::EXCEPTION_SETTINGS,
+                json!({"types": [{"type": name.trim(), "break_when_thrown": true}]}),
+            );
+        }
+        cx.notify();
+    }
+
+    fn add_key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match self.add.key(e) {
+            InputKey::Ignored => return,
+            InputKey::Changed => {}
+            InputKey::Submit(text) => {
+                self.add.text = text;
+                self.add_type(window, cx);
+            }
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
 }
 
 impl Render for ExceptionsWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
-        let s = self.settings;
-        let row = |sel: &'static str, label: &'static str, on: bool, member: &'static str| {
-            row_base(&t, sel.to_owned())
-                .text_color(t.text)
-                .hover(|s| s.bg(t.menu_hover))
-                .child(cell(if on { "\u{2611}" } else { "\u{2610}" }, Some(22.)))
-                .child(cell(label, None))
+        let s = self.settings.clone();
+        let check = |sel: String, on: bool, args: serde_json::Value| {
+            div()
+                .id(SharedString::from(sel.clone()))
+                .debug_selector(move || sel)
+                .flex_none()
+                .w(px(90.))
+                .px_1()
+                .child(if on { "\u{2611}" } else { "\u{2610}" })
                 .on_click(cx.listener(move |_, _, window, cx| {
-                    run(window, cx, cmds::EXCEPTION_SETTINGS, json!({ member: !on }))
+                    cx.stop_propagation();
+                    run(window, cx, cmds::EXCEPTION_SETTINGS, args.clone())
                 }))
         };
+        let focused = self.add.focus.is_focused(window);
+        let toolbar = div()
+            .flex()
+            .flex_row()
+            .flex_none()
+            .gap_1()
+            .h(px(ROW_HEIGHT + 6.))
+            .items_center()
+            .px_2()
+            .child(
+                text_box(
+                    "debug-exc-add-input",
+                    &self.add.text,
+                    "Exception type, e.g. System.InvalidOperationException",
+                    focused,
+                    &t,
+                )
+                .track_focus(&self.add.focus)
+                .key_context("DebugExceptionType")
+                .on_key_down(cx.listener(Self::add_key))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.add.focus.focus(window, cx);
+                    cx.notify();
+                })),
+            )
+            .child(
+                toggle_button("debug-exc-add", "Add", false, &t)
+                    .on_click(cx.listener(|this, _, window, cx| this.add_type(window, cx))),
+            )
+            .child(
+                toggle_button("debug-exc-clear", "Clear Types", false, &t).on_click(cx.listener(
+                    |_, _, window, cx| {
+                        run(window, cx, cmds::EXCEPTION_SETTINGS, json!({"clear": true}))
+                    },
+                )),
+            );
+        let category = row_base(&t, "debug-exc-category".to_owned())
+            .text_color(t.text)
+            .child(check(
+                "debug-exc-thrown".into(),
+                s.break_when_thrown,
+                json!({"break_when_thrown": !s.break_when_thrown}),
+            ))
+            .child(check(
+                "debug-exc-unhandled".into(),
+                s.break_when_user_unhandled,
+                json!({"break_when_user_unhandled": !s.break_when_user_unhandled}),
+            ))
+            .child(cell("\u{25E2} Common Language Runtime Exceptions", None));
+        let types = s.types.iter().enumerate().map(|(ix, ty)| {
+            let entry = |thrown: bool, unhandled: bool| {
+                json!({"types": [{"type": ty.type_name, "break_when_thrown": thrown,
+                                  "break_when_user_unhandled": unhandled}]})
+            };
+            let remove_sel = format!("debug-exc-type-remove-{ix}");
+            let name = ty.type_name.clone();
+            row_base(&t, format!("debug-exc-type-{ix}"))
+                .text_color(t.text)
+                .hover(|st| st.bg(t.menu_hover))
+                .child(check(
+                    format!("debug-exc-type-thrown-{ix}"),
+                    ty.break_when_thrown,
+                    entry(!ty.break_when_thrown, ty.break_when_user_unhandled),
+                ))
+                .child(check(
+                    format!("debug-exc-type-unhandled-{ix}"),
+                    ty.break_when_user_unhandled,
+                    entry(ty.break_when_thrown, !ty.break_when_user_unhandled),
+                ))
+                .child(cell(ty.type_name.clone(), None).pl(px(INDENT + 4.)))
+                .child(
+                    div()
+                        .id(SharedString::from(remove_sel.clone()))
+                        .debug_selector(move || remove_sel)
+                        .flex_none()
+                        .w(px(70.))
+                        .text_color(t.text_muted)
+                        .child("\u{2715} Remove")
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            cx.stop_propagation();
+                            run(
+                                window,
+                                cx,
+                                cmds::EXCEPTION_SETTINGS,
+                                json!({ "remove": name }),
+                            )
+                        })),
+                )
+        });
+        let types: Vec<_> = types.collect();
+        let rust_panics = row_base(&t, "debug-exc-rust-panic-row".to_owned())
+            .text_color(t.text)
+            .child(check(
+                "debug-exc-rust-panic".into(),
+                s.break_on_rust_panic,
+                json!({"break_on_rust_panic": !s.break_on_rust_panic}),
+            ))
+            .child(div().flex_none().w(px(90.)))
+            .child(cell("Rust panics", None));
         div()
             .id("debug-exceptions")
             .size_full()
             .flex()
             .flex_col()
-            .child(header(&t, vec![cell("Break When", None)]))
-            .child(row(
-                "debug-exc-thrown",
-                "Common Language Runtime Exceptions: thrown",
-                s.break_when_thrown,
-                "break_when_thrown",
+            .child(toolbar)
+            .child(header(
+                &t,
+                vec![
+                    cell("Thrown", Some(90.)),
+                    cell("User-Unhandled", Some(90.)),
+                    cell("Break When", None),
+                ],
             ))
-            .child(row(
-                "debug-exc-unhandled",
-                "Common Language Runtime Exceptions: user-unhandled",
-                s.break_when_user_unhandled,
-                "break_when_user_unhandled",
-            ))
-            // Brief 0029: a native (Cargo) session breaks at `rust_panic`.
-            .child(row(
-                "debug-exc-rust-panic",
-                "Rust panics",
-                s.break_on_rust_panic,
-                "break_on_rust_panic",
-            ))
+            .child(category)
+            .child(
+                div()
+                    .id("debug-exc-types")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .children(types)
+                    // Brief 0029: a native (Cargo) session breaks at `rust_panic`.
+                    .child(rust_panics),
+            )
     }
 }
 
@@ -839,7 +1199,7 @@ impl DebugWindows {
             call_stack: cx.new(|_| CallStackWindow::new(theme)),
             threads: cx.new(|_| ThreadsWindow::new(theme)),
             breakpoints: cx.new(|cx| BreakpointsWindow::new(theme, cx)),
-            exceptions: cx.new(|_| ExceptionsWindow::new(theme)),
+            exceptions: cx.new(|cx| ExceptionsWindow::new(theme, cx)),
         }
     }
 

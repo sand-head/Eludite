@@ -29,6 +29,18 @@
 //!   error, never a value (rule 4). Reads take the thread and frame as parameters and never move the windows'
 //!   selection, the Locals window or the execution point (proposal 0001 rule 3). The UI thread cannot wait, so from
 //!   it the summary is the model's ([`state::DebugModel::summary`]) and reads that need the adapter are refused.
+//! - **Run control** (brief 0026). Tracepoints print and continue: where the adapter has log points (`eludite-dbg-mono`)
+//!   it gets `logMessage` and the lines it prints are told apart from its other console output by their message
+//!   ([`state::message_matches`]); where it has none (netcoredbg) the breakpoint breaks and the shell, before showing
+//!   anything, evaluates the message's `{expression}`s in the hit frame and resumes ([`Pending::TraceEval`],
+//!   [`Pending::TraceResume`], tagged with the session generation), so the mode stays `running` and no stop is counted.
+//!   Either way the line goes to the Output window's Debug source and the `debug` ring, and is recorded with its point
+//!   and hit for `trace`. `run_until` adds temporary breakpoints removed at the next visible stop; `trace` installs
+//!   temporary tracepoints and collects what they print in a task of its own (the job loop's), never on the UI thread.
+//!   Function breakpoints go through `setFunctionBreakpoints` (in one list with a native session's Rust panics row,
+//!   since the request replaces them all), exception types through `filterOptions`, values through `setVariable` (or
+//!   `setExpression`), and Set Next Statement through `gotoTargets` and `goto`; each only where the adapter's
+//!   capabilities have it (lldb-dap aborts on a request it does not know).
 //! - **Output by source.** The program's lines (stdout, stderr), the debugger's own messages and the adapter's
 //!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
 //!   Output window's Debug source still shows the program's output and the debugger's messages together.
@@ -53,8 +65,9 @@ use eludite_commands::build::OutputSource;
 use eludite_commands::debug::{
     self as cmds, BreakpointAction, Budget, CapabilitiesRow, DebugOutput, DebugRequest,
     EvalContext, EvaluateOutput, ExceptionDetailsRow, ExceptionInfoOutput, FramesBlock,
-    LocalsBlock, OutputKind, OutputPage, ScopeKind, SessionRow, StackFrameRow, StackOutput,
-    StackThread, StopSummary, StoppedRow, ThreadRow, VarRow, VariableRow, VariablesOutput,
+    LocalsBlock, OutputKind, OutputPage, ScopeKind, SessionRow, SetTarget, SetVariableOutput,
+    StackFrameRow, StackOutput, StackThread, StopSummary, StoppedRow, ThreadRow, TraceLine,
+    TraceOutput, TracePointRow, TraceRun, TraceUntil, VarRow, VariableRow, VariablesOutput,
     VariablesTarget, WaitUntil,
 };
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
@@ -63,9 +76,9 @@ use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
 use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform};
 use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
 use eludite_dap::types::{
-    Capabilities, EvaluateResponse, Event, ExceptionDetails, ExceptionInfoResponse, ScopesResponse,
-    SetBreakpointsResponse, StackTraceResponse, StoppedEvent, ThreadsResponse, Variable,
-    VariablesResponse,
+    Capabilities, EvaluateResponse, Event, ExceptionDetails, ExceptionInfoResponse,
+    GotoTargetsResponse, ScopesResponse, SetBreakpointsResponse, SetVariableResponse,
+    StackTraceResponse, StoppedEvent, ThreadsResponse, Variable, VariablesResponse,
 };
 use eludite_dap::{ClientEvent, Connection, DapClient, launch, transport};
 use eludite_docking::ids;
@@ -76,7 +89,8 @@ use gpui::{AppContext as _, AsyncWindowContext, Context, WeakEntity, Window};
 use serde_json::{Value, json};
 
 use self::state::{
-    DebugModel, Frame, Mode, Persisted, VarNode, exception_filters, flatten, node_mut, row_at_mut,
+    Breakpoint, DebugModel, Frame, Mode, Persisted, Segment, VarNode, exception_plan, flatten,
+    node_mut, parse_message, row_at_mut,
 };
 use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
@@ -258,8 +272,25 @@ pub enum Followup {
     Settle {
         start: bool,
         pause: Option<u64>,
+        /// Set Next Statement: settled only past this (generation, stop), and failed if its `goto` fails.
+        after: Option<(u64, u64)>,
         wait: Duration,
         budget: Budget,
+    },
+    /// `trace`: until its condition holds, then its lines (brief 0026).
+    Trace {
+        until: TraceUntil,
+        wait: Duration,
+        budget: Budget,
+    },
+    /// `set_variable`'s answer once the adapter gives it.
+    SetValue(oneshot::Receiver<Result<SetVariableOutput, String>>),
+    /// `set_variable` in a frame the windows do not show: read its scope first.
+    SetVariable {
+        thread: Option<i64>,
+        frame: usize,
+        name: String,
+        value: String,
     },
     /// `stop`: until the session ended, then the state (as before brief 0025).
     Ended {
@@ -330,6 +361,45 @@ enum Pending {
         generation: u64,
         stopped: StoppedEvent,
         thread: i64,
+        /// When the `stopped` event was handled (an emulated tracepoint's overhead starts here).
+        at: Instant,
+    },
+    /// An `{expression}` of an emulated tracepoint's message (brief 0026).
+    TraceEval {
+        generation: u64,
+        hit: u64,
+        ix: usize,
+    },
+    /// The resume after an emulated tracepoint's line: `record` is the line's absolute index.
+    TraceResume {
+        generation: u64,
+        record: usize,
+        at: Instant,
+    },
+    SetFunctionBreakpoints {
+        generation: u64,
+        names: Vec<String>,
+    },
+    /// `setVariable` or `setExpression` of `name` in variables reference `reference`.
+    SetValue {
+        generation: u64,
+        stop: u64,
+        reference: i64,
+        name: String,
+        request: &'static str,
+        reply: Option<oneshot::Sender<Result<SetVariableOutput, String>>>,
+    },
+    /// Set Next Statement's `gotoTargets`; its answer sends `goto`.
+    GotoTargets {
+        generation: u64,
+        stop: u64,
+        thread: i64,
+        driver: String,
+        line: u32,
+    },
+    Goto {
+        generation: u64,
+        stop: u64,
     },
     /// Another thread's stack (the Threads window).
     ThreadStack {
@@ -379,6 +449,60 @@ enum Pending {
     Other,
 }
 
+/// A line a tracepoint printed (brief 0026): which point, its hit, when, and for an emulated one what the stop cost.
+#[derive(Debug, Clone)]
+pub struct TraceRecord {
+    pub generation: u64,
+    pub path: String,
+    pub line: u32,
+    pub hit: u32,
+    pub text: String,
+    pub at: Instant,
+    /// The debugger printed it (a stop and a resume); `overhead` is from the stop to the resume's answer.
+    pub emulated: bool,
+    pub overhead: Option<Duration>,
+}
+
+/// An emulated tracepoint's hit waiting for its expressions' values.
+struct PendingHit {
+    generation: u64,
+    path: String,
+    line: u32,
+    hit: u32,
+    thread: i64,
+    function: String,
+    caller: Option<String>,
+    segments: Vec<Segment>,
+    values: Vec<Option<String>>,
+    waiting: usize,
+    at: Instant,
+}
+
+/// `trace` while it collects.
+#[derive(Debug, Clone)]
+struct TraceJob {
+    generation: u64,
+    /// The points, and the breakpoints they replaced (put back after).
+    points: Vec<(String, u32)>,
+    saved: Vec<Option<Breakpoint>>,
+    /// The absolute index of the first record it may collect.
+    base: usize,
+    max_hits: usize,
+    count: Option<usize>,
+    hits: usize,
+    started: Instant,
+    /// The stop it started from: a later visible stop ends it.
+    stop: u64,
+    /// `count` or `max_hits` reached.
+    done: bool,
+    truncated: bool,
+    /// Whether each point was bound, and why not, as the session left them (it unbinds everything at its end).
+    bound: Option<Vec<(bool, Option<String>)>>,
+}
+
+/// Lines of [`TraceRecord`]s kept (older ones are dropped in blocks).
+const TRACE_RECORDS: usize = 20_000;
+
 /// When things happened (the benchmarks and the report).
 #[derive(Debug, Clone, Default)]
 pub struct DebugTimings {
@@ -393,6 +517,9 @@ pub struct DebugTimings {
     pub agent_ui: Vec<(Instant, Duration)>,
     /// The last `wait` answered.
     pub wait_answered: Option<Instant>,
+    /// When each batch of the debugger's messages held the UI thread, and for how long (brief 0026's frame cost while
+    /// a tracepoint fires).
+    pub msgs_ui: Vec<(Instant, Duration)>,
     /// Step sent to its break shown (locals loaded and the windows given them).
     pub steps: Vec<Duration>,
     /// The last time the windows were given a break's locals.
@@ -473,6 +600,20 @@ pub struct Debugger {
     native: native::NativeSetup,
     /// The last start's Cargo options (target, test, arguments), for its launch after the build.
     cargo_options: cmds::CargoOptions,
+    /// Emulate tracepoints even where the adapter has log points (tests measure the emulation on `eludite-dbg-mono`).
+    pub(super) shell_log_points: bool,
+    /// The lines tracepoints printed, from absolute index `traces_base` on.
+    traces: Vec<TraceRecord>,
+    traces_base: usize,
+    /// Emulated tracepoint hits waiting for their values, by hit id.
+    trace_hits: HashMap<u64, PendingHit>,
+    next_trace_hit: u64,
+    /// `trace` while it collects.
+    trace_job: Option<TraceJob>,
+    /// Set Next Statement failed at (generation, stop): the message.
+    goto_error: Option<(u64, u64, String)>,
+    /// The adapter's console text without its newline yet (its log point lines are matched whole).
+    console_partial_adapter: String,
 }
 
 impl Debugger {
@@ -507,9 +648,518 @@ impl Debugger {
                 counts: HashMap::new(),
                 native: native::NativeSetup::from_env(),
                 cargo_options: cmds::CargoOptions::default(),
+                shell_log_points: false,
+                traces: Vec::new(),
+                traces_base: 0,
+                trace_hits: HashMap::new(),
+                next_trace_hit: 1,
+                trace_job: None,
+                goto_error: None,
+                console_partial_adapter: String::new(),
             },
             rx,
         )
+    }
+
+    /// Whether the adapter prints tracepoints (it has log points and the emulation is not forced).
+    fn log_points(&self) -> bool {
+        self.caps.supports_log_points && !self.shell_log_points
+    }
+
+    /// The session's adapter, for refusals: `` `coreclr` (netcoredbg --interpreter=vscode (stdio)) ``.
+    fn adapter_name(&self) -> String {
+        let id = self
+            .model
+            .capabilities
+            .as_ref()
+            .map(|c| c.adapter.clone())
+            .unwrap_or_else(|| "unknown".into());
+        match self.model.session.as_ref().and_then(|s| s.adapter.clone()) {
+            Some(d) => format!("the debug adapter `{id}` ({d})"),
+            None => format!("the debug adapter `{id}`"),
+        }
+    }
+
+    /// Send `path`'s breakpoints (and Run To Cursor's one-shot line) to a running session.
+    fn send_breakpoints(&mut self, path: &str) {
+        if self.client.is_none() {
+            return;
+        }
+        let extra = self
+            .run_to_cursor
+            .as_ref()
+            .filter(|(p, _)| p == path)
+            .map(|(_, l)| *l);
+        let log_points = self.log_points();
+        let (lines, sbps) = self.model.breakpoints.source_breakpoints(
+            path,
+            self.caps.supports_hit_conditional_breakpoints,
+            log_points,
+            extra,
+        );
+        let generation = self.generation();
+        let _ = self.send(
+            "setBreakpoints",
+            dap_session::set_breakpoints_arguments(path, &sbps),
+            Pending::SetBreakpoints {
+                generation,
+                path: path.to_owned(),
+                lines,
+            },
+        );
+    }
+
+    /// Whether the session is a native (Cargo, lldb-dap) one (brief 0029).
+    fn native_session(&self) -> bool {
+        self.model
+            .session
+            .as_ref()
+            .and_then(|s| s.runtime.as_deref())
+            == Some("native")
+    }
+
+    /// Send the function breakpoints to a running session that has them.
+    fn send_function_breakpoints(&mut self) {
+        if self.client.is_none() || !self.caps.supports_function_breakpoints {
+            return;
+        }
+        let (names, mut bps) = self
+            .model
+            .breakpoints
+            .function_breakpoints(self.caps.supports_hit_conditional_breakpoints);
+        // `setFunctionBreakpoints` replaces the whole list: a native session's Rust panics row (brief 0029) goes in
+        // it after the user's, whose answers `names` matches in order.
+        if self.native_session() {
+            bps = native::with_rust_panics(bps, self.model.exceptions.break_on_rust_panic);
+        }
+        let generation = self.generation();
+        let _ = self.send(
+            "setFunctionBreakpoints",
+            dap_session::set_function_breakpoints_arguments(&bps),
+            Pending::SetFunctionBreakpoints { generation, names },
+        );
+    }
+
+    /// Send the exception settings to a running session (types as filter options where the adapter takes them).
+    fn send_exception_settings(&mut self) {
+        if self.client.is_none() {
+            return;
+        }
+        let args = exception_plan(&self.model.exceptions)
+            .arguments(self.caps.supports_exception_filter_options);
+        let _ = self.send("setExceptionBreakpoints", args, Pending::Other);
+    }
+
+    /// Change `name` in variables reference `reference` (a frame's scope or a value's members): `setVariable`, or
+    /// `setExpression` in frame `frame_id` where the adapter has only that. Returns the request used.
+    /// `scope`: `reference` is a frame's variables (its locals scope), so `name` is an expression in that frame.
+    fn send_set_value(
+        &mut self,
+        reference: i64,
+        scope: bool,
+        frame_id: Option<i64>,
+        name: &str,
+        value: &str,
+        reply: Option<oneshot::Sender<Result<SetVariableOutput, String>>>,
+    ) -> Result<&'static str, CommandError> {
+        let (request, args) = if self.caps.supports_set_variable {
+            (
+                "setVariable",
+                json!({"variablesReference": reference, "name": name, "value": value}),
+            )
+        } else {
+            // setExpression needs the member's expression: the model's row has it (or the name, at the top).
+            let expression = if scope || reference == self.model.locals_reference {
+                self.model
+                    .locals
+                    .iter()
+                    .find(|v| v.name == name)
+                    .and_then(|v| v.evaluate_name.clone())
+                    .unwrap_or_else(|| name.to_owned())
+            } else {
+                find_reference(&self.model.locals, reference)
+                    .or_else(|| find_reference(&self.model.watches, reference))
+                    .and_then(|n| n.children.as_ref())
+                    .and_then(|c| c.iter().find(|v| v.name == name))
+                    .and_then(|v| v.evaluate_name.clone())
+                    .ok_or_else(|| {
+                        CommandError::Failed(format!(
+                            "{} has only setExpression, which needs the member's expression: expand the value in the \
+                             Locals window first, or pass its full expression as `name` in the frame",
+                            self.adapter_name()
+                        ))
+                    })?
+            };
+            let mut args = json!({"expression": expression, "value": value});
+            if let Some(f) = frame_id {
+                args["frameId"] = json!(f);
+            }
+            ("setExpression", args)
+        };
+        let (generation, stop) = (self.generation(), self.model.stop);
+        self.send(
+            request,
+            args,
+            Pending::SetValue {
+                generation,
+                stop,
+                reference,
+                name: name.to_owned(),
+                request,
+                reply,
+            },
+        )?;
+        Ok(request)
+    }
+
+    /// Record a line a tracepoint printed; returns its absolute index. A `trace` collecting it counts it, and at its
+    /// `max_hits` (or `count`) disables its points so the debuggee runs on unhindered.
+    fn record_trace(&mut self, record: TraceRecord) -> usize {
+        if self.traces.len() >= TRACE_RECORDS {
+            let drop = TRACE_RECORDS / 2;
+            self.traces.drain(..drop);
+            self.traces_base += drop;
+        }
+        let key = (record.path.clone(), record.line);
+        let generation = record.generation;
+        self.traces.push(record);
+        let index = self.traces_base + self.traces.len() - 1;
+        let mut disable = None;
+        if let Some(job) = self.trace_job.as_mut()
+            && !job.done
+            && job.generation == generation
+            && job.points.contains(&key)
+        {
+            job.hits += 1;
+            if job.hits >= job.max_hits {
+                job.truncated = true;
+                job.done = true;
+            } else if job.count.is_some_and(|c| job.hits >= c) {
+                job.done = true;
+            }
+            if job.done {
+                disable = Some(job.points.clone());
+            }
+        }
+        if let Some(points) = disable {
+            let mut files: Vec<String> = Vec::new();
+            for (path, line) in points {
+                if let Some(b) = self.model.breakpoints.at_mut(&path, line) {
+                    b.enabled = false;
+                }
+                if !files.contains(&path) {
+                    files.push(path);
+                }
+            }
+            for f in files {
+                self.send_breakpoints(&f);
+            }
+        }
+        index
+    }
+
+    /// The adapter printed console text: the lines that a tracepoint it prints would print are that tracepoint's.
+    fn adapter_log_text(&mut self, text: &str) {
+        let log_points = self.log_points();
+        if !log_points {
+            return;
+        }
+        let mut buf = std::mem::take(&mut self.console_partial_adapter);
+        buf.push_str(&text.replace('\r', ""));
+        let mut parts: Vec<&str> = buf.split('\n').collect();
+        let rest = parts.pop().unwrap_or_default().to_owned();
+        let lines: Vec<String> = parts.into_iter().map(str::to_owned).collect();
+        self.console_partial_adapter = rest;
+        for line in lines {
+            let found = self
+                .model
+                .breakpoints
+                .iter_mut()
+                .find(|b| {
+                    b.enabled
+                        && b.adapter_logs(log_points)
+                        && b.log_message
+                            .as_deref()
+                            .is_some_and(|m| state::message_matches(m, &line))
+                })
+                .map(|b| {
+                    b.hits += 1;
+                    (b.path.clone(), b.line, b.hits)
+                });
+            if let Some((path, l, hit)) = found {
+                self.model
+                    .output_mut(OutputKind::Debug)
+                    .push_line(line.clone(), None);
+                let generation = self.generation();
+                self.record_trace(TraceRecord {
+                    generation,
+                    path,
+                    line: l,
+                    hit,
+                    text: line,
+                    at: Instant::now(),
+                    emulated: false,
+                    overhead: None,
+                });
+            }
+        }
+    }
+
+    /// An emulated tracepoint was hit: ask for its expressions' values (or print at once), never showing the stop.
+    #[allow(clippy::too_many_arguments)]
+    fn start_trace_hit(
+        &mut self,
+        path: String,
+        line: u32,
+        hit: u32,
+        message: &str,
+        thread: i64,
+        frames: &[Frame],
+        at: Instant,
+    ) {
+        let generation = self.generation();
+        let id = self.next_trace_hit;
+        self.next_trace_hit += 1;
+        let segments = parse_message(message);
+        let mut values = vec![None; segments.len()];
+        let mut waiting = 0;
+        let frame_id = frames.first().map(|f| f.id);
+        for (ix, seg) in segments.iter().enumerate() {
+            let Segment::Expression(e) = seg else {
+                continue;
+            };
+            let sent = match frame_id {
+                Some(f) => self
+                    .send(
+                        "evaluate",
+                        json!({"expression": e, "frameId": f, "context": "watch"}),
+                        Pending::TraceEval {
+                            generation,
+                            hit: id,
+                            ix,
+                        },
+                    )
+                    .map_err(|e| e.to_string()),
+                None => Err("no frame".to_owned()),
+            };
+            match sent {
+                Ok(_) => waiting += 1,
+                Err(m) => values[ix] = Some(format!("{{{e}: {m}}}")),
+            }
+        }
+        self.trace_hits.insert(
+            id,
+            PendingHit {
+                generation,
+                path,
+                line,
+                hit,
+                thread,
+                function: frames
+                    .first()
+                    .map(|f| f.row.name.clone())
+                    .unwrap_or_default(),
+                caller: frames.get(1).map(|f| f.row.name.clone()),
+                segments,
+                values,
+                waiting,
+                at,
+            },
+        );
+        if waiting == 0 {
+            self.finish_trace_hit(id);
+        }
+    }
+
+    /// An `{expression}` of an emulated hit was evaluated (or failed: written in place).
+    fn trace_value(&mut self, id: u64, ix: usize, result: Result<Value, String>) {
+        let Some(h) = self.trace_hits.get_mut(&id) else {
+            return;
+        };
+        let expression = match h.segments.get(ix) {
+            Some(Segment::Expression(e)) => e.clone(),
+            _ => return,
+        };
+        let text = match result
+            .and_then(|b| serde_json::from_value::<EvaluateResponse>(b).map_err(|e| e.to_string()))
+        {
+            Ok(e) => e.result,
+            Err(m) => format!("{{{expression}: {m}}}"),
+        };
+        h.values[ix] = Some(text);
+        h.waiting = h.waiting.saturating_sub(1);
+        if h.waiting == 0 {
+            self.finish_trace_hit(id);
+        }
+    }
+
+    /// Every value of an emulated hit is in: print the line, record it, and resume.
+    fn finish_trace_hit(&mut self, id: u64) {
+        let Some(h) = self.trace_hits.remove(&id) else {
+            return;
+        };
+        if h.generation != self.generation() {
+            return;
+        }
+        let tname = self
+            .model
+            .threads
+            .iter()
+            .find(|t| t.id == h.thread)
+            .map(|t| t.name.clone())
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "<No Name>".into());
+        let mut text = String::new();
+        for (seg, value) in h.segments.iter().zip(&h.values) {
+            match seg {
+                Segment::Text(t) => text.push_str(t),
+                Segment::Expression(e) => {
+                    text.push_str(value.as_deref().unwrap_or(&format!("{{{e}: no value}}")))
+                }
+                Segment::Special("$FUNCTION") => text.push_str(&h.function),
+                Segment::Special("$CALLER") => text.push_str(h.caller.as_deref().unwrap_or("")),
+                Segment::Special("$TID") => text.push_str(&h.thread.to_string()),
+                Segment::Special("$TNAME") => text.push_str(&tname),
+                Segment::Special(other) => text.push_str(other),
+            }
+        }
+        self.console_line(text.clone());
+        let record = self.record_trace(TraceRecord {
+            generation: h.generation,
+            path: h.path,
+            line: h.line,
+            hit: h.hit,
+            text,
+            at: Instant::now(),
+            emulated: true,
+            overhead: None,
+        });
+        let generation = h.generation;
+        let _ = self.send(
+            "continue",
+            json!({ "threadId": h.thread }),
+            Pending::TraceResume {
+                generation,
+                record,
+                at: h.at,
+            },
+        );
+    }
+
+    /// The trace's state: why it should end now, if it should.
+    fn trace_ended(&self) -> Option<&'static str> {
+        let Some(job) = &self.trace_job else {
+            return Some("terminated");
+        };
+        let m = &self.model;
+        if job.done {
+            Some("hits")
+        } else if m.generation != job.generation || m.mode == Mode::Design {
+            Some("terminated")
+        } else if m.mode == Mode::Break && m.settled() && m.stop > job.stop {
+            Some("stopped")
+        } else {
+            None
+        }
+    }
+
+    /// End `trace`: its lines and points, the breakpoints it replaced put back.
+    fn finish_trace(&mut self, stopped_by: &'static str) -> TraceOutput {
+        let Some(job) = self.trace_job.take() else {
+            return TraceOutput {
+                stopped_by: stopped_by.into(),
+                ..Default::default()
+            };
+        };
+        let first = job.base.saturating_sub(self.traces_base);
+        let mine: Vec<&TraceRecord> = self
+            .traces
+            .iter()
+            .skip(first)
+            .filter(|r| {
+                r.generation == job.generation && job.points.contains(&(r.path.clone(), r.line))
+            })
+            .take(job.max_hits)
+            .collect();
+        let points: Vec<TracePointRow> = job
+            .points
+            .iter()
+            .enumerate()
+            .map(|(i, (path, line))| {
+                let b = self.model.breakpoints.at(path, *line);
+                let (verified, message) = match job.bound.as_ref().and_then(|v| v.get(i)) {
+                    Some((v, m)) => (*v, m.clone()),
+                    None => (
+                        b.is_some_and(|b| b.verified),
+                        b.and_then(|b| b.message.clone()),
+                    ),
+                };
+                let hits = mine
+                    .iter()
+                    .filter(|r| (&r.path, r.line) == (path, *line))
+                    .count() as u32;
+                TracePointRow {
+                    path: path.clone(),
+                    line: *line,
+                    hits,
+                    verified: verified || hits > 0,
+                    message: message.filter(|_| hits == 0),
+                }
+            })
+            .collect();
+        let overheads: Vec<Duration> = mine.iter().filter_map(|r| r.overhead).collect();
+        let emulated = mine.iter().any(|r| r.emulated);
+        let lines: Vec<TraceLine> = mine
+            .iter()
+            .enumerate()
+            .map(|(i, r)| TraceLine {
+                seq: i as u64,
+                path: r.path.clone(),
+                line: r.line,
+                hit: r.hit.max(1),
+                time_ms: r.at.saturating_duration_since(job.started).as_secs_f64() * 1e3,
+                text: cmds::cut_value(&r.text, cmds::MAX_TRACE_TEXT).0,
+            })
+            .collect();
+        let out = TraceOutput {
+            hits: lines.len() as u64,
+            lines,
+            truncated: job.truncated,
+            stopped_by: stopped_by.into(),
+            summary: None,
+            exit_code: (stopped_by == "terminated")
+                .then_some(self.model.exit_code)
+                .flatten(),
+            points,
+            overhead_ms_per_hit: (!overheads.is_empty()).then(|| {
+                overheads.iter().map(Duration::as_secs_f64).sum::<f64>() * 1e3
+                    / overheads.len() as f64
+            }),
+            emulated,
+            generation: Some(job.generation),
+        };
+        // The points go; what they replaced comes back.
+        let mut files: Vec<String> = Vec::new();
+        for ((path, line), saved) in job.points.into_iter().zip(job.saved) {
+            if self
+                .model
+                .breakpoints
+                .at(&path, line)
+                .is_some_and(|b| b.temporary)
+            {
+                self.model.breakpoints.delete(&path, line);
+            }
+            if let Some(b) = saved {
+                self.model.breakpoints.put(b);
+            }
+            if !files.contains(&path) {
+                files.push(path);
+            }
+        }
+        for f in files {
+            self.send_breakpoints(&f);
+        }
+        out
     }
 
     /// Send a request to the adapter without waiting; its answer comes back as a message.
@@ -739,7 +1389,8 @@ struct LaunchJob {
     solution_dir: Option<PathBuf>,
     startup: Option<PathBuf>,
     breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
-    filters: Vec<String>,
+    functions: Vec<eludite_dap::types::FunctionBreakpoint>,
+    exceptions: state::ExceptionPlan,
     setup: DebugSetup,
     /// A Cargo package's start (brief 0029).
     native: native::NativeJob,
@@ -756,7 +1407,8 @@ fn launch_thread(job: LaunchJob) {
         solution_dir,
         startup,
         breakpoints,
-        filters,
+        functions,
+        exceptions,
         setup,
         native,
         tx,
@@ -990,11 +1642,13 @@ fn launch_thread(job: LaunchJob) {
         kind: StartKind::Launch,
         arguments,
         breakpoints,
+        exception_filters: exceptions.filters,
+        exception_options: exceptions.options,
+        // One list (setFunctionBreakpoints replaces them all): the user's, then a native session's Rust panics row.
         function_breakpoints: match kind {
-            AdapterKind::Lldb => native::function_breakpoints(native.rust_panics),
-            _ => Vec::new(),
+            AdapterKind::Lldb => native::with_rust_panics(functions, native.rust_panics),
+            _ => functions,
         },
-        exception_filters: filters,
     };
     let mut result =
         dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
@@ -1055,7 +1709,9 @@ impl Shell {
                 }
                 if this
                     .update_in(cx, |shell, window, cx| {
-                        shell.on_debug_msgs(batch, window, cx)
+                        let t = Instant::now();
+                        shell.on_debug_msgs(batch, window, cx);
+                        shell.debug.timings.msgs_ui.push((t, t.elapsed()));
                     })
                     .is_err()
                 {
@@ -1128,6 +1784,7 @@ impl Shell {
             (agent && !wait.is_zero()).then_some(Followup::Settle {
                 start,
                 pause,
+                after: None,
                 wait,
                 budget,
             })
@@ -1176,16 +1833,297 @@ impl Shell {
                 settle(false, Some(generation))
             }
             DebugRequest::Breakpoint {
+                function: Some(function),
+                action,
+                enabled,
+                condition,
+                hit_condition,
+                remove_after,
+                ..
+            } => {
+                self.debug_function_breakpoint(
+                    function,
+                    action,
+                    enabled,
+                    condition,
+                    hit_condition,
+                    remove_after,
+                    cx,
+                )?;
+                self.refresh_debug(cx);
+                return Ok((self.debug_state(), None));
+            }
+            DebugRequest::Breakpoint {
                 path,
                 line,
                 action,
                 enabled,
                 condition,
                 hit_condition,
+                log_message,
+                remove_after,
+                ..
             } => {
-                self.debug_breakpoint(path, line, action, enabled, condition, hit_condition, cx)?;
+                self.debug_breakpoint(
+                    path,
+                    line,
+                    action,
+                    enabled,
+                    condition,
+                    hit_condition,
+                    log_message,
+                    remove_after,
+                    cx,
+                )?;
                 self.refresh_debug(cx);
                 return Ok((self.debug_state(), None));
+            }
+            DebugRequest::RunUntil {
+                points,
+                remove_after,
+                ..
+            } => {
+                let mut resolved = Vec::new();
+                for p in &points {
+                    resolved.push(self.debug_location(Some(&p.path), Some(p.line), cx)?);
+                }
+                let mut files: Vec<String> = Vec::new();
+                let b = &mut self.debug.model.breakpoints;
+                for ((path, line), p) in resolved.into_iter().zip(points) {
+                    // A line that has a breakpoint keeps it (it stops there anyway).
+                    if b.at(&path, line).is_none() {
+                        let bp = b.ensure(&path, line);
+                        bp.condition = p.condition.filter(|c| !c.trim().is_empty());
+                        bp.temporary = remove_after;
+                        bp.remove_after = remove_after;
+                    }
+                    if !files.contains(&path) {
+                        files.push(path);
+                    }
+                }
+                for f in &files {
+                    self.debug.send_breakpoints(f);
+                }
+                self.refresh_glyphs(cx);
+                if !remove_after {
+                    self.debug_persist(cx);
+                }
+                self.debug_resume("continue", None, &driver)?;
+                settle(false, None)
+            }
+            DebugRequest::Trace {
+                points,
+                run,
+                start,
+                until,
+                max_hits,
+                ..
+            } => {
+                if !agent {
+                    return Err(ui_thread_refusal(cmds::TRACE));
+                }
+                if self.debug.trace_job.is_some() {
+                    return Err(CommandError::Failed(
+                        "a trace is already collecting in this session; wait for its answer".into(),
+                    ));
+                }
+                let mut resolved = Vec::new();
+                for p in &points {
+                    resolved.push(self.debug_location(Some(&p.path), Some(p.line), cx)?);
+                }
+                let mut job_points = Vec::new();
+                let mut saved = Vec::new();
+                let mut files: Vec<String> = Vec::new();
+                for ((path, line), p) in resolved.into_iter().zip(points) {
+                    if job_points.contains(&(path.clone(), line)) {
+                        continue;
+                    }
+                    let b = &mut self.debug.model.breakpoints;
+                    saved.push(b.take(&path, line));
+                    b.put(Breakpoint {
+                        condition: p.condition.filter(|c| !c.trim().is_empty()),
+                        log_message: Some(p.message),
+                        temporary: true,
+                        ..Breakpoint::new(&path, line)
+                    });
+                    job_points.push((path.clone(), line));
+                    if !files.contains(&path) {
+                        files.push(path);
+                    }
+                }
+                for f in &files {
+                    self.debug.send_breakpoints(f);
+                }
+                self.refresh_glyphs(cx);
+                let job = TraceJob {
+                    generation: 0,
+                    points: job_points,
+                    saved,
+                    base: 0,
+                    max_hits,
+                    count: match until {
+                        TraceUntil::Hits(n) => Some(n),
+                        _ => None,
+                    },
+                    hits: 0,
+                    started: Instant::now(),
+                    stop: 0,
+                    done: false,
+                    truncated: false,
+                    bound: None,
+                };
+                self.debug.trace_job = Some(job);
+                let resumed = match run {
+                    TraceRun::Continue => self.debug_resume("continue", None, &driver),
+                    TraceRun::Start => {
+                        // `trace` starts as `start` without Cargo options (brief 0029's `target`, `test`, `args`):
+                        // a previous start's options do not carry over.
+                        self.debug.cargo_options = cmds::CargoOptions::default();
+                        self.debug_start(
+                            start.project,
+                            true,
+                            start.profile,
+                            start.build,
+                            &driver,
+                            window,
+                            cx,
+                        );
+                        Ok(())
+                    }
+                };
+                let d = &mut self.debug;
+                let base = d.traces_base + d.traces.len();
+                let (generation, stop) = (d.model.generation, d.model.stop);
+                if let Some(job) = d.trace_job.as_mut() {
+                    job.generation = generation;
+                    job.base = base;
+                    job.stop = stop;
+                    job.started = Instant::now();
+                }
+                if let Err(e) = resumed {
+                    self.debug.finish_trace("terminated");
+                    self.refresh_glyphs(cx);
+                    return Err(e);
+                }
+                Some(Followup::Trace {
+                    until,
+                    wait,
+                    budget,
+                })
+            }
+            DebugRequest::SetVariable {
+                target,
+                name,
+                value,
+                ..
+            } => {
+                let d = &mut self.debug;
+                if !d.caps.supports_set_variable && !d.caps.supports_set_expression {
+                    return Err(CommandError::Failed(format!(
+                        "{} cannot change values: it has neither setVariable nor setExpression (DAP); \
+                         capabilities.set_variable is false",
+                        d.adapter_name()
+                    )));
+                }
+                let m = &d.model;
+                let stopped = m.stopped.as_ref().map(|s| s.thread);
+                // From the UI the frame is the selected one; an agent's defaults to the top of the stop (rule 3).
+                let shown = match target {
+                    SetTarget::Reference(r) => Some(r),
+                    SetTarget::Frame { thread, frame } => {
+                        let thread = thread.or(if agent { stopped } else { m.thread });
+                        let frame = frame.unwrap_or(if agent { 0 } else { m.frame });
+                        (thread == m.thread
+                            && frame == m.frame
+                            && !m.locals_loading
+                            && m.locals_reference > 0)
+                            .then_some(m.locals_reference)
+                    }
+                };
+                let stop = m.stop;
+                match shown {
+                    Some(reference) => {
+                        let frame_id = m.frames.get(m.frame).map(|f| f.id);
+                        let (reply, rx) = if agent {
+                            let (tx, rx) = oneshot::channel();
+                            (Some(tx), Some(rx))
+                        } else {
+                            (None, None)
+                        };
+                        let scope = matches!(target, SetTarget::Frame { .. });
+                        let request =
+                            d.send_set_value(reference, scope, frame_id, &name, &value, reply)?;
+                        self.refresh_debug(cx);
+                        let out = DebugOutput::SetVariable(SetVariableOutput {
+                            name,
+                            value,
+                            type_name: None,
+                            reference: 0,
+                            request: Some(request.into()),
+                            pending: true,
+                            stop,
+                        });
+                        return Ok((out, rx.map(Followup::SetValue)));
+                    }
+                    None if agent => {
+                        let SetTarget::Frame { thread, frame } = target else {
+                            unreachable!("a reference is always sent at once")
+                        };
+                        return Ok((
+                            DebugOutput::SetVariable(SetVariableOutput {
+                                name: name.clone(),
+                                value: value.clone(),
+                                pending: true,
+                                stop,
+                                ..Default::default()
+                            }),
+                            Some(Followup::SetVariable {
+                                thread,
+                                frame: frame.unwrap_or(0),
+                                name,
+                                value,
+                            }),
+                        ));
+                    }
+                    None => return Err(ui_thread_refusal(cmds::SET_VARIABLE)),
+                }
+            }
+            DebugRequest::SetNextStatement {
+                path, line, thread, ..
+            } => {
+                if !self.debug.caps.supports_goto_targets_request {
+                    return Err(CommandError::Failed(format!(
+                        "Set Next Statement is not supported by {}: it has no gotoTargets and goto (DAP); \
+                         capabilities.set_next_statement is false (netcoredbg and eludite-dbg-mono refuse it)",
+                        self.debug.adapter_name()
+                    )));
+                }
+                let (path, line) = self.debug_location(path.as_deref(), line, cx)?;
+                let d = &mut self.debug;
+                let thread = thread
+                    .or(d.model.stopped.as_ref().map(|s| s.thread))
+                    .or(d.model.thread)
+                    .unwrap_or(0);
+                let (generation, stop) = (d.generation(), d.model.stop);
+                d.goto_error = None;
+                d.send(
+                    "gotoTargets",
+                    json!({"source": {"name": file_name(&path), "path": path}, "line": line}),
+                    Pending::GotoTargets {
+                        generation,
+                        stop,
+                        thread,
+                        driver: driver.clone(),
+                        line,
+                    },
+                )?;
+                (agent && !wait.is_zero()).then_some(Followup::Settle {
+                    start: false,
+                    pause: None,
+                    after: Some((generation, stop)),
+                    wait,
+                    budget,
+                })
             }
             DebugRequest::Evaluate {
                 expression,
@@ -1239,8 +2177,45 @@ impl Shell {
                 break_when_thrown,
                 break_when_user_unhandled,
                 break_on_rust_panic,
+                types,
+                remove,
+                clear,
             } => {
-                let e = &mut self.debug.model.exceptions;
+                let typed = !types.is_empty() || remove.is_some() || clear;
+                let d = &mut self.debug;
+                if typed && d.client.is_some() && !d.caps.supports_exception_filter_options {
+                    return Err(CommandError::Failed(format!(
+                        "{} cannot break on exception types: it has no exceptionFilterOptions (DAP); \
+                         capabilities.exception_filter_options is false",
+                        d.adapter_name()
+                    )));
+                }
+                let mut next = d.model.exceptions.types.clone();
+                if clear {
+                    next.clear();
+                }
+                if let Some(r) = &remove {
+                    if !next.iter().any(|t| &t.type_name == r) {
+                        return Err(CommandError::InvalidInput(format!(
+                            "there is no exception type `{r}` in the settings"
+                        )));
+                    }
+                    next.retain(|t| &t.type_name != r);
+                }
+                for t in types {
+                    match next.iter_mut().find(|x| x.type_name == t.type_name) {
+                        Some(x) => *x = t,
+                        None => next.push(t),
+                    }
+                }
+                if next.len() > cmds::MAX_EXCEPTION_TYPES {
+                    return Err(CommandError::InvalidInput(format!(
+                        "the settings hold at most {} exception types",
+                        cmds::MAX_EXCEPTION_TYPES
+                    )));
+                }
+                let e = &mut d.model.exceptions;
+                e.types = next;
                 if let Some(v) = break_when_thrown {
                     e.break_when_thrown = v;
                 }
@@ -1249,33 +2224,13 @@ impl Shell {
                 }
                 if let Some(v) = break_on_rust_panic {
                     e.break_on_rust_panic = v;
-                    // A native session's Rust panics row is its function breakpoint (brief 0029).
-                    let native_session = self
-                        .debug
-                        .model
-                        .session
-                        .as_ref()
-                        .and_then(|s| s.runtime.as_deref())
-                        == Some("native");
-                    if native_session
-                        && self.debug.client.is_some()
-                        && self.debug.caps.supports_function_breakpoints
-                    {
-                        let _ = self.debug.send(
-                            "setFunctionBreakpoints",
-                            json!({ "breakpoints": native::function_breakpoints(v) }),
-                            Pending::Other,
-                        );
+                    // A native session's Rust panics row is a function breakpoint (brief 0029), sent in the same
+                    // list as the user's function breakpoints.
+                    if d.native_session() {
+                        d.send_function_breakpoints();
                     }
                 }
-                if self.debug.client.is_some() {
-                    let filters = exception_filters(&self.debug.model.exceptions);
-                    let _ = self.debug.send(
-                        "setExceptionBreakpoints",
-                        json!({ "filters": filters }),
-                        Pending::Other,
-                    );
-                }
+                d.send_exception_settings();
                 self.debug_persist(cx);
                 self.refresh_debug(cx);
                 return Ok((self.debug_state(), None));
@@ -1639,6 +2594,9 @@ impl Shell {
         d.caps = Capabilities::default();
         d.run_to_cursor = None;
         d.early_breakpoints.clear();
+        d.trace_hits.clear();
+        d.goto_error = None;
+        d.console_partial_adapter.clear();
         d.console_line(format!(
             "{} {}\u{2026}",
             if debug {
@@ -1654,10 +2612,15 @@ impl Shell {
             .files()
             .into_iter()
             .map(|f| {
-                let (_, sbps) = d.model.breakpoints.source_breakpoints(&f, false, None);
+                let (_, sbps) = d
+                    .model
+                    .breakpoints
+                    .source_breakpoints(&f, false, false, None);
                 (f, sbps)
             })
             .collect();
+        let functions = d.model.breakpoints.function_breakpoints(false).1;
+        let exceptions = exception_plan(&d.model.exceptions);
         let projects: Vec<PathBuf> = self
             .tree
             .lock()
@@ -1675,7 +2638,8 @@ impl Shell {
             solution_dir,
             startup: d.model.startup_project.clone().map(PathBuf::from),
             breakpoints,
-            filters: exception_filters(&d.model.exceptions),
+            functions,
+            exceptions,
             setup: d.setup.clone(),
             native: native::NativeJob {
                 setup: d.native.clone(),
@@ -1858,10 +2822,17 @@ impl Shell {
         enabled: Option<bool>,
         condition: Option<String>,
         hit_condition: Option<Option<cmds::HitCondition>>,
+        log_message: Option<String>,
+        remove_after: Option<bool>,
         cx: &mut Context<Self>,
     ) -> Result<(), CommandError> {
         let files = if action == BreakpointAction::DeleteAll {
-            self.debug.model.breakpoints.delete_all()
+            let had_functions = !self.debug.model.breakpoints.functions().is_empty();
+            let files = self.debug.model.breakpoints.delete_all();
+            if had_functions {
+                self.debug.send_function_breakpoints();
+            }
+            files
         } else {
             let (path, line) = self.debug_location(path.as_deref(), line, cx)?;
             let b = &mut self.debug.model.breakpoints;
@@ -1888,6 +2859,14 @@ impl Shell {
                     if let Some(h) = hit_condition {
                         bp.hit_condition = h;
                     }
+                    if let Some(m) = log_message {
+                        bp.log_message = (!m.is_empty()).then_some(m);
+                    }
+                    if let Some(r) = remove_after {
+                        bp.remove_after = r;
+                    }
+                    // The person or an agent made it theirs: no longer run_until's or trace's.
+                    bp.temporary = false;
                 }
                 BreakpointAction::DeleteAll => unreachable!(),
             }
@@ -1901,32 +2880,59 @@ impl Shell {
         Ok(())
     }
 
+    /// A function breakpoint by name: set (or change) or delete it, through `setFunctionBreakpoints`.
+    #[allow(clippy::too_many_arguments)]
+    fn debug_function_breakpoint(
+        &mut self,
+        function: String,
+        action: BreakpointAction,
+        enabled: Option<bool>,
+        condition: Option<String>,
+        hit_condition: Option<Option<cmds::HitCondition>>,
+        remove_after: Option<bool>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), CommandError> {
+        let d = &mut self.debug;
+        if d.client.is_some() && !d.caps.supports_function_breakpoints {
+            return Err(CommandError::Failed(format!(
+                "{} has no function breakpoints (DAP setFunctionBreakpoints); capabilities.function_breakpoints is \
+                 false: set a breakpoint on the method's first line instead",
+                d.adapter_name()
+            )));
+        }
+        let b = &mut d.model.breakpoints;
+        match action {
+            BreakpointAction::Delete => {
+                if !b.delete_function(&function) {
+                    return Err(CommandError::InvalidInput(format!(
+                        "there is no function breakpoint on {function}"
+                    )));
+                }
+            }
+            _ => {
+                let f = b.ensure_function(&function);
+                if let Some(e) = enabled {
+                    f.enabled = e;
+                }
+                if let Some(c) = condition {
+                    f.condition = (!c.trim().is_empty()).then(|| c.trim().to_owned());
+                }
+                if let Some(h) = hit_condition {
+                    f.hit_condition = h;
+                }
+                if let Some(r) = remove_after {
+                    f.remove_after = r;
+                }
+            }
+        }
+        d.send_function_breakpoints();
+        self.debug_persist(cx);
+        Ok(())
+    }
+
     /// Send `path`'s breakpoints (and Run To Cursor's one-shot line) to a running session.
     fn debug_send_breakpoints(&mut self, path: &str) {
-        let d = &mut self.debug;
-        if d.client.is_none() {
-            return;
-        }
-        let extra = d
-            .run_to_cursor
-            .as_ref()
-            .filter(|(p, _)| p == path)
-            .map(|(_, l)| *l);
-        let (lines, sbps) = d.model.breakpoints.source_breakpoints(
-            path,
-            d.caps.supports_hit_conditional_breakpoints,
-            extra,
-        );
-        let generation = d.generation();
-        let _ = d.send(
-            "setBreakpoints",
-            dap_session::set_breakpoints_arguments(path, &sbps),
-            Pending::SetBreakpoints {
-                generation,
-                path: path.to_owned(),
-                lines,
-            },
-        );
+        self.debug.send_breakpoints(path);
     }
 
     /// Evaluate in the selected (or given) frame. `Ok` carries an agent's answer to come; `Err` the immediate
@@ -2334,6 +3340,7 @@ impl Shell {
             note("Locals")
         };
         let locals = flatten(&m.locals);
+        let parents = state::flatten_parents(&m.locals);
         let watches = flatten(&m.watches);
         let frames: Vec<StackRow> = m
             .frames
@@ -2367,10 +3374,12 @@ impl Shell {
             })
             .collect();
         let breakpoints = m.breakpoints.rows();
-        let exceptions = m.exceptions;
+        let exceptions = m.exceptions.clone();
         let w = d.windows.clone();
-        w.locals
-            .update(cx, |v, cx| v.set_rows(locals, locals_note, cx));
+        w.locals.update(cx, |v, cx| {
+            v.set_parents(parents);
+            v.set_rows(locals, locals_note, cx)
+        });
         w.watch.update(cx, |v, cx| v.set_rows(watches, None, cx));
         w.call_stack.update(cx, |v, cx| v.set_rows(frames, cx));
         w.threads.update(cx, |v, cx| v.set_rows(threads, cx));
@@ -2450,6 +3459,31 @@ impl Shell {
         d.pending.clear();
         d.run_to_cursor = None;
         d.exec = None;
+        d.trace_hits.clear();
+        // run_until's points end with the session (a trace's are put back when it answers).
+        let job_points = d
+            .trace_job
+            .as_ref()
+            .map(|j| j.points.clone())
+            .unwrap_or_default();
+        d.model
+            .breakpoints
+            .remove_temporary(|b| !job_points.contains(&(b.path.clone(), b.line)));
+        // A trace answering after the end reports its points as the session had them.
+        if let Some(job) = d.trace_job.as_mut()
+            && job.bound.is_none()
+        {
+            let b = &d.model.breakpoints;
+            job.bound = Some(
+                job.points
+                    .iter()
+                    .map(|(p, l)| {
+                        b.at(p, *l)
+                            .map_or((false, None), |b| (b.verified, b.message.clone()))
+                    })
+                    .collect(),
+            );
+        }
         trace(format_args!("debug ended {message:?}"));
         d.model.end();
         d.model.message = message;
@@ -2530,14 +3564,22 @@ impl Shell {
             } if generation == current => match result {
                 Ok(started) => {
                     self.debug.caps = started.capabilities.clone();
-                    self.debug.model.capabilities =
-                        Some(capabilities_row(&started.capabilities, &adapter_id));
+                    self.debug.model.capabilities = Some(capabilities_row(
+                        &started.capabilities,
+                        &adapter_id,
+                        self.debug.shell_log_points,
+                    ));
+                    let names = self.debug.model.breakpoints.function_breakpoints(false).0;
+                    self.debug
+                        .model
+                        .breakpoints
+                        .apply_function_answer(&names, &started.function_breakpoints);
                     for (path, answer) in &started.breakpoints {
                         let (lines, _) = self
                             .debug
                             .model
                             .breakpoints
-                            .source_breakpoints(path, false, None);
+                            .source_breakpoints(path, false, false, None);
                         self.debug
                             .model
                             .breakpoints
@@ -2550,10 +3592,41 @@ impl Shell {
                         self.debug.model.mode = Mode::Running;
                     }
                     trace(format_args!("debug running generation {current}"));
-                    if self.debug.caps.supports_hit_conditional_breakpoints {
+                    // What the handshake could not know: hit conditions and log points go to an adapter that has
+                    // them.
+                    let tracepoints = self
+                        .debug
+                        .model
+                        .breakpoints
+                        .all()
+                        .iter()
+                        .any(|b| b.log_message.is_some());
+                    if self.debug.caps.supports_hit_conditional_breakpoints
+                        || (self.debug.log_points() && tracepoints)
+                    {
                         for f in self.debug.model.breakpoints.files() {
                             self.debug_send_breakpoints(&f);
                         }
+                    }
+                    let hit_functions = self
+                        .debug
+                        .model
+                        .breakpoints
+                        .functions()
+                        .iter()
+                        .any(|f| f.hit_condition.is_some());
+                    if self.debug.caps.supports_hit_conditional_breakpoints && hit_functions {
+                        self.debug.send_function_breakpoints();
+                    }
+                    if !self.debug.caps.supports_exception_filter_options
+                        && !self.debug.model.exceptions.types.is_empty()
+                    {
+                        let line = format!(
+                            "The exception types in Exception Settings are not used: {} has no exception filter \
+                             options.",
+                            self.debug.adapter_name()
+                        );
+                        self.debug.console_line(line);
                     }
                     self.refresh_glyphs(cx);
                 }
@@ -2667,6 +3740,8 @@ impl Shell {
                         .output_mut(OutputKind::Adapter)
                         .push_text(&o.output, None);
                     d.console(&o.output);
+                    // Lines of the tracepoints the adapter prints (brief 0026).
+                    d.adapter_log_text(&o.output);
                 }
             },
             Event::Process(p) => {
@@ -2696,7 +3771,7 @@ impl Shell {
                     let merged = client.capabilities();
                     d.caps.supports_delayed_stack_trace_loading =
                         merged.supports_delayed_stack_trace_loading;
-                    *row = capabilities_row(&merged, &adapter);
+                    *row = capabilities_row(&merged, &adapter, d.shell_log_points);
                 }
             }
             Event::Exited(e) => {
@@ -2743,6 +3818,7 @@ impl Shell {
                         generation,
                         stopped: s,
                         thread,
+                        at: Instant::now(),
                     },
                 );
             }
@@ -2778,12 +3854,147 @@ impl Shell {
                 generation,
                 stopped,
                 thread,
+                at,
             } if generation == current => {
                 let st: StackTraceResponse = result
                     .ok()
                     .and_then(|b| serde_json::from_value(b).ok())
                     .unwrap_or_default();
-                self.on_stop(stopped, thread, st, window, cx);
+                self.on_stop(stopped, thread, st, at, window, cx);
+            }
+            Pending::TraceEval {
+                generation,
+                hit,
+                ix,
+            } if generation == current => {
+                self.debug.trace_value(hit, ix, result);
+                self.refresh_glyphs(cx);
+            }
+            Pending::TraceResume {
+                generation,
+                record,
+                at,
+            } if generation == current => {
+                let took = at.elapsed();
+                if let Some(r) = record
+                    .checked_sub(self.debug.traces_base)
+                    .and_then(|i| self.debug.traces.get_mut(i))
+                {
+                    r.overhead = Some(took);
+                }
+                if let Err(e) = result {
+                    self.debug
+                        .console_line(format!("Tracepoint: continue failed: {e}"));
+                }
+            }
+            Pending::SetFunctionBreakpoints { generation, names } if generation == current => {
+                if let Ok(b) = result {
+                    let r: SetBreakpointsResponse = serde_json::from_value(b).unwrap_or_default();
+                    self.debug
+                        .model
+                        .breakpoints
+                        .apply_function_answer(&names, &r.breakpoints);
+                }
+            }
+            Pending::SetValue {
+                generation,
+                stop,
+                reference,
+                name,
+                request,
+                reply,
+            } => {
+                let fresh = generation == current
+                    && stop == stop_now
+                    && self.debug.model.mode == Mode::Break;
+                let answer = if !fresh {
+                    Err(format!(
+                        "stale: the debuggee moved on (now stop {stop_now}, generation {current}) before the change \
+                         was answered; read it again"
+                    ))
+                } else {
+                    result.and_then(|b| {
+                        serde_json::from_value::<SetVariableResponse>(b).map_err(|e| e.to_string())
+                    })
+                };
+                match answer {
+                    Ok(r) => {
+                        let out = self
+                            .debug
+                            .value_changed(reference, &name, &r, request, stop);
+                        for i in 0..self.debug.model.watches.len() {
+                            self.debug_eval_watch(i);
+                        }
+                        if let Some(reply) = reply {
+                            let _ = reply.send(Ok(out));
+                        }
+                    }
+                    Err(e) => {
+                        if fresh {
+                            self.debug.model.message = Some(format!("Set value of {name}: {e}"));
+                        }
+                        if let Some(reply) = reply {
+                            let _ = reply.send(Err(e));
+                        }
+                    }
+                }
+            }
+            Pending::GotoTargets {
+                generation,
+                stop,
+                thread,
+                driver,
+                line,
+            } if generation == current => {
+                let fresh = stop == stop_now && self.debug.model.mode == Mode::Break;
+                let target = result.map(|b| {
+                    serde_json::from_value::<GotoTargetsResponse>(b)
+                        .unwrap_or_default()
+                        .targets
+                        .into_iter()
+                        .next()
+                });
+                let d = &mut self.debug;
+                match (fresh, target) {
+                    (false, _) => {}
+                    (true, Ok(Some(t))) => {
+                        let sent = d.send(
+                            "goto",
+                            json!({"threadId": thread, "targetId": t.id}),
+                            Pending::Goto { generation, stop },
+                        );
+                        match sent {
+                            Ok(_) => {
+                                d.model.resume(&driver);
+                                d.exec = None;
+                                self.apply_exec(cx);
+                            }
+                            Err(e) => d.goto_error = Some((generation, stop, e.to_string())),
+                        }
+                    }
+                    (true, Ok(None)) => {
+                        let m = format!(
+                            "Set Next Statement: line {line} is not a statement the debugger can move to in this \
+                             method"
+                        );
+                        d.model.message = Some(m.clone());
+                        d.goto_error = Some((generation, stop, m));
+                    }
+                    (true, Err(e)) => {
+                        d.model.message = Some(format!("Set Next Statement: {e}"));
+                        d.goto_error = Some((generation, stop, e));
+                    }
+                }
+            }
+            Pending::Goto { generation, stop } if generation == current => {
+                if let Err(e) = result {
+                    let d = &mut self.debug;
+                    if d.model.mode == Mode::Running && d.model.stop == stop {
+                        d.model.mode = Mode::Break;
+                    }
+                    d.model.message = Some(format!("Set Next Statement: {e}"));
+                    d.goto_error = Some((generation, stop, e));
+                }
             }
             Pending::ThreadStack {
                 generation,
@@ -2988,6 +4199,7 @@ impl Shell {
         s: StoppedEvent,
         thread: i64,
         st: StackTraceResponse,
+        at: Instant,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -3017,12 +4229,18 @@ impl Shell {
             let at_cursor = cursor
                 .as_ref()
                 .is_some_and(|c| (&c.0, c.1) == (path, *line));
+            let log_points = d.log_points();
             if let Some(bp) = d.model.breakpoints.at_mut(path, *line) {
                 bp.hits += 1;
                 let hits = bp.hits;
                 let skip = !d.caps.supports_hit_conditional_breakpoints
                     && !at_cursor
                     && bp.hit_condition.is_some_and(|h| !h.breaks_on(hits));
+                // A tracepoint the adapter does not print (brief 0026): print it here and resume, never showing
+                // the stop.
+                let trace = (!skip && !at_cursor && !bp.adapter_logs(log_points))
+                    .then(|| bp.log_message.clone())
+                    .flatten();
                 if skip {
                     d.run_to_cursor = cursor;
                     let (generation, stop) = (d.generation(), d.model.stop);
@@ -3033,12 +4251,100 @@ impl Shell {
                     );
                     return;
                 }
+                if let Some(message) = trace {
+                    d.run_to_cursor = cursor;
+                    let (path, line) = (path.clone(), *line);
+                    d.start_trace_hit(path, line, hits, &message, thread, &frames, at);
+                    return;
+                }
             }
         }
-        if let Some((path, _)) = cursor {
-            self.debug_send_breakpoints(&path);
+        // A function breakpoint's stop: its hits, and its hit condition where the adapter ignores it.
+        let function_hit = (s.reason == "function breakpoint")
+            .then(|| {
+                let b = &mut d.model.breakpoints;
+                let name = b
+                    .functions()
+                    .iter()
+                    .find(|f| {
+                        f.adapter_id
+                            .is_some_and(|id| s.hit_breakpoint_ids.contains(&id))
+                    })
+                    .or_else(|| {
+                        frames.first().and_then(|top| {
+                            b.functions()
+                                .iter()
+                                .find(|f| f.matches_frame(&top.row.name))
+                        })
+                    })
+                    .map(|f| f.name.clone())?;
+                let f = b.function_mut(&name)?;
+                f.hits += 1;
+                Some((name, f.hits, f.hit_condition))
+            })
+            .flatten();
+        if let Some((_, hits, Some(h))) = &function_hit
+            && !d.caps.supports_hit_conditional_breakpoints
+            && !h.breaks_on(*hits)
+        {
+            d.run_to_cursor = cursor;
+            let (generation, stop) = (d.generation(), d.model.stop);
+            let _ = d.send(
+                "continue",
+                json!({ "threadId": thread }),
+                Pending::Resume { generation, stop },
+            );
+            return;
+        }
+        // The stop is shown. run_until's temporary points end here, whatever the stop (as Run To Cursor's line); a
+        // Delete-when-hit breakpoint ends at its own stop.
+        let job_points = d
+            .trace_job
+            .as_ref()
+            .map(|j| j.points.clone())
+            .unwrap_or_default();
+        let mut changed = d
+            .model
+            .breakpoints
+            .remove_temporary(|b| !job_points.contains(&(b.path.clone(), b.line)));
+        let mut persist = false;
+        if s.reason == "breakpoint"
+            && let Some((path, line)) = &top
+            && d.model
+                .breakpoints
+                .at(path, *line)
+                .is_some_and(|b| b.remove_after && !b.temporary)
+        {
+            d.model.breakpoints.delete(path, *line);
+            if !changed.contains(path) {
+                changed.push(path.clone());
+            }
+            persist = true;
+        }
+        if let Some((name, _, _)) = &function_hit
+            && d.model
+                .breakpoints
+                .functions()
+                .iter()
+                .any(|f| &f.name == name && f.remove_after)
+        {
+            d.model.breakpoints.delete_function(name);
+            d.send_function_breakpoints();
+            persist = true;
+        }
+        for f in &changed {
+            d.send_breakpoints(f);
+        }
+        if !changed.is_empty() || persist {
+            self.refresh_glyphs(cx);
+        }
+        if persist {
+            self.debug_persist(cx);
         }
         let d = &mut self.debug;
+        if let Some((path, _)) = cursor {
+            d.send_breakpoints(&path);
+        }
         d.model.mode = Mode::Break;
         d.model.stop += 1;
         d.model.message = None;
@@ -3795,6 +5101,57 @@ impl Reader {
         Ok(out)
     }
 
+    /// `set_variable` in a frame the windows do not show: its frame id and its locals scope, then the change.
+    async fn set_value(
+        &self,
+        cx: &mut AsyncWindowContext,
+        thread: Option<i64>,
+        frame: usize,
+        name: &str,
+        value: &str,
+    ) -> Result<oneshot::Receiver<Result<SetVariableOutput, String>>, String> {
+        let stopped = self.model(cx, |d| d.model.stopped.as_ref().map(|s| s.thread))?;
+        let thread = thread
+            .or(stopped)
+            .ok_or_else(|| "no thread has stopped".to_owned())?;
+        let (ids, total) = self.frames(cx, thread, frame, 1).await?;
+        let Some((frame_id, _)) = ids.first().cloned() else {
+            return Err(format!(
+                "there is no frame {frame} (the call stack of thread {thread} has {})",
+                total.map_or("fewer".to_owned(), |t| t.to_string())
+            ));
+        };
+        let scopes: ScopesResponse = serde_json::from_value(
+            self.one(cx, "scopes", json!({ "frameId": frame_id }))
+                .await?,
+        )
+        .map_err(|e| format!("scopes: {e}"))?;
+        let scope = scopes
+            .scopes
+            .iter()
+            .find(|s| !s.expensive)
+            .or(scopes.scopes.first())
+            .ok_or_else(|| format!("frame {frame} has no variables"))?
+            .variables_reference;
+        let (g, st) = (self.generation, self.stop);
+        let (name, value) = (name.to_owned(), value.to_owned());
+        self.this
+            .update(cx, |s, _| {
+                let m = &s.debug.model;
+                if m.generation != g || m.stop != st || m.mode != Mode::Break {
+                    return Err(
+                        "stale: the debuggee moved on before the change was sent".to_owned()
+                    );
+                }
+                let (tx, rx) = oneshot::channel();
+                s.debug
+                    .send_set_value(scope, true, Some(frame_id), &name, &value, Some(tx))
+                    .map_err(|e| e.to_string())?;
+                Ok(rx)
+            })
+            .map_err(|_| WINDOW_CLOSED.to_owned())?
+    }
+
     async fn stack(
         &self,
         cx: &mut AsyncWindowContext,
@@ -3956,6 +5313,7 @@ async fn follow_up(
         Followup::Settle {
             start,
             pause,
+            after,
             wait,
             budget,
         } => {
@@ -3963,21 +5321,35 @@ async fn follow_up(
             let settled = loop {
                 let (done, failed, waiter) = this
                     .update(cx, |s, _| {
-                        let failed = pause.and_then(|g| {
-                            s.debug
-                                .pause_error
-                                .as_ref()
-                                .filter(|(pg, _)| *pg == g)
-                                .map(|(_, m)| m.clone())
+                        let failed = pause
+                            .and_then(|g| {
+                                s.debug
+                                    .pause_error
+                                    .as_ref()
+                                    .filter(|(pg, _)| *pg == g)
+                                    .map(|(_, m)| format!("Break All failed: {m}"))
+                            })
+                            .or_else(|| {
+                                let (g, st) = after?;
+                                s.debug
+                                    .goto_error
+                                    .as_ref()
+                                    .filter(|(eg, es, _)| (*eg, *es) == (g, st))
+                                    .map(|(_, _, m)| m.clone())
+                            });
+                        // Set Next Statement: the break it answers is the one after the goto.
+                        let moved = after.is_none_or(|(g, st)| {
+                            let m = &s.debug.model;
+                            m.generation != g || m.mode == Mode::Design || m.stop > st
                         });
-                        let done = s.debug_settled(start);
+                        let done = moved && s.debug_settled(start);
                         // A waiter only while waiting: none is left behind once the command answers.
                         let waiter = (!done && failed.is_none()).then(|| s.debug_waiter());
                         (done, failed, waiter)
                     })
                     .map_err(|_| closed())?;
                 if let Some(m) = failed {
-                    return Err(CommandError::Failed(format!("Break All failed: {m}")));
+                    return Err(CommandError::Failed(m));
                 }
                 let left = deadline.saturating_duration_since(Instant::now());
                 let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
@@ -3991,6 +5363,69 @@ async fn follow_up(
                 summary.timed_out = Some(true);
             }
             Ok(DebugOutput::Summary(Box::new(summary)))
+        }
+        Followup::Trace {
+            until,
+            wait,
+            budget,
+        } => {
+            let deadline = Instant::now() + wait;
+            let stopped_by = loop {
+                let (ended, waiter) = this
+                    .update(cx, |s, _| {
+                        let ended = s.debug.trace_ended();
+                        (ended, ended.is_none().then(|| s.debug_waiter()))
+                    })
+                    .map_err(|_| closed())?;
+                if let Some(e) = ended {
+                    break e;
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break "timeout";
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            };
+            let _ = until;
+            let mut out = this
+                .update(cx, |s, cx| {
+                    let out = s.debug.finish_trace(stopped_by);
+                    s.refresh_glyphs(cx);
+                    s.refresh_debug(cx);
+                    out
+                })
+                .map_err(|_| closed())?;
+            if stopped_by == "stopped" {
+                out.summary = Some(Box::new(summarize(&this, cx, None, None, &budget).await?));
+            }
+            Ok(DebugOutput::Trace(Box::new(out)))
+        }
+        Followup::SetValue(rx) => {
+            let timer = real_timer(AGENT_WAIT);
+            match futures::future::select(rx, timer).await {
+                futures::future::Either::Left((Ok(Ok(v)), _)) => Ok(DebugOutput::SetVariable(v)),
+                futures::future::Either::Left((Ok(Err(e)), _)) => Err(CommandError::Failed(e)),
+                futures::future::Either::Left((Err(_), _)) => Err(CommandError::Failed(
+                    "the session ended before the change was answered".into(),
+                )),
+                futures::future::Either::Right(_) => Err(CommandError::Failed(
+                    "the debug adapter did not answer the change in time".into(),
+                )),
+            }
+        }
+        Followup::SetVariable {
+            thread,
+            frame,
+            name,
+            value,
+        } => {
+            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let rx = r
+                .set_value(cx, thread, frame, &name, &value)
+                .await
+                .map_err(CommandError::Failed)?;
+            Box::pin(follow_up(this, cx, out, Followup::SetValue(rx))).await
         }
         Followup::Ended { wait } => {
             let deadline = Instant::now() + wait;
@@ -4179,15 +5614,15 @@ fn exception_output(e: &ExceptionInfoResponse, thread: i64, stop: u64) -> Except
 
 /// What the session's adapter supports, for `capabilities` (brief 0025). `eludite-dbg-mono` pages variables by `start`
 /// and `count` without advertising it (brief 0022 report, section 9).
-fn capabilities_row(c: &Capabilities, adapter: &str) -> CapabilitiesRow {
+fn capabilities_row(c: &Capabilities, adapter: &str, shell_log_points: bool) -> CapabilitiesRow {
     let by = |adapter: bool| if adapter { "adapter" } else { "shell" }.to_owned();
     CapabilitiesRow {
         adapter: adapter.to_owned(),
         pause: true,
-        set_variable: c.supports_set_variable,
+        set_variable: c.supports_set_variable || c.supports_set_expression,
         exception_info: c.supports_exception_info_request,
         function_breakpoints: c.supports_function_breakpoints,
-        log_points: by(c.supports_log_points),
+        log_points: by(c.supports_log_points && !shell_log_points),
         hit_conditions: by(c.supports_hit_conditional_breakpoints),
         exception_filter_options: c.supports_exception_filter_options,
         set_next_statement: c.supports_goto_targets_request,
@@ -4273,6 +5708,81 @@ fn thread_name(m: &DebugModel, id: i64) -> String {
         .find(|t| t.id == id)
         .map(|t| t.name.clone())
         .unwrap_or_default()
+}
+
+/// The node (at any depth) whose members are variables reference `reference`.
+fn find_reference(nodes: &[VarNode], reference: i64) -> Option<&VarNode> {
+    nodes.iter().find_map(|n| {
+        if n.reference == reference {
+            Some(n)
+        } else {
+            find_reference(n.children.as_deref()?, reference)
+        }
+    })
+}
+
+fn find_reference_mut(nodes: &mut [VarNode], reference: i64) -> Option<&mut VarNode> {
+    for n in nodes.iter_mut() {
+        if n.reference == reference {
+            return Some(n);
+        }
+        if let Some(found) = n
+            .children
+            .as_deref_mut()
+            .and_then(|c| find_reference_mut(c, reference))
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+impl Debugger {
+    /// A value changed (brief 0026): the Locals and Watch windows' node shows it; the answer row.
+    fn value_changed(
+        &mut self,
+        reference: i64,
+        name: &str,
+        r: &SetVariableResponse,
+        request: &str,
+        stop: u64,
+    ) -> SetVariableOutput {
+        let m = &mut self.model;
+        let update = |n: &mut VarNode| {
+            n.value = r.value.clone();
+            if let Some(t) = r.type_name.clone().filter(|t| !t.is_empty()) {
+                n.type_name = Some(t);
+            }
+            n.reference = r.variables_reference;
+            n.indexed = r.indexed_variables;
+            n.named = r.named_variables;
+            n.children = None;
+            n.expanded = false;
+        };
+        if reference == m.locals_reference {
+            if let Some(n) = m.locals.iter_mut().find(|v| v.name == name) {
+                update(n);
+            }
+        } else {
+            for tree in [&mut m.locals, &mut m.watches] {
+                if let Some(n) = find_reference_mut(tree, reference)
+                    .and_then(|p| p.children.as_mut())
+                    .and_then(|c| c.iter_mut().find(|v| v.name == name))
+                {
+                    update(n);
+                }
+            }
+        }
+        SetVariableOutput {
+            name: name.to_owned(),
+            value: r.value.clone(),
+            type_name: r.type_name.clone().filter(|t| !t.is_empty()),
+            reference: r.variables_reference,
+            request: Some(request.to_owned()),
+            pending: false,
+            stop,
+        }
+    }
 }
 
 fn set_children(nodes: &mut [VarNode], path: &[usize], vars: Vec<VarNode>) {

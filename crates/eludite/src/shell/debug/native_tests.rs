@@ -354,6 +354,28 @@ fn a_cargo_package_is_the_startup_project_and_debugs_under_lldb(cx: &mut TestApp
     // lldb-dap's hit conditions are not Visual Studio's: the shell counts hits; log points are the adapter's.
     assert_eq!(s["capabilities"]["hit_conditions"], "shell");
     assert_eq!(s["capabilities"]["log_points"], "adapter");
+    // A user's function breakpoint (brief 0026) goes in the same list, before rust_panic: the request replaces them
+    // all, so neither may drop the other.
+    nt.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "function": "app::run"}),
+    )
+    .unwrap();
+    assert!(fake.wait_for("setFunctionBreakpoints", 2, super::super::tests::T));
+    assert_eq!(
+        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"],
+        json!([{"name": "app::run"}, {"name": "rust_panic"}])
+    );
+    nt.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "delete", "function": "app::run"}),
+    )
+    .unwrap();
+    assert!(fake.wait_for("setFunctionBreakpoints", 3, super::super::tests::T));
+    assert_eq!(
+        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"],
+        json!([{"name": "rust_panic"}])
+    );
 
     // The row in the Exception Settings window turns it off: the function breakpoint goes.
     nt.w.commands
@@ -362,7 +384,7 @@ fn a_cargo_package_is_the_startup_project_and_debugs_under_lldb(cx: &mut TestApp
     nt.w.vcx.run_until_parked();
     nt.w.click("debug-exc-rust-panic");
     assert_eq!(nt.state()["exceptions"]["break_on_rust_panic"], false);
-    assert!(fake.wait_for("setFunctionBreakpoints", 2, super::super::tests::T));
+    assert!(fake.wait_for("setFunctionBreakpoints", 4, super::super::tests::T));
     assert_eq!(
         fake.last("setFunctionBreakpoints").unwrap()["breakpoints"],
         json!([])

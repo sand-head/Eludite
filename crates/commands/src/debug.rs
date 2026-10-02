@@ -9,6 +9,13 @@
 //! are cut at `max_value_chars` ([`cut_value`]), and the commands that run the debuggee answer with the compact stop
 //! summary ([`StopSummary`], `debug-stop-summary.output.json`) within the budget parameters ([`Budget`]).
 //!
+//! Brief 0026 (proposal 0001 brief B) adds run control: tracepoints (`toggle_breakpoint`'s `log_message`), function
+//! breakpoints (`function`), exception settings per type (`exception_settings`' `types`), and the execute-class
+//! commands `run_until` (one-shot breakpoints, resume, the next stop's summary), `trace` (install tracepoints, run,
+//! collect their lines: [`TraceOutput`]), `set_variable` ([`SetVariableOutput`]) and `set_next_statement`. A
+//! `log_message` with `{expression}` runs debuggee code at each hit, so `toggle_breakpoint` is of the execute class (the
+//! class is per command; the policy's rules by input refine it).
+//!
 //! The keys, the Debug menu, the margin, the debugger windows and agents all run these, against one state machine
 //! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `toggle_breakpoint`, `state`, `select_frame`, `watch` and
 //! `exception_settings` answer with the debugger's state ([`DebugState`], `debug-state.output.json`), which is what
@@ -44,8 +51,12 @@ pub const OUTPUT: &str = "eludite.debug.output";
 pub const EXCEPTION_INFO: &str = "eludite.debug.exception_info";
 pub const PAUSE: &str = "eludite.debug.pause";
 pub const WAIT: &str = "eludite.debug.wait";
+pub const RUN_UNTIL: &str = "eludite.debug.run_until";
+pub const TRACE: &str = "eludite.debug.trace";
+pub const SET_VARIABLE: &str = "eludite.debug.set_variable";
+pub const SET_NEXT_STATEMENT: &str = "eludite.debug.set_next_statement";
 
-pub const ALL: [&str; 20] = [
+pub const ALL: [&str; 24] = [
     START,
     STOP,
     CONTINUE,
@@ -66,6 +77,10 @@ pub const ALL: [&str; 20] = [
     EXCEPTION_INFO,
     PAUSE,
     WAIT,
+    RUN_UNTIL,
+    TRACE,
+    SET_VARIABLE,
+    SET_NEXT_STATEMENT,
 ];
 
 /// The longest an agent's command may wait for the debuggee (`wait_ms`).
@@ -83,6 +98,17 @@ pub const DEFAULT_OUTPUT_LINES: usize = 20;
 pub const MAX_OUTPUT_LINES: usize = 1_000;
 /// Inner exceptions listed at most, in depth.
 pub const MAX_INNER_EXCEPTIONS: usize = 5;
+/// `run_until`'s and `trace`'s points, at most.
+pub const MAX_POINTS: usize = 50;
+/// How long `trace` collects by default.
+pub const DEFAULT_TRACE_WAIT_MS: u64 = 10_000;
+/// `trace`'s `max_hits`, default and most (also the most `count` of `until: hits`).
+pub const DEFAULT_MAX_HITS: usize = 1_000;
+pub const MAX_HITS: usize = 10_000;
+/// A trace line's text is cut at this many characters.
+pub const MAX_TRACE_TEXT: usize = 1_000;
+/// Exception types in the settings, at most.
+pub const MAX_EXCEPTION_TYPES: usize = 100;
 
 const STATE_OUTPUT: &str = include_str!("../../../protocol/schemas/debug-state.output.json");
 const SUMMARY_OUTPUT: &str =
@@ -190,14 +216,41 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             SUMMARY_OUTPUT,
             Read,
         ),
-        // Breakpoints, watches, frame selection and exception settings change what the debugger shows and where it
-        // stops, not files or processes.
+        // Run control (brief 0026): each runs the debuggee or changes its state.
+        RUN_UNTIL => (
+            "Debug: Run Until",
+            input!("debug-run-until.input.json"),
+            SUMMARY_OUTPUT,
+            Execute,
+        ),
+        TRACE => (
+            "Debug: Trace",
+            input!("debug-trace.input.json"),
+            input!("debug-trace.output.json"),
+            Execute,
+        ),
+        SET_VARIABLE => (
+            "Debug: Set Value",
+            input!("debug-set-variable.input.json"),
+            input!("debug-set-variable.output.json"),
+            Execute,
+        ),
+        SET_NEXT_STATEMENT => (
+            "Debug: Set Next Statement",
+            input!("debug-set-next-statement.input.json"),
+            SUMMARY_OUTPUT,
+            Execute,
+        ),
+        // A tracepoint's `{expression}` runs debuggee code at every hit (brief 0026): the class is per command, so
+        // toggle_breakpoint is execute; the policy's rules by input (`log_message`) refine it.
         TOGGLE_BREAKPOINT => (
             "Debug: Toggle Breakpoint",
             input!("debug-toggle-breakpoint.input.json"),
             STATE_OUTPUT,
-            Read,
+            Execute,
         ),
+        // Watches, frame selection and exception settings change what the debugger shows and where it stops, not
+        // files or processes.
         STATE => (
             "Debug: Debugger State",
             input!("debug-state.input.json"),
@@ -476,6 +529,73 @@ impl CargoOptions {
     }
 }
 
+/// A point of `run_until`: stop at `line` of `path` (when `condition` holds).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunPoint {
+    pub path: String,
+    pub line: u32,
+    #[serde(default)]
+    pub condition: Option<String>,
+}
+
+/// A point of `trace`: print `message` at `line` of `path` (when `condition` holds) and continue.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TracePoint {
+    pub path: String,
+    pub line: u32,
+    pub message: String,
+    #[serde(default)]
+    pub condition: Option<String>,
+}
+
+/// `trace`'s `run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceRun {
+    #[default]
+    Continue,
+    Start,
+}
+
+/// `trace`'s `until` (with `count` for `hits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TraceUntil {
+    #[default]
+    Terminated,
+    Stopped,
+    Hits(usize),
+}
+
+/// What `start` takes, for `trace` with `run: start`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StartParams {
+    pub project: Option<String>,
+    pub profile: Option<String>,
+    pub build: Option<bool>,
+}
+
+/// What `set_variable` changes: a variable of a frame, or a member of a value by its reference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetTarget {
+    Frame {
+        thread: Option<i64>,
+        frame: Option<usize>,
+    },
+    Reference(i64),
+}
+
+/// `exception_settings`' `types` entries (and `debug-state.output.json`'s rows).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExceptionTypeRow {
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub break_when_thrown: bool,
+    pub break_when_user_unhandled: bool,
+}
+
 /// A parsed, validated debug command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugRequest {
@@ -519,6 +639,11 @@ pub enum DebugRequest {
         condition: Option<String>,
         /// `Some(None)` removes the hit condition.
         hit_condition: Option<Option<HitCondition>>,
+        /// A tracepoint's message; `Some("")` turns it back into a breakpoint.
+        log_message: Option<String>,
+        /// A function breakpoint by name (no path or line).
+        function: Option<String>,
+        remove_after: Option<bool>,
     },
     Evaluate {
         expression: String,
@@ -540,6 +665,12 @@ pub enum DebugRequest {
         break_when_user_unhandled: Option<bool>,
         /// The Rust panics row (brief 0029).
         break_on_rust_panic: Option<bool>,
+        /// Types added or changed.
+        types: Vec<ExceptionTypeRow>,
+        /// A type removed.
+        remove: Option<String>,
+        /// Every type removed first.
+        clear: bool,
     },
     Snapshot {
         thread: Option<i64>,
@@ -583,6 +714,37 @@ pub enum DebugRequest {
         stop: Option<u64>,
         budget: Budget,
     },
+    RunUntil {
+        points: Vec<RunPoint>,
+        remove_after: bool,
+        stop: Option<u64>,
+        wait_ms: Option<u64>,
+        budget: Budget,
+    },
+    Trace {
+        points: Vec<TracePoint>,
+        run: TraceRun,
+        start: StartParams,
+        until: TraceUntil,
+        wait_ms: u64,
+        max_hits: usize,
+        stop: Option<u64>,
+        budget: Budget,
+    },
+    SetVariable {
+        target: SetTarget,
+        name: String,
+        value: String,
+        stop: Option<u64>,
+    },
+    SetNextStatement {
+        path: Option<String>,
+        line: Option<u32>,
+        thread: Option<i64>,
+        stop: Option<u64>,
+        wait_ms: Option<u64>,
+        budget: Budget,
+    },
 }
 
 impl DebugRequest {
@@ -606,6 +768,10 @@ impl DebugRequest {
             DebugRequest::ExceptionInfo { .. } => EXCEPTION_INFO,
             DebugRequest::Pause { .. } => PAUSE,
             DebugRequest::Wait { .. } => WAIT,
+            DebugRequest::RunUntil { .. } => RUN_UNTIL,
+            DebugRequest::Trace { .. } => TRACE,
+            DebugRequest::SetVariable { .. } => SET_VARIABLE,
+            DebugRequest::SetNextStatement { .. } => SET_NEXT_STATEMENT,
         }
     }
 
@@ -616,8 +782,12 @@ impl DebugRequest {
             | DebugRequest::Continue { wait_ms, .. }
             | DebugRequest::Step { wait_ms, .. }
             | DebugRequest::RunToCursor { wait_ms, .. }
-            | DebugRequest::Pause { wait_ms, .. } => *wait_ms,
-            DebugRequest::Wait { wait_ms, .. } => Some(*wait_ms),
+            | DebugRequest::Pause { wait_ms, .. }
+            | DebugRequest::RunUntil { wait_ms, .. }
+            | DebugRequest::SetNextStatement { wait_ms, .. } => *wait_ms,
+            DebugRequest::Wait { wait_ms, .. } | DebugRequest::Trace { wait_ms, .. } => {
+                Some(*wait_ms)
+            }
             _ => None,
         }
     }
@@ -631,7 +801,10 @@ impl DebugRequest {
             | DebugRequest::RunToCursor { budget, .. }
             | DebugRequest::Snapshot { budget, .. }
             | DebugRequest::Pause { budget, .. }
-            | DebugRequest::Wait { budget, .. } => Some(*budget),
+            | DebugRequest::Wait { budget, .. }
+            | DebugRequest::RunUntil { budget, .. }
+            | DebugRequest::Trace { budget, .. }
+            | DebugRequest::SetNextStatement { budget, .. } => Some(*budget),
             _ => None,
         }
     }
@@ -644,6 +817,9 @@ impl DebugRequest {
                 | DebugRequest::Continue { .. }
                 | DebugRequest::Step { .. }
                 | DebugRequest::RunToCursor { .. }
+                | DebugRequest::RunUntil { .. }
+                | DebugRequest::Trace { .. }
+                | DebugRequest::SetNextStatement { .. }
                 | DebugRequest::Stop
         )
     }
@@ -742,11 +918,28 @@ pub struct WatchRow {
     pub error: Option<String>,
 }
 
+/// A breakpoint row's `kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BreakpointKind {
+    #[default]
+    Line,
+    Tracepoint,
+    Function,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BreakpointRow {
-    pub path: String,
-    pub line: u32,
+    #[serde(default)]
+    pub kind: BreakpointKind,
+    /// Absent for a function breakpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
     pub enabled: bool,
     pub verified: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -756,9 +949,33 @@ pub struct BreakpointRow {
     pub hits: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_message: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub remove_after: bool,
+    /// `run_until`'s or `trace`'s, for the length of that call.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub temporary: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+impl BreakpointRow {
+    /// How the Breakpoints window names it: `Program.cs, line 6`, or the function.
+    pub fn label(&self) -> String {
+        match (&self.function, &self.path, self.line) {
+            (Some(f), _, _) => f.clone(),
+            (None, Some(p), Some(l)) => format!(
+                "{}, line {l}",
+                std::path::Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.clone())
+            ),
+            _ => String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExceptionSettingsRow {
     pub break_when_thrown: bool,
@@ -766,6 +983,9 @@ pub struct ExceptionSettingsRow {
     /// Rust panics (brief 0029): a native session breaks at `rust_panic`. Absent from files saved before: on.
     #[serde(default = "rust_panics_default")]
     pub break_on_rust_panic: bool,
+    /// Exception types under the category (brief 0026).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<ExceptionTypeRow>,
 }
 
 fn rust_panics_default() -> bool {
@@ -780,6 +1000,7 @@ impl Default for ExceptionSettingsRow {
             break_when_thrown: false,
             break_when_user_unhandled: true,
             break_on_rust_panic: true,
+            types: Vec::new(),
         }
     }
 }
@@ -1149,7 +1370,70 @@ pub struct EvaluateOutput {
     pub stop: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One line of `debug-trace.output.json`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TraceLine {
+    pub seq: u64,
+    pub path: String,
+    pub line: u32,
+    pub hit: u32,
+    pub time_ms: f64,
+    pub text: String,
+}
+
+/// One point of `debug-trace.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TracePointRow {
+    pub path: String,
+    pub line: u32,
+    pub hits: u32,
+    pub verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// `debug-trace.output.json`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TraceOutput {
+    pub lines: Vec<TraceLine>,
+    pub hits: u64,
+    pub truncated: bool,
+    /// `terminated`, `stopped`, `hits` or `timeout`.
+    pub stopped_by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Box<StopSummary>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    pub points: Vec<TracePointRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overhead_ms_per_hit: Option<f64>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub emulated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<u64>,
+}
+
+/// `debug-set-variable.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetVariableOutput {
+    pub name: String,
+    pub value: String,
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+    pub reference: i64,
+    /// `setVariable` or `setExpression`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending: bool,
+    pub stop: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DebugOutput {
     State(Box<DebugState>),
     Evaluate(EvaluateOutput),
@@ -1158,6 +1442,8 @@ pub enum DebugOutput {
     Variables(VariablesOutput),
     Output(OutputPage),
     ExceptionInfo(ExceptionInfoOutput),
+    Trace(Box<TraceOutput>),
+    SetVariable(SetVariableOutput),
 }
 
 impl DebugOutput {
@@ -1170,6 +1456,8 @@ impl DebugOutput {
             DebugOutput::Variables(v) => serde_json::to_value(v),
             DebugOutput::Output(o) => serde_json::to_value(o),
             DebugOutput::ExceptionInfo(e) => serde_json::to_value(e),
+            DebugOutput::Trace(t) => serde_json::to_value(t),
+            DebugOutput::SetVariable(v) => serde_json::to_value(v),
         }
         .expect("debug outputs serialize")
     }
@@ -1227,6 +1515,9 @@ struct BreakpointIn {
     enabled: Option<bool>,
     condition: Option<String>,
     hit_condition: Option<String>,
+    log_message: Option<String>,
+    function: Option<String>,
+    remove_after: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1262,6 +1553,80 @@ struct ExceptionsIn {
     break_when_thrown: Option<bool>,
     break_when_user_unhandled: Option<bool>,
     break_on_rust_panic: Option<bool>,
+    #[serde(default)]
+    types: Vec<ExceptionTypeIn>,
+    remove: Option<String>,
+    #[serde(default)]
+    clear: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExceptionTypeIn {
+    #[serde(rename = "type")]
+    type_name: String,
+    break_when_thrown: Option<bool>,
+    break_when_user_unhandled: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RunUntilIn {
+    #[serde(default)]
+    points: Vec<RunPoint>,
+    remove_after: Option<bool>,
+    wait_ms: Option<u64>,
+    stop: Option<u64>,
+}
+
+#[derive(Deserialize, Default, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum UntilIn {
+    #[default]
+    Terminated,
+    Stopped,
+    Hits,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct TraceIn {
+    #[serde(default)]
+    points: Vec<TracePoint>,
+    #[serde(default)]
+    run: TraceRun,
+    project: Option<String>,
+    profile: Option<String>,
+    build: Option<bool>,
+    #[serde(default)]
+    until: UntilIn,
+    count: Option<usize>,
+    wait_ms: Option<u64>,
+    max_hits: Option<usize>,
+    stop: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct SetVariableIn {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    value: String,
+    reference: Option<i64>,
+    thread: Option<i64>,
+    frame: Option<usize>,
+    stop: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct NextStatementIn {
+    path: Option<String>,
+    line: Option<u32>,
+    thread: Option<i64>,
+    stop: Option<u64>,
+    wait_ms: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1449,7 +1814,7 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
     // The commands that answer with the stop summary take its budget parameters.
     let budget = match id {
         START | CONTINUE | STEP_OVER | STEP_INTO | STEP_OUT | RUN_TO_CURSOR | SNAPSHOT | PAUSE
-        | WAIT => take_budget(&mut value)?,
+        | WAIT | RUN_UNTIL | TRACE | SET_NEXT_STATEMENT => take_budget(&mut value)?,
         _ => Budget::default(),
     };
     Ok(match id {
@@ -1510,12 +1875,41 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
         }
         TOGGLE_BREAKPOINT => {
             let i: BreakpointIn = input(value)?;
-            let editing = i.enabled.is_some() || i.condition.is_some() || i.hit_condition.is_some();
+            let editing = i.enabled.is_some()
+                || i.condition.is_some()
+                || i.hit_condition.is_some()
+                || i.log_message.is_some()
+                || i.remove_after.is_some();
             if editing && i.action != BreakpointAction::Set {
                 return Err(invalid(
-                    "`enabled`, `condition` and `hit_condition` go with `action: \"set\"`",
+                    "`enabled`, `condition`, `hit_condition`, `log_message` and `remove_after` go with `action: \"set\"`",
                 ));
             }
+            let function = match i.function {
+                Some(f) if f.trim().is_empty() => {
+                    return Err(invalid("`function` must not be empty"));
+                }
+                Some(f) => {
+                    if i.path.is_some() || i.line.is_some() {
+                        return Err(invalid(
+                            "a function breakpoint has no `path` or `line`: give `function` alone",
+                        ));
+                    }
+                    if !matches!(i.action, BreakpointAction::Set | BreakpointAction::Delete) {
+                        return Err(invalid(
+                            "`function` goes with `action: \"set\"` or `\"delete\"`",
+                        ));
+                    }
+                    if i.log_message.is_some() {
+                        return Err(invalid(
+                            "`log_message` is for line breakpoints: a function breakpoint has no message (DAP \
+                             function breakpoints carry none)",
+                        ));
+                    }
+                    Some(f.trim().to_owned())
+                }
+                None => None,
+            };
             let hit_condition = match i.hit_condition {
                 None => None,
                 Some(s) if s.trim().is_empty() => Some(None),
@@ -1532,6 +1926,9 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
                 enabled: i.enabled,
                 condition: i.condition,
                 hit_condition,
+                log_message: i.log_message,
+                function,
+                remove_after: i.remove_after,
             }
         }
         EVALUATE => {
@@ -1574,10 +1971,35 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
         }
         EXCEPTION_SETTINGS => {
             let i: ExceptionsIn = input(value)?;
+            if i.types.len() > MAX_EXCEPTION_TYPES {
+                return Err(invalid(format!(
+                    "`types` lists at most {MAX_EXCEPTION_TYPES} types"
+                )));
+            }
+            let check_type = |t: &str| -> Result<String, CommandError> {
+                let t = t.trim();
+                if t.is_empty() || t.contains(|c: char| c == ',' || c.is_whitespace()) {
+                    return Err(invalid(format!(
+                        "`{t}` is not an exception type name (`System.InvalidOperationException`)"
+                    )));
+                }
+                Ok(t.to_owned())
+            };
+            let mut types = Vec::new();
+            for t in i.types {
+                types.push(ExceptionTypeRow {
+                    type_name: check_type(&t.type_name)?,
+                    break_when_thrown: t.break_when_thrown.unwrap_or(true),
+                    break_when_user_unhandled: t.break_when_user_unhandled.unwrap_or(true),
+                });
+            }
             DebugRequest::ExceptionSettings {
                 break_when_thrown: i.break_when_thrown,
                 break_when_user_unhandled: i.break_when_user_unhandled,
                 break_on_rust_panic: i.break_on_rust_panic,
+                types,
+                remove: i.remove.as_deref().map(check_type).transpose()?,
+                clear: i.clear,
             }
         }
         SNAPSHOT => {
@@ -1684,8 +2106,126 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
                 budget,
             }
         }
+        RUN_UNTIL => {
+            let i: RunUntilIn = input(value)?;
+            check_points(i.points.len())?;
+            for p in &i.points {
+                check_point(&p.path, p.line)?;
+            }
+            DebugRequest::RunUntil {
+                points: i.points,
+                remove_after: i.remove_after.unwrap_or(true),
+                stop: check_stop(i.stop)?,
+                wait_ms: check_wait(i.wait_ms)?,
+                budget,
+            }
+        }
+        TRACE => {
+            let i: TraceIn = input(value)?;
+            check_points(i.points.len())?;
+            for p in &i.points {
+                check_point(&p.path, p.line)?;
+                if p.message.trim().is_empty() {
+                    return Err(invalid("a point's `message` must not be empty"));
+                }
+            }
+            let starts = i.project.is_some() || i.profile.is_some() || i.build.is_some();
+            if starts && i.run != TraceRun::Start {
+                return Err(invalid(
+                    "`project`, `profile` and `build` go with `run: \"start\"`",
+                ));
+            }
+            if i.run == TraceRun::Start && i.stop.is_some() {
+                return Err(invalid(
+                    "`stop` goes with `run: \"continue\"`: `run: \"start\"` starts a session",
+                ));
+            }
+            let until = match (i.until, i.count) {
+                (UntilIn::Hits, Some(n)) if (1..=MAX_HITS).contains(&n) => TraceUntil::Hits(n),
+                (UntilIn::Hits, Some(_)) => {
+                    return Err(invalid(format!("`count` is 1 to {MAX_HITS}")));
+                }
+                (UntilIn::Hits, None) => {
+                    return Err(invalid("`until: \"hits\"` needs `count`"));
+                }
+                (_, Some(_)) => return Err(invalid("`count` goes with `until: \"hits\"`")),
+                (UntilIn::Terminated, None) => TraceUntil::Terminated,
+                (UntilIn::Stopped, None) => TraceUntil::Stopped,
+            };
+            DebugRequest::Trace {
+                points: i.points,
+                run: i.run,
+                start: StartParams {
+                    project: non_empty("project", i.project)?,
+                    profile: non_empty("profile", i.profile)?,
+                    build: i.build,
+                },
+                until,
+                wait_ms: check_wait(i.wait_ms)?.unwrap_or(DEFAULT_TRACE_WAIT_MS),
+                max_hits: bounded("max_hits", i.max_hits, DEFAULT_MAX_HITS, 1, MAX_HITS)?,
+                stop: check_stop(i.stop)?,
+                budget,
+            }
+        }
+        SET_VARIABLE => {
+            let i: SetVariableIn = input(value)?;
+            if i.name.trim().is_empty() {
+                return Err(invalid("`name` is required"));
+            }
+            if i.value.trim().is_empty() {
+                return Err(invalid("`value` is required (a C# expression)"));
+            }
+            let target = match i.reference {
+                Some(_) if i.thread.is_some() || i.frame.is_some() => {
+                    return Err(invalid(
+                        "give `reference` or `thread` and `frame`, not both",
+                    ));
+                }
+                Some(r) if r < 1 => return Err(invalid("`reference` is at least 1")),
+                Some(r) => SetTarget::Reference(r),
+                None => SetTarget::Frame {
+                    thread: i.thread,
+                    frame: i.frame,
+                },
+            };
+            DebugRequest::SetVariable {
+                target,
+                name: i.name.trim().to_owned(),
+                value: i.value,
+                stop: check_stop(i.stop)?,
+            }
+        }
+        SET_NEXT_STATEMENT => {
+            let i: NextStatementIn = input(value)?;
+            DebugRequest::SetNextStatement {
+                path: non_empty("path", i.path)?,
+                line: check_line(i.line)?,
+                thread: i.thread,
+                stop: check_stop(i.stop)?,
+                wait_ms: check_wait(i.wait_ms)?,
+                budget,
+            }
+        }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
+}
+
+fn check_points(n: usize) -> Result<(), CommandError> {
+    if (1..=MAX_POINTS).contains(&n) {
+        Ok(())
+    } else {
+        Err(invalid(format!("`points` lists 1 to {MAX_POINTS} points")))
+    }
+}
+
+fn check_point(path: &str, line: u32) -> Result<(), CommandError> {
+    if path.trim().is_empty() {
+        return Err(invalid("a point's `path` must not be empty"));
+    }
+    if line == 0 {
+        return Err(invalid("a point's `line` is at least 1"));
+    }
+    Ok(())
 }
 
 /// The public description of debug command `id` (one of [`ALL`]). All are agent-visible: agent-driven debugging
@@ -1908,7 +2448,10 @@ mod tests {
                 action: BreakpointAction::Toggle,
                 enabled: None,
                 condition: None,
-                hit_condition: None
+                hit_condition: None,
+                log_message: None,
+                function: None,
+                remove_after: None
             }
         );
         assert_eq!(
@@ -1923,7 +2466,10 @@ mod tests {
                 action: BreakpointAction::Set,
                 enabled: Some(false),
                 condition: Some("x > 1".into()),
-                hit_condition: Some(Some(HitCondition::AtLeast(3)))
+                hit_condition: Some(Some(HitCondition::AtLeast(3))),
+                log_message: None,
+                function: None,
+                remove_after: None
             }
         );
         assert!(matches!(
@@ -1993,7 +2539,10 @@ mod tests {
             DebugRequest::ExceptionSettings {
                 break_when_thrown: Some(true),
                 break_when_user_unhandled: None,
-                break_on_rust_panic: None
+                break_on_rust_panic: None,
+                types: Vec::new(),
+                remove: None,
+                clear: false
             }
         );
         assert_eq!(
@@ -2001,7 +2550,10 @@ mod tests {
             DebugRequest::ExceptionSettings {
                 break_when_thrown: None,
                 break_when_user_unhandled: None,
-                break_on_rust_panic: Some(false)
+                break_on_rust_panic: Some(false),
+                types: Vec::new(),
+                remove: None,
+                clear: false
             }
         );
         // Settings saved before brief 0029 have no Rust panics row: it is on.
@@ -2019,7 +2571,8 @@ mod tests {
         assert_eq!(spec(STATE).permission, PermissionClass::Read);
         assert_eq!(spec(STEP_OVER).permission, PermissionClass::Execute);
         assert_eq!(spec(EVALUATE).permission, PermissionClass::Execute);
-        assert_eq!(spec(TOGGLE_BREAKPOINT).permission, PermissionClass::Read);
+        // A tracepoint's `{expression}` runs code (brief 0026): the command is execute.
+        assert_eq!(spec(TOGGLE_BREAKPOINT).permission, PermissionClass::Execute);
     }
 
     #[test]
@@ -2101,14 +2654,14 @@ mod tests {
                 error: None,
             }],
             breakpoints: vec![BreakpointRow {
-                path: "/s/Program.cs".into(),
-                line: 5,
+                path: Some("/s/Program.cs".into()),
+                line: Some(5),
                 enabled: true,
                 verified: true,
                 condition: None,
                 hit_condition: Some("2".into()),
                 hits: 2,
-                message: None,
+                ..Default::default()
             }],
             exceptions: ExceptionSettingsRow::default(),
             console: ConsoleRow {
@@ -2694,5 +3247,398 @@ mod tests {
         conforms(STATE_OUTPUT, &state);
         assert_eq!(state["capabilities"]["adapter"], "fake");
         assert_eq!(state["console"]["next"], 1);
+    }
+
+    #[test]
+    fn the_run_control_commands_parse_and_validate() {
+        // Tracepoints, function breakpoints and Delete when hit.
+        assert!(matches!(
+            parse(
+                TOGGLE_BREAKPOINT,
+                json!({"action": "set", "path": "A.cs", "line": 3, "log_message": "x = {x}", "remove_after": true})
+            )
+            .unwrap(),
+            DebugRequest::Breakpoint { log_message: Some(ref m), remove_after: Some(true), function: None, .. }
+                if m == "x = {x}"
+        ));
+        // An empty message turns it back into a breakpoint (parsed as given).
+        assert!(matches!(
+            parse(TOGGLE_BREAKPOINT, json!({"action": "set", "log_message": ""})).unwrap(),
+            DebugRequest::Breakpoint { log_message: Some(ref m), .. } if m.is_empty()
+        ));
+        assert!(parse(TOGGLE_BREAKPOINT, json!({"log_message": "x"})).is_err());
+        assert!(parse(TOGGLE_BREAKPOINT, json!({"remove_after": true})).is_err());
+        assert_eq!(
+            parse(
+                TOGGLE_BREAKPOINT,
+                json!({"action": "set", "function": " App.Calc.Add ", "condition": "a == 1", "hit_condition": "2"})
+            )
+            .unwrap(),
+            DebugRequest::Breakpoint {
+                path: None,
+                line: None,
+                action: BreakpointAction::Set,
+                enabled: None,
+                condition: Some("a == 1".into()),
+                hit_condition: Some(Some(HitCondition::Equal(2))),
+                log_message: None,
+                function: Some("App.Calc.Add".into()),
+                remove_after: None,
+            }
+        );
+        assert!(
+            parse(
+                TOGGLE_BREAKPOINT,
+                json!({"action": "delete", "function": "App.Calc.Add"})
+            )
+            .is_ok()
+        );
+        for bad in [
+            json!({"action": "set", "function": "App.Calc.Add", "log_message": "x"}),
+            json!({"action": "set", "function": "App.Calc.Add", "path": "A.cs"}),
+            json!({"action": "set", "function": "App.Calc.Add", "line": 3}),
+            json!({"function": "App.Calc.Add"}),
+            json!({"action": "delete_all", "function": "App.Calc.Add"}),
+            json!({"action": "set", "function": " "}),
+        ] {
+            let e = parse(TOGGLE_BREAKPOINT, bad.clone())
+                .unwrap_err()
+                .to_string();
+            assert!(!e.is_empty(), "{bad}");
+        }
+        let e = parse(
+            TOGGLE_BREAKPOINT,
+            json!({"action": "set", "function": "F", "log_message": "x"}),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("log_message"), "{e}");
+
+        // Exception types.
+        assert_eq!(
+            parse(
+                EXCEPTION_SETTINGS,
+                json!({"types": [{"type": "System.InvalidOperationException"},
+                                 {"type": "System.FormatException", "break_when_thrown": false}],
+                       "remove": "System.IO.IOException", "clear": true})
+            )
+            .unwrap(),
+            DebugRequest::ExceptionSettings {
+                break_when_thrown: None,
+                break_when_user_unhandled: None,
+                break_on_rust_panic: None,
+                types: vec![
+                    ExceptionTypeRow {
+                        type_name: "System.InvalidOperationException".into(),
+                        break_when_thrown: true,
+                        break_when_user_unhandled: true,
+                    },
+                    ExceptionTypeRow {
+                        type_name: "System.FormatException".into(),
+                        break_when_thrown: false,
+                        break_when_user_unhandled: true,
+                    },
+                ],
+                remove: Some("System.IO.IOException".into()),
+                clear: true,
+            }
+        );
+        for bad in [
+            json!({"types": [{"type": ""}]}),
+            json!({"types": [{"type": "A, B"}]}),
+            json!({"types": [{"type": "A B"}]}),
+            json!({"types": [{"name": "A"}]}),
+            json!({"types": [{"type": "A", "break": true}]}),
+            json!({"remove": " "}),
+            json!({"types": (0..101).map(|i| json!({"type": format!("T{i}")})).collect::<Vec<_>>()}),
+        ] {
+            assert!(parse(EXCEPTION_SETTINGS, bad.clone()).is_err(), "{bad}");
+        }
+
+        // run_until: 1 to 50 points, remove_after defaulting to true, the budget.
+        let r = parse(
+            RUN_UNTIL,
+            json!({"points": [{"path": "A.cs", "line": 4}, {"path": "B.cs", "line": 9, "condition": "i == 3"}],
+                   "wait_ms": 2000, "stop": 3, "depth": 2}),
+        )
+        .unwrap();
+        match r {
+            DebugRequest::RunUntil {
+                points,
+                remove_after,
+                stop,
+                wait_ms,
+                budget,
+            } => {
+                assert_eq!(points.len(), 2);
+                assert_eq!(points[1].condition.as_deref(), Some("i == 3"));
+                assert!(remove_after);
+                assert_eq!((stop, wait_ms, budget.depth), (Some(3), Some(2000), 2));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse(
+                RUN_UNTIL,
+                json!({"points": [{"path": "A.cs", "line": 4}], "remove_after": false})
+            )
+            .unwrap(),
+            DebugRequest::RunUntil {
+                remove_after: false,
+                ..
+            }
+        ));
+        let many: Vec<Value> = (1..=51)
+            .map(|l| json!({"path": "A.cs", "line": l}))
+            .collect();
+        for bad in [
+            json!({}),
+            json!({"points": []}),
+            json!({"points": many}),
+            json!({"points": [{"path": "A.cs", "line": 0}]}),
+            json!({"points": [{"path": " ", "line": 1}]}),
+            json!({"points": [{"path": "A.cs"}]}),
+            json!({"points": [{"path": "A.cs", "line": 1, "message": "x"}]}),
+            json!({"points": [{"path": "A.cs", "line": 1}], "wait_ms": 30001}),
+        ] {
+            assert!(parse(RUN_UNTIL, bad.clone()).is_err(), "{bad}");
+        }
+
+        // trace: defaults, until with count, run start with the start parameters.
+        let point = json!({"path": "A.cs", "line": 4, "message": "i = {i}"});
+        assert_eq!(
+            parse(TRACE, json!({"points": [point.clone()]})).unwrap(),
+            DebugRequest::Trace {
+                points: vec![TracePoint {
+                    path: "A.cs".into(),
+                    line: 4,
+                    message: "i = {i}".into(),
+                    condition: None
+                }],
+                run: TraceRun::Continue,
+                start: StartParams::default(),
+                until: TraceUntil::Terminated,
+                wait_ms: DEFAULT_TRACE_WAIT_MS,
+                max_hits: DEFAULT_MAX_HITS,
+                stop: None,
+                budget: Budget::default(),
+            }
+        );
+        assert!(matches!(
+            parse(
+                TRACE,
+                json!({"points": [point.clone()], "until": "hits", "count": 5, "max_hits": 3})
+            )
+            .unwrap(),
+            DebugRequest::Trace {
+                until: TraceUntil::Hits(5),
+                max_hits: 3,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                TRACE,
+                json!({"points": [point.clone()], "until": "stopped"})
+            )
+            .unwrap(),
+            DebugRequest::Trace {
+                until: TraceUntil::Stopped,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(TRACE, json!({"points": [point.clone()], "run": "start", "project": "App", "build": false})).unwrap(),
+            DebugRequest::Trace { run: TraceRun::Start, start: StartParams { project: Some(ref p), build: Some(false), .. }, .. }
+                if p == "App"
+        ));
+        for bad in [
+            json!({"points": [point.clone()], "until": "hits"}),
+            json!({"points": [point.clone()], "until": "hits", "count": 0}),
+            json!({"points": [point.clone()], "until": "hits", "count": 10001}),
+            json!({"points": [point.clone()], "count": 5}),
+            json!({"points": [point.clone()], "until": "stopped", "count": 5}),
+            json!({"points": [point.clone()], "max_hits": 0}),
+            json!({"points": [point.clone()], "max_hits": 10001}),
+            json!({"points": [point.clone()], "project": "App"}),
+            json!({"points": [point.clone()], "run": "start", "stop": 2}),
+            json!({"points": [point.clone()], "until": "forever"}),
+            json!({"points": [{"path": "A.cs", "line": 4}]}),
+            json!({"points": [{"path": "A.cs", "line": 4, "message": " "}]}),
+            json!({"points": []}),
+            json!({"points": [point.clone()], "wait_ms": 40000}),
+        ] {
+            assert!(parse(TRACE, bad.clone()).is_err(), "{bad}");
+        }
+
+        // set_variable: by name in a frame, or a member by reference.
+        assert_eq!(
+            parse(
+                SET_VARIABLE,
+                json!({"name": "x", "value": "42", "frame": 1, "stop": 2})
+            )
+            .unwrap(),
+            DebugRequest::SetVariable {
+                target: SetTarget::Frame {
+                    thread: None,
+                    frame: Some(1)
+                },
+                name: "x".into(),
+                value: "42".into(),
+                stop: Some(2),
+            }
+        );
+        assert!(matches!(
+            parse(
+                SET_VARIABLE,
+                json!({"name": "Name", "value": "\"B\"", "reference": 7})
+            )
+            .unwrap(),
+            DebugRequest::SetVariable {
+                target: SetTarget::Reference(7),
+                ..
+            }
+        ));
+        for bad in [
+            json!({"value": "1"}),
+            json!({"name": "x"}),
+            json!({"name": "x", "value": " "}),
+            json!({"name": "x", "value": "1", "reference": 0}),
+            json!({"name": "x", "value": "1", "reference": 3, "frame": 0}),
+            json!({"name": "x", "value": "1", "expression": "y"}),
+        ] {
+            assert!(parse(SET_VARIABLE, bad.clone()).is_err(), "{bad}");
+        }
+
+        // set_next_statement.
+        assert!(matches!(
+            parse(
+                SET_NEXT_STATEMENT,
+                json!({"path": "A.cs", "line": 9, "thread": 1})
+            )
+            .unwrap(),
+            DebugRequest::SetNextStatement {
+                line: Some(9),
+                thread: Some(1),
+                ..
+            }
+        ));
+        assert!(parse(SET_NEXT_STATEMENT, json!({"line": 0})).is_err());
+
+        // Classes (proposal 0001 rule 7), waits and budgets.
+        for id in [
+            RUN_UNTIL,
+            TRACE,
+            SET_VARIABLE,
+            SET_NEXT_STATEMENT,
+            TOGGLE_BREAKPOINT,
+        ] {
+            assert_eq!(spec(id).permission, PermissionClass::Execute, "{id}");
+        }
+        let t = parse(TRACE, json!({"points": [point]})).unwrap();
+        assert_eq!(t.wait_ms(), Some(DEFAULT_TRACE_WAIT_MS));
+        assert!(t.resumes() && t.budget().is_some());
+        let v = parse(SET_VARIABLE, json!({"name": "x", "value": "1"})).unwrap();
+        assert!(!v.resumes() && v.budget().is_none());
+    }
+
+    #[test]
+    fn the_run_control_outputs_follow_their_schemas() {
+        let trace = DebugOutput::Trace(Box::new(TraceOutput {
+            lines: vec![TraceLine {
+                seq: 0,
+                path: "/s/Program.cs".into(),
+                line: 12,
+                hit: 1,
+                time_ms: 3.5,
+                text: "i = 0".into(),
+            }],
+            hits: 1,
+            truncated: false,
+            stopped_by: "stopped".into(),
+            summary: Some(Box::new(StopSummary {
+                mode: "break".into(),
+                generation: 1,
+                stop: 2,
+                ..Default::default()
+            })),
+            exit_code: Some(0),
+            points: vec![TracePointRow {
+                path: "/s/Program.cs".into(),
+                line: 12,
+                hits: 1,
+                verified: true,
+                message: None,
+            }],
+            overhead_ms_per_hit: Some(4.2),
+            emulated: true,
+            generation: Some(1),
+        }))
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-trace.output.json"),
+            &trace,
+        );
+        conforms(SUMMARY_OUTPUT, &trace["summary"]);
+        let set = DebugOutput::SetVariable(SetVariableOutput {
+            name: "x".into(),
+            value: "42".into(),
+            type_name: Some("int".into()),
+            reference: 0,
+            request: Some("setExpression".into()),
+            pending: false,
+            stop: 3,
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-set-variable.output.json"),
+            &set,
+        );
+        let state = DebugOutput::State(Box::new(DebugState {
+            mode: "design".into(),
+            breakpoints: vec![
+                BreakpointRow {
+                    kind: BreakpointKind::Tracepoint,
+                    path: Some("/s/Program.cs".into()),
+                    line: Some(12),
+                    enabled: true,
+                    log_message: Some("i = {i}".into()),
+                    remove_after: true,
+                    temporary: true,
+                    ..Default::default()
+                },
+                BreakpointRow {
+                    kind: BreakpointKind::Function,
+                    function: Some("App.Calc.Add".into()),
+                    enabled: true,
+                    verified: true,
+                    hits: 1,
+                    ..Default::default()
+                },
+            ],
+            exceptions: ExceptionSettingsRow {
+                types: vec![ExceptionTypeRow {
+                    type_name: "System.InvalidOperationException".into(),
+                    break_when_thrown: true,
+                    break_when_user_unhandled: false,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(STATE_OUTPUT, &state);
+        assert_eq!(state["breakpoints"][1]["kind"], "function");
+        assert!(state["breakpoints"][1].get("path").is_none());
+        let rows: Vec<BreakpointRow> =
+            serde_json::from_value(state["breakpoints"].clone()).unwrap();
+        assert_eq!(rows[0].label(), "Program.cs, line 12");
+        assert_eq!(rows[1].label(), "App.Calc.Add");
+        // A state row of brief 0025 (no kind) is a line breakpoint.
+        let old: BreakpointRow = serde_json::from_value(
+            json!({"path": "/s/A.cs", "line": 3, "enabled": true, "verified": false, "hits": 0}),
+        )
+        .unwrap();
+        assert_eq!(old.kind, BreakpointKind::Line);
     }
 }
