@@ -1,7 +1,8 @@
 //! The Agents tool window (View > Agents, Ctrl+\, Ctrl+C): the agent picker and its state, login instructions, the
 //! virtualized transcript, the permission prompt, the pending changes, and the prompt box (Enter sends, Shift+Enter
 //! starts a new line, Escape cancels the turn). It renders and emits [`AgentsWindowEvent`]s; the shell turns them
-//! into `eludite.agents.*` commands, and all agent and MCP I/O happens on other threads.
+//! into `eludite.agents.*` commands, and all agent and MCP I/O happens on other threads. A tool call's images show
+//! as thumbnails under its card (brief 0024); clicking one asks the shell to open the full image.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -15,9 +16,10 @@ use eludite_ui::transcript::{
 };
 use gpui::{
     AnyElement, App, Bounds, Context, Div, EventEmitter, FocusHandle, Focusable, FollowMode,
-    FontWeight, InteractiveElement, IntoElement, KeyDownEvent, ListAlignment, ListState,
-    ParentElement, Pixels, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, Window, anchored, canvas, deferred, div, list, px, rgb,
+    FontWeight, ImageSource, InteractiveElement, IntoElement, KeyDownEvent, ListAlignment,
+    ListState, ParentElement, Pixels, Render, Rgba, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window, anchored, canvas, deferred, div, img, list, px,
+    rgb,
 };
 use serde_json::Value;
 
@@ -44,6 +46,11 @@ pub enum AgentsWindowEvent {
     },
     /// Open the review view of a pending change.
     OpenChange(u64),
+    /// Open image `index` of tool call `tool_call` in full.
+    OpenImage {
+        tool_call: String,
+        index: usize,
+    },
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -137,8 +144,11 @@ pub struct Prompt {
     pub tool: String,
     pub class: String,
     pub detail: String,
-    /// Whether Always Allow can persist (a solution is open, so there is a policy file).
+    /// Whether Always Allow can persist (a solution is open, so there is a policy file, and the call's escalation
+    /// lets it remember something).
     pub can_persist: bool,
+    /// Why the call's class was raised above its command's (ADR-0009).
+    pub reason: Option<String>,
 }
 
 /// Where the window's and the review views' buttons were last painted, by element id (for the real-input driver,
@@ -201,6 +211,11 @@ pub fn review_button(change: Option<u64>, accept: bool) -> String {
 
 pub fn change_link(change: u64) -> String {
     format!("agents-change-{change}")
+}
+
+/// Thumbnail `n` of the tool call in row `ix`.
+pub fn thumb(ix: usize, n: usize) -> String {
+    format!("agents-thumb-{ix}-{n}")
 }
 
 pub struct AgentsWindow {
@@ -377,12 +392,51 @@ impl AgentsWindow {
                         cx.listener(move |_, _, _, cx| cx.emit(AgentsWindowEvent::OpenChange(id))),
                     )
                 });
+                // The images its result carried, as thumbnails; a click opens the full image.
+                let tool_call = tool.call.tool_call_id.clone();
+                let thumbs = tool.images.iter().enumerate().map(|(n, image)| {
+                    let sel = thumb(ix, n);
+                    let (w, h) = image.thumb_size();
+                    let tool_call = tool_call.clone();
+                    tracked(
+                        &painted,
+                        sel.clone(),
+                        div().id(SharedString::from(sel.clone())),
+                    )
+                    .debug_selector(move || sel)
+                    .flex_none()
+                    .border_1()
+                    .border_color(t.border)
+                    .cursor_pointer()
+                    .child(
+                        img(ImageSource::Render(image.render.clone()))
+                            .w(px(w as f32))
+                            .h(px(h as f32)),
+                    )
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(AgentsWindowEvent::OpenImage {
+                            tool_call: tool_call.clone(),
+                            index: n,
+                        })
+                    }))
+                });
+                let thumbs: Vec<_> = thumbs.collect();
+                let strip = (!thumbs.is_empty()).then(|| {
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap_1()
+                        .px_3()
+                        .py_1()
+                        .children(thumbs)
+                });
                 div()
                     .w_full()
                     .flex()
                     .flex_col()
                     .child(card)
                     .children(links)
+                    .children(strip)
                     .into_any_element()
             }
         }
@@ -565,8 +619,13 @@ impl AgentsWindow {
                         .gap_1()
                         .p_2()
                         .child(SharedString::from(format!(
-                            "The agent wants to run {} (class {}).",
-                            p.tool, p.class
+                            "The agent wants to run {} (class {}{}).",
+                            p.tool,
+                            p.class,
+                            p.reason
+                                .as_deref()
+                                .map(|r| format!(": {r}"))
+                                .unwrap_or_default()
                         )))
                         .child(
                             div()

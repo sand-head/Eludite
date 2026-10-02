@@ -4,6 +4,10 @@
 //! (one undo step) and rejected, an execute tool prompting and denied, cancel mid-turn, an agent exiting and a
 //! restart, the logged-out state, permissions persisted per solution, and the audit link from a transcript row to the
 //! change it made.
+//!
+//! Brief 0024's proof (proposal 0002 brief A): the scripted agent fills `act.html` in a real headless Chrome through
+//! the MCP endpoint (tab_open, screenshot, read_page, form_input, input, wait, page_text) and reads the result;
+//! skipped without a Chrome.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -29,20 +33,36 @@ const AGENTS: [(&str, &str); 6] = [
 ];
 
 fn fake_setup() -> AgentsSetup {
-    let registry = AGENTS
-        .iter()
-        .map(|(name, scenario)| RegisteredAgent {
+    fake_agents(
+        AGENTS
+            .iter()
+            .map(|(name, scenario)| {
+                (
+                    (*name).to_owned(),
+                    vec![
+                        "--scenario".into(),
+                        (*scenario).into(),
+                        "--chunks".into(),
+                        "400".into(),
+                        "--rate".into(),
+                        "2000".into(),
+                    ],
+                )
+            })
+            .collect(),
+    )
+}
+
+/// The fake agent under each name with its arguments (`--scenario ...`), run in-process over pipes, reaching the
+/// MCP endpoint directly.
+pub(in crate::shell) fn fake_agents(agents: Vec<(String, Vec<String>)>) -> AgentsSetup {
+    let registry = agents
+        .into_iter()
+        .map(|(name, args)| RegisteredAgent {
             descriptor: AgentDescriptor {
-                name: (*name).into(),
+                name,
                 command: "eludite-fake-acp-agent".into(),
-                args: vec![
-                    "--scenario".into(),
-                    (*scenario).into(),
-                    "--chunks".into(),
-                    "400".into(),
-                    "--rate".into(),
-                    "2000".into(),
-                ],
+                args,
                 env: Vec::new(),
                 env_remove: Vec::new(),
             },
@@ -768,4 +788,212 @@ fn the_endpoint_lists_the_bus_and_a_command_added_at_runtime(cx: &mut TestAppCon
         )
         .unwrap();
     assert!(list(addr, &token).iter().any(|n| n == "eludite-test-late"));
+}
+
+/// Serve `crates/browser/tests/fixtures/` on 127.0.0.1 (the proof's page); answers the base url.
+fn serve_fixtures() -> String {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../browser/tests/fixtures");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                if reader.read_line(&mut first).is_err() {
+                    return;
+                }
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 2 {
+                    line.clear();
+                }
+                let path = first.split_whitespace().nth(1).unwrap_or("/");
+                let path = path
+                    .split(['?', '#'])
+                    .next()
+                    .unwrap_or("/")
+                    .trim_start_matches('/');
+                let file = dir.join(path);
+                let (status, body) = match std::fs::read(&file) {
+                    Ok(b) if !path.is_empty() && !path.contains("..") => ("200 OK", b),
+                    _ => ("404 Not Found", b"not found".to_vec()),
+                };
+                let mime = if path.ends_with(".html") {
+                    "text/html; charset=utf-8"
+                } else {
+                    "text/plain"
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&body);
+                let _ = stream.flush();
+                let _ = stream.read(&mut [0u8; 1]);
+            });
+        }
+    });
+    format!("http://127.0.0.1:{port}")
+}
+
+fn running_as_root() -> bool {
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
+}
+
+#[gpui::test]
+fn a_scripted_agent_fills_the_form_in_a_real_chrome_through_mcp(cx: &mut TestAppContext) {
+    let chrome = match eludite_browser::ChromeSearch::from_env().find() {
+        Ok(p) => p,
+        Err(why) => {
+            println!("SKIPPED: no Chrome for the fake-agent proof ({why})");
+            return;
+        }
+    };
+    if !cfg!(target_os = "linux") && std::env::var_os("ELUDITE_CHROME").is_none_or(|v| v.is_empty())
+    {
+        println!(
+            "SKIPPED: the fake-agent proof runs on Linux, or where ELUDITE_CHROME names a Chrome"
+        );
+        return;
+    }
+    let url = format!("{}/act.html", serve_fixtures());
+    let setup = fake_agents(vec![(
+        "Fake browser".into(),
+        vec![
+            "--scenario".into(),
+            "browser-form".into(),
+            "--url".into(),
+            url.clone(),
+        ],
+    )]);
+    let mut w = setup_full(cx, |_| {}, Some(setup));
+    w.open_solution();
+    // The policy runs execute without asking; 127.0.0.1 is an allowed origin, so nothing escalates.
+    let file = eludite_commands::policy::AgentPolicy::path_for(w.dir.path());
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, r#"{"version": 1, "execute": "allow"}"#).unwrap();
+    // Headless (no display here), and without the sandbox when this runs as root, as crates/browser's tests do.
+    w.agent_invoke(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.headless", "value": true}),
+    )
+    .unwrap();
+    w.agent_invoke(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.chromePath", "value": chrome.to_string_lossy()}),
+    )
+    .unwrap();
+    w.wait("the browser settings applied", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.browser().settings().headless)
+    });
+    let no_sandbox = running_as_root() || eludite_browser::chrome::no_sandbox_from_env();
+    w.shell.read_with(&w.vcx, |s, _| {
+        s.browser().set_engine_factory(Arc::new(move |config, log| {
+            Box::new(
+                eludite_browser::ExternalChrome::new(
+                    config,
+                    eludite_browser::ChromeSearch::defaults(),
+                    log,
+                )
+                .no_sandbox(no_sandbox),
+            )
+        }))
+    });
+    w.commands
+        .invoke("eludite.view.show", json!({"id": ids::AGENTS}))
+        .unwrap();
+
+    w.start_agent("Fake browser");
+    let started = Instant::now();
+    w.shell
+        .update(&mut w.vcx, |s, cx| {
+            s.agents_prompt("Fill in the order form", cx)
+        })
+        .unwrap();
+    let stop = w.wait_turn();
+    let took = started.elapsed();
+    assert_eq!(stop, "end_turn");
+    let text = w.agent_text();
+    assert!(
+        text.contains(
+            "The form answered: Ordered: Ada Lovelace, large, free, extras none, gift false"
+        ),
+        "{text}\n{:#}",
+        w.transcript()
+    );
+    // One row per tool call, each served by Eludite's command and audited; the screenshot as a thumbnail.
+    let expected = [
+        (
+            "eludite-browser-tab_open",
+            "eludite.browser.tab_open (execute)",
+        ),
+        (
+            "eludite-browser-screenshot",
+            "eludite.browser.screenshot (read)",
+        ),
+        (
+            "eludite-browser-read_page",
+            "eludite.browser.read_page (read)",
+        ),
+        (
+            "eludite-browser-form_input",
+            "eludite.browser.form_input (execute)",
+        ),
+        ("eludite-browser-input", "eludite.browser.input (execute)"),
+        ("eludite-browser-wait", "eludite.browser.wait (read)"),
+        (
+            "eludite-browser-page_text",
+            "eludite.browser.page_text (read)",
+        ),
+    ];
+    let rows: Vec<Value> = w
+        .transcript()
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r.get("tool_call").cloned())
+        .collect();
+    assert_eq!(rows.len(), expected.len(), "{rows:#?}");
+    for (row, (tool, command)) in rows.iter().zip(expected) {
+        assert_eq!(row["tool"], format!("mcp__eludite__{tool}"), "{row}");
+        assert_eq!(row["status"], "completed", "{row}");
+        assert!(row["note"].as_str().unwrap().contains(command), "{row}");
+    }
+    w.wait("the screenshot's thumbnail", |w| {
+        w.transcript()
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| !r["tool_call"]["images"].is_null())
+    });
+    let shot = w.tool("toolu_fake_step_2");
+    let image = &shot["images"][0];
+    assert_eq!(image["mime"], "image/png", "{shot}");
+    assert_eq!(image["width"], 640);
+    assert!(image["thumb_width"].as_u64().unwrap() <= 160);
+    assert!(rows.iter().filter(|r| r.get("images").is_some()).count() == 1);
+    // Every call is in the audit log as the agent's.
+    let audited: Vec<String> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.caller.is_agent() && e.command.starts_with("eludite.browser."))
+        .map(|e| e.command)
+        .collect();
+    assert_eq!(audited.len(), 7, "{audited:?}");
+    println!(
+        "fake-agent proof: prompt to the turn's end, Chrome's launch included: {:.0} ms (budget 10 s)",
+        took.as_secs_f64() * 1e3
+    );
+    assert!(took < Duration::from_secs(10), "{took:?}");
+    let done = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
+    done.recv_timeout(Duration::from_secs(10)).unwrap();
 }

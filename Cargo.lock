@@ -1565,6 +1565,7 @@ dependencies = [
  "futures",
  "gpui",
  "gpui_platform",
+ "image",
  "serde",
  "serde_json",
  "tempfile",
