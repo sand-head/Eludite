@@ -19,7 +19,8 @@
 //! commands and the Output window's `eludite.output.*` (brief 0017). [`debug`] holds the debugger's `eludite.debug.*`
 //! commands (brief 0018), registered by the shell through a [`debug::DebugTarget`].
 //! [`workspace_tree`] holds `eludite.workspace.tree`, every project of the open workspace whatever its build system
-//! (brief 0019). [`settings`] holds the settings schema and `eludite.settings.*` with Tools > Options (brief 0020).
+//! (brief 0019). [`settings`] holds the settings schema and `eludite.settings.*` with Tools > Options, and [`project`] the
+//! Workspace context menu's Set as Startup Project and Open Containing Folder (brief 0020).
 
 pub mod agents;
 mod audit;
@@ -30,6 +31,7 @@ pub mod debug;
 pub mod diagnostics;
 mod id;
 pub mod policy;
+pub mod project;
 mod registry;
 pub mod settings;
 pub mod solution;

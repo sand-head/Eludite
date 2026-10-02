@@ -385,6 +385,7 @@ impl Render for ReferencesWindow {
                                                 disclosure: Some(*expanded),
                                                 selected,
                                                 muted: false,
+                                                bold: false,
                                             },
                                             cx.listener(move |this, _, _, cx| {
                                                 this.toggle(key.clone(), cx)
@@ -408,6 +409,7 @@ impl Render for ReferencesWindow {
                                                 disclosure: Some(*expanded),
                                                 selected,
                                                 muted: false,
+                                                bold: false,
                                             },
                                             cx.listener(move |this, _, _, cx| {
                                                 this.toggle(key.clone(), cx)
@@ -426,6 +428,7 @@ impl Render for ReferencesWindow {
                                                 disclosure: None,
                                                 selected,
                                                 muted: false,
+                                                bold: false,
                                             },
                                             |_, _, _| {},
                                         )

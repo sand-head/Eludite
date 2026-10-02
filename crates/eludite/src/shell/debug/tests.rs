@@ -1186,3 +1186,178 @@ fn f5_on_a_failing_build_stops_with_the_error_list_forward(cx: &mut TestAppConte
     d.wait_mode(Mode::Design);
     assert!(debug_status(&d).starts_with("Not started: the build failed"));
 }
+
+/// Brief 0020: the Workspace window's context menu on a project: Set as Startup Project (bold, persisted per
+/// solution, what F5 runs), Build, Rebuild, Clean and Open Containing Folder, each through its command.
+#[gpui::test]
+fn the_context_menu_sets_the_startup_project_and_builds_and_it_persists(cx: &mut TestAppContext) {
+    use super::super::explorer::{context_item_selector, row_selector};
+    use gpui::{MouseButton, MouseDownEvent, MouseUpEvent};
+    let mut d = setup(cx);
+    // A second executable project, Tool, after App.
+    let write = |rel: &str, text: &str| {
+        let p = d.w.path(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/Tool/Tool.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    );
+    write(
+        "src/Tool/Main.cs",
+        "class Tool { static void Main() { } }\n",
+    );
+    write("src/Tool/bin/Debug/net10.0/Tool.dll", "");
+    write("Other.slnx", "<Solution />");
+    let app = d.w.path("src/App/App.csproj");
+    let tool = d.w.path("src/Tool/Tool.csproj");
+    d.w.fake.set_tree(json!([
+        {"name": "App", "path": app, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/App/Program.cs"), "itemType": "compile"}]},
+        {"name": "Tool", "path": tool, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/Tool/Main.cs"), "itemType": "compile"}]}
+    ]));
+    d.w.open_solution();
+    let startup = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        })
+    };
+    // Without a choice, the first executable project is the startup project, drawn bold.
+    d.w.wait("the default startup project", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&app))
+    });
+    let right_click = |d: &mut Dbg, sel: &str| {
+        let position = d.w.bounds(sel).center();
+        d.w.vcx.simulate_event(MouseDownEvent {
+            position,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Right,
+            click_count: 1,
+            first_mouse: false,
+        });
+        d.w.vcx.simulate_event(MouseUpEvent {
+            position,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Right,
+            click_count: 1,
+        });
+        d.w.vcx.run_until_parked();
+    };
+    let tool_row = row_selector(&tool.to_string_lossy());
+    right_click(&mut d, &tool_row);
+    d.w.bounds("se-context-menu");
+    d.w.click(&context_item_selector("startup"));
+    assert!(
+        d.w.audit()
+            .contains(&"eludite.workspace.set_startup_project".to_owned())
+    );
+    assert_eq!(startup(&d), Some(normalize_path(&tool)));
+    // eludite.workspace.tree marks it for agents.
+    let tree =
+        d.w.commands
+            .invoke("eludite.workspace.tree", json!({}))
+            .unwrap();
+    let marked: Vec<&str> = tree["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["startup"] == true)
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(marked, ["Tool"]);
+    // Persisted per solution, beside the breakpoints.
+    let file =
+        eludite_docking::LayoutStore::new(d.store.clone()).solution_path(&d.w.path("App.slnx"));
+    d.w.wait("the persisted startup project", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Tool.csproj"))
+    });
+    // F5 runs it.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let project = d.state()["session"]["project"].as_str().unwrap().to_owned();
+    assert_eq!(normalize_path(Path::new(&project)), normalize_path(&tool));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // Build, Rebuild and Clean build that project.
+    for (item, target) in [
+        ("build", "build"),
+        ("rebuild", "rebuild"),
+        ("clean", "clean"),
+    ] {
+        right_click(&mut d, &tool_row);
+        d.w.click(&context_item_selector(item));
+        let start = wait_build(&mut d);
+        assert_eq!(start["target"], target);
+        assert_eq!(
+            normalize_path(Path::new(start["project"].as_str().unwrap())),
+            normalize_path(&tool)
+        );
+        d.w.fake.finish_build("succeeded", json!([]));
+        let fake = d.w.fake.clone();
+        d.w.wait("the build to end", |_| fake.running_build().is_none());
+        d.w.vcx.run_until_parked();
+    }
+    // Open Containing Folder hands the project's folder to the file manager.
+    right_click(&mut d, &tool_row);
+    d.w.click(&context_item_selector("folder"));
+    assert_eq!(
+        *d.w.opened.lock().unwrap(),
+        [d.w.path("src/Tool")],
+        "the project's folder"
+    );
+
+    // An agent sets it by name from another thread.
+    let commands = d.w.commands.clone();
+    let out = std::thread::spawn(move || {
+        commands
+            .invoke(
+                "eludite.workspace.set_startup_project",
+                json!({"project": "App"}),
+            )
+            .unwrap()
+    });
+    d.w.wait("the agent's call", |_| out.is_finished());
+    assert_eq!(out.join().unwrap()["project"], "App");
+    assert_eq!(startup(&d), Some(normalize_path(&app)));
+    assert!(
+        d.cmd(
+            "eludite.workspace.set_startup_project",
+            json!({"project": "Nope"})
+        )
+        .is_err()
+    );
+
+    // Back to Tool, then another solution and back: the choice was this solution's, and it is restored.
+    right_click(&mut d, &tool_row);
+    d.w.click(&context_item_selector("startup"));
+    d.w.wait("the persisted startup project", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Tool.csproj"))
+    });
+    d.w.commands
+        .invoke(
+            eludite_commands::workspace::SOLUTION_OPEN,
+            json!({"path": d.w.path("Other.slnx")}),
+        )
+        .unwrap();
+    d.w.wait("the other solution's default", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&app))
+    });
+    d.w.commands
+        .invoke(
+            eludite_commands::workspace::SOLUTION_OPEN,
+            json!({"path": d.w.path("App.slnx")}),
+        )
+        .unwrap();
+    d.w.wait("the restored startup project", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer().read(cx).startup().map(Path::to_path_buf)
+        }) == Some(normalize_path(&tool))
+    });
+}

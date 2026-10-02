@@ -491,18 +491,29 @@ fn resolve_launch(
     profile: Option<&str>,
     projects: &[PathBuf],
     solution_dir: Option<&Path>,
+    startup: Option<&Path>,
 ) -> Result<launch::LaunchConfig, String> {
-    let project = resolve_project(hint, projects, solution_dir)?;
+    let project = resolve_project(hint, projects, solution_dir, startup)?;
     launch::launch_config(&project, profile)
 }
 
-/// The project file to run: the hint (a path or a project name), else the startup project. Reads project files:
-/// off the UI thread.
-fn resolve_project(
+/// The project file to run: the hint (a path or a project name), else the startup project (Set as Startup
+/// Project's, else the solution's first executable project). Reads project files: off the UI thread.
+pub(super) fn resolve_project(
     hint: Option<&str>,
     projects: &[PathBuf],
     solution_dir: Option<&Path>,
+    startup: Option<&Path>,
 ) -> Result<PathBuf, String> {
+    if hint.is_none()
+        && let Some(s) = startup.filter(|s| {
+            projects
+                .iter()
+                .any(|p| normalize_path(p) == normalize_path(s))
+        })
+    {
+        return Ok(s.to_path_buf());
+    }
     Ok(match hint {
         Some(h) => {
             let p = Path::new(h);
@@ -541,6 +552,7 @@ struct LaunchJob {
     profile: Option<String>,
     projects: Vec<PathBuf>,
     solution_dir: Option<PathBuf>,
+    startup: Option<PathBuf>,
     breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
     filters: Vec<String>,
     setup: DebugSetup,
@@ -555,6 +567,7 @@ fn launch_thread(job: LaunchJob) {
         profile,
         projects,
         solution_dir,
+        startup,
         breakpoints,
         filters,
         setup,
@@ -571,6 +584,7 @@ fn launch_thread(job: LaunchJob) {
         profile.as_deref(),
         &projects,
         solution_dir.as_deref(),
+        startup.as_deref(),
     ) {
         Ok(c) => c,
         Err(e) => return fail(e),
@@ -962,8 +976,14 @@ impl Shell {
         // Which project to build is read from the project files: off the UI thread.
         let projects = self.solution_projects();
         let solution_dir = self.solution_dir();
+        let startup = self.debug.model.startup_project.clone().map(PathBuf::from);
         let resolve = cx.background_spawn(async move {
-            resolve_project(project.as_deref(), &projects, solution_dir.as_deref())
+            resolve_project(
+                project.as_deref(),
+                &projects,
+                solution_dir.as_deref(),
+                startup.as_deref(),
+            )
         });
         cx.spawn_in(window, async move |this, cx| {
             let resolved = resolve.await;
@@ -1166,6 +1186,7 @@ impl Shell {
             profile,
             projects,
             solution_dir,
+            startup: d.model.startup_project.clone().map(PathBuf::from),
             breakpoints,
             filters: exception_filters(&d.model.exceptions),
             setup: d.setup.clone(),
@@ -1741,6 +1762,8 @@ impl Shell {
             return;
         }
         self.debug.solution = Some(solution.to_path_buf());
+        // Another solution's startup project is not this one's (brief 0020).
+        self.debug.model.startup_project = None;
         let Some(file) = self.debug.store_path(solution) else {
             return;
         };
@@ -1759,7 +1782,7 @@ impl Shell {
     }
 
     /// Save what persists, off the UI thread.
-    fn debug_persist(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn debug_persist(&mut self, cx: &mut Context<Self>) {
         let Some(file) = self
             .debug
             .solution
@@ -1939,6 +1962,7 @@ impl Shell {
                         self.debug.model.restore(&p);
                     }
                     self.refresh_glyphs(cx);
+                    self.refresh_startup(cx);
                 }
             }
             DebugMsg::Launched {

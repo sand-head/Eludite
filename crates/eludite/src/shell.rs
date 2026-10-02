@@ -39,6 +39,7 @@ pub mod session;
 pub mod settings;
 #[cfg(test)]
 mod settings_tests;
+pub mod startup;
 pub mod target;
 #[cfg(test)]
 mod tests;
@@ -132,6 +133,10 @@ pub struct Services {
     pub settings_changed: UnboundedReceiver<Instant>,
     /// `eludite.tools.options` from other threads.
     pub options_jobs: UnboundedReceiver<self::settings::OptionsJob>,
+    /// Set as Startup Project and Open Containing Folder from other threads (brief 0020).
+    pub project_jobs: UnboundedReceiver<startup::ProjectJob>,
+    /// Shows a folder in the system's file manager (tests record instead).
+    pub folder_opener: startup::FolderOpener,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -216,6 +221,14 @@ pub fn register_workspace(
         }),
     );
     let debug_jobs = debug::register(commands);
+    let (project_tx, project_jobs) = unbounded();
+    eludite_commands::project::register(
+        commands,
+        Arc::new(startup::ProjectBus {
+            ui_thread: std::thread::current().id(),
+            jobs: project_tx,
+        }),
+    );
     Services {
         session,
         events,
@@ -233,6 +246,8 @@ pub fn register_workspace(
         settings,
         settings_changed,
         options_jobs,
+        project_jobs,
+        folder_opener: startup::system_folder_opener(),
     }
 }
 
@@ -330,6 +345,9 @@ pub struct Shell {
     settings_applied: Vec<std::time::Duration>,
     /// Tools > Options, while open.
     options: Option<Entity<options::OptionsDialog>>,
+    /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
+    folder_opener: startup::FolderOpener,
+    default_startup: Option<PathBuf>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -453,6 +471,8 @@ impl Shell {
             settings,
             mut settings_changed,
             mut options_jobs,
+            mut project_jobs,
+            folder_opener,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -676,6 +696,17 @@ impl Shell {
                 let _ = reply.send(outcome);
             }
         });
+        let project_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = project_jobs.next().await {
+                let startup::ProjectJob { request, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply_project(request, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
         let mut this = Self {
             theme,
             commands,
@@ -725,6 +756,8 @@ impl Shell {
             applied_settings: None,
             settings_applied: Vec::new(),
             options: None,
+            folder_opener,
+            default_startup: None,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -737,6 +770,7 @@ impl Shell {
                 cargo_task,
                 settings_task,
                 options_task,
+                project_task,
             ],
         };
         this.apply_settings(None, cx);
@@ -900,6 +934,12 @@ impl Shell {
                 .apply_debug(request, &eludite_commands::Caller::User, false, window, cx)
                 .map(|(out, _)| out);
             debug::stage(outcome);
+        }
+        if eludite_commands::project::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::project::parse(command, args.clone())
+        {
+            let outcome = self.apply_project(request, window, cx);
+            self::startup::stage(outcome);
         }
         if command == eludite_commands::settings::OPTIONS {
             let schema = self.settings.lock().schema().clone();
@@ -1291,6 +1331,7 @@ impl Shell {
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
                 self.publish_tree(&tree);
+                self.find_default_startup(window, cx);
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
