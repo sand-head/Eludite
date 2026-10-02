@@ -191,16 +191,24 @@ requests additionally carry `eluditeGeneration`.
 | `textDocument/signatureHelp` | request | [signatureHelp](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_signatureHelp) | Typed since brief 0013; schema [signature-help.json](host/signature-help.json). Result `SignatureHelp` or `null` |
 | `textDocument/definition` | request | [definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition) | Result `Location`, `Location[]`, `LocationLink[]` or `null` |
 | `textDocument/references` | request | [references](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_references) | |
+| `textDocument/prepareRename` | request | [prepareRename](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareRename) | Forwarded and typed since brief 0015; schema [prepare-rename.json](host/prepare-rename.json). Result `Range`, `{ range, placeholder }`, `{ defaultBehavior }` or `null` |
+| `textDocument/rename` | request | [rename](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename) | Typed since brief 0015; schema [rename.json](host/rename.json). Result `WorkspaceEdit` or `null` |
+| `textDocument/codeAction` | request | [codeAction](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeAction) | Typed since brief 0015; schema [code-action.json](host/code-action.json). Result `(Command \| CodeAction)[]` or `null` |
+| `codeAction/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeAction_resolve) | Typed since brief 0015; schema [code-action-resolve.json](host/code-action-resolve.json). Params are a `CodeAction` plus `eluditeGeneration` |
 | `textDocument/documentSymbol` | request | [documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) | Hierarchical `DocumentSymbol[]` (the host advertises hierarchical support) |
 | `workspace/symbol` | request | [workspace symbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol) | |
 | `textDocument/diagnostic` | request | [pull diagnostics](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_diagnostic) | The shell may pull itself; it usually relies on the host's published diagnostics |
 | `$/cancelRequest` | notification | [cancel](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#cancelRequest) | Handled by the host; see Cancellation |
 
 The typed requests are validated before forwarding: a missing `textDocument.uri` (or `query` for
-`workspace/symbol`, `label` for `completionItem/resolve`) is -32602.
+`workspace/symbol`, `label` for `completionItem/resolve`, `title` for `codeAction/resolve`) is -32602.
 
 Typed requests have no schema file of their own except where Eludite reads members LSP leaves loose:
-[`host/signature-help.json`](host/signature-help.json) for `textDocument/signatureHelp` (brief 0013). The shell reads
+[`host/signature-help.json`](host/signature-help.json) for `textDocument/signatureHelp` (brief 0013), and the rename and
+code action requests of brief 0015 ([`prepare-rename.json`](host/prepare-rename.json),
+[`rename.json`](host/rename.json), [`code-action.json`](host/code-action.json),
+[`code-action-resolve.json`](host/code-action-resolve.json)), whose `WorkspaceEdit` shape is in
+[`apply-edit.json`](host/apply-edit.json). The shell reads
 `signatures[].label`, `parameters[].label` (a substring of the signature label, or `[start, end)` UTF-16 offsets into
 it), `documentation` (a string or `MarkupContent`), `activeSignature` and `activeParameter` (also per signature).
 
@@ -216,6 +224,32 @@ Definition or Find All References cancels the previous one with `$/cancelRequest
 not the newest request's, or when the generation or the document version it was computed for is no longer current.
 `references` is sent with `context.includeDeclaration: true`. The shell reads `Location` and `Location[]` (and
 `LocationLink[]`, using `targetUri` and `targetSelectionRange`).
+
+How the shell uses rename and code actions (brief 0015), sent after a pending `didChange` like the others:
+
+- **Rename** (Ctrl+R, Ctrl+R or F2): `textDocument/prepareRename` at the position first; `null` (or an error) means
+  nothing there can be renamed, and no dialog opens. Then `textDocument/rename` for the name typed in the dialog,
+  again whenever the name changes (a newer request cancels the older one); the preview shows the answer's edits, and
+  Apply hands the newest answer to the workspace-edit applier (below). A `null` rename result means the server
+  refused the name (the pinned Roslyn sends no reason).
+- **Code actions**: `textDocument/codeAction` with an empty range at the caret and, in `context.diagnostics`, the
+  diagnostics the shell shows on the caret's line. With `triggerKind` 2 it runs 50 ms after the caret rests on a
+  new position (the light bulb; a newer request cancels the older one); Ctrl+. sends `triggerKind` 1 unless the
+  light bulb's answer for that position is current. The chosen action is resolved with `codeAction/resolve` when it
+  has no `edit`, then its edit goes to the applier.
+- **Commands.** The pinned Roslyn's code actions carry only client-side commands: `roslyn.client.nestedCodeAction`
+  (the first argument's `NestedCodeActions` are actions of their own, which the shell shows as a submenu) and
+  `roslyn.client.fixAllCodeAction` (Fix All, which the shell does not offer). Completion items may carry
+  `roslyn.client.completionComplexEdit` (override and partial-method completion), which the shell does not run. None
+  of them is a server command, so `workspace/executeCommand` is not forwarded; an action whose only effect is a
+  command is reported as unsupported.
+- **The workspace-edit applier** takes a `WorkspaceEdit` (`changes`, or `documentChanges` with create, rename and
+  delete operations, in order). Open documents change in their buffers, one undo step per document, followed at once
+  by `didChange`; closed files are written atomically (a temporary file, then a rename) off the UI thread, followed by
+  `workspace/didChangeWatchedFiles` (created 1, changed 2, deleted 3). A `TextDocumentEdit` whose `version` is not the
+  open document's current version, or an edit computed for a document version or a generation that is no longer
+  current, is refused as a whole: nothing is applied. Completion's `additionalTextEdits` (from the item or its
+  `completionItem/resolve`) and the server's `workspace/applyEdit` use the same applier.
 
 **Metadata as source.** For a symbol defined in a referenced assembly (no source in the solution), the pinned
 Roslyn language server decompiles the type with ICSharpCode.Decompiler into a real file under its own temporary
@@ -243,9 +277,7 @@ JSON. Requests still require `eluditeGeneration`.
 | `textDocument/documentHighlight` | request, forwarded, untyped |
 | `textDocument/semanticTokens/full` | request, forwarded, untyped |
 | `textDocument/semanticTokens/range` | request, forwarded, untyped |
-| `textDocument/codeAction` | request, forwarded, untyped |
 | `textDocument/formatting` | request, forwarded, untyped |
-| `textDocument/rename` | request, forwarded, untyped |
 | `textDocument/didSave` | notification, forwarded, untyped |
 | `workspace/didChangeWatchedFiles` | notification, forwarded, untyped |
 
@@ -260,8 +292,21 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `textDocument/publishDiagnostics` | notification | [publish-diagnostics.json](host/publish-diagnostics.json) (LSP shape plus `eluditeGeneration`) | `{ uri, version, diagnostics, eluditeGeneration }` |
 | `window/showMessage` | notification | LSP 3.17, relayed from the language server, untyped | |
 | `$/progress` | notification | LSP 3.17, relayed from the language server, untyped | |
+| `workspace/applyEdit` | request | [apply-edit.json](host/apply-edit.json) (LSP shape plus `eluditeGeneration`) | `{ label?, edit, eluditeGeneration }`; result `{ applied, failureReason?, failedChange? }` |
 
-The host sends no requests to the shell.
+`workspace/applyEdit` is the only request the host sends to the shell. Every other request from the host is answered
+-32601 by the shell.
+
+### `workspace/applyEdit`
+
+Relayed from the language server (brief 0015). The host adds `eluditeGeneration` (the generation current when the
+request arrived), sends the request to the shell and returns the shell's result to the language server unchanged. If
+the shell answers with an error, or the connection to it is gone, the host answers
+`{ applied: false, failureReason }`. When the language server cancels its request, the host cancels the relayed one
+with `$/cancelRequest`. The shell applies the edit with its workspace-edit applier and answers `applied: false` with a
+`failureReason`, applying nothing, when the generation is not current or a versioned document is not at that
+version. The pinned Roslyn's C# server does not send this request (its code actions return edits through
+`codeAction/resolve`); the relay exists for servers and features that do.
 
 ### `eludite/solution/status`
 
@@ -328,6 +373,8 @@ Answered by the host, never relayed:
 | `workspace/diagnostic/refresh` | `null`, and the host re-pulls diagnostics for every open document |
 | `workspace/semanticTokens/refresh`, `workspace/codeLens/refresh`, `workspace/inlayHint/refresh` | `null`; not relayed (no consumer yet) |
 
+`workspace/applyEdit` is not answered by the host: it is relayed to the shell (see "Messages the host sends").
+
 Language server notifications: `workspace/projectInitializationComplete` becomes `eludite/solution/status` `loaded`;
 `window/logMessage` goes to the host log; `telemetry/event` is dropped; `window/showMessage` and `$/progress` are
 relayed.
@@ -340,4 +387,8 @@ The host owns the upstream handshake, so the shell cannot send its own `ClientCa
 `labelDetailsSupport`, `resolveSupport` (`documentation`, `detail`, `additionalTextEdits`) and `completionList.itemDefaults`
 (`commitCharacters`, `editRange`, `insertTextFormat`, `data`), hierarchical document symbols, hover in markdown and
 plaintext, `signatureHelp`, `definition`, `references`, `publishDiagnostics`, pull `diagnostic`, and
-`window.workDoneProgress`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
+`window.workDoneProgress`. Since brief 0015 also: `workspace.applyEdit`, `workspace.workspaceEdit` with
+`documentChanges`, `resourceOperations` (`create`, `rename`, `delete`) and `failureHandling` `abort`;
+`textDocument.codeAction` with `codeActionLiteralSupport` (the kinds `quickfix`, `refactor`, `refactor.extract`,
+`refactor.inline`, `refactor.rewrite`, `source`, `source.organizeImports`), `resolveSupport` for `edit`,
+`dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.

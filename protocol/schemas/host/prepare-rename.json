@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/prepare-rename.json",
+  "title": "textDocument/prepareRename",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::PrepareRename). The shell sends it before opening the Rename dialog to check that the position is on a renameable symbol and to learn the symbol's range. Params carry eluditeGeneration like every forwarded request (forwarded-request.json). The host advertises rename.prepareSupport. The pinned Roslyn answers a Range, or null when the position cannot be renamed.",
+  "x-eludite-method": "textDocument/prepareRename",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "position",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "A Range (the symbol), { range, placeholder }, { defaultBehavior: true }, or null when nothing at the position can be renamed. The shell reads the range and the placeholder; with defaultBehavior it uses the identifier at the position.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "defaultBehavior": {
+          "type": "boolean"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "character": {
+          "description": "UTF-16 code units.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

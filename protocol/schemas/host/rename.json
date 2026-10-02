@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/rename.json",
+  "title": "textDocument/rename",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::Rename). Params carry eluditeGeneration like every forwarded request (forwarded-request.json). The result is a WorkspaceEdit (shape: apply-edit.json $defs.workspaceEdit) the shell shows in the Rename dialog's preview and applies with the workspace-edit applier, or null when the rename is not possible (the pinned Roslyn answers null for a conflict or an invalid name and sends no message). The pinned Roslyn answers documentChanges (TextDocumentEdit with version null) because the host advertises workspace.workspaceEdit.documentChanges.",
+  "x-eludite-method": "textDocument/rename",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "position",
+        "newName",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "position": {
+          "type": "object",
+          "required": [
+            "line",
+            "character"
+          ],
+          "properties": {
+            "line": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "character": {
+              "description": "UTF-16 code units.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "newName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "A WorkspaceEdit (apply-edit.json $defs.workspaceEdit), or null.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "changes": {
+          "type": "object"
+        },
+        "documentChanges": {
+          "type": "array"
+        },
+        "changeAnnotations": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

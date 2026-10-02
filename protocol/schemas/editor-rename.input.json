@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-rename.input.json",
+  "title": "eludite.editor.rename input",
+  "description": "Rename the symbol at `line`, `column` (or the caret) across the solution (Ctrl+R, Ctrl+R or F2). The language server checks the position first (textDocument/prepareRename); a position that cannot be renamed is `rejected` (\"You must rename an identifier.\"). Without `new_name` this opens the Rename dialog: a box with the symbol's name, a preview tree of the files and changed lines (textDocument/rename, refreshed as the name changes), Apply and Cancel (Escape). With `new_name` it computes the rename and, unless `apply` is false, applies it with the workspace-edit applier: open documents change in their buffers as one undo step each, closed files on disk. A new call cancels the previous request; a result for an older document version or solution generation is dropped.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line of the symbol; the caret when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the symbol; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "new_name": {
+      "description": "The new name. Omit to open the dialog.",
+      "type": "string",
+      "minLength": 1
+    },
+    "apply": {
+      "description": "With `new_name`: apply the rename (default true), or only compute the preview (false).",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

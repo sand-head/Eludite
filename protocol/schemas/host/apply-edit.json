@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/apply-edit.json",
+  "title": "workspace/applyEdit",
+  "description": "A request from the host to the shell: the language server asks the client to apply a WorkspaceEdit (LSP 3.17 workspace/applyEdit). The host relays the language server's request with eluditeGeneration added (the generation it was received under) and relays the shell's response back. The shell applies the edit with its workspace-edit applier (the same one rename, code actions and completion use) and answers applied true or false; it refuses, applying nothing, an edit for an older generation or for a document version it no longer has. This file also holds the WorkspaceEdit shape every Eludite message that carries one refers to (rename.json, code-action.json, code-action-resolve.json, the eludite.workspace.apply_edit command).",
+  "x-eludite-method": "workspace/applyEdit",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "edit",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "label": {
+          "description": "Shown in the status bar and the undo history.",
+          "type": "string"
+        },
+        "edit": {
+          "$ref": "#/$defs/workspaceEdit"
+        },
+        "eluditeGeneration": {
+          "description": "The solution generation the host received the request under (host-rpc.md, \"Solution generation\").",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "applied"
+      ],
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "failureReason": {
+          "type": "string"
+        },
+        "failedChange": {
+          "description": "Index into documentChanges of the change that could not be applied.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "workspaceEdit": {
+      "description": "LSP 3.17 WorkspaceEdit. documentChanges wins over changes when both are present (LSP rule).",
+      "type": "object",
+      "properties": {
+        "changes": {
+          "description": "Document URI to TextEdit[] (no versions).",
+          "type": "object"
+        },
+        "documentChanges": {
+          "description": "TextDocumentEdit, CreateFile, RenameFile and DeleteFile, applied in order.",
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "changeAnnotations": {
+          "type": "object"
+        }
+      }
+    },
+    "textEdit": {
+      "description": "A TextEdit or AnnotatedTextEdit (annotationId is ignored).",
+      "type": "object",
+      "required": [
+        "range",
+        "newText"
+      ],
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "newText": {
+          "type": "string"
+        },
+        "annotationId": {
+          "type": "string"
+        }
+      }
+    },
+    "textDocumentEdit": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "edits"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "description": "The document version the edits were computed for, or null (the pinned Roslyn always sends null). A version that is not the open document's current LSP version refuses the whole edit.",
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/textEdit"
+          }
+        }
+      }
+    },
+    "createFile": {
+      "type": "object",
+      "required": [
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "kind": {
+          "const": "create"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "overwrite": {
+              "type": "boolean"
+            },
+            "ignoreIfExists": {
+              "type": "boolean"
+            }
+          }
+        },
+        "annotationId": {
+          "type": "string"
+        }
+      }
+    },
+    "renameFile": {
+      "type": "object",
+      "required": [
+        "kind",
+        "oldUri",
+        "newUri"
+      ],
+      "properties": {
+        "kind": {
+          "const": "rename"
+        },
+        "oldUri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "newUri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "overwrite": {
+              "type": "boolean"
+            },
+            "ignoreIfExists": {
+              "type": "boolean"
+            }
+          }
+        },
+        "annotationId": {
+          "type": "string"
+        }
+      }
+    },
+    "deleteFile": {
+      "type": "object",
+      "required": [
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "kind": {
+          "const": "delete"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "recursive": {
+              "type": "boolean"
+            },
+            "ignoreIfNotExists": {
+              "type": "boolean"
+            }
+          }
+        },
+        "annotationId": {
+          "type": "string"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "character": {
+          "description": "UTF-16 code units.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
