@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/ping.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/ping.json",
   "title": "eludite/ping",
   "description": "Liveness check.",
   "x-eludite-method": "eludite/ping",

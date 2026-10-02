@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/forwarded-request.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/forwarded-request.json",
   "title": "Forwarded LSP request params",
   "description": "Every forwarded LSP request (typed or untyped) is an LSP 3.17 params object plus eluditeGeneration. The host removes the member before forwarding.",
   "x-eludite-method": "*",

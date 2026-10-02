@@ -8,11 +8,11 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use eludite_acp::AgentDescriptor;
 use eludite_acp::fake_agent::{DIAGNOSTICS_TOOL, SHELL_TOOL};
 use eludite_acp::protocol::ToolCallStatus;
 use eludite_commands::diagnostics::{self, DIAGNOSTICS_LIST};
+use gpui::{AppContext as _, Entity, TestAppContext, VisualTestContext};
 use serde_json::Value;
 use spike_acp_panel::panel::Panel;
 use spike_acp_panel::session::{AgentStatus, SessionConfig, auto_allow, spike_registry};

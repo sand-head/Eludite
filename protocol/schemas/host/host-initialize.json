@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/host-initialize.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/host-initialize.json",
   "title": "eludite/host/initialize",
   "description": "The eludite handshake. Renamed from `initialize` in brief 0007; plain LSP names belong to the forwarded language server.",
   "x-eludite-method": "eludite/host/initialize",

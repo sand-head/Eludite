@@ -6,7 +6,7 @@
 //! Embedding an editor takes three calls:
 //!
 //! ```ignore
-//! cx.bind_keys(eludite_editor::key_bindings());          // once per app
+//! cx.bind_keys(eludite_editor::key_bindings());         // once per app
 //! let registry = LanguageRegistry::with_builtins();       // once per app
 //! let view = cx.new(|cx| EditorView::new(Buffer::load(path)?, registry.for_path(path), cx));
 //! ```

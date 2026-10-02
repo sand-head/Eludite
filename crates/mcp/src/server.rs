@@ -156,7 +156,7 @@ impl McpServer {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": false}},
             "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
-            "instructions": "Eludite IDE tools. Each tool is a Eludite command with the same id, schemas and permission class as in the IDE."
+            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE."
         })
     }
 

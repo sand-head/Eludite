@@ -2,6 +2,8 @@
 
 Eludite is a native, cross-platform, agent-first IDE. It is .NET-first, not .NET-only: the first-class workloads are .NET in all its languages (C#, F#, VB.NET) including .NET Framework, WebForms and WCF; modern web development (TypeScript, JavaScript and the front-end stack); and Rust. The goal is feature parity with Visual Studio Community and JetBrains Rider for the .NET workload, with the responsiveness and restraint of Zed, a layout and keymap a Visual Studio user recognizes on day one, and agents as a peer of the human at every surface of the product.
 
+Eludite was called Niello until 2026-10-02.
+
 It is built by one person directing many agents. The shell is Rust on GPUI and draws its own UI. Roslyn, MSBuild, debuggers, test runners and agents each run in their own process, so a hung analyzer cannot freeze the editor. Every action is a command on one bus that both the UI and agents call, and the shell speaks open protocols (LSP, DAP, MTP, ACP, MCP) instead of hosting a VS Code extension runtime.
 
 ## Status
@@ -49,7 +51,7 @@ Windows and macOS need no extra system packages beyond the Rust and .NET toolcha
 
 ```
 crates/            Rust workspace (shell)
-  eludite/          binary: entry, window, layout
+  eludite/         binary: entry, window, layout
   docking/ ui/ editor/ commands/ workspace/
   lsp/ dap/ acp/ mcp/ git/ terminal/ extensions/
 vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), each with WHY.md

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/diagnostics-list.output.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/diagnostics-list.output.json",
   "title": "diagnostics.list output",
   "description": "The Error List rows, in Error List order.",
   "type": "array",

@@ -1,12 +1,12 @@
 //! Headless GPUI tests for `EditorView`: keyboard, text input, mouse,
 //! scrolling, find, and highlighting off the UI thread.
 
+use eludite_editor::syntax::{HighlightKind, LanguageRegistry};
+use eludite_editor::{Buffer, EditorView, SelectionRange, key_bindings};
 use gpui::{
     AppContext as _, Entity, Focusable as _, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent,
     Point, ScrollDelta, ScrollWheelEvent, TestAppContext, TouchPhase, VisualTestContext, point, px,
 };
-use eludite_editor::syntax::{HighlightKind, LanguageRegistry};
-use eludite_editor::{Buffer, EditorView, SelectionRange, key_bindings};
 
 fn open(
     cx: &mut TestAppContext,

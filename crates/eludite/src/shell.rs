@@ -6,14 +6,14 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{
-    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, Styled, Window, div,
-};
 use eludite_commands::{CommandRegistry, builtins};
 use eludite_docking::{DockController, DockHost, DocumentTab, Persistence, Probe};
 use eludite_ui::{
     MenuBar, RunCommand, SHELL_CONTEXT, StatusBar, Theme, menu_bar_with, slots, vs_keymap,
+};
+use gpui::{
+    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
+    IntoElement, ParentElement, Render, Styled, Window, div,
 };
 
 type AfterPresent = Box<dyn FnOnce(&mut Window, &mut App)>;

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/view-hide.input.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-hide.input.json",
   "title": "eludite.view.hide input",
   "description": "Close (hide) a tool window, as its Close button or Window > Hide (Shift+Esc) does. View menu commands show it again where it was.",
   "type": "object",

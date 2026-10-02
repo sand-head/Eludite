@@ -10,7 +10,7 @@
 
 ## Why vendored
 
-Fuzzy matcher for Ctrl+Q, Ctrl+T, Go To File and the command palette (PLAN.md 8). It uses GPUI's background executor, which Niello already links. No Niello crate uses it yet; it is vendored now because the audit approved it and it moves with the same pin.
+Fuzzy matcher for Ctrl+Q, Ctrl+T, Go To File and the command palette (PLAN.md 8). It uses GPUI's background executor, which Eludite already links. No Eludite crate uses it yet; it is vendored now because the audit approved it and it moves with the same pin.
 
 ## Local changes
 

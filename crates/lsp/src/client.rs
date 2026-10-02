@@ -614,7 +614,10 @@ impl HostClient {
         let attempt = self.inner.restarts.fetch_add(1, Ordering::SeqCst) + 1;
         if attempt > self.inner.restart.max_restarts {
             let _ = self.inner.events.send(Event::Host(HostEvent::GaveUp {
-                reason: format!("eludite-host exited {} times; restart budget spent", attempt),
+                reason: format!(
+                    "eludite-host exited {} times; restart budget spent",
+                    attempt
+                ),
             }));
             return;
         }

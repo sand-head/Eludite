@@ -23,10 +23,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use eludite_acp::{AgentDescriptor, default_agents};
 use gpui::{
     App, AppContext as _, Bounds, Focusable, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
-use eludite_acp::{AgentDescriptor, default_agents};
 use serde_json::json;
 use spike_acp_panel::bench::rss_mib;
 use spike_acp_panel::panel::Panel;

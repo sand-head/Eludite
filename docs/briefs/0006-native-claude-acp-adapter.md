@@ -58,7 +58,7 @@ Do not touch `spikes/**`, `dotnet/**`, `crates/mcp/**`.
 
 ## Out of scope
 
-- Any provider other than Claude Code. The adapter design should not preclude a `eludite-codex-acp` later, but do not build abstractions for it now.
+- Any provider other than Claude Code. The adapter design should not preclude an `eludite-codex-acp` later, but do not build abstractions for it now.
 - Hosting the adapter inside the IDE process. It is a separate process by PLAN.md principle 2.
 - Changing the panel, `crates/mcp`, or the `diagnostics.list` command.
 - Session persistence UI, history browsing, multi-session management.

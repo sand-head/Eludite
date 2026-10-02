@@ -139,7 +139,7 @@ fn every_schema_file_names_a_documented_method() {
         assert_eq!(
             schema["$id"],
             json!(format!(
-                "https://github.com/sand-head/eludite-ide/protocol/schemas/host/{name}"
+                "https://github.com/sand-head/Eludite/protocol/schemas/host/{name}"
             )),
             "$id of {name}"
         );

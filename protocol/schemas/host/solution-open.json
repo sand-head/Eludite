@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/eludite-ide/protocol/schemas/host/solution-open.json",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-open.json",
   "title": "eludite/solution/open",
   "description": "Open a solution or project file. Increments the solution generation and returns it; load progress follows as eludite/solution/status.",
   "x-eludite-method": "eludite/solution/open",
