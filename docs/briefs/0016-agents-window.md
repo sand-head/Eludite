@@ -1,6 +1,6 @@
 # Brief 0016: The Agents window in the production shell
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0016-report.md)
 Phase: 1 (Phase 4 preview)
 Plan reference: PLAN.md sections 2 (principles 2, 3), 5 (all), 8, 9
 Related ADR: ADR-0003

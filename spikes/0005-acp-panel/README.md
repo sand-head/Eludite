@@ -1,5 +1,11 @@
 # Spike 0005: Claude Code over ACP in a GPUI panel, one MCP tool
 
+> **Superseded by brief 0016** ([report](../../docs/briefs/0016-report.md)): the Agents tool window in `crates/eludite`
+> (`src/shell/agents/`), with the sessions in `crates/acp` (`session`) and the MCP server in `crates/mcp`. This directory
+> is kept as the record of the spike. It no longer builds against the current crates (their APIs moved on: the command
+> registry registers through `&self` and `McpServer::new` takes no allow-list); check out the commit before brief 0016,
+> `2597d79`, to build it.
+
 Throwaway code for [brief 0005](../../docs/briefs/0005-acp-claude-code-spike.md). The findings are in [docs/briefs/0005-report.md](../../docs/briefs/0005-report.md). The production pieces it exercises live in `crates/acp`, `crates/mcp` and `crates/commands`; this directory holds only the panel and the harness.
 
 This directory is its own Cargo workspace (empty `[workspace]` table), so the production workspace does not build it. Run commands from this directory. It uses the GPUI pin from the root `Cargo.toml` and the toolchain from the root `rust-toolchain.toml`. Running Claude Code needs Node with `npx` and an existing Claude Code login (`claude` then `/login`); Eludite reads no key or token.
