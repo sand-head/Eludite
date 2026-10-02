@@ -188,6 +188,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 },
                 item("Stop Debugging", "eludite.debug.stop"),
                 item("Continue", "eludite.debug.continue"),
+                // Break All (brief 0025): only a running debuggee; the command refuses it otherwise.
+                item("Break All", "eludite.debug.pause"),
                 item("Attach to Process...", "eludite.debug.attach"),
                 Separator,
                 item("Step Into", "eludite.debug.step_into"),
@@ -594,5 +596,35 @@ mod tests {
         assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
         assert!(shortcuts.contains(&("Build Project", Some("Shift+F6"))));
         assert!(shortcuts.contains(&("Rebuild Project", None)));
+    }
+
+    #[test]
+    fn the_debug_menu_has_break_all_with_its_key() {
+        let keymap = crate::keymap::vs_keymap();
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let items: Vec<_> = debug
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item {
+                    label,
+                    command,
+                    args,
+                } => Some((*label, *command, shortcut_for(&keymap, command, args))),
+                MenuEntry::Separator => None,
+            })
+            .collect();
+        let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
+        assert_eq!(
+            items[at("Break All")],
+            ("Break All", "eludite.debug.pause", Some("Ctrl+Alt+Break"))
+        );
+        // Visual Studio's order: after Continue, before the steps.
+        assert!(at("Continue") < at("Break All") && at("Break All") < at("Step Into"));
+        assert!(
+            keymap
+                .iter()
+                .any(|b| b.keystrokes == "ctrl-alt-pause" && b.command == "eludite.debug.pause")
+        );
     }
 }
