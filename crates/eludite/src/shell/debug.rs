@@ -996,7 +996,11 @@ fn launch_thread(job: LaunchJob) {
         },
         exception_filters: filters,
     };
-    let result = dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    let mut result =
+        dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    if let (AdapterKind::Lldb, Ok(started)) = (kind, &mut result) {
+        native::adapt_capabilities(&mut started.capabilities);
+    }
     // The tests' fake adapter says so in its connection's description.
     let adapter_id = if client.description().starts_with("fake adapter") {
         "fake".to_owned()

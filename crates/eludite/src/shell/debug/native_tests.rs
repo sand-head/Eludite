@@ -65,7 +65,9 @@ fn setup(cx: &mut TestAppContext) -> Nt {
                         vec![v("a", "1", "int"), v("b", "2", "int")],
                     ),
                 ],
-                extra_capabilities: json!({"supportsFunctionBreakpoints": true}),
+                extra_capabilities: json!({"supportsFunctionBreakpoints": true,
+                                           "supportsHitConditionalBreakpoints": true,
+                                           "supportsLogPoints": true}),
                 ..FakeProgram::default()
             };
             let (conn, handle) = fake::connect(program);
@@ -349,6 +351,9 @@ fn a_cargo_package_is_the_startup_project_and_debugs_under_lldb(cx: &mut TestApp
         nt.manifest()
     );
     assert_eq!(s["exceptions"]["break_on_rust_panic"], true);
+    // lldb-dap's hit conditions are not Visual Studio's: the shell counts hits; log points are the adapter's.
+    assert_eq!(s["capabilities"]["hit_conditions"], "shell");
+    assert_eq!(s["capabilities"]["log_points"], "adapter");
 
     // The row in the Exception Settings window turns it off: the function breakpoint goes.
     nt.w.commands
