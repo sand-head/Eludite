@@ -312,13 +312,18 @@ def report(a):
     order = {"OffByOne": 0, "MissingCase": 1, "NullField": 2}
     runs.sort(key=lambda r: (order.get(r["program"], 9), r["run"]))
     calls = [{"program": r["program"], "run": r["run"], "calls": r["calls"]} for r in runs]
-    json.dump(calls, open(os.path.join(a.dest, "calls.json"), "w"), indent=1)
+    short = lambda text: text.replace(os.path.realpath(a.runs) + "/", "$OUT/")
+    open(os.path.join(a.dest, "calls.json"), "w").write(short(json.dumps(calls, indent=1)))
     md = ["# Brief 0030's recorded run: the numbers", "",
           f"Recorded {a.date} on {a.machine}. Adapter: {a.adapter}. Claude Code {a.claude}, model "
           f"{', '.join(sorted({str(r.get('model')) for r in runs}))}. "
           "Tokens are Claude Code's own count for the turn (its stream's `result` message, captured below the ACP "
-          "adapter; `eludite-claude-acp` sends no ACP usage events). Wall time: the prompt's Enter to the Agents "
-          "window's turn end. Bytes: each tool answer's text as the agent received it.", "",
+          "adapter; `eludite-claude-acp` sends no ACP usage events). Wall time: from the window taking the prompt (the "
+          "agent's start, about 0.5 s of it) to the turn's end. Debug calls: every `eludite.debug.*` call of the turn, "
+          "cleanup included. Reached: a stop summary the agent received (a start, wait, continue, step or trace answer) "
+          "located at the README's faulting line, and the debug call that brought it. Named: the answer gives that "
+          "line and the statement. Bytes: each debug answer's text as the agent received it. Paths under the run "
+          "folder are written `$OUT/`.", "",
           "| Program | Run | Debug calls | Debug calls, in order | Reached (at debug call) | Named in the answer | "
           "Input tokens (cache read, cache write) | Output tokens | Wall time | Debug answer bytes |",
           "|---|---|---|---|---|---|---|---|---|---|"]
@@ -345,14 +350,14 @@ def report(a):
         md.append("")
         md.append("Answer: " + (r["answer"] or "").replace("\n", " ")[:2000])
         md.append("")
-    open(os.path.join(a.dest, "numbers.md"), "w").write("\n".join(md) + "\n")
+    open(os.path.join(a.dest, "numbers.md"), "w").write(short("\n".join(md) + "\n"))
     tm = ["# Brief 0030's recorded run: the transcripts", "",
           "Each run's Agents window transcript (`--transcript-out`), as the window showed it: the prompt, Claude's "
           "messages, and each tool call with its arguments and the answer it received (folded).", ""]
     for r in runs:
         rows = json.load(open(os.path.join(a.runs, f"{r['program']}-{r['run']}", "transcript.json")))
         tm += [f"## {r['program']}, run {r['run']}", "", transcript_md(rows), ""]
-    open(os.path.join(a.dest, "transcript.md"), "w").write("\n".join(tm) + "\n")
+    open(os.path.join(a.dest, "transcript.md"), "w").write(short("\n".join(tm) + "\n"))
     print(f"{hit} of {len(runs)} within eight debug calls")
 
 
