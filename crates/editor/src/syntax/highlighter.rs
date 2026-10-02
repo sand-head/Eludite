@@ -15,6 +15,18 @@ use super::{HighlightKind, Language, LineHighlights, Span};
 /// large file's highlights stream in instead of arriving all at once.
 pub const ROWS_PER_STEP: u32 = 8_000;
 
+/// Buffers up to this many bytes keep their syntax tree between edits, for
+/// incremental re-parsing. Larger buffers drop the tree once a highlight
+/// pass completes and parse from scratch on the next edit.
+///
+/// Chosen from measurements in `docs/briefs/0011-report.md`: a tree-sitter
+/// tree costs about 45 bytes per source byte for C# and Rust, so a 1 MiB
+/// file holds about 45 MB of tree, which fits the PLAN.md section 9 memory
+/// budget alongside the shell; a full re-parse of 1 MiB takes tens of
+/// milliseconds on the syntax thread, so dropping the tree above it costs a
+/// short wait for fresh colors after an edit, with stale ones shown meanwhile.
+pub const TREE_RETAIN_LIMIT: usize = 1024 * 1024;
+
 /// The result of one [`Highlighter::step`].
 #[derive(Clone)]
 pub struct HighlightUpdate {
@@ -46,6 +58,12 @@ pub struct HighlightStats {
     pub rows_highlighted: u32,
     /// The step parsed the whole buffer (no previous tree).
     pub full_parse: bool,
+    /// The step dropped the tree because the buffer is over the retain limit
+    /// and highlighting completed.
+    pub dropped_tree: bool,
+    /// Time spent returning free memory to the OS after a completed pass
+    /// ([`super::alloc::release_free_memory`]).
+    pub release: Duration,
 }
 
 /// Owns the parser, the last tree and the highlights for one buffer.
@@ -55,6 +73,13 @@ pub struct HighlightStats {
 /// [`Highlighter::cancel_flag`] makes a running parse return early and
 /// `step` return `None`; the highlighter then re-parses from its previous
 /// tree on the next call.
+///
+/// Size gate: for buffers over the retain limit ([`TREE_RETAIN_LIMIT`] by
+/// default) the tree is dropped when a highlight pass completes. The next
+/// step after an edit parses from scratch and re-highlights every row
+/// (visible rows first), keeping the previous spans, moved through the
+/// edits, until each row is redone. While a pass is still running, edits
+/// re-parse incrementally from the pass's tree as below the limit.
 pub struct Highlighter {
     language: Arc<Language>,
     parser: Parser,
@@ -62,6 +87,7 @@ pub struct Highlighter {
     snapshot: Option<BufferSnapshot>,
     highlights: LineHighlights,
     cancel: Arc<AtomicBool>,
+    retain_limit: usize,
 }
 
 impl std::fmt::Debug for Highlighter {
@@ -74,6 +100,7 @@ impl std::fmt::Debug for Highlighter {
 
 impl Highlighter {
     pub fn new(language: Arc<Language>) -> Self {
+        super::alloc::install();
         let mut parser = Parser::new();
         parser
             .set_language(language.grammar())
@@ -85,7 +112,24 @@ impl Highlighter {
             snapshot: None,
             highlights: LineHighlights::default(),
             cancel: Arc::default(),
+            retain_limit: TREE_RETAIN_LIMIT,
         }
+    }
+
+    /// Keep the tree between passes only for buffers of at most `bytes`
+    /// (default [`TREE_RETAIN_LIMIT`]).
+    pub fn set_retain_limit(&mut self, bytes: usize) {
+        self.retain_limit = bytes;
+    }
+
+    pub fn retain_limit(&self) -> usize {
+        self.retain_limit
+    }
+
+    /// True while a syntax tree is held: always below the retain limit once
+    /// parsed, and above it only while a highlight pass is in progress.
+    pub fn has_tree(&self) -> bool {
+        self.tree.is_some()
     }
 
     pub fn language(&self) -> &Arc<Language> {
@@ -122,11 +166,22 @@ impl Highlighter {
     ) -> Option<HighlightUpdate> {
         let mut stats = HighlightStats::default();
         let parse_started = Instant::now();
-        let needs_parse = self.tree.is_none()
-            || self
-                .snapshot
-                .as_ref()
-                .is_none_or(|s| s.version() != snapshot.version());
+        let same_version = self
+            .snapshot
+            .as_ref()
+            .is_some_and(|s| s.version() == snapshot.version());
+        // A completed pass over a large buffer has no tree, and needs none
+        // until the text changes.
+        let needs_parse = !same_version || (self.tree.is_none() && !self.is_complete());
+        if !needs_parse && self.tree.is_none() {
+            return Some(HighlightUpdate {
+                version: snapshot.version().clone(),
+                snapshot: snapshot.clone(),
+                highlights: self.highlights.clone(),
+                complete: true,
+                stats,
+            });
+        }
         if needs_parse {
             let (old_tree, edits) = match (&self.tree, &self.snapshot) {
                 (Some(tree), Some(old)) => {
@@ -141,8 +196,8 @@ impl Highlighter {
             };
             stats.full_parse = old_tree.is_none();
             let new_tree = self.parse(snapshot, old_tree.as_ref())?;
-            match edits {
-                Some(edits) => {
+            match (edits, &self.snapshot) {
+                (Some(edits), _) => {
                     self.highlights.apply_edits(&edits);
                     let old_tree = old_tree.expect("edits imply a tree");
                     for range in old_tree.changed_ranges(&new_tree) {
@@ -151,7 +206,13 @@ impl Highlighter {
                         );
                     }
                 }
-                None => {
+                // The tree was dropped (size gate): keep the old spans,
+                // moved through the edits, and redo every row.
+                (None, Some(old)) => {
+                    self.highlights.interpolate(old, snapshot);
+                    self.highlights.mark_dirty(0..self.highlights.row_count());
+                }
+                (None, None) => {
                     self.highlights = LineHighlights::dirty(snapshot.max_point().row + 1);
                 }
             }
@@ -188,12 +249,23 @@ impl Highlighter {
             self.highlight_rows(&tree, snapshot, rows);
         }
         stats.highlight = highlight_started.elapsed();
+        drop(tree);
 
+        let complete = self.highlights.dirty_row_count() == 0;
+        if complete {
+            if snapshot.len() > self.retain_limit {
+                self.tree = None;
+                stats.dropped_tree = true;
+            }
+            let collect_started = Instant::now();
+            super::alloc::release_free_memory();
+            stats.release = collect_started.elapsed();
+        }
         Some(HighlightUpdate {
             version: snapshot.version().clone(),
             snapshot: snapshot.clone(),
             highlights: self.highlights.clone(),
-            complete: self.highlights.dirty_row_count() == 0,
+            complete,
             stats,
         })
     }
@@ -545,6 +617,115 @@ fn main() {
         assert!(u.highlights.is_dirty(ROWS_PER_STEP + 10));
         let u = h.step(b.snapshot(), 0..0).unwrap();
         assert!(u.complete);
+    }
+
+    fn assert_same_highlights(a: &HighlightUpdate, b: &HighlightUpdate) {
+        assert_eq!(a.highlights.row_count(), b.highlights.row_count());
+        for row in 0..a.highlights.row_count() {
+            assert_eq!(
+                a.highlights.spans(row),
+                b.highlights.spans(row),
+                "row {row}"
+            );
+        }
+    }
+
+    #[test]
+    fn buffers_under_the_limit_keep_their_tree() {
+        let registry = LanguageRegistry::with_builtins();
+        let mut h = Highlighter::new(registry.by_id("csharp").unwrap());
+        assert_eq!(h.retain_limit(), TREE_RETAIN_LIMIT);
+        let mut b = buffer(CSHARP_SOURCE);
+        let first = highlight_all(&mut h, b.snapshot());
+        assert!(h.has_tree());
+        assert!(!first.stats.dropped_tree);
+        b.edit([(0..0, "// x\n")]);
+        let second = highlight_all(&mut h, b.snapshot());
+        assert!(!second.stats.full_parse, "incremental re-parse");
+        assert!(h.has_tree());
+    }
+
+    #[test]
+    fn buffers_over_the_limit_drop_the_tree_and_still_highlight_edits() {
+        let registry = LanguageRegistry::with_builtins();
+        let csharp = registry.by_id("csharp").unwrap();
+        let mut h = Highlighter::new(csharp.clone());
+        h.set_retain_limit(CSHARP_SOURCE.len() - 1);
+        let mut b = buffer(CSHARP_SOURCE);
+        let first = highlight_all(&mut h, b.snapshot());
+        assert!(first.stats.dropped_tree);
+        assert!(!h.has_tree(), "dropped once the pass completed");
+        assert_eq!(kind_of(&first, "class"), Some(HighlightKind::Keyword));
+
+        // The same structural edit as the incremental test: a block comment
+        // swallowing several lines must be highlighted after a full re-parse.
+        let at = CSHARP_SOURCE.find("private const").unwrap();
+        b.edit([(at..at, "/* ")]);
+        let end = b.snapshot().text().find("public string Greet").unwrap();
+        b.edit([(end..end, "*/ ")]);
+        let second = highlight_all(&mut h, b.snapshot());
+        assert!(second.stats.full_parse, "no tree to re-parse from");
+        assert!(second.stats.dropped_tree);
+        assert!(!h.has_tree());
+        assert_eq!(kind_of(&second, "const int"), Some(HighlightKind::Comment));
+
+        let mut fresh = Highlighter::new(csharp);
+        fresh.set_retain_limit(usize::MAX);
+        assert_same_highlights(&second, &highlight_all(&mut fresh, b.snapshot()));
+        assert!(fresh.has_tree());
+    }
+
+    #[test]
+    fn a_completed_pass_without_a_tree_is_not_reparsed() {
+        let registry = LanguageRegistry::with_builtins();
+        let mut h = Highlighter::new(registry.by_id("rust").unwrap());
+        h.set_retain_limit(0);
+        let b = buffer(RUST_SOURCE);
+        let first = highlight_all(&mut h, b.snapshot());
+        let again = h.step(b.snapshot(), 0..3).unwrap();
+        assert!(again.complete);
+        assert!(!again.stats.full_parse);
+        assert_eq!(again.stats.rows_highlighted, 0);
+        assert!(!h.has_tree());
+        assert_same_highlights(&first, &again);
+    }
+
+    #[test]
+    fn over_the_limit_stale_spans_stay_until_rows_are_redone() {
+        let registry = LanguageRegistry::with_builtins();
+        let mut h = Highlighter::new(registry.by_id("rust").unwrap());
+        h.set_retain_limit(0);
+        let mut text = String::new();
+        for i in 0..(ROWS_PER_STEP * 2) {
+            text.push_str(&format!("fn f{i}() {{}}\n"));
+        }
+        let mut b = buffer(&text);
+        // Mid-pass the tree is kept, and an edit re-parses incrementally.
+        let u = h.step(b.snapshot(), 0..0).unwrap();
+        assert!(!u.complete && h.has_tree());
+        b.edit([(0..0, "// a\n")]);
+        let u = h.step(b.snapshot(), 0..0).unwrap();
+        assert!(!u.stats.full_parse, "incremental while the pass runs");
+        highlight_all(&mut h, b.snapshot());
+        assert!(!h.has_tree());
+
+        // After the drop, an edit at the end re-parses from scratch; the
+        // first step redoes the visible rows, and every other row keeps its
+        // old spans, marked dirty, until a later step reaches it.
+        let last = b.snapshot().max_point().row - 1;
+        let at = b.snapshot().point_to_offset(Point::new(last, 0));
+        b.edit([(at..at, "pub ")]);
+        let u = h.step(b.snapshot(), last..last + 1).unwrap();
+        assert!(u.stats.full_parse);
+        assert!(!u.complete);
+        assert_eq!(u.highlights.spans(last)[0].kind, HighlightKind::Keyword);
+        assert_eq!(u.highlights.spans(last)[0].end, 3, "`pub` highlighted");
+        let far = ROWS_PER_STEP + 100;
+        assert!(u.highlights.is_dirty(far));
+        assert_eq!(u.highlights.spans(far)[0].kind, HighlightKind::Keyword);
+        let done = highlight_all(&mut h, b.snapshot());
+        assert!(!done.highlights.is_dirty(far));
+        assert!(!h.has_tree());
     }
 
     #[test]
