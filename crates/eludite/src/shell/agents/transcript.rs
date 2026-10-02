@@ -50,6 +50,8 @@ pub struct ToolRow {
     pub mcp: Option<McpLink>,
     /// Pending changes it proposed: (id, path, state label).
     pub changes: Vec<(u64, String, String)>,
+    /// The audit entry of an agent's own tool (Eludite's tools have theirs in `mcp`).
+    pub audit: Option<u64>,
 }
 
 impl ToolRow {
@@ -104,6 +106,9 @@ impl ToolRow {
             }
             None => {}
         }
+        if let Some(seq) = self.audit {
+            parts.push(format!("audit #{seq}"));
+        }
         if let Some(m) = &self.mcp {
             parts.push(format!(
                 "{} ({}) audit #{} {:.1} ms",
@@ -144,6 +149,16 @@ pub enum Row {
     Plan(Vec<PlanEntry>),
     Notice(String),
     Error(String),
+}
+
+/// An agent's own tool call that ended, to audit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EndedTool {
+    pub id: String,
+    pub name: String,
+    pub kind: Option<String>,
+    pub input: Option<Value>,
+    pub ok: bool,
 }
 
 /// Rows `start..old_end` were replaced by rows `start..new_end`.
@@ -253,6 +268,7 @@ impl Transcript {
             options: Vec::new(),
             mcp: None,
             changes: Vec::new(),
+            audit: None,
         })));
         ix
     }
@@ -398,6 +414,40 @@ impl Transcript {
         };
         if let Some(row) = self.tool_mut(ix) {
             row.permission = Some(state);
+        }
+    }
+
+    /// The agent's own tool calls that ended (completed or failed) and have no audit entry yet.
+    pub fn unaudited(&self) -> Vec<EndedTool> {
+        self.tools()
+            .filter(|t| t.audit.is_none() && t.mcp.is_none())
+            .filter(|t| {
+                !t.name()
+                    .starts_with(&format!("mcp__{}__", super::endpoint::MCP_SERVER_NAME))
+            })
+            .filter_map(|t| {
+                let ok = match t.call.status? {
+                    ToolCallStatus::Completed => true,
+                    ToolCallStatus::Failed => false,
+                    _ => return None,
+                };
+                Some(EndedTool {
+                    id: t.call.tool_call_id.clone(),
+                    name: t.name(),
+                    kind: t.call.kind.clone(),
+                    input: t.call.raw_input.clone(),
+                    ok,
+                })
+            })
+            .collect()
+    }
+
+    /// Link tool call `id` to its audit entry.
+    pub fn set_audit(&mut self, id: &str, seq: u64) {
+        if let Some(&ix) = self.tools.get(id)
+            && let Some(row) = self.tool_mut(ix)
+        {
+            row.audit = Some(seq);
         }
     }
 
