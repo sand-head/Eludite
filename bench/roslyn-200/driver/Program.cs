@@ -1,8 +1,9 @@
-// Brief 0002 bench driver. See ../run.sh. Measures, per run (host killed between runs):
-//   T0     process start -> niello-host `initialize` response
+// Brief 0002 bench driver, updated for the brief 0007 contract. See ../run.sh. Measures, per run (host killed between runs):
+//   T0     process start -> niello-host `niello/host/initialize` response
 //   T1     initialize response -> first textDocument/documentSymbol with >= 1 symbol
 //   T2     initialize response -> first textDocument/completion containing the expected member
-//   Tload  initialize response -> workspace/projectInitializationComplete (informational)
+//   Tload  initialize response -> niello/solution/status "loaded" (informational)
+//   warming completion latency while the host's warming diagnostics pull is in flight
 //   T3     latency of N sequential completion requests after warm-up (p50, p95, p99, max)
 //   cancel completion / workspace/symbol requests canceled with $/cancelRequest: time to response, outcome
 //   peak   VmHWM of niello-host, of the Roslyn LS child, and the sampled peak RSS of the whole tree (Linux)
@@ -70,14 +71,15 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
     using var sampling = new CancellationTokenSource();
     var sampler = Task.Run(() => SampleTreeRss(proc.Id, sampling.Token));
     var client = new LspClient(proc.StandardInput.BaseStream, proc.StandardOutput.BaseStream);
-    var loaded = client.WaitForNotification("workspace/projectInitializationComplete");
+    // Brief 0007 contract (protocol/schemas/host-rpc.md): niello/host/initialize, then niello/solution/open; readiness
+    // is niello/solution/status "loaded"; every forwarded request carries nielloGeneration.
+    var loaded = client.WaitForNotification("niello/solution/status", p => p?["state"]?.GetValue<string>() is "loaded" or "failed");
 
     var result = new JsonObject { ["kind"] = kind, ["index"] = index };
-    var init = await client.RequestAsync("initialize", new JsonObject
+    var init = await client.RequestAsync("niello/host/initialize", new JsonObject
     {
         ["clientName"] = "bench-roslyn-200",
         ["clientVersion"] = "0.1.0",
-        ["solutionPath"] = probe["solution"]!.GetValue<string>(),
     });
     result["t0Ms"] = sw.Elapsed.TotalMilliseconds;
     if (init.ContainsKey("error"))
@@ -86,6 +88,13 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
     }
 
     var afterInit = Stopwatch.StartNew();
+    var opened = await client.RequestAsync("niello/solution/open", new JsonObject { ["path"] = probe["solution"]!.GetValue<string>() });
+    if (opened.ContainsKey("error"))
+    {
+        throw new InvalidOperationException(opened.ToJsonString());
+    }
+
+    var generation = opened["result"]!["generation"]!.GetValue<long>();
     var uri = new Uri(probe["file"]!.GetValue<string>()).AbsoluteUri;
     await client.NotifyAsync("textDocument/didOpen", new JsonObject
     {
@@ -96,26 +105,15 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
         },
     });
 
-    // Editor model: like the VS Code C# client, pull diagnostics for the open document on open and again when the
-    // server reports the solution loaded. Roslyn LSP completion runs on frozen-partial semantics and the server does
-    // not compile dependencies in the background on its own; these pulls are what build them (see the report).
+    // The shell sends no diagnostic pulls of its own: niello-host warms semantics itself (pull on open, 150 ms after
+    // a change, and for every open document when the solution loads), which is what brief 0002's bench did by hand.
     var docId = new JsonObject { ["uri"] = uri };
-    var diagOnOpen = client.RequestAsync("textDocument/diagnostic", new JsonObject { ["textDocument"] = docId.DeepClone() });
-    var diagOnLoad = loaded.ContinueWith(_ =>
-    {
-        var t = Stopwatch.GetTimestamp();
-        return client.RequestAsync("textDocument/diagnostic", new JsonObject { ["textDocument"] = docId.DeepClone() })
-            .ContinueWith(_ => Stopwatch.GetElapsedTime(t).TotalMilliseconds, TaskScheduler.Default);
-    }, TaskScheduler.Default).Unwrap();
-
     var timeout = TimeSpan.FromMinutes(double.Parse(opts.GetValueOrDefault("timeout-min", "10"), CultureInfo.InvariantCulture));
-    var t1 = PollAsync(() => client.RequestAsync("textDocument/documentSymbol", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri } }),
+    var t1 = PollAsync(() => client.RequestAsync("textDocument/documentSymbol", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri }, ["nielloGeneration"] = generation }),
         r => r["result"] is JsonArray { Count: > 0 }, afterInit, timeout);
-    // T2 attempts model a user retyping '.': each attempt is a new document version (didChange), the editor's
-    // diagnostic pull for that version (VS Code pulls on every change; at most one in flight), then completion.
+    // T2 attempts model a user retyping '.': each attempt is a new document version (didChange), then completion.
     var fileText = File.ReadAllText(probe["file"]!.GetValue<string>());
     var t2Version = 1;
-    Task diagInFlight = Task.CompletedTask;
     var t2Attempts = 0;
     var t2 = PollAsync(async () =>
     {
@@ -125,21 +123,18 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
             ["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = ++t2Version },
             ["contentChanges"] = new JsonArray(new JsonObject { ["text"] = fileText }),
         });
-        if (diagInFlight.IsCompleted)
-        {
-            diagInFlight = client.RequestAsync("textDocument/diagnostic", new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = uri } });
-        }
-
         return await client.RequestAsync("textDocument/completion", CompletionParams());
     }, r => HasLabel(r, probe["expectLabel"]!.GetValue<string>()), afterInit, timeout);
     var tLoad = loaded.ContinueWith(_ => afterInit.Elapsed.TotalMilliseconds, TaskScheduler.Default);
     result["t1Ms"] = await t1;
     result["t2Ms"] = await t2;
     result["t2Attempts"] = t2Attempts;
-    await diagInFlight;
     result["tLoadMs"] = await tLoad.WaitAsync(timeout);
-    await diagOnOpen;
-    result["diagAfterLoadMs"] = await diagOnLoad;
+    var loadedStatus = await loaded;
+    if (loadedStatus?["state"]?.GetValue<string>() != "loaded")
+    {
+        throw new InvalidOperationException("solution did not load: " + loadedStatus?.ToJsonString());
+    }
 
     // T3: warm-up, then N sequential completion requests.
     for (var w = 0; w < 50; w++)
@@ -194,8 +189,55 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
         ["p50Ms"] = Pct(typed, 50), ["p95Ms"] = Pct(typed, 95), ["p99Ms"] = Pct(typed, 99), ["maxMs"] = typed[^1],
     };
 
+    // Completion while a warming pull is in flight: a didChange schedules the host's pull 150 ms later; wait until
+    // it has started, then complete. "Overlapped" counts completions answered before that pull was published.
+    var warmLat = new List<double>();
+    var pullMs = new List<double>();
+    var overlapped = 0;
+    var warmEmpty = 0;
+    var warmTrials = int.Parse(opts.GetValueOrDefault("warm-trials", "50"), CultureInfo.InvariantCulture);
+    var debounceMs = double.Parse(opts.GetValueOrDefault("debounce-ms", "150"), CultureInfo.InvariantCulture);
+    for (var n = 0; n < warmTrials; n++)
+    {
+        var version = 50_000 + n;
+        var published = client.WaitForNotification("textDocument/publishDiagnostics", p => p?["version"]?.GetValue<int>() == version);
+        await client.NotifyAsync("textDocument/didChange", new JsonObject
+        {
+            ["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = version },
+            ["contentChanges"] = new JsonArray(new JsonObject { ["text"] = text + "// w" + n + "\n" }),
+        });
+        var changedAt = Stopwatch.GetTimestamp();
+        await Task.Delay(TimeSpan.FromMilliseconds(debounceMs + 5));
+        var t = Stopwatch.GetTimestamp();
+        var r = await client.RequestAsync("textDocument/completion", CompletionParams());
+        var done = Stopwatch.GetTimestamp();
+        warmLat.Add(Stopwatch.GetElapsedTime(t, done).TotalMilliseconds);
+        if (!HasLabel(r, "Compute"))
+        {
+            warmEmpty++;
+        }
+
+        if (!published.IsCompleted)
+        {
+            overlapped++;
+        }
+
+        await published.WaitAsync(TimeSpan.FromSeconds(30));
+        var publishedAt = client.Diagnostics.Where(d => d.Params?["version"]?.GetValue<int>() == version).Select(d => d.Timestamp).DefaultIfEmpty(done).Max();
+        pullMs.Add(Stopwatch.GetElapsedTime(changedAt, publishedAt).TotalMilliseconds - debounceMs);
+    }
+
+    warmLat.Sort();
+    pullMs.Sort();
+    result["completionDuringWarming"] = new JsonObject
+    {
+        ["count"] = warmLat.Count, ["overlappedWithPull"] = overlapped, ["missingExpectedItem"] = warmEmpty,
+        ["p50Ms"] = Pct(warmLat, 50), ["p95Ms"] = Pct(warmLat, 95), ["maxMs"] = warmLat[^1],
+        ["pullP50Ms"] = Pct(pullMs, 50), ["pullP95Ms"] = Pct(pullMs, 95),
+    };
+
     result["cancelCompletion"] = await CancelTrialsAsync(client, "textDocument/completion", CompletionParams, cancelTrials);
-    result["cancelWorkspaceSymbol"] = await CancelTrialsAsync(client, "workspace/symbol", () => new JsonObject { ["query"] = "Widget" }, cancelTrials);
+    result["cancelWorkspaceSymbol"] = await CancelTrialsAsync(client, "workspace/symbol", () => new JsonObject { ["query"] = "Widget", ["nielloGeneration"] = generation }, cancelTrials);
     var diagVersion = 100_000;
     result["cancelDiagnostic"] = await CancelTrialsAsync(client, "textDocument/diagnostic", () =>
     {
@@ -205,7 +247,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
             ["textDocument"] = new JsonObject { ["uri"] = uri, ["version"] = ++diagVersion },
             ["contentChanges"] = new JsonArray(new JsonObject { ["text"] = text + "// d" + diagVersion + "\n" }),
         });
-        return new JsonObject { ["textDocument"] = docId.DeepClone() };
+        return new JsonObject { ["textDocument"] = docId.DeepClone(), ["nielloGeneration"] = generation };
     }, cancelTrials);
     await Task.Delay(500);
     result["lateResponses"] = client.Unexpected.Count(m => m.ContainsKey("result"));
@@ -228,6 +270,7 @@ async Task<JsonObject> RunOnceAsync(string kind, int index)
         ["textDocument"] = new JsonObject { ["uri"] = uri },
         ["position"] = new JsonObject { ["line"] = probe["line"]!.GetValue<int>(), ["character"] = probe["character"]!.GetValue<int>() },
         ["context"] = new JsonObject { ["triggerKind"] = 2, ["triggerCharacter"] = "." },
+        ["nielloGeneration"] = generation,
     };
 }
 
@@ -444,7 +487,7 @@ static string Summarize(JsonArray runs)
         Row("T0 start->initialize (ms)", r => r["t0Ms"]!.GetValue<double>());
         Row("T1 init->documentSymbol (ms)", r => r["t1Ms"]!.GetValue<double>());
         Row("T2 init->completion, depth-6 project (ms)", r => r["t2Ms"]!.GetValue<double>());
-        Row("Tload init->projectInitializationComplete (ms)", r => r["tLoadMs"]!.GetValue<double>());
+        Row("Tload init->niello/solution/status loaded (ms)", r => r["tLoadMs"]!.GetValue<double>());
         Row("T3 completion p50 (ms)", r => r["t3"]!["p50Ms"]!.GetValue<double>());
         Row("T3 completion p95 (ms)", r => r["t3"]!["p95Ms"]!.GetValue<double>());
         Row("T3 completion p99 (ms)", r => r["t3"]!["p99Ms"]!.GetValue<double>());
@@ -454,7 +497,13 @@ static string Summarize(JsonArray runs)
         Row("T3-typing p95 (ms)", r => r["t3Typing"]!["p95Ms"]!.GetValue<double>());
         Row("T3-typing p99 (ms)", r => r["t3Typing"]!["p99Ms"]!.GetValue<double>());
         Row("T3-typing missing expected item (of N)", r => r["t3Typing"]!["missingExpectedItem"]!.GetValue<int>());
-        Row("Diagnostic pull after load (ms)", r => r["diagAfterLoadMs"]!.GetValue<double>());
+        Row("T2 - Tload: loaded to first member completion (ms)", r => r["t2Ms"]!.GetValue<double>() - r["tLoadMs"]!.GetValue<double>());
+        Row("Completion during warming pull p50 (ms)", r => r["completionDuringWarming"]!["p50Ms"]!.GetValue<double>());
+        Row("Completion during warming pull p95 (ms)", r => r["completionDuringWarming"]!["p95Ms"]!.GetValue<double>());
+        Row("Completion during warming pull max (ms)", r => r["completionDuringWarming"]!["maxMs"]!.GetValue<double>());
+        Row("Completions overlapping a pull (of N)", r => r["completionDuringWarming"]!["overlappedWithPull"]!.GetValue<int>());
+        Row("Warming pull duration p50 (ms)", r => r["completionDuringWarming"]!["pullP50Ms"]!.GetValue<double>());
+        Row("Warming pull duration p95 (ms)", r => r["completionDuringWarming"]!["pullP95Ms"]!.GetValue<double>());
         Row("niello-host peak RSS (MB)", r => r["hostPeakMb"]!.GetValue<double>());
         Row("Roslyn LS peak RSS (MB)", r => r["childPeakMb"]!.AsArray().Where(c => c!["comm"]!.GetValue<string>().Contains("LanguageServer", StringComparison.Ordinal)).Sum(c => c!["peakMb"]!.GetValue<double>()));
         Row("Tree peak RSS, sampled 50 ms (MB)", r => r["treePeakRssMb"]!.GetValue<double>());
