@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Storage</title>
+</head>
+<body>
+<p>This page sets a cookie, two localStorage items and a sessionStorage item; the server sets an HttpOnly cookie.</p>
+<script>
+  document.cookie = 'theme=dark; path=/; SameSite=Lax';
+  localStorage.setItem('cart', JSON.stringify({items: 3}));
+  localStorage.setItem('long', 'x'.repeat(1500));
+  sessionStorage.setItem('step', '2');
+</script>
+</body>
+</html>

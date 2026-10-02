@@ -26,8 +26,8 @@ use std::process::Command;
 
 use serde_json::Value;
 
-/// The domains Eludite's browser automation uses (brief 0023); the generator adds what they reference.
-pub const ROOTS: [&str; 11] = [
+/// The domains Eludite's browser automation uses (briefs 0023 and 0024); the generator adds what they reference.
+pub const ROOTS: [&str; 13] = [
     "Target",
     "Page",
     "DOM",
@@ -39,6 +39,8 @@ pub const ROOTS: [&str; 11] = [
     "Emulation",
     "Browser",
     "Security",
+    "Storage",
+    "DOMStorage",
 ];
 
 /// Where things are, relative to this crate.

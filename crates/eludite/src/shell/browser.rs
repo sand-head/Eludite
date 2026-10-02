@@ -12,6 +12,10 @@
 //!   running browser is closed; on shell exit it is closed and its process waited for.
 //! - **The Output window.** The engine's lifecycle lines (launch, tabs opened and closed, navigation failures, console
 //!   errors, exit) go to the Output window's Browser source through a channel the shell drains in batches.
+//! - **Policy** (brief 0024, ADR-0009). The browser commands' escalation hooks read the open solution's
+//!   `agents-policy.json` (its `browser` object) through the command registry's policy source, which the Agents
+//!   window sets; the MCP gate decides on the class they give each call. Commands that need no engine
+//!   (`open_external` with a url) still run on the worker, so nothing here ever runs on the UI thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
@@ -77,6 +81,8 @@ struct Inner {
     workspace: Mutex<Option<PathBuf>>,
     jobs: Mutex<Option<mpsc::Sender<Job>>>,
     log: UnboundedSender<String>,
+    /// The program `open_external` runs instead of the system's opener (tests).
+    opener: Mutex<Option<String>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -126,6 +132,7 @@ impl Inner {
                         browser.configure(now.clone());
                         config = now;
                     }
+                    browser.set_opener(lock(&self.opener).clone());
                     let _ = reply.send(browser.apply(request));
                 }
                 Job::Shutdown(reply) => {
@@ -180,6 +187,12 @@ impl BrowserBus {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_engine_factory(&self, factory: EngineFactory) {
         *lock(&self.inner.factory) = factory;
+    }
+
+    /// Run `program url` for `eludite.browser.open_external` instead of the system's opener (tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn set_opener(&self, program: Option<String>) {
+        *lock(&self.inner.opener) = program;
     }
 
     /// The settings of the next launch.
@@ -249,6 +262,7 @@ pub fn register(commands: &CommandRegistry) -> (BrowserBus, UnboundedReceiver<St
             workspace: Mutex::new(None),
             jobs: Mutex::new(None),
             log,
+            opener: Mutex::new(None),
         }),
     };
     cmds::register(commands, Arc::new(bus.clone()));

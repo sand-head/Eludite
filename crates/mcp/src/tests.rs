@@ -748,3 +748,179 @@ fn image_types_are_sniffed() {
     assert_eq!(sniff_image_type("UklGRiQAAABXRUJQVlA4"), Some("image/webp"));
     assert_eq!(sniff_image_type("aGVsbG8="), None);
 }
+
+/// A command whose `to: "far"` calls are dangerous, `to: "no"` refused, and the rest execute (ADR-0009).
+fn escalating_registry() -> Arc<CommandRegistry> {
+    use eludite_commands::{Escalation, EscalationHook};
+    let r = CommandRegistry::new();
+    let hook: EscalationHook = Arc::new(|input: &Value, _view| match input["to"].as_str()? {
+        "far" => Some(Escalation::raise(PermissionClass::Dangerous, "going far")),
+        "no" => Some(Escalation::Refuse("the policy refuses it".into())),
+        _ => None,
+    });
+    r.register_with_escalation(
+        CommandSpec {
+            id: CommandId::new("test.go").unwrap(),
+            title: "Test: Go".into(),
+            input_schema: json!({"type": "object", "description": "Go somewhere.", "x-eludite-escalates": "Dangerous when `to` is far.",
+                "properties": {"to": {"type": "string"}}}),
+            output_schema: json!({"type": "object", "properties": {"went": {"type": "string"}}}),
+            permission: PermissionClass::Execute,
+            agent_visible: true,
+        },
+        hook,
+        |input| Ok(json!({"went": input["to"]})),
+    )
+    .unwrap();
+    let clear: EscalationHook = Arc::new(|input: &Value, _view| {
+        (input["clear"] == true).then(|| Escalation::raise(PermissionClass::Execute, "clearing"))
+    });
+    r.register_with_escalation(
+        CommandSpec {
+            id: CommandId::new("test.store").unwrap(),
+            title: "Test: Store".into(),
+            input_schema: json!({"type": "object", "x-eludite-escalates": "Execute when `clear` is true.", "properties": {"clear": {"type": "boolean"}}}),
+            output_schema: json!({"type": "object", "properties": {}}),
+            permission: PermissionClass::Read,
+            agent_visible: true,
+        },
+        clear,
+        |_| Ok(json!({})),
+    )
+    .unwrap();
+    Arc::new(r)
+}
+
+#[test]
+fn a_spec_with_a_hook_lists_when_it_escalates() {
+    let s = McpServer::new(escalating_registry());
+    let list = result(call(&s, "tools/list", json!({})));
+    let go = list["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "test-go")
+        .unwrap();
+    assert_eq!(
+        go["_meta"]["eludite/permission"], "execute",
+        "the declared class"
+    );
+    assert_eq!(
+        go["_meta"]["eludite/escalates"],
+        "Dangerous when `to` is far."
+    );
+    assert!(
+        go["inputSchema"].get("x-eludite-escalates").is_none(),
+        "the key moves to _meta"
+    );
+    assert_eq!(go["annotations"]["destructiveHint"], false);
+    let store = list["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "test-store")
+        .unwrap();
+    assert_eq!(store["_meta"]["eludite/permission"], "read");
+    assert_eq!(
+        store["annotations"]["readOnlyHint"], false,
+        "a read command whose calls may escalate is not read-only"
+    );
+    // A spec without a hook has no `eludite/escalates`.
+    let plain = crate::tool_from_command(
+        &builtins::default_registry()
+            .lookup(builtins::FILE_OPEN)
+            .unwrap(),
+    );
+    assert!(
+        serde_json::to_value(plain).unwrap()["_meta"]
+            .get("eludite/escalates")
+            .is_none()
+    );
+}
+
+#[test]
+fn the_gate_sees_the_effective_class() {
+    let r = escalating_registry();
+    type Seen = Vec<(String, PermissionClass, Option<String>)>;
+    let seen: Arc<Mutex<Seen>> = Arc::default();
+    let seen2 = seen.clone();
+    let s = McpServer::new(r.clone())
+        .with_agent("Fake")
+        .with_permission_gate(Arc::new(move |spec, _, ctx| {
+            seen2.lock().unwrap().push((
+                spec.id.to_string(),
+                ctx.class.class,
+                ctx.class.reason.clone(),
+            ));
+            GateDecision::Allow
+        }));
+    let go = |to: &str| {
+        result(call(
+            &s,
+            "tools/call",
+            json!({"name": "test-go", "arguments": {"to": to}}),
+        ))
+    };
+    assert_eq!(go("near")["isError"], false);
+    assert_eq!(go("far")["structuredContent"]["went"], "far");
+    // Refused calls never reach the gate.
+    let refused = go("no");
+    assert_eq!(refused["isError"], true);
+    let text = refused["content"][0]["text"].as_str().unwrap().to_owned();
+    assert!(text.contains("the policy refuses it"), "{text}");
+    // A read call that escalates to execute goes to the gate; a plain one does not.
+    for clear in [false, true] {
+        let out = result(call(
+            &s,
+            "tools/call",
+            json!({"name": "test-store", "arguments": {"clear": clear}}),
+        ));
+        assert_eq!(out["isError"], false);
+    }
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(
+        seen,
+        [
+            ("test.go".into(), PermissionClass::Execute, None),
+            (
+                "test.go".into(),
+                PermissionClass::Dangerous,
+                Some("going far".into())
+            ),
+            (
+                "test.store".into(),
+                PermissionClass::Execute,
+                Some("clearing".into())
+            ),
+        ]
+    );
+    // The audit entries carry the effective class and the reason, the refusal included.
+    let log = r.audit_log().entries();
+    let classes: Vec<_> = log
+        .iter()
+        .map(|e| (e.permission.unwrap(), e.escalation.clone(), e.is_ok()))
+        .collect();
+    assert_eq!(
+        classes,
+        [
+            (PermissionClass::Execute, None, true),
+            (PermissionClass::Dangerous, Some("going far".into()), true),
+            (
+                PermissionClass::Execute,
+                Some("the policy refuses it".into()),
+                false
+            ),
+            (PermissionClass::Read, None, true),
+            (PermissionClass::Execute, Some("clearing".into()), true),
+        ]
+    );
+    // The denial names the effective class and the reason.
+    let denying = McpServer::new(r.clone());
+    let out = result(call(
+        &denying,
+        "tools/call",
+        json!({"name": "test-go", "arguments": {"to": "far"}}),
+    ));
+    let text = out["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("is class dangerous (going far)"), "{text}");
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-open-external.input.json",
+  "title": "eludite.browser.open_external input",
+  "description": "Open a url in the person's own browser, outside Eludite (the system's opener: `xdg-open` on Linux, `open` on macOS, `start` on Windows), for them to look at with their own sessions; default: the active tab's url. Does not wait for the browser and cannot read anything back: use the eludite.browser.* tools to look at pages yourself. Permission class execute; a `url` off the allowed origins (the solution policy's `browser.origins`) makes the call dangerous, which prompts (ADR-0009).",
+  "x-eludite-escalates": "Dangerous when `url` is off the allowed origins (the solution policy's `browser.origins`).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "description": "An absolute URL with a scheme (`http://localhost:5000/`). Default: the active tab's url.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

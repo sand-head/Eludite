@@ -14,6 +14,13 @@
 //!   policy file (`eludite_commands::policy`) decides; what it leaves open is asked in the window's permission
 //!   prompt, whose Always Allow writes a rule into that file. Eludite's own tools are judged once, at the MCP
 //!   boundary (the gate), never twice; the agent's own tools at its `session/request_permission`.
+//! - **Escalation** (brief 0024, ADR-0009). The gate decides on a call's effective class, which a command's
+//!   escalation hook may raise from the call's input and the policy (the browser's origin rule); the prompt shows
+//!   why, and Always Allow remembers what the hook names (an origin added to `browser.origins`, or nothing). The
+//!   registry reads the policy through a source this module sets when an agent starts.
+//! - **Thumbnails** (brief 0024). Images in a tool call's result (Eludite's screenshot, or image content the agent
+//!   forwards) are decoded and scaled off the UI thread and shown in its transcript row; clicking one saves the image
+//!   beside the transcript (or in Eludite's cache) and opens it with `eludite.browser.open_external`.
 
 pub mod endpoint;
 pub mod review;
@@ -34,8 +41,8 @@ use eludite_acp::{
     AdapterSearch, AgentSession, AgentSettings, AgentState, LoginMethod, PermissionPolicy,
     PolicyAnswer, RegisteredAgent, SessionConfig, SessionEvent,
 };
-use eludite_commands::policy::{AgentPolicy, Verdict};
-use eludite_commands::{CommandRegistry, PermissionClass};
+use eludite_commands::policy::{AgentPolicy, AlwaysAllow, PolicySnapshot, Verdict};
+use eludite_commands::{CallClass, CommandRegistry, PermissionClass};
 use eludite_mcp::{GateDecision, ToolCallRecord, command_id_from_tool_name, tool_name};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use gpui::{AppContext as _, Context, Entity, Window};
@@ -43,7 +50,7 @@ use serde_json::{Value, json};
 
 use self::endpoint::{EndpointHooks, MCP_SERVER_NAME, McpEndpoint};
 use self::review::{DiffView, GutterMarkers, PendingChange, ReviewBoard};
-use self::transcript::{McpLink, Permission};
+use self::transcript::{ImageData, McpLink, Permission, Thumb};
 use self::window::{AgentsWindow, AgentsWindowEvent, Decision, HeaderState, StateKind};
 use super::Shell;
 
@@ -184,6 +191,8 @@ pub struct PolicyStore {
     /// `None` without a solution: the defaults, and Always Allow cannot persist.
     path: Option<PathBuf>,
     policy: Mutex<Option<AgentPolicy>>,
+    /// The workspace's launch urls (`browser.origins`' `$launch_urls`), read on first use.
+    launch_urls: std::sync::OnceLock<Vec<String>>,
 }
 
 impl PolicyStore {
@@ -191,6 +200,36 @@ impl PolicyStore {
         Self {
             path,
             policy: Mutex::new(None),
+            launch_urls: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The solution's folder, which holds `.eludite/agents-policy.json`.
+    pub fn workspace(&self) -> Option<PathBuf> {
+        self.path
+            .as_deref()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+    }
+
+    /// What escalation hooks see (ADR-0009): the policy, the folder and its launch urls. Reads files the first
+    /// time; called on the MCP call's thread.
+    pub fn snapshot(&self) -> PolicySnapshot {
+        let workspace = self.workspace();
+        let launch_urls = self
+            .launch_urls
+            .get_or_init(|| {
+                workspace
+                    .as_deref()
+                    .map(eludite_commands::policy::launch_urls)
+                    .unwrap_or_default()
+            })
+            .clone();
+        PolicySnapshot {
+            policy: self.get(),
+            workspace,
+            launch_urls,
         }
     }
 
@@ -264,13 +303,16 @@ pub enum HostMsg {
     Registry(Vec<RegisteredAgent>, Option<String>, Option<String>),
     /// The MCP gate asks the user about an Eludite command; the answer goes to `reply`.
     Ask(Box<GateAsk>),
+    /// A tool call's images, decoded off the UI thread: (tool call id, thumbnails).
+    Images(String, Vec<Thumb>),
 }
 
 pub struct GateAsk {
     pub key: u64,
     /// `mcp__eludite__<tool>`.
     pub tool: String,
-    pub class: PermissionClass,
+    /// The call's effective class (ADR-0009).
+    pub call: CallClass,
     pub input: Value,
     pub tool_call: Option<String>,
     pub reply: mpsc::Sender<bool>,
@@ -279,7 +321,8 @@ pub struct GateAsk {
 /// A permission request waiting in the window.
 struct Waiting {
     tool: String,
-    class: PermissionClass,
+    /// Its effective class, why, and what Always Allow remembers.
+    call: CallClass,
     input: Value,
     /// The MCP gate's reply; `None` for the agent's own requests (answered through ACP).
     reply: Option<mpsc::Sender<bool>>,
@@ -578,6 +621,10 @@ impl Shell {
         *self.agents.policy.lock().unwrap_or_else(|e| e.into_inner()) = Arc::new(PolicyStore::new(
             self.solution_dir().map(|d| AgentPolicy::path_for(&d)),
         ));
+        // Escalation hooks read the same policy (ADR-0009), on the calling thread, when a hook needs it.
+        let shared = self.agents.policy.clone();
+        self.commands
+            .set_policy_source(Arc::new(move || current_policy(&shared).snapshot()));
         self.agents.generation += 1;
         let generation = self.agents.generation;
         *self
@@ -719,10 +766,13 @@ impl Shell {
             }
         };
         let mut persisted = false;
+        let mut remembered = None;
         let store = current_policy(&self.agents.policy);
+        // Always Allow remembers what the call's escalation names (a rule, an origin), or nothing (ADR-0009).
         if decision == Decision::AlwaysAllow
-            && let Some((path, policy)) =
-                store.update(|p| drop(p.allow_always(&waiting.tool, &waiting.input)))
+            && waiting.call.always_allow != AlwaysAllow::Never
+            && let Some((path, policy)) = store
+                .update(|p| remembered = p.remember(&waiting.call, &waiting.tool, &waiting.input))
         {
             persisted = true;
             cx.background_spawn(async move {
@@ -732,9 +782,9 @@ impl Shell {
             })
             .detach();
         }
-        let reason = match decision {
-            Decision::AlwaysAllow if persisted => {
-                format!("{label}, and always for this solution")
+        let reason = match (decision, &remembered) {
+            (Decision::AlwaysAllow, Some(what)) if persisted => {
+                format!("{label}, and always for this solution ({what})")
             }
             _ => label,
         };
@@ -759,7 +809,7 @@ impl Shell {
         Ok(Answered {
             request: key,
             tool: waiting.tool,
-            class: waiting.class,
+            class: waiting.call.class,
             persisted,
             policy_path: store.path().map(Path::to_path_buf).filter(|_| persisted),
         })
@@ -780,9 +830,16 @@ impl Shell {
     pub(super) fn after_permission_change(&mut self, cx: &mut Context<Self>) {
         let window = self.agents.window.clone();
         let can_persist = current_policy(&self.agents.policy).path().is_some();
+        let calls: HashMap<u64, CallClass> = self
+            .agents
+            .waiting
+            .iter()
+            .map(|(k, w)| (*k, w.call.clone()))
+            .collect();
         window.update(cx, |w, cx| {
             let oldest = w.transcript.asked().first().copied();
             w.prompt = oldest.and_then(|key| {
+                let call = calls.get(&key);
                 let row = w.transcript.tools().find(
                     |t| matches!(t.permission, Some(Permission::Asked { key: k, .. }) if k == key),
                 )?;
@@ -800,7 +857,9 @@ impl Shell {
                         .as_ref()
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
-                    can_persist,
+                    can_persist: can_persist
+                        && call.is_none_or(|c| c.always_allow != AlwaysAllow::Never),
+                    reason: call.and_then(|c| c.reason.clone()),
                 })
             });
             cx.notify();
@@ -817,9 +876,10 @@ impl Shell {
             // On the endpoint's call thread: the policy, else ask the user and wait for the answer.
             gate: Arc::new(move |spec, args, ctx| {
                 let tool = format!("mcp__{MCP_SERVER_NAME}__{}", tool_name(&spec.id));
+                // The call's effective class (ADR-0009): an escalated call is not allowed by the tool's rules.
                 let verdict = current_policy(&policy)
                     .get()
-                    .decide(spec.permission, &tool, args);
+                    .decide_call(&ctx.class, &tool, args);
                 match verdict {
                     Verdict::Allow(_) => return GateDecision::Allow,
                     Verdict::Deny(r) => return GateDecision::Deny(r),
@@ -833,7 +893,7 @@ impl Shell {
                 let ask = GateAsk {
                     key: NEXT_ASK.fetch_add(1, Ordering::Relaxed),
                     tool,
-                    class: spec.permission,
+                    call: ctx.class.clone(),
                     input: args.clone(),
                     tool_call: ctx.tool_call.clone(),
                     reply,
@@ -852,7 +912,7 @@ impl Shell {
                 let board = self.agents.board.clone();
                 Arc::new(move |spec, args, ctx| {
                     let out = eludite_commands::with_caller(ctx.caller(), || {
-                        commands.invoke(spec.id.as_str(), args)
+                        commands.invoke_as(spec.id.as_str(), args, &ctx.class).1
                     })?;
                     if !REVIEWED_COMMANDS.contains(&spec.id.as_str()) {
                         return Ok(out);
@@ -1129,6 +1189,9 @@ impl Shell {
                 self.run(REVIEW, args, window, cx);
             }
             AgentsWindowEvent::OpenChange(id) => self.open_change(*id, window, cx),
+            AgentsWindowEvent::OpenImage { tool_call, index } => {
+                self.open_image(tool_call, *index, cx)
+            }
         }
     }
 
@@ -1225,26 +1288,51 @@ impl Shell {
                         ms: record.elapsed.as_secs_f64() * 1e3,
                         audit,
                     };
-                    window.update(cx, |w, _| {
+                    let linked = window.update(cx, |w, _| {
                         w.transcript
                             .link_mcp(record.tool_call.as_deref(), &record.tool, link)
                     });
+                    // The images the command answered (a screenshot), as thumbnails.
+                    if let (Some(row), Some(spec), Ok(output)) = (
+                        linked,
+                        record
+                            .command
+                            .as_ref()
+                            .and_then(|c| self.commands.lookup(c.as_str())),
+                        &record.outcome,
+                    ) {
+                        let images: Vec<ImageData> =
+                            eludite_mcp::take_image_content(&spec, &mut output.clone())
+                                .into_iter()
+                                .filter_map(|i| {
+                                    Some(ImageData {
+                                        data: i["data"].as_str()?.to_owned(),
+                                        mime: i["mimeType"].as_str()?.to_owned(),
+                                    })
+                                })
+                                .collect();
+                        self.decode_images(row, images, cx);
+                    }
+                }
+                HostMsg::Images(row, thumbs) => {
+                    window.update(cx, |w, _| w.transcript.add_thumbs(&row, thumbs));
                 }
                 HostMsg::Ask(ask) => {
                     permissions = true;
                     super::documents::trace(format_args!(
                         "agents permission asked {} ({})",
                         ask.tool,
-                        ask.class.as_str()
+                        ask.call.class.as_str()
                     ));
                     let GateAsk {
                         key,
                         tool,
-                        class,
+                        call,
                         input,
                         tool_call,
                         reply,
                     } = *ask;
+                    let class = call.class;
                     let bare = tool.rsplit("__").next().unwrap_or_default().to_owned();
                     window.update(cx, |w, _| {
                         w.transcript.ask_mcp(
@@ -1258,7 +1346,7 @@ impl Shell {
                         key,
                         Waiting {
                             tool,
-                            class,
+                            call,
                             input,
                             reply: Some(reply),
                         },
@@ -1306,7 +1394,17 @@ impl Shell {
                         super::documents::trace(format_args!("agents {name} {ms:.1} ms"));
                         self.agents.timings.push((name, ms))
                     }
-                    SessionEvent::Update(u) => window.update(cx, |w, _| w.transcript.apply(&u)),
+                    SessionEvent::Update(u) => {
+                        // Image content in a tool call's result (the agent forwarding a screenshot), as thumbnails.
+                        if let eludite_acp::protocol::SessionUpdate::ToolCall(t)
+                        | eludite_acp::protocol::SessionUpdate::ToolCallUpdate(t) = &u
+                            && let Some(content) = &t.content
+                        {
+                            let images = transcript::content_images(content);
+                            self.decode_images(t.tool_call_id.clone(), images, cx);
+                        }
+                        window.update(cx, |w, _| w.transcript.apply(&u))
+                    }
                     SessionEvent::Permission { key, request } => {
                         let class = class_of(&self.commands, &request);
                         // The agent's own file tool with a diff: a pending change, reviewed like Eludite's edits.
@@ -1332,7 +1430,7 @@ impl Shell {
                             key,
                             Waiting {
                                 tool: tool_of(&request),
-                                class,
+                                call: CallClass::declared(class),
                                 input: request.tool_call.raw_input.clone().unwrap_or(json!({})),
                                 reply: None,
                             },
@@ -1410,6 +1508,98 @@ impl Shell {
         }
     }
 
+    /// Decode `images` of tool call `row` off the UI thread; their thumbnails reach the row through the pump.
+    fn decode_images(&self, row: String, images: Vec<ImageData>, cx: &mut Context<Self>) {
+        if images.is_empty() {
+            return;
+        }
+        let tx = self.agents.tx.clone();
+        cx.background_spawn(async move {
+            let thumbs: Vec<Thumb> = images.iter().filter_map(transcript::decode_thumb).collect();
+            if !thumbs.is_empty() {
+                let _ = tx.unbounded_send(HostMsg::Images(row, thumbs));
+            }
+        })
+        .detach();
+    }
+
+    /// Where opened images are saved: beside the transcript (`--transcript-out`), else in Eludite's cache.
+    pub fn image_dir(&self) -> PathBuf {
+        match &self.agents.setup.transcript_out {
+            Some(t) => {
+                let stem = t
+                    .file_stem()
+                    .map_or_else(|| "transcript".into(), |s| s.to_string_lossy().into_owned());
+                t.parent()
+                    .unwrap_or(Path::new("."))
+                    .join(format!("{stem}-images"))
+            }
+            None => eludite_browser::discovery::default_cache_root()
+                .and_then(|c| c.parent().map(Path::to_path_buf))
+                .unwrap_or_else(std::env::temp_dir)
+                .join("agents")
+                .join("images"),
+        }
+    }
+
+    /// Open image `index` of tool call `tool_call` in full: the editor has no image view yet, so it is saved
+    /// ([`Shell::image_dir`]) and opened with the system viewer through `eludite.browser.open_external`, off the UI
+    /// thread.
+    pub fn open_image(&mut self, tool_call: &str, index: usize, cx: &mut Context<Self>) {
+        let image = self
+            .agents
+            .window
+            .read(cx)
+            .transcript
+            .tool(tool_call)
+            .and_then(|t| t.images.get(index))
+            .cloned();
+        let Some(image) = image else {
+            return;
+        };
+        let ext = match image.mime.as_str() {
+            "image/jpeg" => "jpg",
+            "image/gif" => "gif",
+            "image/webp" => "webp",
+            _ => "png",
+        };
+        let name: String = tool_call
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = self.image_dir().join(format!("{name}-{index}.{ext}"));
+        let commands = self.commands.clone();
+        // A thread of its own: the browser worker refuses the UI thread, and the write may block.
+        let spawned = std::thread::Builder::new()
+            .name("agents-open-image".into())
+            .spawn(move || {
+                let saved = path
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| std::fs::write(&path, image.bytes.as_slice()));
+                if let Err(e) = saved {
+                    eprintln!("eludite: {}: {e}", path.display());
+                    return;
+                }
+                let url = super::documents::path_to_uri(&path);
+                if let Err(e) = commands.invoke(
+                    eludite_commands::browser::OPEN_EXTERNAL,
+                    json!({ "url": url }),
+                ) {
+                    eprintln!("eludite: opening {url}: {e}");
+                }
+            });
+        if let Err(e) = spawned {
+            eprintln!("eludite: opening an image: {e}");
+        }
+    }
+
     /// Every tool call is audited: Eludite's at its MCP boundary; the agent's own once they end, with their arguments
     /// and how they ended.
     fn audit_agent_tools(&mut self, cx: &mut Context<Self>) {
@@ -1476,4 +1666,4 @@ impl Shell {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::shell) mod tests;

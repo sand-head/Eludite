@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-upload.output.json",
+  "title": "eludite.browser.upload output",
+  "description": "The files the input holds now.",
+  "type": "object",
+  "required": [
+    "tab",
+    "count",
+    "page_generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

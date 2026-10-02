@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-upload.input.json",
+  "title": "eludite.browser.upload input",
+  "description": "Set the files of a file input (`<input type=file>`, by `ref` from eludite.browser.read_page or find) to existing files on disk (DOM.setFileInputFiles), as choosing them in the file dialog would; the page gets `input` and `change` events. Several files need an input with `multiple`. The page sees each file's name, size and content. Permission class execute for files in the workspace folder; a file outside it makes the call dangerous, which prompts (ADR-0009). Next: eludite.browser.input to click the upload button, eludite.browser.wait for the page to react.",
+  "x-eludite-escalates": "Dangerous when a path is outside the workspace folder.",
+  "type": "object",
+  "required": [
+    "ref",
+    "paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ref": {
+      "description": "The file input: a ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+      "type": "string",
+      "pattern": "^e[0-9]+$"
+    },
+    "paths": {
+      "description": "Absolute paths of existing files.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}
