@@ -128,6 +128,9 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             "eludite.debug.set_next_statement",
         ),
         show("ctrl-alt-b", "Ctrl+Alt+B", "breakpoints"),
+        // Debug.Restart and Debug.AttachToProcess (brief 0027): Ctrl+Shift+F5 and Ctrl+Alt+P (the dialog).
+        command("ctrl-shift-f5", "Ctrl+Shift+F5", "eludite.debug.restart"),
+        command("ctrl-alt-p", "Ctrl+Alt+P", "eludite.debug.attach"),
     ]
 }
 
@@ -270,6 +273,8 @@ mod tests {
             ("eludite.debug.run_to_cursor", "Ctrl+F10"),
             ("eludite.debug.pause", "Ctrl+Alt+Break"),
             ("eludite.debug.set_next_statement", "Ctrl+Shift+F10"),
+            ("eludite.debug.restart", "Ctrl+Shift+F5"),
+            ("eludite.debug.attach", "Ctrl+Alt+P"),
         ] {
             assert_eq!(shortcut_for(&k, cmd, &json!({})), Some(key), "{cmd}");
         }

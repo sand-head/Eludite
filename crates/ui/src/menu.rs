@@ -22,7 +22,29 @@ pub enum MenuEntry {
         command: &'static str,
         args: Value,
     },
+    /// A check item: its command takes `{"enabled": bool}`; [`MenuBar::set_checked`] says whether it is on.
+    Check {
+        label: &'static str,
+        command: &'static str,
+    },
     Separator,
+}
+
+impl MenuEntry {
+    /// The label, command and arguments a click dispatches (a check item's from its state); `None` for a separator.
+    fn action(&self, checked: bool) -> Option<(&'static str, &'static str, Value)> {
+        match self {
+            MenuEntry::Item {
+                label,
+                command,
+                args,
+            } => Some((label, command, args.clone())),
+            MenuEntry::Check { label, command } => {
+                Some((label, command, json!({ "enabled": !checked })))
+            }
+            MenuEntry::Separator => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,10 +209,17 @@ pub fn vs_menus() -> Vec<Menu> {
                     args: json!({ "debug": false }),
                 },
                 item("Stop Debugging", "eludite.debug.stop"),
+                // Restart (brief 0027): Ctrl+Shift+F5; not for an attached session.
+                item("Restart", "eludite.debug.restart"),
                 item("Continue", "eludite.debug.continue"),
                 // Break All (brief 0025): only a running debuggee; the command refuses it otherwise.
                 item("Break All", "eludite.debug.pause"),
                 item("Attach to Process...", "eludite.debug.attach"),
+                // Who may drive the session (brief 0027): the person's switch for agents.
+                MenuEntry::Check {
+                    label: "Allow Agents to Drive",
+                    command: "eludite.debug.allow_agents",
+                },
                 Separator,
                 item("Step Into", "eludite.debug.step_into"),
                 item("Step Over", "eludite.debug.step_over"),
@@ -275,12 +304,16 @@ pub fn vs_menus() -> Vec<Menu> {
 /// Whether a command id is registered (the item is enabled).
 pub type IsEnabled = Rc<dyn Fn(&str) -> bool>;
 
+/// Whether the check item of a command id is on.
+pub type IsChecked = Rc<dyn Fn(&str) -> bool>;
+
 /// The menu bar view: titles, and the open drop-down.
 pub struct MenuBar {
     menus: Vec<Menu>,
     keymap: Vec<KeyBindingSpec>,
     theme: Theme,
     is_enabled: IsEnabled,
+    is_checked: Option<IsChecked>,
     open: Option<usize>,
     /// Records where the titles (`menu-<title>`) and the open menu's items (`menu-item-<title>-<label>`) are drawn
     /// (the manual runs' real-input drivers).
@@ -299,9 +332,34 @@ impl MenuBar {
             keymap,
             theme,
             is_enabled,
+            is_checked: None,
             open: None,
             probe: None,
         }
+    }
+
+    /// Where check items read their state from.
+    pub fn set_checked(&mut self, is_checked: IsChecked) {
+        self.is_checked = Some(is_checked);
+    }
+
+    fn checked(&self, command: &str) -> bool {
+        self.is_checked.as_ref().is_some_and(|f| f(command))
+    }
+
+    /// Whether the check item labelled `label` in menu `title` is on (`None`: no such check item).
+    pub fn is_item_checked(&self, title: &str, label: &str) -> Option<bool> {
+        self.menus
+            .iter()
+            .find(|m| m.title == title)?
+            .entries
+            .iter()
+            .find_map(|e| match e {
+                MenuEntry::Check { label: l, command } if *l == label => {
+                    Some(self.checked(command))
+                }
+                _ => None,
+            })
     }
 
     /// Record where the titles and the open menu's items are drawn (`eludite --bounds-out`).
@@ -330,10 +388,8 @@ impl MenuBar {
             .find(|m| m.title == title)?
             .entries
             .iter()
-            .find_map(|e| match e {
-                MenuEntry::Item {
-                    label: l, command, ..
-                } if *l == label => Some((self.is_enabled)(command)),
+            .find_map(|e| match e.action(false) {
+                Some((l, command, _)) if l == label => Some((self.is_enabled)(command)),
                 _ => None,
             })
     }
@@ -346,10 +402,8 @@ impl MenuBar {
             .map(|m| {
                 m.entries
                     .iter()
-                    .filter_map(|e| match e {
-                        MenuEntry::Item { label, command, .. } if (self.is_enabled)(command) => {
-                            Some(*label)
-                        }
+                    .filter_map(|e| match e.action(false) {
+                        Some((label, command, _)) if (self.is_enabled)(command) => Some(label),
                         _ => None,
                     })
                     .collect()
@@ -373,13 +427,12 @@ impl MenuBar {
                     .mx_2()
                     .bg(t.popup_border)
                     .into_any_element(),
-                MenuEntry::Item {
-                    label,
-                    command,
-                    args,
-                } => {
+                entry => {
+                    let checked =
+                        matches!(entry, MenuEntry::Check { command, .. } if self.checked(command));
+                    let (label, command, args) = entry.action(checked).expect("not a separator");
                     let enabled = (self.is_enabled)(command);
-                    let shortcut = shortcut_for(&self.keymap, command, args).unwrap_or_default();
+                    let shortcut = shortcut_for(&self.keymap, command, &args).unwrap_or_default();
                     let selector = format!("menu-item-{title}-{label}");
                     let probed = crate::bounds_canvas(self.probe.as_ref(), selector.clone());
                     let mut el = div()
@@ -394,10 +447,11 @@ impl MenuBar {
                         .pl_6()
                         .pr_3()
                         .gap_8()
-                        .child(div().flex_1().child(*label))
+                        .children(checked.then(|| div().absolute().left(px(8.)).child("\u{2713}")))
+                        .child(div().flex_1().child(label))
                         .child(div().text_size(ty.small).child(shortcut));
                     if enabled {
-                        let action = RunCommand::new(*command, args.clone());
+                        let action = RunCommand::new(command, args);
                         el = el
                             .text_color(t.menu_text)
                             .cursor_pointer()
@@ -579,7 +633,7 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } => None,
             })
             .collect();
         assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
@@ -595,7 +649,7 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } => None,
             })
             .collect();
         assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
@@ -616,7 +670,7 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, *command, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } => None,
             })
             .collect();
         let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
@@ -649,7 +703,7 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, *command, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } => None,
             })
             .collect();
         let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
@@ -664,5 +718,43 @@ mod tests {
                 .iter()
                 .any(|b| b.keystrokes == "ctrl-alt-pause" && b.command == "eludite.debug.pause")
         );
+    }
+
+    #[test]
+    fn the_debug_menu_has_restart_attach_and_the_agents_check_item() {
+        let keymap = crate::keymap::vs_keymap();
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let items: Vec<_> = debug
+            .entries
+            .iter()
+            .filter_map(|e| {
+                let (label, command, args) = e.action(true)?;
+                Some((label, command, shortcut_for(&keymap, command, &args), args))
+            })
+            .collect();
+        let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
+        let restart = &items[at("Restart")];
+        assert_eq!(
+            (restart.1, restart.2),
+            ("eludite.debug.restart", Some("Ctrl+Shift+F5"))
+        );
+        assert!(at("Stop Debugging") < at("Restart") && at("Restart") < at("Continue"));
+        let attach = &items[at("Attach to Process...")];
+        assert_eq!(
+            (attach.1, attach.2),
+            ("eludite.debug.attach", Some("Ctrl+Alt+P"))
+        );
+        // The check item dispatches the other state.
+        let allow = &items[at("Allow Agents to Drive")];
+        assert_eq!(allow.1, "eludite.debug.allow_agents");
+        assert_eq!(allow.3, json!({"enabled": false}));
+        let off = MenuEntry::Check {
+            label: "x",
+            command: "c",
+        }
+        .action(false)
+        .unwrap();
+        assert_eq!(off.2, json!({"enabled": true}));
+        assert!(MenuEntry::Separator.action(false).is_none());
     }
 }
