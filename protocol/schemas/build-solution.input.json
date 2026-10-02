@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-solution.input.json",
   "title": "eludite.build.solution input",
-  "description": "Build the open solution (Build > Build Solution, Ctrl+Shift+B or F6), out of process in eludite-host: `dotnet build` for SDK-style solutions, the located MSBuild (Mono's on Linux and macOS, Build Tools' on Windows) when the solution has legacy projects. The Output window shows the log as it streams, the Error List the build's errors and warnings next to the live ones, the status bar the progress. One build at a time: while one runs this fails, and the Build menu's items are disabled.",
+  "description": "Build the open workspace (Build > Build Solution, Ctrl+Shift+B or F6): the .NET solution out of process in eludite-host (`dotnet build` for SDK-style solutions, the located MSBuild (Mono's on Linux and macOS, Build Tools' on Windows) when the solution has legacy projects), and the Cargo workspace with `cargo build --message-format=json-diagnostic-rendered-ansi`, run by the shell off the UI thread (brief 0019). Which of the two runs is `system`. The Output window shows the log as it streams, the Error List the build's errors and warnings next to the live ones, the status bar the progress. One build at a time: while one runs this fails, and the Build menu's items are disabled.",
   "type": "object",
   "properties": {
     "configuration": {
@@ -14,6 +14,14 @@
       "description": "A platform the solution file lists, for example Any CPU or x64. Omitted: the platform selected in the IDE (the solution's default).",
       "type": "string",
       "minLength": 1
+    },
+    "system": {
+      "description": "Which build system builds (brief 0019): msbuild (the .NET solution, through eludite-host), cargo (the Cargo workspace, `cargo build` run by the shell) or all (each the workspace has, MSBuild first, one after the other, into the same Output pane and Error List). Omitted: the system that owns the active document (a .rs file belongs to cargo, a file of the solution to msbuild), or all when no document is active or the active one belongs to neither.",
+      "enum": [
+        "msbuild",
+        "cargo",
+        "all"
+      ]
     },
     "wait": {
       "description": "Wait for the build to finish and return its result (the default for a caller off the UI thread, such as an agent). false: return as soon as the build starts, with state running. A caller on the UI thread (menus, keys) never waits. A waiting call ends early, with state canceled, when the build is canceled (eludite.build.cancel).",

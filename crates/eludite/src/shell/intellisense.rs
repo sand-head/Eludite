@@ -1,7 +1,8 @@
 //! IntelliSense through `eludite-host` (brief 0013): the editor's completion list, Quick Info and Parameter Info
 //! fed by `textDocument/completion`, `completionItem/resolve`, `textDocument/hover` and `textDocument/signatureHelp`.
 //!
-//! - **Requests** go through the [`HostSession`](super::session::HostSession) worker after a pending `didChange` is
+//! - **Requests** go through the document's [`ServerSession`](super::session::ServerSession) worker (the host's, or a
+//!   generic server's, brief 0019) after a pending `didChange` is
 //!   flushed, so the host sees the text the user sees; the reply arrives on a oneshot channel the UI awaits.
 //! - **Superseding**: each document has at most one request of each kind in flight. A new one (the next keystroke)
 //!   cancels the previous one with `$/cancelRequest`; closing the popup cancels it too.
@@ -310,6 +311,14 @@ impl Shell {
         if doc.language_id.is_none() {
             return Provider::Syntax;
         }
+        // A generic server (brief 0019): its own state, and whether it is still loading the workspace.
+        if let super::servers::ServerKey::Generic(key) = &doc.server {
+            return match self.generic.get(key) {
+                Some(g) if g.down() => Provider::Syntax,
+                Some(g) if g.ready() => Provider::Server,
+                _ => Provider::ServerAndSyntax,
+            };
+        }
         match (self.ls_state, self.solution_state) {
             (None, _) => Provider::Syntax,
             (Some(LanguageServerState::Unavailable | LanguageServerState::Exited), _)
@@ -343,15 +352,14 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
+        let completion_triggers = self.doc_features(id).completion_triggers;
         let doc = self.documents.get_mut(id).expect("checked above");
         let snapshot = doc.sent.clone();
         let version = doc.lsp_version;
         let (kind, character) = match trigger {
             Some(CompletionTrigger::Character(c))
-                if self
-                    .features
-                    .completion_triggers
+                if completion_triggers
                     .iter()
                     .any(|t| t.chars().eq(std::iter::once(c))) =>
             {
@@ -373,7 +381,7 @@ impl Shell {
             "completion request {} at {}:{} version {version}",
             request.id, params.position.line, params.position.character
         ));
-        let (handle, rx) = self.session.request::<lsp::Completion>(params);
+        let (handle, rx) = doc.session.request::<lsp::Completion>(params);
         let doc_id = id.to_owned();
         let editor_id = request.id;
         let task = cx.spawn(async move |this, cx| {
@@ -409,8 +417,8 @@ impl Shell {
             received: Some(reply.received),
             ..Default::default()
         };
-        let current_generation = self.generation;
-        let features_resolve = self.features.resolve;
+        let current_generation = self.doc_generation(id);
+        let features_resolve = self.doc_features(id).resolve;
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -488,10 +496,10 @@ impl Shell {
 
     /// Fetch the documentation of item `index` of list `list` (the selected item).
     fn resolve_completion(&mut self, id: &str, list: u64, index: usize, cx: &mut Context<Self>) {
-        if !self.features.resolve {
+        if !self.doc_features(id).resolve {
             return;
         }
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -507,14 +515,14 @@ impl Shell {
         };
         // The server resolves on the text it has, which is the text last sent (a pending change goes after this).
         let base = doc.sent.clone();
-        let (handle, rx) = self.session.request::<lsp::ResolveCompletionItem>(item);
+        let (handle, rx) = doc.session.request::<lsp::ResolveCompletionItem>(item);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
             };
             let _ = this.update(cx, |shell, cx| {
-                if shell.generation != generation {
+                if shell.doc_generation(&doc_id) != generation {
                     return;
                 }
                 let Some(doc) = shell.documents.get_mut(&doc_id) else {
@@ -567,7 +575,7 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let doc = self.documents.get_mut(id).expect("checked above");
         let snapshot = doc.sent.clone();
         let version = doc.lsp_version;
@@ -577,14 +585,14 @@ impl Shell {
             },
             position: lsp_position(&snapshot, offset),
         };
-        let (handle, rx) = self.session.request::<lsp::HoverRequest>(params);
+        let (handle, rx) = doc.session.request::<lsp::HoverRequest>(params);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
             };
             let _ = this.update(cx, |shell, cx| {
-                let current = shell.generation;
+                let current = shell.doc_generation(&doc_id);
                 let Some(doc) = shell.documents.get_mut(&doc_id) else {
                     return;
                 };
@@ -643,8 +651,8 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
-        let triggers = self.features.signature_triggers.clone();
+        let generation = self.doc_generation(id);
+        let triggers = self.doc_features(id).signature_triggers.clone();
         let doc = self.documents.get_mut(id).expect("checked above");
         let snapshot = doc.sent.clone();
         let version = doc.lsp_version;
@@ -672,14 +680,14 @@ impl Shell {
                     .flatten(),
             }),
         };
-        let (handle, rx) = self.session.request::<lsp::SignatureHelpRequest>(params);
+        let (handle, rx) = doc.session.request::<lsp::SignatureHelpRequest>(params);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
             };
             let _ = this.update(cx, |shell, cx| {
-                let current = shell.generation;
+                let current = shell.doc_generation(&doc_id);
                 let Some(doc) = shell.documents.get_mut(&doc_id) else {
                     return;
                 };
@@ -890,8 +898,8 @@ impl Shell {
         index: usize,
         cx: &mut Context<Self>,
     ) {
-        let generation = self.generation;
-        let resolvable = self.features.resolve;
+        let generation = self.doc_generation(id);
+        let resolvable = self.doc_features(id).resolve;
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };
@@ -924,14 +932,14 @@ impl Shell {
         // Resolve now: the server has the text last sent (the commit's change is queued after this request).
         let base = doc.sent.clone();
         let label = item.label.clone();
-        let (handle, rx) = self.session.request::<lsp::ResolveCompletionItem>(item);
+        let (handle, rx) = doc.session.request::<lsp::ResolveCompletionItem>(item);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
             let Ok(reply) = rx.await else {
                 return;
             };
             let _ = this.update(cx, |shell, cx| {
-                if shell.generation != generation {
+                if shell.doc_generation(&doc_id) != generation {
                     return;
                 }
                 let Some(doc) = shell.documents.get_mut(&doc_id) else {

@@ -2,14 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-show.input.json",
   "title": "eludite.output.show input",
-  "description": "Show the Output window (View > Output, Ctrl+Alt+O) with a source selected in its \"Show output from\" dropdown, and read the end of that source's text: Build is the build log, Host is eludite-host's own log.",
+  "description": "Show the Output window (View > Output, Ctrl+Alt+O) with a source selected in its \"Show output from\" dropdown, and read the end of that source's text: Build is the build log, Host is eludite-host's own log, Language Servers is the log of the language servers the shell runs itself (rust-analyzer: its stderr, window/logMessage and window/showMessage).",
   "type": "object",
   "properties": {
     "source": {
       "description": "Omitted: the source already selected.",
       "enum": [
         "build",
-        "host"
+        "host",
+        "language_servers"
       ]
     },
     "tail": {

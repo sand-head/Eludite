@@ -11,6 +11,12 @@
 //! - folders before files, each sorted case-insensitively.
 //!
 //! Node ids are stable strings, so a view can keep its expanded set across tree refreshes.
+//!
+//! An opened folder (brief 0019, [`SolutionModel::compose`]) is a tree of its own: the folder at the root, with the
+//! .NET solution and the Cargo workspace as siblings under it, then the folder's other files. The Cargo workspace
+//! node lists its member packages (labelled with what they build: `eludite (bin)`, `eludite-lsp (lib)`), each with
+//! a `Targets` folder (every bin, lib, example, test, bench and build script, opening its root source file) and the
+//! package's files (`src/`, `tests/`, `Cargo.toml`), then the workspace's `Cargo.toml` and `Cargo.lock`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -18,6 +24,9 @@ use std::path::{Path, PathBuf};
 use eludite_protocol::host::{
     Generation, SolutionTree, TreeItemType, TreeProject, TreeProjectKind,
 };
+
+use crate::cargo::{CargoPackage, CargoWorkspace, TargetKind};
+use crate::folder::FolderListing;
 
 /// What a node stands for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +39,50 @@ pub enum NodeKind {
         error: Option<String>,
     },
     Folder,
+    /// Compile items of a .NET project; `content` for every file of a Cargo package or a folder.
     File {
         item_type: TreeItemType,
     },
+    /// The opened folder (brief 0019).
+    FolderRoot,
+    CargoWorkspace,
+    /// A member package and the kinds it builds.
+    CargoPackage {
+        kinds: Vec<TargetKind>,
+    },
+    /// A package's `Targets` folder.
+    CargoTargets,
+    /// One Cargo target; `path` is its root source file.
+    CargoTarget {
+        kind: TargetKind,
+    },
+}
+
+impl NodeKind {
+    /// Whether opening the node opens the file at its `path`.
+    pub fn opens_file(&self) -> bool {
+        matches!(self, NodeKind::File { .. } | NodeKind::CargoTarget { .. })
+    }
+}
+
+/// One part of an opened folder, as it loads.
+#[derive(Debug)]
+pub enum Part<'a, T> {
+    Loading,
+    Loaded(&'a T),
+    Failed(&'a str),
+}
+
+/// What [`SolutionModel::compose`] builds an opened folder's tree from.
+#[derive(Debug)]
+pub struct WorkspaceParts<'a> {
+    pub root: &'a Path,
+    /// The .NET solution at the root, and the host's tree for it.
+    pub solution: Option<(&'a Path, Part<'a, SolutionTree>)>,
+    /// The root's `Cargo.toml`, and the workspace read from `cargo metadata`.
+    pub cargo: Option<(&'a Path, Part<'a, CargoWorkspace>)>,
+    /// The folder's files, once listed.
+    pub listing: Option<&'a FolderListing>,
 }
 
 /// One node of the tree.
@@ -109,6 +159,158 @@ impl SolutionModel {
         })
     }
 
+    /// An opened folder's tree: the folder at the root; the solution and the Cargo workspace as siblings under it,
+    /// each as far as it has loaded; then the folder's files that belong to neither.
+    pub fn compose(parts: &WorkspaceParts<'_>) -> Self {
+        let root_path = parts.root.to_path_buf();
+        let mut projects_by_file: HashMap<PathBuf, Vec<String>> = HashMap::new();
+        let mut children = Vec::new();
+        // Folders whose files their own node lists (projects, packages), and files that are nodes already.
+        let mut owned_dirs: Vec<PathBuf> = Vec::new();
+        let mut owned_files: HashSet<PathBuf> = HashSet::new();
+        let mut generation = 0;
+        let listed = |dir: &Path| -> Vec<PathBuf> {
+            parts
+                .listing
+                .map(|l| {
+                    l.files
+                        .iter()
+                        .filter(|f| f.starts_with(dir))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        if let Some((path, part)) = &parts.solution {
+            owned_files.insert(path.to_path_buf());
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let placeholder = |suffix: &str| Node {
+                id: path.to_string_lossy().into_owned(),
+                label: format!("Solution '{name}' ({suffix})"),
+                kind: NodeKind::Solution,
+                path: Some(path.to_path_buf()),
+                children: Vec::new(),
+            };
+            match part {
+                Part::Loaded(tree) => match Self::from_tree(tree) {
+                    Some(model) => {
+                        generation = model.generation;
+                        for (file, names) in model.projects_by_file {
+                            projects_by_file.entry(file).or_default().extend(names);
+                        }
+                        for p in &tree.projects {
+                            if let Some(dir) = Path::new(&p.path).parent() {
+                                owned_dirs.push(dir.to_path_buf());
+                            }
+                        }
+                        children.push(model.root);
+                    }
+                    None => children.push(placeholder("closed")),
+                },
+                Part::Loading => children.push(placeholder("loading\u{2026}")),
+                Part::Failed(_) => children.push(placeholder("load failed")),
+            }
+        }
+
+        if let Some((manifest, part)) = &parts.cargo {
+            owned_files.insert(manifest.to_path_buf());
+            let lock = manifest.with_file_name("Cargo.lock");
+            owned_files.insert(lock.clone());
+            let id = format!("cargo|{}", manifest.to_string_lossy());
+            let name = manifest
+                .parent()
+                .and_then(Path::file_name)
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Cargo".into());
+            let mut node = Node {
+                id: id.clone(),
+                label: String::new(),
+                kind: NodeKind::CargoWorkspace,
+                path: Some(manifest.to_path_buf()),
+                children: Vec::new(),
+            };
+            match part {
+                Part::Loaded(ws) => {
+                    node.label = format!(
+                        "Cargo workspace '{}' ({} member{})",
+                        ws.name(),
+                        ws.members.len(),
+                        if ws.members.len() == 1 { "" } else { "s" }
+                    );
+                    let mut members: Vec<&CargoPackage> = ws.members.iter().collect();
+                    members.sort_by_key(|p| p.name.to_lowercase());
+                    for p in members {
+                        let dir = p.dir().to_path_buf();
+                        // A package folder nested in another (the root package of a workspace) keeps its own files.
+                        let nested: Vec<&Path> = ws
+                            .members
+                            .iter()
+                            .map(CargoPackage::dir)
+                            .filter(|d| *d != dir && d.starts_with(&dir))
+                            .collect();
+                        let mut files: Vec<PathBuf> = listed(&dir)
+                            .into_iter()
+                            .filter(|f| !nested.iter().any(|n| f.starts_with(n)))
+                            .collect();
+                        if parts.listing.is_none() {
+                            files.push(p.manifest_path.clone());
+                        }
+                        for f in &files {
+                            projects_by_file
+                                .entry(f.clone())
+                                .or_default()
+                                .push(p.name.clone());
+                        }
+                        node.children.push(package_node(p, &files));
+                        owned_dirs.push(dir);
+                    }
+                    node.children.push(file_leaf(&id, "Cargo.toml", manifest));
+                    if parts.listing.is_none_or(|l| l.files.contains(&lock)) {
+                        node.children.push(file_leaf(&id, "Cargo.lock", &lock));
+                    }
+                }
+                Part::Loading => node.label = format!("Cargo workspace '{name}' (loading\u{2026})"),
+                Part::Failed(_) => node.label = format!("Cargo workspace '{name}' (load failed)"),
+            }
+            children.push(node);
+        }
+
+        // The folder's other files.
+        if let Some(listing) = parts.listing {
+            let rest: Vec<PathBuf> = listing
+                .files
+                .iter()
+                .filter(|f| {
+                    !owned_files.contains(*f) && !owned_dirs.iter().any(|d| f.starts_with(d))
+                })
+                .cloned()
+                .collect();
+            let prefix = root_path.to_string_lossy().into_owned();
+            children.extend(files_tree(&prefix, parts.root, &rest));
+        }
+
+        let root = Node {
+            id: format!("folder|{}", root_path.to_string_lossy()),
+            label: root_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| root_path.to_string_lossy().into_owned()),
+            kind: NodeKind::FolderRoot,
+            path: Some(root_path.clone()),
+            children,
+        };
+        Self {
+            generation,
+            path: root_path,
+            root,
+            projects_by_file,
+        }
+    }
+
     /// The first project (in solution order) that lists `file`.
     pub fn project_of(&self, file: &Path) -> Option<&str> {
         self.projects_by_file
@@ -117,9 +319,20 @@ impl SolutionModel {
             .map(String::as_str)
     }
 
-    /// Ids of the solution and project nodes: what Visual Studio expands when a solution first opens.
+    /// Ids of the solution and project nodes: what Visual Studio expands when a solution first opens. For an opened
+    /// folder, the folder and its solution and Cargo workspace nodes.
     pub fn default_expanded(&self) -> HashSet<String> {
-        HashSet::from([self.root.id.clone()])
+        let mut out = HashSet::from([self.root.id.clone()]);
+        if self.root.kind == NodeKind::FolderRoot {
+            out.extend(
+                self.root
+                    .children
+                    .iter()
+                    .filter(|c| matches!(c.kind, NodeKind::Solution | NodeKind::CargoWorkspace))
+                    .map(|c| c.id.clone()),
+            );
+        }
+        out
     }
 
     /// The node with `id`.
@@ -358,6 +571,127 @@ fn project_node(p: &TreeProject) -> Node {
     }
 }
 
+/// A member package: `name (lib, bin)`, its `Targets` and its files.
+fn package_node(p: &CargoPackage, files: &[PathBuf]) -> Node {
+    let id = p.manifest_path.to_string_lossy().into_owned();
+    let kinds = p.product_kinds();
+    let label = if kinds.is_empty() {
+        p.name.clone()
+    } else {
+        format!(
+            "{} ({})",
+            p.name,
+            kinds
+                .iter()
+                .map(|k| k.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let mut targets: Vec<Node> = p
+        .targets
+        .iter()
+        .map(|t| Node {
+            id: format!("{id}|#target:{}:{}", t.kind.as_str(), t.name),
+            label: format!("{} ({})", t.name, t.kind.as_str()),
+            kind: NodeKind::CargoTarget { kind: t.kind },
+            path: Some(t.src_path.clone()),
+            children: Vec::new(),
+        })
+        .collect();
+    targets.sort_by(|a, b| {
+        let k = |n: &Node| match &n.kind {
+            NodeKind::CargoTarget { kind } => *kind,
+            _ => TargetKind::Lib,
+        };
+        k(a).cmp(&k(b)).then_with(|| a.label.cmp(&b.label))
+    });
+    let mut children = vec![Node {
+        id: format!("{id}|#targets"),
+        label: "Targets".into(),
+        kind: NodeKind::CargoTargets,
+        path: None,
+        children: targets,
+    }];
+    children.extend(files_tree(&id, p.dir(), files));
+    Node {
+        id,
+        label,
+        kind: NodeKind::CargoPackage { kinds },
+        path: Some(p.manifest_path.clone()),
+        children,
+    }
+}
+
+/// A file node with a fixed label.
+fn file_leaf(prefix: &str, label: &str, path: &Path) -> Node {
+    Node {
+        id: format!("{prefix}|{label}"),
+        label: label.to_owned(),
+        kind: NodeKind::File {
+            item_type: TreeItemType::Content,
+        },
+        path: Some(path.to_path_buf()),
+        children: Vec::new(),
+    }
+}
+
+/// Folders mirroring the file system under `dir` for plain `files` (no nesting), sorted as Visual Studio does.
+/// Ids are `prefix|relative/path` (folders end with `/`).
+pub fn files_tree(prefix: &str, dir: &Path, files: &[PathBuf]) -> Vec<Node> {
+    #[derive(Default)]
+    struct Folder {
+        folders: BTreeMap<String, Folder>,
+        files: Vec<(String, PathBuf)>,
+    }
+    let mut root = Folder::default();
+    for f in files {
+        let Ok(rel) = f.strip_prefix(dir) else {
+            continue;
+        };
+        let parts: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        let Some((name, folders)) = parts.split_last() else {
+            continue;
+        };
+        let mut at = &mut root;
+        for part in folders {
+            at = at.folders.entry(part.clone()).or_default();
+        }
+        at.files.push((name.clone(), f.clone()));
+    }
+    fn nodes(f: &Folder, rel: &str, prefix: &str) -> Vec<Node> {
+        let mut out: Vec<Node> = f
+            .folders
+            .iter()
+            .map(|(name, sub)| {
+                let rel = format!("{rel}{name}/");
+                Node {
+                    id: format!("{prefix}|{rel}"),
+                    label: name.clone(),
+                    kind: NodeKind::Folder,
+                    path: None,
+                    children: nodes(sub, &rel, prefix),
+                }
+            })
+            .collect();
+        out.extend(f.files.iter().map(|(name, path)| Node {
+            id: format!("{prefix}|{rel}{name}"),
+            label: name.clone(),
+            kind: NodeKind::File {
+                item_type: TreeItemType::Content,
+            },
+            path: Some(path.clone()),
+            children: Vec::new(),
+        }));
+        sort_nodes(&mut out);
+        out
+    }
+    nodes(&root, "", prefix)
+}
+
 /// The entry `display` nests under by name, if any.
 fn nest_by_name(display: &str, by_display: &HashMap<String, usize>) -> Option<usize> {
     let lower = display.to_lowercase();
@@ -382,8 +716,9 @@ fn nest_by_name(display: &str, by_display: &HashMap<String, usize>) -> Option<us
 fn sort_nodes(nodes: &mut [Node]) {
     nodes.sort_by(|a, b| {
         let rank = |n: &Node| match n.kind {
-            NodeKind::Folder => 0,
-            _ => 1,
+            NodeKind::CargoTargets => 0,
+            NodeKind::Folder => 1,
+            _ => 2,
         };
         rank(a)
             .cmp(&rank(b))
@@ -580,5 +915,157 @@ mod tests {
             })
             .is_none()
         );
+    }
+
+    /// This repository as File > Open Folder shows it: the recorded `cargo metadata`, a listing of a few of its
+    /// files, and a one-project solution beside the Cargo workspace.
+    fn mixed_repo() -> (SolutionTree, CargoWorkspace, FolderListing) {
+        let cargo =
+            CargoWorkspace::from_metadata(include_str!("testdata/cargo-metadata.json")).unwrap();
+        let solution = SolutionTree {
+            generation: 1,
+            path: Some("/w/eludite/dotnet/Eludite.slnx".into()),
+            projects: vec![TreeProject {
+                name: "Eludite.Host".into(),
+                path: "/w/eludite/dotnet/src/Eludite.Host/Eludite.Host.csproj".into(),
+                kind: TreeProjectKind::Sdk,
+                web: false,
+                target_frameworks: vec!["net10.0".into()],
+                files: vec![file(
+                    "/w/eludite/dotnet/src/Eludite.Host/Program.cs",
+                    TreeItemType::Compile,
+                )],
+                error: None,
+            }],
+        };
+        let files = [
+            "Cargo.lock",
+            "Cargo.toml",
+            "README.md",
+            "crates/editor/Cargo.toml",
+            "crates/editor/src/buffer.rs",
+            "crates/editor/src/syntax/mod.rs",
+            "crates/eludite/Cargo.toml",
+            "crates/eludite/src/main.rs",
+            "crates/eludite/tests/relay.rs",
+            "docs/PLAN.md",
+            "dotnet/Eludite.slnx",
+            "dotnet/src/Eludite.Host/Eludite.Host.csproj",
+            "dotnet/src/Eludite.Host/Program.cs",
+        ];
+        let listing = FolderListing {
+            root: "/w/eludite".into(),
+            files: files
+                .iter()
+                .map(|f| Path::new("/w/eludite").join(f))
+                .collect(),
+            truncated: false,
+        };
+        (solution, cargo, listing)
+    }
+
+    #[test]
+    fn an_opened_folder_shows_the_solution_and_the_cargo_workspace_as_siblings() {
+        let (solution, cargo, listing) = mixed_repo();
+        let sln = Path::new("/w/eludite/dotnet/Eludite.slnx");
+        let manifest = Path::new("/w/eludite/Cargo.toml");
+        let m = SolutionModel::compose(&WorkspaceParts {
+            root: Path::new("/w/eludite"),
+            solution: Some((sln, Part::Loaded(&solution))),
+            cargo: Some((manifest, Part::Loaded(&cargo))),
+            listing: Some(&listing),
+        });
+        assert_eq!(m.root.kind, NodeKind::FolderRoot);
+        assert_eq!(m.root.label, "eludite");
+        assert_eq!(m.generation, 1);
+        let top: Vec<&str> = m.root.children.iter().map(|c| c.label.as_str()).collect();
+        // The solution, the Cargo workspace, then the folder's other files (folders first).
+        assert_eq!(
+            top,
+            [
+                "Solution 'Eludite' (1 of 1 project)",
+                "Cargo workspace 'eludite' (16 members)",
+                "docs",
+                "README.md"
+            ]
+        );
+        let cargo_node = &m.root.children[1];
+        let labels: Vec<&str> = cargo_node
+            .children
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(labels.first(), Some(&"eludite (bin)"));
+        assert!(labels.contains(&"eludite-lsp (lib)"));
+        assert_eq!(&labels[labels.len() - 2..], ["Cargo.toml", "Cargo.lock"]);
+        let shell = &cargo_node.children[0];
+        let shell_children: Vec<&str> = shell.children.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(shell_children, ["Targets", "src", "tests", "Cargo.toml"]);
+        let targets: Vec<&str> = shell.children[0]
+            .children
+            .iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        assert_eq!(targets, ["eludite (bin)", "relay (test)"]);
+        assert!(shell.children[0].children[1].kind.opens_file());
+        assert_eq!(
+            shell.children[0].children[1].path.as_deref(),
+            Some(Path::new("/w/eludite/crates/eludite/tests/relay.rs"))
+        );
+
+        let buffer = Path::new("/w/eludite/crates/editor/src/buffer.rs");
+        assert_eq!(m.project_of(buffer), Some("eludite-editor"));
+        assert_eq!(
+            m.project_of(Path::new("/w/eludite/dotnet/src/Eludite.Host/Program.cs")),
+            Some("Eludite.Host")
+        );
+        // Reveal walks folder, Cargo workspace, package, src.
+        let trail = m.ancestors_of_file(buffer).unwrap();
+        assert_eq!(trail.len(), 4);
+        let expanded = m.default_expanded();
+        assert!(expanded.contains(&m.root.id));
+        assert!(expanded.contains(&cargo_node.id));
+        assert!(expanded.contains(&m.root.children[0].id));
+        let rows = m.visible_rows(&expanded);
+        assert_eq!(rows[0].label, "eludite");
+        assert!(
+            rows.iter()
+                .any(|r| r.label == "eludite-editor (lib)" && r.depth == 2)
+        );
+    }
+
+    #[test]
+    fn parts_show_while_they_load_or_fail() {
+        let sln = Path::new("/w/App.slnx");
+        let manifest = Path::new("/w/Cargo.toml");
+        let m = SolutionModel::compose(&WorkspaceParts {
+            root: Path::new("/w"),
+            solution: Some((sln, Part::Loading)),
+            cargo: Some((manifest, Part::Failed("cargo: not found"))),
+            listing: None,
+        });
+        let top: Vec<&str> = m.root.children.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            top,
+            [
+                "Solution 'App' (loading\u{2026})",
+                "Cargo workspace 'w' (load failed)"
+            ]
+        );
+        // A plain folder: its files only.
+        let listing = FolderListing {
+            root: "/notes".into(),
+            files: vec!["/notes/a/b.md".into(), "/notes/c.txt".into()],
+            truncated: false,
+        };
+        let m = SolutionModel::compose(&WorkspaceParts {
+            root: Path::new("/notes"),
+            solution: None,
+            cargo: None,
+            listing: Some(&listing),
+        });
+        let rows = m.visible_rows(&m.default_expanded());
+        let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
+        assert_eq!(labels, ["notes", "a", "c.txt"]);
     }
 }

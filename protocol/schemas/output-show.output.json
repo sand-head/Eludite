@@ -15,7 +15,8 @@
     "source": {
       "enum": [
         "build",
-        "host"
+        "host",
+        "language_servers"
       ]
     },
     "line_count": {

@@ -29,7 +29,7 @@ use eludite_protocol::framing;
 use eludite_protocol::host::{self, Generation, methods};
 use serde_json::{Value, json};
 
-use crate::client::Connector;
+use crate::connection::Connector;
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]

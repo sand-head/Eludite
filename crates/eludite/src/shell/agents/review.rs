@@ -1085,6 +1085,8 @@ impl Shell {
         let options = ApplyOptions {
             label: Some(label.unwrap_or_else(|| "Accept agent change".into())),
             generation,
+            // An agent's edit was checked against the solution generation.
+            server: Default::default(),
             versions,
         };
         let ids = through_applier;

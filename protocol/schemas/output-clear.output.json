@@ -13,7 +13,8 @@
     "source": {
       "enum": [
         "build",
-        "host"
+        "host",
+        "language_servers"
       ]
     },
     "cleared": {

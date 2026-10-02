@@ -524,11 +524,23 @@ impl BuildTarget {
     }
 }
 
+/// Which build system builds (brief 0019): the host runs `msbuild`; `cargo` builds run in the shell and only share
+/// the `eludite/build/*` shapes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BuildSystem {
+    Msbuild,
+    Cargo,
+}
+
 /// `eludite/build/start` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuildStartParams {
     pub target: BuildTarget,
+    /// `None` (or `msbuild`): the host's build. The shell never sends `cargo` to the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BuildSystem>,
     /// One project file of the open solution; `None` builds the solution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
@@ -548,6 +560,8 @@ pub enum ToolchainKind {
     Mono,
     /// Build Tools' `MSBuild.exe` (Windows).
     BuildTools,
+    /// `cargo`: the shell's own Cargo builds (brief 0019), never the host's.
+    Cargo,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -566,6 +580,9 @@ pub struct Toolchain {
 pub struct BuildStartResult {
     pub build_id: u64,
     pub generation: Generation,
+    /// `None`: `msbuild` (the host). `cargo` for the shell's Cargo builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<BuildSystem>,
     pub path: String,
     pub target: BuildTarget,
     pub configuration: String,
@@ -1086,6 +1103,7 @@ mod tests {
         round_trip(
             &BuildStartParams {
                 target: BuildTarget::Rebuild,
+                system: None,
                 project: Some("/s/App/App.csproj".into()),
                 configuration: Some("Release".into()),
                 platform: None,
@@ -1096,6 +1114,7 @@ mod tests {
             &BuildStartResult {
                 build_id: 3,
                 generation: 1,
+                system: None,
                 path: "/s/App.slnx".into(),
                 target: BuildTarget::Build,
                 configuration: "Debug".into(),
