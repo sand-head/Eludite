@@ -555,4 +555,108 @@ public sealed class MonoAdapterTests
             }
         }
     }
+
+    /// <summary>
+    /// A detach (brief 0027 found the adapter spinning at about 90% of a core after it instead of exiting): the program
+    /// stopped at a breakpoint runs on, the adapter answers, sends <c>terminated</c> without <c>exited</c> and exits
+    /// with 0 within 2 s, spending almost no CPU time from the answer to its exit.
+    /// </summary>
+    [Fact]
+    public void Disconnect_detaches_and_the_adapter_exits_promptly_while_the_program_runs_on() =>
+        DetachAndExit(c =>
+        {
+            var answer = c.Request("disconnect", new JObject { ["terminateDebuggee"] = false });
+            Assert.True((bool?)answer["success"] == true, "disconnect failed: " + answer["message"]);
+            c.WaitEvent("terminated");
+        });
+
+    /// <summary>The client closing the channel during an attached session detaches the same way.</summary>
+    [Fact]
+    public void Closing_the_channel_detaches_and_the_adapter_exits_promptly_while_the_program_runs_on() =>
+        DetachAndExit(c => c.CloseInput());
+
+    private void DetachAndExit(Action<DapTestClient> detach)
+    {
+        var (mono, env) = RequireMono();
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        var info = new ProcessStartInfo(mono)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        info.ArgumentList.Add("--debug");
+        info.ArgumentList.Add($"--debugger-agent=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:{port}");
+        info.ArgumentList.Add(Built.TestApp);
+        info.ArgumentList.Add("sleep");
+        foreach (var kv in env)
+        {
+            info.Environment[kv.Key] = kv.Value;
+        }
+
+        using var app = Process.Start(info)!;
+        try
+        {
+            using var c = DapTestClient.Stdio(mono, env);
+            c.Body("initialize", new JObject { ["adapterID"] = "mono" });
+            c.Body("attach", new JObject { ["address"] = "127.0.0.1", ["port"] = port });
+            c.WaitEvent("initialized");
+            SetBreakpoints(c, Bp("sleep-print"));
+            c.Body("configurationDone");
+            Assert.Equal("breakpoint", (string)c.WaitEvent("stopped")["body"]!["reason"]!);
+
+            detach(c);
+            var clock = Stopwatch.StartNew();
+            var atAnswer = Cpu(c.Process);
+            var last = atAnswer;
+            while (!c.Process.HasExited && clock.Elapsed < TimeSpan.FromSeconds(2))
+            {
+                last = Cpu(c.Process) ?? last;
+                Thread.Sleep(10);
+            }
+
+            var exited = c.WaitForExit(TimeSpan.FromMilliseconds(Math.Max(0, 2000 - clock.ElapsedMilliseconds)));
+            var took = clock.Elapsed;
+            var spent = atAnswer is { } a && last is { } l ? l - a : TimeSpan.Zero;
+            _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: detach to the adapter's exit: {took.TotalMilliseconds:F0} ms; its CPU time meanwhile: {spent.TotalMilliseconds:F0} ms"));
+            Assert.True(exited, "the adapter did not exit within 2 s of the detach\n" + c.Stderr);
+            Assert.Equal(0, c.Process.ExitCode);
+            Assert.True(spent < TimeSpan.FromMilliseconds(100), "the adapter spent " + spent.TotalMilliseconds + " ms of CPU time after the detach");
+            Assert.Empty(c.Events("exited"));
+
+            // The program left at its breakpoint runs on: it prints and sleeps, still alive after the adapter is gone.
+            var line = app.StandardOutput.ReadLineAsync();
+            Assert.True(line.Wait(TimeSpan.FromSeconds(10)), "the program did not run on after the detach");
+            Assert.Equal("sleeping", line.Result);
+            Assert.False(app.WaitForExit(500), "the program ended with the detach");
+        }
+        finally
+        {
+            if (!app.HasExited)
+            {
+                app.Kill();
+            }
+        }
+    }
+
+    /// <summary>The process's CPU time, or null once it exited.</summary>
+    private static TimeSpan? Cpu(Process p)
+    {
+        try
+        {
+            p.Refresh();
+            return p.HasExited ? null : p.TotalProcessorTime;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
 }

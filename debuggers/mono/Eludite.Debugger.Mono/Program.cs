@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using Eludite.Debugger.Mono.Protocol;
 using Mono.Debugger.Soft;
@@ -72,10 +73,41 @@ internal static class Program
 
         client?.Close();
         log.Write("exiting");
-        // Mono.Debugging leaves foreground threads behind; the session is over.
-        Environment.Exit(0);
+        Exit(0);
         return 0;
     }
+
+    /// <summary>
+    /// End the process now. Mono.Debugging leaves foreground threads behind, so the adapter does not wait for them; and
+    /// Mono's <see cref="Environment.Exit(int)"/> first suspends every other thread, which spins while one of them is
+    /// blocked (the DAP reader on stdin, the debugger library's threads): measured after a detach, up to a second of a
+    /// core, and for good while a thread waited on an answer that never came (brief 0027 report, section 8, item 10).
+    /// Everything the adapter writes is flushed as it goes (each DAP message, stderr, the log file), so libc's
+    /// <c>_exit</c> ends it at once; <see cref="Environment.Exit(int)"/> only where there is no libc.
+    /// </summary>
+    private static void Exit(int code)
+    {
+        try
+        {
+            NativeMethods.Exit(code);
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+
+        Environment.Exit(code);
+    }
+}
+
+internal static class NativeMethods
+{
+    /// <summary>libc's <c>_exit</c>: the process ends without running anything more.</summary>
+    [DllImport("libc", EntryPoint = "_exit")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
+    public static extern void Exit(int status);
 }
 
 /// <summary>The adapter's log: stderr, and a file with <c>--log</c>. Also Mono.Debugging's logger, which must be set before a session runs.</summary>

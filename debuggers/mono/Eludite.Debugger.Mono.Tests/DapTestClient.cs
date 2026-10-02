@@ -333,6 +333,19 @@ internal sealed class DapTestClient : IDisposable
         }
     }
 
+    /// <summary>Close the channel to the adapter (its stdin, or the TCP connection's sending side), as a client that goes away.</summary>
+    public void CloseInput()
+    {
+        if (_tcp is not null)
+        {
+            _tcp.Client.Shutdown(SocketShutdown.Send);
+        }
+        else
+        {
+            _writer.Dispose();
+        }
+    }
+
     /// <summary>Wait until the adapter process ends.</summary>
     public bool WaitForExit(TimeSpan timeout) => _process.WaitForExit(timeout);
 
