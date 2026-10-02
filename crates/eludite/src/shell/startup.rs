@@ -444,23 +444,29 @@ impl Shell {
         cx.notify();
     }
 
-    /// A new tree: find the first executable project off the UI thread (it reads the project files).
-    pub(super) fn find_default_startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let projects: Vec<PathBuf> = self
-            .tree
+    /// The tree's project files, in order.
+    fn tree_projects(&self) -> Vec<PathBuf> {
+        self.tree
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .projects
             .iter()
             .map(|p| PathBuf::from(&p.path))
-            .collect();
-        let generation = self.generation;
+            .collect()
+    }
+
+    /// A new tree: find the first executable project off the UI thread (it reads the project files). The answer
+    /// is applied when the tree still lists the same projects: the tree event can arrive before the solution status
+    /// that moves the shell's generation, so a generation check here dropped the answer and nothing recomputed it.
+    pub(super) fn find_default_startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let projects = self.tree_projects();
+        let asked = projects.clone();
         let found =
             cx.background_spawn(async move { eludite_dap::launch::startup_project(&projects) });
         cx.spawn_in(window, async move |this, cx| {
             let found = found.await;
             let _ = this.update(cx, |shell, cx| {
-                if shell.generation == generation {
+                if shell.tree_projects() == asked {
                     shell.default_startup = found;
                     shell.refresh_startup(cx);
                 }
