@@ -1,6 +1,6 @@
 # Brief 0009: Vendor Zed's text crates and build the editor core
 
-Status: open
+Status: done on Linux ([report](0009-report.md)); memory budget for the 100k-line file not met, Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principle 1), 3 (D1, D5), 4.1, 7, 9, 13 (risk 5), 14 (decision 8)
 Related ADRs: ADR-0001, ADR-0005
