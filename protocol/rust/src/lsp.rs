@@ -290,6 +290,24 @@ pub enum DefinitionResponse {
     Links(Vec<LocationLink>),
 }
 
+impl DefinitionResponse {
+    /// The targets as plain locations, in the server's order. A `LocationLink` becomes its `targetUri` with its
+    /// `targetSelectionRange` (the name, where the caret goes), as `textDocument/definition` clients use it.
+    pub fn into_locations(self) -> Vec<Location> {
+        match self {
+            DefinitionResponse::Scalar(l) => vec![l],
+            DefinitionResponse::Array(ls) => ls,
+            DefinitionResponse::Links(links) => links
+                .into_iter()
+                .map(|l| Location {
+                    uri: l.target_uri,
+                    range: l.target_selection_range,
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceContext {
@@ -773,6 +791,44 @@ mod tests {
         let v = serde_json::to_value(&links).unwrap();
         assert_eq!(v[0]["targetUri"], "file:///b.cs");
         round_trip(&links, v);
+    }
+
+    #[test]
+    fn definition_results_flatten_to_locations() {
+        // The pinned Roslyn's answer for a type in a referenced assembly (brief 0014, host-rpc.md "Metadata as
+        // source"): a plain file URI to its decompiled text under the temporary directory.
+        let roslyn: DefinitionResponse = serde_json::from_value(json!([{
+            "uri": "file:///tmp/MetadataAsSource/006fad54/DecompilationMetadataAsSourceFileProvider/c19c8186/JsonRpc.cs",
+            "range": {"start": {"line": 30, "character": 13}, "end": {"line": 30, "character": 20}}}]))
+        .unwrap();
+        let locations = roslyn.into_locations();
+        assert_eq!(locations.len(), 1);
+        assert!(locations[0].uri.ends_with("/JsonRpc.cs"));
+        assert_eq!(locations[0].range.start, pos(30, 13));
+        let one: DefinitionResponse = serde_json::from_value(
+            json!({"uri": "file:///b.cs", "range": {"start": {"line": 1, "character": 2}, "end": {"line": 1, "character": 9}}}),
+        )
+        .unwrap();
+        assert_eq!(one.into_locations()[0].uri, "file:///b.cs");
+        let name = Range {
+            start: pos(4, 6),
+            end: pos(4, 9),
+        };
+        let links = DefinitionResponse::Links(vec![LocationLink {
+            origin_selection_range: None,
+            target_uri: "file:///c.cs".into(),
+            target_range: range(),
+            target_selection_range: name,
+        }]);
+        assert_eq!(
+            links.into_locations(),
+            [Location {
+                uri: "file:///c.cs".into(),
+                range: name
+            }]
+        );
+        let none: DefinitionResponse = serde_json::from_value(json!([])).unwrap();
+        assert!(none.into_locations().is_empty());
     }
 
     #[test]
