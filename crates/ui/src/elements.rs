@@ -123,6 +123,50 @@ pub fn toggle_button(
     }
 }
 
+/// A selector bar (brief 0028: the Call Stack and Threads windows' session selector): `label` and then the options
+/// the caller adds ([`selector_option`]), one per choice, the selected one drawn pressed.
+pub fn selector_bar(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let selector = id.clone();
+    div()
+        .id(id)
+        .debug_selector(move || selector.to_string())
+        .w_full()
+        .flex()
+        .flex_row()
+        .flex_none()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .min_h(px(24.))
+        .px_1()
+        .border_b_1()
+        .border_color(theme.border)
+        .text_size(theme.typography.ui)
+        .text_color(theme.text_muted)
+        .child(label.into())
+}
+
+/// One option of a [`selector_bar`]: pressed while `selected`, with element id `id`. The caller adds the click
+/// handler.
+pub fn selector_option(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    selected: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let el = toggle_button(id, label, selected, theme);
+    if selected {
+        el.font_weight(FontWeight::SEMIBOLD)
+    } else {
+        el
+    }
+}
+
 /// A check box with its label (the Options dialog's switches, brief 0020): Visual Studio's square, checked or not,
 /// with element id `id`. The caller adds the click handler.
 pub fn check_box(

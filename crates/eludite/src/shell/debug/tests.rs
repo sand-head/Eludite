@@ -97,6 +97,8 @@ struct Dbg {
     w: Ws,
     /// The fake of the latest session.
     fake: Arc<Mutex<Option<FakeHandle>>>,
+    /// Every session's fake, with the process id it reports (brief 0028's several sessions).
+    fakes: Arc<Mutex<Vec<(i64, FakeHandle)>>>,
     store: PathBuf,
 }
 
@@ -130,15 +132,18 @@ fn setup_dotnet_agents(
 ) -> Dbg {
     let store = tempfile::tempdir().unwrap().keep();
     let fake: Arc<Mutex<Option<FakeHandle>>> = Arc::default();
+    let fakes: Arc<Mutex<Vec<(i64, FakeHandle)>>> = Arc::default();
     let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
-    let (f, d) = (fake.clone(), dir.clone());
+    let (f, all, d) = (fake.clone(), fakes.clone(), dir.clone());
     let setup = DebugSetup {
         connect: Some(Arc::new(move || {
             let root = d.lock().unwrap().clone().expect("the solution folder");
             let mut p = program(&root);
             tweak(&mut p);
+            let pid = p.process_id;
             let (conn, handle) = fake::connect(p);
-            *f.lock().unwrap() = Some(handle);
+            *f.lock().unwrap() = Some(handle.clone());
+            all.lock().unwrap().push((pid, handle));
             Ok(conn)
         })),
         search: eludite_dap::discovery::AdapterSearch::default(),
@@ -162,7 +167,12 @@ fn setup_dotnet_agents(
     write("src/App/Program.cs", PROGRAM_CS);
     write("src/App/Calc.cs", CALC_CS);
     write("src/App/bin/Debug/net10.0/App.dll", "");
-    let mut d = Dbg { w, fake, store };
+    let mut d = Dbg {
+        w,
+        fake,
+        fakes,
+        store,
+    };
     // These tests launch the built program at once; build before run has its own tests (brief 0020).
     d.set_build_before_run(false);
     d
@@ -1495,7 +1505,12 @@ fn setup_netfx(
     write("src/App/Program.cs", PROGRAM_CS);
     write("src/App/Calc.cs", CALC_CS);
     write("src/App/bin/Debug/net472/App.exe", "");
-    let mut d = Dbg { w, fake, store };
+    let mut d = Dbg {
+        w,
+        fake,
+        fakes: Arc::default(),
+        store,
+    };
     d.set_build_before_run(false);
     (d, prefix)
 }
@@ -1811,10 +1826,12 @@ fn an_agent_reads_a_deep_stop_within_the_budgets(cx: &mut TestAppContext) {
     assert_eq!(s["output"]["lines"][1]["stream"], "stdout");
     assert_eq!(s["truncated"], true);
     assert_eq!(s["agent_driving"], true);
-    // Nothing else: no breakpoint list, exception settings or threads (those are the state's).
-    for k in ["breakpoints", "exceptions", "threads", "console", "session"] {
+    // Nothing else: no breakpoint list, exception settings or threads (those are the state's); `session` is the
+    // session's id (brief 0028), not the state's launch configuration.
+    for k in ["breakpoints", "exceptions", "threads", "console"] {
         assert!(s.get(k).is_none(), "{k}");
     }
+    assert_eq!(s["session"], 1);
     eprintln!(
         "size: continue's summary at the deep stop: {} bytes",
         json_size(&s)
@@ -3046,9 +3063,17 @@ fn tracepoints_print_and_continue_without_a_visible_stop(cx: &mut TestAppContext
                 .is_some_and(|c| c.log_points == "adapter")
         })
     });
-    d.w.wait("logMessage sent", |w| {
-        let _ = w;
-        true
+    // The fake records the resent breakpoints on its own thread: wait for them rather than race them.
+    let fake = d.fake();
+    let program = normalize_path(&d.w.path("src/App/Program.cs"))
+        .to_string_lossy()
+        .into_owned();
+    d.w.wait("logMessage sent", |_| {
+        fake.requests().iter().any(|(c, a)| {
+            c == "setBreakpoints"
+                && a["source"]["path"] == program.as_str()
+                && a["breakpoints"][0].get("logMessage").is_some()
+        })
     });
     let sent = d.sent_breakpoints("src/App/Program.cs");
     assert_eq!(sent["breakpoints"][0]["logMessage"], "i={i}", "{sent}");
@@ -3134,10 +3159,10 @@ fn function_breakpoints_bind_by_name_and_stop(cx: &mut TestAppContext) {
     d.w.vcx.simulate_keystrokes("enter");
     d.w.vcx.run_until_parked();
     assert_eq!(d.state()["breakpoints"][0]["condition"], "a == 5");
-    assert_eq!(
-        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"][0]["condition"],
-        "a == 5"
-    );
+    // The fake records the request on its own thread: wait for it rather than race it.
+    d.w.wait("the condition sent", |_| {
+        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"][0]["condition"] == "a == 5"
+    });
     // Delete it from the window.
     d.w.click("debug-bp-delete");
     assert!(d.state()["breakpoints"].as_array().unwrap().is_empty());
@@ -3896,7 +3921,7 @@ fn run_control_persists_per_solution_and_a_version_1_file_loads(cx: &mut TestApp
         std::fs::read_to_string(&file).is_ok_and(|t| t.contains("System.InvalidOperationException"))
     });
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
-    assert_eq!(saved["version"], 2);
+    assert_eq!(saved["version"], 3, "version 3 since brief 0028");
     let bps = saved["breakpoints"].as_array().unwrap();
     assert_eq!(bps.len(), 2, "{saved}");
     assert_eq!(bps[0]["log_message"], "x={x}");
@@ -3964,8 +3989,8 @@ fn run_control_persists_per_solution_and_a_version_1_file_loads(cx: &mut TestApp
         json!({"path": "src/App/Program.cs", "line": 7}),
     )
     .unwrap();
-    f.w.wait("saved as version 2", |_| {
-        std::fs::read_to_string(&file3).is_ok_and(|t| t.contains("\"version\": 2"))
+    f.w.wait("saved as version 3 (brief 0028)", |_| {
+        std::fs::read_to_string(&file3).is_ok_and(|t| t.contains("\"version\": 3"))
     });
 }
 
@@ -4044,6 +4069,11 @@ fn a_tracepoint_firing_ten_times_a_second_costs_the_ui_little(cx: &mut TestAppCo
 /// `the_reads_work_against_eludite_dbg_mono` sets it up): the debugger and the TestApp's `Program.cs` text and path;
 /// `None` (with a message) to skip.
 fn mono_solution(cx: &mut TestAppContext) -> Option<(Dbg, PathBuf, String)> {
+    mono_solution_with(cx, &[])
+}
+
+/// As [`mono_solution`], with `more` projects in the solution's tree after App (brief 0028).
+fn mono_solution_with(cx: &mut TestAppContext, more: &[Value]) -> Option<(Dbg, PathBuf, String)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mono_dir = root.join("debuggers/mono");
     let built = |p: &str| mono_dir.join(p).join("bin/Debug/net472");
@@ -4086,6 +4116,14 @@ fn mono_solution(cx: &mut TestAppContext) -> Option<(Dbg, PathBuf, String)> {
         "Eludite.Debugger.Mono.TestApp.exe.config",
     ] {
         std::fs::copy(app.join(f), d.w.path("src/App/bin/Debug/net472").join(f)).unwrap();
+    }
+    if !more.is_empty() {
+        let mut tree = vec![json!({
+            "name": "App", "path": d.w.path("src/App/App.csproj"), "kind": "sdk",
+            "targetFrameworks": ["net472"], "files": []
+        })];
+        tree.extend(more.iter().cloned());
+        d.w.fake.set_tree(Value::Array(tree));
     }
     d.w.open_solution();
     Some((d, source, text))
@@ -4489,7 +4527,8 @@ fn the_attach_dialog_filters_refreshes_and_attaches_through_the_bus(cx: &mut Tes
     );
     assert_eq!(d.state()["session"]["attached"], true);
     assert_eq!(d.fake().last("attach").unwrap()["processId"], pid);
-    assert_eq!(menu_enabled(&d, "Attach to Process..."), Some(false));
+    // An attach adds a session beside the others (brief 0028): the item stays enabled.
+    assert_eq!(menu_enabled(&d, "Attach to Process..."), Some(true));
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_mode(Mode::Design);
     // Escape closes the dialog without attaching.
@@ -5206,4 +5245,1147 @@ fn attach_and_restart_against_eludite_dbg_mono(cx: &mut TestAppContext) {
     assert_eq!(w["stopped"]["location"]["line"], line_of("add-sum"), "{w}");
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_mode(Mode::Design);
+}
+
+// ----- Brief 0028: several debugging sessions -----
+
+/// The test solution with a second executable project, Tool, after App, and the solution open. Each session's fake
+/// reports its own process id (5001, 5002, ... in the order the adapters connect), which maps a session to its fake.
+fn setup_two(cx: &mut TestAppContext) -> Dbg {
+    setup_two_with(cx, |_| {})
+}
+
+fn setup_two_with(
+    cx: &mut TestAppContext,
+    tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
+) -> Dbg {
+    let next = Arc::new(std::sync::atomic::AtomicI64::new(5001));
+    let mut d = setup_with(cx, move |p| {
+        p.process_id = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tweak(p);
+    });
+    let write = |rel: &str, text: &str| {
+        let p = d.w.path(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/Tool/Tool.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    );
+    write(
+        "src/Tool/Main.cs",
+        "class Tool { static void Main() { } }\n",
+    );
+    write("src/Tool/bin/Debug/net10.0/Tool.dll", "");
+    let app = d.w.path("src/App/App.csproj");
+    let tool = d.w.path("src/Tool/Tool.csproj");
+    d.w.fake.set_tree(json!([
+        {"name": "App", "path": app, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/App/Program.cs"), "itemType": "compile"},
+                   {"path": d.w.path("src/App/Calc.cs"), "itemType": "compile"}]},
+        {"name": "Tool", "path": tool, "kind": "sdk", "targetFrameworks": ["net10.0"],
+         "files": [{"path": d.w.path("src/Tool/Main.cs"), "itemType": "compile"}]}
+    ]));
+    d.w.open_solution();
+    d
+}
+
+impl Dbg {
+    /// The live sessions as `eludite.debug.sessions` lists them.
+    fn sessions(&self) -> Vec<cmds::SessionInfo> {
+        self.w
+            .shell
+            .read_with(&self.w.vcx, |s, _| s.debugger().sessions_info())
+    }
+
+    fn wait_sessions(&mut self, what: &str, done: impl Fn(&[cmds::SessionInfo]) -> bool) {
+        self.w.wait(what, |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| done(&s.debugger().sessions_info()))
+        });
+    }
+
+    /// Session `id` in break mode at stop `stop` with its locals loaded.
+    fn wait_break_in(&mut self, id: u32, stop: u64) {
+        self.w.wait(&format!("session {id} at stop {stop}"), |w| {
+            w.shell.update(&mut w.vcx, |s, _| {
+                s.in_session(id, |s| {
+                    let m = &s.debug.model;
+                    s.debug.session_id == id
+                        && m.mode == Mode::Break
+                        && m.stop == stop
+                        && m.settled()
+                })
+            })
+        });
+    }
+
+    fn active(&self) -> u32 {
+        self.w
+            .shell
+            .read_with(&self.w.vcx, |s, _| s.debugger().active)
+    }
+
+    /// The fake adapter of session `id` (by the process id it reported).
+    fn fake_of(&mut self, id: u32) -> FakeHandle {
+        self.wait_sessions(&format!("session {id}'s process"), |s| {
+            s.iter().any(|r| r.id == id && r.process_id.is_some())
+        });
+        let pid = self
+            .sessions()
+            .into_iter()
+            .find(|r| r.id == id)
+            .and_then(|r| r.process_id)
+            .unwrap();
+        self.fakes
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(p, _)| *p == pid)
+            .map(|(_, h)| h.clone())
+            .expect("the session's fake")
+    }
+
+    fn selector_choices(&self) -> Vec<(u32, bool)> {
+        self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            let a: Vec<(u32, bool)> = s
+                .debugger()
+                .windows
+                .call_stack
+                .read(cx)
+                .sessions()
+                .iter()
+                .map(|c| (c.id, c.active))
+                .collect();
+            let b: Vec<(u32, bool)> = s
+                .debugger()
+                .windows
+                .threads
+                .read(cx)
+                .sessions()
+                .iter()
+                .map(|c| (c.id, c.active))
+                .collect();
+            assert_eq!(a, b, "both selectors list the same sessions");
+            a
+        })
+    }
+}
+
+/// Brief 0028: a compound of two projects launches two sessions; the first to break takes the windows (Visual Studio
+/// switches to the process that broke) and keeps them while it is at its break; the Call Stack's and Threads' session
+/// selectors switch sessions by hand and Locals follows; F10 steps the active session only; the status bar names every
+/// session, the active one first; the Debug menu's items follow the active session; Shift+F5 ends both.
+#[gpui::test]
+fn a_compound_start_runs_two_sessions_and_the_windows_follow_the_session_that_broke(
+    cx: &mut TestAppContext,
+) {
+    let mut d = setup_two(cx);
+    let program = d.open("src/App/Program.cs", 6);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::START,
+        json!({"compound": [{"project": "Tool"}, {"project": "App"}]}),
+    )
+    .unwrap();
+    d.wait_sessions("both sessions running", |s| {
+        s.len() == 2 && s.iter().all(|r| r.mode == "running")
+    });
+    // Launched in solution order (App, then Tool), each a session with its own id, generation and adapter.
+    let s = d.sessions();
+    assert_eq!(
+        s.iter()
+            .map(|r| (r.id, r.name.as_str(), r.active))
+            .collect::<Vec<_>>(),
+        [(1, "App", true), (2, "Tool", false)]
+    );
+    assert_ne!(s[0].generation, s[1].generation);
+    assert_eq!(debug_status(&d), "Debugging: App (running), Tool (running)");
+    assert_eq!(d.selector_choices(), [(1, true), (2, false)]);
+    assert_eq!(menu_enabled(&d, "Continue"), Some(false));
+    assert_eq!(menu_enabled(&d, "Break All"), Some(true));
+    // Tool breaks first: the windows switch to it.
+    d.fake_of(2).trigger();
+    d.wait_break_in(2, 1);
+    assert_eq!(d.active(), 2);
+    let st = d.state();
+    assert_eq!(st["session"]["id"], 2);
+    assert_eq!(st["sessions"].as_array().unwrap().len(), 2);
+    assert_eq!(st["frames"][0]["line"], 6);
+    assert_eq!(d.locals(), [("x".to_owned(), "1".to_owned())]);
+    assert_eq!(d.exec(&program), Some((5, ExecutionKind::Current)));
+    assert_eq!(d.selector_choices(), [(1, false), (2, true)]);
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: Tool (break: breakpoint, Program.cs line 6), App (running)"
+    );
+    assert_eq!(menu_enabled(&d, "Continue"), Some(true));
+    assert_eq!(menu_enabled(&d, "Break All"), Some(false));
+    // App breaks too: the windows keep the session that broke first.
+    d.fake_of(1).trigger();
+    d.wait_break_in(1, 1);
+    assert_eq!(d.active(), 2);
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: Tool (break: breakpoint, Program.cs line 6), App (break: breakpoint, Program.cs line 6)"
+    );
+    // The Call Stack's selector switches to App through `select_frame` with its `session`.
+    let before = d.w.audit().len();
+    d.w.click(&super::windows::session_option("callstack", 1));
+    assert_eq!(d.active(), 1);
+    assert!(d.w.audit()[before..].contains(&cmds::SELECT_FRAME.to_owned()));
+    assert_eq!(d.state()["session"]["id"], 1);
+    // F10 steps the active session only; Locals follows it.
+    d.w.vcx.simulate_keystrokes("f10");
+    d.wait_break_in(1, 2);
+    assert_eq!(
+        d.locals(),
+        [
+            ("x".to_owned(), "1".to_owned()),
+            ("y".to_owned(), "3".to_owned())
+        ]
+    );
+    assert_eq!(d.exec(&program), Some((6, ExecutionKind::Current)));
+    let s = d.sessions();
+    assert_eq!((s[0].stop, s[1].stop), (2, 1), "Tool did not move");
+    // The Threads window's selector goes back to Tool: its locals, its execution point.
+    d.cmd("eludite.view.show", json!({"id": ids::THREADS}))
+        .unwrap();
+    d.w.click(&super::windows::session_option("threads", 2));
+    assert_eq!(d.active(), 2);
+    assert_eq!(d.locals(), [("x".to_owned(), "1".to_owned())]);
+    assert_eq!(d.exec(&program), Some((5, ExecutionKind::Current)));
+    // Mixed modes: App runs, Tool is at its break; the menu follows the active session.
+    d.cmd(cmds::CONTINUE, json!({"session": 1})).unwrap();
+    d.wait_sessions("App running", |s| s[0].mode == "running");
+    assert_eq!(d.active(), 2);
+    assert_eq!(menu_enabled(&d, "Continue"), Some(true));
+    assert_eq!(menu_enabled(&d, "Step Over"), Some(true));
+    assert_eq!(menu_enabled(&d, "Break All"), Some(false));
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 1})).unwrap();
+    assert_eq!(d.active(), 1);
+    assert_eq!(menu_enabled(&d, "Continue"), Some(false));
+    assert_eq!(menu_enabled(&d, "Step Over"), Some(false));
+    assert_eq!(menu_enabled(&d, "Break All"), Some(true));
+    assert_eq!(menu_enabled(&d, "Stop Debugging"), Some(true));
+    assert_eq!(d.exec(&program), None, "App runs: no execution point");
+    // Shift+F5 ends both.
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_sessions("every session ended", |s| s.is_empty());
+    assert_eq!(d.mode(), Mode::Design);
+    assert_eq!(menu_enabled(&d, "Stop Debugging"), Some(false));
+    assert!(d.selector_choices().is_empty());
+}
+
+/// Brief 0028: an agent drives one session by id while the other stays at its break; `sessions` and `state` per
+/// session; each session's stop counter refuses stale commands for that session only; an unknown id is refused with the
+/// live ids; `stop` with a session ends that one while the other keeps running; a session that exits is removed and the
+/// other becomes active; a compound's answer that times out lists every session's mode.
+#[gpui::test]
+fn an_agent_drives_one_session_by_id_while_the_other_stays_at_its_break(cx: &mut TestAppContext) {
+    let mut d = setup_two(cx);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    // The agent's compound start answers `running` with every session when none breaks within the wait.
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}], "wait_ms": 1500}),
+    );
+    assert_eq!(out["mode"], "running", "{out}");
+    assert_eq!(out["timed_out"], true);
+    let modes: Vec<(u64, &str)> = out["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| (s["id"].as_u64().unwrap(), s["mode"].as_str().unwrap()))
+        .collect();
+    assert_eq!(modes, [(1, "running"), (2, "running")]);
+    // Both break.
+    d.fake_of(1).trigger();
+    d.fake_of(2).trigger();
+    d.wait_break_in(1, 1);
+    d.wait_break_in(2, 1);
+    let listed = agent_call(&mut d, cmds::SESSIONS, json!({}));
+    let rows: Vec<(u64, &str, &str)> = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["id"].as_u64().unwrap(),
+                s["name"].as_str().unwrap(),
+                s["mode"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(rows, [(1, "App", "break"), (2, "Tool", "break")]);
+    assert_eq!(listed["sessions"][0]["stopped"], "breakpoint");
+    let active = listed["active"].as_u64().unwrap() as u32;
+    // The agent steps session 2 by id; session 1 stays at its break.
+    let step = agent_call(
+        &mut d,
+        cmds::STEP_OVER,
+        json!({"session": 2, "stop": 1, "wait_ms": 5000}),
+    );
+    assert_eq!(step["session"], 2, "{step}");
+    assert_eq!(step["mode"], "break");
+    assert_eq!(step["stop"], 2);
+    assert_eq!(step["stopped"]["location"]["line"], 7);
+    let s1 = agent_call(&mut d, cmds::STATE, json!({"session": 1}));
+    assert_eq!(
+        (s1["session"]["id"].clone(), s1["stop"].clone()),
+        (json!(1), json!(1))
+    );
+    assert_eq!(s1["frames"][0]["line"], 6);
+    let s2 = agent_call(&mut d, cmds::STATE, json!({"session": 2}));
+    assert_eq!(
+        (s2["session"]["id"].clone(), s2["stop"].clone()),
+        (json!(2), json!(2))
+    );
+    assert_eq!(s2["frames"][0]["line"], 7);
+    // The agent's reads and the person's windows did not move: the active session is as it was.
+    assert_eq!(d.active(), active);
+    // Session 1's stop counter refuses a `continue` quoting stop 2; session 2's accepts it.
+    let stale = agent_call(
+        &mut d,
+        cmds::CONTINUE,
+        json!({"session": 1, "stop": 2, "wait_ms": 0}),
+    );
+    assert!(
+        stale["error"].as_str().unwrap().contains("stale"),
+        "{stale}"
+    );
+    let ok = agent_call(
+        &mut d,
+        cmds::CONTINUE,
+        json!({"session": 2, "stop": 2, "wait_ms": 0}),
+    );
+    assert!(ok.get("error").is_none(), "{ok}");
+    assert_eq!(ok["session"], 2);
+    d.wait_sessions("session 2 running", |s| s[1].mode == "running");
+    // An unknown id is refused with the live ids.
+    let unknown = agent_call(&mut d, cmds::CONTINUE, json!({"session": 9}));
+    assert!(
+        unknown["error"]
+            .as_str()
+            .unwrap()
+            .contains("the live sessions are 1, 2"),
+        "{unknown}"
+    );
+    // `stop` with a session ends that one; the other keeps its break.
+    let stopped = agent_call(&mut d, cmds::STOP, json!({"session": 2}));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    d.wait_sessions("session 2 ended", |s| s.len() == 1);
+    assert_eq!(d.sessions()[0].id, 1);
+    assert_eq!(d.sessions()[0].mode, "break");
+    assert_eq!(d.active(), 1);
+    let gone = agent_call(&mut d, cmds::STATE, json!({"session": 2}));
+    assert!(
+        gone["error"]
+            .as_str()
+            .unwrap()
+            .contains("session 2 has ended"),
+        "{gone}"
+    );
+    // A third session (Tool again): ids are never reused.
+    let again = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"project": "Tool", "wait_ms": 0}),
+    );
+    assert!(again.get("error").is_none(), "{again}");
+    d.wait_sessions("session 3 running", |s| {
+        s.iter().any(|r| r.id == 3 && r.mode == "running")
+    });
+    // A plain start while sessions run is refused (F5 in break mode is Continue); naming a project adds a session.
+    let plain = agent_call(&mut d, cmds::START, json!({}));
+    assert!(
+        plain["error"].as_str().unwrap().contains("already"),
+        "{plain}"
+    );
+    // A session that exits is removed and the other becomes active.
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 3})).unwrap();
+    assert_eq!(d.active(), 3);
+    d.fake_of(3).crash();
+    d.wait_sessions("session 3 removed", |s| s.len() == 1 && s[0].id == 1);
+    assert_eq!(d.active(), 1);
+    assert_eq!(d.state()["session"]["id"], 1);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Brief 0028: a breakpoint toggled while two sessions run is sent to both adapters and binds in both
+/// (`breakpoints[].sessions`, the Breakpoints window's tooltip); exception settings go to both; Stop Debugging from an
+/// agent ends both and answers once they ended.
+#[gpui::test]
+fn breakpoints_bind_in_every_session_and_stop_debugging_ends_them_all(cx: &mut TestAppContext) {
+    let mut d = setup_two(cx);
+    d.cmd(
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+    )
+    .unwrap();
+    d.wait_sessions("both sessions running", |s| {
+        s.len() == 2
+            && s.iter()
+                .all(|r| r.mode == "running" && r.process_id.is_some())
+    });
+    let (f1, f2) = (d.fake_of(1), d.fake_of(2));
+    let before = (f1.commands().len(), f2.commands().len());
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    assert!(f1.wait_for("setBreakpoints", 1, T) && f2.wait_for("setBreakpoints", 1, T));
+    d.w.wait("bound in both sessions", |w| {
+        let s = state_of(w);
+        let _ = &s;
+        w.shell.update(&mut w.vcx, |s, _| {
+            let st = s.debug.state();
+            st.breakpoints
+                .first()
+                .is_some_and(|b| b.sessions.len() == 2 && b.sessions.iter().all(|x| x.verified))
+        })
+    });
+    let st = d.state();
+    let b = &st["breakpoints"][0];
+    assert_eq!(b["verified"], true);
+    assert_eq!(
+        b["sessions"],
+        json!([
+            {"session": 1, "verified": true, "hits": 0},
+            {"session": 2, "verified": true, "hits": 0}
+        ])
+    );
+    let row: cmds::BreakpointRow = serde_json::from_value(b.clone()).unwrap();
+    assert_eq!(
+        super::windows::breakpoint_tooltip(&row).unwrap(),
+        "Session 1: bound, 0 hits\nSession 2: bound, 0 hits"
+    );
+    assert!(f1.commands().len() > before.0 && f2.commands().len() > before.1);
+    // Exception settings are shared too.
+    d.cmd(cmds::EXCEPTION_SETTINGS, json!({"break_when_thrown": true}))
+        .unwrap();
+    assert!(f1.wait_for("setExceptionBreakpoints", 2, T));
+    assert!(f2.wait_for("setExceptionBreakpoints", 2, T));
+    // Both break at it; each counts its own hit.
+    f1.trigger();
+    f2.trigger();
+    d.wait_break_in(1, 1);
+    d.wait_break_in(2, 1);
+    let b = d.state()["breakpoints"][0].clone();
+    assert_eq!(b["hits"], 2);
+    assert_eq!(b["sessions"][0]["hits"], 1);
+    assert_eq!(b["sessions"][1]["hits"], 1);
+    // Stop Debugging from an agent: every session, answered once all ended.
+    let out = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(out["mode"], "design", "{out}");
+    assert!(out.get("sessions").is_none());
+    assert!(d.sessions().is_empty());
+    assert!(f1.wait_for("disconnect", 1, T) && f2.wait_for("disconnect", 1, T));
+    // After the last session the margin draws the breakpoint as set, not bound or unbound.
+    let st = d.state();
+    assert!(st["breakpoints"][0].get("sessions").is_none());
+}
+
+/// Brief 0028: Project > Set Startup Projects... opens the Startup Projects dialog; its Action column and OK set two
+/// startup projects through `eludite.workspace.set_startup_project` with `projects`; they persist (version 3), show
+/// bold in Workspace and in `eludite.workspace.tree`, and F5 builds once for the set and then starts both; an agent
+/// sets them with actions and cannot open the dialog; one startup project again replaces them.
+#[gpui::test]
+fn the_startup_projects_dialog_sets_two_projects_that_persist_show_bold_and_f5_starts_both(
+    cx: &mut TestAppContext,
+) {
+    use eludite_ui::startup::{
+        ACTION_START, ACTION_START_WITHOUT_DEBUGGING, STARTUP_OK, startup_action_selector,
+    };
+    let mut d = setup_two(cx);
+    let (app, tool) = (
+        normalize_path(&d.w.path("src/App/App.csproj")),
+        normalize_path(&d.w.path("src/Tool/Tool.csproj")),
+    );
+    let startups = |d: &Dbg| {
+        d.w.shell
+            .read_with(&d.w.vcx, |s, cx| s.explorer().read(cx).startups().to_vec())
+    };
+    d.w.wait("the default startup project", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.explorer().read(cx).startups().len() == 1)
+    });
+    assert_eq!(startups(&d), std::slice::from_ref(&app));
+    // Project > Set Startup Projects...: App starts (the startup project), Tool does not.
+    d.w.click("menu-Project");
+    d.w.click("menu-item-Project-Set Startup Projects...");
+    let rows = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.debugger().startup_dialog.as_ref().map(|e| {
+                e.read(cx)
+                    .rows()
+                    .iter()
+                    .map(|r| (r.name.clone(), r.action))
+                    .collect::<Vec<_>>()
+            })
+        })
+    };
+    assert_eq!(
+        rows(&d),
+        Some(vec![
+            ("App".to_owned(), ACTION_START),
+            ("Tool".to_owned(), 0)
+        ])
+    );
+    d.w.click(&startup_action_selector(1, ACTION_START));
+    let before = d.w.audit().len();
+    d.w.click(STARTUP_OK);
+    assert!(d.w.audit()[before..].contains(&"eludite.workspace.set_startup_project".to_owned()));
+    assert!(rows(&d).is_none(), "OK closed the dialog");
+    // Bold in Workspace, marked in the tree for agents.
+    assert_eq!(startups(&d), [app.clone(), tool.clone()]);
+    let tree =
+        d.w.commands
+            .invoke("eludite.workspace.tree", json!({}))
+            .unwrap();
+    let marked: Vec<&str> = tree["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|p| p["startup"] == true)
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(marked, ["App", "Tool"]);
+    // Persisted per solution as version 3; `startup_project` names the first for older readers.
+    let file =
+        eludite_docking::LayoutStore::new(d.store.clone()).solution_path(&d.w.path("App.slnx"));
+    d.w.wait("the persisted startup projects", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("Tool.csproj"))
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved["version"], 3);
+    assert_eq!(
+        normalize_path(Path::new(saved["startup_project"].as_str().unwrap())),
+        app
+    );
+    let actions: Vec<&str> = saved["startup_projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, ["start", "start"]);
+    // F5 builds once for the set (the solution), then starts both.
+    d.set_build_before_run(true);
+    let builds = d.w.fake.received_params("eludite/build/start").len();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_sessions("both building", |s| {
+        s.len() == 2 && s.iter().all(|r| r.mode == "building")
+    });
+    let start = wait_build(&mut d);
+    assert!(start.get("project").is_none_or(Value::is_null), "{start}");
+    d.w.fake.finish_build("succeeded", json!([]));
+    d.wait_sessions("both running", |s| {
+        s.len() == 2 && s.iter().all(|r| r.mode == "running")
+    });
+    assert_eq!(
+        d.w.fake.received_params("eludite/build/start").len(),
+        builds + 1,
+        "one build for the whole set"
+    );
+    let names: Vec<String> = d.sessions().into_iter().map(|s| s.name).collect();
+    assert_eq!(names, ["App", "Tool"]);
+    d.set_build_before_run(false);
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_sessions("both ended", |s| s.is_empty());
+    // An agent sets them with actions; the dialog then shows them.
+    let out = agent_call(
+        &mut d,
+        "eludite.workspace.set_startup_project",
+        json!({"projects": [
+            {"project": "Tool", "action": "start_without_debugging"},
+            {"project": "App", "action": "start"}
+        ]}),
+    );
+    assert_eq!(out["project"], "App", "{out}");
+    let listed: Vec<(&str, &str)> = out["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["project"].as_str().unwrap(),
+                p["action"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        listed,
+        [("App", "start"), ("Tool", "start_without_debugging")]
+    );
+    d.cmd("eludite.workspace.set_startup_project", json!({}))
+        .unwrap();
+    assert_eq!(
+        rows(&d),
+        Some(vec![
+            ("App".to_owned(), ACTION_START),
+            ("Tool".to_owned(), ACTION_START_WITHOUT_DEBUGGING)
+        ])
+    );
+    d.w.vcx.simulate_keystrokes("escape");
+    assert!(rows(&d).is_none(), "Escape closed the dialog");
+    // The dialog is the person's: an agent's call without arguments is refused.
+    let refused = agent_call(&mut d, "eludite.workspace.set_startup_project", json!({}));
+    assert!(
+        refused["error"].as_str().unwrap().contains("`projects`"),
+        "{refused}"
+    );
+    // One startup project again (Set as Startup Project) replaces them.
+    d.cmd(
+        "eludite.workspace.set_startup_project",
+        json!({"project": "Tool"}),
+    )
+    .unwrap();
+    assert_eq!(startups(&d), [tool]);
+    d.w.wait("saved without the multiple ones", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| !t.contains("startup_projects"))
+    });
+}
+
+/// Brief 0028's launch budget: a two-project compound reaches both `running` in under 1.5 times the single-project
+/// launch (fake adapter; medians of 10 starts each, timed on the UI thread from the command to the last `running`).
+#[gpui::test]
+fn a_compound_of_two_reaches_running_within_one_and_a_half_single_launches(
+    cx: &mut TestAppContext,
+) {
+    let mut d = setup_two(cx);
+    let time = |d: &mut Dbg, args: Value, n: usize| -> Duration {
+        let t = Instant::now();
+        d.w.shell
+            .update_in(&mut d.w.vcx, |s, window, cx| {
+                s.invoke(cmds::START, args, window, cx)
+            })
+            .unwrap();
+        let deadline = Instant::now() + T;
+        loop {
+            d.w.vcx.run_until_parked();
+            let s = d.sessions();
+            if s.len() == n && s.iter().all(|r| r.mode == "running") {
+                break;
+            }
+            assert!(Instant::now() < deadline, "timed out starting");
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        let took = t.elapsed();
+        d.cmd(cmds::STOP, json!({})).unwrap();
+        d.wait_sessions("ended", |s| s.is_empty());
+        took
+    };
+    let median = |mut v: Vec<Duration>| {
+        v.sort();
+        v[v.len() / 2]
+    };
+    // Warm both paths once.
+    time(&mut d, json!({"project": "App"}), 1);
+    time(
+        &mut d,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+        2,
+    );
+    let mut single = Vec::new();
+    let mut compound = Vec::new();
+    for _ in 0..10 {
+        single.push(time(&mut d, json!({"project": "App"}), 1));
+        compound.push(time(
+            &mut d,
+            json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+            2,
+        ));
+    }
+    let (s, c) = (median(single), median(compound));
+    eprintln!(
+        "timing: single launch to running {:.2} ms, two-project compound to both running {:.2} ms (median of 10): \
+         ratio {:.2}",
+        s.as_secs_f64() * 1e3,
+        c.as_secs_f64() * 1e3,
+        c.as_secs_f64() / s.as_secs_f64()
+    );
+    assert!(
+        c.as_secs_f64() < 1.5 * s.as_secs_f64(),
+        "compound {c:?} vs single {s:?}"
+    );
+}
+
+/// The frame cost while the sessions `ids` stop by turns ten times a second in all (the person switching to the
+/// next session and continuing it each time; it stops again at the loop's breakpoint), the frame drawn headless every
+/// 16 ms for four seconds: (frame p99, the debugger's share p99, stops, frame p50). The share is the debugger's
+/// messages and the commands' own work on the UI thread.
+fn frames_while_stopping_by_turns(d: &mut Dbg, ids: &[u32]) -> (Duration, Duration, u32, Duration) {
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.timings.msgs_ui.clear());
+    let mut frames: Vec<(Duration, Duration)> = Vec::new();
+    let started = Instant::now();
+    let mut next_stop = started;
+    let mut stops = 0u32;
+    let mut last = Instant::now();
+    while started.elapsed() < Duration::from_secs(4) {
+        let mut commands = Duration::ZERO;
+        if Instant::now() >= next_stop {
+            let id = ids[stops as usize % ids.len()];
+            let (a, b) = d.w.shell.update_in(&mut d.w.vcx, |s, window, cx| {
+                let t = Instant::now();
+                if ids.len() > 1 {
+                    let _ = s.invoke(cmds::SELECT_FRAME, json!({"session": id}), window, cx);
+                }
+                let a = t.elapsed();
+                let t = Instant::now();
+                let _ = s.invoke(cmds::CONTINUE, json!({}), window, cx);
+                (a, t.elapsed())
+            });
+            commands = a + b;
+            stops += 1;
+            next_stop += Duration::from_millis(100);
+        }
+        d.w.vcx.run_until_parked();
+        let draw = d.w.vcx.update(|window, cx| {
+            window.refresh();
+            let t = Instant::now();
+            let _ = window.draw(cx);
+            t.elapsed()
+        });
+        let msgs: Duration = d.w.shell.read_with(&d.w.vcx, |s, _| {
+            s.debugger()
+                .timings
+                .msgs_ui
+                .iter()
+                .filter(|(at, _)| *at >= last)
+                .map(|(_, took)| *took)
+                .sum()
+        });
+        last = Instant::now();
+        frames.push((draw, msgs + commands));
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    d.w.wait("the last stop", |w| {
+        w.shell.update(&mut w.vcx, |s, _| {
+            ids.iter().all(|id| {
+                s.in_session(*id, |s| {
+                    s.debug.model.mode == Mode::Break && s.debug.model.settled()
+                })
+            })
+        })
+    });
+    let mut cost: Vec<Duration> = frames.iter().map(|(a, b)| *a + *b).collect();
+    cost.sort();
+    let mut share: Vec<Duration> = frames.iter().map(|(_, b)| *b).collect();
+    share.sort();
+    let p99 = |v: &[Duration]| v[(v.len() * 99).div_ceil(100) - 1];
+    (p99(&cost), p99(&share), stops, cost[cost.len() / 2])
+}
+
+/// Brief 0028's frame budget: two sessions stopping alternately ten times a second cost the frame what one session
+/// stopping ten times a second does; the debugger's share stays under 8 ms at p99. Both are printed for the report.
+#[gpui::test]
+fn two_sessions_stopping_alternately_ten_times_a_second_cost_the_frame_little(
+    cx: &mut TestAppContext,
+) {
+    let mut d = setup_two_with(cx, |p| {
+        let main = p.steps[0].path.clone();
+        p.steps = fake::hot_loop(&main, 6, "App.Program.Main()", 0, 200);
+    });
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    // One session first (the baseline).
+    d.cmd(cmds::START, json!({"project": "App"})).unwrap();
+    d.wait_sessions("one running", |s| {
+        s.len() == 1 && s[0].mode == "running" && s[0].process_id.is_some()
+    });
+    d.fake_of(1).trigger();
+    d.wait_break_in(1, 1);
+    let (one_frame, one_share, one_stops, one_p50) = frames_while_stopping_by_turns(&mut d, &[1]);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+    // Two sessions by turns.
+    d.cmd(
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+    )
+    .unwrap();
+    d.wait_sessions("both running", |s| {
+        s.len() == 2
+            && s.iter()
+                .all(|r| r.mode == "running" && r.process_id.is_some())
+    });
+    let ids: Vec<u32> = d.sessions().iter().map(|r| r.id).collect();
+    for id in &ids {
+        d.fake_of(*id).trigger();
+    }
+    d.wait_sessions("both at their break", |s| {
+        s.iter().all(|r| r.mode == "break")
+    });
+    let before: u64 = d.sessions().iter().map(|r| r.stop).sum();
+    // Against load from other tests running beside this one: the best of up to three two-second windows.
+    let mut best = frames_while_stopping_by_turns(&mut d, &ids);
+    let mut stops = best.2;
+    for _ in 0..2 {
+        if best.1 < Duration::from_millis(8) {
+            break;
+        }
+        let again = frames_while_stopping_by_turns(&mut d, &ids);
+        stops += again.2;
+        if again.1 < best.1 {
+            best = (again.0, again.1, best.2, again.3);
+        }
+    }
+    let (two_frame, two_share, two_p50) = (best.0, best.1, best.3);
+    let s = d.sessions();
+    assert_eq!(
+        s.iter().map(|r| r.stop).sum::<u64>(),
+        before + u64::from(stops),
+        "every continue stopped again"
+    );
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    eprintln!(
+        "timing: frame p99 (p50) with one session stopping 10/s {:.2} ({:.2}) ms, share p99 {:.3} ms, {one_stops} \
+         stops; with two sessions stopping alternately 10/s {:.2} ({:.2}) ms, share p99 {:.3} ms, {stops} stops",
+        ms(one_frame),
+        ms(one_p50),
+        ms(one_share),
+        ms(two_frame),
+        ms(two_p50),
+        ms(two_share)
+    );
+    assert!(stops >= 38 && one_stops >= 38);
+    assert!(two_share < Duration::from_millis(8));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
+
+/// Brief 0028 against the real `eludite-dbg-mono`: two TestApp sessions at once (a compound of the same project twice,
+/// as Debug > Start New Instance), a breakpoint shared by both, both break at it; an agent steps one while the other
+/// stays; `stop` with a session ends one, the other keeps its break; Stop Debugging ends the rest. Skipped like the
+/// other Mono tests when Mono or the adapter is missing.
+#[gpui::test]
+fn two_sessions_at_once_against_eludite_dbg_mono(cx: &mut TestAppContext) {
+    let Some((mut d, source, text)) = mono_solution(cx) else {
+        return;
+    };
+    let line_of = |mark: &str| {
+        text.lines()
+            .position(|l| l.ends_with(&format!("// MARK: {mark}")))
+            .unwrap() as u32
+            + 1
+    };
+    let path = source.to_string_lossy().into_owned();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": path, "line": line_of("main-add")}),
+    )
+    .unwrap();
+    let clock = Instant::now();
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "App"}], "wait_ms": 30000}),
+    );
+    assert_eq!(out["mode"], "break", "{out}");
+    assert_eq!(out["stopped"]["location"]["line"], line_of("main-add"));
+    let first = out["session"].as_u64().unwrap() as u32;
+    d.wait_sessions("both at the breakpoint", |s| {
+        s.len() == 2 && s.iter().all(|r| r.mode == "break")
+    });
+    eprintln!(
+        "timing: two eludite-dbg-mono sessions from the compound start to both at their breakpoint: {:.0} ms",
+        clock.elapsed().as_secs_f64() * 1e3
+    );
+    let ids: Vec<u32> = d.sessions().iter().map(|r| r.id).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&first));
+    let other = *ids.iter().find(|id| **id != first).unwrap();
+    for r in d.sessions() {
+        assert_eq!(r.runtime.as_deref(), Some("mono"));
+        assert!(
+            r.adapter
+                .as_deref()
+                .unwrap()
+                .starts_with("eludite-dbg-mono under mono")
+        );
+    }
+    let pids: Vec<i64> = d.sessions().iter().filter_map(|r| r.process_id).collect();
+    assert_eq!(pids.len(), 2);
+    assert_ne!(pids[0], pids[1], "two processes");
+    let b = d.state()["breakpoints"][0].clone();
+    assert_eq!(b["sessions"].as_array().unwrap().len(), 2, "{b}");
+    assert!(
+        b["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| s["verified"] == true),
+        "{b}"
+    );
+    // An agent steps one session; the other stays at its break.
+    let stop_other = d
+        .sessions()
+        .iter()
+        .find(|r| r.id == other)
+        .map(|r| r.stop)
+        .unwrap();
+    let step = agent_call(
+        &mut d,
+        cmds::STEP_OVER,
+        json!({"session": other, "wait_ms": 10000}),
+    );
+    assert_eq!(step["session"], other, "{step}");
+    assert_eq!(step["stopped"]["location"]["line"], line_of("print-result"));
+    let s1 = agent_call(&mut d, cmds::STATE, json!({"session": first}));
+    assert_eq!(s1["frames"][0]["line"], line_of("main-add"));
+    let s2 = agent_call(&mut d, cmds::STATE, json!({"session": other}));
+    assert_eq!(s2["frames"][0]["line"], line_of("print-result"));
+    assert_eq!(s2["stop"].as_u64().unwrap(), stop_other + 1);
+    // `stop` with a session ends that one; the other keeps its break.
+    let stopped = agent_call(&mut d, cmds::STOP, json!({"session": other}));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    d.wait_sessions("one session left", |s| s.len() == 1);
+    assert_eq!(d.sessions()[0].id, first);
+    assert_eq!(d.sessions()[0].mode, "break");
+    // Stop Debugging ends the rest.
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("every session ended", |s| s.is_empty());
+    d.wait_mode(Mode::Design);
+    for pid in pids {
+        kill(pid as u32);
+    }
+}
+
+/// Brief 0028 with two adapters at once: netcoredbg debugging `eludite-host` (a .NET project) beside
+/// `eludite-dbg-mono` debugging the TestApp, started as one compound; the TestApp breaks at its breakpoint, Break All
+/// stops the host in its own session, an agent steps the TestApp while the host stays at its pause, `stop` with the
+/// host's session ends it and the TestApp keeps its break. Skipped unless netcoredbg is found (`ELUDITE_NETCOREDBG`,
+/// `PATH`; `tools/netcoredbg/fetch.sh`), `dotnet build dotnet/Eludite.slnx` has run and Mono is installed.
+#[gpui::test]
+fn netcoredbg_and_eludite_dbg_mono_sessions_at_once(cx: &mut TestAppContext) {
+    let found = match eludite_dap::discovery::AdapterSearch::from_env().find_netcoredbg() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let host =
+        std::fs::canonicalize(root.join("dotnet/src/Eludite.Host/Eludite.Host.csproj")).unwrap();
+    if let Err(e) = eludite_dap::launch::launch_config(&host, None) {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    let more = [json!({
+        "name": "Eludite.Host", "path": host, "kind": "sdk",
+        "targetFrameworks": ["net10.0"], "files": []
+    })];
+    let Some((mut d, source, text)) = mono_solution_with(cx, &more) else {
+        return;
+    };
+    d.w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "debugger.netcoredbgPath", "value": found.path.to_string_lossy()}),
+        )
+        .unwrap();
+    let want = Some(found.path.clone().into_os_string());
+    d.w.wait("the netcoredbg path", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().setup().search.env == want)
+    });
+    let line = text
+        .lines()
+        .position(|l| l.ends_with("// MARK: main-add"))
+        .unwrap() as u32
+        + 1;
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": source.to_string_lossy(), "line": line}),
+    )
+    .unwrap();
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Eludite.Host"}], "wait_ms": 30000}),
+    );
+    assert_eq!(out["mode"], "break", "{out}");
+    let mono = out["session"].as_u64().unwrap() as u32;
+    d.wait_sessions("the host running", |s| {
+        s.len() == 2
+            && s.iter()
+                .any(|r| r.runtime.as_deref() == Some("coreclr") && r.mode == "running")
+    });
+    let host_id = d
+        .sessions()
+        .iter()
+        .find(|r| r.runtime.as_deref() == Some("coreclr"))
+        .unwrap()
+        .id;
+    assert!(
+        d.sessions()
+            .iter()
+            .find(|r| r.id == host_id)
+            .unwrap()
+            .adapter
+            .as_deref()
+            .unwrap()
+            .starts_with("netcoredbg")
+    );
+    // Break All on the host's session only.
+    let paused = agent_call(
+        &mut d,
+        cmds::PAUSE,
+        json!({"session": host_id, "wait_ms": 10000}),
+    );
+    assert_eq!(paused["mode"], "break", "{paused}");
+    assert_eq!(paused["session"], host_id);
+    // The agent steps the TestApp; the host stays at its pause.
+    let step = agent_call(
+        &mut d,
+        cmds::STEP_OVER,
+        json!({"session": mono, "wait_ms": 10000}),
+    );
+    assert_eq!(step["session"], mono, "{step}");
+    assert_eq!(step["mode"], "break");
+    let h = agent_call(&mut d, cmds::STATE, json!({"session": host_id}));
+    assert_eq!(h["mode"], "break");
+    assert_eq!(h["stopped"]["reason"], "pause");
+    // `stop` with the host's session ends it; the TestApp keeps its break.
+    let stopped = agent_call(&mut d, cmds::STOP, json!({"session": host_id}));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    d.wait_sessions("the TestApp left", |s| s.len() == 1 && s[0].id == mono);
+    assert_eq!(d.sessions()[0].mode, "break");
+    let pids: Vec<i64> = d.sessions().iter().filter_map(|r| r.process_id).collect();
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("every session ended", |s| s.is_empty());
+    for pid in pids {
+        kill(pid as u32);
+    }
+}
+
+/// Brief 0028: brief 0027's rules per session. Allow Agents to Drive off in one session refuses agents there and not in
+/// the other; the person's F10 in one session does not interrupt an agent's wait on the other, which is satisfied by
+/// that session's own stop; the person's F10 in the agent's session does interrupt it.
+#[gpui::test]
+fn allow_agents_and_interruptions_are_per_session(cx: &mut TestAppContext) {
+    let mut d = setup_two(cx);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+    )
+    .unwrap();
+    d.wait_sessions("both running", |s| {
+        s.len() == 2
+            && s.iter()
+                .all(|r| r.mode == "running" && r.process_id.is_some())
+    });
+    d.fake_of(1).trigger();
+    d.fake_of(2).trigger();
+    d.wait_break_in(1, 1);
+    d.wait_break_in(2, 1);
+    // The person turns agents off for session 1 only.
+    d.cmd(cmds::ALLOW_AGENTS, json!({"session": 1, "enabled": false}))
+        .unwrap();
+    let s = d.sessions();
+    assert_eq!(
+        s.iter().map(|r| r.agents_allowed).collect::<Vec<_>>(),
+        [false, true]
+    );
+    let refused = agent_call(&mut d, cmds::STEP_OVER, json!({"session": 1, "wait_ms": 0}));
+    assert_eq!(
+        refused["error"].as_str().unwrap(),
+        format!("command failed: {}", cmds::AGENTS_NOT_ALLOWED),
+        "{refused}"
+    );
+    let read = agent_call(&mut d, cmds::SNAPSHOT, json!({"session": 1}));
+    assert!(read.get("error").is_none(), "reads keep working: {read}");
+    // An agent continues session 2 into the loop... its wait sees session 2 only: the person's F10 in session 1 (the
+    // active one) does not interrupt it.
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 1})).unwrap();
+    let commands = d.w.commands.clone();
+    let waiting = std::thread::spawn(move || {
+        with_caller(test_agent(), || {
+            commands
+                .invoke(
+                    cmds::WAIT,
+                    json!({"session": 2, "until": "stopped", "stop": 1, "wait_ms": 10000}),
+                )
+                .unwrap_or_else(|e| json!({"error": e.to_string()}))
+        })
+    });
+    // The agent's wait is registered before the person acts.
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    let ok = agent_call(&mut d, cmds::CONTINUE, json!({"session": 2, "wait_ms": 0}));
+    assert!(ok.get("error").is_none(), "{ok}");
+    d.w.vcx.simulate_keystrokes("f10");
+    d.wait_break_in(1, 2);
+    assert!(
+        !waiting.is_finished(),
+        "session 1's step did not end session 2's wait"
+    );
+    // Session 2 stops on its own: the wait is satisfied, not interrupted.
+    d.fake_of(2).trigger();
+    let deadline = Instant::now() + T;
+    while !waiting.is_finished() {
+        assert!(Instant::now() < deadline, "the wait did not answer");
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let out = waiting.join().unwrap();
+    assert_eq!(out["session"], 2, "{out}");
+    assert_eq!(out["satisfied"], "stopped", "{out}");
+    assert!(out.get("interrupted_by").is_none(), "{out}");
+    // The person's F10 in the agent's session does interrupt its wait.
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 2})).unwrap();
+    let commands = d.w.commands.clone();
+    let stop2 = d.sessions()[1].stop;
+    let waiting = std::thread::spawn(move || {
+        with_caller(test_agent(), || {
+            commands
+                .invoke(
+                    cmds::WAIT,
+                    json!({"session": 2, "until": "terminated", "wait_ms": 10000}),
+                )
+                .unwrap_or_else(|e| json!({"error": e.to_string()}))
+        })
+    });
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    d.w.vcx.simulate_keystrokes("f10");
+    let deadline = Instant::now() + T;
+    while !waiting.is_finished() {
+        assert!(Instant::now() < deadline, "the wait did not answer");
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let out = waiting.join().unwrap();
+    assert_eq!(out["interrupted_by"], "user", "{out}");
+    assert_eq!(out["session"], 2);
+    d.wait_break_in(2, stop2 + 1);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
 }

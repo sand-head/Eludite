@@ -1,7 +1,8 @@
 //! The Workspace window (PLAN.md 4.2, brief 0012; Visual Studio's Solution Explorer, renamed so Cargo and npm
 //! workspaces fit the same window later): the tree from `eludite-workspace`'s [`SolutionModel`], drawn as
 //! virtualized rows. Click selects; the triangle or a double-click expands and collapses; double-clicking a file
-//! opens it through `eludite.file.open`. The startup project is drawn bold (brief 0020).
+//! opens it through `eludite.file.open`. The startup project is drawn bold (brief 0020), every one of the multiple
+//! startup projects too (brief 0028).
 //!
 //! A right-click on a project (or a Cargo package) opens its context menu (brief 0020), in Visual Studio's order:
 //! Build, Rebuild and Clean (`eludite.build.project` with the project and a target), Set as Startup Project
@@ -76,8 +77,8 @@ pub struct SolutionExplorer {
     selected: Option<String>,
     rows: Vec<Row>,
     placeholder: Placeholder,
-    /// The startup project's file, drawn bold.
-    startup: Option<PathBuf>,
+    /// The startup projects' files, drawn bold (the first is the startup project; brief 0028 has several).
+    startup: Vec<PathBuf>,
     /// The open context menu: the row it is for and where the pointer was.
     menu: Option<(usize, Point<Pixels>)>,
 }
@@ -108,31 +109,43 @@ impl SolutionExplorer {
             selected: None,
             rows: Vec::new(),
             placeholder: Placeholder::NoSolution,
-            startup: None,
+            startup: Vec::new(),
             menu: None,
         }
     }
 
-    /// The startup project (Set as Startup Project's, or the first executable project).
-    pub fn set_startup(&mut self, startup: Option<PathBuf>, cx: &mut Context<Self>) {
-        let startup = startup.map(|p| super::documents::normalize_path(&p));
-        if startup != self.startup {
-            self.startup = startup;
+    /// Every startup project (brief 0028: Visual Studio's multiple startup projects), each drawn bold.
+    pub fn set_startups(&mut self, startups: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let startups: Vec<PathBuf> = startups
+            .iter()
+            .map(|p| super::documents::normalize_path(p))
+            .collect();
+        if startups != self.startup {
+            self.startup = startups;
             cx.notify();
         }
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn startup(&self) -> Option<&Path> {
-        self.startup.as_deref()
+        self.startup.first().map(PathBuf::as_path)
+    }
+
+    /// Every project drawn bold.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn startups(&self) -> &[PathBuf] {
+        &self.startup
     }
 
     fn is_startup(&self, row: &Row) -> bool {
         matches!(
             row.kind,
             NodeKind::Project { .. } | NodeKind::CargoPackage { .. }
-        ) && self.startup.is_some()
-            && row.path.as_deref().map(super::documents::normalize_path) == self.startup
+        ) && row
+            .path
+            .as_deref()
+            .map(super::documents::normalize_path)
+            .is_some_and(|p| self.startup.contains(&p))
     }
 
     fn open_menu(&mut self, ix: usize, event: &MouseDownEvent, cx: &mut Context<Self>) {

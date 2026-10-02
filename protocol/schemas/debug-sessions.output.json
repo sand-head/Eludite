@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-sessions.output.json",
+  "title": "eludite.debug.sessions output",
+  "description": "The live debugging sessions in the order they started (the status bar names them, the active one first). A session that ended is no longer listed.",
+  "type": "object",
+  "required": [
+    "sessions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sessions": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/session"
+      }
+    },
+    "active": {
+      "description": "The active session's id (absent when no session runs).",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "$defs": {
+    "session": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "mode",
+        "active",
+        "generation",
+        "stop"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "The session's id: 1, 2, ... in the order sessions started, never reused while Eludite runs. Pass it as `session` to any eludite.debug.* command.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "description": "The project's name (its project file or Cargo package without the extension), or the attached process's name.",
+          "type": "string"
+        },
+        "mode": {
+          "description": "As `mode` in eludite.debug.state, for this session.",
+          "enum": [
+            "design",
+            "building",
+            "launching",
+            "running",
+            "break",
+            "stopping",
+            "running_without_debugging"
+          ]
+        },
+        "active": {
+          "description": "The active session: the one the Locals, Watch, Call Stack and Threads windows show and commands without `session` act on.",
+          "type": "boolean"
+        },
+        "generation": {
+          "description": "The session's generation (unique across sessions); events and answers of an older one are dropped.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "stop": {
+          "description": "The session's stop counter: quote it as `stop` with `session` to have a command refused if this session moved on.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "runtime": {
+          "description": "As `session.runtime` in eludite.debug.state.",
+          "enum": [
+            "coreclr",
+            "mono",
+            "netfx",
+            "native"
+          ]
+        },
+        "adapter": {
+          "description": "As `session.adapter` in eludite.debug.state.",
+          "type": "string"
+        },
+        "process_id": {
+          "description": "The debuggee's process id, once known.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "The project file (a Cargo package's Cargo.toml); for an attached session, the process's name.",
+          "type": "string"
+        },
+        "attached": {
+          "description": "The session attached to a running process.",
+          "type": "boolean"
+        },
+        "agents_allowed": {
+          "description": "Whether agents may drive this session (Allow Agents to Drive is per session).",
+          "type": "boolean"
+        },
+        "stopped": {
+          "description": "In break mode: why it stopped (`breakpoint`, `step`, `exception`, `pause`, ...).",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

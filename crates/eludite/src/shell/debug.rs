@@ -49,6 +49,16 @@
 //!   ([`state::DebugModel::agents_allowed`]) refuses agents' driving commands while off; the person's resuming commands
 //!   end an agent's waiting command at once with `interrupted_by: "user"` and make its next resuming command stale
 //!   until it reads the state (proposal 0001 rule 5).
+//! - **Several sessions** (brief 0028). Each start (a compound's projects each) and each attach is a session with an id
+//!   (1, 2, ..., never reused while the shell runs), its own generation (unique across sessions), stop counter, mode,
+//!   adapter, client, stack, locals, output rings, Allow Agents to Drive switch and interrupt count. The [`Debugger`]'s
+//!   per-session fields hold the current session; the others wait in [`Slot`]s and [`Debugger::enter`] swaps one in.
+//!   Between messages and commands the current session is the active one, which the windows show and commands
+//!   without `session` address. Messages are routed by their generation, agents' follow-ups and reads by their
+//!   session; breakpoints, exception settings and watch expressions stay in place when sessions swap (each
+//!   breakpoint keeps its binding per session) and every change goes to every connected adapter. A stop takes the
+//!   windows unless the person picked another session in the last two seconds or the active one is at its own break.
+//!   Stop Debugging ends every session; `stop` with a `session` ends that one.
 //! - **Output by source.** The program's lines (stdout, stderr), the debugger's own messages and the adapter's
 //!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
 //!   Output window's Debug source still shows the program's output and the debugger's messages together.
@@ -79,6 +89,7 @@ use eludite_commands::debug::{
     VariablesTarget, WaitUntil,
 };
 use eludite_commands::debug::{AllowAgentsOutput, AttachTarget, ProcessRow, ProcessesOutput};
+use eludite_commands::project::StartupAction;
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
 use eludite_commands::{Caller, CommandError};
 use eludite_dap::attach::{AttachAdapter, attach_plan};
@@ -166,6 +177,8 @@ pub type Outcome = Result<DebugOutput, CommandError>;
 
 /// `eludite.debug.*` from another thread (an agent), for the UI thread to apply.
 pub struct DebugJob {
+    /// The session the call named (brief 0028).
+    pub session: Option<u32>,
     pub request: DebugRequest,
     pub reply: mpsc::SyncSender<Outcome>,
     pub caller: Caller,
@@ -188,7 +201,7 @@ pub struct DebugBus {
 }
 
 impl cmds::DebugTarget for DebugBus {
-    fn apply(&self, request: DebugRequest) -> Outcome {
+    fn apply(&self, session: Option<u32>, request: DebugRequest) -> Outcome {
         if std::thread::current().id() == self.ui_thread {
             return STAGED.with(|s| s.borrow_mut().take()).unwrap_or_else(|| {
                 Err(CommandError::Failed(format!(
@@ -205,6 +218,7 @@ impl cmds::DebugTarget for DebugBus {
         let (reply, rx) = mpsc::sync_channel(1);
         self.jobs
             .unbounded_send(DebugJob {
+                session,
                 request,
                 reply,
                 caller: eludite_commands::current_caller(),
@@ -335,12 +349,19 @@ pub fn list_processes(filter: Option<&str>, roots: &[u32]) -> Result<ProcessesOu
 }
 
 /// What the Debug menu's Restart and Attach to Process... items and its Allow Agents to Drive check item read (the
-/// menu bar is another entity; the shell updates this with the state).
+/// menu bar is another entity; the shell updates this with the state). With several sessions (brief 0028) the items
+/// follow the active session: Continue, the steps, Run To Cursor and Set Next Statement need it in break mode, Break
+/// All needs it running; Stop Debugging is enabled while any session runs; Attach to Process... adds a session in any
+/// mode.
 #[derive(Debug)]
 pub struct DebugMenuState {
     restart: std::sync::atomic::AtomicBool,
     attach: std::sync::atomic::AtomicBool,
     agents_allowed: std::sync::atomic::AtomicBool,
+    /// The active session is in break mode, running, or any session is live.
+    in_break: std::sync::atomic::AtomicBool,
+    running: std::sync::atomic::AtomicBool,
+    live: std::sync::atomic::AtomicBool,
 }
 
 impl Default for DebugMenuState {
@@ -349,6 +370,9 @@ impl Default for DebugMenuState {
             restart: false.into(),
             attach: true.into(),
             agents_allowed: true.into(),
+            in_break: false.into(),
+            running: false.into(),
+            live: false.into(),
         }
     }
 }
@@ -360,6 +384,14 @@ impl DebugMenuState {
         match command {
             cmds::RESTART => self.restart.load(Relaxed),
             cmds::ATTACH => self.attach.load(Relaxed),
+            cmds::CONTINUE
+            | cmds::STEP_OVER
+            | cmds::STEP_INTO
+            | cmds::STEP_OUT
+            | cmds::RUN_TO_CURSOR
+            | cmds::SET_NEXT_STATEMENT => self.in_break.load(Relaxed),
+            cmds::PAUSE => self.running.load(Relaxed),
+            cmds::STOP => self.live.load(Relaxed),
             _ => true,
         }
     }
@@ -372,18 +404,28 @@ impl DebugMenuState {
                 .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn update(&self, m: &DebugModel) {
+    /// `m` is the active session's model; `live`: some session runs.
+    fn update(&self, m: &DebugModel, live: bool) {
         use std::sync::atomic::Ordering::Relaxed;
         self.restart.store(
             !matches!(m.mode, Mode::Design | Mode::Stopping | Mode::Building) && !m.attached(),
             Relaxed,
         );
-        self.attach.store(
-            matches!(m.mode, Mode::Design | Mode::RunningWithoutDebugging),
-            Relaxed,
-        );
+        // An attach adds a session beside the others (brief 0028).
+        self.attach.store(true, Relaxed);
         self.agents_allowed.store(m.agents_allowed, Relaxed);
+        self.in_break.store(m.mode == Mode::Break, Relaxed);
+        self.running.store(m.mode == Mode::Running, Relaxed);
+        self.live.store(live, Relaxed);
     }
+}
+
+/// One project a start runs (brief 0028): `None` is the startup project.
+#[derive(Debug, Clone)]
+struct StartEntry {
+    project: Option<String>,
+    debug: bool,
+    profile: Option<String>,
 }
 
 /// What a start ran (project, launch profile, debug flag, build before run, Cargo options): Restart starts it again.
@@ -476,6 +518,31 @@ pub enum DebugMsg {
     },
 }
 
+impl DebugMsg {
+    /// The session generation the message belongs to (`None`: not a session's).
+    fn generation(&self) -> Option<u64> {
+        match self {
+            DebugMsg::Launched { generation, .. }
+            | DebugMsg::Connected { generation, .. }
+            | DebugMsg::Started { generation, .. }
+            | DebugMsg::LaunchFailed { generation, .. }
+            | DebugMsg::Client { generation, .. }
+            | DebugMsg::Output { generation, .. }
+            | DebugMsg::ProgramExited { generation, .. }
+            | DebugMsg::StopTimeout { generation } => Some(*generation),
+            DebugMsg::Loaded { .. } | DebugMsg::Processes { .. } => None,
+        }
+    }
+}
+
+/// What an agent's command waits for, in which session, and the session's interrupt count when it was applied (a
+/// command of the person's in that session since ends the wait; brief 0027 rule 5 per session, brief 0028).
+pub struct Follow {
+    pub sid: u32,
+    pub epoch: u64,
+    pub what: Followup,
+}
+
 /// What an agent's command waits for after it was applied, off the UI thread (brief 0025).
 pub enum Followup {
     /// `evaluate`'s answer.
@@ -512,9 +579,16 @@ pub enum Followup {
         name: String,
         value: String,
     },
-    /// `stop`: until the session ended, then the state (as before brief 0025).
+    /// `stop`: until the session ended (`all`: every session, Stop Debugging; brief 0028), then the state.
     Ended {
         wait: Duration,
+        all: bool,
+    },
+    /// A compound start (brief 0028): until one of its sessions breaks.
+    Compound {
+        ids: Vec<u32>,
+        wait: Duration,
+        budget: Budget,
     },
     /// `wait`: until the condition holds (`baseline`: the program output's cursor it waits past).
     Wait {
@@ -795,8 +869,45 @@ struct ExecPoint {
     kind: ExecutionKind,
 }
 
-/// The debugger: the model, the windows and the session's plumbing.
+/// How long after the person picked a session by hand a stop in another one does not take the windows (brief 0028).
+pub const SELECTION_HOLD: Duration = Duration::from_secs(2);
+/// Ended sessions kept aside for the agents' answers that still read them.
+const ENDED_KEPT: usize = 16;
+
+/// One debugging session's own state, while another session is the one the debugger works on (brief 0028). The
+/// fields are the [`Debugger`]'s of the same names; [`Debugger::enter`] swaps them.
+#[derive(Default)]
+struct Slot {
+    id: u32,
+    name: String,
+    model: DebugModel,
+    client: Option<DapClient>,
+    run: Option<RunHandle>,
+    caps: Capabilities,
+    pending: HashMap<i64, Pending>,
+    run_to_cursor: Option<(String, u32)>,
+    exec: Option<ExecPoint>,
+    console_partial: String,
+    early_breakpoints: Vec<eludite_dap::types::Breakpoint>,
+    pending_launch: Option<PendingLaunch>,
+    pause_error: Option<(u64, String)>,
+    counts: HashMap<i64, usize>,
+    cargo_options: cmds::CargoOptions,
+    trace_hits: HashMap<u64, PendingHit>,
+    trace_job: Option<TraceJob>,
+    goto_error: Option<(u64, u64, String)>,
+    console_partial_adapter: String,
+    interrupt: u64,
+    agent_stale: bool,
+    last_start: Option<StartArgs>,
+    restart_pending: Option<(StartArgs, String)>,
+}
+
+/// The debugger: the model, the windows and the session's plumbing. With several sessions (brief 0028) the fields
+/// marked "per session" are the current session's (the one being worked on, which between messages is the active
+/// one); the others wait in `others` until [`Debugger::enter`] swaps one in.
 pub struct Debugger {
+    /// Per session: the session's model (with the shared breakpoints, exception settings and watch expressions).
     pub model: DebugModel,
     pub windows: DebugWindows,
     setup: DebugSetup,
@@ -864,8 +975,32 @@ pub struct Debugger {
     background_runs: Vec<RunHandle>,
     /// The Attach to Process dialog, while open.
     pub attach_dialog: Option<gpui::Entity<windows::AttachDialog>>,
+    /// The Startup Projects dialog, while open (brief 0028).
+    pub startup_dialog: Option<gpui::Entity<eludite_ui::startup::StartupProjectsDialog>>,
     /// What the Debug menu reads.
     pub menu: Arc<DebugMenuState>,
+    /// Per session: its id (0 before the first session) and name (brief 0028).
+    pub session_id: u32,
+    session_name: String,
+    /// The sessions not being worked on now: the live ones and the last ended ones.
+    others: Vec<Slot>,
+    /// The session the windows show, the execution point follows and commands without `session` act on.
+    pub active: u32,
+    next_session: u32,
+    /// The highest generation given to any session (generations are unique across sessions).
+    last_generation: u64,
+    /// When the person last picked a session by hand (the Call Stack and Threads selectors).
+    selected_at: Option<Instant>,
+    /// The execution point the editors show (the active session's).
+    shown_exec: Option<ExecPoint>,
+    /// The sessions of the last compound start, in launch order.
+    compound: Vec<u32>,
+    /// The session the command being applied started (start, attach, trace's start), for its follow-up.
+    started: Option<u32>,
+    /// A restart is starting the current session again (it keeps its id).
+    restarting: bool,
+    /// The Cargo options of the start being applied (they become its session's).
+    start_cargo: cmds::CargoOptions,
 }
 
 impl Debugger {
@@ -917,10 +1052,382 @@ impl Debugger {
                 processes: None,
                 background_runs: Vec::new(),
                 attach_dialog: None,
+                startup_dialog: None,
                 menu: Arc::default(),
+                session_id: 0,
+                session_name: String::new(),
+                others: Vec::new(),
+                active: 0,
+                next_session: 1,
+                last_generation: 0,
+                selected_at: None,
+                shown_exec: None,
+                compound: Vec::new(),
+                started: None,
+                restarting: false,
+                start_cargo: cmds::CargoOptions::default(),
             },
             rx,
         )
+    }
+
+    // ----- Sessions (brief 0028) -----
+
+    /// Exchange the current session's own fields with `slot`'s, keeping what every session shares in place.
+    fn swap_slot(&mut self, slot: &mut Slot) {
+        use std::mem::swap;
+        swap(&mut self.session_id, &mut slot.id);
+        swap(&mut self.session_name, &mut slot.name);
+        swap(&mut self.model, &mut slot.model);
+        swap(&mut self.client, &mut slot.client);
+        swap(&mut self.run, &mut slot.run);
+        swap(&mut self.caps, &mut slot.caps);
+        swap(&mut self.pending, &mut slot.pending);
+        swap(&mut self.run_to_cursor, &mut slot.run_to_cursor);
+        swap(&mut self.exec, &mut slot.exec);
+        swap(&mut self.console_partial, &mut slot.console_partial);
+        swap(&mut self.early_breakpoints, &mut slot.early_breakpoints);
+        swap(&mut self.pending_launch, &mut slot.pending_launch);
+        swap(&mut self.pause_error, &mut slot.pause_error);
+        swap(&mut self.counts, &mut slot.counts);
+        swap(&mut self.cargo_options, &mut slot.cargo_options);
+        swap(&mut self.trace_hits, &mut slot.trace_hits);
+        swap(&mut self.trace_job, &mut slot.trace_job);
+        swap(&mut self.goto_error, &mut slot.goto_error);
+        swap(
+            &mut self.console_partial_adapter,
+            &mut slot.console_partial_adapter,
+        );
+        swap(&mut self.interrupt, &mut slot.interrupt);
+        swap(&mut self.agent_stale, &mut slot.agent_stale);
+        swap(&mut self.last_start, &mut slot.last_start);
+        swap(&mut self.restart_pending, &mut slot.restart_pending);
+        // What every session shares stays here (the slot's copies are stale).
+        let (live, aside) = (&mut self.model, &mut slot.model);
+        swap(&mut live.breakpoints, &mut aside.breakpoints);
+        swap(&mut live.exceptions, &mut aside.exceptions);
+        swap(&mut live.startup_project, &mut aside.startup_project);
+        swap(&mut live.startup_projects, &mut aside.startup_projects);
+        swap(&mut live.agents_default, &mut aside.agents_default);
+        swap(&mut live.agents_next, &mut aside.agents_next);
+        // The watch expressions are shared; their values are the session's.
+        let names: Vec<String> = aside.watches.iter().map(|w| w.name.clone()).collect();
+        let mut mine = std::mem::take(&mut live.watches);
+        live.watches = names
+            .iter()
+            .map(|n| match mine.iter().position(|w| &w.name == n) {
+                Some(i) => mine.remove(i),
+                None => VarNode::watch(n),
+            })
+            .collect();
+        live.breakpoints.switch_session(self.session_id);
+    }
+
+    /// Make session `id` the current one (the one the fields hold). False when there is no such session.
+    pub fn enter(&mut self, id: u32) -> bool {
+        if id == self.session_id {
+            return true;
+        }
+        let Some(ix) = self.others.iter().position(|s| s.id == id) else {
+            return false;
+        };
+        let mut slot = self.others.remove(ix);
+        self.swap_slot(&mut slot);
+        self.others.push(slot);
+        true
+    }
+
+    /// Whether a session in this mode is live (listed, addressable).
+    fn live_mode(mode: Mode) -> bool {
+        mode != Mode::Design
+    }
+
+    /// The live sessions' ids, in the order they started.
+    pub fn live_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .others
+            .iter()
+            .filter(|s| Self::live_mode(s.model.mode))
+            .map(|s| s.id)
+            .collect();
+        if Self::live_mode(self.model.mode) && self.session_id > 0 {
+            ids.push(self.session_id);
+        }
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The ids of the live sessions that have an adapter connected.
+    fn connected_ids(&self) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .others
+            .iter()
+            .filter(|s| s.client.is_some())
+            .map(|s| s.id)
+            .collect();
+        if self.client.is_some() {
+            ids.push(self.session_id);
+        }
+        ids.sort_unstable();
+        ids
+    }
+
+    /// Run `f` in every session with a connected adapter (a shared setting changed: every adapter gets it), then come
+    /// back to the current one.
+    fn each_connected(&mut self, mut f: impl FnMut(&mut Self)) {
+        let back = self.session_id;
+        for id in self.connected_ids() {
+            if self.enter(id) {
+                f(self);
+            }
+        }
+        self.enter(back);
+    }
+
+    /// Session `id`'s mode, if it is known.
+    fn mode_of(&self, id: u32) -> Option<Mode> {
+        if id == self.session_id {
+            return Some(self.model.mode);
+        }
+        self.others
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.model.mode)
+    }
+
+    /// The session of generation `g`, if it is still known.
+    fn session_of_generation(&self, g: u64) -> Option<u32> {
+        if self.model.generation == g {
+            return Some(self.session_id);
+        }
+        self.others
+            .iter()
+            .find(|s| s.model.generation == g)
+            .map(|s| s.id)
+    }
+
+    /// The session a command names (brief 0028): `None` is the active one; an id must be a live session.
+    pub fn resolve_session(&self, session: Option<u32>) -> Result<u32, CommandError> {
+        let Some(id) = session else {
+            return Ok(self.active);
+        };
+        let live = self.live_ids();
+        if live.contains(&id) {
+            return Ok(id);
+        }
+        let ids = if live.is_empty() {
+            "no session is running".to_owned()
+        } else {
+            format!(
+                "the live sessions are {}",
+                live.iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let what = if id > 0 && id < self.next_session {
+            "has ended"
+        } else {
+            "does not exist"
+        };
+        Err(CommandError::Failed(format!(
+            "session {id} {what}: {ids} (eludite.debug.sessions lists them)"
+        )))
+    }
+
+    /// Begin a new session named `name` and make it the current one: the current session's model when it is not
+    /// live, else a fresh one beside the others. Its generation is above every other session's.
+    fn new_session(&mut self, name: String) -> u32 {
+        let id = self.next_session;
+        self.next_session += 1;
+        if Self::live_mode(self.model.mode) {
+            let mut slot = Slot {
+                id,
+                ..Slot::default()
+            };
+            slot.model.agents_allowed = self.model.agents_default;
+            self.swap_slot(&mut slot);
+            self.others.push(slot);
+        } else {
+            // The ended (or never used) model becomes the new session's.
+            let old = self.session_id;
+            self.session_id = id;
+            self.model.breakpoints.switch_session(id);
+            self.model.breakpoints.forget_session(old);
+        }
+        self.model.generation = self.last_generation;
+        self.session_name = name;
+        id
+    }
+
+    /// What a start resets: the session's console, and when it is the only session, the timings and the Output
+    /// window's Debug source (a second session's start keeps the first one's lines).
+    fn reset_for_start(&mut self) {
+        let alone = self.live_ids().iter().all(|id| *id == self.session_id);
+        if alone {
+            self.timings = DebugTimings {
+                start: Some(Instant::now()),
+                ..DebugTimings::default()
+            };
+            self.output_queue.clear();
+            self.output_clear = true;
+        }
+        self.model.console.clear();
+        self.console_partial.clear();
+    }
+
+    /// The current session begins (again): a generation above every other session's (rule 4 of brief 0018 with
+    /// several sessions: an answer is dropped unless its generation is its session's).
+    fn begin(&mut self, mode: Mode, driver: &str) {
+        self.model.generation = self.last_generation.max(self.model.generation);
+        self.model.begin(mode, driver);
+        self.last_generation = self.model.generation;
+        if self.session_name.is_empty() {
+            self.session_name = "the startup project".into();
+        }
+    }
+
+    /// Keep at most [`ENDED_KEPT`] ended sessions aside (a restart waiting to start is kept).
+    fn prune(&mut self) {
+        let ended: Vec<u32> = self
+            .others
+            .iter()
+            .filter(|s| !Self::live_mode(s.model.mode) && s.restart_pending.is_none())
+            .map(|s| s.id)
+            .collect();
+        if ended.len() <= ENDED_KEPT {
+            return;
+        }
+        let drop: Vec<u32> = ended[..ended.len() - ENDED_KEPT].to_vec();
+        self.others.retain(|s| !drop.contains(&s.id));
+        for id in drop {
+            self.model.breakpoints.forget_session(id);
+        }
+    }
+
+    /// The name a session shows: its project's (without the extension; a Cargo package by its folder), the attached
+    /// process's, or what the start named.
+    fn name_of(model: &DebugModel, fallback: &str) -> String {
+        match model.session.as_ref() {
+            Some(s) if s.attached => s.project.clone(),
+            Some(s) => project_name(&s.project),
+            None => fallback.to_owned(),
+        }
+    }
+
+    /// The live sessions as `eludite.debug.sessions` lists them.
+    pub fn sessions_info(&self) -> Vec<cmds::SessionInfo> {
+        let row = |id: u32, name: &str, m: &DebugModel| cmds::SessionInfo {
+            id,
+            name: Self::name_of(m, name),
+            mode: m.mode.as_str().into(),
+            active: id == self.active,
+            generation: m.generation,
+            stop: m.stop,
+            runtime: m.session.as_ref().and_then(|s| s.runtime.clone()),
+            adapter: m.session.as_ref().and_then(|s| s.adapter.clone()),
+            process_id: m.session.as_ref().and_then(|s| s.process_id),
+            project: m.session.as_ref().map(|s| s.project.clone()),
+            attached: m.attached(),
+            agents_allowed: m.agents_allowed,
+            stopped: (m.mode == Mode::Break)
+                .then(|| m.stopped.as_ref().map(|s| s.reason.clone()))
+                .flatten(),
+        };
+        let mut rows: Vec<cmds::SessionInfo> = self
+            .others
+            .iter()
+            .filter(|s| Self::live_mode(s.model.mode))
+            .map(|s| row(s.id, &s.name, &s.model))
+            .collect();
+        if Self::live_mode(self.model.mode) && self.session_id > 0 {
+            rows.push(row(self.session_id, &self.session_name, &self.model));
+        }
+        rows.sort_by_key(|r| r.id);
+        rows
+    }
+
+    /// What the status bar says of each live session (brief 0028): (id, name, mode, its state in parentheses).
+    fn status_sessions(&self) -> Vec<(u32, String, &'static str, String)> {
+        let part = |name: &str, m: &DebugModel| -> String {
+            let driving = match (m.agent_driving(), m.agents_allowed) {
+                (_, false) => ", agents not allowed",
+                (true, true) => ", agent driving",
+                (false, true) => "",
+            };
+            match m.mode {
+                Mode::Design => "ended".to_owned(),
+                Mode::Building => "building\u{2026}".to_owned(),
+                Mode::Launching => "starting\u{2026}".to_owned(),
+                Mode::Running => format!("running{driving}"),
+                Mode::Break => {
+                    let at = m
+                        .frames
+                        .first()
+                        .and_then(|f| {
+                            Some(format!(
+                                ", {} line {}",
+                                file_name(f.row.path.as_deref()?),
+                                f.row.line?
+                            ))
+                        })
+                        .unwrap_or_default();
+                    let _ = name;
+                    format!(
+                        "break: {}{at}{driving}",
+                        m.stopped.as_ref().map_or("", |s| s.reason.as_str())
+                    )
+                }
+                Mode::Stopping => "stopping\u{2026}".to_owned(),
+                Mode::RunningWithoutDebugging => "running without debugging".to_owned(),
+            }
+        };
+        let mut rows: Vec<(u32, String, &'static str, String)> = self
+            .others
+            .iter()
+            .filter(|s| Self::live_mode(s.model.mode))
+            .map(|s| {
+                let name = Self::name_of(&s.model, &s.name);
+                (
+                    s.id,
+                    name.clone(),
+                    s.model.mode.as_str(),
+                    part(&name, &s.model),
+                )
+            })
+            .collect();
+        if Self::live_mode(self.model.mode) && self.session_id > 0 {
+            let name = Self::name_of(&self.model, &self.session_name);
+            rows.push((
+                self.session_id,
+                name.clone(),
+                self.model.mode.as_str(),
+                part(&name, &self.model),
+            ));
+        }
+        rows.sort_by_key(|r| r.0);
+        rows
+    }
+
+    /// `eludite.debug.state` for the current session: its model, its id, every session, and each breakpoint's
+    /// binding per session.
+    pub fn state(&self) -> cmds::DebugState {
+        let mut s = self.model.state();
+        let live = self.live_ids();
+        s.breakpoints = self.model.breakpoints.rows_for(&live);
+        if let Some(row) = s.session.as_mut() {
+            row.id = Some(self.session_id).filter(|id| *id > 0);
+        }
+        s.sessions = self.sessions_info();
+        s
+    }
+
+    /// The stop summary of the current session, with its id.
+    fn summary(&self, budget: &Budget) -> StopSummary {
+        let mut out = self.model.summary(budget);
+        out.session = Some(self.session_id).filter(|id| *id > 0);
+        out
     }
 
     /// Whether the adapter prints tracepoints (it has log points and the emulation is not forced).
@@ -942,8 +1449,23 @@ impl Debugger {
         }
     }
 
-    /// Send `path`'s breakpoints (and Run To Cursor's one-shot line) to a running session.
+    /// Send `path`'s breakpoints to every session's adapter: the breakpoints are shared (brief 0028).
     fn send_breakpoints(&mut self, path: &str) {
+        self.each_connected(|d| d.send_breakpoints_here(path));
+    }
+
+    /// Send the function breakpoints to every session's adapter that has them.
+    fn send_function_breakpoints(&mut self) {
+        self.each_connected(Self::send_function_breakpoints_here);
+    }
+
+    /// Send the exception settings to every session's adapter.
+    fn send_exception_settings(&mut self) {
+        self.each_connected(Self::send_exception_settings_here);
+    }
+
+    /// Send `path`'s breakpoints (and Run To Cursor's one-shot line) to the current session.
+    fn send_breakpoints_here(&mut self, path: &str) {
         if self.client.is_none() {
             return;
         }
@@ -980,8 +1502,8 @@ impl Debugger {
             == Some("native")
     }
 
-    /// Send the function breakpoints to a running session that has them.
-    fn send_function_breakpoints(&mut self) {
+    /// Send the function breakpoints to the current session, if its adapter has them.
+    fn send_function_breakpoints_here(&mut self) {
         if self.client.is_none() || !self.caps.supports_function_breakpoints {
             return;
         }
@@ -1002,8 +1524,8 @@ impl Debugger {
         );
     }
 
-    /// Send the exception settings to a running session (types as filter options where the adapter takes them).
-    fn send_exception_settings(&mut self) {
+    /// Send the exception settings to the current session (types as filter options where the adapter takes them).
+    fn send_exception_settings_here(&mut self) {
         if self.client.is_none() {
             return;
         }
@@ -1611,6 +2133,21 @@ impl Debugger {
     }
 }
 
+/// A project's name as the sessions show it: the project file without its extension, a Cargo package by its folder.
+fn project_name(project: &str) -> String {
+    let p = Path::new(project);
+    if p.file_name().is_some_and(|n| n == "Cargo.toml") {
+        return p
+            .parent()
+            .and_then(|d| d.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| project.to_owned());
+    }
+    p.file_stem()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| project.to_owned())
+}
+
 fn driver_of(caller: &Caller) -> String {
     match caller {
         Caller::User => "user".into(),
@@ -1782,6 +2319,7 @@ fn launch_thread(job: LaunchJob) {
     };
     let platform = setup.platform;
     let mut session = SessionRow {
+        id: None,
         project: config.project.to_string_lossy().into_owned(),
         program: config.program.to_string_lossy().into_owned(),
         args: config.args.clone(),
@@ -2061,6 +2599,7 @@ fn attach_thread(job: AttachJob) {
         Err(e) => return fail(format!("Cannot attach to process {}: {e}", info.pid)),
     };
     let mut session = SessionRow {
+        id: None,
         project: info.name.clone(),
         program: info
             .argv
@@ -2201,7 +2740,7 @@ impl Shell {
 
     /// `eludite.debug.state`'s output now.
     pub fn debug_state(&self) -> DebugOutput {
-        DebugOutput::State(Box::new(self.debug.model.state()))
+        DebugOutput::State(Box::new(self.debug.state()))
     }
 
     /// A receiver woken at the next change of the debugger's state.
@@ -2247,6 +2786,7 @@ impl Shell {
         let job_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(job) = jobs.next().await {
                 let DebugJob {
+                    session,
                     request,
                     reply,
                     caller,
@@ -2255,12 +2795,13 @@ impl Shell {
                 // its own, so a long `wait` never holds the next agent's command.
                 let applied = this.update_in(cx, |shell, window, cx| {
                     let t = Instant::now();
+                    // What the person does from here on interrupts what this command waits for (rule 5): the
+                    // follow-up carries its session's interrupt count.
                     let r = eludite_commands::with_caller(caller.clone(), || {
-                        shell.apply_debug(request, &caller, true, window, cx)
+                        shell.apply_debug(session, request, &caller, true, window, cx)
                     });
                     shell.debug.timings.agent_ui.push((t, t.elapsed()));
-                    // What the person does from here on interrupts what this command waits for (rule 5).
-                    r.map(|(out, follow)| (out, follow.map(|f| (f, shell.debug.interrupt))))
+                    r
                 });
                 match applied {
                     Err(_) => {
@@ -2273,10 +2814,10 @@ impl Shell {
                     Ok(Ok((out, None))) => {
                         let _ = reply.send(Ok(out));
                     }
-                    Ok(Ok((out, Some((follow, epoch))))) => {
+                    Ok(Ok((out, Some(follow)))) => {
                         let this = this.clone();
                         cx.spawn(async move |cx| {
-                            let outcome = follow_up(this, cx, out, follow, epoch).await;
+                            let outcome = follow_up(this, cx, out, follow).await;
                             let _ = reply.send(outcome);
                         })
                         .detach();
@@ -2287,10 +2828,188 @@ impl Shell {
         (msg_task, job_task)
     }
 
-    /// Apply a debug command (the UI-thread half of [`DebugBus`]). For an agent (`agent`: the caller waits off the
-    /// UI thread) a command may also return what to wait for before answering ([`Followup`]); the UI thread gets its
-    /// answer at once.
+    /// Run `f` with session `id` as the current one (brief 0028), then come back to the session that was current.
+    pub(super) fn in_session<R>(&mut self, id: u32, f: impl FnOnce(&mut Self) -> R) -> R {
+        let back = self.debug.session_id;
+        self.debug.enter(id);
+        let r = f(self);
+        self.debug.enter(back);
+        r
+    }
+
+    /// Apply a debug command (the UI-thread half of [`DebugBus`]) to the session it names (brief 0028; `None`: the
+    /// active one, for `stop` every one). For an agent (`agent`: the caller waits off the UI thread) a command may also
+    /// return what to wait for before answering ([`Follow`]); the UI thread gets its answer at once.
     pub fn apply_debug(
+        &mut self,
+        session: Option<u32>,
+        request: DebugRequest,
+        caller: &Caller,
+        agent: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(DebugOutput, Option<Follow>), CommandError> {
+        // What acts on no single session, or on every one.
+        match &request {
+            DebugRequest::Sessions => {
+                let live = self.debug.live_ids();
+                return Ok((
+                    DebugOutput::Sessions(cmds::SessionsOutput {
+                        sessions: self.debug.sessions_info(),
+                        active: live
+                            .contains(&self.debug.active)
+                            .then_some(self.debug.active),
+                    }),
+                    None,
+                ));
+            }
+            DebugRequest::Stop if session.is_none() && self.debug.live_ids().len() > 1 => {
+                return self.debug_stop_all(caller, agent, window, cx);
+            }
+            DebugRequest::Start { .. }
+            | DebugRequest::Attach { .. }
+            | DebugRequest::Processes { .. }
+            | DebugRequest::Breakpoint { .. }
+            | DebugRequest::ExceptionSettings { .. }
+            | DebugRequest::Trace {
+                run: TraceRun::Start,
+                ..
+            } => {
+                if session.is_some() {
+                    return Err(CommandError::InvalidInput(
+                        "`trace` with `run: start` starts a session: it takes no `session`".into(),
+                    ));
+                }
+                self.debug.started = None;
+                let sid = self.debug.session_id;
+                let r = self.apply_debug_in(request, caller, agent, window, cx);
+                let sid = self.debug.started.take().unwrap_or(sid);
+                // A start or an attach may leave its new session current: the active one is again.
+                self.settle_active(cx);
+                self.refresh_debug(cx);
+                return r.map(|(out, follow)| {
+                    let epoch = self.in_session(sid, |s| s.debug.interrupt);
+                    (out, follow.map(|what| Follow { sid, epoch, what }))
+                });
+            }
+            _ => {}
+        }
+        let sid = self.debug.resolve_session(session)?;
+        // Picking a session by hand (the Call Stack and Threads selectors: `select_frame` with only `session`) makes
+        // it the active one, whatever its mode.
+        if let DebugRequest::SelectFrame {
+            thread: None,
+            frame: None,
+            stop: None,
+        } = request
+            && session.is_some()
+        {
+            self.activate_session(sid, !caller.is_agent(), cx);
+            self.refresh_debug(cx);
+            return Ok((self.debug_state(), None));
+        }
+        let selects = matches!(request, DebugRequest::SelectFrame { .. }) && session.is_some();
+        let r = self.in_session(sid, |s| {
+            let r = s.apply_debug_in(request, caller, agent, window, cx);
+            let epoch = s.debug.interrupt;
+            r.map(|(out, follow)| (out, follow.map(|what| Follow { sid, epoch, what })))
+        });
+        if selects && r.is_ok() && sid != self.debug.active {
+            self.activate_session(sid, !caller.is_agent(), cx);
+            self.refresh_debug(cx);
+            return Ok((self.debug_state(), None));
+        }
+        r
+    }
+
+    /// Debug > Stop Debugging with several sessions (brief 0028): every session stops; an agent's call waits until
+    /// they all ended.
+    fn debug_stop_all(
+        &mut self,
+        caller: &Caller,
+        agent: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(DebugOutput, Option<Follow>), CommandError> {
+        let live = self.debug.live_ids();
+        if caller.is_agent() {
+            for id in &live {
+                self.in_session(*id, |s| {
+                    if !s.debug.model.agents_allowed {
+                        return Err(CommandError::Failed(cmds::AGENTS_NOT_ALLOWED.into()));
+                    }
+                    s.debug.stale_check(&DebugRequest::Stop)
+                })?;
+            }
+        }
+        let driver = driver_of(caller);
+        for id in live {
+            self.in_session(id, |s| {
+                if matches!(s.debug.model.mode, Mode::Design | Mode::Stopping) {
+                    return;
+                }
+                if !caller.is_agent() {
+                    // The person takes over every session (proposal 0001 rule 5).
+                    s.debug.interrupt += 1;
+                    s.debug.interrupted_at = Some(Instant::now());
+                }
+                s.debug_stop(&driver, window, cx);
+            });
+        }
+        self.settle_active(cx);
+        self.refresh_debug(cx);
+        let sid = self.debug.session_id;
+        let follow = agent.then(|| Follow {
+            sid,
+            epoch: self.debug.interrupt,
+            what: Followup::Ended {
+                wait: AGENT_WAIT,
+                all: true,
+            },
+        });
+        Ok((self.debug_state(), follow))
+    }
+
+    /// Make session `id` the active one: the windows, the execution point and commands without `session` follow it
+    /// (brief 0028). `by_person`: picked by hand, which holds for [`SELECTION_HOLD`] against stops elsewhere.
+    pub(super) fn activate_session(&mut self, id: u32, by_person: bool, cx: &mut Context<Self>) {
+        if by_person {
+            self.debug.selected_at = Some(Instant::now());
+        }
+        if self.debug.active == id {
+            return;
+        }
+        trace(format_args!("debug: session {id} is active"));
+        self.debug.active = id;
+        self.debug.enter(id);
+        self.apply_exec(cx);
+        self.refresh_glyphs(cx);
+    }
+
+    /// After commands and messages: the active session is a live one when any is (the one that ended gives way to
+    /// another), and it is the current one again; the execution point follows it.
+    pub(super) fn settle_active(&mut self, cx: &mut Context<Self>) {
+        let live = self.debug.live_ids();
+        let before = self.debug.active;
+        if !live.contains(&self.debug.active)
+            && let Some(first) = live.first()
+        {
+            self.debug.active = *first;
+        }
+        let active = self.debug.active;
+        self.debug.enter(active);
+        self.debug.prune();
+        if before != active {
+            trace(format_args!("debug: session {active} is active"));
+            self.refresh_glyphs(cx);
+        }
+        if self.debug.exec != self.debug.shown_exec {
+            self.apply_exec(cx);
+        }
+    }
+
+    /// The commands of [`Shell::apply_debug`], on the current session.
+    fn apply_debug_in(
         &mut self,
         request: DebugRequest,
         caller: &Caller,
@@ -2311,7 +3030,12 @@ impl Shell {
                 ));
             }
         }
-        self.debug.model.check(&request)?;
+        match &request {
+            // A start or an attach adds a session beside the live ones (brief 0028): checked by what it names.
+            DebugRequest::Start { .. } => {}
+            DebugRequest::Attach { target, .. } => self.check_attach(target)?,
+            _ => self.debug.model.check(&request)?,
+        }
         if caller.is_agent() {
             self.debug.stale_check(&request)?;
         } else if request.resumes()
@@ -2342,6 +3066,7 @@ impl Shell {
             })
         };
         let follow = match request {
+            DebugRequest::Sessions => unreachable!("answered by apply_debug"),
             DebugRequest::State => {
                 self.refresh_debug(cx);
                 return Ok((self.debug_state(), None));
@@ -2352,16 +3077,33 @@ impl Shell {
                 profile,
                 build,
                 cargo,
+                compound,
                 ..
             } => {
-                self.debug.cargo_options = cargo;
-                self.debug_start(project, debug, profile, build, &driver, window, cx);
-                settle(true, None)
+                let plain = project.is_none() && compound.is_none();
+                let entries = self.start_entries(project, debug, profile, compound);
+                self.check_start(&entries, plain)?;
+                if entries.len() > 1 && cargo.is_set() {
+                    return Err(CommandError::InvalidInput(
+                        "the Cargo options (`target`, `test`, `args`) are for one package: the startup projects \
+                         are several"
+                            .into(),
+                    ));
+                }
+                self.debug.start_cargo = cargo;
+                let ids = self.debug_start_set(entries, build, &driver, window, cx);
+                if ids.len() > 1 {
+                    self.debug.compound = ids.clone();
+                    (agent && !wait.is_zero()).then_some(Followup::Compound { ids, wait, budget })
+                } else {
+                    settle(true, None)
+                }
             }
             DebugRequest::Stop => {
                 self.debug_stop(&driver, window, cx);
                 self.refresh_debug(cx);
-                let follow = (agent && !wait.is_zero()).then_some(Followup::Ended { wait });
+                let follow =
+                    (agent && !wait.is_zero()).then_some(Followup::Ended { wait, all: false });
                 return Ok((self.debug_state(), follow));
             }
             DebugRequest::Continue { .. } => {
@@ -2376,7 +3118,7 @@ impl Shell {
             DebugRequest::RunToCursor { path, line, .. } => {
                 let (path, line) = self.debug_location(path.as_deref(), line, cx)?;
                 self.debug.run_to_cursor = Some((path.clone(), line));
-                self.debug_send_breakpoints(&path);
+                self.debug.send_breakpoints_here(&path);
                 self.debug_resume("continue", None, &driver)?;
                 settle(false, None)
             }
@@ -2440,6 +3182,7 @@ impl Shell {
                     resolved.push(self.debug_location(Some(&p.path), Some(p.line), cx)?);
                 }
                 let mut files: Vec<String> = Vec::new();
+                let sid = self.debug.session_id;
                 let b = &mut self.debug.model.breakpoints;
                 for ((path, line), p) in resolved.into_iter().zip(points) {
                     // A line that has a breakpoint keeps it (it stops there anyway).
@@ -2448,6 +3191,8 @@ impl Shell {
                         bp.condition = p.condition.filter(|c| !c.trim().is_empty());
                         bp.temporary = remove_after;
                         bp.remove_after = remove_after;
+                        // Only this session's adapter gets a temporary point (brief 0028).
+                        bp.owner = remove_after.then_some(sid);
                     }
                     if !files.contains(&path) {
                         files.push(path);
@@ -2485,6 +3230,7 @@ impl Shell {
                 }
                 let mut job_points = Vec::new();
                 let mut saved = Vec::new();
+                let owner = self.debug.session_id;
                 let mut files: Vec<String> = Vec::new();
                 for ((path, line), p) in resolved.into_iter().zip(points) {
                     if job_points.contains(&(path.clone(), line)) {
@@ -2496,6 +3242,8 @@ impl Shell {
                         condition: p.condition.filter(|c| !c.trim().is_empty()),
                         log_message: Some(p.message),
                         temporary: true,
+                        // This session's (brief 0028); a trace that starts a session gives them to it below.
+                        owner: (run == TraceRun::Continue).then_some(owner),
                         ..Breakpoint::new(&path, line)
                     });
                     job_points.push((path.clone(), line));
@@ -2529,8 +3277,10 @@ impl Shell {
                     TraceRun::Continue => self.debug_resume("continue", None, &driver),
                     TraceRun::Start => {
                         // `trace` starts as `start` without Cargo options (brief 0029's `target`, `test`, `args`):
-                        // a previous start's options do not carry over.
-                        self.debug.cargo_options = cmds::CargoOptions::default();
+                        // a previous start's options do not carry over. The trace and its points go with the
+                        // session it starts (brief 0028).
+                        self.debug.start_cargo = cmds::CargoOptions::default();
+                        let job = self.debug.trace_job.take();
                         self.debug_start(
                             start.project,
                             true,
@@ -2540,6 +3290,19 @@ impl Shell {
                             window,
                             cx,
                         );
+                        self.debug.trace_job = job;
+                        let sid = self.debug.session_id;
+                        let points = self
+                            .debug
+                            .trace_job
+                            .as_ref()
+                            .map(|j| j.points.clone())
+                            .unwrap_or_default();
+                        for (path, line) in points {
+                            if let Some(b) = self.debug.model.breakpoints.at_mut(&path, line) {
+                                b.owner = Some(sid);
+                            }
+                        }
                         Ok(())
                     }
                 };
@@ -2779,9 +3542,7 @@ impl Shell {
                     e.break_on_rust_panic = v;
                     // A native session's Rust panics row is a function breakpoint (brief 0029), sent in the same
                     // list as the user's function breakpoints.
-                    if d.native_session() {
-                        d.send_function_breakpoints();
-                    }
+                    d.send_function_breakpoints();
                 }
                 d.send_exception_settings();
                 self.debug_persist(cx);
@@ -2981,7 +3742,8 @@ impl Shell {
                     })
                 } else {
                     // The UI thread cannot wait: what holds now.
-                    let mut out = m.summary(&budget);
+                    let mut out = self.debug.summary(&budget);
+                    let m = &self.debug.model;
                     match wait_satisfied(m, until, stop, baseline) {
                         Some(why) => out.satisfied = Some(why.into()),
                         None => out.timed_out = Some(true),
@@ -2991,8 +3753,231 @@ impl Shell {
             }
         };
         self.refresh_debug(cx);
-        let out = DebugOutput::Summary(Box::new(self.debug.model.summary(&budget)));
+        let out = DebugOutput::Summary(Box::new(self.debug.summary(&budget)));
         Ok((out, follow))
+    }
+
+    /// What a start runs (brief 0028): the compound's projects, the multiple startup projects when F5 names none, or
+    /// the one project (`None`: the startup project); in solution order.
+    fn start_entries(
+        &self,
+        project: Option<String>,
+        debug: bool,
+        profile: Option<String>,
+        compound: Option<cmds::Compound>,
+    ) -> Vec<StartEntry> {
+        let startup = |m: &DebugModel| -> Vec<StartEntry> {
+            m.startup_set()
+                .into_iter()
+                .map(|(path, action)| StartEntry {
+                    project: Some(path),
+                    debug: debug && action == StartupAction::Start,
+                    profile: None,
+                })
+                .collect()
+        };
+        let mut entries = match compound {
+            Some(cmds::Compound::Projects(list)) => list
+                .into_iter()
+                .map(|e| StartEntry {
+                    project: Some(e.project),
+                    debug: debug && e.debug,
+                    profile: e.profile,
+                })
+                .collect(),
+            Some(cmds::Compound::Startup) => startup(&self.debug.model),
+            None if project.is_none() && !self.debug.model.startup_projects.is_empty() => {
+                startup(&self.debug.model)
+            }
+            None => Vec::new(),
+        };
+        if entries.is_empty() {
+            entries.push(StartEntry {
+                project,
+                debug,
+                profile,
+            });
+        }
+        // Solution order (Visual Studio launches its startup projects in the order the solution lists them).
+        let order: Vec<(String, String)> = self
+            .tree
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .projects
+            .iter()
+            .map(|p| (p.name.clone(), norm(&p.path)))
+            .collect();
+        let rank = |e: &StartEntry| {
+            e.project.as_deref().map_or(usize::MAX, |p| {
+                order
+                    .iter()
+                    .position(|(name, path)| name == p || *path == norm(p))
+                    .unwrap_or(usize::MAX)
+            })
+        };
+        entries.sort_by_key(|e| rank(e));
+        entries
+    }
+
+    /// A start beside live sessions (brief 0028): a plain start (F5 with one startup project) is refused as before
+    /// (F5 in break mode is Continue); a start that names projects adds sessions, a project already being debugged
+    /// included (Visual Studio's Debug > Start New Instance).
+    fn check_start(&self, entries: &[StartEntry], plain: bool) -> Result<(), CommandError> {
+        if self.debug.live_ids().is_empty() || !(plain && entries.len() == 1) {
+            return Ok(());
+        }
+        if !self.debug.live_ids().contains(&self.debug.session_id) {
+            return Err(CommandError::Failed(
+                "a debugging session is already running; stop it (eludite.debug.stop) or resume it \
+                 (eludite.debug.continue), or start another project with `project`"
+                    .into(),
+            ));
+        }
+        let m = &self.debug.model;
+        let (mode, g) = (m.mode.as_str(), m.generation);
+        Err(CommandError::Failed(format!(
+            "a session is already {mode} (generation {g}); stop it (eludite.debug.stop) or resume it \
+             (eludite.debug.continue), or start another project with `project`"
+        )))
+    }
+
+    /// An attach beside live sessions (brief 0028): refused for a process a session already debugs.
+    fn check_attach(&self, target: &AttachTarget) -> Result<(), CommandError> {
+        if let AttachTarget::Pid(pid) = target
+            && let Some(s) = self
+                .debug
+                .sessions_info()
+                .into_iter()
+                // Ctrl+F5's program may be attached to (brief 0027): its run is not a debugging session.
+                .find(|s| {
+                    s.process_id == Some(i64::from(*pid)) && s.mode != "running_without_debugging"
+                })
+        {
+            return Err(CommandError::Failed(format!(
+                "process {pid} is already being debugged in session {} ({})",
+                s.id, s.name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Start `entries`, each in a session of its own (brief 0028): one start as before; several build once for the
+    /// whole set (the solution's build, when build before run is on) and then launch in order. Returns the sessions.
+    fn debug_start_set(
+        &mut self,
+        entries: Vec<StartEntry>,
+        build: Option<bool>,
+        driver: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<u32> {
+        if entries.len() == 1 {
+            let e = entries.into_iter().next().expect("one entry");
+            self.debug_start(e.project, e.debug, e.profile, build, driver, window, cx);
+            return self.debug.started.into_iter().collect();
+        }
+        let build = build.unwrap_or(self.builds.build_before_run)
+            && (self.solution.is_some() || self.cargo_workspace().is_some());
+        let mut ids = Vec::new();
+        if !build {
+            for e in entries {
+                self.debug_start(
+                    e.project,
+                    e.debug,
+                    e.profile,
+                    Some(false),
+                    driver,
+                    window,
+                    cx,
+                );
+                ids.extend(self.debug.started);
+            }
+            return ids;
+        }
+        for e in entries {
+            let name = e
+                .project
+                .as_deref()
+                .map(project_name)
+                .unwrap_or_else(|| "the startup project".into());
+            let id = self.debug.new_session(name.clone());
+            if !self.debug.live_ids().contains(&self.debug.active) {
+                self.debug.active = id;
+            }
+            let d = &mut self.debug;
+            d.cargo_options = cmds::CargoOptions::default();
+            d.last_start = Some(StartArgs {
+                project: e.project.clone(),
+                debug: e.debug,
+                profile: e.profile.clone(),
+                build: None,
+                cargo: cmds::CargoOptions::default(),
+            });
+            d.begin(Mode::Building, driver);
+            d.reset_for_start();
+            d.console_line(format!(
+                "Building the solution before starting {name}\u{2026}"
+            ));
+            d.pending_launch = Some(PendingLaunch {
+                generation: d.model.generation,
+                ticket: None,
+                project: e.project,
+                debug: e.debug,
+                profile: e.profile,
+                driver: driver.to_owned(),
+            });
+            ids.push(id);
+        }
+        trace(format_args!(
+            "debug start: building the solution before starting sessions {ids:?}"
+        ));
+        let sessions = ids.clone();
+        cx.spawn_in(window, async move |this, cx| {
+            let _ = this.update_in(cx, |shell, window, cx| {
+                shell.compound_build(sessions, window, cx);
+                shell.settle_active(cx);
+                shell.refresh_debug(cx);
+            });
+        })
+        .detach();
+        self.show_debug_windows();
+        self.output
+            .update(cx, |o, cx| o.select(OutputSource::Debug, cx));
+        ids
+    }
+
+    /// The one build of a compound start: the solution's, through the bus like Build > Build Solution.
+    fn compound_build(&mut self, ids: Vec<u32>, window: &mut Window, cx: &mut Context<Self>) {
+        let waiting: Vec<u32> = ids
+            .into_iter()
+            .filter(|id| {
+                self.in_session(*id, |s| {
+                    s.debug.session_id == *id
+                        && s.debug.model.mode == Mode::Building
+                        && s.debug.pending_launch.is_some()
+                })
+            })
+            .collect();
+        if waiting.is_empty() {
+            return;
+        }
+        let started = self.invoke(eludite_commands::build::SOLUTION, json!({}), window, cx);
+        let ticket = self.builds.current.as_ref().map(|b| b.ticket);
+        self.debug.timings.build_requested = Some(Instant::now());
+        for id in waiting {
+            self.in_session(id, |s| match &started {
+                Ok(_) => {
+                    if let Some(p) = s.debug.pending_launch.as_mut() {
+                        p.ticket = ticket;
+                    }
+                }
+                Err(e) => s.prelaunch_failed(
+                    format!("Cannot start: the build did not start: {e}"),
+                    false,
+                    cx,
+                ),
+            });
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3006,6 +3991,21 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Each start is a session of its own (brief 0028); a restart starts its session again under the same id.
+        if self.debug.restarting {
+            self.debug.started = Some(self.debug.session_id);
+        } else {
+            let name = project
+                .as_deref()
+                .map(project_name)
+                .unwrap_or_else(|| "the startup project".into());
+            let id = self.debug.new_session(name);
+            self.debug.started = Some(id);
+            if !self.debug.live_ids().contains(&self.debug.active) {
+                self.debug.active = id;
+            }
+        }
+        self.debug.cargo_options = std::mem::take(&mut self.debug.start_cargo);
         // Restart starts this again (brief 0027).
         self.debug.last_start = Some(StartArgs {
             project: project.clone(),
@@ -3025,15 +4025,8 @@ impl Shell {
             .clone()
             .unwrap_or_else(|| "the startup project".into());
         let d = &mut self.debug;
-        d.model.begin(Mode::Building, driver);
-        d.timings = DebugTimings {
-            start: Some(Instant::now()),
-            ..DebugTimings::default()
-        };
-        d.model.console.clear();
-        d.console_partial.clear();
-        d.output_queue.clear();
-        d.output_clear = true;
+        d.begin(Mode::Building, driver);
+        d.reset_for_start();
         d.console_line(format!("Building {what} before starting\u{2026}"));
         let generation = d.model.generation;
         d.pending_launch = Some(PendingLaunch {
@@ -3071,7 +4064,11 @@ impl Shell {
         cx.spawn_in(window, async move |this, cx| {
             let resolved = resolve.await;
             let _ = this.update_in(cx, |shell, window, cx| {
-                shell.prelaunch_build(generation, resolved, window, cx)
+                if let Some(sid) = shell.debug.session_of_generation(generation) {
+                    shell.in_session(sid, |s| s.prelaunch_build(generation, resolved, window, cx));
+                }
+                shell.settle_active(cx);
+                shell.refresh_debug(cx);
             });
         })
         .detach();
@@ -3089,19 +4086,27 @@ impl Shell {
         driver: &str,
         cx: &mut Context<Self>,
     ) {
-        let d = &mut self.debug;
-        if let Some(run) = d.run.take() {
-            d.background_runs.push(run);
-        }
-        d.model.begin(Mode::Launching, driver);
-        d.timings = DebugTimings {
-            start: Some(Instant::now()),
-            ..DebugTimings::default()
+        // A session of its own beside the live ones (brief 0028). Ctrl+F5's program, when the current session runs
+        // it, keeps running: it may be the process attached to.
+        let name = match &target {
+            AttachTarget::Pid(pid) => format!("process {pid}"),
+            AttachTarget::Name(n) => n.clone(),
+            AttachTarget::Dialog => String::new(),
         };
-        d.model.console.clear();
-        d.console_partial.clear();
-        d.output_queue.clear();
-        d.output_clear = true;
+        if self.debug.model.mode == Mode::RunningWithoutDebugging
+            && let Some(run) = self.debug.run.take()
+        {
+            self.debug.background_runs.push(run);
+            self.debug.model.mode = Mode::Design;
+        }
+        let id = self.debug.new_session(name);
+        self.debug.started = Some(id);
+        if !self.debug.live_ids().contains(&self.debug.active) {
+            self.debug.active = id;
+        }
+        let d = &mut self.debug;
+        d.begin(Mode::Launching, driver);
+        d.reset_for_start();
         d.pending.clear();
         d.caps = Capabilities::default();
         d.run_to_cursor = None;
@@ -3190,13 +4195,31 @@ impl Shell {
 
     /// A restart waiting for its session to end: start it now that it has.
     fn maybe_restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut ids: Vec<u32> = self
+            .debug
+            .others
+            .iter()
+            .filter(|s| s.restart_pending.is_some())
+            .map(|s| s.id)
+            .collect();
+        if self.debug.restart_pending.is_some() {
+            ids.push(self.debug.session_id);
+        }
+        for id in ids {
+            self.in_session(id, |s| s.maybe_restart_here(window, cx));
+        }
+    }
+
+    /// The current session's restart, once it ended: it starts again under the same id (brief 0028).
+    fn maybe_restart_here(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.debug.model.mode != Mode::Design {
             return;
         }
         let Some((start, driver)) = self.debug.restart_pending.take() else {
             return;
         };
-        self.debug.cargo_options = start.cargo;
+        self.debug.start_cargo = start.cargo;
+        self.debug.restarting = true;
         self.debug_start(
             start.project,
             start.debug,
@@ -3206,6 +4229,7 @@ impl Shell {
             window,
             cx,
         );
+        self.debug.restarting = false;
     }
 
     /// Debug > Attach to Process... (Ctrl+Alt+P): the dialog, with a fresh listing.
@@ -3353,8 +4377,36 @@ impl Shell {
         }
     }
 
-    /// The build before a launch ended (`build`'s handlers call this for every build).
+    /// The build before a launch ended (`build`'s handlers call this for every build): every session waiting for it
+    /// launches (a compound's in the order they started; brief 0028).
     pub(super) fn prelaunch_build_done(
+        &mut self,
+        ticket: u64,
+        outcome: PrelaunchBuild,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut waiting: Vec<u32> = self
+            .debug
+            .others
+            .iter()
+            .filter(|s| s.pending_launch.as_ref().and_then(|p| p.ticket) == Some(ticket))
+            .map(|s| s.id)
+            .collect();
+        if self.debug.pending_launch.as_ref().and_then(|p| p.ticket) == Some(ticket) {
+            waiting.push(self.debug.session_id);
+        }
+        waiting.sort_unstable();
+        for id in waiting {
+            let outcome = outcome.clone();
+            self.in_session(id, |s| {
+                s.prelaunch_build_done_here(ticket, outcome, window, cx)
+            });
+        }
+        self.settle_active(cx);
+    }
+
+    fn prelaunch_build_done_here(
         &mut self,
         ticket: u64,
         outcome: PrelaunchBuild,
@@ -3426,15 +4478,8 @@ impl Shell {
             // The session began with the build: same generation, its console lines kept.
             d.model.mode = Mode::Launching;
         } else {
-            d.model.begin(Mode::Launching, driver);
-            d.timings = DebugTimings {
-                start: Some(Instant::now()),
-                ..DebugTimings::default()
-            };
-            d.model.console.clear();
-            d.console_partial.clear();
-            d.output_queue.clear();
-            d.output_clear = true;
+            d.begin(Mode::Launching, driver);
+            d.reset_for_start();
         }
         let launched = Instant::now();
         d.timings.launched = Some(launched);
@@ -3976,7 +5021,7 @@ impl Shell {
             _ => None,
         };
         self.debug.exec = exec.clone();
-        if let Some(e) = exec {
+        if let Some(e) = exec.filter(|_| self.debug.session_id == self.debug.active) {
             // Visual Studio brings the statement's document forward (opening it if needed) without moving the
             // caret; `apply_exec` scrolls to the statement.
             let _ = self.open_file(&e.path, None, window, cx);
@@ -3986,7 +5031,12 @@ impl Shell {
 
     /// Draw the execution point in its document, and nowhere else.
     fn apply_exec(&mut self, cx: &mut Context<Self>) {
+        // Only the active session's execution point is drawn (brief 0028).
+        if self.debug.session_id != self.debug.active {
+            return;
+        }
         let exec = self.debug.exec.clone();
+        self.debug.shown_exec = exec.clone();
         for (id, doc) in &self.documents {
             let at = exec.as_ref().filter(|e| &e.path == id).map(|e| {
                 let b = doc.view.read(cx).editor().buffer();
@@ -4026,7 +5076,7 @@ impl Shell {
 
     /// The margin glyphs of every open document.
     pub(super) fn refresh_glyphs(&mut self, cx: &mut Context<Self>) {
-        let in_session = self.debug.client.is_some();
+        let in_session = !self.debug.connected_ids().is_empty();
         for (id, doc) in &self.documents {
             let rows = self.debug.model.breakpoints.glyphs(id, in_session);
             if doc.view.read(cx).breakpoint_glyphs() != rows {
@@ -4152,8 +5202,9 @@ impl Shell {
             return;
         }
         self.debug.solution = Some(solution.to_path_buf());
-        // Another solution's startup project is not this one's (brief 0020).
+        // Another solution's startup projects are not this one's (brief 0020, 0028).
         self.debug.model.startup_project = None;
+        self.debug.model.startup_projects.clear();
         let Some(file) = self.debug.store_path(solution) else {
             return;
         };
@@ -4195,8 +5246,18 @@ impl Shell {
         .detach();
     }
 
-    /// Push the model into the windows, the margin and the status bar, and wake waiting agents.
+    /// Push the active session's model into the windows, the margin and the status bar (which names every session),
+    /// and wake waiting agents. Whichever session is current, the windows show the active one (brief 0028).
     pub(super) fn refresh_debug(&mut self, cx: &mut Context<Self>) {
+        let back = self.debug.session_id;
+        let active = self.debug.active;
+        self.debug.enter(active);
+        self.refresh_debug_shown(cx);
+        self.debug.enter(back);
+    }
+
+    fn refresh_debug_shown(&mut self, cx: &mut Context<Self>) {
+        let sessions = self.debug.status_sessions();
         let d = &mut self.debug;
         let m = &d.model;
         let note = |what: &str| match m.mode {
@@ -4243,9 +5304,25 @@ impl Shell {
                 current: Some(t.id) == m.thread,
             })
             .collect();
-        let breakpoints = m.breakpoints.rows();
+        let breakpoints = m.breakpoints.rows_for(&d.live_ids());
         let exceptions = m.exceptions.clone();
+        // The Call Stack and Threads windows' session selector (brief 0028): shown with two sessions or more.
+        let choices: Vec<windows::SessionChoice> = if sessions.len() > 1 {
+            sessions
+                .iter()
+                .map(|(id, name, mode, _)| windows::SessionChoice {
+                    id: *id,
+                    label: format!("{id}: {name} ({mode})"),
+                    active: *id == d.active,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let w = d.windows.clone();
+        let c = choices.clone();
+        w.call_stack.update(cx, |v, cx| v.set_sessions(c, cx));
+        w.threads.update(cx, |v, cx| v.set_sessions(choices, cx));
         w.locals.update(cx, |v, cx| {
             v.set_parents(parents);
             v.set_rows(locals, locals_note, cx)
@@ -4279,31 +5356,46 @@ impl Shell {
             (true, true) => ", agent driving",
             (false, true) => "",
         };
-        d.menu.update(m);
-        let status = match m.mode {
-            Mode::Design => m.message.clone().unwrap_or_default(),
-            Mode::Building => "Debugging: building before starting\u{2026}".to_owned(),
-            Mode::Launching => format!("Debugging: starting {name}\u{2026}"),
-            Mode::Running => format!("Debugging: {name} (running{driving})"),
-            Mode::Break => {
-                let at = m
-                    .frames
-                    .first()
-                    .and_then(|f| {
-                        Some(format!(
-                            ", {} line {}",
-                            file_name(f.row.path.as_deref()?),
-                            f.row.line?
-                        ))
-                    })
-                    .unwrap_or_default();
-                format!(
-                    "Debugging: {name} (break: {}{at}{driving})",
-                    m.stopped.as_ref().map_or("", |s| s.reason.as_str())
-                )
+        d.menu.update(m, !d.live_ids().is_empty());
+        let status = if sessions.len() > 1 {
+            // Every session, the active one first: `Debugging: App (break: breakpoint, Program.cs line 12), Web
+            // (running)`.
+            let mut parts: Vec<&(u32, String, &'static str, String)> = sessions.iter().collect();
+            parts.sort_by_key(|(id, ..)| *id != d.active);
+            format!(
+                "Debugging: {}",
+                parts
+                    .iter()
+                    .map(|(_, name, _, state)| format!("{name} ({state})"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            match m.mode {
+                Mode::Design => m.message.clone().unwrap_or_default(),
+                Mode::Building => "Debugging: building before starting\u{2026}".to_owned(),
+                Mode::Launching => format!("Debugging: starting {name}\u{2026}"),
+                Mode::Running => format!("Debugging: {name} (running{driving})"),
+                Mode::Break => {
+                    let at = m
+                        .frames
+                        .first()
+                        .and_then(|f| {
+                            Some(format!(
+                                ", {} line {}",
+                                file_name(f.row.path.as_deref()?),
+                                f.row.line?
+                            ))
+                        })
+                        .unwrap_or_default();
+                    format!(
+                        "Debugging: {name} (break: {}{at}{driving})",
+                        m.stopped.as_ref().map_or("", |s| s.reason.as_str())
+                    )
+                }
+                Mode::Stopping => format!("Debugging: stopping {name}\u{2026}"),
+                Mode::RunningWithoutDebugging => format!("Running: {name} (without debugging)"),
             }
-            Mode::Stopping => format!("Debugging: stopping {name}\u{2026}"),
-            Mode::RunningWithoutDebugging => format!("Running: {name} (without debugging)"),
         };
         self.status.set(DEBUG_SLOT, status);
         // Waiting agents re-check whether the state settled, and wait again if not.
@@ -4383,9 +5475,22 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         for msg in batch {
-            self.on_debug_msg(msg, window, cx);
+            // Each message goes to its session, found by the generation it carries (brief 0028); one of a session
+            // that is gone is dropped (an adapter connected for it is ended).
+            match msg.generation() {
+                None => self.on_debug_msg(msg, window, cx),
+                Some(g) => match self.debug.session_of_generation(g) {
+                    Some(sid) => self.in_session(sid, |s| s.on_debug_msg(msg, window, cx)),
+                    None => {
+                        if let DebugMsg::Connected { client, .. } = msg {
+                            client.kill();
+                        }
+                    }
+                },
+            }
         }
         self.maybe_restart(window, cx);
+        self.settle_active(cx);
         self.refresh_debug(cx);
     }
 
@@ -4498,7 +5603,7 @@ impl Shell {
                         || (self.debug.log_points() && tracepoints)
                     {
                         for f in self.debug.model.breakpoints.files() {
-                            self.debug_send_breakpoints(&f);
+                            self.debug.send_breakpoints_here(&f);
                         }
                     }
                     let hit_functions = self
@@ -4509,7 +5614,7 @@ impl Shell {
                         .iter()
                         .any(|f| f.hit_condition.is_some());
                     if self.debug.caps.supports_hit_conditional_breakpoints && hit_functions {
-                        self.debug.send_function_breakpoints();
+                        self.debug.send_function_breakpoints_here();
                     }
                     if !self.debug.caps.supports_exception_filter_options
                         && !self.debug.model.exceptions.types.is_empty()
@@ -5288,7 +6393,21 @@ impl Shell {
         }
         let d = &mut self.debug;
         if let Some((path, _)) = cursor {
-            d.send_breakpoints(&path);
+            d.send_breakpoints_here(&path);
+        }
+        // Visual Studio switches to the process that broke (brief 0028), unless the person picked another a moment
+        // ago, or the active session is itself at a break: the windows keep the session that broke first.
+        if d.active != d.session_id {
+            let held = d.live_ids().contains(&d.active)
+                && (d.selected_at.is_some_and(|t| t.elapsed() < SELECTION_HOLD)
+                    || d.mode_of(d.active) == Some(Mode::Break));
+            if !held {
+                trace(format_args!(
+                    "debug: session {} broke and is active",
+                    d.session_id
+                ));
+                d.active = d.session_id;
+            }
         }
         d.model.mode = Mode::Break;
         d.model.stop += 1;
@@ -5500,6 +6619,8 @@ fn real_timer(after: Duration) -> oneshot::Receiver<()> {
 /// older one is a stale error (rule 4 of brief 0018).
 struct Reader {
     this: WeakEntity<Shell>,
+    /// The session read (brief 0028).
+    sid: u32,
     generation: u64,
     stop: u64,
 }
@@ -5507,12 +6628,19 @@ struct Reader {
 const WINDOW_CLOSED: &str = "the window is closed";
 
 impl Reader {
-    fn new(this: &WeakEntity<Shell>, cx: &mut AsyncWindowContext) -> Result<Self, String> {
+    fn new(
+        this: &WeakEntity<Shell>,
+        cx: &mut AsyncWindowContext,
+        sid: u32,
+    ) -> Result<Self, String> {
         let (generation, stop) = this
-            .update(cx, |s, _| (s.debug.model.generation, s.debug.model.stop))
+            .update(cx, |s, _| {
+                s.in_session(sid, |s| (s.debug.model.generation, s.debug.model.stop))
+            })
             .map_err(|_| WINDOW_CLOSED.to_owned())?;
         Ok(Self {
             this: this.clone(),
+            sid,
             generation,
             stop,
         })
@@ -5523,8 +6651,9 @@ impl Reader {
         cx: &mut AsyncWindowContext,
         f: impl FnOnce(&Debugger) -> R,
     ) -> Result<R, String> {
+        let sid = self.sid;
         self.this
-            .update(cx, |s, _| f(&s.debug))
+            .update(cx, |s, _| s.in_session(sid, |s| f(&s.debug)))
             .map_err(|_| WINDOW_CLOSED.to_owned())
     }
 
@@ -5534,15 +6663,17 @@ impl Reader {
         cx: &mut AsyncWindowContext,
         requests: Vec<(&'static str, Value)>,
     ) -> Result<Vec<Result<Value, String>>, String> {
-        let (g, s) = (self.generation, self.stop);
+        let (g, s, sid) = (self.generation, self.stop, self.sid);
         let receivers = self
             .this
             .update(cx, |shell, _| {
                 let t = Instant::now();
-                let r: Result<Vec<_>, String> = requests
-                    .into_iter()
-                    .map(|(c, a)| shell.debug.agent_request(g, s, c, a))
-                    .collect();
+                let r: Result<Vec<_>, String> = shell.in_session(sid, |shell| {
+                    requests
+                        .into_iter()
+                        .map(|(c, a)| shell.debug.agent_request(g, s, c, a))
+                        .collect()
+                });
                 shell.debug.timings.agent_ui.push((t, t.elapsed()));
                 r
             })
@@ -5845,12 +6976,14 @@ impl Reader {
                     .then(|| (v.variables_reference, usize::try_from(n).unwrap_or(0)))
             })
             .collect();
-        let stop = self.stop;
+        let (stop, sid) = (self.stop, self.sid);
         self.this
             .update(cx, |s, _| {
-                if s.debug.model.stop == stop {
-                    s.debug.counts.extend(counts);
-                }
+                s.in_session(sid, |s| {
+                    if s.debug.model.stop == stop {
+                        s.debug.counts.extend(counts);
+                    }
+                })
             })
             .map_err(|_| WINDOW_CLOSED.to_owned())
     }
@@ -5943,8 +7076,10 @@ impl Reader {
     ) -> Result<StopSummary, String> {
         let (mut out, stopped, selected, threads) = self.model(cx, |d| {
             let m = &d.model;
+            let mut base = m.summary_base(budget);
+            base.session = Some(d.session_id).filter(|id| *id > 0);
             (
-                m.summary_base(budget),
+                base,
                 (m.mode == Mode::Break)
                     .then(|| m.stopped.as_ref().map(|s| s.thread))
                     .flatten(),
@@ -6078,21 +7213,23 @@ impl Reader {
             .or(scopes.scopes.first())
             .ok_or_else(|| format!("frame {frame} has no variables"))?
             .variables_reference;
-        let (g, st) = (self.generation, self.stop);
+        let (g, st, sid) = (self.generation, self.stop, self.sid);
         let (name, value) = (name.to_owned(), value.to_owned());
         self.this
             .update(cx, |s, _| {
-                let m = &s.debug.model;
-                if m.generation != g || m.stop != st || m.mode != Mode::Break {
-                    return Err(
-                        "stale: the debuggee moved on before the change was sent".to_owned()
-                    );
-                }
-                let (tx, rx) = oneshot::channel();
-                s.debug
-                    .send_set_value(scope, true, Some(frame_id), &name, &value, Some(tx))
-                    .map_err(|e| e.to_string())?;
-                Ok(rx)
+                s.in_session(sid, |s| {
+                    let m = &s.debug.model;
+                    if m.generation != g || m.stop != st || m.mode != Mode::Break {
+                        return Err(
+                            "stale: the debuggee moved on before the change was sent".to_owned()
+                        );
+                    }
+                    let (tx, rx) = oneshot::channel();
+                    s.debug
+                        .send_set_value(scope, true, Some(frame_id), &name, &value, Some(tx))
+                        .map_err(|e| e.to_string())?;
+                    Ok(rx)
+                })
             })
             .map_err(|_| WINDOW_CLOSED.to_owned())?
     }
@@ -6237,7 +7374,7 @@ fn interrupted(s: &mut Shell, budget: &Budget) -> StopSummary {
     let d = &mut s.debug;
     d.agent_stale = true;
     d.timings.interrupt_answered = Some(Instant::now());
-    let mut summary = d.model.summary(budget);
+    let mut summary = d.summary(budget);
     summary.interrupted_by = Some("user".into());
     summary
 }
@@ -6248,11 +7385,86 @@ async fn follow_up(
     this: WeakEntity<Shell>,
     cx: &mut AsyncWindowContext,
     out: DebugOutput,
-    follow: Followup,
-    epoch: u64,
+    follow: Follow,
 ) -> Outcome {
     let closed = || CommandError::Failed(WINDOW_CLOSED.into());
+    let Follow {
+        sid,
+        epoch,
+        what: follow,
+    } = follow;
     match follow {
+        Followup::Compound { ids, wait, budget } => {
+            // A compound start (brief 0028): the first session to break, or every session's mode on a timeout.
+            let deadline = Instant::now() + wait;
+            let broke = loop {
+                let (found, waiter) = this
+                    .update(cx, |s, _| {
+                        let state = |s: &mut Shell, id: u32| {
+                            s.in_session(id, |s| {
+                                (s.debug.session_id == id).then(|| {
+                                    (
+                                        s.debug.model.mode == Mode::Break
+                                            && s.debug.model.settled(),
+                                        s.debug.model.mode == Mode::Design,
+                                    )
+                                })
+                            })
+                        };
+                        let states: Vec<(u32, Option<(bool, bool)>)> =
+                            ids.iter().map(|id| (*id, state(s, *id))).collect();
+                        let hit = states
+                            .iter()
+                            .find(|(_, st)| st.is_some_and(|(b, _)| b))
+                            .map(|(id, _)| *id);
+                        let over = states.iter().all(|(_, st)| st.is_none_or(|(_, d)| d));
+                        let found = hit.or(over.then(|| ids[0]));
+                        (found, found.is_none().then(|| s.debug_waiter()))
+                    })
+                    .map_err(|_| closed())?;
+                if let Some(id) = found {
+                    break Some(id);
+                }
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break None;
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            };
+            match broke {
+                Some(id) => summarize(&this, cx, id, None, None, &budget)
+                    .await
+                    .map(|s| DebugOutput::Summary(Box::new(s))),
+                None => {
+                    let mut summary = this
+                        .update(cx, |s, _| {
+                            let mut out = s.in_session(ids[0], |s| s.debug.summary(&budget));
+                            out.sessions = ids
+                                .iter()
+                                .filter_map(|id| {
+                                    s.in_session(*id, |s| {
+                                        (s.debug.session_id == *id).then(|| {
+                                            cmds::CompoundSessionRow {
+                                                id: *id,
+                                                name: Debugger::name_of(
+                                                    &s.debug.model,
+                                                    &s.debug.session_name,
+                                                ),
+                                                mode: s.debug.model.mode.as_str().into(),
+                                            }
+                                        })
+                                    })
+                                })
+                                .collect();
+                            out
+                        })
+                        .map_err(|_| closed())?;
+                    summary.timed_out = Some(true);
+                    Ok(DebugOutput::Summary(Box::new(summary)))
+                }
+            }
+        }
         Followup::Processes { filter, roots } => {
             let (tx, rx) = oneshot::channel();
             std::thread::Builder::new()
@@ -6294,7 +7506,9 @@ async fn follow_up(
             let settled = loop {
                 let cut = this
                     .update(cx, |s, _| {
-                        (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                        s.in_session(sid, |s| {
+                            (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                        })
                     })
                     .map_err(|_| closed())?;
                 if let Some(summary) = cut {
@@ -6302,36 +7516,38 @@ async fn follow_up(
                 }
                 let (done, failed, waiter) = this
                     .update(cx, |s, _| {
-                        let failed = pause
-                            .and_then(|g| {
-                                s.debug
-                                    .pause_error
-                                    .as_ref()
-                                    .filter(|(pg, _)| *pg == g)
-                                    .map(|(_, m)| format!("Break All failed: {m}"))
-                            })
-                            .or_else(|| {
-                                let (g, st) = after?;
-                                s.debug
-                                    .goto_error
-                                    .as_ref()
-                                    .filter(|(eg, es, _)| (*eg, *es) == (g, st))
-                                    .map(|(_, _, m)| m.clone())
+                        s.in_session(sid, |s| {
+                            let failed = pause
+                                .and_then(|g| {
+                                    s.debug
+                                        .pause_error
+                                        .as_ref()
+                                        .filter(|(pg, _)| *pg == g)
+                                        .map(|(_, m)| format!("Break All failed: {m}"))
+                                })
+                                .or_else(|| {
+                                    let (g, st) = after?;
+                                    s.debug
+                                        .goto_error
+                                        .as_ref()
+                                        .filter(|(eg, es, _)| (*eg, *es) == (g, st))
+                                        .map(|(_, _, m)| m.clone())
+                                });
+                            // Set Next Statement: the break it answers is the one after the goto.
+                            let moved = after.is_none_or(|(g, st)| {
+                                let m = &s.debug.model;
+                                m.generation != g || m.mode == Mode::Design || m.stop > st
                             });
-                        // Set Next Statement: the break it answers is the one after the goto.
-                        let moved = after.is_none_or(|(g, st)| {
-                            let m = &s.debug.model;
-                            m.generation != g || m.mode == Mode::Design || m.stop > st
-                        });
-                        // A restart that stops and starts answers in the new session (or once it fails to start).
-                        let renewed = fresh.is_none_or(|g| {
-                            let m = &s.debug.model;
-                            m.generation > g && s.debug.restart_pending.is_none()
-                        });
-                        let done = moved && renewed && s.debug_settled(start);
-                        // A waiter only while waiting: none is left behind once the command answers.
-                        let waiter = (!done && failed.is_none()).then(|| s.debug_waiter());
-                        (done, failed, waiter)
+                            // A restart that stops and starts answers in the new session (or once it fails to start).
+                            let renewed = fresh.is_none_or(|g| {
+                                let m = &s.debug.model;
+                                m.generation > g && s.debug.restart_pending.is_none()
+                            });
+                            let done = moved && renewed && s.debug_settled(start);
+                            // A waiter only while waiting: none is left behind once the command answers.
+                            let waiter = (!done && failed.is_none()).then(|| s.debug_waiter());
+                            (done, failed, waiter)
+                        })
                     })
                     .map_err(|_| closed())?;
                 if let Some(m) = failed {
@@ -6344,7 +7560,7 @@ async fn follow_up(
                 let timer = real_timer(left);
                 let _ = futures::future::select(waiter, timer).await;
             };
-            let mut summary = summarize(&this, cx, None, None, &budget).await?;
+            let mut summary = summarize(&this, cx, sid, None, None, &budget).await?;
             if !settled {
                 summary.timed_out = Some(true);
             }
@@ -6359,15 +7575,17 @@ async fn follow_up(
             let stopped_by = loop {
                 let (ended, waiter) = this
                     .update(cx, |s, _| {
-                        // The person resumed, paused, stopped or restarted: the trace answers what it has.
-                        let ended = if s.debug.interrupt != epoch {
-                            s.debug.agent_stale = true;
-                            s.debug.timings.interrupt_answered = Some(Instant::now());
-                            Some("interrupted")
-                        } else {
-                            s.debug.trace_ended()
-                        };
-                        (ended, ended.is_none().then(|| s.debug_waiter()))
+                        s.in_session(sid, |s| {
+                            // The person resumed, paused, stopped or restarted: the trace answers what it has.
+                            let ended = if s.debug.interrupt != epoch {
+                                s.debug.agent_stale = true;
+                                s.debug.timings.interrupt_answered = Some(Instant::now());
+                                Some("interrupted")
+                            } else {
+                                s.debug.trace_ended()
+                            };
+                            (ended, ended.is_none().then(|| s.debug_waiter()))
+                        })
                     })
                     .map_err(|_| closed())?;
                 if let Some(e) = ended {
@@ -6383,14 +7601,18 @@ async fn follow_up(
             let _ = until;
             let mut out = this
                 .update(cx, |s, cx| {
-                    let out = s.debug.finish_trace(stopped_by);
-                    s.refresh_glyphs(cx);
-                    s.refresh_debug(cx);
-                    out
+                    s.in_session(sid, |s| {
+                        let out = s.debug.finish_trace(stopped_by);
+                        s.refresh_glyphs(cx);
+                        s.refresh_debug(cx);
+                        out
+                    })
                 })
                 .map_err(|_| closed())?;
             if stopped_by == "stopped" {
-                out.summary = Some(Box::new(summarize(&this, cx, None, None, &budget).await?));
+                out.summary = Some(Box::new(
+                    summarize(&this, cx, sid, None, None, &budget).await?,
+                ));
             }
             Ok(DebugOutput::Trace(Box::new(out)))
         }
@@ -6413,19 +7635,34 @@ async fn follow_up(
             name,
             value,
         } => {
-            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let r = Reader::new(&this, cx, sid).map_err(CommandError::Failed)?;
             let rx = r
                 .set_value(cx, thread, frame, &name, &value)
                 .await
                 .map_err(CommandError::Failed)?;
-            Box::pin(follow_up(this, cx, out, Followup::SetValue(rx), epoch)).await
+            let follow = Follow {
+                sid,
+                epoch,
+                what: Followup::SetValue(rx),
+            };
+            Box::pin(follow_up(this, cx, out, follow)).await
         }
-        Followup::Ended { wait } => {
+        Followup::Ended { wait, all } => {
             let deadline = Instant::now() + wait;
             loop {
                 let waiter = this
                     .update(cx, |s, _| {
-                        (!s.debug_settled(false)).then(|| s.debug_waiter())
+                        s.in_session(sid, |s| {
+                            let ended = if all {
+                                s.debug
+                                    .live_ids()
+                                    .into_iter()
+                                    .all(|id| s.in_session(id, |s| s.debug_settled(false)))
+                            } else {
+                                s.debug_settled(false)
+                            };
+                            (!ended).then(|| s.debug_waiter())
+                        })
                     })
                     .map_err(|_| closed())?;
                 let left = deadline.saturating_duration_since(Instant::now());
@@ -6435,7 +7672,7 @@ async fn follow_up(
                 let timer = real_timer(left);
                 let _ = futures::future::select(waiter, timer).await;
             }
-            this.update(cx, |s, _| s.debug_state())
+            this.update(cx, |s, _| s.in_session(sid, |s| s.debug_state()))
                 .map_err(|_| closed())
         }
         Followup::Wait {
@@ -6449,7 +7686,9 @@ async fn follow_up(
             let satisfied = loop {
                 let cut = this
                     .update(cx, |s, _| {
-                        (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                        s.in_session(sid, |s| {
+                            (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                        })
                     })
                     .map_err(|_| closed())?;
                 if let Some(summary) = cut {
@@ -6457,8 +7696,10 @@ async fn follow_up(
                 }
                 let (holds, waiter) = this
                     .update(cx, |s, _| {
-                        let holds = wait_satisfied(&s.debug.model, until, stop, baseline);
-                        (holds, holds.is_none().then(|| s.debug_waiter()))
+                        s.in_session(sid, |s| {
+                            let holds = wait_satisfied(&s.debug.model, until, stop, baseline);
+                            (holds, holds.is_none().then(|| s.debug_waiter()))
+                        })
                     })
                     .map_err(|_| closed())?;
                 let left = deadline.saturating_duration_since(Instant::now());
@@ -6468,13 +7709,15 @@ async fn follow_up(
                 let timer = real_timer(left);
                 let _ = futures::future::select(waiter, timer).await;
             };
-            let mut summary = summarize(&this, cx, None, None, &budget).await?;
+            let mut summary = summarize(&this, cx, sid, None, None, &budget).await?;
             match satisfied {
                 Some(why) => summary.satisfied = Some(why.into()),
                 None => summary.timed_out = Some(true),
             }
             this.update(cx, |s, _| {
-                s.debug.timings.wait_answered = Some(Instant::now())
+                s.in_session(sid, |s| {
+                    s.debug.timings.wait_answered = Some(Instant::now())
+                })
             })
             .map_err(|_| closed())?;
             Ok(DebugOutput::Summary(Box::new(summary)))
@@ -6484,7 +7727,7 @@ async fn follow_up(
             frame,
             budget,
         } => {
-            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let r = Reader::new(&this, cx, sid).map_err(CommandError::Failed)?;
             r.summary(cx, thread, frame, &budget)
                 .await
                 .map(|s| DebugOutput::Summary(Box::new(s)))
@@ -6496,7 +7739,7 @@ async fn follow_up(
             count,
             all_threads,
         } => {
-            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let r = Reader::new(&this, cx, sid).map_err(CommandError::Failed)?;
             r.stack(cx, thread, start, count, all_threads)
                 .await
                 .map(DebugOutput::Stack)
@@ -6510,14 +7753,14 @@ async fn follow_up(
             filter,
             max_value_chars,
         } => {
-            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let r = Reader::new(&this, cx, sid).map_err(CommandError::Failed)?;
             r.variables(cx, target, start, count, depth, filter, max_value_chars)
                 .await
                 .map(DebugOutput::Variables)
                 .map_err(CommandError::Failed)
         }
         Followup::ExceptionInfo { thread } => {
-            let r = Reader::new(&this, cx).map_err(CommandError::Failed)?;
+            let r = Reader::new(&this, cx, sid).map_err(CommandError::Failed)?;
             let body = r
                 .one(cx, "exceptionInfo", json!({ "threadId": thread }))
                 .await
@@ -6536,19 +7779,20 @@ async fn follow_up(
 async fn summarize(
     this: &WeakEntity<Shell>,
     cx: &mut AsyncWindowContext,
+    sid: u32,
     thread: Option<i64>,
     frame: Option<usize>,
     budget: &Budget,
 ) -> Result<StopSummary, CommandError> {
     for _ in 0..3 {
-        let r = Reader::new(this, cx).map_err(CommandError::Failed)?;
+        let r = Reader::new(this, cx, sid).map_err(CommandError::Failed)?;
         match r.summary(cx, thread, frame, budget).await {
             Ok(s) => return Ok(s),
             Err(e) if e.starts_with("stale") => continue,
             Err(e) => return Err(CommandError::Failed(e)),
         }
     }
-    this.update(cx, |s, _| s.debug.model.summary(budget))
+    this.update(cx, |s, _| s.in_session(sid, |s| s.debug.summary(budget)))
         .map_err(|_| CommandError::Failed(WINDOW_CLOSED.into()))
 }
 

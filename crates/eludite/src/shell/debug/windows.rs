@@ -5,6 +5,11 @@
 //! Exception Settings (Common Language Runtime Exceptions, with exception types under it: Add, Remove, Clear). The program's output goes to the Output window's Debug source (brief 0020
 //! retired the Debug Console window); expressions are evaluated in the Watch window.
 //!
+//! With several debugging sessions (brief 0028) the Call Stack and Threads windows gain a session selector
+//! ([`SessionChoice`], drawn with `eludite_ui::selector_bar`): each session with its mode, the active one pressed; a
+//! click runs `eludite.debug.select_frame` with the `session`, which makes it the active one, and Locals and Watch
+//! follow. One row per breakpoint in the Breakpoints window, its binding per session in the row's tooltip.
+//!
 //! Each window shows a snapshot the shell gives it after the debugger's state changes, and turns clicks into the
 //! `eludite.debug.*` commands by dispatching [`RunCommand`], so they reach the same command bus agents use. Expanding
 //! a variable is view state (like expanding a Workspace folder): it is an event the shell answers by fetching the
@@ -425,6 +430,89 @@ impl VarsWindow {
     }
 }
 
+/// A breakpoint row's tooltip with several sessions (brief 0028): its binding in each, `Session 1: bound, 1 hit`.
+pub fn breakpoint_tooltip(r: &BreakpointRow) -> Option<String> {
+    (r.sessions.len() > 1).then(|| {
+        r.sessions
+            .iter()
+            .map(|s| {
+                let bound = if s.verified {
+                    "bound".to_owned()
+                } else {
+                    match &s.message {
+                        Some(m) => format!("not bound ({m})"),
+                        None => "not bound".to_owned(),
+                    }
+                };
+                format!(
+                    "Session {}: {bound}, {} hit{}",
+                    s.session,
+                    s.hits,
+                    if s.hits == 1 { "" } else { "s" }
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
+/// A plain text tooltip.
+struct TextTip {
+    text: String,
+    theme: Theme,
+}
+
+impl Render for TextTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        div()
+            .px_2()
+            .py_1()
+            .bg(t.panel)
+            .border_1()
+            .border_color(t.border)
+            .text_size(t.typography.ui)
+            .text_color(t.text)
+            .children(self.text.lines().map(|l| div().child(l.to_owned())))
+    }
+}
+
+/// One session of the Call Stack and Threads windows' selector (brief 0028).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionChoice {
+    pub id: u32,
+    /// `1: App (break)`.
+    pub label: String,
+    pub active: bool,
+}
+
+/// The selector of session `id` in window `window` (`callstack` or `threads`).
+pub fn session_option(window: &str, id: u32) -> String {
+    format!("debug-{window}-session-{id}")
+}
+
+/// The session selector bar: nothing with one session.
+fn session_bar(
+    t: &Theme,
+    window: &'static str,
+    sessions: &[SessionChoice],
+) -> Option<gpui::Stateful<gpui::Div>> {
+    if sessions.len() < 2 {
+        return None;
+    }
+    let options = sessions.iter().map(|c| {
+        let id = c.id;
+        eludite_ui::selector_option(session_option(window, id), c.label.clone(), c.active, t)
+            .on_click(move |_, window, cx| {
+                run(window, cx, cmds::SELECT_FRAME, json!({ "session": id }))
+            })
+    });
+    Some(
+        eludite_ui::selector_bar(format!("debug-{window}-sessions"), "Process:", t)
+            .children(options),
+    )
+}
+
 /// One Call Stack row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackRow {
@@ -436,6 +524,7 @@ pub struct StackRow {
 pub struct CallStackWindow {
     theme: Theme,
     rows: Vec<StackRow>,
+    sessions: Vec<SessionChoice>,
 }
 
 impl CallStackWindow {
@@ -443,7 +532,21 @@ impl CallStackWindow {
         Self {
             theme,
             rows: Vec::new(),
+            sessions: Vec::new(),
         }
+    }
+
+    /// The session selector's choices (brief 0028; none or one: no selector).
+    pub fn set_sessions(&mut self, sessions: Vec<SessionChoice>, cx: &mut Context<Self>) {
+        if self.sessions != sessions {
+            self.sessions = sessions;
+            cx.notify();
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sessions(&self) -> &[SessionChoice] {
+        &self.sessions
     }
 
     pub fn set_rows(&mut self, rows: Vec<StackRow>, cx: &mut Context<Self>) {
@@ -488,6 +591,7 @@ impl Render for CallStackWindow {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .children(session_bar(&t, "callstack", &self.sessions))
             .child(header(
                 &t,
                 vec![
@@ -512,6 +616,7 @@ pub struct ThreadLine {
 pub struct ThreadsWindow {
     theme: Theme,
     rows: Vec<ThreadLine>,
+    sessions: Vec<SessionChoice>,
 }
 
 impl ThreadsWindow {
@@ -519,7 +624,21 @@ impl ThreadsWindow {
         Self {
             theme,
             rows: Vec::new(),
+            sessions: Vec::new(),
         }
+    }
+
+    /// The session selector's choices (brief 0028).
+    pub fn set_sessions(&mut self, sessions: Vec<SessionChoice>, cx: &mut Context<Self>) {
+        if self.sessions != sessions {
+            self.sessions = sessions;
+            cx.notify();
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sessions(&self) -> &[SessionChoice] {
+        &self.sessions
     }
 
     pub fn set_rows(&mut self, rows: Vec<ThreadLine>, cx: &mut Context<Self>) {
@@ -559,6 +678,7 @@ impl Render for ThreadsWindow {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .children(session_bar(&t, "threads", &self.sessions))
             .child(header(
                 &t,
                 vec![
@@ -822,7 +942,17 @@ impl Render for BreakpointsWindow {
                 label.push_str(" (temporary)");
             }
             let open = r.path.clone().zip(r.line);
-            let row = row_base(&t, format!("debug-bp-row-{ix}"))
+            let tip = breakpoint_tooltip(r);
+            let row = row_base(&t, format!("debug-bp-row-{ix}"));
+            // Its binding per session (brief 0028), as a tooltip.
+            let row = match tip {
+                Some(text) => row.tooltip(move |_, cx| {
+                    let text = text.clone();
+                    cx.new(|_| TextTip { text, theme: t }).into()
+                }),
+                None => row,
+            };
+            let row = row
                 .child(check)
                 .child(
                     cell(glyph, Some(16.))

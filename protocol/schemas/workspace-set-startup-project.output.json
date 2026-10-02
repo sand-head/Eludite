@@ -11,7 +11,7 @@
   "additionalProperties": false,
   "properties": {
     "project": {
-      "description": "The project's name.",
+      "description": "The project's name; with multiple startup projects, the first one that starts.",
       "type": "string"
     },
     "path": {
@@ -21,6 +21,34 @@
     "solution": {
       "description": "Absolute path of the solution it is the startup project of.",
       "type": "string"
+    },
+    "projects": {
+      "description": "With multiple startup projects (brief 0028): each project that starts, in solution order, with its action.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "project",
+          "path",
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "start",
+              "start_without_debugging"
+            ]
+          }
+        }
+      }
     }
   }
 }
