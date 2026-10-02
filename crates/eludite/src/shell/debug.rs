@@ -32,6 +32,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+use eludite_commands::build::OutputSource;
 use eludite_commands::debug::{
     self as cmds, BreakpointAction, DebugOutput, DebugRequest, EvalContext, EvaluateOutput,
     SessionRow, StoppedRow, ThreadRow, VariableRow,
@@ -354,7 +355,9 @@ pub struct Debugger {
     hover: Option<(String, u64)>,
     solution: Option<PathBuf>,
     console_partial: String,
-    console_seen: (u64, usize),
+    /// Text for the Output window's Debug source not given to it yet (brief 0020), and whether to clear it first.
+    output_queue: String,
+    output_clear: bool,
     /// `breakpoint` events for ids not known yet: netcoredbg binds breakpoints (events) before the handshake's
     /// `setBreakpoints` answers reach the shell.
     early_breakpoints: Vec<eludite_dap::types::Breakpoint>,
@@ -386,7 +389,8 @@ impl Debugger {
                 hover: None,
                 solution: None,
                 console_partial: String::new(),
-                console_seen: (u64::MAX, 0),
+                output_queue: String::new(),
+                output_clear: false,
                 early_breakpoints: Vec::new(),
                 timings: DebugTimings::default(),
                 pending_launch: None,
@@ -410,6 +414,7 @@ impl Debugger {
 
     fn console(&mut self, text: &str) {
         let text = text.replace('\r', "");
+        self.output_queue.push_str(&text);
         let mut buf = std::mem::take(&mut self.console_partial);
         buf.push_str(&text);
         let mut parts: Vec<&str> = buf.split('\n').collect();
@@ -424,7 +429,11 @@ impl Debugger {
         if !self.console_partial.is_empty() {
             let p = std::mem::take(&mut self.console_partial);
             self.model.push_console(p);
+            self.output_queue.push('\n');
         }
+        let line = line.into();
+        self.output_queue.push_str(&line);
+        self.output_queue.push('\n');
         self.model.push_console(line);
     }
 
@@ -937,6 +946,8 @@ impl Shell {
         };
         d.model.console.clear();
         d.console_partial.clear();
+        d.output_queue.clear();
+        d.output_clear = true;
         d.console_line(format!("Building {what} before starting\u{2026}"));
         let generation = d.model.generation;
         d.pending_launch = Some(PendingLaunch {
@@ -1097,6 +1108,8 @@ impl Shell {
             };
             d.model.console.clear();
             d.console_partial.clear();
+            d.output_queue.clear();
+            d.output_clear = true;
         }
         let launched = Instant::now();
         d.timings.launched = Some(launched);
@@ -1165,15 +1178,18 @@ impl Shell {
         if debug {
             self.show_debug_windows();
         } else {
+            // Start Without Debugging: the program's output is all there is to see.
             let _ = self.controller.apply(ViewRequest::Show {
-                id: ids::DEBUG_CONSOLE.into(),
+                id: ids::OUTPUT.into(),
             });
         }
+        self.output
+            .update(cx, |o, cx| o.select(OutputSource::Debug, cx));
         self.refresh_glyphs(cx);
     }
 
-    /// Visual Studio's Debug layout the first time: Locals and Watch beside the Error List, Call Stack, Breakpoints
-    /// and the Debug Console in a second group at the bottom. A layout the user changed is left alone.
+    /// Visual Studio's Debug layout the first time: Locals and Watch beside the Error List and Output, Call Stack and
+    /// Breakpoints in a second group at the bottom. A layout the user changed is left alone.
     fn show_debug_windows(&mut self) {
         let c = &self.controller;
         let hidden = |id: &str| {
@@ -1187,7 +1203,7 @@ impl Shell {
                 id: Some(ids::CALL_STACK.into()),
                 target: DockTarget::Side(DockEdge::Bottom),
             });
-            for id in [ids::BREAKPOINTS, ids::DEBUG_CONSOLE] {
+            for id in [ids::BREAKPOINTS] {
                 if hidden(id) {
                     let _ = c.apply(ViewRequest::Dock {
                         id: Some(id.into()),
@@ -1824,14 +1840,16 @@ impl Shell {
         w.breakpoints
             .update(cx, |v, cx| v.set_rows(breakpoints, cx));
         w.exceptions.update(cx, |v, cx| v.set(exceptions, cx));
-        let seen = (d.model.console_total, d.console_partial.len());
-        if seen != d.console_seen {
-            d.console_seen = seen;
-            let mut lines = d.model.console.clone();
-            if !d.console_partial.is_empty() {
-                lines.push_back(d.console_partial.clone());
-            }
-            w.console.update(cx, |v, cx| v.set_lines(&lines, cx));
+        // The program's output and the debugger's messages: the Output window's Debug source (brief 0020).
+        let out = std::mem::take(&mut d.output_queue);
+        let clear = std::mem::take(&mut d.output_clear);
+        if clear || !out.is_empty() {
+            self.output.update(cx, |o, cx| {
+                if clear {
+                    o.clear(OutputSource::Debug, cx);
+                }
+                o.append(OutputSource::Debug, &out, cx);
+            });
         }
         let name = m
             .session

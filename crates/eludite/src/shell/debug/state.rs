@@ -30,7 +30,7 @@ use eludite_dap::types::SourceBreakpoint;
 use eludite_editor::BreakpointGlyph;
 use serde::{Deserialize, Serialize};
 
-/// The Debug Console keeps this many lines.
+/// `eludite.debug.state` keeps this many lines of the program's output (the Output window keeps them all).
 pub const CONSOLE_LINES: usize = 10_000;
 /// Locals and members listed at most (the schema's bound).
 pub const MAX_VARIABLES: usize = 500;

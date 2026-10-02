@@ -472,7 +472,7 @@ fn the_configuration_dropdown_picks_release_and_the_host_log_has_its_own_source(
         )
     });
     w.click(super::output::SOURCE_BUTTON);
-    w.click(&super::output::source_item_selector(1));
+    w.click(&super::output::source_item_selector(2));
     let (selected, host) = w.shell.read_with(&w.vcx, |s, cx| {
         let o = s.output().read(cx);
         (o.selected(), o.pane(OutputSource::Host).tail(1))

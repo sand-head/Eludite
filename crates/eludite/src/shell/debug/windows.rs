@@ -1,21 +1,19 @@
 //! The debugger's tool windows (brief 0018), as Visual Studio lays them out: Locals and Watch 1 (Name, Value, Type,
 //! expanding lazily), Call Stack, Threads, Breakpoints (enable, condition, hit count, delete), Exception Settings
-//! (Common Language Runtime Exceptions) and the Debug Console (the program's output, and expressions evaluated in
-//! break mode).
+//! (Common Language Runtime Exceptions). The program's output goes to the Output window's Debug source (brief 0020
+//! retired the Debug Console window); expressions are evaluated in the Watch window.
 //!
 //! Each window shows a snapshot the shell gives it after the debugger's state changes, and turns clicks into the
 //! `eludite.debug.*` commands by dispatching [`RunCommand`], so they reach the same command bus agents use. Expanding
 //! a variable is view state (like expanding a Workspace folder): it is an event the shell answers by fetching the
 //! members.
 
-use std::collections::VecDeque;
-
 use eludite_commands::debug::{self as cmds, BreakpointRow, ExceptionSettingsRow};
 use eludite_ui::{RunCommand, Theme, text_box, toggle_button};
 use gpui::{
     App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, UniformListScrollHandle, Window, div, px, uniform_list,
+    StatefulInteractiveElement, Styled, Window, div, px, uniform_list,
 };
 use serde_json::json;
 
@@ -815,128 +813,6 @@ impl Render for ExceptionsWindow {
     }
 }
 
-/// The Debug Console: the program's output and, in break mode, an expression box.
-pub struct ConsoleWindow {
-    theme: Theme,
-    lines: VecDeque<String>,
-    input: LineInput,
-    scroll: UniformListScrollHandle,
-}
-
-impl ConsoleWindow {
-    pub fn new(theme: Theme, cx: &mut App) -> Self {
-        Self {
-            theme,
-            lines: VecDeque::new(),
-            input: LineInput::new(cx),
-            scroll: UniformListScrollHandle::new(),
-        }
-    }
-
-    pub fn set_lines(&mut self, lines: &VecDeque<String>, cx: &mut Context<Self>) {
-        if &self.lines != lines {
-            self.lines = lines.clone();
-            if !self.lines.is_empty() {
-                self.scroll
-                    .scroll_to_item(self.lines.len() - 1, gpui::ScrollStrategy::Bottom);
-            }
-            cx.notify();
-        }
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn lines(&self) -> &VecDeque<String> {
-        &self.lines
-    }
-
-    fn input_key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        match self.input.key(e) {
-            InputKey::Ignored => return,
-            InputKey::Changed => {}
-            InputKey::Submit(text) => {
-                if !text.trim().is_empty() {
-                    run(
-                        window,
-                        cx,
-                        cmds::EVALUATE,
-                        json!({"expression": text.trim(), "context": "repl"}),
-                    );
-                }
-            }
-        }
-        cx.stop_propagation();
-        cx.notify();
-    }
-}
-
-impl Render for ConsoleWindow {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = self.theme;
-        let focused = self.input.focus.is_focused(window);
-        let count = self.lines.len();
-        div()
-            .id("debug-console")
-            .size_full()
-            .flex()
-            .flex_col()
-            .child(
-                uniform_list(
-                    "debug-console-lines",
-                    count,
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, _| {
-                        let t = this.theme;
-                        range
-                            .filter_map(|ix| {
-                                let line = this.lines.get(ix)?.clone();
-                                Some(
-                                    div()
-                                        .h(px(ROW_HEIGHT - 2.))
-                                        .px_2()
-                                        .whitespace_nowrap()
-                                        .overflow_hidden()
-                                        .font_family(eludite_editor::default_font_family())
-                                        .text_size(t.typography.ui)
-                                        .text_color(t.text)
-                                        .child(line),
-                                )
-                            })
-                            .collect()
-                    }),
-                )
-                .track_scroll(&self.scroll)
-                .flex_1(),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_none()
-                    .h(px(ROW_HEIGHT + 6.))
-                    .items_center()
-                    .px_2()
-                    .border_t_1()
-                    .border_color(t.border)
-                    .child(
-                        text_box(
-                            "debug-console-input",
-                            &self.input.text,
-                            "Evaluate an expression (break mode)",
-                            focused,
-                            &t,
-                        )
-                        .w_full()
-                        .track_focus(&self.input.focus)
-                        .key_context("DebugConsoleInput")
-                        .on_key_down(cx.listener(Self::input_key))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.input.focus.focus(window, cx);
-                            cx.notify();
-                        })),
-                    ),
-            )
-    }
-}
-
 /// The debugger windows.
 #[derive(Clone)]
 pub struct DebugWindows {
@@ -946,7 +822,6 @@ pub struct DebugWindows {
     pub threads: Entity<ThreadsWindow>,
     pub breakpoints: Entity<BreakpointsWindow>,
     pub exceptions: Entity<ExceptionsWindow>,
-    pub console: Entity<ConsoleWindow>,
 }
 
 impl DebugWindows {
@@ -958,7 +833,6 @@ impl DebugWindows {
             threads: cx.new(|_| ThreadsWindow::new(theme)),
             breakpoints: cx.new(|cx| BreakpointsWindow::new(theme, cx)),
             exceptions: cx.new(|_| ExceptionsWindow::new(theme)),
-            console: cx.new(|cx| ConsoleWindow::new(theme, cx)),
         }
     }
 
@@ -974,7 +848,6 @@ impl DebugWindows {
             ids::THREADS => self.threads.clone().cached(style()).into_any_element(),
             ids::BREAKPOINTS => self.breakpoints.clone().cached(style()).into_any_element(),
             ids::EXCEPTION_SETTINGS => self.exceptions.clone().cached(style()).into_any_element(),
-            ids::DEBUG_CONSOLE => self.console.clone().cached(style()).into_any_element(),
             _ => return None,
         })
     }

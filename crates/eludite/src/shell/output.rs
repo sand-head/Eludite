@@ -1,6 +1,7 @@
-//! The Output window (PLAN.md 4.4, brief 0017): Visual Studio's "Show output from" dropdown with three sources, Build
-//! (the build log as `eludite-host` or cargo streams it), Host (`eludite-host`'s own log) and Language Servers (the
-//! servers the shell runs itself, brief 0019), Clear All, and a virtualized, append-only text view.
+//! The Output window (PLAN.md 4.4, brief 0017): Visual Studio's "Show output from" dropdown with four sources, Build
+//! (the build log as `eludite-host` or cargo streams it), Debug (the program's output and the debugger's messages,
+//! brief 0020), Host (`eludite-host`'s own log) and Language Servers (the servers the shell runs itself, brief 0019),
+//! Clear All, and a virtualized, append-only text view.
 //!
 //! - **Storage.** One `String` per source plus the byte offset of each line start, so 100k lines cost their bytes and
 //!   one `usize` each. ANSI escape sequences and carriage returns are removed as text arrives.
@@ -30,7 +31,7 @@ pub const LINES: &str = "output-lines";
 pub const BODY: &str = "output-body";
 pub const PAUSED_LABEL: &str = "output-paused";
 
-/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Host, 2 Language Servers).
+/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Debug, 2 Host, 3 Language Servers).
 pub fn source_item_selector(ix: usize) -> String {
     format!("output-source-{ix}")
 }
@@ -149,6 +150,8 @@ pub struct OutputWindow {
     host: OutputPane,
     /// Brief 0019: the language servers the shell runs itself.
     servers: OutputPane,
+    /// Brief 0020: the program's output and the debugger's messages.
+    debug: OutputPane,
     selected: OutputSource,
     scroll: UniformListScrollHandle,
     /// Auto-scroll with new output (false after the user scrolled up, until they are back at the end).
@@ -164,6 +167,7 @@ impl OutputWindow {
             build: OutputPane::default(),
             host: OutputPane::default(),
             servers: OutputPane::default(),
+            debug: OutputPane::default(),
             selected: OutputSource::Build,
             scroll: UniformListScrollHandle::new(),
             following: true,
@@ -176,6 +180,7 @@ impl OutputWindow {
             OutputSource::Build => &self.build,
             OutputSource::Host => &self.host,
             OutputSource::LanguageServers => &self.servers,
+            OutputSource::Debug => &self.debug,
         }
     }
 
@@ -184,6 +189,7 @@ impl OutputWindow {
             OutputSource::Build => &mut self.build,
             OutputSource::Host => &mut self.host,
             OutputSource::LanguageServers => &mut self.servers,
+            OutputSource::Debug => &mut self.debug,
         }
     }
 
@@ -277,6 +283,7 @@ impl Render for OutputWindow {
             OutputSource::Build => "Build",
             OutputSource::Host => "Host",
             OutputSource::LanguageServers => "Language Servers",
+            OutputSource::Debug => "Debug",
         };
         let source_button = toggle_button(
             SOURCE_BUTTON,
@@ -292,6 +299,7 @@ impl Render for OutputWindow {
         let menu = self.menu.then(|| {
             let items = [
                 OutputSource::Build,
+                OutputSource::Debug,
                 OutputSource::Host,
                 OutputSource::LanguageServers,
             ]
