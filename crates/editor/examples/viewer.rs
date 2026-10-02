@@ -597,6 +597,7 @@ fn measure_tree(buffer: Buffer, language: std::sync::Arc<eludite_editor::syntax:
 }
 
 fn main() {
+    eludite_editor::syntax::alloc::disable_transparent_huge_pages();
     let t_main = Instant::now();
     let args = parse_args();
     if let Some((lang, lines, out)) = &args.generate {

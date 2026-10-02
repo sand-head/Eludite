@@ -41,7 +41,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0008](0008-docking-production.md) | Docking and tool windows in the production shell | 1 | [report](0008-report.md): done on Linux; cold start ~100 ms, 19/19 real-input steps |
 | [0009](0009-editor-core.md) | Vendor Zed's text crates and build the editor core | 1 | [report](0009-report.md): done on Linux; speed budgets pass, memory on a 100k-line file 249 MB vs 150 MB budget (follow-up) |
 | [0010](0010-rename-to-eludite.md) | Rename the project to Eludite | 1 | [report](0010-report.md): done on Linux; full Linux suite green |
-| [0011](0011-editor-memory.md) | Bring editor memory under budget | 1 | open |
+| [0011](0011-editor-memory.md) | Bring editor memory under budget | 1 | [report](0011-report.md): done on Linux; 100k-line C# 98 MB idle (was 241), growth 8 MB; mimalloc for tree-sitter only |
 | [0012](0012-open-solution.md) | Open a solution end to end | 1 | [report](0012-report.md): done on Linux; editable in 16 ms, tree 0.5 s, first diagnostics 2.4 s on Eludite.slnx |
 | [0013](0013-completion-and-hover.md) | Completion, hover and signature help in the editor | 1 | open |
 

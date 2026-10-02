@@ -13,8 +13,9 @@
 //! measured mimalloc as the global allocator and it cost 18 to 24 MB more
 //! at idle in the viewer (40 MB in the `eludite` shell) for no speed gain.
 //!
-//! On Linux, [`install`] also turns off transparent huge pages for the
-//! process; see [`disable_transparent_huge_pages`].
+//! Process-wide policy stays with the binaries: `eludite` and the example
+//! viewer call [`disable_transparent_huge_pages`] from their `main`; this
+//! library never changes process settings on its own.
 //!
 //! [`live_bytes`] counts the bytes tree-sitter holds, which measures tree
 //! memory independently of RSS and of the allocator's caching.
@@ -68,7 +69,6 @@ pub fn release_free_memory() {
 pub(crate) fn install() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        disable_transparent_huge_pages();
         // SAFETY: creating a heap has no preconditions; it is never deleted.
         let heap = unsafe { mi::mi_heap_new() };
         assert!(!heap.is_null(), "mimalloc heap for tree-sitter");
@@ -99,9 +99,9 @@ pub(crate) fn install() {
 /// more resident than it uses: brief 0011 measured 14 MB more at idle for
 /// the 100k-line C# file (112 MB instead of 98 MB). Under the more common
 /// `madvise` mode this changes nothing. It affects pages faulted in after
-/// the call, so the first language registration, before any file is
-/// open, is early enough.
-fn disable_transparent_huge_pages() {
+/// the call, so calling it first thing in `main` is the right place. This is
+/// process-wide policy, so only binaries call it; the library never does.
+pub fn disable_transparent_huge_pages() {
     #[cfg(target_os = "linux")]
     {
         use std::ffi::{c_int, c_ulong};
