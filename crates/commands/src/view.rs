@@ -21,9 +21,10 @@ pub const FLOAT: &str = "eludite.view.float";
 pub const AUTO_HIDE: &str = "eludite.view.auto_hide";
 pub const DOCK: &str = "eludite.view.dock";
 pub const RESET_LAYOUT: &str = "eludite.view.reset_layout";
+pub const RESIZE: &str = "eludite.view.resize";
 
 /// Every command this module registers.
-pub const ALL: [&str; 6] = [SHOW, HIDE, FLOAT, AUTO_HIDE, DOCK, RESET_LAYOUT];
+pub const ALL: [&str; 7] = [SHOW, HIDE, FLOAT, AUTO_HIDE, DOCK, RESET_LAYOUT, RESIZE];
 
 /// `protocol/schemas/view-tool-window.output.json`, the output of every command but reset.
 pub const TOOL_WINDOW_OUTPUT_SCHEMA: &str =
@@ -62,6 +63,11 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str) {
             include_str!("../../../protocol/schemas/view-reset-layout.input.json"),
             include_str!("../../../protocol/schemas/view-reset-layout.output.json"),
         ),
+        RESIZE => (
+            "Window: Resize",
+            include_str!("../../../protocol/schemas/view-resize.input.json"),
+            include_str!("../../../protocol/schemas/view-resize.output.json"),
+        ),
         other => unreachable!("not a view command: {other}"),
     }
 }
@@ -97,6 +103,24 @@ pub enum DockTarget {
     TabWith(String),
 }
 
+/// What `eludite.view.resize` resizes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResizeTarget {
+    /// The dock on `side` becomes `size` logical pixels wide or tall.
+    Dock { side: DockEdge, size: f32 },
+    /// The group holding tool window `id` takes `share` (0 to 1) of its dock.
+    Group { id: String, share: f32 },
+}
+
+/// `view-resize.output.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResizeOutput {
+    pub side: DockEdge,
+    pub size: f32,
+    pub shares: Vec<f32>,
+}
+
 /// A parsed, validated `eludite.view.*` invocation. `id: None` means the
 /// active tool window.
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +143,7 @@ pub enum ViewRequest {
         target: DockTarget,
     },
     ResetLayout,
+    Resize(ResizeTarget),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +178,8 @@ pub enum ViewOutput {
     Window(ToolWindowState),
     /// `view-reset-layout.output.json`.
     Reset(Vec<ToolWindowState>),
+    /// `view-resize.output.json`.
+    Resize(ResizeOutput),
 }
 
 impl ViewOutput {
@@ -160,6 +187,7 @@ impl ViewOutput {
         match self {
             ViewOutput::Window(w) => serde_json::to_value(w),
             ViewOutput::Reset(all) => serde_json::to_value(ResetOutput { tool_windows: all }),
+            ViewOutput::Resize(r) => serde_json::to_value(r),
         }
         .expect("view outputs serialize")
     }
@@ -206,6 +234,15 @@ struct DockIn {
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResetIn {}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResizeIn {
+    side: Option<DockEdge>,
+    size: Option<f32>,
+    id: Option<String>,
+    share: Option<f32>,
+}
 
 fn from_input<T: for<'de> Deserialize<'de> + Default>(input: Value) -> Result<T, CommandError> {
     if input.is_null() {
@@ -277,6 +314,36 @@ pub fn parse(id: &str, input: Value) -> Result<ViewRequest, CommandError> {
             from_input::<ResetIn>(input)?;
             Ok(ViewRequest::ResetLayout)
         }
+        RESIZE => {
+            let i: ResizeIn = from_input(input)?;
+            let target = match (i.side, i.size, i.id, i.share) {
+                (Some(side), Some(size), None, None) => {
+                    if !(size.is_finite() && size > 0.) {
+                        return Err(CommandError::InvalidInput(
+                            "`size` must be a positive number".into(),
+                        ));
+                    }
+                    ResizeTarget::Dock { side, size }
+                }
+                (None, None, Some(id), Some(share)) => {
+                    if id.is_empty() {
+                        return Err(CommandError::InvalidInput("`id` must not be empty".into()));
+                    }
+                    if !(share.is_finite() && share > 0. && share < 1.) {
+                        return Err(CommandError::InvalidInput(
+                            "`share` must be between 0 and 1, exclusive".into(),
+                        ));
+                    }
+                    ResizeTarget::Group { id, share }
+                }
+                _ => {
+                    return Err(CommandError::InvalidInput(
+                        "give `side` and `size` (a dock) or `id` and `share` (a group)".into(),
+                    ));
+                }
+            };
+            Ok(ViewRequest::Resize(target))
+        }
         other => Err(CommandError::UnknownCommand(other.to_owned())),
     }
 }
@@ -329,7 +396,15 @@ mod tests {
     impl ViewTarget for Recorder {
         fn apply(&self, request: ViewRequest) -> Result<ViewOutput, CommandError> {
             let reset = request == ViewRequest::ResetLayout;
+            let resize = matches!(request, ViewRequest::Resize(_));
             self.0.lock().unwrap().push(request);
+            if resize {
+                return Ok(ViewOutput::Resize(ResizeOutput {
+                    side: DockEdge::Right,
+                    size: 420.,
+                    shares: vec![0.5, 0.5],
+                }));
+            }
             let w = ToolWindowState {
                 id: "output".into(),
                 title: "Output".into(),
@@ -394,6 +469,12 @@ mod tests {
         r.invoke(DOCK, json!({"id": "toolbox"})).unwrap();
         let out = r.invoke(RESET_LAYOUT, json!({})).unwrap();
         assert_eq!(out["tool_windows"][0]["id"], "output");
+        r.invoke(RESIZE, json!({"side": "right", "size": 420}))
+            .unwrap();
+        let out = r
+            .invoke(RESIZE, json!({"id": "properties", "share": 0.25}))
+            .unwrap();
+        assert_eq!(out["shares"], json!([0.5, 0.5]));
 
         let got = rec.0.lock().unwrap().clone();
         assert_eq!(
@@ -429,6 +510,14 @@ mod tests {
                     target: DockTarget::Home
                 },
                 ViewRequest::ResetLayout,
+                ViewRequest::Resize(ResizeTarget::Dock {
+                    side: DockEdge::Right,
+                    size: 420.
+                }),
+                ViewRequest::Resize(ResizeTarget::Group {
+                    id: "properties".into(),
+                    share: 0.25
+                }),
             ]
         );
     }
@@ -467,6 +556,16 @@ mod tests {
             (DOCK, json!({"side": "left", "tab_with": "output"})),
             (DOCK, json!({"tab_with": ""})),
             (RESET_LAYOUT, json!({"hard": true})),
+            (RESIZE, json!({})),
+            (RESIZE, json!({"side": "right"})),
+            (RESIZE, json!({"side": "right", "size": 0})),
+            (RESIZE, json!({"side": "top", "size": 300})),
+            (
+                RESIZE,
+                json!({"side": "right", "size": 300, "id": "properties"}),
+            ),
+            (RESIZE, json!({"id": "properties", "share": 1.0})),
+            (RESIZE, json!({"id": "", "share": 0.5})),
         ] {
             assert!(
                 matches!(

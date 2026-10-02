@@ -163,11 +163,21 @@ pub struct Group {
     pub id: u32,
     pub tabs: Vec<String>,
     pub active: usize,
+    /// The group's share of its dock's length relative to its neighbors
+    /// (a flex weight; the shares on an edge are normalized when read).
+    /// Absent means 1: every group the same size, as before this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share: Option<f32>,
 }
 
 impl Group {
     pub fn active_id(&self) -> Option<&str> {
         self.tabs.get(self.active).map(String::as_str)
+    }
+
+    /// The flex weight (`share`, or 1 when absent).
+    pub fn weight(&self) -> f32 {
+        self.share.unwrap_or(1.)
     }
 
     fn contains(&self, id: &str) -> bool {
@@ -195,7 +205,21 @@ impl Dock {
             auto_hidden: Vec::new(),
         }
     }
+
+    /// Each group's share of the dock's length, in group order; they sum to 1.
+    pub fn shares(&self) -> Vec<f32> {
+        let total: f32 = self.groups.iter().map(Group::weight).sum();
+        if total <= 0. {
+            return vec![1. / self.groups.len().max(1) as f32; self.groups.len()];
+        }
+        self.groups.iter().map(|g| g.weight() / total).collect()
+    }
 }
+
+/// The smallest a dock can be made, logical pixels (`eludite.view.resize`).
+pub const MIN_DOCK_SIZE: f32 = 40.;
+/// The smallest share of its dock a group keeps when a neighbor grows.
+pub const MIN_GROUP_SHARE: f32 = 0.1;
 
 /// Floating window bounds, logical pixels. The position is advisory: Wayland
 /// compositors place top-level windows themselves.
@@ -376,6 +400,8 @@ pub enum LayoutError {
     CannotAutoHideFloating(String),
     #[error("`{0}` is closed; show it first")]
     Closed(String),
+    #[error("`{0}` is not docked; only docked groups are resized")]
+    NotDocked(String),
 }
 
 /// A tool window's full state, as the `eludite.view.*` commands report it.
@@ -431,6 +457,7 @@ impl DockLayout {
             id,
             tabs: tabs.iter().map(|t| (*t).to_owned()).collect(),
             active: 0,
+            share: None,
         };
         l.right.groups = vec![
             group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]),
@@ -458,6 +485,59 @@ impl DockLayout {
             DockSide::Right => &mut self.right,
             DockSide::Bottom => &mut self.bottom,
         }
+    }
+
+    /// Set a dock's width (left, right) or height (bottom), clamped to
+    /// [`MIN_DOCK_SIZE`]. Returns the size in effect.
+    pub fn resize_dock(&mut self, side: DockSide, size: f32) -> f32 {
+        let dock = self.dock_mut(side);
+        dock.size = if size.is_finite() {
+            size.max(MIN_DOCK_SIZE)
+        } else {
+            dock.size
+        };
+        dock.size
+    }
+
+    /// Give the group holding `id` `share` of its dock, scaling the other
+    /// groups on that edge to fill the rest; every group keeps at least
+    /// [`MIN_GROUP_SHARE`]. Returns the edge and the shares in effect.
+    pub fn resize_group(
+        &mut self,
+        id: &str,
+        share: f32,
+    ) -> Result<(DockSide, Vec<f32>), LayoutError> {
+        let Some(Place::Docked { side, .. }) = self.find(id) else {
+            return Err(if self.find(id).is_none() {
+                LayoutError::UnknownWindow(id.to_owned())
+            } else {
+                LayoutError::NotDocked(id.to_owned())
+            });
+        };
+        let dock = self.dock_mut(side);
+        let n = dock.groups.len();
+        let ix = dock
+            .groups
+            .iter()
+            .position(|g| g.contains(id))
+            .expect("docked window has a group");
+        if n > 1 && share.is_finite() {
+            let others = (n - 1) as f32;
+            let share = share.clamp(MIN_GROUP_SHARE, 1. - MIN_GROUP_SHARE * others);
+            let old = dock.shares();
+            let rest_old: f32 = 1. - old[ix];
+            for (i, g) in dock.groups.iter_mut().enumerate() {
+                let s = if i == ix {
+                    share
+                } else if rest_old > 0. {
+                    (1. - share) * old[i] / rest_old
+                } else {
+                    (1. - share) / others
+                };
+                g.share = Some(s);
+            }
+        }
+        Ok((side, self.dock(side).shares()))
     }
 
     pub fn find(&self, id: &str) -> Option<Place> {
@@ -560,6 +640,7 @@ impl DockLayout {
             id: self.next_group_id,
             tabs: vec![id.to_owned()],
             active: 0,
+            share: None,
         };
         self.next_group_id += 1;
         g
@@ -790,8 +871,13 @@ impl DockLayout {
             }
             dock.groups.retain(|g| !g.tabs.is_empty());
             dock.auto_hidden.retain(|t| keep(t));
-            if !dock.size.is_finite() || dock.size < 40. {
+            if !dock.size.is_finite() || dock.size < MIN_DOCK_SIZE {
                 dock.size = 200.;
+            }
+            for g in &mut dock.groups {
+                if g.share.is_some_and(|s| !s.is_finite() || s <= 0.) {
+                    g.share = None;
+                }
             }
         }
         for f in &mut self.floating {
@@ -1023,6 +1109,50 @@ mod tests {
       "documents": {"tabs": [], "active": null},
       "next_group_id": 5
     }"#;
+
+    #[test]
+    fn resizing_clamps_and_keeps_shares_summing_to_one() {
+        let r = reg();
+        let mut l = DockLayout::default_vs(&r);
+        assert_eq!(l.resize_dock(DockSide::Right, 500.), 500.);
+        assert_eq!(l.right.size, 500.);
+        assert_eq!(l.resize_dock(DockSide::Right, 10.), MIN_DOCK_SIZE);
+        let size = l.resize_dock(DockSide::Bottom, f32::NAN);
+        assert_eq!(size, l.bottom.size, "NaN leaves the size alone");
+
+        assert_eq!(l.right.shares(), [0.5, 0.5]);
+        let (side, shares) = l.resize_group(ids::PROPERTIES, 0.25).unwrap();
+        assert_eq!(side, DockSide::Right);
+        assert_eq!(shares, [0.75, 0.25]);
+        let (_, shares) = l.resize_group(ids::WORKSPACE, 0.99).unwrap();
+        assert!(
+            (shares[0] - (1. - MIN_GROUP_SHARE)).abs() < 1e-5,
+            "{shares:?}"
+        );
+        assert!((shares[1] - MIN_GROUP_SHARE).abs() < 1e-5, "{shares:?}");
+        // A lone group on an edge is always the whole edge.
+        let (_, shares) = l.resize_group(ids::OUTPUT, 0.3).unwrap();
+        assert_eq!(shares, [1.]);
+        assert_eq!(
+            l.resize_group(ids::TOOLBOX, 0.5),
+            Err(LayoutError::NotDocked(ids::TOOLBOX.into()))
+        );
+        assert_eq!(
+            l.resize_group("nope", 0.5),
+            Err(LayoutError::UnknownWindow("nope".into()))
+        );
+        // Shares round-trip through JSON; absent ones stay absent.
+        let text = l.to_json();
+        let back = DockLayout::from_json(&text).unwrap();
+        assert!((back.right.shares()[1] - MIN_GROUP_SHARE).abs() < 1e-5);
+        assert!(back.bottom.groups[0].share.is_none());
+        assert!(!text.contains("\"share\":null"));
+        // normalize drops a share a hand-edited file broke.
+        let mut broken = back.clone();
+        broken.right.groups[0].share = Some(-1.);
+        broken.normalize(&r);
+        assert!(broken.right.groups[0].share.is_none());
+    }
 
     #[test]
     fn version_2_layouts_retire_the_debug_console() {

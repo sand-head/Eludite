@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use eludite_commands::CommandError;
 use eludite_commands::view::{
-    DockEdge, DockTarget, ToolWindowState, ViewOutput, ViewRequest, ViewTarget, WindowState,
+    DockEdge, DockTarget, ResizeOutput, ResizeTarget, ToolWindowState, ViewOutput, ViewRequest,
+    ViewTarget, WindowState,
 };
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
@@ -326,6 +327,7 @@ impl DockController {
                 snap.flyout = None;
                 return Ok(None);
             }
+            ViewRequest::Resize(_) => unreachable!("resize is applied before run"),
         };
         // A fly-out only stays open while its window is still auto-hidden.
         if let Some(f) = snap.flyout.clone()
@@ -355,18 +357,42 @@ impl ViewTarget for DockController {
     fn apply(&self, request: ViewRequest) -> Result<ViewOutput, CommandError> {
         let mut s = self.lock();
         let mut snap = s.snapshot.clone();
-        let id = Self::run(&mut snap, request)?;
-        let out = match id {
-            Some(id) => ViewOutput::Window(
-                Self::state_of(&snap, &id)
-                    .ok_or_else(|| CommandError::Failed(format!("`{id}` vanished")))?,
-            ),
-            None => ViewOutput::Reset(
-                snap.registry
-                    .iter()
-                    .filter_map(|w| Self::state_of(&snap, &w.id))
-                    .collect(),
-            ),
+        let out = if let ViewRequest::Resize(target) = request {
+            let (side, size, shares) = match target {
+                ResizeTarget::Dock { side, size } => {
+                    let side: DockSide = side.into();
+                    let size = snap.layout.resize_dock(side, size);
+                    (side, size, snap.layout.dock(side).shares())
+                }
+                ResizeTarget::Group { id, share } => {
+                    if !snap.registry.contains(&id) {
+                        return Err(CommandError::InvalidInput(format!(
+                            "unknown tool window `{id}`"
+                        )));
+                    }
+                    let (side, shares) =
+                        snap.layout.resize_group(&id, share).map_err(layout_err)?;
+                    (side, snap.layout.dock(side).size, shares)
+                }
+            };
+            ViewOutput::Resize(ResizeOutput {
+                side: side.into(),
+                size,
+                shares,
+            })
+        } else {
+            match Self::run(&mut snap, request)? {
+                Some(id) => ViewOutput::Window(
+                    Self::state_of(&snap, &id)
+                        .ok_or_else(|| CommandError::Failed(format!("`{id}` vanished")))?,
+                ),
+                None => ViewOutput::Reset(
+                    snap.registry
+                        .iter()
+                        .filter_map(|w| Self::state_of(&snap, &w.id))
+                        .collect(),
+                ),
+            }
         };
         debug_assert!(snap.layout.is_consistent(&snap.registry));
         s.snapshot = Snapshot {
