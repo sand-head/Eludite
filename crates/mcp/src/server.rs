@@ -1,4 +1,5 @@
-//! The MCP server proper: `initialize`, `ping`, `tools/list`, `tools/call`.
+//! The MCP server proper: `initialize`, `ping`, `tools/list`, `tools/call`, and the guides as resources
+//! (`resources/list`, `resources/read`, `resources/templates/list`; brief 0027, [`crate::resources`]).
 //!
 //! Transport-agnostic: [`McpServer::handle`] maps one JSON-RPC message to at most one reply. See `transport` for
 //! stdio and the local TCP endpoint.
@@ -227,6 +228,21 @@ impl McpServer {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(self.tools_list(&params)),
             "tools/call" => self.tools_call(&params),
+            "resources/list" => Ok(crate::resources::list()),
+            "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
+            "resources/read" => {
+                let uri = params.get("uri").and_then(Value::as_str).ok_or_else(|| {
+                    ErrorObject::new(ErrorObject::INVALID_PARAMS, "`uri` must be a string")
+                });
+                uri.and_then(|uri| {
+                    crate::resources::read(uri).ok_or_else(|| {
+                        ErrorObject::new(
+                            crate::resources::RESOURCE_NOT_FOUND,
+                            format!("resource not found: {uri}"),
+                        )
+                    })
+                })
+            }
             other => Err(ErrorObject::new(
                 ErrorObject::METHOD_NOT_FOUND,
                 format!("method not found: {other}"),
@@ -250,9 +266,9 @@ impl McpServer {
             .unwrap_or(SUPPORTED_PROTOCOL_VERSIONS[0]);
         json!({
             "protocolVersion": version,
-            "capabilities": {"tools": {"listChanged": true}},
+            "capabilities": {"tools": {"listChanged": true}, "resources": {}},
             "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
-            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first."
+            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first. Before driving the debugger (eludite.debug.*), read the resource eludite://guides/debugging."
         })
     }
 
