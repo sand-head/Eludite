@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-state.output.json",
   "title": "eludite.debug output",
-  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows, the Output window's Debug source and the status bar show it: the whole model. eludite.debug.state, stop, toggle_breakpoint, select_frame, watch and exception_settings answer with it; the commands that run the debuggee answer with the smaller stop summary (debug-stop-summary.output.json). With several debugging sessions (brief 0028) it describes one session (the active one, or the call's `session`) and lists them all in `sessions`; breakpoints, exception settings and watch expressions are shared by every session.",
+  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows, the Output window's Debug source and the status bar show it: the whole model. eludite.debug.state, stop, select_frame, watch and exception_settings answer with it (eludite.debug.toggle_breakpoint answers with the changed breakpoint only, debug-toggle-breakpoint.output.json); the commands that run the debuggee answer with the smaller stop summary (debug-stop-summary.output.json). With several debugging sessions (brief 0028) it describes one session (the active one, or the call's `session`) and lists them all in `sessions`; breakpoints, exception settings and watch expressions are shared by every session.",
   "type": "object",
   "required": [
     "mode",

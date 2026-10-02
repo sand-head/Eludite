@@ -53,7 +53,7 @@
           "type": "string"
         },
         "value": {
-          "description": "As the Locals window shows it; cut at `max_value_chars` with `… (N chars)` at the end.",
+          "description": "As the Locals window shows it; cut at `max_value_chars` with `… (N chars)` at the end. A null reference reads `null` on every adapter (eludite-dbg-mono's `(null)` is rewritten), as Visual Studio's C# Locals window shows it.",
           "type": "string"
         },
         "type": {
