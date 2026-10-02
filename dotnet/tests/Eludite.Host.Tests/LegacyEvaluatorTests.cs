@@ -18,6 +18,10 @@ public sealed class LegacyEvaluatorTests : IDisposable
         catch (IOException)
         {
         }
+        catch (UnauthorizedAccessException)
+        {
+            // Windows: the recursive delete removes MergedRoot's junctions but still reports access denied.
+        }
     }
 
     // A WebForms project as Visual Studio writes it: VSToolsPath falls back to MSBuildExtensionsPath32, which only
