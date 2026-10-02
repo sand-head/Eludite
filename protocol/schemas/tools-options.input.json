@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/tools-options.input.json",
+  "title": "eludite.tools.options input",
+  "description": "Tools > Options: open the Options dialog, generated from the settings schema (protocol/schemas/settings.json) and grouped by its sections. Each change in the dialog runs eludite.settings.set. Agents read and change settings with eludite.settings.get and eludite.settings.set instead.",
+  "type": "object",
+  "properties": {
+    "section": {
+      "description": "The page to show, for example `Projects and Solutions > Build and Run`. Omitted: the first page.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

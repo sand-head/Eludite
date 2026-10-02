@@ -100,6 +100,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], error? }] }` |
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
+| `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
 
 #### `eludite/host/initialize`
 
@@ -224,6 +225,17 @@ generation changes before the tree is ready; -32800 when canceled.
   sends `cargo`. The `eludite/build/*` shapes (start result, output, progress, finished) are also what the shell's own
   Cargo runner produces in process for a Cargo workspace (see "Generic language servers and Cargo"), with `system`
   `cargo` and toolchain kind `cargo`, so one Output and Error List path serves both build systems.
+- **Status: `eludite/build/status`** (brief 0020) answers the running build, if any, with the start result's members,
+  the time since it started, the last progress, and its output so far (`output.text`, the chunks `firstSeq` to
+  `nextSeq - 1` concatenated; the host keeps the last 8 MiB of a running build's output and drops older whole chunks,
+  setting `truncated`), plus the last finished build's result and summary (`last`, without its diagnostics). It
+  never fails, and before `eludite/host/initialize` it reports no build. A shell that (re)connects calls it after
+  `eludite/host/initialize`: it clears its Build output, appends `output.text`, and then applies only
+  `eludite/build/output` chunks with `seq >= nextSeq` (a chunk the host sent before the reply is already in the text,
+  whichever arrives first). When the shell believed a build was running and `running` is null (the host process was
+  restarted, which ends its builds), the shell reports that build as ended. Today the host is the shell's child over
+  stdio, so a restarted host never has the old build; the replay serves a host the shell reattaches to (D7's remote
+  hosts) and is tested against the fake host.
 - **Windows-only targets under Mono.** When a legacy project fails on a Windows-only target, the build's raw errors
   for it are replaced by **one diagnostic per project** with the brief 0003 code and message, and the same message
   is written to the output (instead of a task's stack trace, whose lines are dropped from the output):

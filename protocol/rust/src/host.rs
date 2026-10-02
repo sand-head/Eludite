@@ -37,6 +37,8 @@ pub mod methods {
     /// Start a build (brief 0017).
     pub const BUILD_START: &str = "eludite/build/start";
     pub const BUILD_CANCEL: &str = "eludite/build/cancel";
+    /// The running build and its output so far, for a shell that (re)connects (brief 0020).
+    pub const BUILD_STATUS: &str = "eludite/build/status";
     /// Host-to-shell notification: a chunk of the build log.
     pub const BUILD_OUTPUT: &str = "eludite/build/output";
     /// Host-to-shell notification.
@@ -56,6 +58,7 @@ pub mod methods {
         SOLUTION_TREE,
         BUILD_START,
         BUILD_CANCEL,
+        BUILD_STATUS,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-open-containing-folder.output.json",
+  "title": "eludite.workspace.open_containing_folder output",
+  "type": "object",
+  "required": [
+    "folder"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "folder": {
+      "description": "The folder handed to the file manager.",
+      "type": "string"
+    }
+  }
+}

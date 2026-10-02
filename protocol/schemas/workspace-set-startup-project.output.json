@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-set-startup-project.output.json",
+  "title": "eludite.workspace.set_startup_project output",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "solution"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string"
+    },
+    "path": {
+      "description": "Absolute path of its project file.",
+      "type": "string"
+    },
+    "solution": {
+      "description": "Absolute path of the solution it is the startup project of.",
+      "type": "string"
+    }
+  }
+}
