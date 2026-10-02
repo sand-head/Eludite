@@ -9,4 +9,4 @@ A proposal is accepted when the owner says so. Acceptance produces, in the same 
 | Proposal | Title | Status |
 |---|---|---|
 | [0001](0001-agent-debugging-suite.md) | The agent debugging suite | Accepted 2026-10-02; first brief [0022](../briefs/0022-mono-debug-adapter.md) (E1) |
-| [0002](0002-web-browser-window.md) | The Web Browser window and agent control of it | Accepted 2026-10-02; PLAN.md updated, ADR-0008 accepted; first brief (A) follows brief 0022 |
+| [0002](0002-web-browser-window.md) | The Web Browser window and agent control of it | Accepted 2026-10-02; first briefs [0023](../briefs/0023-browser-automation-read.md) and 0024 (A, in two halves) |
