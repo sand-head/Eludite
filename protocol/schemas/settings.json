@@ -91,6 +91,22 @@
       "x-eludite-label": "eludite-dbg-mono adapter",
       "x-eludite-env": "ELUDITE_DBG_MONO"
     },
+    "debugger.lldbDapPath": {
+      "description": "The LLDB debug adapter that debugs Cargo packages (Rust): lldb-dap from LLVM, or CodeLLDB's `adapter/codelldb`. Empty: `lldb-dap`, then `lldb-dap-22` down to `lldb-dap-15` on PATH, `/usr/lib/llvm-22/bin/lldb-dap` down to `llvm-15`, `xcrun --find lldb-dap` on macOS, then CodeLLDB (`ELUDITE_CODELLDB`, or `codelldb/adapter/codelldb` beside the eludite executable). Located, never bundled: `lldb-18` on Debian and Ubuntu, `lldb` on Fedora and Arch, Xcode on macOS, LLVM's installer on Windows (tools/lldb-dap/README.md). Applies to the next session.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "lldb-dap executable (Rust and native code)",
+      "x-eludite-env": "ELUDITE_LLDB_DAP"
+    },
+    "debugger.rustFormatters": {
+      "description": "Show Rust values as Rust (`\"hello\"` for a String, `size=3` for a Vec, `Some(5)`, an enum by its variant) by loading the Rust toolchain's LLDB formatters (`<sysroot>/lib/rustlib/etc/lldb_lookup.py`, as rust-lldb does) into lldb-dap at launch; the sysroot is `rustc --print sysroot` in the Cargo workspace, so rust-toolchain.toml is honored. Off: LLDB's C-style view of the same values. Applies to the next session.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Show Rust values with the toolchain's LLDB formatters"
+    },
     "languageServers.rustAnalyzerPath": {
       "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
       "type": "string",

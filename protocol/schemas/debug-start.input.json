@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-start.input.json",
   "title": "eludite.debug.start input",
-  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A Cargo package (a member of the open folder's Cargo workspace, named by its package name or its Cargo.toml) builds through the Cargo build path (`cargo build -p <package>`, `--release` in the Release configuration) and runs its binary target (`target/debug/<name>`, or `target/release/<name>`) on every platform under lldb-dap, LLVM's LLDB debug adapter located on the machine (setting debugger.lldbDapPath; protocol/schemas/dap-lldb.md), with the Rust toolchain's LLDB formatters loaded (setting debugger.rustFormatters); `session.runtime` is `native`. Its arguments and environment come from `[package.metadata.eludite.run]` in its Cargo.toml (`args`, a list; `env`, a table); it runs in the workspace root, as `cargo run` does; Ctrl+F5 runs the executable. With `test`, the package's test executable is built (`cargo test --no-run -p <package>`) and debugged with `args` as the test filter and `--nocapture`, as `cargo test` passes them. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -23,6 +23,23 @@
     "build": {
       "description": "Build the project before launching. Default: the setting build.beforeRun (true unless changed).",
       "type": "boolean"
+    },
+    "target": {
+      "description": "A Cargo package's binary target to run, by name, when the package has several (default: its only binary; with several and none named the start is refused, listing them). With `test`: the test target whose executable to debug (default: the library's unit tests, else the only binary's). Cargo packages only.",
+      "type": "string",
+      "minLength": 1
+    },
+    "test": {
+      "description": "Debug the Cargo package's test executable instead of its binary: build it with `cargo test --no-run --message-format=json -p <package>` (its compiler-artifact message names the executable) and run it with `args` and `--nocapture`. Default false. Cargo packages only.",
+      "type": "boolean"
+    },
+    "args": {
+      "description": "The program's arguments, instead of `[package.metadata.eludite.run]`'s `args`; with `test`, the test harness's arguments: a test-name filter (`my_test`), `--exact`, `--ignored` (Eludite adds `--nocapture`). Cargo packages only: a .NET project's come from its launchSettings.json profile.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string"
+      }
     },
     "wait_ms": {
       "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it: an answer with mode `building` or `launching` means the session is still starting; call eludite.debug.wait or eludite.debug.snapshot later.",
