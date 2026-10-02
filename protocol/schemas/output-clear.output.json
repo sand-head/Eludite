@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-clear.output.json",
+  "title": "eludite.output.clear output",
+  "description": "The source cleared and how many lines it had.",
+  "type": "object",
+  "required": [
+    "source",
+    "cleared"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "enum": [
+        "build",
+        "host"
+      ]
+    },
+    "cleared": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

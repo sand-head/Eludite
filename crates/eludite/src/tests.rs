@@ -198,29 +198,44 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
     let enabled = h.shell.read_with(&h.vcx, |s, cx| {
         let m = s.menu().read(cx);
         (
-            m.is_item_enabled("Build", "Build Solution"),
+            m.is_item_enabled("Test", "Run All Tests"),
             m.is_item_enabled("View", "Output"),
-            m.enabled_labels("Build"),
+            m.enabled_labels("Test"),
             m.enabled_labels("Window"),
+            m.enabled_labels("Build"),
         )
     });
-    assert_eq!(enabled.0, Some(false), "no build command exists yet");
+    assert_eq!(enabled.0, Some(false), "no test command exists yet");
     assert_eq!(enabled.1, Some(true));
     assert!(enabled.2.is_empty());
     assert_eq!(
         enabled.3,
         ["Float", "Dock", "Auto Hide", "Hide", "Reset Window Layout"]
     );
+    // Brief 0017: the build commands exist; Cancel is disabled while no build runs.
+    assert_eq!(
+        enabled.4,
+        [
+            "Build Solution",
+            "Rebuild Solution",
+            "Clean Solution",
+            "Build Project",
+            "Rebuild Project",
+            "Clean Project"
+        ]
+    );
 
     let before = h.audit();
     h.click("menu-Build");
-    h.click("menu-item-Build-Build Solution");
-    h.click("menu-item-Build-Clean Solution");
+    h.click("menu-item-Build-Cancel");
+    h.click("menu-Test");
+    h.click("menu-item-Test-Run All Tests");
+    h.click("menu-item-Test-Debug All Tests");
     assert_eq!(h.audit(), before, "disabled items invoke nothing");
     let open = h.shell.read_with(&h.vcx, |s, cx| {
         s.menu().read(cx).open_menu().map(str::to_owned)
     });
-    assert_eq!(open.as_deref(), Some("Build"), "and do not close the menu");
+    assert_eq!(open.as_deref(), Some("Test"), "and do not close the menu");
     // Clicking outside closes it.
     h.click("menu-backdrop");
     let open = h.shell.read_with(&h.vcx, |s, cx| {

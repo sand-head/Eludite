@@ -1,13 +1,17 @@
 //! The root view: menu bar, docking area and status bar, plus the workspace: the host session, Workspace,
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
-//! and the workspace-edit applier (brief 0015), and the Agents window (brief 0016).
+//! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), and builds with the Output window
+//! and the build's rows in the Error List (brief 0017).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
 //! them (see `target`).
 
 pub mod agents;
+pub mod build;
+#[cfg(test)]
+mod build_tests;
 pub mod code_actions;
 pub mod documents;
 pub mod error_list;
@@ -18,6 +22,7 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+pub mod output;
 #[cfg(test)]
 mod refactor_tests;
 pub mod references;
@@ -37,14 +42,15 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use eludite_commands::diagnostics::{self, Diagnostic as ListedDiagnostic, Severity};
+use eludite_commands::diagnostics::{self, Diagnostic as ListedDiagnostic, RowSource, Severity};
 use eludite_commands::workspace::{self, WorkspaceRequest};
 use eludite_commands::{CommandError, CommandRegistry, builtins};
 use eludite_docking::{DockController, DockHost, DocumentTab, Persistence, Probe, ids};
 use eludite_editor::EditorView;
 use eludite_editor::syntax::LanguageRegistry;
 use eludite_lsp::host::{
-    HostDiagnostic, HostDiagnosticSeverity, LanguageServerState, LoadPhase, SolutionState,
+    BuildDiagnosticSeverity, HostDiagnostic, HostDiagnosticSeverity, LanguageServerState,
+    LoadPhase, SolutionState,
 };
 use eludite_lsp::lsp;
 use eludite_ui::{
@@ -61,10 +67,12 @@ use gpui::{
 };
 use serde_json::{Value, json};
 
+use self::build::{BuildBus, BuildJob, BuildShared, Builds};
 use self::documents::{Document, uri_to_path};
 use self::error_list::{ErrorList, ErrorRow};
 use self::explorer::{Placeholder, SolutionExplorer};
 use self::navigation::Navigation;
+use self::output::OutputWindow;
 use self::references::{References, ReferencesEvent, ReferencesWindow};
 use self::session::{HostLaunch, HostSession, SessionEvent};
 use self::target::{ShellTarget, UiJob};
@@ -95,6 +103,10 @@ pub struct Services {
     pub agent_jobs: UnboundedReceiver<agents::AgentsJob>,
     /// What `eludite.solution.tree` reads, on any thread.
     pub tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
+    /// `eludite.build.*` and `eludite.output.*` from other threads, for the UI thread to apply.
+    pub build_jobs: UnboundedReceiver<BuildJob>,
+    /// Where waiting build commands read finished builds.
+    pub build_shared: Arc<BuildShared>,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
@@ -137,6 +149,16 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
             jobs: agent_jobs_tx,
         }),
     );
+    let (build_jobs_tx, build_jobs) = unbounded();
+    let build_shared = Arc::new(BuildShared::default());
+    eludite_commands::build::register(
+        commands,
+        Arc::new(BuildBus {
+            ui_thread: std::thread::current().id(),
+            jobs: build_jobs_tx,
+            shared: build_shared.clone(),
+        }),
+    );
     Services {
         session,
         events,
@@ -145,6 +167,8 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         agents: agents::AgentsSetup::from_env(),
         agent_jobs,
         tree,
+        build_jobs,
+        build_shared,
     }
 }
 
@@ -174,6 +198,8 @@ pub struct Shell {
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
     references_window: Entity<ReferencesWindow>,
+    /// The Output window (brief 0017).
+    output: Entity<OutputWindow>,
     status: StatusBar,
     focus: FocusHandle,
     on_first_render: Option<AfterPresent>,
@@ -218,6 +244,8 @@ pub struct Shell {
     capture_next: Option<eludite_commands::Caller>,
     /// What `eludite.solution.tree` returns.
     tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
+    /// The build (brief 0017).
+    builds: Builds,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -227,6 +255,7 @@ fn tool_body(
     error_list: Entity<ErrorList>,
     references: Entity<ReferencesWindow>,
     agents: Entity<agents::window::AgentsWindow>,
+    output: Entity<OutputWindow>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -243,6 +272,10 @@ fn tool_body(
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
         ids::AGENTS => agents
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::OUTPUT => output
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
@@ -299,9 +332,16 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Self {
         let registry = commands.clone();
+        // The Build menu's start items are disabled while a build runs, Cancel only then (brief 0017).
+        let building = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let menu_building = building.clone();
         let menu = cx.new(|_| {
             menu_bar_with(theme, vs_keymap(), move |cmd| {
                 registry.lookup(cmd).is_some()
+                    && build::menu_enabled(
+                        cmd,
+                        menu_building.load(std::sync::atomic::Ordering::SeqCst),
+                    )
             })
         });
         // Document tabs saved in a layout have no editor behind them after a restart.
@@ -309,6 +349,7 @@ impl Shell {
         let explorer = cx.new(|_| SolutionExplorer::new(theme));
         let error_list = cx.new(|cx| ErrorList::new(theme, cx));
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
+        let output = cx.new(|_| OutputWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
         let Services {
             session,
@@ -318,6 +359,8 @@ impl Shell {
             agents: agents_setup,
             mut agent_jobs,
             tree,
+            mut build_jobs,
+            build_shared,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let dock = cx.new(|cx| {
@@ -330,6 +373,7 @@ impl Shell {
                     error_list.clone(),
                     references_window.clone(),
                     agents.window.clone(),
+                    output.clone(),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -345,6 +389,7 @@ impl Shell {
         cx.observe(&error_list, |_, _, cx| cx.notify()).detach();
         cx.observe(&references_window, |_, _, cx| cx.notify())
             .detach();
+        cx.observe(&output, |_, _, cx| cx.notify()).detach();
         cx.subscribe_in(
             &references_window,
             window,
@@ -357,6 +402,7 @@ impl Shell {
             .detach();
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
+        status.add_slot(build::BUILD_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
         status.add_slot(agents::AGENTS_SLOT, SlotAlign::Right);
         // The status bar reads the version through the command bus, like an agent would.
@@ -367,16 +413,40 @@ impl Shell {
             .unwrap_or_else(|| builtins::VERSION.to_owned());
         status.set(slots::VERSION, format!("Eludite {version}"));
 
+        // Everything queued is applied in one update, so a burst of build output costs one frame.
         let event_task = cx.spawn_in(window, async move |this, cx| {
-            while let Some(event) = events.next().await {
+            while let Some(first) = events.next().await {
+                let mut batch = vec![first];
+                while let Ok(more) = events.try_recv() {
+                    batch.push(more);
+                }
                 if this
                     .update_in(cx, |shell, window, cx| {
-                        shell.on_session_event(event, window, cx)
+                        for event in batch {
+                            shell.on_session_event(event, window, cx);
+                        }
                     })
                     .is_err()
                 {
                     break;
                 }
+            }
+        });
+        // `eludite.build.*` and `eludite.output.*` from other threads (an agent).
+        let build_job_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = build_jobs.next().await {
+                let BuildJob { request, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply_build(request, window, cx)
+                    })
+                    .unwrap_or_else(|_| {
+                        (
+                            Err(CommandError::Failed("the window is closed".into())),
+                            None,
+                        )
+                    });
+                let _ = reply.send(outcome);
             }
         });
         let job_task = cx.spawn_in(window, async move |this, cx| {
@@ -461,6 +531,7 @@ impl Shell {
             explorer,
             error_list,
             references_window,
+            output,
             status,
             focus: cx.focus_handle(),
             on_first_render: None,
@@ -488,8 +559,15 @@ impl Shell {
             agents,
             capture_next: None,
             tree,
+            builds: Builds::new(building, build_shared),
             timings: Timings::default(),
-            _tasks: vec![event_task, job_task, agent_task, agent_job_task],
+            _tasks: vec![
+                event_task,
+                job_task,
+                agent_task,
+                agent_job_task,
+                build_job_task,
+            ],
         }
     }
 
@@ -625,6 +703,12 @@ impl Shell {
             let outcome = self.apply_agents(request, window, cx);
             agents::stage(outcome);
         }
+        if eludite_commands::build::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::build::parse(command, args.clone())
+        {
+            let (outcome, _) = self.apply_build(request, window, cx);
+            build::stage(outcome);
+        }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
                 open: Some(Instant::now()),
@@ -711,7 +795,17 @@ impl Shell {
                 self.open_file(&path, line.map(|l| (l, column.unwrap_or(1))), window, cx)
             }
             WorkspaceRequest::FileClose { path, save } => self.close_file(&path, save, cx),
-            WorkspaceRequest::Save { path } => self.save(path.as_deref(), cx),
+            WorkspaceRequest::Save { path } => {
+                let saved = self.save(path.as_deref(), cx);
+                if let Ok(workspace::WorkspaceOutput::Save(out)) = &saved {
+                    // Build on save (off by default), after this command's own bus call.
+                    let path = out.path.clone();
+                    cx.defer_in(window, move |shell, window, cx| {
+                        shell.build_after_save(&path, window, cx)
+                    });
+                }
+                saved
+            }
             WorkspaceRequest::Undo { path } => self.history(path.as_deref(), true, cx),
             WorkspaceRequest::Redo { path } => self.history(path.as_deref(), false, cx),
             WorkspaceRequest::Find {
@@ -825,9 +919,11 @@ impl Shell {
                 if self.solution.as_ref() != Some(&path) {
                     self.diagnostics.clear();
                     self.host_diagnostics.clear();
+                    self.builds.diagnostics.clear();
                     for doc in self.documents.values() {
                         doc.clear_diagnostics(cx);
                     }
+                    self.load_platforms(path.clone(), window, cx);
                 }
                 if self.timings.open.is_none() {
                     self.timings.open = Some(Instant::now());
@@ -860,6 +956,7 @@ impl Shell {
                     LANGUAGE_SERVER_SLOT,
                     "eludite-host exited; restarting\u{2026}",
                 );
+                self.on_build_lost("eludite-host exited", cx);
             }
             SessionEvent::LanguageServer(s) => {
                 self.ls_state = Some(s.state);
@@ -892,6 +989,7 @@ impl Shell {
                     // A new generation: everything computed under the old one is stale (CLAUDE.md invariant 12).
                     self.generation = status.generation;
                     self.diagnostics.clear();
+                    self.builds.diagnostics.clear();
                     for doc in self.documents.values_mut() {
                         doc.clear_diagnostics(cx);
                         doc.intellisense.cancel_all();
@@ -991,11 +1089,30 @@ impl Shell {
                 generation,
                 params,
             } => self.on_host_apply_edit(id, generation, params, window, cx),
+            SessionEvent::BuildStarted { ticket, result } => {
+                self.on_build_started(ticket, result, cx)
+            }
+            SessionEvent::BuildRefused { ticket, message } => {
+                self.on_build_refused(ticket, message, cx)
+            }
+            SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, &o.text, cx),
+            SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
+            SessionEvent::BuildFinished { finished, received } => {
+                self.on_build_finished(*finished, received, window, cx)
+            }
+            SessionEvent::HostLog(line) => self.output.update(cx, |o, cx| {
+                o.append(
+                    eludite_commands::build::OutputSource::Host,
+                    &format!("{line}\n"),
+                    cx,
+                )
+            }),
             SessionEvent::Closed => {
                 *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
                 self.solution_state = None;
                 self.diagnostics.clear();
+                self.builds.diagnostics.clear();
                 self.host_diagnostics.clear();
                 for doc in self.documents.values() {
                     doc.clear_diagnostics(cx);
@@ -1079,7 +1196,9 @@ impl Shell {
         *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = out;
     }
 
-    /// Rebuild the Error List rows and what `diagnostics.list` returns.
+    /// Rebuild the Error List rows and what `diagnostics.list` returns: the live diagnostics (the language server's
+    /// and the solution load's) and the last build's. A build diagnostic with the same file, position and code as a
+    /// live one is shown once, as both (brief 0017); build diagnostics never replace live ones.
     fn update_error_list(&mut self, cx: &mut Context<Self>) {
         let model = self.explorer.read(cx).model().cloned();
         let root = self
@@ -1087,6 +1206,12 @@ impl Shell {
             .as_deref()
             .and_then(Path::parent)
             .map(Path::to_path_buf);
+        let project_name = |p: &str| {
+            Path::new(p)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
         let mut rows = Vec::new();
         for (uri, diags) in &self.diagnostics {
             let Some(path) = uri_to_path(uri) else {
@@ -1113,6 +1238,7 @@ impl Shell {
                     path: path.clone(),
                     line: d.range.start.line + 1,
                     column: d.range.start.character + 1,
+                    source: RowSource::Live,
                 });
             }
         }
@@ -1131,16 +1257,61 @@ impl Shell {
                 },
                 code: d.code.clone(),
                 message: d.message.clone(),
-                project: d.project.as_deref().map(|p| {
-                    Path::new(p)
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                }),
+                project: d.project.as_deref().map(project_name),
                 file: file_name(&path),
                 path,
                 line: 1,
                 column: 1,
+                source: RowSource::Live,
+            });
+        }
+        // The last build's, deduplicated against the live rows by file, position and code.
+        let key = |path: &Path, line: u32, column: u32, code: &str| {
+            (
+                documents::normalize_path(path),
+                line,
+                column,
+                code.to_owned(),
+            )
+        };
+        let mut live: HashMap<_, usize> = HashMap::new();
+        for (i, r) in rows.iter().enumerate() {
+            live.entry(key(&r.path, r.line, r.column, &r.code))
+                .or_insert(i);
+        }
+        let mut seen = std::collections::HashSet::new();
+        for d in &self.builds.diagnostics {
+            let path = d
+                .file
+                .as_deref()
+                .or(d.project.as_deref())
+                .map(PathBuf::from)
+                .or_else(|| self.solution.clone())
+                .unwrap_or_default();
+            let line = d.line.filter(|l| *l > 0).unwrap_or(1);
+            let column = d.column.filter(|c| *c > 0).unwrap_or(1);
+            let k = key(&path, line, column, &d.code);
+            if let Some(&i) = live.get(&k) {
+                rows[i].source = RowSource::Both;
+                continue;
+            }
+            if !seen.insert(k) {
+                continue;
+            }
+            rows.push(ErrorRow {
+                severity: match d.severity {
+                    BuildDiagnosticSeverity::Error => Severity::Error,
+                    BuildDiagnosticSeverity::Warning => Severity::Warning,
+                    BuildDiagnosticSeverity::Message => Severity::Message,
+                },
+                code: d.code.clone(),
+                message: d.message.clone(),
+                project: d.project.as_deref().map(project_name),
+                file: file_name(&path),
+                path,
+                line,
+                column,
+                source: RowSource::Build,
             });
         }
         let rank = |s: Severity| match s {
@@ -1164,6 +1335,7 @@ impl Shell {
                 code: r.code.clone(),
                 message: r.message.clone(),
                 project: r.project.clone(),
+                source: Some(r.source),
             })
             .collect();
         *self.published.lock().unwrap_or_else(|e| e.into_inner()) = listed;
@@ -1216,7 +1388,17 @@ impl Render for Shell {
             .size_full()
             .bg(t.chrome)
             .text_color(t.text)
-            .child(self.menu.clone())
+            // The solution configuration and platform dropdowns sit at the right of the menu bar's row, so the
+            // docking area keeps its height.
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .bg(t.menu_background)
+                    .child(div().flex_1().min_w_0().child(self.menu.clone()))
+                    .child(self.build_toolbar(cx)),
+            )
             .child(self.dock.clone())
             .child(self.status.render(&t))
             .children(self.navigation.picker.clone())

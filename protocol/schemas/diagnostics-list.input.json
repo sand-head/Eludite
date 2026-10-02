@@ -2,12 +2,23 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/diagnostics-list.input.json",
   "title": "diagnostics.list input",
-  "description": "List the diagnostics currently shown in the Error List: errors, warnings and messages, each with its file, line, column, code and message. Optionally filter by severity.",
+  "description": "List the diagnostics currently shown in the Error List: errors, warnings and messages, each with its file, line, column, code and message, and its source (the last build, the live analysis, or both). Optionally filter by severity and source.",
   "type": "object",
   "properties": {
     "severity": {
       "description": "Only return diagnostics of this severity. Omit to return all. Names follow the Visual Studio Error List (Errors, Warnings, Messages).",
-      "enum": ["error", "warning", "message"]
+      "enum": [
+        "error",
+        "warning",
+        "message"
+      ]
+    },
+    "source": {
+      "description": "Only return diagnostics from this source: build (the last build's, including those the live analysis reports too) or live (the language server's and the solution load's, including those the build reports too). Omit to return all.",
+      "enum": [
+        "build",
+        "live"
+      ]
     }
   },
   "additionalProperties": false

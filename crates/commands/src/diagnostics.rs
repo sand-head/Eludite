@@ -32,6 +32,36 @@ pub enum Severity {
     Message,
 }
 
+/// Where an Error List row comes from (brief 0017), as Visual Studio's "Build + IntelliSense" filter names them:
+/// the last build only, the live analysis only (the language server, the solution load), or both (the build reported
+/// the same file, position and code as a live diagnostic; the row is shown once).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RowSource {
+    Build,
+    Live,
+    Both,
+}
+
+/// The input's `source` filter: build rows and rows shown as both, or live rows and rows shown as both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SourceFilter {
+    Build,
+    Live,
+}
+
+impl RowSource {
+    fn passes(self, filter: SourceFilter) -> bool {
+        matches!(
+            (self, filter),
+            (RowSource::Both, _)
+                | (RowSource::Build, SourceFilter::Build)
+                | (RowSource::Live, SourceFilter::Live)
+        )
+    }
+}
+
 /// One Error List row. Line and column are 1-based; `path` is relative to the
 /// workspace root with forward slashes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +76,9 @@ pub struct Diagnostic {
     /// The project the file belongs to, as Workspace names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// `None` means live (brief 0005's fixture predates builds).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<RowSource>,
 }
 
 /// Where the command reads the current Error List from. Called on whatever
@@ -56,6 +89,7 @@ pub type DiagnosticSource = Arc<dyn Fn() -> Vec<Diagnostic> + Send + Sync>;
 #[serde(deny_unknown_fields)]
 struct Input {
     severity: Option<Severity>,
+    source: Option<SourceFilter>,
 }
 
 fn parse_schema(text: &str) -> Value {
@@ -89,6 +123,11 @@ pub fn register(
         let rows: Vec<Diagnostic> = source()
             .into_iter()
             .filter(|d| input.severity.is_none_or(|s| d.severity == s))
+            .filter(|d| {
+                input
+                    .source
+                    .is_none_or(|f| d.source.unwrap_or(RowSource::Live).passes(f))
+            })
             .collect();
         serde_json::to_value(rows).map_err(|e| CommandError::Failed(e.to_string()))
     })
@@ -106,6 +145,7 @@ pub fn fixture() -> Vec<Diagnostic> {
         code: code.into(),
         message: message.into(),
         project: None,
+        source: None,
     };
     use Severity::*;
     const ORDERS: &str = "src/Contoso.Web/Controllers/OrderController.cs";
@@ -219,6 +259,50 @@ mod tests {
             .invoke(DIAGNOSTICS_LIST, json!({"severity": "message"}))
             .unwrap();
         assert_eq!(messages.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn filters_by_source() {
+        let mut rows = fixture();
+        rows[0].source = Some(RowSource::Build);
+        rows[1].source = Some(RowSource::Both);
+        rows[2].source = Some(RowSource::Live);
+        let mut r = CommandRegistry::new();
+        let source = rows.clone();
+        register(&mut r, Arc::new(move || source.clone())).unwrap();
+        let build: Vec<Diagnostic> = serde_json::from_value(
+            r.invoke(DIAGNOSTICS_LIST, json!({"source": "build"}))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(build, rows[..2].to_vec());
+        let live: Vec<Diagnostic> = serde_json::from_value(
+            r.invoke(DIAGNOSTICS_LIST, json!({"source": "live"}))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            live.len(),
+            rows.len() - 1,
+            "everything but the build-only row"
+        );
+        assert_eq!(
+            r.invoke(DIAGNOSTICS_LIST, json!({}))
+                .unwrap()
+                .as_array()
+                .unwrap()[1]["source"],
+            "both"
+        );
+        // `both` is an output value only.
+        assert!(matches!(
+            r.invoke(DIAGNOSTICS_LIST, json!({"source": "both"})),
+            Err(CommandError::InvalidInput(_))
+        ));
+        let schema: Value = serde_json::from_str(INPUT_SCHEMA).unwrap();
+        assert_eq!(
+            schema["properties"]["source"]["enum"],
+            json!(["build", "live"])
+        );
     }
 
     #[test]

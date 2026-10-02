@@ -25,6 +25,8 @@ The full contract is `protocol/schemas/host-rpc.md` (brief 0007), with a JSON sc
 | forwarded LSP (typed and untyped lists) | request / notification | `Lsp/LspProxy.cs` (`TypedRequests`, `UntypedRequests`, `UntypedNotifications`) |
 | `eludite/solution/status`, `eludite/languageServer/status`, `textDocument/publishDiagnostics` | host-to-shell notification | `Lsp/LspProxy.cs` |
 | `workspace/applyEdit` | host-to-shell request, relayed from the language server with `eluditeGeneration` added | `Lsp/LspProxy.cs` (`RelayApplyEditAsync`) |
+| `eludite/build/start`, `eludite/build/cancel` | request | `Build/BuildService.cs` (brief 0017) |
+| `eludite/build/output`, `eludite/build/progress`, `eludite/build/finished` | host-to-shell notification | `Build/BuildService.cs`, `Build/OutputPipe.cs` |
 
 Plain LSP `initialize`, `shutdown` and `exit` are not host methods (renamed in brief 0007; they return
 MethodNotFound). SDK discovery is behind `ISdkDiscoverer` so tests never spawn `dotnet`.
@@ -123,6 +125,29 @@ items come from the inner evaluation of its first target framework. Legacy proje
 properties. `Projects/SolutionTreeProvider.cs` runs the evaluation once per generation on the thread pool, answers
 every request for that generation from it, and fails a waiting request with -32801 when the generation moves on.
 It does not wait for Roslyn: on `dotnet/Eludite.slnx` the tree is ready long before the language server's load.
+
+## Builds (brief 0017)
+
+`Build/BuildService.cs` runs one build at a time **out of process** (a second start is -32010 BuildInProgress):
+
+- `Build/BuildPlan.cs` picks the toolchain: `dotnet build` (`-t:Rebuild`; `dotnet clean`) for SDK-style solutions;
+  for a solution with legacy projects, Build Tools' `MSBuild.exe` on Windows, else Mono's `MSBuild.dll` with the
+  brief 0003 environment (`MonoInstallation.EnvironmentFor`, `TargetFrameworkRootPath` from the merged
+  reference-assembly root), else `dotnet build` with an `ELUDITE0111` warning. Every run: `-restore` (implicit for
+  `dotnet build`), `-nologo -v:m -nr:false -clp:ForceNoAlign`, `-tl:off` for dotnet, `-bl:<temp>/eludite-host/builds/
+  build-<pid>-<id>.binlog` (the last 10 are kept), and the locator's `MSBUILD_EXE_PATH`-style variables removed.
+- Output: the host's start line goes out first, before MSBuild starts; then stdout and stderr lines through
+  `Build/OutputPipe.cs` (16 KiB or 16 ms chunks, coalescing behind a slow sender, a 64k-line queue that stops reading
+  MSBuild when full). A task's stack trace after MSB4018 is replaced by one "(stack trace omitted)" line.
+- Progress from console lines (`Build/ConsoleLines.cs`): `Name -> output` completes a project; canonical errors and
+  warnings are counted once each (MSBuild prints them twice at minimal verbosity).
+- Result: `Build/BinlogReader.cs` replays the binary log with MSBuild's `BinaryLogReplayEventSource` (Microsoft.Build,
+  MIT; the SDK's copy through Microsoft.Build.Locator) for diagnostics with the target that reported them and
+  per-project results and times; a canceled build or an unreadable log uses the console's canonical lines.
+  `Build/WindowsOnlyTargets.cs` (off Windows) replaces raw errors from Windows-only targets with one brief 0003
+  diagnostic per project (`ELUDITE0101`..`0110`) and writes it to the output.
+- Cancel: `Build/ProcessTree.cs` kills the tree (`Process.Kill(true)`; on Windows `taskkill /T /F` first, untested);
+  `eludite/build/finished` `canceled` follows within 2 s. A new solution generation cancels the build too.
 
 ## Planned (not yet added)
 

@@ -80,6 +80,7 @@ Rules:
 | -32800 | RequestCancelled (LSP) | The request was canceled with `$/cancelRequest` |
 | -32801 | ContentModified (LSP) | Stale `eluditeGeneration`, or the generation changed while the request was in flight |
 | -32803 | RequestFailed (LSP) | The language server is unavailable (not configured, failed to start, or exited); `data.reason` is `"languageServerUnavailable"` |
+| -32010 | BuildInProgress (Eludite) | `eludite/build/start` while a build runs; `data.buildId` is the running build |
 
 Error `data` shapes: [`host/errors.json`](host/errors.json).
 
@@ -97,6 +98,8 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
 | `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], error? }] }` |
+| `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, project?, configuration?, platform? }` | `{ buildId, generation, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
+| `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 
 #### `eludite/host/initialize`
 
@@ -174,6 +177,62 @@ server's load.
 
 Errors: -32002 before `eludite/host/initialize`; -32801 (ContentModified, with the usual `data`) when the
 generation changes before the tree is ready; -32800 when canceled.
+
+#### Build (brief 0017)
+
+`eludite/build/start` builds the open solution, or one of its projects, **out of process** (CLAUDE.md invariant 2):
+
+- **Toolchain.** `dotnet build` (`dotnet build -t:Rebuild` for `rebuild`, `dotnet clean` for `clean`) when every project
+  of the solution is SDK-style. When the solution has legacy (non-SDK) projects, the MSBuild the host located for them
+  (brief 0003): Mono's `MSBuild.dll` run with `mono` and the relocation environment of a user-space Mono
+  (`MonoInstallation.EnvironmentFor`: `PATH`, `LD_LIBRARY_PATH`, `MONO_CFG_DIR`, `MONO_GAC_PREFIX`) plus
+  `TargetFrameworkRootPath` from the reference-assembly packages; Build Tools' `MSBuild.exe` on Windows (located, never
+  shipped: invariant 9). Without either, legacy solutions build with `dotnet build`, and the finished diagnostics say
+  so (`ELUDITE0111`). Restore runs as part of the build (`-restore`). Every run gets `-nologo -v:m -nr:false
+  -clp:ForceNoAlign` and `-tl:off` (the SDK's terminal logger is never used), `-bl:<file>` for the binary log, and
+  `-p:Configuration=` / `-p:Platform=` when given. Node reuse is off so that cancel can kill every node.
+- **Reply at once.** The reply carries the `buildId`, the generation, the toolchain, the binary log path and the
+  command line. The build runs in the background; nothing else waits for it.
+- **One build at a time per host.** A second `eludite/build/start` while one runs fails with -32010
+  (BuildInProgress, `data: { buildId }`). Errors also: -32002 before `eludite/host/initialize`; -32602 when no
+  solution is open, `project` is not a project of the open solution, or `target` is unknown.
+- **Output: `eludite/build/output`**, chunked and ordered. The first chunk is the host's own start line
+  (`Build started at <time>...` and the command line), sent before MSBuild is spawned, so the shell shows a line at
+  once. Then MSBuild's stdout and stderr lines in arrival order. A chunk holds whole lines and is flushed when it
+  reaches **16 KiB**, or **16 ms** after its first line, whichever comes first; `seq` counts chunks from 0.
+  **Backpressure:** the host never drops lines. A single sender awaits each notification's write to its stdout; while
+  the shell (or the pipe) is slow, lines read from MSBuild accumulate in the pending chunk, which is sent whole when
+  the sender is free (one larger message instead of many). If 8 MiB accumulate unsent, the host stops reading
+  MSBuild's output until the sender catches up, which pauses MSBuild on its own console write rather than growing
+  the host's memory.
+- **Progress: `eludite/build/progress`**, at most every 100 ms while it changes: projects completed of the total
+  (a `Name -> output` line completes a project), and the errors and warnings counted from MSBuild's canonical
+  `error` / `warning` lines. Advisory only.
+- **Finished: `eludite/build/finished`**, exactly once per accepted start, after the last output chunk: `result`
+  (`succeeded`, `failed`, `canceled`), the exit code, the time, per-project results with their time, and the
+  diagnostics with file, line, column, code, message and project. They come from the binary log, read with MSBuild's
+  own reader (`Microsoft.Build.Logging.BinaryLogReplayEventSource`, MIT, the SDK's MSBuild loaded by
+  `Microsoft.Build.Locator`), so they are exactly MSBuild's; a log that cannot be read (MSBuild did not start, or the
+  build was killed) falls back to the canonical lines of the console output. A multi-targeted project reports one
+  result, and an error reported once per target framework is listed once. The output's last lines are Visual
+  Studio's summary (`========== Build: 1 succeeded, 0 failed ==========`).
+- **Cancel: `eludite/build/cancel`** kills the MSBuild process tree (on Linux and macOS `Process.Kill` of the whole
+  tree; on Windows `taskkill /T /F /PID`, untested) and `eludite/build/finished` reports `canceled` within 2 s. A new
+  generation (`eludite/solution/open` of another solution, or `eludite/solution/close`) cancels the running build the
+  same way.
+- **Windows-only targets under Mono.** When a legacy project fails on a Windows-only target, the build's raw errors
+  for it are replaced by **one diagnostic per project** with the brief 0003 code and message, and the same message
+  is written to the output (instead of a task's stack trace, whose lines are dropped from the output):
+
+  | Code | Severity | Recognized by |
+  |---|---|---|
+  | `ELUDITE0101` | warning | `ResolveComReference` failing (AxImp, TlbImp, MSB3283/MSB3290, `COMReference` items) |
+  | `ELUDITE0102` | error | `Microsoft.Web.Publishing.targets` or `$(WebPublishingTasks)` missing (MSB4019, MSB4022, MSB4062) |
+  | `ELUDITE0103` | warning | `Microsoft.WebApplication.targets` missing (MSB4019) |
+  | `ELUDITE0108` | error | A `PreBuildEvent` or `PostBuildEvent` that is a Windows command script failing (MSB3073) |
+  | `ELUDITE0109` | warning | `GenerateSerializationAssemblies` / SGen failing |
+  | `ELUDITE0110` | warning | `aspnet_compiler` (`MvcBuildViews`, `AspNetCompiler`) failing |
+  | `ELUDITE0111` | warning | The solution has legacy projects and no Mono or Build Tools MSBuild was located |
 
 ### Forwarded LSP methods, typed
 
@@ -293,6 +352,9 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `window/showMessage` | notification | LSP 3.17, relayed from the language server, untyped | |
 | `$/progress` | notification | LSP 3.17, relayed from the language server, untyped | |
 | `workspace/applyEdit` | request | [apply-edit.json](host/apply-edit.json) (LSP shape plus `eluditeGeneration`) | `{ label?, edit, eluditeGeneration }`; result `{ applied, failureReason?, failedChange? }` |
+| `eludite/build/output` | notification | [build-output.json](host/build-output.json) | `{ buildId, seq, text }` |
+| `eludite/build/progress` | notification | [build-progress.json](host/build-progress.json) | `{ buildId, elapsedMs, projectsTotal, projectsCompleted, errors, warnings, currentProject? }` |
+| `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
 
 `workspace/applyEdit` is the only request the host sends to the shell. Every other request from the host is answered
 -32601 by the shell.

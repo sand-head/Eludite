@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-clear.input.json",
+  "title": "eludite.output.clear input",
+  "description": "Clear the Output window's text for a source (the Clear All button).",
+  "type": "object",
+  "properties": {
+    "source": {
+      "description": "Omitted: the source selected in the window.",
+      "enum": [
+        "build",
+        "host"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

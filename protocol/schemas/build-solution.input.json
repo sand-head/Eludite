@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/build-solution.input.json",
+  "title": "eludite.build.solution input",
+  "description": "Build the open solution (Build > Build Solution, Ctrl+Shift+B or F6), out of process in eludite-host: `dotnet build` for SDK-style solutions, the located MSBuild (Mono's on Linux and macOS, Build Tools' on Windows) when the solution has legacy projects. The Output window shows the log as it streams, the Error List the build's errors and warnings next to the live ones, the status bar the progress. One build at a time: while one runs this fails, and the Build menu's items are disabled.",
+  "type": "object",
+  "properties": {
+    "configuration": {
+      "description": "Debug or Release (or another configuration the solution file lists). Omitted: the configuration selected in the IDE (Debug by default).",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "A platform the solution file lists, for example Any CPU or x64. Omitted: the platform selected in the IDE (the solution's default).",
+      "type": "string",
+      "minLength": 1
+    },
+    "wait": {
+      "description": "Wait for the build to finish and return its result (the default for a caller off the UI thread, such as an agent). false: return as soon as the build starts, with state running. A caller on the UI thread (menus, keys) never waits. A waiting call ends early, with state canceled, when the build is canceled (eludite.build.cancel).",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

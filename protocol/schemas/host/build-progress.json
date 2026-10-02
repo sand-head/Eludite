@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/build-progress.json",
+  "title": "eludite/build/progress",
+  "description": "Host-to-shell notification: how far the build is, recognized from MSBuild's console output (a project's `Name -> output` line completes it; canonical `error` and `warning` lines are counted). Sent at most every 100 ms while something changes. Advisory: the authoritative result is eludite/build/finished.",
+  "x-eludite-method": "eludite/build/progress",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "buildId",
+        "elapsedMs",
+        "projectsTotal",
+        "projectsCompleted",
+        "errors",
+        "warnings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "buildId": {
+          "description": "The build's id, unique within one host process, from 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "projectsTotal": {
+          "description": "Projects the build covers (the solution's projects, or 1 for a project build).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "projectsCompleted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "currentProject": {
+          "description": "The project whose output line came last.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
