@@ -11,13 +11,18 @@
 //! - [`elements`]: small stateless elements (tab strips, panels, buttons).
 //! - [`tree`]: tree rows for Solution Explorer and other tree views (indent,
 //!   disclosure triangle, label), drawn by the caller's list.
+//! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
+//!   icons ([`CompletionKind`]) and the tooltip frame.
+//! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.
 
 pub mod elements;
 pub mod keymap;
+pub mod markdown;
 pub mod menu;
+pub mod popup;
 pub mod status;
 mod theme;
 pub mod tree;
@@ -28,6 +33,7 @@ pub use keymap::{
     vs_keymap,
 };
 pub use menu::{MENU_TITLES, Menu, MenuBar, MenuEntry, menu_bar_with, vs_menus};
+pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slots};
 pub use theme::{Theme, Typography};
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};
