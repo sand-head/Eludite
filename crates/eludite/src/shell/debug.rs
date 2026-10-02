@@ -84,7 +84,11 @@ impl DebugSetup {
     pub fn from_env() -> Self {
         Self {
             connect: None,
-            search: AdapterSearch::from_env(),
+            // The configured path comes from the settings store (`set_adapter_path`), which resolves the variable.
+            search: AdapterSearch {
+                env: None,
+                ..AdapterSearch::from_env()
+            },
             store_dir: eludite_docking::eludite_config_dir().map(|d| d.join("breakpoints")),
             dotnet: "dotnet".into(),
         }
@@ -388,6 +392,12 @@ impl Debugger {
 
     fn generation(&self) -> u64 {
         self.model.generation
+    }
+
+    /// The setting `debugger.netcoredbgPath` (or `ELUDITE_NETCOREDBG`): searched where `ELUDITE_NETCOREDBG` was
+    /// (brief 0020). `None` leaves the search to the executable's folder and `PATH`.
+    pub fn set_adapter_path(&mut self, path: Option<PathBuf>) {
+        self.setup.search.env = path.map(PathBuf::into_os_string);
     }
 
     fn store_path(&self, solution: &Path) -> Option<PathBuf> {

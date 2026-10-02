@@ -211,6 +211,7 @@ impl Shell {
             },
             ticket,
         });
+        self.update_settings_dir();
         self.timings = super::Timings {
             open: Some(now),
             ..Default::default()

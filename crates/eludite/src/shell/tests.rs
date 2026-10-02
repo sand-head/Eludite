@@ -31,6 +31,9 @@ use super::{SOLUTION_SLOT, Shell};
 
 pub(super) const T: Duration = Duration::from_secs(10);
 
+/// The user settings file of the test shell, relative to its temporary folder (brief 0020).
+pub(super) const USER_SETTINGS: &str = "user-config/settings.json";
+
 pub(super) const PROGRAM: &str = "class Program\n{\n    static void Main() { }\n}\n";
 
 pub(super) struct Ws {
@@ -109,6 +112,7 @@ pub(super) fn setup_debug(
     let mut services = Some(super::register_workspace(
         &mut commands,
         HostLaunch::InProcess(fake.connector()),
+        crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS))),
     ));
     if let Some(s) = services.as_mut() {
         s.agents = agents.unwrap_or_else(|| super::agents::AgentsSetup {
@@ -685,6 +689,7 @@ fn missing_host_is_reported_not_fatal(cx: &mut TestAppContext) {
     let mut services = Some(super::register_workspace(
         &mut commands,
         HostLaunch::Missing("eludite-host not found".into()),
+        crate::settings::SettingsSetup::isolated(None),
     ));
     let commands = Arc::new(commands);
     let window = cx.update(|cx| {

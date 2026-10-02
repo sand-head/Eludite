@@ -153,6 +153,9 @@ pub struct GenericLaunch {
     pub root: PathBuf,
     /// A server in this process instead of the located executable (the fake server in tests).
     pub connector: Option<Connector>,
+    /// The executable the settings name (brief 0020), tried before discovery unless the registration's override
+    /// variable is set (the variable wins, as documented).
+    pub configured: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for GenericLaunch {
@@ -925,15 +928,36 @@ fn start_generic(
             ServerClient::start_in_process(connector.clone(), setup, RestartPolicy::default())
         }
         None => {
-            let located = reg.locate()?;
+            let overridden = reg
+                .command
+                .as_ref()
+                .and_then(|c| c.env_override.as_deref())
+                .is_some_and(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty()));
+            let (path, version, source) = match launch.configured.as_deref().filter(|_| !overridden)
+            {
+                Some(p) => {
+                    let version = configured_version(p).ok_or_else(|| {
+                        format!(
+                            "{} at {} (the setting languageServers.rustAnalyzerPath) does not run",
+                            reg.name,
+                            p.display()
+                        )
+                    })?;
+                    (p.to_path_buf(), version, "settings".to_owned())
+                }
+                None => {
+                    let located = reg.locate()?;
+                    (located.path, located.version, located.source)
+                }
+            };
             documents_trace(&format!(
                 "{} {} from {} ({})",
                 reg.id,
-                located.version,
-                located.source,
-                located.path.display()
+                version,
+                source,
+                path.display()
             ));
-            let mut command = ServerCommand::new(located.path.as_os_str())
+            let mut command = ServerCommand::new(path.as_os_str())
                 .current_dir(&launch.root)
                 .stderr(StderrMode::Capture);
             if let Some(spec) = &reg.command {
@@ -945,6 +969,23 @@ fn start_generic(
         }
     };
     started.map_err(|e| format!("{} did not start: {e}", reg.name))
+}
+
+/// The first line of `<path> --version`, or `None` when it does not run.
+fn configured_version(path: &Path) -> Option<String> {
+    let out = std::process::Command::new(path)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    out.status.success().then(|| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned()
+    })
 }
 
 fn documents_trace(what: &str) {

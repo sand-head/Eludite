@@ -424,8 +424,16 @@ fn build_on_save_is_off_by_default_and_builds_the_project_when_on(cx: &mut gpui:
     w.vcx.run_until_parked();
     assert!(w.fake.received_params("eludite/build/start").is_empty());
 
-    w.shell
-        .update(&mut w.vcx, |s, _| s.builds.build_on_save = true);
+    // Turned on through the settings (brief 0020), as the Options dialog and agents do.
+    w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "build.onSave", "value": true}),
+        )
+        .unwrap();
+    w.wait("build on save to apply", |w| {
+        w.shell.read_with(&w.vcx, |s, _| s.builds.build_on_save)
+    });
     w.vcx.simulate_input(" ");
     w.vcx.simulate_keystrokes("ctrl-s");
     w.wait_build_started();
