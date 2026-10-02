@@ -497,24 +497,37 @@ renders a result from a previous server instance (CLAUDE.md invariant 12).
 | Lifecycle | `initialize`, `initialized`, `shutdown`, `exit` |
 | Document sync | `textDocument/didOpen`, `didChange` (incremental, UTF-16), `didSave`, `didClose`, `workspace/didChangeWatchedFiles` |
 | Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve` |
+| Pull diagnostics | `textDocument/diagnostic`, sent by the client itself (below), never by the editor features |
 | Cancellation | `$/cancelRequest` |
 
 **Client capabilities** are the set the host advertises to Roslyn (section above), so the editor features need no
-per-server branch, plus `window.workDoneProgress` and `experimental.serverStatusNotification: true`.
+per-server branch, plus `workspace.diagnostics.refreshSupport: true` and `experimental.serverStatusNotification:
+true`.
 
 **What the server sends, and the shell's answer:**
 
 | Kind | Method | Shell |
 |---|---|---|
-| notification | `textDocument/publishDiagnostics` | Squiggles and Error List rows with source `live` (rust-analyzer pushes; it has no pull diagnostics in the shell's use) |
+| notification | `textDocument/publishDiagnostics` | Merged with the pulled ones (below), then squiggles and Error List rows with source `live` |
 | notification | `$/progress` | The status bar's slot for the server: the newest work-done progress title, message and percentage (`Indexing 120/300 (core)`) |
 | notification | `experimental/serverStatus` | The slot's state: `health` (`ok`, `warning`, `error`) and `quiescent`; `ready` when quiescent and healthy. A rust-analyzer LSP extension ([lsp-extensions.md](https://github.com/rust-lang/rust-analyzer/blob/master/docs/book/src/contributing/lsp-extensions.md#server-status)); the shell enables it with the experimental client capability above |
 | notification | `window/showMessage`, `window/logMessage` | The Output window's Language Servers source (with the server's stderr) |
 | request | `workspace/applyEdit` | The workspace-edit applier, as for the host's relayed request |
 | request | `workspace/configuration` | The registration's `settings` for each item's `section` (`null` when absent) |
 | request | `window/workDoneProgress/create`, `client/registerCapability`, `client/unregisterCapability` | `null` (accepted) |
-| request | `workspace/diagnostic/refresh`, `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | `null` |
+| request | `workspace/diagnostic/refresh` | `null`, and every open document is pulled again |
+| request | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | `null` |
 | request | anything else | -32601 (MethodNotFound) |
+
+**Push and pull.** The editor features take one diagnostics list per document, as the host delivers them. The
+pinned rust-analyzer computes its native diagnostics (syntax and semantic, codes such as `E0107`) only on pull
+(`diagnosticProvider`) and pushes the results of its `cargo check` (`checkOnSave`). For a server that advertises
+`diagnosticProvider`, the client pulls `textDocument/diagnostic` itself, like the host's warming: on `didOpen` at
+once, 150 ms after the last `didChange`, and for every open document when `experimental/serverStatus` turns
+quiescent or the server sends `workspace/diagnostic/refresh`. A newer pull for a document cancels the older one,
+and a result for a document version that is no longer the last one sent is dropped. Each push or pull result is
+delivered as the union of the document's pushed and pulled lists (duplicates by range, code and message removed),
+with the version the pull ran on. `didClose` delivers an empty list.
 
 **Diagnostics and the Error List.** Live rows come from the server; `cargo build` rows come from the build. A build
 row with the same file, line, column and code as a live row is shown once, as both, exactly as for MSBuild.

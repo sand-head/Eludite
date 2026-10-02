@@ -781,7 +781,10 @@ impl Pump {
                     expected: false, ..
                 }) => SessionEvent::HostRestarting,
                 Event::Host(HostEvent::GaveUp { reason }) => SessionEvent::HostFailed { reason },
-                Event::Host(HostEvent::Exited { .. }) | Event::Notification(_) => continue,
+                Event::Host(HostEvent::Exited { .. })
+                | Event::Notification(_)
+                | Event::Progress(_)
+                | Event::ServerStatus(_) => continue,
                 Event::BuildOutput(o) => SessionEvent::BuildOutput(o),
                 Event::BuildProgress(p) => SessionEvent::BuildProgress(p),
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
