@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-trace.input.json",
+  "title": "eludite.debug.trace input",
+  "description": "Instrument and run in one call: install tracepoints at `points` (each prints its `message` and continues; Visual Studio's \"When Hit... Print a message and Continue\"), resume the debuggee (or start it, `run: start`), collect the lines they print in order until `until` holds, then remove the points (a line's existing breakpoint is restored). Prefer it to breakpoints and single steps when the question is \"what values pass through here\": no stop is shown and nothing waits for a call per hit. Where the debug adapter has no log points (netcoredbg) each hit costs a stop and a resume in the debugger (`overhead_ms_per_hit` says how much); `max_hits` caps the cost. `message` takes `{expression}` (evaluated in the hit frame: it runs debuggee code), `$FUNCTION`, `$CALLER`, `$TID` and `$TNAME`. Needs break mode (`run: continue`) or no session (`run: start`). The lines also go to the Output window's Debug source and the `debug` output (eludite.debug.output). Next: read `lines`; `stopped_by: stopped` comes with the stop summary.",
+  "type": "object",
+  "required": [
+    "points"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "points": {
+      "description": "1 to 50 tracepoints.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The source file (absolute or relative to the solution folder).",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "message": {
+            "description": "What to print at each hit: text with `{expression}` segments (evaluated in the hit frame; an error is written in place as `{expression: <error>}`; `{{` and `}}` are literal braces), `$FUNCTION`, `$CALLER`, `$TID` and `$TNAME`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "condition": {
+            "description": "Print only when this C# expression is true.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "run": {
+      "description": "`continue` (default): resume the debuggee from break mode. `start`: start debugging first (no session may run), with `project`, `profile` and `build` as eludite.debug.start takes them.",
+      "enum": [
+        "continue",
+        "start"
+      ]
+    },
+    "project": {
+      "description": "The project to run: its path (absolute or relative to the solution folder) or its name as the Workspace window shows it. Default: the startup project (eludite.workspace.set_startup_project), else the solution's first executable project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "description": "The launchSettings.json profile to use. Default: the first profile whose commandName is Project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "build": {
+      "description": "Build the project before launching. Default: the setting build.beforeRun (true unless changed).",
+      "type": "boolean"
+    },
+    "until": {
+      "description": "When to stop collecting: `terminated` (default: the session ends), `stopped` (the next visible stop: a breakpoint, an exception; the answer has its stop summary) or `hits` (the points were hit `count` times in all; the debuggee goes on running).",
+      "enum": [
+        "terminated",
+        "stopped",
+        "hits"
+      ]
+    },
+    "count": {
+      "description": "With `until: hits`: how many hits (1 to 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "wait_ms": {
+      "description": "How long to collect at most, in milliseconds (default 10000, at most 30000); then `stopped_by` is `timeout` and the debuggee goes on running.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    },
+    "max_hits": {
+      "description": "The most lines collected (default 1000, at most 10000). Reaching it disables the points (the debuggee keeps running) and sets `truncated`.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "depth": {
+      "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "max_variables": {
+      "description": "The most variable rows listed, counting every level (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "max_frames": {
+      "description": "The most stack frames listed (default 10, at most 200); page further with eludite.debug.stack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "max_output_lines": {
+      "description": "The most program output lines listed (default 20, at most 1000; 0 lists none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "output_since": {
+      "description": "An output cursor (`output.next` of an earlier answer, or eludite.debug.output's `next`): list the program's lines from it on. Default: the last `max_output_lines` lines.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

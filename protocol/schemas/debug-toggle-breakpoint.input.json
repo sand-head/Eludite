@@ -2,22 +2,22 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-toggle-breakpoint.input.json",
   "title": "eludite.debug.toggle_breakpoint input",
-  "description": "Debug > Toggle Breakpoint (F9, or a click in the editor's breakpoint margin), and the Breakpoints window's edits: set, change or delete the breakpoint on a line. Breakpoints persist per solution and apply to a running session at once. Conditions are C# expressions evaluated by the debugger; a hit condition breaks only on some hits.",
+  "description": "Debug > Toggle Breakpoint (F9, or a click in the editor's breakpoint margin), and the Breakpoints window's edits: set, change or delete the breakpoint on a line, a tracepoint (`log_message`: Visual Studio's \"When Hit... Print a message and Continue\") or a function breakpoint (`function`). Breakpoints persist per solution and apply to a running session at once. Conditions are C# expressions evaluated by the debugger; a hit condition breaks only on some hits. A `log_message` with `{expression}` segments runs debuggee code at every hit (as a condition does), so such a call is of the execute class.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "path": {
-      "description": "The source file (absolute or relative to the solution folder). Default: the active document.",
+      "description": "The source file (absolute or relative to the solution folder). Default: the active document. Not with `function`.",
       "type": "string",
       "minLength": 1
     },
     "line": {
-      "description": "1-based line. Default: the caret's line in the active document.",
+      "description": "1-based line. Default: the caret's line in the active document. Not with `function`.",
       "type": "integer",
       "minimum": 1
     },
     "action": {
-      "description": "`toggle` (default): add a breakpoint, or delete the one on the line. `set`: add or change it with the fields given. `delete`: delete it. `delete_all`: delete every breakpoint (path and line are ignored).",
+      "description": "`toggle` (default): add a breakpoint, or delete the one on the line. `set`: add or change it with the fields given. `delete`: delete it. `delete_all`: delete every breakpoint, function breakpoints included (path and line are ignored). With `function`, `set` or `delete` only.",
       "enum": [
         "toggle",
         "set",
@@ -36,6 +36,19 @@
     "hit_condition": {
       "description": "With `set`: break only when the hit count is `N` (equal to N), `>=N` (at least N) or `%N` (a multiple of N), as Visual Studio's Hit Count. An empty string removes it.",
       "type": "string"
+    },
+    "log_message": {
+      "description": "With `set`: make it a tracepoint. At every hit the message is written to the Output window's Debug source and to the `debug` output (eludite.debug.output) and the debuggee continues without a visible stop. `{expression}` segments are evaluated in the hit frame (an evaluation error is written in place as `{expression: <error>}`; `{{` and `}}` are literal braces); `$FUNCTION` (the method), `$CALLER` (its caller), `$TID` (the thread id) and `$TNAME` (the thread name) are replaced, other `$` words are left as text. Where the debug adapter has no log points (netcoredbg) the debugger stops, writes the line and resumes at once (a stop and a resume per hit); a message with a `$` special is always written that way. An empty string turns the tracepoint back into a breakpoint. Not with `function`.",
+      "type": "string"
+    },
+    "function": {
+      "description": "A function breakpoint by name, `Namespace.Type.Method` (DAP setFunctionBreakpoints), with `action` `set` (with `enabled`, `condition`, `hit_condition` as a source breakpoint) or `delete`. It has no path or line; the Breakpoints window names it by the function. Refused while a session runs on a debug adapter without function breakpoints (`capabilities.function_breakpoints` in eludite.debug.state).",
+      "type": "string",
+      "minLength": 1
+    },
+    "remove_after": {
+      "description": "With `set`: delete the breakpoint at its first visible stop (\"Delete breakpoint when hit\"; eludite.debug.run_until's points do this). Default false.",
+      "type": "boolean"
     }
   }
 }
