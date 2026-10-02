@@ -1152,7 +1152,7 @@ impl Shell {
             SessionEvent::HostFailed { reason } => {
                 // The host gave up restarting while its build waited for it.
                 if self.builds.awaiting_status {
-                    self.on_build_lost(&reason, cx);
+                    self.on_build_lost(&reason, window, cx);
                 }
                 self.status.set(SOLUTION_SLOT, reason.clone());
                 if let Some(f) = self.folder.as_mut() {
@@ -1332,7 +1332,7 @@ impl Shell {
                 self.on_build_started(ticket, result, cx)
             }
             SessionEvent::BuildRefused { ticket, message } => {
-                self.on_build_refused(ticket, message, cx)
+                self.on_build_refused(ticket, message, window, cx)
             }
             SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, o.seq, &o.text, cx),
             SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),

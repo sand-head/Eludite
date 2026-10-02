@@ -251,6 +251,8 @@ pub enum DebugRequest {
         project: Option<String>,
         debug: bool,
         profile: Option<String>,
+        /// Build the project first (brief 0020); `None`: the setting `build.beforeRun`.
+        build: Option<bool>,
         wait_ms: Option<u64>,
     },
     Stop,
@@ -548,6 +550,7 @@ struct StartIn {
     project: Option<String>,
     debug: Option<bool>,
     profile: Option<String>,
+    build: Option<bool>,
     wait_ms: Option<u64>,
 }
 
@@ -673,6 +676,7 @@ pub fn parse(id: &str, value: Value) -> Result<DebugRequest, CommandError> {
                 project: non_empty("project", i.project)?,
                 debug: i.debug.unwrap_or(true),
                 profile: non_empty("profile", i.profile)?,
+                build: i.build,
                 wait_ms: check_wait(i.wait_ms)?,
             }
         }
@@ -832,19 +836,21 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                build: None,
                 wait_ms: None
             }
         );
         assert_eq!(
             parse(
                 START,
-                json!({"debug": false, "project": "App", "profile": "App"})
+                json!({"debug": false, "project": "App", "profile": "App", "build": false})
             )
             .unwrap(),
             DebugRequest::Start {
                 project: Some("App".into()),
                 debug: false,
                 profile: Some("App".into()),
+                build: Some(false),
                 wait_ms: None
             }
         );
