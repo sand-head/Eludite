@@ -674,8 +674,11 @@ mod tests {
     /// because documents are keyed by that string (the Windows CI failure after brief 0012).
     #[test]
     fn normalize_path_joins_components_with_the_native_separator() {
-        let mixed = Path::new("/a/b").join("c/d.cs");
-        let native = Path::new("/a").join("b").join("c").join("d.cs");
+        // Build from a real absolute base: a bare "/a" has no drive on Windows and
+        // normalizes differently from how it was spelled.
+        let base = std::env::temp_dir();
+        let mixed = base.join("c/d.cs");
+        let native = base.join("c").join("d.cs");
         assert_eq!(
             normalize_path(&mixed).to_string_lossy(),
             native.to_string_lossy()

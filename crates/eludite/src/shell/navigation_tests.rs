@@ -18,7 +18,7 @@ use gpui::{
 };
 use serde_json::{Value, json};
 
-use super::documents::path_to_uri;
+use super::documents::{normalize_path, path_to_uri};
 use super::error_list;
 use super::navigation::{self, picker_row_selector};
 use super::references::{RefRow, row_selector};
@@ -192,8 +192,8 @@ fn definition_in_a_file_opens_positions_pushes_history_and_back_and_forward_walk
         FakeReply::Result(json!([target]))
     });
     let (program, view) = w.open_program();
-    let program_id = program.to_string_lossy().into_owned();
-    let order_id = order.to_string_lossy().into_owned();
+    let program_id = normalize_path(&program).to_string_lossy().into_owned();
+    let order_id = normalize_path(&order).to_string_lossy().into_owned();
     w.set_caret(&view, main_offset() + 1);
 
     // F12 runs the command; the request is the caret's position.
@@ -300,7 +300,7 @@ fn definition_into_metadata_opens_a_read_only_tab_with_its_text(cx: &mut gpui::T
     w.set_caret(&view, main_offset());
     let out = w.invoke(workspace::EDITOR_GO_TO_DEFINITION, json!({}));
     assert_eq!(out["state"], "loading", "the UI thread does not wait");
-    let id = meta.path.to_string_lossy().into_owned();
+    let id = normalize_path(&meta.path).to_string_lossy().into_owned();
     let meta_view = w.editor(&meta.path);
     w.wait("the caret in the metadata", |w| {
         w.active().as_deref() == Some(id.as_str()) && w.caret_line_column(&meta_view) == (7, 14)
@@ -394,7 +394,7 @@ fn several_definitions_show_a_picker(cx: &mut gpui::TestAppContext) {
 
     // Down, Enter: the second target, through the command with `target`.
     w.vcx.simulate_keystrokes("down enter");
-    let order_id = order.to_string_lossy().into_owned();
+    let order_id = normalize_path(&order).to_string_lossy().into_owned();
     w.wait("Order.cs", |w| {
         w.active().as_deref() == Some(order_id.as_str())
     });
@@ -512,7 +512,7 @@ fn references_fill_the_window_grouped_and_double_click_navigates(cx: &mut gpui::
     // Double-click navigates, after pushing where the caret was.
     w.double_click(&row_selector(2));
     let order_view = w.editor(&order);
-    let order_id = order.to_string_lossy().into_owned();
+    let order_id = normalize_path(&order).to_string_lossy().into_owned();
     w.wait("Order.cs at the reference", |w| {
         w.active().as_deref() == Some(order_id.as_str()) && w.caret(&order_view) == 6
     });
@@ -531,7 +531,7 @@ fn references_fill_the_window_grouped_and_double_click_navigates(cx: &mut gpui::
         .respond("textDocument/references", |_| FakeReply::Result(json!([])));
     let out = w.invoke(
         workspace::EDITOR_FIND_REFERENCES,
-        json!({"path": program.to_string_lossy(), "line": 1, "column": 8}),
+        json!({"path": normalize_path(&program).to_string_lossy(), "line": 1, "column": 8}),
     );
     assert_eq!(out["state"], "loading");
     assert_eq!(out["symbol"], "Program");
@@ -574,7 +574,7 @@ fn stale_navigation_answers_are_dropped(cx: &mut gpui::TestAppContext) {
     );
     std::thread::sleep(Duration::from_millis(400));
     w.vcx.run_until_parked();
-    let order_id = order.to_string_lossy();
+    let order_id = normalize_path(&order).to_string_lossy();
     assert!(
         !w.shell.read_with(&w.vcx, |s, _| s
             .editor(Path::new(order_id.as_ref()))
@@ -593,7 +593,7 @@ fn stale_navigation_answers_are_dropped(cx: &mut gpui::TestAppContext) {
     });
     w.vcx.simulate_input("x");
     w.shell.update(&mut w.vcx, |s, cx| {
-        let id = program.to_string_lossy().into_owned();
+        let id = normalize_path(&program).to_string_lossy().into_owned();
         s.flush_change(&id, cx)
     });
     std::thread::sleep(Duration::from_millis(300));
@@ -615,7 +615,7 @@ fn stale_navigation_answers_are_dropped(cx: &mut gpui::TestAppContext) {
     w.commands
         .invoke(
             workspace::SOLUTION_OPEN,
-            json!({"path": sln.to_string_lossy()}),
+            json!({"path": normalize_path(&sln).to_string_lossy()}),
         )
         .unwrap();
     w.wait("generation 2", |w| w.fake.generation() == 2);
@@ -764,7 +764,7 @@ fn agents_go_to_definition_and_find_references_on_the_bus(cx: &mut gpui::TestApp
     });
     w.open_program();
     let commands = w.commands.clone();
-    let path = program.to_string_lossy().into_owned();
+    let path = normalize_path(&program).to_string_lossy().into_owned();
     let agent = std::thread::spawn(move || {
         let refs = commands
             .invoke(
@@ -795,16 +795,22 @@ fn agents_go_to_definition_and_find_references_on_the_bus(cx: &mut gpui::TestApp
     assert_eq!(refs["total"], 1);
     assert_eq!(
         refs["references"][0],
-        json!({"project": "App", "path": program.to_string_lossy(), "line": 3, "column": 17,
+        json!({"project": "App", "path": normalize_path(&program).to_string_lossy(), "line": 3, "column": 17,
                "text": "static void Main() { }"})
     );
     assert_eq!(def["state"], "navigated");
-    assert_eq!(def["navigated"]["path"], order.to_string_lossy().as_ref());
+    assert_eq!(
+        def["navigated"]["path"],
+        normalize_path(&order).to_string_lossy().as_ref()
+    );
     assert_eq!(def["navigated"]["line"], 1);
     assert_eq!(def["navigated"]["column"], 7);
     assert_eq!(def["navigated"]["metadata"], false);
     assert_eq!(back["navigated"], true);
-    assert_eq!(back["path"], program.to_string_lossy().as_ref());
+    assert_eq!(
+        back["path"],
+        normalize_path(&program).to_string_lossy().as_ref()
+    );
     assert_eq!(
         (back["line"].clone(), back["column"].clone()),
         (json!(3), json!(18))

@@ -356,7 +356,8 @@ fn read_only_documents_navigate_but_do_not_edit(cx: &mut TestAppContext) {
         view.read_with(&cx, |v, _| v.editor().selected_text()),
         "JsonRpc"
     );
-    cx.simulate_keystrokes("ctrl-f");
+    // `secondary` is Cmd on macOS and Ctrl elsewhere, like the find_in_buffer test.
+    cx.simulate_keystrokes("secondary-f");
     assert!(view.read_with(&cx, |v, _| v.is_find_bar_open()));
     cx.simulate_keystrokes("escape");
     // Programmatic edits (the owner) still apply; editable again afterwards.
