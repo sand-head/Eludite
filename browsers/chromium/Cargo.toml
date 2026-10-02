@@ -1,0 +1,36 @@
+[package]
+name = "eludite-chromium"
+description = "Eludite's embedded browser engine: CEF's browser process, rendering tabs off screen into shared memory, controlled over JSON-RPC on stdio (brief 0031)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "eludite-chromium"
+path = "src/main.rs"
+
+[features]
+# The real engine, linked against CEF. Needs CEF_PATH from tools/cef/fetch.sh (without it the `cef` crate's build
+# script downloads CEF by itself, unchecked); `cargo build --features eludite-chromium/cef`. Off by default so a
+# workspace build never fetches 326 MB: the executable then only says how to get CEF, and the engine tests skip.
+cef = ["dep:cef"]
+
+[dependencies]
+# CEF's C API, generated (tauri-apps/cef-rs). Apache-2.0 OR MIT. Pinned to the CEF version in tools/cef/PIN.
+cef = { version = "=154.3.0", default-features = false, optional = true }
+# The Content-Length framing of the control channel (MIT).
+eludite-protocol.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# memfd_create, mmap, sendmsg with SCM_RIGHTS, clock_gettime. MIT OR Apache-2.0; already in the build.
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

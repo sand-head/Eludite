@@ -33,7 +33,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libwayland-dev libxkbcommon-x11-dev libvulkan-dev \
             libfontconfig1-dev libssl-dev libgit2-dev \
-            pkg-config cmake clang
+            pkg-config cmake clang xvfb
 
       # With no arguments, rustup installs the toolchain (and components)
       # pinned in rust-toolchain.toml.
@@ -45,11 +45,28 @@ jobs:
       - name: Format
         run: cargo fmt --check
 
+      # eludite-chromium (brief 0031) builds its real engine only with the `cef` feature, against CEF fetched by
+      # tools/cef/fetch.sh (326 MB, cached on the pin). Linux builds, lints and tests it; Windows and macOS build the
+      # crate without the feature (the executable then only says how to get CEF) and its tests skip.
+      - name: Cache CEF
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/cef
+          key: cef-${{ runner.os }}-${{ hashFiles('tools/cef/PIN') }}
+
+      - name: Fetch CEF
+        if: runner.os == 'Linux'
+        run: |
+          cef="$(tools/cef/fetch.sh)"
+          echo "CEF_PATH=$cef" >> "$GITHUB_ENV"
+          echo "CEF_FEATURES=--features eludite-chromium/cef" >> "$GITHUB_ENV"
+
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets ${{ env.CEF_FEATURES }} -- -D warnings
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace ${{ env.CEF_FEATURES }}
 
       # The browser tests (crates/browser/tests/chrome.rs, brief 0023) run on Linux against Chrome for Testing,
       # pinned in tools/chrome/PIN. On Windows and macOS they skip themselves unless ELUDITE_CHROME is set.
@@ -70,7 +87,14 @@ jobs:
           echo "ELUDITE_CHROME_NO_SANDBOX=1" >> "$GITHUB_ENV"
           "$chrome" --version
 
+      # On Linux the engine tests (browsers/chromium/tests, crates/browser/tests/embedded.rs) run CEF under Xvfb;
+      # ELUDITE_CHROME_NO_SANDBOX=1 (set above) also covers CEF, whose sandbox meets the same AppArmor policy.
+      - name: Test (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a cargo test --workspace ${{ env.CEF_FEATURES }}
+
       - name: Test
+        if: runner.os != 'Linux'
         run: cargo test --workspace
 
   dotnet:

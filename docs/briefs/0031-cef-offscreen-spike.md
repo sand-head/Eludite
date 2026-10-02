@@ -1,6 +1,6 @@
 # Brief 0031: Spike: CEF offscreen rendering into GPUI, out of process
 
-Status: open
+Status: done on Linux (Xvfb, software rendering); [report](0031-report.md)
 Phase: 2 (proposal 0002, brief S; a spike)
 Plan reference: PLAN.md sections 1 (the browser engine carve-out), 2 (principles 1, 2, 6), 3 (D2), 4.9 (the Web Browser window), 9, 10 (Phase 2), 12 (`browsers/chromium`, `tools/cef`); proposal 0002 sections 2, 3, 7, 8 (S), 11; ADR-0008
 Related ADRs: ADR-0002, ADR-0008

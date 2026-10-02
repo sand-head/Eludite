@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-cdp-event.json",
+  "title": "tab/cdpEvent",
+  "description": "Engine-to-shell notification: a message from the tab's DevTools agent (CefDevToolsMessageObserver::OnDevToolsMessage), unchanged: a response `{id, result | error}` to a tab/cdp command or an event `{method, params}`. A tab/cdp for a tab that does not exist is answered here with error -32000.",
+  "x-eludite-method": "tab/cdpEvent",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "message"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

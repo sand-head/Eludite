@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-closed.json",
+  "title": "tab/closed",
+  "description": "Engine-to-shell notification: the tab is gone (closed by tab/close, by the page, or its renderer crashed and the browser closed).",
+  "x-eludite-method": "tab/closed",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "reason"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "enum": [
+            "closed",
+            "crashed"
+          ]
+        }
+      }
+    }
+  }
+}

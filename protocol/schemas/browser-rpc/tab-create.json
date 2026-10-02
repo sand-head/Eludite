@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-create.json",
+  "title": "tab/create",
+  "description": "Open a windowless tab (CEF's off-screen rendering, OnPaint with BGRA pixels) at `url`. Before answering, the engine sends tab/resized with the tab's first shared-memory region, and from then on tab/frame for every painted frame.",
+  "x-eludite-method": "tab/create",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "url",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Any URL Chromium loads, including data: URLs; `about:blank` for none."
+        },
+        "width": {
+          "description": "The view's width in CSS pixels.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "height": {
+          "description": "The view's height in CSS pixels.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "scale": {
+          "description": "Device scale factor: device pixels per CSS pixel. Default 1.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 8
+        },
+        "frameRate": {
+          "description": "The windowless frame rate CEF paints at, at most. Default 60.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 240
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "tab"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
