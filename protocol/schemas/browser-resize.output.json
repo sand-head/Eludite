@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-resize.output.json",
+  "title": "eludite.browser.resize output",
+  "description": "The viewport in effect.",
+  "type": "object",
+  "required": [
+    "tab",
+    "width",
+    "height",
+    "device_scale_factor",
+    "mobile",
+    "user_agent"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "device_scale_factor": {
+      "type": "number",
+      "minimum": 0
+    },
+    "mobile": {
+      "type": "boolean"
+    },
+    "user_agent": {
+      "type": "string"
+    }
+  }
+}

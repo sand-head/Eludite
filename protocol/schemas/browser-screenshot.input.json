@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-screenshot.input.json",
+  "title": "eludite.browser.screenshot input",
+  "description": "Take a screenshot of a tab: the viewport (default), the whole page (`full_page`), or a clip (an element's ref or a rectangle). The image is scaled down to at most `max_width` pixels wide (default 1280) and comes back as an image. Costs about 50 to 150 ms and a few hundred kilobytes of context; prefer eludite.browser.read_page or eludite.browser.find to locate elements, and use screenshots to check layout and visuals. Coordinates in the page are CSS pixels; `scale` converts them to image pixels. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "full_page": {
+      "description": "Capture the whole scrollable page instead of the viewport.",
+      "type": "boolean"
+    },
+    "clip": {
+      "description": "Capture only this: an element's ref (its border box), or a rectangle in CSS pixels relative to the viewport.",
+      "anyOf": [
+        {
+          "description": "A ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+          "type": "string",
+          "pattern": "^e[0-9]+$"
+        },
+        {
+          "type": "object",
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "height": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "max_width": {
+      "description": "The widest the image may be, in pixels (default 1280). A wider capture is scaled down.",
+      "type": "integer",
+      "minimum": 16,
+      "maximum": 4096
+    },
+    "format": {
+      "description": "`png` (default) or `jpeg`.",
+      "enum": [
+        "png",
+        "jpeg"
+      ]
+    },
+    "quality": {
+      "description": "JPEG quality, 0 to 100 (default 80). Only with `format: jpeg`.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

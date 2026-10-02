@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-wait.output.json",
+  "title": "eludite.browser.wait output",
+  "description": "What was satisfied, or `timeout: true`.",
+  "type": "object",
+  "required": [
+    "tab",
+    "timeout",
+    "page_generation",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "timeout": {
+      "type": "boolean"
+    },
+    "satisfied": {
+      "description": "Present unless `timeout`.",
+      "type": "object",
+      "required": [
+        "for"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "for": {
+          "enum": [
+            "selector",
+            "text",
+            "navigation",
+            "network_idle",
+            "console",
+            "function"
+          ]
+        },
+        "ref": {
+          "description": "`selector`: the first matching element.",
+          "type": "string",
+          "pattern": "^e[0-9]+$"
+        },
+        "url": {
+          "description": "`navigation`: where the frame went.",
+          "type": "string"
+        },
+        "message": {
+          "description": "`console`: the matching message's text.",
+          "type": "string"
+        },
+        "seq": {
+          "description": "`console`: the matching message's seq.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "value": {
+          "description": "`function`: the truthy value (JSON)."
+        }
+      }
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

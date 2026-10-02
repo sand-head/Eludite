@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-wait.input.json",
+  "title": "eludite.browser.wait input",
+  "description": "Wait on a tab until something happens, up to `wait_ms` (default 10000, at most 60000): an element matching `css` exists (`for: selector`, answers its ref), the page's text contains `text` (`for: text`), the main frame navigates and loads (`for: navigation`), no request is in flight for 500 ms (`for: network_idle`), a console message matching `pattern` arrives (`for: console`), or `expression` evaluates truthy (`for: function`, polled every 100 ms). Use instead of sleeping after an action that updates the page asynchronously. Not satisfied in time answers `timeout: true`, not a failure. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "required": [
+    "for"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "for": {
+      "enum": [
+        "selector",
+        "text",
+        "navigation",
+        "network_idle",
+        "console",
+        "function"
+      ]
+    },
+    "css": {
+      "description": "With `for: selector`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "description": "With `for: text`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "pattern": {
+      "description": "With `for: console`. A substring, or a regular expression between slashes (`/err(or)?/`; Rust regex syntax, `/.../i` for case-insensitive).",
+      "type": "string",
+      "minLength": 1
+    },
+    "expression": {
+      "description": "With `for: function`: JavaScript evaluated in the page; awaited when it returns a promise.",
+      "type": "string",
+      "minLength": 1
+    },
+    "wait_ms": {
+      "description": "How long to wait, in milliseconds (default 10000).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60000
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

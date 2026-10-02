@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-find.input.json",
+  "title": "eludite.browser.find input",
+  "description": "Find elements on a tab's page and get refs for them, deterministically: by CSS selector (`css`), by visible text (`text`, DevTools' search: a plain string matches text and attribute values), or by accessibility role and name (`role`, with an optional `name` matched case-insensitively as a substring). Give exactly one of `css`, `text` and `role`. Answers up to `max` matches (default 20) in document order with ref, role, name and box. Cheaper than reading the whole page when you know what you look for. No model is involved: a selector that matches nothing answers no matches. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "css": {
+      "description": "A CSS selector (DOM.querySelectorAll).",
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "description": "Text to search for (DOM.performSearch); a text match answers its element.",
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "description": "An accessibility role (`button`, `link`, `textbox`, `heading`, ...).",
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "description": "With `role`: the accessible name contains this (case-insensitive).",
+      "type": "string"
+    },
+    "max": {
+      "description": "The most matches to answer (default 20).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

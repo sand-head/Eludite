@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-find.output.json",
+  "title": "eludite.browser.find output",
+  "description": "The matches, in document order.",
+  "type": "object",
+  "required": [
+    "tab",
+    "matches",
+    "total",
+    "truncated",
+    "page_generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "role",
+          "name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string",
+            "pattern": "^e[0-9]+$"
+          },
+          "role": {
+            "description": "The accessibility role, or the tag name when the element has no accessibility node.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "box": {
+            "description": "The element's border box in CSS pixels relative to the viewport's top left corner (the space screenshots use). Omitted when the element has no box (not rendered).",
+            "type": "object",
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0
+              },
+              "height": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "How many elements matched (more than answered when truncated).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

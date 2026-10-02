@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-console.output.json",
+  "title": "eludite.browser.console output",
+  "description": "Console messages, oldest first.",
+  "type": "object",
+  "required": [
+    "tab",
+    "messages",
+    "next",
+    "dropped"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "seq",
+          "level",
+          "source",
+          "text",
+          "timestamp"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "level": {
+            "enum": [
+              "error",
+              "warning",
+              "info",
+              "log",
+              "debug"
+            ]
+          },
+          "source": {
+            "description": "`console` (console.* calls), `exception` (uncaught), or the browser's log source (`network`, `security`, `javascript`, `violation`, ...).",
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "stack": {
+            "description": "For errors: the stack, one `at function (url:line:column)` per line.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Milliseconds since the Unix epoch.",
+            "type": "number"
+          }
+        }
+      }
+    },
+    "next": {
+      "description": "The cursor to pass as `since` next time.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "dropped": {
+      "description": "Messages after `since` that the tab no longer keeps.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

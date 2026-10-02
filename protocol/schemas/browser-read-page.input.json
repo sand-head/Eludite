@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-read-page.input.json",
+  "title": "eludite.browser.read_page input",
+  "description": "Read a tab's page as a flat list of nodes in document order, each with a ref you can pass to other eludite.browser.* tools, its role, accessible name, value, state (checked, disabled, expanded, focused, selected, required, invalid) and bounding box. By default only interactive nodes (buttons, links, text boxes, checkboxes, options, tabs, sliders and anything else focusable with a name) from the accessibility tree; `filter: all` lists every node, `mode: dom` reads the DOM instead of the accessibility tree, `root` limits it to an element's subtree. The usual first call on a page: tens of milliseconds and a few kilobytes per hundred nodes. Refs stay valid until page_generation changes (a navigation or a replaced document); call read_page again then. Next: eludite.browser.find for a specific element, eludite.browser.page_text for the text, eludite.browser.screenshot for visuals. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "description": "`accessibility` (default): Accessibility.getFullAXTree. `dom`: DOM.getDocument, elements only.",
+      "enum": [
+        "accessibility",
+        "dom"
+      ]
+    },
+    "filter": {
+      "description": "`interactive` (default): roles button, link, textbox, checkbox, radio, combobox, listbox, option, menuitem, tab, slider, spinbutton, switch, searchbox, and focusable nodes with a name. `all`: every node that is not ignored.",
+      "enum": [
+        "interactive",
+        "all"
+      ]
+    },
+    "root": {
+      "description": "A ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+      "type": "string",
+      "pattern": "^e[0-9]+$"
+    },
+    "max_nodes": {
+      "description": "The most nodes to list (default 500); `truncated` says when there were more.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-console.input.json",
+  "title": "eludite.browser.console input",
+  "description": "Read a tab's console: console.* calls, uncaught exceptions and the browser's own messages (failed loads, security warnings), oldest first, each with a `seq`. Pass the answer's `next` as `since` to read only what arrived after; `dropped` counts messages lost because the tab keeps the last 2000. Use after a navigation or an action to check for JavaScript errors; `level: error` keeps errors only. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "since": {
+      "description": "Answer messages after this cursor (default 0: from the oldest kept).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "level": {
+      "description": "Only this level and more severe (debug < log < info < warning < error).",
+      "enum": [
+        "error",
+        "warning",
+        "info",
+        "log",
+        "debug"
+      ]
+    },
+    "pattern": {
+      "description": "Only messages whose text matches. A substring, or a regular expression between slashes (`/err(or)?/`; Rust regex syntax, `/.../i` for case-insensitive).",
+      "type": "string",
+      "minLength": 1
+    },
+    "max": {
+      "description": "The most messages to answer (default 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2000
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}
