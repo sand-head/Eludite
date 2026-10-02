@@ -62,6 +62,7 @@ fn netcoredbg_debugs_eludite_host() {
                     ..Default::default()
                 }],
             )],
+            function_breakpoints: Vec::new(),
             exception_filters: vec!["user-unhandled".into()],
         },
         T,
@@ -197,6 +198,7 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
             kind: StartKind::Launch,
             arguments: args,
             breakpoints: Vec::new(),
+            function_breakpoints: Vec::new(),
             exception_filters: Vec::new(),
         },
         T,
