@@ -405,33 +405,71 @@ impl Machine {
     /// Serve until disconnect, EOF or a crash (returns true for a crash).
     fn run(&mut self, rx: mpsc::Receiver<Incoming>) -> bool {
         while let Ok(incoming) = rx.recv() {
-            match incoming {
-                Incoming::Eof => return false,
-                Incoming::Control(Control::Crash) => return true,
-                Incoming::Control(Control::Stall(d)) => std::thread::sleep(d),
-                Incoming::Control(Control::Trigger) => {
-                    if self.configured && self.pc.is_none() {
-                        self.run_from(0, Mode::Continue);
+            if let Incoming::Control(Control::Stall(d)) = incoming {
+                // Hang for `d`, but keep listening: a crash during the stall ends the session
+                // before any deferred request is answered (deterministic for the crash tests),
+                // and requests that arrive meanwhile are answered once the stall ends.
+                let deadline = Instant::now() + d;
+                let mut deferred = Vec::new();
+                loop {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+                    match rx.recv_timeout(deadline - now) {
+                        Ok(Incoming::Control(Control::Crash)) => return true,
+                        Ok(Incoming::Eof) => return false,
+                        Ok(other) => deferred.push(other),
+                        Err(mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return false,
                     }
                 }
-                Incoming::Message(ProtocolMessage::Request {
-                    seq,
-                    command,
-                    arguments,
-                }) => {
-                    let args = arguments.unwrap_or(Value::Null);
-                    lock(&self.requests).push((command.clone(), args.clone()));
-                    if self.program.crash_on.as_deref() == Some(command.as_str()) {
-                        return true;
-                    }
-                    if !self.request(seq, &command, &args) {
-                        return false;
+                for m in deferred {
+                    if let Some(done) = self.handle(m) {
+                        return done;
                     }
                 }
-                Incoming::Message(_) => {}
+                continue;
+            }
+            if let Some(done) = self.handle(incoming) {
+                return done;
             }
         }
         false
+    }
+
+    /// Handle one incoming item; `Some(true)` is a crash, `Some(false)` ends the session.
+    fn handle(&mut self, incoming: Incoming) -> Option<bool> {
+        match incoming {
+            Incoming::Eof => Some(false),
+            Incoming::Control(Control::Crash) => Some(true),
+            Incoming::Control(Control::Stall(d)) => {
+                std::thread::sleep(d);
+                None
+            }
+            Incoming::Control(Control::Trigger) => {
+                if self.configured && self.pc.is_none() {
+                    self.run_from(0, Mode::Continue);
+                }
+                None
+            }
+            Incoming::Message(ProtocolMessage::Request {
+                seq,
+                command,
+                arguments,
+            }) => {
+                let args = arguments.unwrap_or(Value::Null);
+                lock(&self.requests).push((command.clone(), args.clone()));
+                if self.program.crash_on.as_deref() == Some(command.as_str()) {
+                    return Some(true);
+                }
+                if !self.request(seq, &command, &args) {
+                    return Some(false);
+                }
+                None
+            }
+            Incoming::Message(_) => None,
+        }
     }
 
     fn thread_id(&self) -> i64 {

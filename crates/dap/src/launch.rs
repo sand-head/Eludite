@@ -378,7 +378,11 @@ mod tests {
             Some("http://localhost:5000")
         );
         let v = c.netcoredbg_arguments();
-        assert_eq!(v["program"], dll.to_string_lossy().as_ref());
+        // Compare as paths: the config uses native separators, the fixture was joined with `/`.
+        assert_eq!(
+            std::path::PathBuf::from(v["program"].as_str().unwrap()),
+            dll.components().collect::<std::path::PathBuf>()
+        );
         assert_eq!(v["args"][2], "two words");
         assert_eq!(v["env"]["ELUDITE_LEGACY"], "0");
         assert_eq!(v["type"], "coreclr");
