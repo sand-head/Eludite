@@ -3056,15 +3056,17 @@ fn tracepoints_print_and_continue_without_a_visible_stop(cx: &mut TestAppContext
             .is_none()
     );
     d.fake().trigger();
+    // Hits count at the stop; an emulated line follows its evaluation: wait for the lines.
     d.w.wait("six lines", |w| {
         w.shell.read_with(&w.vcx, |s, _| {
             s.debugger()
                 .model
-                .breakpoints
-                .all()
+                .output(cmds::OutputKind::Debug)
+                .read(0, 100, None)
+                .0
                 .iter()
-                .map(|b| b.hits)
-                .sum::<u32>()
+                .filter(|l| l.text.starts_with("i=") || l.text.contains(" a="))
+                .count()
                 == 6
         })
     });
