@@ -1,7 +1,10 @@
-//! The shell's side of `eludite-host` (brief 0012): starts and supervises the host through `eludite-lsp`, opens and
-//! closes solutions, asks for the Workspace tree, and sends the editors' LSP document notifications.
+//! The shell's side of a language server: `eludite-host` (brief 0012) or a generic server the shell launches itself
+//! (rust-analyzer, brief 0019). A [`ServerSession`] starts and supervises its server through `eludite-lsp`, sends the
+//! editors' LSP document notifications and requests, and, for the host, opens and closes solutions, asks for the
+//! Workspace tree and runs builds. The editor features hold a [`ServerSession`] per document and never ask which
+//! kind it is: both kinds share `eludite-lsp`'s [`Connection`] for documents, requests and cancellation.
 //!
-//! Nothing here runs on the UI thread. The UI hands work to a worker thread through a channel ([`HostSession`]'s
+//! Nothing here runs on the UI thread. The UI hands work to a worker thread through a channel ([`ServerSession`]'s
 //! methods never block), and a pump thread turns the host's notifications into [`SessionEvent`]s on a `futures`
 //! channel that a foreground task drains. A stalled host therefore stalls only these threads: writes to it wait in
 //! the worker, never in a frame.
@@ -17,13 +20,21 @@
 //! [`RequestHandle::cancel`] sends `$/cancelRequest` for it.
 //!
 //! The host's one request to the shell, `workspace/applyEdit` (brief 0015), arrives as [`SessionEvent::ApplyEdit`];
-//! the shell answers it with [`HostSession::respond_apply_edit`], through the worker like everything else.
+//! the shell answers it with [`ServerSession::respond_apply_edit`], through the worker like everything else.
 //!
-//! Builds (brief 0017): [`HostSession::build_start`] and [`HostSession::build_cancel`] go through the worker too; the
+//! Builds (brief 0017): [`ServerSession::build_start`] and [`ServerSession::build_cancel`] go through the worker too; the
 //! host's reply arrives as [`SessionEvent::BuildStarted`] (or `BuildRefused`), and the build's streamed output,
 //! progress and result as `BuildOutput`, `BuildProgress` and `BuildFinished`. The host's stderr is captured and
 //! arrives line by line as [`SessionEvent::HostLog`] (the Output window's Host source) as well as on the shell's
 //! stderr.
+//!
+//! Generic servers (brief 0019, [`ServerSession::spawn_generic`]): the server starts with the first document opened
+//! for it, rooted at the workspace root the shell computed (the Cargo workspace root from `cargo metadata`). The
+//! executable is located from the registration (off the UI thread: it runs `--version`). Its state, work-done
+//! progress and `experimental/serverStatus` arrive as [`SessionEvent::LanguageServer`], [`SessionEvent::Progress`]
+//! and [`SessionEvent::ServerStatus`]; its generation (one more per restart) as [`SessionEvent::ServerGeneration`];
+//! its stderr and `window/logMessage` as [`SessionEvent::HostLog`]. A crash restarts it under the brief 0007 policy
+//! and replays the open documents.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -34,7 +45,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use eludite_lsp::host::{
-    self, Generation, LanguageServerStatus, SolutionState, SolutionStatus, SolutionTree,
+    self, Generation, LanguageServerState, LanguageServerStatus, ServerInfo, SolutionState,
+    SolutionStatus, SolutionTree,
 };
 use eludite_lsp::lsp::{
     self, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -42,12 +54,13 @@ use eludite_lsp::lsp::{
     VersionedTextDocumentIdentifier,
 };
 use eludite_lsp::{
-    ClientInfo, Connector, Event, HostClient, HostCommand, HostEvent, Id, RestartPolicy,
+    ClientInfo, Connection, Connector, Event, HostClient, HostCommand, HostEvent, Id, Progress,
+    RestartPolicy, ServerClient, ServerCommand, ServerRegistration, ServerSetup, ServerStatus,
+    StderrMode,
 };
 use eludite_protocol::RequestType;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::channel::oneshot;
-use serde_json::json;
 
 /// How long the worker waits for the host's reply to `eludite/solution/open` and `close`.
 const SOLUTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -130,6 +143,26 @@ impl HostLaunch {
     }
 }
 
+/// How to start a generic language server (brief 0019).
+#[derive(Clone)]
+pub struct GenericLaunch {
+    pub registration: ServerRegistration,
+    /// The workspace root (`rootUri`, the one workspace folder, the process's working directory).
+    pub root: PathBuf,
+    /// A server in this process instead of the located executable (the fake server in tests).
+    pub connector: Option<Connector>,
+}
+
+impl std::fmt::Debug for GenericLaunch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenericLaunch")
+            .field("server", &self.registration.id)
+            .field("root", &self.root)
+            .field("in_process", &self.connector.is_some())
+            .finish()
+    }
+}
+
 /// What the session tells the UI.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionEvent {
@@ -153,14 +186,14 @@ pub enum SessionEvent {
     /// `textDocument/publishDiagnostics` for the current generation.
     Diagnostics(lsp::PublishDiagnosticsParams),
     Closed,
-    /// `workspace/applyEdit` from the host, computed under `generation`; answer with
-    /// [`HostSession::respond_apply_edit`] and `id`.
+    /// `workspace/applyEdit` from the server, computed under `generation`; answer with
+    /// [`ServerSession::respond_apply_edit`] and `id`.
     ApplyEdit {
         id: Id,
         generation: Generation,
         params: lsp::ApplyWorkspaceEditParams,
     },
-    /// The host accepted the build started with [`HostSession::build_start`] `ticket`.
+    /// The host accepted the build started with [`ServerSession::build_start`] `ticket`.
     BuildStarted {
         ticket: u64,
         result: host::BuildStartResult,
@@ -177,8 +210,14 @@ pub enum SessionEvent {
         finished: Box<host::BuildFinished>,
         received: Instant,
     },
-    /// A line of the host's own log (stderr).
+    /// A line of the server's own log (stderr, or a generic server's `window/logMessage` and `window/showMessage`).
     HostLog(String),
+    /// A generic server's work-done progress (`$/progress`).
+    Progress(Progress),
+    /// A generic server's `experimental/serverStatus`.
+    ServerStatus(ServerStatus),
+    /// A generic server's generation: after it started, and after every restart.
+    ServerGeneration(Generation),
 }
 
 enum Cmd {
@@ -201,15 +240,15 @@ enum Cmd {
     DidClose {
         uri: String,
     },
-    /// The host restarted on its own: reopen and replay.
+    /// The server restarted on its own: reopen and replay.
     Replay,
     /// Send a request (after the notifications queued before it).
     Request(RequestJob),
     /// Cancel the request with this ticket if it is still in flight.
     Cancel(u64),
-    /// Answer the host's `workspace/applyEdit`.
+    /// Answer the server's `workspace/applyEdit`.
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
-    /// An untyped forwarded notification (`workspace/didChangeWatchedFiles`).
+    /// An untyped notification (`workspace/didChangeWatchedFiles`).
     Notify(String, serde_json::Value),
     BuildStart(u64, host::BuildStartParams),
     BuildCancel,
@@ -225,9 +264,10 @@ pub struct Shared {
     pub status: Option<SolutionStatus>,
 }
 
-/// The shell's handle on the host. Cheap to clone, `Send + Sync`; every method returns at once.
+/// The shell's handle on one language server: `eludite-host`, or a generic server. Cheap to clone,
+/// `Send + Sync`; every method returns at once.
 #[derive(Clone)]
-pub struct HostSession {
+pub struct ServerSession {
     tx: Arc<Mutex<Sender<Cmd>>>,
     shared: Arc<Mutex<Shared>>,
     tickets: Arc<AtomicU64>,
@@ -236,17 +276,17 @@ pub struct HostSession {
 /// Why a request has no result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RequestError {
-    /// No host is running (no solution was opened, or it failed to start).
+    /// No server is running (no solution was opened, or it failed to start).
     NoHost,
-    /// Canceled (by the shell, or the host answered RequestCancelled).
+    /// Canceled (by the shell, or the server answered RequestCancelled).
     Canceled,
-    /// Computed under a solution generation that is no longer current.
+    /// Computed under a generation that is no longer current.
     Stale,
     Failed(String),
 }
 
-/// The answer to [`HostSession::request`], with when the request was written and answered (for the latency
-/// measurements). A result computed under an older solution generation is already [`RequestError::Stale`].
+/// The answer to [`ServerSession::request`], with when the request was written and answered (for the latency
+/// measurements). A result computed under an older generation is already [`RequestError::Stale`].
 #[derive(Debug)]
 pub struct Reply<T> {
     pub result: Result<T, RequestError>,
@@ -266,13 +306,13 @@ impl<T> Reply<T> {
 
 /// Request ticket to request id, while in flight.
 type Inflight = Arc<Mutex<HashMap<u64, Id>>>;
-type RequestJob = Box<dyn FnOnce(Option<&HostClient>, &Inflight) + Send>;
+type RequestJob = Box<dyn FnOnce(Option<&Connection>, &Inflight) + Send>;
 
 /// A request in flight; [`RequestHandle::cancel`] cancels it. Dropping it does not.
 #[derive(Debug, Clone)]
 pub struct RequestHandle {
     ticket: u64,
-    session: HostSession,
+    session: ServerSession,
 }
 
 impl RequestHandle {
@@ -281,23 +321,35 @@ impl RequestHandle {
     }
 }
 
-impl std::fmt::Debug for HostSession {
+impl std::fmt::Debug for ServerSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("HostSession")
+        f.debug_struct("ServerSession")
             .field("solution", &self.shared().solution)
             .finish()
     }
 }
 
-impl HostSession {
-    /// Starts the worker (the host itself starts on the first `open`). Events arrive on the returned receiver.
+impl ServerSession {
+    /// The `eludite-host` session. Starts the worker (the host itself starts on the first `open`). Events arrive on
+    /// the returned receiver.
     pub fn spawn(launch: HostLaunch) -> (Self, UnboundedReceiver<SessionEvent>) {
+        Self::spawn_worker(Launch::Host(launch), "eludite-host-session")
+    }
+
+    /// A generic server's session (brief 0019). The server starts with the first `did_open`.
+    pub fn spawn_generic(launch: GenericLaunch) -> (Self, UnboundedReceiver<SessionEvent>) {
+        let name = format!("eludite-{}-session", launch.registration.id);
+        Self::spawn_worker(Launch::Generic(Box::new(launch)), &name)
+    }
+
+    fn spawn_worker(launch: Launch, name: &str) -> (Self, UnboundedReceiver<SessionEvent>) {
         let (tx, rx) = mpsc::channel();
         let (events, events_rx) = unbounded();
         let shared = Arc::new(Mutex::new(Shared::default()));
         let worker = Worker {
             launch,
             client: None,
+            gave_up: false,
             events,
             shared: shared.clone(),
             docs: HashMap::new(),
@@ -305,9 +357,9 @@ impl HostSession {
             inflight: Inflight::default(),
         };
         thread::Builder::new()
-            .name("eludite-host-session".into())
+            .name(name.into())
             .spawn(move || worker.run(rx))
-            .expect("spawn the host session thread");
+            .expect("spawn the language server session thread");
         (
             Self {
                 tx: Arc::new(Mutex::new(tx)),
@@ -318,7 +370,7 @@ impl HostSession {
         )
     }
 
-    /// Send forwarded request `R` after the document notifications already queued. The reply arrives on the returned
+    /// Send request `R` after the document notifications already queued. The reply arrives on the returned
     /// receiver; the UI awaits it and never blocks.
     pub fn request<R>(
         &self,
@@ -415,12 +467,12 @@ impl HostSession {
         self.send(Cmd::DidClose { uri });
     }
 
-    /// Answer the host's `workspace/applyEdit` request `id` ([`SessionEvent::ApplyEdit`]).
+    /// Answer the server's `workspace/applyEdit` request `id` ([`SessionEvent::ApplyEdit`]).
     pub fn respond_apply_edit(&self, id: Id, result: lsp::ApplyWorkspaceEditResult) {
         self.send(Cmd::RespondApplyEdit(id, result));
     }
 
-    /// Send a forwarded notification without Eludite typing (after the document notifications queued before it).
+    /// Send a notification without Eludite typing (after the document notifications queued before it).
     pub fn notify_untyped(&self, method: &str, params: serde_json::Value) {
         self.send(Cmd::Notify(method.to_owned(), params));
     }
@@ -436,7 +488,7 @@ impl HostSession {
         self.send(Cmd::BuildCancel);
     }
 
-    /// Shuts the host down; the returned receiver fires when done (or the worker is gone).
+    /// Shuts the server down; the returned receiver fires when done (or the worker is gone).
     pub fn shutdown(&self) -> Receiver<()> {
         let (tx, rx) = mpsc::sync_channel(1);
         self.send(Cmd::Shutdown(tx));
@@ -450,9 +502,38 @@ struct Doc {
     text: String,
 }
 
+enum Launch {
+    Host(HostLaunch),
+    Generic(Box<GenericLaunch>),
+}
+
+/// The running server.
+enum Backend {
+    Host(HostClient),
+    Server(ServerClient),
+}
+
+impl Backend {
+    fn conn(&self) -> &Connection {
+        match self {
+            Backend::Host(c) => c.connection(),
+            Backend::Server(c) => c.connection(),
+        }
+    }
+
+    fn host(&self) -> Option<&HostClient> {
+        match self {
+            Backend::Host(c) => Some(c),
+            Backend::Server(_) => None,
+        }
+    }
+}
+
 struct Worker {
-    launch: HostLaunch,
-    client: Option<HostClient>,
+    launch: Launch,
+    client: Option<Backend>,
+    /// A generic server that could not start is not tried again on every document.
+    gave_up: bool,
     events: UnboundedSender<SessionEvent>,
     shared: Arc<Mutex<Shared>>,
     docs: HashMap<String, Doc>,
@@ -474,12 +555,24 @@ impl Worker {
         let _ = self.events.unbounded_send(e);
     }
 
+    fn conn(&self) -> Option<&Connection> {
+        self.client.as_ref().map(Backend::conn)
+    }
+
+    fn host(&self) -> Option<&HostClient> {
+        self.client.as_ref().and_then(Backend::host)
+    }
+
+    fn is_generic(&self) -> bool {
+        matches!(self.launch, Launch::Generic(_))
+    }
+
     fn run(mut self, rx: Receiver<Cmd>) {
         while let Ok(cmd) = rx.recv() {
             match cmd {
                 Cmd::Open(path) => self.open(&path),
                 Cmd::Close => {
-                    if let Some(c) = &self.client {
+                    if let Some(c) = self.host() {
                         match c.close_solution(SOLUTION_TIMEOUT) {
                             Ok(g) => lock(&self.shared).generation = g,
                             Err(e) => eprintln!("eludite: closing the solution: {e}"),
@@ -493,15 +586,21 @@ impl Worker {
                     version,
                     text,
                 } => {
-                    self.send_open(&uri, &language_id, version, &text);
+                    // A generic server starts with its first document (and replays it on start).
+                    let started = self.client.is_none() && self.is_generic() && !self.gave_up;
                     self.docs.insert(
-                        uri,
+                        uri.clone(),
                         Doc {
-                            language_id,
+                            language_id: language_id.clone(),
                             version,
-                            text,
+                            text: text.clone(),
                         },
                     );
+                    if started {
+                        self.ensure_started();
+                    } else {
+                        self.send_open(&uri, &language_id, version, &text);
+                    }
                 }
                 Cmd::DidChange { uri, version, text } => {
                     let Some(doc) = self.docs.get_mut(&uri) else {
@@ -510,60 +609,58 @@ impl Worker {
                     let change = diff(&doc.text, &text);
                     doc.version = version;
                     doc.text = text;
-                    if let (Some(c), Some(change)) = (&self.client, change) {
-                        let _ =
-                            c.notify::<lsp::DidChangeTextDocument>(DidChangeTextDocumentParams {
-                                text_document: VersionedTextDocumentIdentifier { uri, version },
-                                content_changes: vec![change],
-                            });
+                    if let (Some(c), Some(change)) = (self.conn(), change) {
+                        let _ = c.did_change(DidChangeTextDocumentParams {
+                            text_document: VersionedTextDocumentIdentifier { uri, version },
+                            content_changes: vec![change],
+                        });
                     }
                 }
                 Cmd::DidSave { uri } => {
-                    if let Some(c) = &self.client {
-                        let _ = c.notify_untyped(
-                            "textDocument/didSave",
-                            json!({"textDocument": {"uri": uri}}),
-                        );
+                    if let Some(c) = self.conn() {
+                        let _ = c.did_save(&uri);
                     }
                 }
                 Cmd::DidClose { uri } => {
                     if self.docs.remove(&uri).is_some()
-                        && let Some(c) = &self.client
+                        && let Some(c) = self.conn()
                     {
-                        let _ = c.notify::<lsp::DidCloseTextDocument>(DidCloseTextDocumentParams {
+                        let _ = c.did_close(DidCloseTextDocumentParams {
                             text_document: TextDocumentIdentifier { uri },
                         });
                     }
                 }
                 Cmd::Replay => {
                     let solution = lock(&self.shared).solution.clone();
-                    if let Some(path) = solution {
+                    if let Some(path) = solution
+                        && !self.is_generic()
+                    {
                         self.open(&path);
                     }
                     for (uri, d) in &self.docs {
                         self.send_open(uri, &d.language_id, d.version, &d.text);
                     }
                 }
-                Cmd::Request(job) => job(self.client.as_ref(), &self.inflight),
+                Cmd::Request(job) => job(self.conn(), &self.inflight),
                 Cmd::Cancel(ticket) => {
                     let id = lock(&self.inflight).remove(&ticket);
-                    if let (Some(id), Some(c)) = (id, &self.client) {
-                        let _ = c.notify::<lsp::Cancel>(lsp::CancelParams { id });
+                    if let (Some(id), Some(c)) = (id, self.conn()) {
+                        c.cancel_id(id);
                     }
                 }
                 Cmd::RespondApplyEdit(id, result) => {
-                    if let Some(c) = &self.client {
+                    if let Some(c) = self.conn() {
                         let _ = c.respond_apply_edit(id, result);
                     }
                 }
                 Cmd::Notify(method, params) => {
-                    if let Some(c) = &self.client {
+                    if let Some(c) = self.conn() {
                         let _ = c.notify_untyped(&method, params);
                     }
                 }
                 Cmd::BuildStart(ticket, params) => self.build_start(ticket, params),
                 Cmd::BuildCancel => {
-                    if let Some(c) = &self.client
+                    if let Some(c) = self.host()
                         && let Ok(pending) =
                             c.request::<host::BuildCancel>(host::BuildCancelParams::default())
                     {
@@ -578,7 +675,7 @@ impl Worker {
                 }
                 Cmd::Shutdown(done) => {
                     if let Some(c) = self.client.take() {
-                        let _ = c.shutdown(Duration::from_secs(5));
+                        let _ = c.conn().shutdown(Duration::from_secs(5));
                     }
                     let _ = done.send(());
                     return;
@@ -593,7 +690,7 @@ impl Worker {
                 .events
                 .unbounded_send(SessionEvent::BuildRefused { ticket, message });
         };
-        let Some(client) = &self.client else {
+        let Some(client) = self.host() else {
             return refuse("eludite-host is not running; open a solution first".into());
         };
         let pending = match client.request::<host::BuildStart>(params) {
@@ -620,8 +717,8 @@ impl Worker {
     }
 
     fn send_open(&self, uri: &str, language_id: &str, version: i32, text: &str) {
-        if let Some(c) = &self.client {
-            let _ = c.notify::<lsp::DidOpenTextDocument>(DidOpenTextDocumentParams {
+        if let Some(c) = self.conn() {
+            let _ = c.did_open(DidOpenTextDocumentParams {
                 text_document: TextDocumentItem {
                     uri: uri.into(),
                     language_id: language_id.into(),
@@ -632,8 +729,8 @@ impl Worker {
         }
     }
 
-    /// Starts the host if needed. Returns false (and reports why) when it cannot.
-    fn ensure_host(&mut self) -> bool {
+    /// Starts the server if needed. Returns false (and reports why) when it cannot.
+    fn ensure_started(&mut self) -> bool {
         if self.client.is_some() {
             return true;
         }
@@ -641,67 +738,97 @@ impl Worker {
             name: "eludite".into(),
             version: eludite_commands::builtins::VERSION.into(),
         };
-        let started = match &self.launch {
-            HostLaunch::Process(cmd) => {
-                HostClient::start(cmd.clone(), info, RestartPolicy::default())
-            }
-            HostLaunch::InProcess(connector) => {
-                HostClient::start_in_process(connector.clone(), info, RestartPolicy::default())
-            }
-            HostLaunch::Missing(why) => {
-                self.emit(SessionEvent::HostFailed {
-                    reason: why.clone(),
-                });
-                return false;
-            }
-        };
-        match started {
-            Ok((client, events)) => {
-                let version = client
-                    .initialize_result()
-                    .map(|i| i.host_version)
-                    .unwrap_or_default();
-                self.emit(SessionEvent::HostStarted { version });
-                let pump = Pump {
-                    client: client.clone(),
-                    events: self.events.clone(),
-                    shared: self.shared.clone(),
-                    tx: self.tx.clone(),
+        let (backend, events) = match &self.launch {
+            Launch::Host(launch) => {
+                let started = match launch {
+                    HostLaunch::Process(cmd) => {
+                        HostClient::start(cmd.clone(), info, RestartPolicy::default())
+                    }
+                    HostLaunch::InProcess(connector) => HostClient::start_in_process(
+                        connector.clone(),
+                        info,
+                        RestartPolicy::default(),
+                    ),
+                    HostLaunch::Missing(why) => {
+                        self.emit(SessionEvent::HostFailed {
+                            reason: why.clone(),
+                        });
+                        return false;
+                    }
                 };
-                let _ = thread::Builder::new()
-                    .name("eludite-host-events".into())
-                    .spawn(move || pump.run(events));
-                // Replay documents opened before the host was up.
-                for (uri, d) in &self.docs {
-                    let _ = client.notify::<lsp::DidOpenTextDocument>(DidOpenTextDocumentParams {
-                        text_document: TextDocumentItem {
-                            uri: uri.clone(),
-                            language_id: d.language_id.clone(),
-                            version: d.version,
-                            text: d.text.clone(),
-                        },
-                    });
+                match started {
+                    Ok((client, events)) => {
+                        let version = client
+                            .initialize_result()
+                            .map(|i| i.host_version)
+                            .unwrap_or_default();
+                        self.emit(SessionEvent::HostStarted { version });
+                        (Backend::Host(client), events)
+                    }
+                    Err(e) => {
+                        self.emit(SessionEvent::HostFailed {
+                            reason: format!("eludite-host did not start: {e}"),
+                        });
+                        return false;
+                    }
                 }
-                self.client = Some(client);
-                true
             }
-            Err(e) => {
-                self.emit(SessionEvent::HostFailed {
-                    reason: format!("eludite-host did not start: {e}"),
-                });
-                false
-            }
+            Launch::Generic(launch) => match start_generic(launch, info) {
+                Ok((client, events)) => {
+                    self.emit(SessionEvent::ServerGeneration(client.generation()));
+                    self.emit(SessionEvent::LanguageServer(running_status(&client)));
+                    (Backend::Server(client), events)
+                }
+                Err(message) => {
+                    self.gave_up = true;
+                    self.emit(SessionEvent::LanguageServer(LanguageServerStatus {
+                        state: LanguageServerState::Unavailable,
+                        server_info: None,
+                        capabilities: None,
+                        message: Some(message),
+                    }));
+                    return false;
+                }
+            },
+        };
+        let pump = Pump {
+            backend: match &backend {
+                Backend::Host(c) => Backend::Host(c.clone()),
+                Backend::Server(c) => Backend::Server(c.clone()),
+            },
+            events: self.events.clone(),
+            shared: self.shared.clone(),
+            tx: self.tx.clone(),
+        };
+        let _ = thread::Builder::new()
+            .name("eludite-server-events".into())
+            .spawn(move || pump.run(events));
+        // Replay documents opened before the server was up.
+        for (uri, d) in &self.docs {
+            let _ = backend.conn().did_open(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: d.language_id.clone(),
+                    version: d.version,
+                    text: d.text.clone(),
+                },
+            });
         }
+        self.client = Some(backend);
+        true
     }
 
     fn open(&mut self, path: &Path) {
+        if self.is_generic() {
+            return;
+        }
         self.emit(SessionEvent::Opening {
             path: path.to_path_buf(),
         });
-        if !self.ensure_host() {
+        if !self.ensure_started() {
             return;
         }
-        let Some(client) = self.client.clone() else {
+        let Some(client) = self.host().cloned() else {
             return;
         };
         let generation = match client.open_solution(&path.to_string_lossy(), SOLUTION_TIMEOUT) {
@@ -736,9 +863,65 @@ impl Worker {
     }
 }
 
-/// Turns host events into session events.
+/// Locate (unless in process) and start a generic server. Runs `--version` and the LSP handshake: worker thread only.
+fn start_generic(
+    launch: &GenericLaunch,
+    client: ClientInfo,
+) -> Result<(ServerClient, Receiver<Event>), String> {
+    let reg = &launch.registration;
+    let setup = ServerSetup {
+        name: reg.id.clone(),
+        client,
+        root: launch.root.clone(),
+        initialization_options: reg.initialization_options.clone(),
+        settings: reg.settings.clone(),
+    };
+    let started = match &launch.connector {
+        Some(connector) => {
+            ServerClient::start_in_process(connector.clone(), setup, RestartPolicy::default())
+        }
+        None => {
+            let located = reg.locate()?;
+            documents_trace(&format!(
+                "{} {} from {} ({})",
+                reg.id,
+                located.version,
+                located.source,
+                located.path.display()
+            ));
+            let mut command = ServerCommand::new(located.path.as_os_str())
+                .current_dir(&launch.root)
+                .stderr(StderrMode::Capture);
+            if let Some(spec) = &reg.command {
+                for a in &spec.args {
+                    command = command.arg(a);
+                }
+            }
+            ServerClient::start(command, setup, RestartPolicy::default())
+        }
+    };
+    started.map_err(|e| format!("{} did not start: {e}", reg.name))
+}
+
+fn documents_trace(what: &str) {
+    super::documents::trace(format_args!("{what}"));
+}
+
+/// `running`, with the server's `serverInfo` and capabilities, as the host reports its language server.
+fn running_status(client: &ServerClient) -> LanguageServerStatus {
+    LanguageServerStatus {
+        state: LanguageServerState::Running,
+        server_info: client
+            .server_info()
+            .map(|(name, version)| ServerInfo { name, version }),
+        capabilities: client.capabilities(),
+        message: None,
+    }
+}
+
+/// Turns server events into session events.
 struct Pump {
-    client: HostClient,
+    backend: Backend,
     events: UnboundedSender<SessionEvent>,
     shared: Arc<Mutex<Shared>>,
     tx: Sender<Cmd>,
@@ -746,6 +929,7 @@ struct Pump {
 
 impl Pump {
     fn run(self, rx: Receiver<Event>) {
+        let generic = matches!(self.backend, Backend::Server(_));
         while let Ok(event) = rx.recv() {
             let out = match event {
                 Event::SolutionStatus(status) => {
@@ -764,7 +948,7 @@ impl Pump {
                     SessionEvent::Solution(status)
                 }
                 Event::LanguageServerStatus(s) => SessionEvent::LanguageServer(s),
-                Event::Diagnostics(d) if d.generation == self.client.generation() => {
+                Event::Diagnostics(d) if d.generation == self.backend.conn().generation() => {
                     SessionEvent::Diagnostics(d.params)
                 }
                 Event::Diagnostics(_) => continue,
@@ -775,16 +959,53 @@ impl Pump {
                 },
                 Event::Host(HostEvent::Restarted { .. }) => {
                     let _ = self.tx.send(Cmd::Replay);
-                    continue;
+                    match &self.backend {
+                        Backend::Server(c) => {
+                            let _ = self
+                                .events
+                                .unbounded_send(SessionEvent::ServerGeneration(c.generation()));
+                            SessionEvent::LanguageServer(running_status(c))
+                        }
+                        Backend::Host(_) => continue,
+                    }
                 }
+                Event::Host(HostEvent::Exited {
+                    expected: false,
+                    code,
+                }) if generic => SessionEvent::LanguageServer(LanguageServerStatus {
+                    state: LanguageServerState::Restarting,
+                    server_info: None,
+                    capabilities: None,
+                    message: Some(match code {
+                        Some(c) => format!("exited with code {c}"),
+                        None => "exited".into(),
+                    }),
+                }),
                 Event::Host(HostEvent::Exited {
                     expected: false, ..
                 }) => SessionEvent::HostRestarting,
+                Event::Host(HostEvent::GaveUp { reason }) if generic => {
+                    SessionEvent::LanguageServer(LanguageServerStatus {
+                        state: LanguageServerState::Exited,
+                        server_info: None,
+                        capabilities: None,
+                        message: Some(reason),
+                    })
+                }
                 Event::Host(HostEvent::GaveUp { reason }) => SessionEvent::HostFailed { reason },
-                Event::Host(HostEvent::Exited { .. })
-                | Event::Notification(_)
-                | Event::Progress(_)
-                | Event::ServerStatus(_) => continue,
+                Event::Notification(n) if generic && n.method == "window/showMessage" => {
+                    SessionEvent::HostLog(
+                        n.params
+                            .as_ref()
+                            .and_then(|p| p.get("message"))
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned(),
+                    )
+                }
+                Event::Host(HostEvent::Exited { .. }) | Event::Notification(_) => continue,
+                Event::Progress(p) => SessionEvent::Progress(p),
+                Event::ServerStatus(s) => SessionEvent::ServerStatus(s),
                 Event::BuildOutput(o) => SessionEvent::BuildOutput(o),
                 Event::BuildProgress(p) => SessionEvent::BuildProgress(p),
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
@@ -792,7 +1013,9 @@ impl Pump {
                     received: Instant::now(),
                 },
                 Event::Log(line) => {
-                    eprintln!("[eludite-host] {line}");
+                    if !generic {
+                        eprintln!("[eludite-host] {line}");
+                    }
                     SessionEvent::HostLog(line)
                 }
             };

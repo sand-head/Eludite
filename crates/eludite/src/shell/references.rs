@@ -547,7 +547,7 @@ impl Shell {
             return;
         }
         self.flush_change(id, cx);
-        let generation = self.generation;
+        let generation = self.doc_generation(id);
         let doc = &self.documents[id];
         let version = doc.lsp_version;
         let params = lsp::ReferenceParams {
@@ -565,7 +565,7 @@ impl Shell {
             "references request {ticket} at {}:{} version {version}",
             params.position.line, params.position.character
         ));
-        let (handle, rx) = self.session.request::<lsp::References>(params);
+        let (handle, rx) = doc.session.request::<lsp::References>(params);
         let doc_id = id.to_owned();
         let task = cx.spawn(async move |this, cx| {
             let Ok(reply) = rx.await else {
@@ -581,7 +581,9 @@ impl Shell {
                 let doc_version = shell.documents.get(&doc_id).map(|d| d.lsp_version);
                 if !newest {
                     Some(true)
-                } else if shell.generation != generation || doc_version != Some(version) {
+                } else if shell.doc_generation(&doc_id) != generation
+                    || doc_version != Some(version)
+                {
                     Some(false)
                 } else {
                     None

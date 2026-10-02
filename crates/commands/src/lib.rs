@@ -18,6 +18,8 @@
 //! commands and [`solution`] `eludite.solution.tree` (brief 0016). [`build`] holds the Build menu's `eludite.build.*`
 //! commands and the Output window's `eludite.output.*` (brief 0017). [`debug`] holds the debugger's `eludite.debug.*`
 //! commands (brief 0018), registered by the shell through a [`debug::DebugTarget`].
+//! [`workspace_tree`] holds `eludite.workspace.tree`, every project of the open workspace whatever its build system
+//! (brief 0019).
 
 pub mod agents;
 mod audit;
@@ -32,6 +34,7 @@ mod registry;
 pub mod solution;
 pub mod view;
 pub mod workspace;
+pub mod workspace_tree;
 
 pub use audit::{AuditEntry, AuditLog, EditRecord, EditState, Outcome};
 pub use caller::{Caller, current_caller, next_call_id, with_caller};

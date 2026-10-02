@@ -2,7 +2,8 @@
 //! the open documents and the Error List (brief 0012), IntelliSense (brief 0013), and navigation: Go To Definition,
 //! the navigation history, Find All References and the Error List's filters (brief 0014), and rename, code actions
 //! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), builds with the Output window and
-//! the build's rows in the Error List (brief 0017), and run and debug (brief 0018).
+//! the build's rows in the Error List (brief 0017), run and debug (brief 0018), and File > Open Folder
+//! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -17,6 +18,7 @@ pub mod debug;
 pub mod documents;
 pub mod error_list;
 pub mod explorer;
+pub mod folder;
 pub mod intellisense;
 #[cfg(test)]
 mod intellisense_tests;
@@ -28,6 +30,7 @@ pub mod output;
 mod refactor_tests;
 pub mod references;
 pub mod rename;
+pub mod servers;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -75,7 +78,8 @@ use self::explorer::{Placeholder, SolutionExplorer};
 use self::navigation::Navigation;
 use self::output::OutputWindow;
 use self::references::{References, ReferencesEvent, ReferencesWindow};
-use self::session::{HostLaunch, HostSession, SessionEvent};
+use self::servers::{GenericServer, ServerKey, ServerLaunches};
+use self::session::{HostLaunch, ServerSession, SessionEvent};
 use self::target::{ShellTarget, UiJob};
 
 type AfterPresent = Box<dyn FnOnce(&mut Window, &mut App)>;
@@ -93,7 +97,7 @@ const WELCOME: &str = "welcome";
 
 /// What the shell needs from the command bus side: wired by [`register_workspace`].
 pub struct Services {
-    pub session: HostSession,
+    pub session: ServerSession,
     pub events: UnboundedReceiver<SessionEvent>,
     pub jobs: UnboundedReceiver<UiJob>,
     /// The Error List rows `diagnostics.list` reads, on any thread.
@@ -112,12 +116,16 @@ pub struct Services {
     pub debug_jobs: UnboundedReceiver<debug::DebugJob>,
     /// How debugging sessions reach their adapter.
     pub debug: debug::DebugSetup,
+    /// What `eludite.workspace.tree` reads, on any thread (brief 0019).
+    pub workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
+    /// The language-server registrations and, in tests, servers in this process (brief 0019).
+    pub launches: ServerLaunches,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
 /// thread.
 pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) -> Services {
-    let (session, events) = HostSession::spawn(launch);
+    let (session, events) = ServerSession::spawn(launch);
     let (jobs_tx, jobs) = unbounded();
     workspace::register(
         commands,
@@ -146,6 +154,19 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         }),
     )
     .expect("eludite.solution.tree registers once");
+    let workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>> =
+        Arc::default();
+    let workspace_tree_source = workspace_tree.clone();
+    eludite_commands::workspace_tree::register(
+        commands,
+        Arc::new(move || {
+            workspace_tree_source
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        }),
+    )
+    .expect("eludite.workspace.tree registers once");
     let (agent_jobs_tx, agent_jobs) = unbounded();
     eludite_commands::agents::register(
         commands,
@@ -177,6 +198,8 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         build_shared,
         debug_jobs,
         debug: debug::DebugSetup::from_env(),
+        workspace_tree,
+        launches: ServerLaunches::default(),
     }
 }
 
@@ -211,7 +234,7 @@ pub struct Shell {
     status: StatusBar,
     focus: FocusHandle,
     on_first_render: Option<AfterPresent>,
-    session: HostSession,
+    session: ServerSession,
     published: Arc<Mutex<Vec<ListedDiagnostic>>>,
     languages: Arc<LanguageRegistry>,
     /// Open documents by tab id (the absolute path).
@@ -256,6 +279,16 @@ pub struct Shell {
     builds: Builds,
     /// Run and debug (brief 0018).
     debug: debug::Debugger,
+    /// Language-server registrations and how to launch them (brief 0019).
+    launches: ServerLaunches,
+    /// Generic language servers by `<registration id>|<root>` (brief 0019).
+    generic: std::collections::BTreeMap<String, GenericServer>,
+    /// File > Open Folder (brief 0019).
+    folder: Option<folder::OpenFolder>,
+    /// What `eludite.workspace.tree` returns.
+    workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
+    /// The host's last tree, for `eludite.workspace.tree` without a folder.
+    last_tree: Option<eludite_lsp::host::SolutionTree>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -374,6 +407,8 @@ impl Shell {
             build_shared,
             debug_jobs,
             debug: debug_setup,
+            workspace_tree,
+            launches,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -590,6 +625,11 @@ impl Shell {
             tree,
             builds: Builds::new(building, build_shared),
             debug: debugger,
+            launches,
+            generic: Default::default(),
+            folder: None,
+            workspace_tree,
+            last_tree: None,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -694,6 +734,10 @@ impl Shell {
         }
         if command == workspace::SOLUTION_OPEN && args.get("path").is_none() {
             self.prompt_open_solution(window, cx);
+            return;
+        }
+        if command == workspace::WORKSPACE_OPEN_FOLDER && args.get("path").is_none() {
+            self.prompt_open_folder(window, cx);
             return;
         }
         if command == workspace::FILE_CLOSE
@@ -942,6 +986,7 @@ impl Shell {
             WorkspaceRequest::ApplyEdit { edit, label } => {
                 self.apply_edit_command(edit, label, window, cx)
             }
+            WorkspaceRequest::OpenFolder { path } => self.open_folder(&path, window, cx),
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),
@@ -965,12 +1010,9 @@ impl Shell {
         match event {
             SessionEvent::Opening { path } => {
                 if self.solution.as_ref() != Some(&path) {
-                    self.diagnostics.clear();
+                    self.clear_host_diagnostics(cx);
                     self.host_diagnostics.clear();
                     self.builds.diagnostics.clear();
-                    for doc in self.documents.values() {
-                        doc.clear_diagnostics(cx);
-                    }
                     self.load_platforms(path.clone(), window, cx);
                 }
                 if self.timings.open.is_none() {
@@ -979,14 +1021,17 @@ impl Shell {
                 self.solution = Some(path.clone());
                 self.debug_solution_opened(&path, cx);
                 let name = self.solution_name();
-                window.set_window_title(&format!(
-                    "{} - Eludite",
-                    path.file_stem()
-                        .map_or("Solution".into(), |s| s.to_string_lossy())
-                ));
-                self.explorer.update(cx, |e, cx| {
-                    e.set_placeholder(Placeholder::Loading(name.clone()), cx)
-                });
+                // An open folder keeps its title and its tree, where the solution shows as loading.
+                if self.folder.is_none() {
+                    window.set_window_title(&format!(
+                        "{} - Eludite",
+                        path.file_stem()
+                            .map_or("Solution".into(), |s| s.to_string_lossy())
+                    ));
+                    self.explorer.update(cx, |e, cx| {
+                        e.set_placeholder(Placeholder::Loading(name.clone()), cx)
+                    });
+                }
                 self.status
                     .set(SOLUTION_SLOT, format!("Opening {name}\u{2026}"));
             }
@@ -996,9 +1041,16 @@ impl Shell {
             }
             SessionEvent::HostFailed { reason } => {
                 self.status.set(SOLUTION_SLOT, reason.clone());
-                self.explorer.update(cx, |e, cx| {
-                    e.set_placeholder(Placeholder::Failed(reason), cx)
-                });
+                if let Some(f) = self.folder.as_mut() {
+                    if f.solution.is_some() {
+                        f.solution_failed = Some(reason);
+                        self.recompose(cx);
+                    }
+                } else {
+                    self.explorer.update(cx, |e, cx| {
+                        e.set_placeholder(Placeholder::Failed(reason), cx)
+                    });
+                }
             }
             SessionEvent::HostRestarting => {
                 self.status.set(
@@ -1036,11 +1088,15 @@ impl Shell {
                 }
                 if status.generation > self.generation {
                     // A new generation: everything computed under the old one is stale (CLAUDE.md invariant 12).
+                    // Generic servers' documents and diagnostics are not the solution's.
                     self.generation = status.generation;
-                    self.diagnostics.clear();
+                    self.clear_host_diagnostics(cx);
                     self.builds.diagnostics.clear();
-                    for doc in self.documents.values_mut() {
-                        doc.clear_diagnostics(cx);
+                    for doc in self
+                        .documents
+                        .values_mut()
+                        .filter(|d| d.server == ServerKey::Host)
+                    {
                         doc.intellisense.cancel_all();
                     }
                     self.navigation.cancel();
@@ -1101,6 +1157,18 @@ impl Shell {
                 ));
                 self.host_diagnostics = status.diagnostics.clone();
                 self.status.set(SOLUTION_SLOT, text);
+                if status.state == SolutionState::Failed
+                    && let Some(f) = self.folder.as_mut()
+                    && f.tree.is_none()
+                {
+                    f.solution_failed = Some(
+                        status
+                            .diagnostics
+                            .first()
+                            .map_or("load failed".into(), |d| d.message.clone()),
+                    );
+                    self.recompose(cx);
+                }
                 self.update_error_list(cx);
             }
             SessionEvent::Tree(tree) => {
@@ -1109,6 +1177,14 @@ impl Shell {
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
                 self.publish_tree(&tree);
+                if let Some(f) = self.folder.as_mut() {
+                    // The solution's node of the open folder (brief 0019).
+                    f.tree = Some(tree);
+                    f.solution_failed = None;
+                    self.recompose(cx);
+                    cx.notify();
+                    return;
+                }
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
@@ -1137,7 +1213,7 @@ impl Shell {
                 id,
                 generation,
                 params,
-            } => self.on_host_apply_edit(id, generation, params, window, cx),
+            } => self.on_server_apply_edit(ServerKey::Host, id, generation, params, window, cx),
             SessionEvent::BuildStarted { ticket, result } => {
                 self.on_build_started(ticket, result, cx)
             }
@@ -1160,17 +1236,28 @@ impl Shell {
                 *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
                 self.solution_state = None;
-                self.diagnostics.clear();
+                self.last_tree = None;
+                self.clear_host_diagnostics(cx);
                 self.builds.diagnostics.clear();
                 self.host_diagnostics.clear();
-                for doc in self.documents.values() {
-                    doc.clear_diagnostics(cx);
-                }
-                self.explorer.update(cx, |e, cx| e.clear(cx));
                 self.status.set(SOLUTION_SLOT, "");
-                window.set_window_title("Eludite");
+                if let Some(f) = self.folder.as_mut() {
+                    f.tree = None;
+                    if f.solution.is_some() && self.session.shared().solution.is_none() {
+                        f.solution = None;
+                    }
+                    self.recompose(cx);
+                } else {
+                    self.explorer.update(cx, |e, cx| e.clear(cx));
+                    window.set_window_title("Eludite");
+                    self.publish_workspace_tree();
+                }
                 self.update_error_list(cx);
             }
+            // Generic servers' events arrive through their own sessions (`servers`).
+            SessionEvent::Progress(_)
+            | SessionEvent::ServerStatus(_)
+            | SessionEvent::ServerGeneration(_) => {}
         }
         cx.notify();
     }
@@ -1243,6 +1330,28 @@ impl Shell {
                 .collect(),
         };
         *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = out;
+        self.last_tree = Some(tree.clone());
+        self.publish_workspace_tree();
+    }
+
+    /// Forget the diagnostics of the host's documents (a new solution generation); generic servers' stay.
+    fn clear_host_diagnostics(&mut self, cx: &mut Context<Self>) {
+        let host: Vec<String> = self
+            .diagnostics
+            .keys()
+            .filter(|uri| self.uri_server(uri) == ServerKey::Host)
+            .cloned()
+            .collect();
+        for uri in host {
+            self.diagnostics.remove(&uri);
+        }
+        for doc in self
+            .documents
+            .values()
+            .filter(|d| d.server == ServerKey::Host)
+        {
+            doc.clear_diagnostics(cx);
+        }
     }
 
     /// Rebuild the Error List rows and what `diagnostics.list` returns: the live diagnostics (the language server's
@@ -1250,11 +1359,7 @@ impl Shell {
     /// live one is shown once, as both (brief 0017); build diagnostics never replace live ones.
     fn update_error_list(&mut self, cx: &mut Context<Self>) {
         let model = self.explorer.read(cx).model().cloned();
-        let root = self
-            .solution
-            .as_deref()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf);
+        let root = self.workspace_root();
         let project_name = |p: &str| {
             Path::new(p)
                 .file_stem()

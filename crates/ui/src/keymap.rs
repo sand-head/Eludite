@@ -66,6 +66,12 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             args: json!({}),
         },
         command("ctrl-shift-o", "Ctrl+Shift+O", "eludite.solution.open"),
+        // File.OpenFolder (brief 0019).
+        command(
+            "ctrl-shift-alt-o",
+            "Ctrl+Shift+Alt+O",
+            "eludite.workspace.open_folder",
+        ),
         command("ctrl-s", "Ctrl+S", "eludite.editor.save"),
         command("ctrl-z", "Ctrl+Z", "eludite.editor.undo"),
         command("ctrl-y", "Ctrl+Y", "eludite.editor.redo"),
