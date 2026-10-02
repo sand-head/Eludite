@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader};
+use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -76,6 +77,16 @@ impl HostCommand {
         self.stderr = mode;
         self
     }
+}
+
+/// Opens a fresh connection to a host that runs in this process (tests, embedders): the stream the host writes to
+/// and the stream it reads from. Called again for every restart.
+pub type Connector =
+    Arc<dyn Fn() -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> + Send + Sync>;
+
+enum Launch {
+    Process(HostCommand),
+    InProcess(Connector),
 }
 
 /// What the client sends in `eludite/host/initialize`.
@@ -187,12 +198,26 @@ struct Pending {
 }
 
 struct Process {
-    child: Child,
-    stdin: ChildStdin,
+    /// `None` for an in-process host.
+    child: Option<Child>,
+    stdin: Box<dyn Write + Send>,
+}
+
+impl Process {
+    /// Kills the child, or closes an in-process host's input so it ends.
+    fn kill(&mut self) -> io::Result<()> {
+        match self.child.as_mut() {
+            Some(c) => c.kill(),
+            None => {
+                self.stdin = Box::new(io::sink());
+                Ok(())
+            }
+        }
+    }
 }
 
 struct Inner {
-    command: HostCommand,
+    launch: Launch,
     client: ClientInfo,
     restart: RestartPolicy,
     process: Mutex<Option<Process>>,
@@ -235,9 +260,27 @@ impl HostClient {
         client: ClientInfo,
         restart: RestartPolicy,
     ) -> Result<(HostClient, Receiver<Event>), Error> {
+        Self::launch(Launch::Process(command), client, restart)
+    }
+
+    /// As [`HostClient::start`], with a host running in this process behind `connector` (the fake host in tests).
+    /// [`HostClient::pid`] is `None` and [`HostClient::kill`] closes the host's input.
+    pub fn start_in_process(
+        connector: Connector,
+        client: ClientInfo,
+        restart: RestartPolicy,
+    ) -> Result<(HostClient, Receiver<Event>), Error> {
+        Self::launch(Launch::InProcess(connector), client, restart)
+    }
+
+    fn launch(
+        launch: Launch,
+        client: ClientInfo,
+        restart: RestartPolicy,
+    ) -> Result<(HostClient, Receiver<Event>), Error> {
         let (events, rx) = mpsc::channel();
         let inner = Arc::new(Inner {
-            command,
+            launch,
             client,
             restart,
             process: Mutex::new(None),
@@ -258,36 +301,33 @@ impl HostClient {
 
     fn spawn_and_initialize(&self) -> Result<u32, Error> {
         let inner = &self.inner;
-        let mut cmd = Command::new(&inner.command.program);
-        cmd.args(&inner.command.args)
-            .envs(inner.command.envs.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(match inner.command.stderr {
-                StderrMode::Inherit => Stdio::inherit(),
-                StderrMode::Capture => Stdio::piped(),
-                StderrMode::Discard => Stdio::null(),
-            });
-        if let Some(dir) = &inner.command.current_dir {
-            cmd.current_dir(dir);
-        }
-        let mut child = cmd.spawn()?;
-        let pid = child.id();
-        let stdin = child.stdin.take().expect("piped stdin");
-        let stdout = child.stdout.take().expect("piped stdout");
-        if let Some(stderr) = child.stderr.take() {
-            let events = inner.events.clone();
-            thread::Builder::new()
-                .name("eludite-host-stderr".into())
-                .spawn(move || {
-                    for line in BufReader::new(stderr).lines() {
-                        let Ok(line) = line else { break };
-                        if events.send(Event::Log(line)).is_err() {
-                            break;
-                        }
+        let (child, stdin, stdout): (Option<Child>, Box<dyn Write + Send>, Box<dyn Read + Send>) =
+            match &inner.launch {
+                Launch::InProcess(connector) => {
+                    let (stdout, stdin) = connector()?;
+                    (None, stdin, stdout)
+                }
+                Launch::Process(command) => {
+                    let mut child = spawn(command)?;
+                    let stdin = child.stdin.take().expect("piped stdin");
+                    let stdout = child.stdout.take().expect("piped stdout");
+                    if let Some(stderr) = child.stderr.take() {
+                        let events = inner.events.clone();
+                        thread::Builder::new()
+                            .name("eludite-host-stderr".into())
+                            .spawn(move || {
+                                for line in BufReader::new(stderr).lines() {
+                                    let Ok(line) = line else { break };
+                                    if events.send(Event::Log(line)).is_err() {
+                                        break;
+                                    }
+                                }
+                            })?;
                     }
-                })?;
-        }
+                    (Some(child), Box::new(stdin), Box::new(stdout))
+                }
+            };
+        let pid = child.as_ref().map_or(0, Child::id);
         let epoch = inner.epoch.fetch_add(1, Ordering::SeqCst) + 1;
         inner.generation.store(0, Ordering::SeqCst);
         *lock(&inner.process) = Some(Process { child, stdin });
@@ -311,9 +351,11 @@ impl HostClient {
         lock(&self.inner.initialize).clone()
     }
 
-    /// The host process id, while it runs.
+    /// The host process id, while it runs (`None` for an in-process host).
     pub fn pid(&self) -> Option<u32> {
-        lock(&self.inner.process).as_ref().map(|p| p.child.id())
+        lock(&self.inner.process)
+            .as_ref()
+            .and_then(|p| p.child.as_ref().map(Child::id))
     }
 
     /// The current solution generation as this client knows it.
@@ -437,7 +479,7 @@ impl HostClient {
                 match process.as_mut() {
                     None => return Ok(*lock(&self.inner.exit_code)),
                     Some(p) if !killed && Instant::now() > deadline => {
-                        let _ = p.child.kill();
+                        let _ = p.kill();
                         killed = true;
                     }
                     Some(_) => {}
@@ -450,7 +492,7 @@ impl HostClient {
     /// Kills the host without a shutdown. Restarts according to the policy unless [`HostClient::shutdown`] ran.
     pub fn kill(&self) -> io::Result<()> {
         match lock(&self.inner.process).as_mut() {
-            Some(p) => p.child.kill(),
+            Some(p) => p.kill(),
             None => Ok(()),
         }
     }
@@ -593,7 +635,8 @@ impl HostClient {
             let mut process = lock(&self.inner.process);
             let code = process
                 .as_mut()
-                .and_then(|p| p.child.wait().ok())
+                .and_then(|p| p.child.as_mut())
+                .and_then(|c| c.wait().ok())
                 .and_then(|s| s.code());
             process.take();
             code
@@ -684,6 +727,23 @@ impl<T: DeserializeOwned> PendingRequest<T> {
             Err(mpsc::TryRecvError::Disconnected) => Some(Err(Error::HostExited)),
         }
     }
+}
+
+fn spawn(command: &HostCommand) -> io::Result<Child> {
+    let mut cmd = Command::new(&command.program);
+    cmd.args(&command.args)
+        .envs(command.envs.iter().map(|(k, v)| (k, v)))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(match command.stderr {
+            StderrMode::Inherit => Stdio::inherit(),
+            StderrMode::Capture => Stdio::piped(),
+            StderrMode::Discard => Stdio::null(),
+        });
+    if let Some(dir) = &command.current_dir {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn()
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
