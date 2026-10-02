@@ -51,7 +51,7 @@ use self::state::{
 };
 use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
-use super::documents::normalize_path;
+use super::documents::{normalize_path, trace};
 
 /// Status bar slot: the debugger's state (left, after the solution's).
 pub const DEBUG_SLOT: &str = "debug";
@@ -1629,6 +1629,7 @@ impl Shell {
         d.pending.clear();
         d.run_to_cursor = None;
         d.exec = None;
+        trace(format_args!("debug ended {message:?}"));
         d.model.end();
         d.model.message = message;
         self.apply_exec(cx);
@@ -1668,6 +1669,10 @@ impl Shell {
                 run,
             } if generation == current => {
                 let program = file_name(&session.program);
+                trace(format_args!(
+                    "debug launched {} debug={} adapter={:?}",
+                    session.program, session.debug, session.adapter
+                ));
                 self.debug.console_line(format!(
                     "{} {program} {}",
                     if session.debug {
@@ -1716,6 +1721,7 @@ impl Shell {
                     if self.debug.model.mode == Mode::Launching {
                         self.debug.model.mode = Mode::Running;
                     }
+                    trace(format_args!("debug running generation {current}"));
                     if self.debug.caps.supports_hit_conditional_breakpoints {
                         for f in self.debug.model.breakpoints.files() {
                             self.debug_send_breakpoints(&f);
@@ -1811,11 +1817,16 @@ impl Shell {
                 }
             }
             Event::Process(p) => {
+                trace(format_args!("debug process {:?}", p.system_process_id));
                 if let Some(s) = d.model.session.as_mut() {
                     s.process_id = p.system_process_id;
                 }
             }
             Event::Breakpoint(b) => {
+                trace(format_args!(
+                    "debug breakpoint {} verified={} line={:?}",
+                    b.reason, b.breakpoint.verified, b.breakpoint.line
+                ));
                 if d.model.breakpoints.apply_event(&b.breakpoint) {
                     self.refresh_glyphs(cx);
                 } else {
@@ -2125,6 +2136,12 @@ impl Shell {
         });
         d.model.thread = Some(thread);
         d.model.frames = frames;
+        trace(format_args!(
+            "debug break stop {} {} at {:?}",
+            d.model.stop,
+            s.reason,
+            top.as_ref().map(|(p, l)| format!("{}:{l}", file_name(p)))
+        ));
         if s.reason == "exception" && d.caps.supports_exception_info_request {
             let (generation, stop) = (d.generation(), d.model.stop);
             let _ = d.send(
@@ -2139,6 +2156,14 @@ impl Shell {
     /// The selected frame's locals arrived.
     fn locals_done(&mut self, vars: Vec<VarNode>) {
         let d = &mut self.debug;
+        trace(format_args!(
+            "debug locals stop {} {}",
+            d.model.stop,
+            vars.iter()
+                .map(|v| format!("{}={}", v.name, v.value))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
         d.model.locals = vars;
         d.model.locals_loading = false;
         let now = Instant::now();
