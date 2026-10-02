@@ -46,7 +46,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0013](0013-completion-and-hover.md) | Completion, hover and signature help in the editor | 1 | [report](0013-report.md): done on Linux; popup visible 12 ms p50, 29 ms p95 |
 | [0014](0014-navigation.md) | Go to definition, Find All References and Error List filtering | 1 | [report](0014-report.md): done on Linux; F12 4 ms; references 508 ms p95 (Roslyn's fixed 500 ms batching) |
 | [0015](0015-rename-and-code-actions.md) | Rename, code actions and the workspace-edit applier | 1 | [report](0015-report.md): done on Linux; light bulb 121 ms p95, rename preview 170 ms p95 |
-| [0016](0016-agents-window.md) | The Agents window in the production shell | 1 | open |
+| [0016](0016-agents-window.md) | The Agents window in the production shell | 1 | [report](0016-report.md): done on Linux; Claude fixed a real error through a pending-change review; ready 0.65 s |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
