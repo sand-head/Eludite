@@ -3,8 +3,8 @@
 //! The schemas are the files in `protocol/schemas/` (checked in first,
 //! CLAUDE.md invariant 4), embedded at compile time so the command bus, the MCP
 //! server and the tests all use the same bytes. The caller supplies the Error
-//! List through a [`DiagnosticSource`]; brief 0005 uses [`fixture`] until a real
-//! Error List exists.
+//! List through a [`DiagnosticSource`]: the shell's Error List (brief 0012), or
+//! [`fixture`] in brief 0005's tests.
 
 use std::sync::Arc;
 
@@ -43,6 +43,9 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub code: String,
     pub message: String,
+    /// The project the file belongs to, as Solution Explorer names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// Where the command reads the current Error List from. Called on whatever
@@ -101,6 +104,7 @@ pub fn fixture() -> Vec<Diagnostic> {
         severity,
         code: code.into(),
         message: message.into(),
+        project: None,
     };
     use Severity::*;
     const ORDERS: &str = "src/Contoso.Web/Controllers/OrderController.cs";
