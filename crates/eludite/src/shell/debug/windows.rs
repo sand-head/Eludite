@@ -645,10 +645,7 @@ impl Render for BreakpointsWindow {
             let row = row_base(&t, format!("debug-bp-row-{ix}"))
                 .child(check)
                 .child(cell("\u{25CF}", Some(16.)).text_color(glyph_color))
-                .child(cell(
-                    format!("{}, line {}", file_name(&r.path), r.line),
-                    None,
-                ))
+                .child(cell(r.label(), None))
                 .child(cell(r.condition.clone().unwrap_or_default(), Some(160.)))
                 .child(cell(
                     r.hit_condition
@@ -781,7 +778,7 @@ impl ExceptionsWindow {
 impl Render for ExceptionsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
-        let s = self.settings;
+        let s = self.settings.clone();
         let row = |sel: &'static str, label: &'static str, on: bool, member: &'static str| {
             row_base(&t, sel.to_owned())
                 .text_color(t.text)

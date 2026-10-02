@@ -1101,12 +1101,33 @@ impl Shell {
                 settle(false, Some(generation))
             }
             DebugRequest::Breakpoint {
+                log_message: Some(_),
+                ..
+            }
+            | DebugRequest::Breakpoint {
+                function: Some(_), ..
+            }
+            | DebugRequest::Breakpoint {
+                remove_after: Some(_),
+                ..
+            }
+            | DebugRequest::RunUntil { .. }
+            | DebugRequest::Trace { .. }
+            | DebugRequest::SetVariable { .. }
+            | DebugRequest::SetNextStatement { .. } => {
+                return Err(CommandError::Failed(format!(
+                    "{} is not available yet",
+                    request.command()
+                )));
+            }
+            DebugRequest::Breakpoint {
                 path,
                 line,
                 action,
                 enabled,
                 condition,
                 hit_condition,
+                ..
             } => {
                 self.debug_breakpoint(path, line, action, enabled, condition, hit_condition, cx)?;
                 self.refresh_debug(cx);
@@ -1163,6 +1184,7 @@ impl Shell {
             DebugRequest::ExceptionSettings {
                 break_when_thrown,
                 break_when_user_unhandled,
+                ..
             } => {
                 let e = &mut self.debug.model.exceptions;
                 if let Some(v) = break_when_thrown {
@@ -2251,7 +2273,7 @@ impl Shell {
             })
             .collect();
         let breakpoints = m.breakpoints.rows();
-        let exceptions = m.exceptions;
+        let exceptions = m.exceptions.clone();
         let w = d.windows.clone();
         w.locals
             .update(cx, |v, cx| v.set_rows(locals, locals_note, cx));
