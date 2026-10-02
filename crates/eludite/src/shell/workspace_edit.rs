@@ -522,6 +522,22 @@ impl Shell {
             .map(|(id, _)| id.clone())
     }
 
+    /// Apply `edits` (computed on `base`, the text the server saw) to open document `id` as one undo step, and send
+    /// `didChange` at once. Returns the number of edits and the undo step.
+    pub(super) fn apply_document_edits(
+        &mut self,
+        id: &str,
+        edits: &[lsp::TextEdit],
+        base: &text::BufferSnapshot,
+        cx: &mut Context<Self>,
+    ) -> Result<(usize, Option<TransactionId>), String> {
+        let ranges = resolve_edits(base, edits)?;
+        let n = ranges.len();
+        let anchored = anchor_ranges(base, ranges);
+        let tx = self.apply_anchored(id, anchored, cx);
+        Ok((n, tx))
+    }
+
     fn apply_anchored(
         &mut self,
         id: &str,

@@ -377,6 +377,7 @@ impl EditorView {
             None => menu.matches.get(menu.selected)?.item,
         };
         let item = menu.shown[index].clone();
+        let list = menu.shown_id;
         let word_start = self.editor.buffer().offset_for_anchor(&menu.anchor);
         self.editor.collapse_to_primary();
         let caret = self.editor.primary_selection().head;
@@ -415,6 +416,8 @@ impl EditorView {
         Some(AcceptedCompletion {
             label: item.label,
             text,
+            list,
+            index,
         })
     }
 
