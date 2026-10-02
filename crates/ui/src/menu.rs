@@ -196,8 +196,13 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Step Over", "eludite.debug.step_over"),
                 item("Step Out", "eludite.debug.step_out"),
                 item("Run To Cursor", "eludite.debug.run_to_cursor"),
+                // Set Next Statement (brief 0026): only where the debug adapter has gotoTargets; the command refuses it
+                // otherwise, naming the adapter.
+                item("Set Next Statement", "eludite.debug.set_next_statement"),
                 Separator,
                 item("Toggle Breakpoint", "eludite.debug.toggle_breakpoint"),
+                // New Breakpoint > Function Breakpoint (brief 0026): the Breakpoints window, whose name box sets one.
+                show("New Breakpoint > Function Breakpoint...", "breakpoints"),
                 MenuEntry::Item {
                     label: "Delete All Breakpoints",
                     command: "eludite.debug.toggle_breakpoint",
@@ -596,6 +601,39 @@ mod tests {
         assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
         assert!(shortcuts.contains(&("Build Project", Some("Shift+F6"))));
         assert!(shortcuts.contains(&("Rebuild Project", None)));
+    }
+
+    #[test]
+    fn the_debug_menu_has_run_control_items_with_their_keys() {
+        let keymap = crate::keymap::vs_keymap();
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let items: Vec<_> = debug
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item {
+                    label,
+                    command,
+                    args,
+                } => Some((*label, *command, shortcut_for(&keymap, command, args))),
+                MenuEntry::Separator => None,
+            })
+            .collect();
+        let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
+        assert_eq!(
+            items[at("Set Next Statement")],
+            (
+                "Set Next Statement",
+                "eludite.debug.set_next_statement",
+                Some("Ctrl+Shift+F10")
+            )
+        );
+        assert!(at("Run To Cursor") < at("Set Next Statement"));
+        let f = &items[at("New Breakpoint > Function Breakpoint...")];
+        assert_eq!(f.1, "eludite.view.show");
+        assert!(at("Toggle Breakpoint") < at("New Breakpoint > Function Breakpoint..."));
+        // Debug.Breakpoints: Ctrl+Alt+B shows the Breakpoints window.
+        assert_eq!(items[at("Windows > Breakpoints")].2, Some("Ctrl+Alt+B"));
     }
 
     #[test]
