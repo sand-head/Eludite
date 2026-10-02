@@ -6274,3 +6274,116 @@ fn netcoredbg_and_eludite_dbg_mono_sessions_at_once(cx: &mut TestAppContext) {
         kill(pid as u32);
     }
 }
+
+/// Brief 0028: brief 0027's rules per session. Allow Agents to Drive off in one session refuses agents there and not in
+/// the other; the person's F10 in one session does not interrupt an agent's wait on the other, which is satisfied by
+/// that session's own stop; the person's F10 in the agent's session does interrupt it.
+#[gpui::test]
+fn allow_agents_and_interruptions_are_per_session(cx: &mut TestAppContext) {
+    let mut d = setup_two(cx);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Tool"}]}),
+    )
+    .unwrap();
+    d.wait_sessions("both running", |s| {
+        s.len() == 2
+            && s.iter()
+                .all(|r| r.mode == "running" && r.process_id.is_some())
+    });
+    d.fake_of(1).trigger();
+    d.fake_of(2).trigger();
+    d.wait_break_in(1, 1);
+    d.wait_break_in(2, 1);
+    // The person turns agents off for session 1 only.
+    d.cmd(cmds::ALLOW_AGENTS, json!({"session": 1, "enabled": false}))
+        .unwrap();
+    let s = d.sessions();
+    assert_eq!(
+        s.iter().map(|r| r.agents_allowed).collect::<Vec<_>>(),
+        [false, true]
+    );
+    let refused = agent_call(&mut d, cmds::STEP_OVER, json!({"session": 1, "wait_ms": 0}));
+    assert_eq!(
+        refused["error"].as_str().unwrap(),
+        format!("command failed: {}", cmds::AGENTS_NOT_ALLOWED),
+        "{refused}"
+    );
+    let read = agent_call(&mut d, cmds::SNAPSHOT, json!({"session": 1}));
+    assert!(read.get("error").is_none(), "reads keep working: {read}");
+    // An agent continues session 2 into the loop... its wait sees session 2 only: the person's F10 in session 1 (the
+    // active one) does not interrupt it.
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 1})).unwrap();
+    let commands = d.w.commands.clone();
+    let waiting = std::thread::spawn(move || {
+        with_caller(test_agent(), || {
+            commands
+                .invoke(
+                    cmds::WAIT,
+                    json!({"session": 2, "until": "stopped", "stop": 1, "wait_ms": 10000}),
+                )
+                .unwrap_or_else(|e| json!({"error": e.to_string()}))
+        })
+    });
+    // The agent's wait is registered before the person acts.
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    let ok = agent_call(&mut d, cmds::CONTINUE, json!({"session": 2, "wait_ms": 0}));
+    assert!(ok.get("error").is_none(), "{ok}");
+    d.w.vcx.simulate_keystrokes("f10");
+    d.wait_break_in(1, 2);
+    assert!(
+        !waiting.is_finished(),
+        "session 1's step did not end session 2's wait"
+    );
+    // Session 2 stops on its own: the wait is satisfied, not interrupted.
+    d.fake_of(2).trigger();
+    let deadline = Instant::now() + T;
+    while !waiting.is_finished() {
+        assert!(Instant::now() < deadline, "the wait did not answer");
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let out = waiting.join().unwrap();
+    assert_eq!(out["session"], 2, "{out}");
+    assert_eq!(out["satisfied"], "stopped", "{out}");
+    assert!(out.get("interrupted_by").is_none(), "{out}");
+    // The person's F10 in the agent's session does interrupt its wait.
+    d.cmd(cmds::SELECT_FRAME, json!({"session": 2})).unwrap();
+    let commands = d.w.commands.clone();
+    let stop2 = d.sessions()[1].stop;
+    let waiting = std::thread::spawn(move || {
+        with_caller(test_agent(), || {
+            commands
+                .invoke(
+                    cmds::WAIT,
+                    json!({"session": 2, "until": "terminated", "wait_ms": 10000}),
+                )
+                .unwrap_or_else(|e| json!({"error": e.to_string()}))
+        })
+    });
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    d.w.vcx.simulate_keystrokes("f10");
+    let deadline = Instant::now() + T;
+    while !waiting.is_finished() {
+        assert!(Instant::now() < deadline, "the wait did not answer");
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let out = waiting.join().unwrap();
+    assert_eq!(out["interrupted_by"], "user", "{out}");
+    assert_eq!(out["session"], 2);
+    d.wait_break_in(2, stop2 + 1);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
