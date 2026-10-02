@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "mode": {
-      "description": "`accessibility` (default): Accessibility.getFullAXTree. `dom`: DOM.getDocument, elements only.",
+      "description": "`accessibility` (default): the accessibility tree (Accessibility.getFullAXTree; on a page of more than 1,500 elements with `filter: interactive`, the accessibility nodes of the elements that can be interactive, read one by one until `max_nodes` are listed, because Chrome answers the full tree at about 60 microseconds a node). `dom`: DOM.getDocument, elements only.",
       "enum": [
         "accessibility",
         "dom"

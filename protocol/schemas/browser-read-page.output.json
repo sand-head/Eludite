@@ -128,7 +128,7 @@
       }
     },
     "total": {
-      "description": "How many nodes passed the filter (more than listed when truncated).",
+      "description": "How many nodes passed the filter (more than listed when truncated). On a large page read element by element (see the input's `mode`), the elements past the listed ones that can be interactive are counted without reading each one's accessibility node, so a truncated total is an upper bound.",
       "type": "integer",
       "minimum": 0
     },
