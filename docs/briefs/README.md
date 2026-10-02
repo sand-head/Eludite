@@ -56,6 +56,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0023](0023-browser-automation-read.md) | Browser automation over CDP against an external Chrome: tabs, navigation, reading the page (proposal 0002 A, first half) | 2 | open |
 | 0024 | Browser automation: acting on the page, policy and the fake-agent proof (proposal 0002 A, second half; written after 0023 reports) | 2 | not yet written |
 | [0025](0025-debug-inspection-depth.md) | Inspection depth for the agent debugging suite (proposal 0001 A) | 2 | open |
+| [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
