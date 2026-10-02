@@ -84,7 +84,14 @@ fn running_as_root() -> bool {
         .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "0")
 }
 
+/// The Chrome to test: on Linux whatever discovery finds, elsewhere only `ELUDITE_CHROME` (CI runs these tests on
+/// Linux only, and the Windows and macOS runners have a Chrome installed).
 fn chrome() -> Option<PathBuf> {
+    if !cfg!(target_os = "linux") && std::env::var_os("ELUDITE_CHROME").is_none_or(|v| v.is_empty())
+    {
+        println!("SKIPPED: the browser tests run on Linux, or where ELUDITE_CHROME names a Chrome");
+        return None;
+    }
     match ChromeSearch::from_env().find() {
         Ok(p) => Some(p),
         Err(why) => {
@@ -672,7 +679,25 @@ fn the_commands_against_a_headless_chrome() {
     assert!(log.lock().unwrap().iter().any(|l| l == "Closed tab t2"));
 
     // Kill Chrome under a pending request: the request fails, the engine is gone, the next tab_open relaunches.
-    let pid = chrome_pid(&profile.path().join(".eludite/browser/profile"));
+    // (Unix only: the browser's pid comes from `ps`.)
+    if cfg!(unix) {
+        kill_and_relaunch(&mut run, profile.path());
+    }
+
+    run.browser.shutdown();
+    assert!(
+        run.log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l == "Closed the browser.")
+    );
+    assert!(profile.path().join(".eludite/browser/.gitignore").is_file());
+}
+
+/// Kill Chrome with `kill -9` under a pending request, then open a tab again.
+fn kill_and_relaunch(run: &mut Run, profile: &Path) {
+    let pid = chrome_pid(&profile.join(".eludite/browser/profile"));
     let killer = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
         let _ = std::process::Command::new("kill")
@@ -692,7 +717,8 @@ fn the_commands_against_a_headless_chrome() {
     let tabs = run.ok(cmds::TABS, json!({}));
     assert_eq!(tabs["running"], false, "{tabs}");
     let until = Instant::now() + Duration::from_secs(5);
-    while !log
+    while !run
+        .log
         .lock()
         .unwrap()
         .iter()
@@ -702,27 +728,18 @@ fn the_commands_against_a_headless_chrome() {
         std::thread::sleep(Duration::from_millis(20));
     }
     assert!(
-        log.lock()
+        run.log
+            .lock()
             .unwrap()
             .iter()
             .any(|l| l.contains("exited unexpectedly")),
         "{:?}",
-        log.lock().unwrap()
+        run.log.lock().unwrap()
     );
     let again = run.ok(cmds::TAB_OPEN, json!({"url": run.url("form.html")}));
     assert_eq!(again["launched"], true);
     assert_eq!(again["status"], 200);
     assert_eq!(again["id"], "t3", "tab ids are never reused");
-
-    run.browser.shutdown();
-    assert!(
-        run.log
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|l| l == "Closed the browser.")
-    );
-    assert!(profile.path().join(".eludite/browser/.gitignore").is_file());
 }
 
 /// This process's resident set (Linux `VmRSS`), in KB.
