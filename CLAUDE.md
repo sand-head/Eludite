@@ -95,6 +95,7 @@ A PR is done when all of these hold:
 ## How work is issued
 
 - Work arrives as a brief in `docs/briefs/NNNN-name.md`: goal, files in scope, contract, proving test, budget, exit criterion, out of scope. See `docs/briefs/README.md`.
+- A feature that PLAN.md names but does not detail, or does not name, is designed first as a proposal in `docs/proposals/NNNN-name.md` (scope, command surface, schemas, process model, briefs). A proposal binds nothing until the owner accepts it and PLAN.md is updated. See `docs/proposals/README.md`.
 - One brief per git worktree. Do not work on two briefs in one tree.
 - Each worktree builds into its own `target/`. Never point `CARGO_TARGET_DIR` at another checkout's target directory: workspace crates with the same name from different trees overwrite each other's artifacts there, and a test binary can link against a library built from a different branch. The merge check on `main` is the authoritative one.
 - The brief declares which files you own. Do not edit files outside that list. If you need a change elsewhere, stop and say so in the PR.

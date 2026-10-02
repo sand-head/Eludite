@@ -13,6 +13,7 @@ An ADR records one structural decision: what was decided, why, what else was con
 | [0005](0005-licensing.md) | GPL core, MIT edges (D5) | Accepted |
 | [0006](0006-extensibility.md) | WASM extensions (D6) | Accepted |
 | [0007](0007-remote-capable-debuggers.md) | Debuggers are remote-capable from day one (D7) | Accepted |
+| [0008](0008-embedded-browser-cef.md) | Embedded browser: Chromium through CEF, out of process, CDP as the automation substrate | Proposed |
 
 ## Rules
 
