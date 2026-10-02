@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-accept-completion.output.json",
+  "title": "eludite.editor.accept_completion output",
+  "description": "What was committed. `accepted` is false when no list was open or no item matched `label`; the document is then unchanged.",
+  "type": "object",
+  "required": [
+    "path",
+    "accepted",
+    "line",
+    "column"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "accepted": {
+      "type": "boolean"
+    },
+    "label": {
+      "description": "Label of the committed item.",
+      "type": "string"
+    },
+    "text": {
+      "description": "The text that replaced the typed word.",
+      "type": "string"
+    },
+    "line": {
+      "description": "1-based line of the caret afterwards.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column (characters) of the caret afterwards.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

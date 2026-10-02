@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-hover.output.json",
+  "title": "eludite.editor.hover output",
+  "description": "The Quick Info tooltip. From the UI thread this is the state right after the request was sent; from another thread the call waits up to 5 s for the answer.",
+  "type": "object",
+  "required": [
+    "path",
+    "line",
+    "column",
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line described.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "column": {
+      "description": "1-based column described.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`loading`, `open` (the tooltip is shown) or `closed` (nothing to show).",
+      "enum": [
+        "loading",
+        "open",
+        "closed"
+      ]
+    },
+    "text": {
+      "description": "The tooltip's text as shown: the hover Markdown rendered as plain text, paragraphs separated by blank lines.",
+      "type": "string"
+    }
+  }
+}
