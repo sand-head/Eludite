@@ -574,10 +574,10 @@ fn stale_navigation_answers_are_dropped(cx: &mut gpui::TestAppContext) {
     );
     std::thread::sleep(Duration::from_millis(400));
     w.vcx.run_until_parked();
-    let order_id = normalize_path(&order).to_string_lossy();
+    let order_id = normalize_path(&order).to_string_lossy().into_owned();
     assert!(
         !w.shell.read_with(&w.vcx, |s, _| s
-            .editor(Path::new(order_id.as_ref()))
+            .editor(Path::new(order_id.as_str()))
             .is_some()),
         "the late answer did not navigate"
     );
