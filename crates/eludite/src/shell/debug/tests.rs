@@ -2801,3 +2801,1435 @@ fn the_reads_work_against_eludite_dbg_mono(cx: &mut TestAppContext) {
     );
     agent_call(&mut d, cmds::STOP, json!({}));
 }
+
+// ----- Brief 0026: run control. -----
+
+/// The debug output ring's lines (tracepoint lines land there).
+fn debug_ring(d: &Dbg) -> Vec<String> {
+    d.w.shell.read_with(&d.w.vcx, |s, _| {
+        s.debugger()
+            .model
+            .output(cmds::OutputKind::Debug)
+            .read(0, 10_000, None)
+            .0
+            .into_iter()
+            .map(|l| l.text)
+            .collect()
+    })
+}
+
+/// Type `text` into the focused box, as keys.
+fn type_text(d: &mut Dbg, text: &str) {
+    let keys: Vec<String> = text
+        .chars()
+        .map(|c| match c {
+            ' ' => "space".to_owned(),
+            c if c.is_ascii_uppercase() => format!("shift-{}", c.to_ascii_lowercase()),
+            c => c.to_string(),
+        })
+        .collect();
+    d.w.vcx.simulate_keystrokes(&keys.join(" "));
+    d.w.vcx.run_until_parked();
+}
+
+impl Dbg {
+    /// Run a command from the UI without letting the adapter answer yet.
+    fn cmd_now(
+        &mut self,
+        command: &str,
+        args: Value,
+    ) -> Result<Value, eludite_commands::CommandError> {
+        self.w.shell.update_in(&mut self.w.vcx, |s, window, cx| {
+            s.invoke(command, args, window, cx)
+        })
+    }
+
+    fn breakpoint_rows(&self) -> Vec<cmds::BreakpointRow> {
+        self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            s.debugger().windows.breakpoints.read(cx).rows().to_vec()
+        })
+    }
+
+    /// F5 again and the run to its first breakpoint, whatever stop number it is (stops count across sessions).
+    fn restart_and_break(&mut self) {
+        let next = self.model_stop() + 1;
+        self.w.vcx.simulate_keystrokes("f5");
+        self.wait_mode(Mode::Running);
+        self.fake().trigger();
+        self.wait_break(next);
+    }
+
+    fn model_stop(&self) -> u64 {
+        self.w
+            .shell
+            .read_with(&self.w.vcx, |s, _| s.debugger().model.stop)
+    }
+
+    /// The `setBreakpoints` arguments last sent for `rel`.
+    fn sent_breakpoints(&self, rel: &str) -> Value {
+        let path = normalize_path(&self.w.path(rel))
+            .to_string_lossy()
+            .into_owned();
+        self.fake()
+            .requests()
+            .into_iter()
+            .rev()
+            .find(|(c, a)| c == "setBreakpoints" && a["source"]["path"] == path.as_str())
+            .map(|(_, a)| a)
+            .unwrap_or(Value::Null)
+    }
+}
+
+/// Main (Program.cs line 5) loops on line 6 five times (`i`, `sum`), calls Calc.Add (Calc.cs line 5, `a`, `b`) from
+/// line 7, then line 8.
+fn looping(p: &mut FakeProgram) {
+    let main = p.steps[0].path.clone();
+    let calc = p.steps[2].path.clone();
+    let v = FakeVar::new;
+    let mut steps = vec![FakeStep::new(
+        &main,
+        5,
+        "App.Program.Main()",
+        0,
+        vec![v("x", "1", "int")],
+    )];
+    steps.extend(fake::hot_loop(&main, 6, "App.Program.Main()", 0, 5));
+    steps.push(FakeStep::new(
+        &main,
+        7,
+        "App.Program.Main()",
+        0,
+        vec![v("x", "1", "int")],
+    ));
+    steps.push(FakeStep::new(
+        &calc,
+        5,
+        "App.Calc.Add(int a, int b)",
+        1,
+        vec![v("a", "1", "int"), v("b", "2", "int")],
+    ));
+    steps.push(FakeStep::new(
+        &main,
+        8,
+        "App.Program.Main()",
+        0,
+        vec![v("y", "3", "int")],
+    ));
+    p.steps = steps;
+    p.output_at_start = Vec::new();
+}
+
+#[gpui::test]
+fn tracepoints_print_and_continue_without_a_visible_stop(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, looping);
+    d.w.open_solution();
+    let view = d.open("src/App/Program.cs", 1);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6,
+               "log_message": "i={i} sum={sum} {nope} in $FUNCTION on $TID ($TNAME) {{x}} $PID"}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Calc.cs", "line": 5, "log_message": "a={a} from $CALLER"}),
+    )
+    .unwrap();
+    // A diamond in the margin, `tracepoint` in the state.
+    assert_eq!(
+        view.read_with(&d.w.vcx, |v, _| v.breakpoint_glyphs()),
+        [(5, BreakpointGlyph::Tracepoint)]
+    );
+    let s = d.state();
+    assert_eq!(s["breakpoints"][1]["kind"], "tracepoint");
+    assert_eq!(
+        s["breakpoints"][1]["log_message"],
+        "i={i} sum={sum} {nope} in $FUNCTION on $TID ($TNAME) {{x}} $PID"
+    );
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    // The fake has no log points: the breakpoints break, and the shell prints and resumes.
+    assert_eq!(d.state()["capabilities"]["log_points"], "shell");
+    assert!(
+        d.sent_breakpoints("src/App/Program.cs")["breakpoints"][0]
+            .get("logMessage")
+            .is_none()
+    );
+    d.fake().trigger();
+    d.w.wait("six tracepoint lines", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.output(cmds::OutputKind::Debug).next() >= 8
+        })
+    });
+    d.w.wait("the run's end", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .model
+                .breakpoints
+                .all()
+                .iter()
+                .map(|b| b.hits)
+                .sum::<u32>()
+                == 6
+        })
+    });
+    let ring = debug_ring(&d);
+    let lines: Vec<&String> = ring
+        .iter()
+        .filter(|l| l.starts_with("i=") || l.starts_with("a="))
+        .collect();
+    let nope = "{nope: error: The name 'nope' does not exist in the current context}";
+    assert_eq!(
+        lines[0],
+        &format!("i=0 sum=0 {nope} in App.Program.Main() on 1 (Main Thread) {{x}} $PID")
+    );
+    assert_eq!(
+        lines[4],
+        &format!("i=4 sum=10 {nope} in App.Program.Main() on 1 (Main Thread) {{x}} $PID")
+    );
+    assert_eq!(lines[5], "a=1 from App.Program.Main()");
+    assert_eq!(lines.len(), 6);
+    // The Output window's Debug source has them too.
+    assert!(
+        debug_output(&d)
+            .iter()
+            .any(|l| l == "a=1 from App.Program.Main()")
+    );
+    // Never a visible stop: the debuggee runs, no stop was counted, no execution point.
+    assert_eq!(d.mode(), Mode::Running);
+    assert_eq!(d.model_stop(), 0);
+    assert_eq!(d.exec(&view), None);
+    let s = d.state();
+    assert_eq!(s["breakpoints"][0]["hits"], 1, "{s}");
+    assert_eq!(s["breakpoints"][1]["hits"], 5);
+    // An empty message makes it a breakpoint again: the next run stops there.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6, "log_message": ""}),
+    )
+    .unwrap();
+    assert_eq!(d.state()["breakpoints"][1]["kind"], "line");
+    d.fake().trigger();
+    d.wait_break(1);
+    assert_eq!(d.top_line().0, "Program.cs:6");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // With log points (the flag on): the adapter prints a plain message and the shell does not stop; a message with
+    // a `$` special is still printed by the shell.
+    let mut d = setup_with(cx_of(&mut d), |p| {
+        looping(p);
+        p.extra_capabilities = json!({"supportsLogPoints": true});
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6, "log_message": "i={i}"}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Calc.cs", "line": 5, "log_message": "$FUNCTION a={a}"}),
+    )
+    .unwrap();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("the log points sent", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .model
+                .capabilities
+                .as_ref()
+                .is_some_and(|c| c.log_points == "adapter")
+        })
+    });
+    d.w.wait("logMessage sent", |w| {
+        let _ = w;
+        true
+    });
+    let sent = d.sent_breakpoints("src/App/Program.cs");
+    assert_eq!(sent["breakpoints"][0]["logMessage"], "i={i}", "{sent}");
+    assert!(
+        d.sent_breakpoints("src/App/Calc.cs")["breakpoints"][0]
+            .get("logMessage")
+            .is_none()
+    );
+    d.fake().trigger();
+    d.w.wait("six lines", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .model
+                .breakpoints
+                .all()
+                .iter()
+                .map(|b| b.hits)
+                .sum::<u32>()
+                == 6
+        })
+    });
+    let ring = debug_ring(&d);
+    let lines: Vec<&String> = ring
+        .iter()
+        .filter(|l| l.starts_with("i=") || l.contains(" a="))
+        .collect();
+    assert_eq!(lines.len(), 6, "{ring:?}");
+    assert_eq!(lines[0], "i=0");
+    assert_eq!(lines[5], "App.Calc.Add(int a, int b) a=1");
+    assert_eq!(d.mode(), Mode::Running);
+    assert_eq!(d.model_stop(), 0);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// The test context behind a `Dbg` (for a second setup in the same test).
+fn cx_of(d: &mut Dbg) -> &mut TestAppContext {
+    &mut d.w.vcx.cx
+}
+
+#[gpui::test]
+fn function_breakpoints_bind_by_name_and_stop(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd("eludite.view.show", json!({"id": ids::BREAKPOINTS}))
+        .unwrap();
+    // The window's name box adds one, through the same command.
+    d.w.click("debug-bp-function");
+    type_text(&mut d, "Calc.Add");
+    d.w.vcx.simulate_keystrokes("enter");
+    d.w.vcx.run_until_parked();
+    assert!(d.w.audit().contains(&cmds::TOGGLE_BREAKPOINT.to_owned()));
+    let rows = d.breakpoint_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].kind, cmds::BreakpointKind::Function);
+    assert_eq!(rows[0].label(), "Calc.Add");
+    let s = d.state();
+    assert_eq!(s["breakpoints"][0]["function"], "Calc.Add");
+    assert!(s["breakpoints"][0].get("path").is_none());
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let fake = d.fake();
+    assert_eq!(
+        fake.last("setFunctionBreakpoints").unwrap(),
+        json!({"breakpoints": [{"name": "Calc.Add"}]})
+    );
+    fake.trigger();
+    d.wait_break(1);
+    // F5's Debug layout put the Call Stack in front of the Breakpoints window: bring it back.
+    d.cmd("eludite.view.show", json!({"id": ids::BREAKPOINTS}))
+        .unwrap();
+    let s = d.state();
+    assert_eq!(s["stopped"]["reason"], "function breakpoint");
+    assert_eq!(d.top_line().0, "Calc.cs:5");
+    assert_eq!(s["breakpoints"][0]["verified"], true);
+    assert_eq!(s["breakpoints"][0]["hits"], 1);
+    // A condition, through the window's editor: selecting the row and Apply.
+    d.w.click("debug-bp-row-0");
+    d.w.click("debug-bp-condition");
+    type_text(&mut d, "a == 5");
+    d.w.vcx.simulate_keystrokes("enter");
+    d.w.vcx.run_until_parked();
+    assert_eq!(d.state()["breakpoints"][0]["condition"], "a == 5");
+    assert_eq!(
+        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"][0]["condition"],
+        "a == 5"
+    );
+    // Delete it from the window.
+    d.w.click("debug-bp-delete");
+    assert!(d.state()["breakpoints"].as_array().unwrap().is_empty());
+    assert_eq!(
+        fake.last("setFunctionBreakpoints").unwrap(),
+        json!({"breakpoints": []})
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // An adapter without function breakpoints: refused, naming it, and `capabilities` says so beforehand.
+    let mut d = setup_with(cx_of(&mut d), |p| {
+        p.extra_capabilities = json!({"supportsFunctionBreakpoints": false});
+    });
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("capabilities", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().model.capabilities.is_some())
+    });
+    assert_eq!(d.state()["capabilities"]["function_breakpoints"], false);
+    let e = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"action": "set", "function": "Calc.Add"}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("`fake`") && e.contains("function breakpoints"),
+        "{e}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Program.cs line 7 throws a handled `FormatException`, line 8 a handled `InvalidOperationException`.
+fn throwing(p: &mut FakeProgram) {
+    let main = p.steps[0].path.clone();
+    let mut a = FakeStep::new(&main, 7, "App.Program.Main()", 0, vec![]);
+    a.throws = Some(eludite_dap::fake::FakeThrow::new(
+        "System.FormatException",
+        "bad",
+        true,
+    ));
+    let mut b = FakeStep::new(&main, 8, "App.Program.Main()", 0, vec![]);
+    b.throws = Some(eludite_dap::fake::FakeThrow::new(
+        "System.InvalidOperationException",
+        "boom",
+        true,
+    ));
+    p.steps = vec![
+        FakeStep::new(&main, 5, "App.Program.Main()", 0, vec![]),
+        a,
+        b,
+    ];
+}
+
+#[gpui::test]
+fn exception_types_go_as_filter_options_and_the_window_shows_the_tree(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, throwing);
+    d.w.open_solution();
+    d.cmd(
+        cmds::EXCEPTION_SETTINGS,
+        json!({"types": [{"type": "System.InvalidOperationException", "break_when_user_unhandled": false}]}),
+    )
+    .unwrap();
+    d.cmd("eludite.view.show", json!({"id": ids::EXCEPTION_SETTINGS}))
+        .unwrap();
+    d.w.vcx.run_until_parked();
+    // Add a type through the window's box.
+    d.w.click("debug-exc-add-input");
+    type_text(&mut d, "System.FormatException");
+    d.w.click("debug-exc-add");
+    assert!(d.w.audit().contains(&cmds::EXCEPTION_SETTINGS.to_owned()));
+    let s = d.state();
+    let types = &s["exceptions"]["types"];
+    assert_eq!(types.as_array().unwrap().len(), 2, "{s}");
+    assert_eq!(types[1]["type"], "System.FormatException");
+    assert_eq!(types[1]["break_when_thrown"], true);
+    // The tree: the category, then the types.
+    let tree = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.debugger().windows.exceptions.read(cx).settings().clone()
+        })
+    };
+    assert_eq!(tree(&d).types.len(), 2);
+    d.w.bounds("debug-exc-category");
+    d.w.bounds("debug-exc-type-1");
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let fake = d.fake();
+    assert_eq!(
+        fake.last("setExceptionBreakpoints").unwrap(),
+        json!({"filters": ["user-unhandled"],
+               "filterOptions": [{"filterId": "all",
+                                  "condition": "System.InvalidOperationException, System.FormatException"}]})
+    );
+    fake.trigger();
+    d.wait_break(1);
+    assert_eq!(d.state()["stopped"]["reason"], "exception");
+    assert_eq!(d.top_line().0, "Program.cs:7");
+    // Remove FormatException in the window: only InvalidOperationException stops now.
+    d.cmd("eludite.view.show", json!({"id": ids::EXCEPTION_SETTINGS}))
+        .unwrap();
+    d.w.click("debug-exc-type-remove-1");
+    assert_eq!(tree(&d).types.len(), 1);
+    assert_eq!(
+        fake.last("setExceptionBreakpoints").unwrap()["filterOptions"][0]["condition"],
+        "System.InvalidOperationException"
+    );
+    d.cmd(cmds::CONTINUE, json!({})).unwrap();
+    d.wait_break(2);
+    assert_eq!(d.top_line().0, "Program.cs:8");
+    // A type's Thrown box toggles it.
+    d.w.click("debug-exc-type-thrown-0");
+    assert_eq!(
+        d.state()["exceptions"]["types"][0]["break_when_thrown"],
+        false
+    );
+    // Clear: back to the filters alone.
+    d.w.click("debug-exc-clear");
+    assert!(tree(&d).types.is_empty());
+    assert_eq!(
+        fake.last("setExceptionBreakpoints").unwrap(),
+        json!({"filters": ["user-unhandled"]})
+    );
+    let e = d
+        .cmd(
+            cmds::EXCEPTION_SETTINGS,
+            json!({"remove": "System.IO.IOException"}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("no exception type"), "{e}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // An adapter without filter options refuses types while it runs, naming itself.
+    let mut d = setup_with(cx_of(&mut d), |p| {
+        throwing(p);
+        p.extra_capabilities = json!({"supportsExceptionFilterOptions": false});
+    });
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("capabilities", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().model.capabilities.is_some())
+    });
+    let e = d
+        .cmd(
+            cmds::EXCEPTION_SETTINGS,
+            json!({"types": [{"type": "System.InvalidOperationException"}]}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`fake`") && e.contains("exception types"), "{e}");
+    // The plain boxes still work.
+    d.cmd(cmds::EXCEPTION_SETTINGS, json!({"break_when_thrown": true}))
+        .unwrap();
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn run_until_stops_at_the_first_point_reached_and_removes_them(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    // From the UI: the points are in the Breakpoints window, temporary, until the stop.
+    d.cmd_now(
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Calc.cs", "line": 6}, {"path": "src/App/Program.cs", "line": 8}]}),
+    )
+    .unwrap();
+    let rows = d.breakpoint_rows();
+    assert_eq!(rows.len(), 3);
+    let temporary: Vec<String> = rows
+        .iter()
+        .filter(|r| r.temporary)
+        .map(|r| r.label())
+        .collect();
+    assert_eq!(temporary, ["Calc.cs, line 6", "Program.cs, line 8"]);
+    assert_eq!(d.state()["breakpoints"][0]["temporary"], true);
+    d.wait_break(2);
+    assert_eq!(d.top_line().0, "Calc.cs:6");
+    let rows = d.breakpoint_rows();
+    assert_eq!(rows.len(), 1, "both points removed at the first stop");
+    assert_eq!(rows[0].label(), "Program.cs, line 5");
+    assert!(
+        d.sent_breakpoints("src/App/Calc.cs")["breakpoints"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    // An agent: a condition skips a point; the answer is the stop summary.
+    agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 300}));
+    d.fake().trigger();
+    d.wait_break(3);
+    let s = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Calc.cs", "line": 5, "condition": "a == 9"},
+                          {"path": "src/App/Program.cs", "line": 8}], "stop": 3}),
+    );
+    assert_eq!(s["stopped"]["reason"], "breakpoint", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], 8);
+    assert!(
+        s["stopped"]["location"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("Program.cs")
+    );
+    assert_eq!(s["stopped"]["driver"], "agent:Test Agent");
+    assert_eq!(d.state()["breakpoints"].as_array().unwrap().len(), 1);
+    // A stale stop is refused, not queued.
+    let e = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 8}], "stop": 3}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("stale"), "{e}");
+    // remove_after false keeps them as ordinary breakpoints.
+    agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 300}));
+    d.fake().trigger();
+    d.wait_break(5);
+    let s = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Calc.cs", "line": 5}], "remove_after": false}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], 5, "{s}");
+    let st = d.state();
+    let kept: Vec<&Value> = st["breakpoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["line"] == 5 && b["path"].as_str().unwrap().ends_with("Calc.cs"))
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].get("temporary").is_none());
+    // Refused outside break mode.
+    agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 300}));
+    let e = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 8}]}),
+    );
+    assert!(
+        e["error"].as_str().unwrap().contains("not in break mode"),
+        "{e}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn run_until_costs_little_more_than_continue(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        let main = p.steps[0].path.clone();
+        let mut steps = vec![FakeStep::new(&main, 5, "App.Program.Main()", 0, vec![])];
+        steps.extend(fake::hot_loop(&main, 6, "App.Program.Main()", 0, 45));
+        p.steps = steps;
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    let timed = |d: &mut Dbg, command: &'static str, args: Value| {
+        let out = agent(d, move |c| {
+            let mut t = Vec::new();
+            for _ in 0..20 {
+                let s = Instant::now();
+                let r = c.invoke(command, args.clone()).unwrap();
+                assert_eq!(r["mode"], "break", "{r}");
+                t.push(s.elapsed().as_secs_f64());
+            }
+            json!(t)
+        });
+        out.as_array()
+            .unwrap()
+            .iter()
+            .map(|t| Duration::from_secs_f64(t.as_f64().unwrap()))
+            .collect::<Vec<_>>()
+    };
+    // A plain continue to a breakpoint on the loop's line, 20 times...
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    let plain = timed(&mut d, cmds::CONTINUE, json!({}));
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "delete", "path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    // ...then run_until to the same line, 20 times.
+    let until = timed(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6}]}),
+    );
+    let mean = |v: &[Duration]| v.iter().sum::<Duration>().as_secs_f64() * 1e3 / v.len() as f64;
+    let median = |v: &[Duration]| {
+        let mut v = v.to_vec();
+        v.sort();
+        v[v.len() / 2].as_secs_f64() * 1e3
+    };
+    eprintln!(
+        "timing: continue to a breakpoint: mean {:.2} ms, median {:.2} ms, p95 {:.2} ms; run_until to the same line: \
+         mean {:.2} ms, median {:.2} ms, p95 {:.2} ms (20 each, fake adapter)",
+        mean(&plain),
+        median(&plain),
+        p95(plain.clone()).as_secs_f64() * 1e3,
+        mean(&until),
+        median(&until),
+        p95(until.clone()).as_secs_f64() * 1e3
+    );
+    assert!(median(&until) - median(&plain) < 20.0);
+    assert_eq!(d.state()["breakpoints"].as_array().unwrap().len(), 1);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn trace_collects_tracepoint_lines_until_its_condition(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        looping(p);
+        p.exit_at_end = Some(3);
+    });
+    d.w.open_solution();
+    // A user's breakpoint on a traced line comes back after the trace, condition and all.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6, "condition": "i == 99", "enabled": false}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    let points = json!([{"path": "src/App/Program.cs", "line": 6, "message": "i={i} sum={sum}"},
+                        {"path": "src/App/Calc.cs", "line": 5, "message": "add a={a}"}]);
+    let t = agent_call(&mut d, cmds::TRACE, json!({"points": points}));
+    assert_eq!(t["stopped_by"], "terminated", "{t}");
+    assert_eq!(t["exit_code"], 3);
+    let texts: Vec<&str> = t["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "i=0 sum=0",
+            "i=1 sum=1",
+            "i=2 sum=3",
+            "i=3 sum=6",
+            "i=4 sum=10",
+            "add a=1"
+        ]
+    );
+    assert_eq!(t["lines"][4]["hit"], 5);
+    assert_eq!(t["lines"][4]["seq"], 4);
+    assert_eq!(t["lines"][5]["line"], 5);
+    assert!(t["lines"][5]["path"].as_str().unwrap().ends_with("Calc.cs"));
+    assert!(
+        t["lines"][5]["time_ms"].as_f64().unwrap() >= t["lines"][0]["time_ms"].as_f64().unwrap()
+    );
+    assert_eq!(t["hits"], 6);
+    assert_eq!(t["truncated"], false);
+    assert_eq!(t["points"][0]["hits"], 5);
+    assert_eq!(t["points"][1]["verified"], true);
+    assert_eq!(t["emulated"], true);
+    let overhead = t["overhead_ms_per_hit"].as_f64().unwrap();
+    eprintln!(
+        "timing: trace's emulated tracepoint overhead on the fake adapter: {overhead:.2} ms per hit"
+    );
+    // The person saw the same lines.
+    assert!(debug_output(&d).iter().any(|l| l == "add a=1"));
+    // The points are gone and the user's breakpoint is back.
+    let s = d.state();
+    let rows = s["breakpoints"].as_array().unwrap();
+    assert_eq!(rows.len(), 2, "{s}");
+    assert_eq!(rows[1]["condition"], "i == 99");
+    assert_eq!(rows[1]["enabled"], false);
+    assert!(rows.iter().all(|r| r.get("log_message").is_none()));
+
+    // until: hits with count, and max_hits truncating: two new sessions.
+    let mut t_hits = Value::Null;
+    for args in [
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "{i}"}], "until": "hits", "count": 2}),
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "{i}"}], "max_hits": 3}),
+    ] {
+        d.restart_and_break();
+        let t = agent_call(&mut d, cmds::TRACE, args);
+        assert_eq!(t["stopped_by"], "hits", "{t}");
+        if t_hits.is_null() {
+            assert_eq!(t["lines"].as_array().unwrap().len(), 2);
+            assert_eq!(t["truncated"], false);
+            t_hits = t;
+        } else {
+            assert_eq!(t["lines"].as_array().unwrap().len(), 3);
+            assert_eq!(t["truncated"], true);
+            // The points were disabled at the third hit: the adapter got them without line 6.
+            let sent: Vec<Value> = d
+                .fake()
+                .requests()
+                .into_iter()
+                .filter(|(c, a)| {
+                    c == "setBreakpoints"
+                        && a["source"]["path"]
+                            .as_str()
+                            .unwrap()
+                            .ends_with("Program.cs")
+                })
+                .map(|(_, a)| a)
+                .collect();
+            assert!(
+                sent.iter().any(|a| a["breakpoints"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|b| b["line"] != 6)),
+                "{sent:?}"
+            );
+        }
+        d.wait_mode(Mode::Design);
+    }
+
+    // until: stopped answers with the stop summary.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 8}),
+    )
+    .unwrap();
+    d.restart_and_break();
+    let t = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "{i}"}], "until": "stopped"}),
+    );
+    assert_eq!(t["stopped_by"], "stopped", "{t}");
+    assert_eq!(t["lines"].as_array().unwrap().len(), 5);
+    assert_eq!(t["summary"]["stopped"]["location"]["line"], 8);
+    assert_eq!(t["summary"]["mode"], "break");
+    // Refused from the wrong mode: running (continue) and a session with run: start.
+    let e = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "{i}"}], "run": "start"}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("run: start"), "{e}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    let e = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "{i}"}]}),
+    );
+    assert!(
+        e["error"].as_str().unwrap().contains("not in break mode"),
+        "{e}"
+    );
+}
+
+#[gpui::test]
+fn trace_with_run_start_launches_first(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        looping(p);
+        p.run_at_start = true;
+        p.exit_at_end = Some(0);
+    });
+    d.w.open_solution();
+    let t = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 6, "message": "i={i} $FUNCTION"}],
+               "run": "start", "until": "terminated"}),
+    );
+    assert_eq!(t["stopped_by"], "terminated", "{t}");
+    assert_eq!(t["lines"].as_array().unwrap().len(), 5);
+    assert_eq!(t["lines"][0]["text"], "i=0 App.Program.Main()");
+    assert_eq!(t["generation"], 1);
+    assert_eq!(d.mode(), Mode::Design);
+    assert!(d.state()["breakpoints"].as_array().unwrap().is_empty());
+}
+
+#[gpui::test]
+fn set_variable_changes_values_the_windows_show(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 8}),
+    )
+    .unwrap();
+    d.cmd(cmds::WATCH, json!({"add": "y"})).unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["set_variable"], true);
+    let row = |d: &Dbg, name: &str| {
+        d.locals()
+            .into_iter()
+            .find(|(n, _)| n.trim() == name)
+            .map(|(_, v)| v)
+            .unwrap_or_default()
+    };
+    // An int, by an agent: the answer is the row; the Locals window and the watch show it.
+    let clock = Instant::now();
+    let r = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "y", "value": "42", "stop": 1}),
+    );
+    eprintln!(
+        "timing: set_variable through the shell against the fake: {:.2} ms",
+        clock.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(r["value"], "42", "{r}");
+    assert_eq!(r["type"], "int");
+    assert_eq!(r["request"], "setVariable");
+    assert!(r.get("pending").is_none());
+    assert_eq!(row(&d, "y"), "42");
+    d.w.wait("the watch re-evaluated", |w| {
+        state_of(w)["watches"][0]["value"] == "42"
+    });
+    // A string member through its object's reference, expanded in the Locals window.
+    d.w.click("debug-locals-toggle-2");
+    d.w.wait("order's members", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.debugger().windows.locals.read(cx).rows().len() == 5
+        })
+    });
+    let order = d.state()["locals"][2]["reference"].as_i64().unwrap();
+    let r = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"reference": order, "name": "Name", "value": "\"B\""}),
+    );
+    assert_eq!(r["value"], "\"B\"", "{r}");
+    assert_eq!(row(&d, "Name"), "\"B\"");
+    // A value of the wrong type: the adapter's error.
+    let e = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "y", "value": "\"text\""}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("CS0029"), "{e}");
+    // The person: select x in the Locals window and type its new value.
+    d.w.click("debug-locals-row-0");
+    d.w.click("debug-locals-value");
+    d.w.vcx.simulate_keystrokes("escape 7 enter");
+    d.w.wait("x is 7", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.debugger().windows.locals.read(cx).rows()[0].value == "7"
+        })
+    });
+    assert!(d.w.audit().contains(&cmds::SET_VARIABLE.to_owned()));
+    // Refused outside break mode.
+    d.cmd(cmds::CONTINUE, json!({})).unwrap();
+    let e = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "y", "value": "1"}),
+    );
+    assert!(
+        e["error"].as_str().unwrap().contains("not in break mode"),
+        "{e}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // setExpression where setVariable is missing; another frame than the windows show.
+    let mut d = setup_with(cx_of(&mut d), |p| {
+        p.extra_capabilities = json!({"supportsSetVariable": false});
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 6}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["set_variable"], true);
+    let r = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "sum", "value": "5"}),
+    );
+    assert_eq!(r["request"], "setExpression", "{r}");
+    assert_eq!(r["value"], "5");
+    let sent = d.fake().last("setExpression").unwrap();
+    assert_eq!(sent["expression"], "sum");
+    assert!(sent["frameId"].is_i64());
+    assert_eq!(row(&d, "sum"), "5");
+    let r = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "x", "value": "9", "frame": 1}),
+    );
+    assert_eq!(r["value"], "9", "{r}");
+    assert_eq!(row(&d, "sum"), "5", "the Locals window stays on frame 0");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // Neither: refused, naming the adapter.
+    let mut d = setup_with(cx_of(&mut d), |p| {
+        p.extra_capabilities =
+            json!({"supportsSetVariable": false, "supportsSetExpression": false});
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 6}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["set_variable"], false);
+    let e = agent_call(
+        &mut d,
+        cmds::SET_VARIABLE,
+        json!({"name": "sum", "value": "5"}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("`fake`"), "{e}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn set_next_statement_moves_the_execution_point_where_the_adapter_can(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.extra_capabilities = json!({"supportsGotoTargetsRequest": true});
+    });
+    d.w.open_solution();
+    let view = d.open("src/App/Program.cs", 7);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 8}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["set_next_statement"], true);
+    assert_eq!(d.exec(&view), Some((7, ExecutionKind::Current)));
+    let s = agent_call(
+        &mut d,
+        cmds::SET_NEXT_STATEMENT,
+        json!({"path": "src/App/Program.cs", "line": 6, "stop": 1}),
+    );
+    assert_eq!(s["stopped"]["reason"], "goto", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], 6);
+    assert_eq!(s["stop"], 2);
+    assert_eq!(d.exec(&view), Some((5, ExecutionKind::Current)));
+    assert_eq!(d.locals(), [("x".to_owned(), "1".to_owned())]);
+    // The person: Ctrl+Shift+F10 at the caret (line 7).
+    d.w.vcx.simulate_keystrokes("ctrl-shift-f10");
+    d.wait_break(3);
+    assert_eq!(d.top_line().0, "Program.cs:7");
+    // A line with no statement of this method: refused with the reason.
+    let e = agent_call(
+        &mut d,
+        cmds::SET_NEXT_STATEMENT,
+        json!({"path": "src/App/Calc.cs", "line": 5}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("line 5"), "{e}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+
+    // Without gotoTargets (netcoredbg, eludite-dbg-mono): refused naming the adapter.
+    let mut d = setup(cx_of(&mut d));
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 8}),
+    )
+    .unwrap();
+    d.start_and_break();
+    assert_eq!(d.state()["capabilities"]["set_next_statement"], false);
+    let e = agent_call(
+        &mut d,
+        cmds::SET_NEXT_STATEMENT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    );
+    let e = e["error"].as_str().unwrap();
+    assert!(
+        e.contains("Set Next Statement is not supported") && e.contains("`fake`"),
+        "{e}"
+    );
+    assert!(!d.fake().commands().contains(&"gotoTargets".to_owned()));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn run_control_persists_per_solution_and_a_version_1_file_loads(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    // The person makes it a tracepoint in the Breakpoints window's When Hit field.
+    d.cmd("eludite.view.show", json!({"id": ids::BREAKPOINTS}))
+        .unwrap();
+    d.w.vcx.run_until_parked();
+    d.w.click("debug-bp-row-0");
+    d.w.click("debug-bp-message");
+    type_text(&mut d, "x={x}");
+    d.w.click("debug-bp-apply");
+    let s = d.state();
+    assert_eq!(s["breakpoints"][0]["kind"], "tracepoint", "{s}");
+    assert_eq!(s["breakpoints"][0]["log_message"], "x={x}");
+    let rows = d.breakpoint_rows();
+    assert_eq!(rows[0].kind, cmds::BreakpointKind::Tracepoint);
+    d.w.bounds("debug-bp-glyph-0");
+    // Delete breakpoint when hit, on and off again.
+    d.w.click("debug-bp-remove-after");
+    assert_eq!(d.state()["breakpoints"][0]["remove_after"], true);
+    d.w.click("debug-bp-remove-after");
+    assert!(d.state()["breakpoints"][0].get("remove_after").is_none());
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "function": "App.Calc.Add", "hit_condition": "2", "remove_after": true}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::EXCEPTION_SETTINGS,
+        json!({"types": [{"type": "System.InvalidOperationException"}]}),
+    )
+    .unwrap();
+    // A temporary point is never saved.
+    d.w.shell.update(&mut d.w.vcx, |s, _| {
+        s.debug.model.breakpoints.put(super::state::Breakpoint {
+            temporary: true,
+            ..super::state::Breakpoint::new("/tmp/Temp.cs", 3)
+        })
+    });
+    d.cmd(cmds::WATCH, json!({"add": "x"})).unwrap();
+    let file =
+        eludite_docking::LayoutStore::new(d.store.clone()).solution_path(&d.w.path("App.slnx"));
+    d.w.wait("saved", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("System.InvalidOperationException"))
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(saved["version"], 2);
+    let bps = saved["breakpoints"].as_array().unwrap();
+    assert_eq!(bps.len(), 2, "{saved}");
+    assert_eq!(bps[0]["log_message"], "x={x}");
+    assert_eq!(bps[1]["function"], "App.Calc.Add");
+    assert_eq!(bps[1]["remove_after"], true);
+    assert!(bps[1].get("path").is_none());
+    assert_eq!(
+        saved["exceptions"]["types"][0]["type"],
+        "System.InvalidOperationException"
+    );
+
+    // Another window on the same solution loads it back.
+    let mut e = setup(cx_of(&mut d));
+    let mut text = std::fs::read_to_string(&file).unwrap();
+    text = text.replace(
+        &d.w.dir.path().to_string_lossy().into_owned(),
+        &e.w.dir.path().to_string_lossy(),
+    );
+    let file2 =
+        eludite_docking::LayoutStore::new(e.store.clone()).solution_path(&e.w.path("App.slnx"));
+    eludite_docking::persist::write_atomic(&file2, &text).unwrap();
+    e.w.open_solution();
+    e.w.wait("loaded", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.breakpoints.functions().len() == 1
+        })
+    });
+    let s = e.state();
+    assert_eq!(s["breakpoints"][0]["log_message"], "x={x}");
+    assert_eq!(s["breakpoints"][1]["function"], "App.Calc.Add");
+    assert_eq!(s["breakpoints"][1]["hit_condition"], "2");
+    assert_eq!(s["breakpoints"][1]["remove_after"], true);
+    assert_eq!(s["exceptions"]["types"][0]["break_when_thrown"], true);
+
+    // A version 1 file (briefs 0018 to 0025) loads as it was; the next save is version 2.
+    let mut f = setup(cx_of(&mut e));
+    let program = normalize_path(&f.w.path("src/App/Program.cs"))
+        .to_string_lossy()
+        .into_owned();
+    let v1 = json!({
+        "version": 1,
+        "breakpoints": [{"path": program, "line": 6, "enabled": false, "condition": "x > 1", "hit_condition": ">=2"}],
+        "exceptions": {"break_when_thrown": true, "break_when_user_unhandled": false},
+        "watches": ["x"]
+    });
+    let file3 =
+        eludite_docking::LayoutStore::new(f.store.clone()).solution_path(&f.w.path("App.slnx"));
+    eludite_docking::persist::write_atomic(&file3, &v1.to_string()).unwrap();
+    f.w.open_solution();
+    f.w.wait("v1 loaded", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.breakpoints.all().len() == 1
+        })
+    });
+    let s = f.state();
+    assert_eq!(s["breakpoints"][0]["kind"], "line");
+    assert_eq!(s["breakpoints"][0]["condition"], "x > 1");
+    assert_eq!(s["breakpoints"][0]["hit_condition"], ">=2");
+    assert_eq!(s["breakpoints"][0]["enabled"], false);
+    assert_eq!(s["exceptions"]["break_when_thrown"], true);
+    assert!(s["exceptions"].get("types").is_none());
+    assert_eq!(s["watches"][0]["expression"], "x");
+    f.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 7}),
+    )
+    .unwrap();
+    f.w.wait("saved as version 2", |_| {
+        std::fs::read_to_string(&file3).is_ok_and(|t| t.contains("\"version\": 2"))
+    });
+}
+
+#[gpui::test]
+fn a_tracepoint_firing_ten_times_a_second_costs_the_ui_little(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        let main = p.steps[0].path.clone();
+        p.steps = fake::hot_loop(&main, 6, "App.Program.Main()", 0, 1);
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6, "log_message": "tick {i} $FUNCTION"}),
+    )
+    .unwrap();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let fake = d.fake();
+    let firer = std::thread::spawn(move || {
+        for _ in 0..20 {
+            fake.trigger();
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+    let mut frames = Vec::new();
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.timings.msgs_ui.clear());
+    let mut last = Instant::now();
+    while !firer.is_finished() {
+        d.w.vcx.run_until_parked();
+        let draw = d.w.vcx.update(|window, cx| {
+            window.refresh();
+            let t = Instant::now();
+            let _ = window.draw(cx);
+            t.elapsed()
+        });
+        let ui: Duration = d.w.shell.read_with(&d.w.vcx, |s, _| {
+            s.debugger()
+                .timings
+                .msgs_ui
+                .iter()
+                .filter(|(at, _)| *at >= last)
+                .map(|(_, took)| *took)
+                .sum()
+        });
+        last = Instant::now();
+        frames.push((draw, ui));
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    firer.join().unwrap();
+    d.w.wait("20 hits", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.breakpoints.all()[0].hits == 20
+        })
+    });
+    let mut cost: Vec<Duration> = frames.iter().map(|(a, b)| *a + *b).collect();
+    cost.sort();
+    let mut share: Vec<Duration> = frames.iter().map(|(_, b)| *b).collect();
+    share.sort();
+    let p99 = |v: &[Duration]| v[(v.len() * 99).div_ceil(100) - 1];
+    eprintln!(
+        "timing: frame cost while a tracepoint fires 10/s: p99 {:.2} ms, max {:.2} ms over {} frames; the \
+         debugger's message handling p99 {:.3} ms",
+        p99(&cost).as_secs_f64() * 1e3,
+        cost.last().unwrap().as_secs_f64() * 1e3,
+        cost.len(),
+        p99(&share).as_secs_f64() * 1e3
+    );
+    assert!(p99(&share) < Duration::from_millis(8));
+    assert_eq!(d.model_stop(), 0);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// The TestApp of brief 0022 as this solution's net472 project under the real `eludite-dbg-mono` (as
+/// `the_reads_work_against_eludite_dbg_mono` sets it up): the debugger and the TestApp's `Program.cs` text and path;
+/// `None` (with a message) to skip.
+fn mono_solution(cx: &mut TestAppContext) -> Option<(Dbg, PathBuf, String)> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mono_dir = root.join("debuggers/mono");
+    let built = |p: &str| mono_dir.join(p).join("bin/Debug/net472");
+    let mono = match eludite_dap::discovery::MonoSearch::from_env().find_mono() {
+        Ok(m) if !cfg!(windows) => m,
+        Ok(_) => {
+            eprintln!("skipped: Windows");
+            return None;
+        }
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return None;
+        }
+    };
+    let adapter = std::env::var_os("ELUDITE_DBG_MONO")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| built("Eludite.Debugger.Mono").join("eludite-dbg-mono.exe"));
+    let app = built("Eludite.Debugger.Mono.TestApp");
+    if !adapter.is_file() || !app.join("Eludite.Debugger.Mono.TestApp.exe").is_file() {
+        eprintln!(
+            "skipped: eludite-dbg-mono or the TestApp is not built (dotnet build dotnet/Eludite.slnx)"
+        );
+        return None;
+    }
+    let source =
+        std::fs::canonicalize(mono_dir.join("Eludite.Debugger.Mono.TestApp/Program.cs")).unwrap();
+    let text = std::fs::read_to_string(&source).unwrap();
+    let (mut d, _) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, false);
+    d.set_debugger_path("debugger.monoPrefix", &mono.prefix);
+    d.set_debugger_path("debugger.monoAdapterPath", &adapter);
+    std::fs::write(
+        d.w.path("src/App/App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net472</TargetFramework><AssemblyName>Eludite.Debugger.Mono.TestApp</AssemblyName></PropertyGroup></Project>",
+    )
+    .unwrap();
+    for f in [
+        "Eludite.Debugger.Mono.TestApp.exe",
+        "Eludite.Debugger.Mono.TestApp.pdb",
+        "Eludite.Debugger.Mono.TestApp.exe.config",
+    ] {
+        std::fs::copy(app.join(f), d.w.path("src/App/bin/Debug/net472").join(f)).unwrap();
+    }
+    d.w.open_solution();
+    Some((d, source, text))
+}
+
+/// Run control through the shell against the real `eludite-dbg-mono` (brief 0026): `trace` over the TestApp's 100-pass
+/// loop with the shell's emulation forced (the adapter has log points; the switch makes the shell break, evaluate and
+/// resume as it must on netcoredbg) to measure the emulated overhead, then with the adapter's own log points; a
+/// function breakpoint, exception types, `set_variable` (timed) and `run_until`. Skipped like the other Mono test.
+#[gpui::test]
+fn run_control_works_against_eludite_dbg_mono(cx: &mut TestAppContext) {
+    let Some((mut d, source, text)) = mono_solution(cx) else {
+        return;
+    };
+    let line_of = |mark: &str| {
+        text.lines()
+            .position(|l| l.ends_with(&format!("// MARK: {mark}")))
+            .unwrap() as u32
+            + 1
+    };
+    let path = source.to_string_lossy().into_owned();
+    let points =
+        json!([{"path": path, "line": line_of("loop-body"), "message": "i={i} total={total}"}]);
+    // Emulated: 100 stops, each evaluated and resumed by the shell.
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.shell_log_points = true);
+    let clock = Instant::now();
+    let t = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": points, "run": "start", "wait_ms": 30000}),
+    );
+    let emulated_total = clock.elapsed();
+    assert_eq!(t["stopped_by"], "terminated", "{t}");
+    assert_eq!(t["emulated"], true);
+    let lines = t["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 100, "{t}");
+    assert_eq!(lines[0]["text"], "i=0 total=0");
+    assert_eq!(lines[99]["text"], "i=99 total=4851");
+    let first = lines[0]["time_ms"].as_f64().unwrap();
+    let last = lines[99]["time_ms"].as_f64().unwrap();
+    let overhead = t["overhead_ms_per_hit"].as_f64().unwrap();
+    eprintln!(
+        "timing: emulated tracepoint against eludite-dbg-mono through the shell: overhead {overhead:.2} ms per hit \
+         (stop to resume, mean of 100); first to last line {:.0} ms ({:.2} ms per hit); trace call {:.0} ms",
+        last - first,
+        (last - first) / 99.0,
+        emulated_total.as_secs_f64() * 1e3
+    );
+    // The adapter's own log points: the same lines, told apart from its console output, no overhead reported.
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.shell_log_points = false);
+    let clock = Instant::now();
+    let t = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": points, "run": "start", "wait_ms": 30000}),
+    );
+    assert_eq!(t["stopped_by"], "terminated", "{t}");
+    assert!(t.get("emulated").is_none(), "the adapter printed them: {t}");
+    assert!(t.get("overhead_ms_per_hit").is_none());
+    let lines = t["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 100, "{t}");
+    assert_eq!(lines[99]["text"], "i=99 total=4851");
+    assert_eq!(lines[99]["hit"], 100);
+    let (first, last) = (
+        lines[0]["time_ms"].as_f64().unwrap(),
+        lines[99]["time_ms"].as_f64().unwrap(),
+    );
+    eprintln!(
+        "timing: the adapter's log points against eludite-dbg-mono through the shell: first to last line {:.0} ms \
+         ({:.2} ms per hit); trace call {:.0} ms",
+        last - first,
+        (last - first) / 99.0,
+        clock.elapsed().as_secs_f64() * 1e3
+    );
+    // A function breakpoint, exception types, set_variable and run_until in one session.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "function": "Eludite.Debugger.Mono.TestApp.Calculator.Twice"}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::EXCEPTION_SETTINGS,
+        json!({"types": [{"type": "System.InvalidOperationException", "break_when_user_unhandled": false}]}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": path, "line": line_of("add-sum")}),
+    )
+    .unwrap();
+    agent_call(&mut d, cmds::START, json!({}));
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 20000}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], line_of("add-sum"), "{s}");
+    let mut times = Vec::new();
+    for v in 0..20 {
+        let clock = Instant::now();
+        let r = agent_call(
+            &mut d,
+            cmds::SET_VARIABLE,
+            json!({"name": "a", "value": (v + 10).to_string()}),
+        );
+        times.push(clock.elapsed());
+        assert_eq!(r["value"], (v + 10).to_string(), "{r}");
+    }
+    eprintln!(
+        "timing: set_variable through the shell against eludite-dbg-mono p95 {:.2} ms (max {:.2} ms, 20 calls)",
+        p95(times.clone()).as_secs_f64() * 1e3,
+        times.iter().max().unwrap().as_secs_f64() * 1e3
+    );
+    // a is 29 now: Twice gets 32 and the function breakpoint stops there.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 20000}));
+    assert_eq!(s["stopped"]["reason"], "function breakpoint", "{s}");
+    assert!(
+        s["stopped"]["location"]["function"]
+            .as_str()
+            .unwrap()
+            .contains("Twice")
+    );
+    assert_eq!(
+        d.state()["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["kind"] == "function")
+            .unwrap()["hits"],
+        1
+    );
+    // run_until the line after the call, then on to the throw (the exception type stops it).
+    let s = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": path, "line": line_of("total")}], "wait_ms": 20000}),
+    );
+    assert_eq!(s["stopped"]["location"]["line"], line_of("total"), "{s}");
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"wait_ms": 20000}));
+    assert_eq!(s["stopped"]["reason"], "exception", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line_of("throw"));
+    // Set Next Statement: refused, naming the adapter.
+    let e = agent_call(
+        &mut d,
+        cmds::SET_NEXT_STATEMENT,
+        json!({"path": path, "line": line_of("throw")}),
+    );
+    assert!(e["error"].as_str().unwrap().contains("`mono`"), "{e}");
+    agent_call(&mut d, cmds::STOP, json!({}));
+}
