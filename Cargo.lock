@@ -1784,6 +1784,8 @@ version = "0.1.0"
 dependencies = [
  "eludite-commands",
  "eludite-protocol",
+ "image",
+ "libc",
  "regex",
  "serde",
  "serde_json",
