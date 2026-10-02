@@ -52,6 +52,12 @@ impl<T: Clone> Ring<T> {
         self.items.get_mut(usize::try_from(ix).ok()?)
     }
 
+    /// The entry `seq`, while the ring still has it.
+    pub fn get(&self, seq: u64) -> Option<&T> {
+        let ix = seq.checked_sub(self.front)?;
+        self.items.get(usize::try_from(ix).ok()?)
+    }
+
     /// The `seq` of the newest entry (0 when nothing was ever pushed).
     pub fn last_seq(&self) -> u64 {
         self.next - 1
