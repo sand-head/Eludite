@@ -599,7 +599,7 @@ fn stale_navigation_answers_are_dropped(cx: &mut gpui::TestAppContext) {
     std::thread::sleep(Duration::from_millis(300));
     w.wait("the answer dropped", |w| w.definition_state() == "failed");
     assert!(!w.shell.read_with(&w.vcx, |s, _| {
-        s.editor(Path::new(order_id.as_ref())).is_some()
+        s.editor(Path::new(order_id.as_str())).is_some()
     }));
 
     // References: an answer computed under the old generation never reaches the window.
