@@ -7,6 +7,7 @@
 mod app;
 mod args;
 mod bench;
+mod settings;
 mod shell;
 #[cfg(test)]
 mod tests;

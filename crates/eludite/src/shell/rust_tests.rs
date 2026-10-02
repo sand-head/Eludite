@@ -94,8 +94,11 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&FakeServer)) -> Rs {
     let controller = DockController::new(DockLayout::default_vs(&tools), tools);
     let mut commands = builtins::default_registry();
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
-    let mut services =
-        super::register_workspace(&mut commands, HostLaunch::InProcess(host.connector()));
+    let mut services = super::register_workspace(
+        &mut commands,
+        HostLaunch::InProcess(host.connector()),
+        crate::settings::SettingsSetup::isolated(None),
+    );
     services.agents = super::agents::AgentsSetup {
         registry: Some(Vec::new()),
         ..super::agents::AgentsSetup::from_env()

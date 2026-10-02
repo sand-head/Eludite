@@ -35,6 +35,9 @@ pub mod rename;
 mod rust_tests;
 pub mod servers;
 pub mod session;
+pub mod settings;
+#[cfg(test)]
+mod settings_tests;
 pub mod target;
 #[cfg(test)]
 mod tests;
@@ -123,12 +126,30 @@ pub struct Services {
     pub workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
     /// The language-server registrations and, in tests, servers in this process (brief 0019).
     pub launches: ServerLaunches,
+    /// The settings store (brief 0020) and when it changed.
+    pub settings: crate::settings::Settings,
+    pub settings_changed: UnboundedReceiver<Instant>,
 }
 
-/// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
-/// thread.
-pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) -> Services {
+/// Start the host session and the settings store, and register the workspace, settings and other shell commands on
+/// `commands`. Call on the UI thread.
+pub fn register_workspace(
+    commands: &mut CommandRegistry,
+    launch: HostLaunch,
+    settings: crate::settings::SettingsSetup,
+) -> Services {
     let (session, events) = ServerSession::spawn(launch);
+    let schema = Arc::new(eludite_commands::settings::SettingsSchema::builtin());
+    let (settings_tx, settings_changed) = unbounded();
+    let settings = crate::settings::Settings::start(schema.clone(), settings, settings_tx);
+    eludite_commands::settings::register(
+        commands,
+        schema,
+        Arc::new(self::settings::SettingsBus {
+            settings: settings.clone(),
+        }),
+        false,
+    );
     let (jobs_tx, jobs) = unbounded();
     workspace::register(
         commands,
@@ -203,6 +224,8 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         debug: debug::DebugSetup::from_env(),
         workspace_tree,
         launches: ServerLaunches::default(),
+        settings,
+        settings_changed,
     }
 }
 
@@ -294,6 +317,10 @@ pub struct Shell {
     workspace_tree: Arc<Mutex<eludite_commands::workspace_tree::WorkspaceTreeOutput>>,
     /// The host's last tree, for `eludite.workspace.tree` without a folder.
     last_tree: Option<eludite_lsp::host::SolutionTree>,
+    /// The settings store (brief 0020), what was last applied from it, and how long each change took to apply.
+    settings: crate::settings::Settings,
+    applied_settings: Option<self::settings::Applied>,
+    settings_applied: Vec<std::time::Duration>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -414,6 +441,8 @@ impl Shell {
             debug: debug_setup,
             workspace_tree,
             launches,
+            settings,
+            mut settings_changed,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
@@ -611,7 +640,22 @@ impl Shell {
             }
         });
         let debug_task = Self::debug_tasks(debug_msgs, debug_jobs, window, cx);
-        Self {
+        // Settings changes (a file edited on disk, or eludite.settings.set): applied in one update per burst.
+        let settings_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(first) = settings_changed.next().await {
+                let mut seen = first;
+                while let Ok(more) = settings_changed.try_recv() {
+                    seen = seen.min(more);
+                }
+                if this
+                    .update(cx, |shell, cx| shell.apply_settings(Some(seen), cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let mut this = Self {
             theme,
             commands,
             controller,
@@ -656,6 +700,9 @@ impl Shell {
             folder: None,
             workspace_tree,
             last_tree: None,
+            settings,
+            applied_settings: None,
+            settings_applied: Vec::new(),
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -666,8 +713,11 @@ impl Shell {
                 debug_task.0,
                 debug_task.1,
                 cargo_task,
+                settings_task,
             ],
-        }
+        };
+        this.apply_settings(None, cx);
+        this
     }
 
     pub fn dock(&self) -> &Entity<DockHost> {
@@ -1046,6 +1096,7 @@ impl Shell {
                     self.timings.open = Some(Instant::now());
                 }
                 self.solution = Some(path.clone());
+                self.update_settings_dir();
                 self.debug_solution_opened(&path, cx);
                 let name = self.solution_name();
                 // An open folder keeps its title and its tree, where the solution shows as loading.
@@ -1267,6 +1318,7 @@ impl Shell {
             SessionEvent::Closed => {
                 *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
+                self.update_settings_dir();
                 self.solution_state = None;
                 self.last_tree = None;
                 self.clear_host_diagnostics(cx);

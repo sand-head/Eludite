@@ -41,6 +41,9 @@ pub struct ServerLaunches {
     /// Servers running in this process instead of the located executables, by registration id (the fake server in
     /// tests).
     pub in_process: BTreeMap<String, Connector>,
+    /// The setting `languageServers.rustAnalyzerPath` (brief 0020): tried first when the registration's override
+    /// variable is not set.
+    pub rust_analyzer: Option<PathBuf>,
 }
 
 impl Default for ServerLaunches {
@@ -48,6 +51,7 @@ impl Default for ServerLaunches {
         Self {
             registry: ServerRegistry::builtin(),
             in_process: BTreeMap::new(),
+            rust_analyzer: None,
         }
     }
 }
@@ -223,10 +227,14 @@ impl Shell {
             root.display()
         ));
         let connector = self.launches.in_process.get(&registration.id).cloned();
+        let configured = (registration.id == "rust-analyzer")
+            .then(|| self.launches.rust_analyzer.clone())
+            .flatten();
         let (session, mut events) = ServerSession::spawn_generic(GenericLaunch {
             registration: registration.clone(),
             root: root.clone(),
             connector,
+            configured,
         });
         let slot_id = slot(&key);
         if !self.status.has_slot(&slot_id) {

@@ -221,7 +221,7 @@ pub struct Builds {
     pub diagnostics: Vec<BuildDiagnostic>,
     /// The running Cargo build, to cancel it (brief 0019).
     pub cargo: Option<CargoRun>,
-    /// The `cargo` to run: `ELUDITE_CARGO`, else `cargo` on PATH.
+    /// The `cargo` to run: the setting `build.cargoPath` (or `ELUDITE_CARGO`), else `cargo` on PATH.
     pub cargo_program: std::ffi::OsString,
     next_cargo_id: u64,
     /// A build of every system: what is left to run, and what the finished ones produced.
@@ -233,8 +233,15 @@ pub struct Builds {
     /// The platforms the solution file lists (the first is its default).
     pub platforms: Vec<String>,
     pub menu: Option<&'static str>,
-    /// Build the saved file's project after Ctrl+S (off by default; `ELUDITE_BUILD_ON_SAVE=1`).
+    /// Build the saved file's project after Ctrl+S (the setting `build.onSave`, or `ELUDITE_BUILD_ON_SAVE=1`; off by
+    /// default).
     pub build_on_save: bool,
+    /// F5 and Ctrl+F5 build the startup project first (the setting `build.beforeRun`; on by default).
+    pub build_before_run: bool,
+    /// Visual Studio's "Show Output window when build starts" (`build.showOutputOnStart`).
+    pub show_output_on_start: bool,
+    /// Visual Studio's "Always show Error List if build finishes with errors" (`build.showErrorListOnFailure`).
+    pub show_error_list_on_failure: bool,
     pub timings: BuildTimings,
     /// The host restarted while its build ran: the build waits for `eludite/build/status`.
     pub awaiting_status: bool,
@@ -250,14 +257,17 @@ impl Builds {
             last: None,
             diagnostics: Vec::new(),
             cargo: None,
-            cargo_program: std::env::var_os("ELUDITE_CARGO").unwrap_or_else(|| "cargo".into()),
+            cargo_program: "cargo".into(),
             next_cargo_id: cargo_build::CARGO_BUILD_ID_BASE,
             chain: None,
             configuration: CONFIGURATIONS[0].to_owned(),
             platform: None,
             platforms: vec!["Any CPU".into()],
             menu: None,
-            build_on_save: std::env::var_os("ELUDITE_BUILD_ON_SAVE").is_some_and(|v| v == "1"),
+            build_on_save: false,
+            build_before_run: true,
+            show_output_on_start: true,
+            show_error_list_on_failure: true,
             timings: BuildTimings::default(),
             awaiting_status: false,
         }
@@ -688,12 +698,17 @@ impl Shell {
         };
         self.set_building(true, cx);
         // Visual Studio's "Show Output window when build starts".
-        let _ = self.controller.apply(ViewRequest::Show {
-            id: ids::OUTPUT.into(),
-        });
+        let show = self.builds.show_output_on_start;
+        if show {
+            let _ = self.controller.apply(ViewRequest::Show {
+                id: ids::OUTPUT.into(),
+            });
+        }
         self.output.update(cx, |o, cx| {
             o.clear(OutputSource::Build, cx);
-            o.select(OutputSource::Build, cx);
+            if show {
+                o.select(OutputSource::Build, cx);
+            }
         });
         self.status
             .set(BUILD_SLOT, format!("{} started\u{2026}", verb(kind)));
@@ -1033,7 +1048,10 @@ impl Shell {
                 received.elapsed().as_secs_f64() * 1e3
             ));
             // Visual Studio's "Always show Error List if build finishes with errors".
-            if finished.result == BuildResult::Failed && s.errors > 0 {
+            if self.builds.show_error_list_on_failure
+                && finished.result == BuildResult::Failed
+                && s.errors > 0
+            {
                 let _ = self.controller.apply(ViewRequest::Show {
                     id: ids::ERROR_LIST.into(),
                 });
