@@ -26,7 +26,9 @@
 //! host's reply arrives as [`SessionEvent::BuildStarted`] (or `BuildRefused`), and the build's streamed output,
 //! progress and result as `BuildOutput`, `BuildProgress` and `BuildFinished`. The host's stderr is captured and
 //! arrives line by line as [`SessionEvent::HostLog`] (the Output window's Host source) as well as on the shell's
-//! stderr.
+//! stderr. After the host restarts, the worker asks `eludite/build/status` before reopening the solution and reports it
+//! as [`SessionEvent::BuildStatus`], so the shell can replay a build that is still running or end the one that died
+//! with the old host (brief 0020).
 //!
 //! Generic servers (brief 0019, [`ServerSession::spawn_generic`]): the server starts with the first document opened
 //! for it, rooted at the workspace root the shell computed (the Cargo workspace root from `cargo metadata`). The
@@ -218,6 +220,8 @@ pub enum SessionEvent {
     ServerStatus(ServerStatus),
     /// A generic server's generation: after it started, and after every restart.
     ServerGeneration(Generation),
+    /// `eludite/build/status` after the host restarted (brief 0020): the running build to replay, if any.
+    BuildStatus(host::BuildStatusResult),
 }
 
 enum Cmd {
@@ -252,6 +256,8 @@ enum Cmd {
     Notify(String, serde_json::Value),
     BuildStart(u64, host::BuildStartParams),
     BuildCancel,
+    /// Kill the server without a shutdown (a simulated crash: tests and the harness).
+    Kill,
     Shutdown(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -488,6 +494,12 @@ impl ServerSession {
         self.send(Cmd::BuildCancel);
     }
 
+    /// Kill the server as a crash would; the restart policy restarts it (tests and the harness).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn kill(&self) {
+        self.send(Cmd::Kill);
+    }
+
     /// Shuts the server down; the returned receiver fires when done (or the worker is gone).
     pub fn shutdown(&self) -> Receiver<()> {
         let (tx, rx) = mpsc::sync_channel(1);
@@ -631,6 +643,9 @@ impl Worker {
                     }
                 }
                 Cmd::Replay => {
+                    // A build the old host ran is either still running (a host the shell reattached to) or gone:
+                    // ask before reopening the solution, which would cancel it.
+                    self.build_status();
                     let solution = lock(&self.shared).solution.clone();
                     if let Some(path) = solution
                         && !self.is_generic()
@@ -671,6 +686,11 @@ impl Worker {
                                     eprintln!("eludite: eludite/build/cancel: {e}");
                                 }
                             });
+                    }
+                }
+                Cmd::Kill => {
+                    if let Some(c) = self.client.as_ref() {
+                        let _ = c.conn().kill();
                     }
                 }
                 Cmd::Shutdown(done) => {
@@ -714,6 +734,30 @@ impl Worker {
                 };
                 let _ = events.unbounded_send(event);
             });
+    }
+
+    /// `eludite/build/status`, answered as [`SessionEvent::BuildStatus`] from a waiter thread.
+    fn build_status(&self) {
+        let Some(client) = self.host() else { return };
+        let Ok(pending) = client.request::<host::BuildStatus>(()) else {
+            return;
+        };
+        let events = self.events.clone();
+        let _ = thread::Builder::new()
+            .name("eludite-build-status".into())
+            .spawn(
+                move || match pending.wait_timeout(Duration::from_secs(10)) {
+                    Ok(status) => {
+                        let _ = events.unbounded_send(SessionEvent::BuildStatus(status));
+                    }
+                    Err(e) => {
+                        eprintln!("eludite: eludite/build/status: {e}");
+                        let _ = events.unbounded_send(SessionEvent::BuildStatus(
+                            host::BuildStatusResult::default(),
+                        ));
+                    }
+                },
+            );
     }
 
     fn send_open(&self, uri: &str, language_id: &str, version: i32, text: &str) {

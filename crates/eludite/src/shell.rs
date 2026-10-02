@@ -1067,6 +1067,10 @@ impl Shell {
                     .set(LANGUAGE_SERVER_SLOT, format!("eludite-host {version}"));
             }
             SessionEvent::HostFailed { reason } => {
+                // The host gave up restarting while its build waited for it.
+                if self.builds.awaiting_status {
+                    self.on_build_lost(&reason, cx);
+                }
                 self.status.set(SOLUTION_SLOT, reason.clone());
                 if let Some(f) = self.folder.as_mut() {
                     if f.solution.is_some() {
@@ -1084,7 +1088,7 @@ impl Shell {
                     LANGUAGE_SERVER_SLOT,
                     "eludite-host exited; restarting\u{2026}",
                 );
-                self.on_build_lost("eludite-host exited", cx);
+                self.on_host_restarting(cx);
             }
             SessionEvent::LanguageServer(s) => {
                 self.ls_state = Some(s.state);
@@ -1247,7 +1251,8 @@ impl Shell {
             SessionEvent::BuildRefused { ticket, message } => {
                 self.on_build_refused(ticket, message, cx)
             }
-            SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, &o.text, cx),
+            SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, o.seq, &o.text, cx),
+            SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)

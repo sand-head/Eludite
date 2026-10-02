@@ -547,6 +547,7 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::SolutionTreeRequest>(),
         req::<host::BuildStart>(),
         req::<host::BuildCancel>(),
+        req::<host::BuildStatus>(),
     ];
     assert!(
         eludite
@@ -574,6 +575,87 @@ fn typed_marker_methods_match_the_method_lists() {
     ] {
         assert!(methods::HOST_TO_SHELL.contains(&m), "{m}");
     }
+}
+
+#[test]
+fn build_status_conforms_to_its_schema() {
+    use host::*;
+    conforms("build-status.json", "params", &());
+    conforms("build-status.json", "result", &BuildStatusResult::default());
+    rejects("build-status.json", "result", json!({}));
+    rejects("build-status.json", "params", json!({"buildId": 1}));
+    let running = BuildStatusRunning {
+        build_id: 3,
+        generation: 2,
+        system: None,
+        path: "/s/A.slnx".into(),
+        target: BuildTarget::Rebuild,
+        configuration: "Debug".into(),
+        platform: Some("x64".into()),
+        toolchain: Toolchain {
+            kind: ToolchainKind::Dotnet,
+            path: Some("/usr/bin/dotnet".into()),
+            source: None,
+        },
+        binlog: Some("/tmp/b.binlog".into()),
+        command_line: "dotnet build -t:Rebuild /s/A.slnx".into(),
+        elapsed_ms: 812.5,
+        progress: Some(BuildProgress {
+            build_id: 3,
+            elapsed_ms: 800.0,
+            projects_total: 8,
+            projects_completed: 2,
+            errors: 1,
+            warnings: 0,
+            current_project: Some("Eludite.Host".into()),
+        }),
+        output: BuildStatusOutput {
+            first_seq: 0,
+            next_seq: 4,
+            text: "Rebuild All started at 10:00:00...\n".into(),
+            truncated: false,
+        },
+    };
+    let last = BuildStatusLast {
+        build_id: 2,
+        generation: 2,
+        target: BuildTarget::Build,
+        path: "/s/A.slnx".into(),
+        result: BuildResult::Failed,
+        elapsed_ms: 1500.0,
+        summary: BuildSummary {
+            projects_succeeded: 7,
+            projects_failed: 1,
+            errors: 1,
+            warnings: 0,
+        },
+    };
+    let full = BuildStatusResult {
+        running: Some(running.clone()),
+        last: Some(last),
+    };
+    conforms("build-status.json", "result", &full);
+    let v = serde_json::to_value(&full).unwrap();
+    assert_eq!(v["running"]["output"]["nextSeq"], 4);
+    assert_eq!(
+        v["running"]["commandLine"],
+        "dotnet build -t:Rebuild /s/A.slnx"
+    );
+    let back: BuildStatusResult = serde_json::from_value(v).unwrap();
+    assert_eq!(back, full);
+    // What the C# host sends when nothing runs: `running` is present and null, `last` omitted.
+    let idle: BuildStatusResult = serde_json::from_value(json!({"running": null})).unwrap();
+    assert_eq!(idle, BuildStatusResult::default());
+    assert_eq!(running.start_result().build_id, 3);
+    assert_eq!(running.start_result().platform.as_deref(), Some("x64"));
+    // A canceled build in the past without one running, and a running build without the optional members.
+    rejects(
+        "build-status.json",
+        "result",
+        json!({"running": {"buildId": 1, "generation": 0, "path": "/a", "target": "build",
+                           "configuration": "Debug", "toolchain": {"kind": "dotnet"}, "commandLine": "x",
+                           "elapsedMs": 1.0}}),
+    );
 }
 
 #[test]

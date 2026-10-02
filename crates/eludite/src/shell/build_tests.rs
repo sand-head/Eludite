@@ -484,3 +484,79 @@ fn the_configuration_dropdown_picks_release_and_the_host_log_has_its_own_source(
     assert!(build > 0);
     let _ = T;
 }
+
+/// Brief 0020: when the host restarts mid-build, the shell asks the new host for `eludite/build/status`; a build that
+/// still runs is replayed into the Output window (including output sent while the shell was away) and then continues
+/// without duplicates, and a build that did not survive is reported as ended.
+#[gpui::test]
+fn build_status_replays_a_running_build_after_a_host_restart(cx: &mut gpui::TestAppContext) {
+    let mut w = setup(cx);
+    w.open_solution();
+    w.vcx.simulate_keystrokes("ctrl-shift-b");
+    let id = w.wait_build_started();
+    w.fake.build_output("line A\n");
+    w.wait("line A", |w| w.build_lines().iter().any(|l| l == "line A"));
+
+    // The host dies; the build survives it (a host the shell reattaches to), and output the shell never received is
+    // in the status.
+    w.fake.set_build_survives_restart(true);
+    w.fake.build_output_unsent("line B\n");
+    let session = w.shell.read_with(&w.vcx, |s, _| s.session.clone());
+    session.kill();
+    let fake = w.fake.clone();
+    w.wait("the restart", |_| fake.connections() == 2);
+    w.wait("the replay", |w| {
+        !w.fake.received_params("eludite/build/status").is_empty()
+            && w.build_lines().iter().any(|l| l == "line B")
+    });
+    assert!(w.building());
+    let status_seen = w.fake.received_params("eludite/build/status").len();
+    assert_eq!(status_seen, 1, "asked once, after the restart");
+    // A chunk the replay already holds is dropped; the next one is applied once.
+    w.fake.notify(
+        "eludite/build/output",
+        json!({"buildId": id, "seq": 1, "text": "line A\n"}),
+    );
+    w.fake.build_output("line C\n");
+    w.wait("line C", |w| w.build_lines().iter().any(|l| l == "line C"));
+    let lines = w.build_lines();
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.starts_with("line "))
+            .collect::<Vec<_>>(),
+        ["line A", "line B", "line C"],
+        "{lines:?}"
+    );
+    assert_eq!(lines[0], "Build started...");
+    let program = w.path("src/App/Program.cs");
+    let project = w.path("src/App/App.csproj");
+    w.fake.finish_build(
+        "failed",
+        json!([build_error(
+            &program,
+            &project,
+            3,
+            17,
+            "CS1002",
+            "; expected"
+        )]),
+    );
+    w.wait("the build to finish", |w| !w.building());
+    assert_eq!(w.build_status(), "Build failed: 1 error, 0 warnings");
+    w.wait("the build row", |w| w.error_rows().len() == 1);
+
+    // A build that dies with its host is reported as ended.
+    w.fake.set_build_survives_restart(false);
+    w.vcx.simulate_keystrokes("ctrl-shift-b");
+    w.wait_build_started();
+    session.kill();
+    let fake = w.fake.clone();
+    w.wait("the second restart", |_| fake.connections() == 3);
+    w.wait("the build to end", |w| !w.building());
+    assert_eq!(
+        w.build_status(),
+        "Build canceled: eludite-host restarted and the build ended"
+    );
+    assert!(w.menu_enabled("Build Solution"));
+}

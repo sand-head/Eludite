@@ -18,6 +18,12 @@
 //! stream more with [`FakeHost::build_output`] and [`FakeHost::build_progress`] and to end it with
 //! [`FakeHost::finish_build`]. `eludite/build/cancel` answers `canceled` and sends the `canceled` finished
 //! notification at once (or never, with [`FakeHost::set_build_cancel_ignored`]).
+//!
+//! `eludite/build/status` (brief 0020) answers the running build with every output chunk sent so far and the last
+//! finished build. A new connection (the client restarting the fake after [`crate::HostClient::kill`]) ends the
+//! running build, as a real host restart does, unless [`FakeHost::set_build_survives_restart`] keeps it (a host the
+//! shell reattaches to); [`FakeHost::build_output_unsent`] records a chunk without sending it (one sent while the
+//! shell was away).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -86,6 +92,9 @@ struct State {
     build: Option<FakeBuild>,
     builds_started: u64,
     build_cancel_ignored: bool,
+    build_survives_restart: bool,
+    /// The last finished build's `eludite/build/status` `last` member.
+    last_build: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +105,10 @@ struct FakeBuild {
     generation: Generation,
     path: String,
     started: Instant,
+    /// Every chunk recorded so far (sent or not): `eludite/build/status` replays them.
+    output: String,
+    /// The last progress sent.
+    progress: Option<Value>,
 }
 
 struct Shared {
@@ -155,6 +168,9 @@ impl FakeHost {
                 s.connections += 1;
                 s.generation = 0;
                 s.solution = None;
+                if !s.build_survives_restart {
+                    s.build = None;
+                }
             }
             thread::Builder::new()
                 .name("eludite-fake-host".into())
@@ -347,12 +363,29 @@ impl FakeHost {
         self.lock().build_cancel_ignored = ignored;
     }
 
+    /// When true, the running build outlives a restart of the fake (a host the shell reattaches to); by default a new
+    /// connection ends it, as a real host restart does.
+    pub fn set_build_survives_restart(&self, survives: bool) {
+        self.lock().build_survives_restart = survives;
+    }
+
+    /// Records the running build's next output chunk without sending it (output the shell missed while it was away);
+    /// `eludite/build/status` still includes it.
+    pub fn build_output_unsent(&self, text: &str) {
+        let mut s = self.lock();
+        if let Some(b) = s.build.as_mut() {
+            b.seq += 1;
+            b.output.push_str(text);
+        }
+    }
+
     /// Sends the running build's next output chunk (`text` should end with a newline).
     pub fn build_output(&self, text: &str) {
         let next = {
             let mut s = self.lock();
             s.build.as_mut().map(|b| {
                 b.seq += 1;
+                b.output.push_str(text);
                 (b.id, b.seq - 1)
             })
         };
@@ -366,14 +399,18 @@ impl FakeHost {
 
     /// Sends `eludite/build/progress` for the running build.
     pub fn build_progress(&self, completed: u32, total: u32, errors: u32, warnings: u32) {
-        let build = self.lock().build.clone();
-        if let Some(b) = build {
-            self.notify(
-                methods::BUILD_PROGRESS,
-                json!({"buildId": b.id, "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
-                       "projectsTotal": total, "projectsCompleted": completed,
-                       "errors": errors, "warnings": warnings}),
-            );
+        let progress = {
+            let mut s = self.lock();
+            s.build.as_mut().map(|b| {
+                let p = json!({"buildId": b.id, "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
+                               "projectsTotal": total, "projectsCompleted": completed,
+                               "errors": errors, "warnings": warnings});
+                b.progress = Some(p.clone());
+                p
+            })
+        };
+        if let Some(p) = progress {
+            self.notify(methods::BUILD_PROGRESS, p);
         }
     }
 
@@ -417,11 +454,16 @@ impl FakeHost {
         let summary = json!({"projectsSucceeded": projects.len() - failed, "projectsFailed": failed,
                              "errors": count("error", None), "warnings": count("warning", None)});
         let target = b.params["target"].clone();
+        let elapsed = b.started.elapsed().as_secs_f64() * 1e3;
+        self.lock().last_build = Some(
+            json!({"buildId": b.id, "generation": b.generation, "target": target, "path": b.path,
+                   "result": result, "elapsedMs": elapsed, "summary": summary}),
+        );
         self.notify(
             methods::BUILD_FINISHED,
             json!({"buildId": b.id, "generation": b.generation, "target": target, "path": b.path,
                    "result": result, "exitCode": if result == "succeeded" { 0 } else { 1 },
-                   "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
+                   "elapsedMs": elapsed,
                    "summary": summary, "projects": projects, "diagnostics": diagnostics}),
         );
     }
@@ -588,6 +630,29 @@ impl FakeHost {
                 });
             }
             methods::BUILD_START => self.build_start(&reply, &error, &notify, params),
+            methods::BUILD_STATUS => {
+                let s = self.lock();
+                let running = s.build.as_ref().map(|b| {
+                    let mut r = json!({"buildId": b.id, "generation": b.generation, "path": b.path,
+                                       "target": b.params["target"],
+                                       "configuration": b.params["configuration"].as_str().unwrap_or("Debug"),
+                                       "toolchain": {"kind": "dotnet", "path": "dotnet"},
+                                       "commandLine": format!("dotnet build {}", b.path),
+                                       "elapsedMs": b.started.elapsed().as_secs_f64() * 1e3,
+                                       "output": {"firstSeq": 0, "nextSeq": b.seq, "text": b.output,
+                                                  "truncated": false}});
+                    if let Some(p) = &b.progress {
+                        r["progress"] = p.clone();
+                    }
+                    r
+                });
+                let mut result = json!({ "running": running });
+                if let Some(last) = &s.last_build {
+                    result["last"] = last.clone();
+                }
+                drop(s);
+                reply(result);
+            }
             methods::BUILD_CANCEL => {
                 let (running, ignored) = {
                     let s = self.lock();
@@ -660,6 +725,8 @@ impl FakeHost {
             .map(str::to_owned)
             .unwrap_or(solution);
         let generation = s.generation;
+        let configuration = params["configuration"].as_str().unwrap_or("Debug");
+        let first = format!("Build started...\n> dotnet build {path} -c {configuration}\n");
         s.build = Some(FakeBuild {
             id,
             seq: 1,
@@ -667,9 +734,10 @@ impl FakeHost {
             generation,
             path: path.clone(),
             started: Instant::now(),
+            output: first.clone(),
+            progress: None,
         });
         drop(s);
-        let configuration = params["configuration"].as_str().unwrap_or("Debug");
         reply(
             json!({"buildId": id, "generation": generation, "path": path, "target": params["target"],
                      "configuration": configuration, "platform": params.get("platform").cloned().unwrap_or(Value::Null),
@@ -678,8 +746,7 @@ impl FakeHost {
         );
         notify(
             methods::BUILD_OUTPUT,
-            json!({"buildId": id, "seq": 0,
-                   "text": format!("Build started...\n> dotnet build {path} -c {configuration}\n")}),
+            json!({"buildId": id, "seq": 0, "text": first}),
         );
     }
 
