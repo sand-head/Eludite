@@ -1,6 +1,6 @@
 # Brief 0011: Bring editor memory under budget
 
-Status: open
+Status: done on Linux ([report](0011-report.md)); 100k-line C# file 98 MB idle and +8 MB over 500 keystrokes, 10.6 MB file 148 MB idle; mimalloc kept for tree-sitter only, not as the global allocator; Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principle 1), 4.1, 9
 Depends on: brief 0009 (report, memory section)

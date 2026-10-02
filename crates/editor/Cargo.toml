@@ -13,6 +13,8 @@ clock.workspace = true
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
 eludite-ui.workspace = true
+# tree-sitter's allocator (src/syntax/alloc.rs); MIT.
+libmimalloc-sys.workspace = true
 text.workspace = true
 # tree-sitter and its grammars (all MIT); versions recorded in docs/briefs/0009-report.md.
 tree-sitter = "0.27"
@@ -22,7 +24,13 @@ tree-sitter-rust = "0.24"
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
 gpui_platform.workspace = true
+mimalloc.workspace = true
 serde_json.workspace = true
+
+[features]
+# Build the example viewer with mimalloc as the global allocator instead of
+# the system one, to compare the two (brief 0011).
+mimalloc-global = []
 
 [[example]]
 name = "viewer"

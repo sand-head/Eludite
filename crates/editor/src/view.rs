@@ -22,7 +22,7 @@ use crate::display::{
 use crate::editor::{ClickKind, Editor, FindQuery, SelectionRange};
 use crate::syntax::{
     HighlightStats, HighlightUpdate, Highlighter, Language, LineHighlights, Span, SyntaxTheme,
-    SyntaxThread,
+    SyntaxThread, TREE_RETAIN_LIMIT,
 };
 
 actions!(
@@ -211,6 +211,8 @@ struct SyntaxState {
     complete: bool,
     updates: usize,
     last_stats: HighlightStats,
+    /// Passed to [`Highlighter::set_retain_limit`] before each step.
+    tree_retain_limit: usize,
 }
 
 /// What the last paint laid out; used to map mouse positions and IME
@@ -268,6 +270,7 @@ impl EditorView {
                 complete: false,
                 updates: 0,
                 last_stats: HighlightStats::default(),
+                tree_retain_limit: TREE_RETAIN_LIMIT,
             },
             decorations: BTreeMap::new(),
             find_bar_open: false,
@@ -388,13 +391,22 @@ impl EditorView {
         (self.syntax.updates, self.syntax.last_stats)
     }
 
+    /// Keep the syntax tree between edits only for buffers of at most
+    /// `bytes` (default [`TREE_RETAIN_LIMIT`]); see [`Highlighter`]. Takes
+    /// effect from the next highlight step. For benchmarks and tests.
+    pub fn set_syntax_tree_limit(&mut self, bytes: usize) {
+        self.syntax.tree_retain_limit = bytes;
+    }
+
     fn schedule_highlight(&mut self, cx: &mut Context<Self>) {
         let Some(mut highlighter) = self.syntax.highlighter.take() else {
             return; // A step is running; its completion re-checks the buffer version.
         };
         let snapshot = self.editor.buffer().snapshot().clone();
         let priority = self.visible_rows();
+        let retain_limit = self.syntax.tree_retain_limit;
         let step = SyntaxThread::global().run(move || {
+            highlighter.set_retain_limit(retain_limit);
             let update = highlighter.step(&snapshot, priority);
             (highlighter, update)
         });
