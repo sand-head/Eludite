@@ -208,7 +208,7 @@ fn browser_commands_are_registered_agent_visible_with_their_schemas(cx: &mut gpu
             .iter()
             .any(|s| s.id.as_str() == cmds::SCREENSHOT)
     );
-    // Registering is all a cold start pays for the browser: the fourteen commands' schemas.
+    // Registering is all a cold start pays for the browser: the twenty commands' schemas.
     let fresh = eludite_commands::CommandRegistry::new();
     let t = Instant::now();
     let _bus = super::browser::register(&fresh);
@@ -362,7 +362,7 @@ fn setup_scripted(
     cx: &mut gpui::TestAppContext,
     policy: Value,
     agents: &[(&str, Value)],
-) -> (Ws, Arc<Seen>) {
+) -> (Ws, Arc<Seen>, tempfile::TempDir) {
     let mut setup = super::agents::tests::fake_agents(
         agents
             .iter()
@@ -379,14 +379,16 @@ fn setup_scripted(
             })
             .collect(),
     );
-    let out = tempfile::tempdir().unwrap().keep().join("transcript.json");
-    setup.transcript_out = Some(out);
+    // The transcript (and the images opened from it) go to a folder of their own.
+    let out = tempfile::tempdir().unwrap();
+    setup.transcript_out = Some(out.path().join("transcript.json"));
     let mut w = setup_full(cx, |_| {}, Some(setup));
     w.open_solution();
     let file = eludite_commands::policy::AgentPolicy::path_for(w.dir.path());
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, policy.to_string()).unwrap();
-    fake_engines(w)
+    let (w, seen) = fake_engines(w);
+    (w, seen, out)
 }
 
 impl Ws {
@@ -440,7 +442,7 @@ fn the_gate_prompts_off_the_allowed_origins_and_always_allow_adds_the_origin(
         {"tool": "eludite-browser-navigate", "arguments": {"url": "http://127.0.0.1:4321/form.html"}},
         {"tool": "eludite-browser-navigate", "arguments": {"url": "https://example.com/"}}
     ]);
-    let (mut w, _seen) = setup_scripted(
+    let (mut w, _seen, _out) = setup_scripted(
         cx,
         json!({"version": 1, "execute": "allow"}),
         &[("Navigator", steps)],
@@ -558,7 +560,7 @@ fn a_denied_off_origin_navigation_fails_and_the_policy_refuses_evaluate_and_bodi
         {"tool": "eludite-browser-network_body", "arguments": {"request_id": "1.1"}},
         {"tool": "eludite-browser-navigate", "arguments": {"url": "https://example.com/"}}
     ]);
-    let (mut w, _seen) = setup_scripted(
+    let (mut w, _seen, _out) = setup_scripted(
         cx,
         json!({"version": 1, "execute": "allow", "browser": {"evaluate": "deny", "network_bodies": "deny"}}),
         &[("Refused", steps)],
@@ -629,26 +631,28 @@ fn a_screenshot_in_a_tool_result_is_a_thumbnail_that_opens_the_image(
         {"tool": "eludite-browser-tab_open"},
         {"tool": "eludite-browser-screenshot"}
     ]);
-    let (mut w, _seen) = setup_scripted(
+    let (mut w, _seen, _out) = setup_scripted(
         cx,
         json!({"version": 1, "execute": "allow"}),
         &[("Photographer", steps)],
     );
-    // The system viewer is a script that records what it is asked to open.
+    // The system viewer is a script that records what it is asked to open (a shell script: Unix only).
     let opened = w.dir.path().join("opened.txt");
     let opener = w.dir.path().join("opener.sh");
-    std::fs::write(
-        &opener,
-        format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n",
-            opened.display()
-        ),
-    )
-    .unwrap();
-    std::process::Command::new("chmod")
-        .args(["+x", &opener.to_string_lossy()])
-        .status()
+    if cfg!(unix) {
+        std::fs::write(
+            &opener,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n",
+                opened.display()
+            ),
+        )
         .unwrap();
+        std::process::Command::new("chmod")
+            .args(["+x", &opener.to_string_lossy()])
+            .status()
+            .unwrap();
+    }
     w.shell.read_with(&w.vcx, |s, _| {
         s.browser()
             .set_opener(Some(opener.to_string_lossy().into_owned()))
@@ -688,6 +692,9 @@ fn a_screenshot_in_a_tool_result_is_a_thumbnail_that_opens_the_image(
     });
     let b = w.bounds(&sel);
     assert!(b.size.width <= gpui::px(162.), "{b:?}");
+    if !cfg!(unix) {
+        return;
+    }
     w.click(&sel);
     w.wait("the image opened", |_| {
         std::fs::read_to_string(&opened).is_ok_and(|t| !t.is_empty())
