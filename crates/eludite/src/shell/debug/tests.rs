@@ -5006,7 +5006,8 @@ fn agent_debug_commands_read_in_the_transcript_as_the_debug_toolbar_would(cx: &m
             .unwrap_or_default()
             .to_owned()
     };
-    assert_eq!(line(&d, 1), "Toggle Breakpoint \u{2192} done");
+    // The compact answer reads as what happened where (brief 0034).
+    assert_eq!(line(&d, 1), "Toggle Breakpoint \u{2192} added at Calc.cs:5");
     assert!(
         line(&d, 2).starts_with("Start Debugging \u{2192} "),
         "{}",

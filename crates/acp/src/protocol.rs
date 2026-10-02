@@ -363,7 +363,76 @@ pub enum SessionUpdate {
     },
 }
 
+/// A `usage_update` (ACP's context window and cost update; brief 0034), with the turn's token counts an adapter adds
+/// in `_meta.claudeCode.usage` (eludite-claude-acp, under the names of ACP's `Usage`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Usage {
+    /// Tokens in context.
+    pub used: u64,
+    /// The context window; 0 when the agent does not know it.
+    pub size: u64,
+    /// The session's cost so far, as the agent reports it: (amount, currency).
+    pub cost: Option<(f64, String)>,
+    /// The turn's tokens, when the agent gives them.
+    pub turn: Option<TurnTokens>,
+}
+
+/// One turn's tokens (`_meta.claudeCode.usage`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnTokens {
+    /// Uncached input.
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub cached_read_tokens: u64,
+    #[serde(default)]
+    pub cached_write_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thought_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl TurnTokens {
+    /// Every input token: uncached, read from the cache and written to it.
+    pub fn input_total(&self) -> u64 {
+        self.input_tokens + self.cached_read_tokens + self.cached_write_tokens
+    }
+}
+
 impl SessionUpdate {
+    /// A `usage_update`'s counts (kept as [`SessionUpdate::Other`], like `plan`).
+    pub fn usage(&self) -> Option<Usage> {
+        let SessionUpdate::Other { kind, raw } = self else {
+            return None;
+        };
+        if kind != "usage_update" {
+            return None;
+        }
+        let n = |k: &str| raw.get(k).and_then(Value::as_u64).unwrap_or(0);
+        let cost = raw.get("cost").and_then(|c| {
+            Some((
+                c.get("amount")?.as_f64()?,
+                c.get("currency")
+                    .and_then(Value::as_str)
+                    .unwrap_or("USD")
+                    .to_owned(),
+            ))
+        });
+        let turn = raw
+            .pointer("/_meta/claudeCode/usage")
+            .and_then(|u| serde_json::from_value(u.clone()).ok());
+        Some(Usage {
+            used: n("used"),
+            size: n("size"),
+            cost,
+            turn,
+        })
+    }
+
     /// The entries of a `plan` update (kept as [`SessionUpdate::Other`] so new fields never break decoding).
     pub fn plan_entries(&self) -> Option<Vec<PlanEntry>> {
         match self {
@@ -504,4 +573,45 @@ pub enum RequestPermissionOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestPermissionResponse {
     pub outcome: RequestPermissionOutcome,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_usage_update_decodes_with_the_turns_tokens() {
+        // As eludite-claude-acp sends it (its golden file, brief 0034).
+        let line = r#"{"sessionUpdate":"usage_update","used":22662,"size":1000000,"cost":{"amount":0.26172724999999997,"currency":"USD"},"_meta":{"claudeCode":{"usage":{"inputTokens":66,"cachedReadTokens":55789,"cachedWriteTokens":10821,"outputTokens":614,"thoughtTokens":57,"totalTokens":67290,"model":"claude-fable-5-1"}}}}"#;
+        let update: SessionUpdate = serde_json::from_str(line).unwrap();
+        let u = update.usage().expect("a usage update");
+        assert_eq!((u.used, u.size), (22_662, 1_000_000));
+        assert_eq!(u.cost, Some((0.26172724999999997, "USD".to_owned())));
+        let t = u.turn.unwrap();
+        assert_eq!(
+            (t.input_tokens, t.cached_read_tokens, t.cached_write_tokens),
+            (66, 55_789, 10_821)
+        );
+        assert_eq!((t.output_tokens, t.thought_tokens), (614, Some(57)));
+        assert_eq!(t.input_total(), 66 + 55_789 + 10_821);
+        assert_eq!(t.model.as_deref(), Some("claude-fable-5-1"));
+        // It round-trips unchanged.
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::from_str::<Value>(line).unwrap()
+        );
+        // ACP's own fields only (another agent): no turn tokens, no cost.
+        let plain: SessionUpdate =
+            serde_json::from_str(r#"{"sessionUpdate":"usage_update","used":53000,"size":200000}"#)
+                .unwrap();
+        let u = plain.usage().unwrap();
+        assert_eq!(
+            (u.used, u.size, u.cost, u.turn),
+            (53_000, 200_000, None, None)
+        );
+        // Other updates are not usage.
+        let plan: SessionUpdate =
+            serde_json::from_str(r#"{"sessionUpdate":"plan","entries":[]}"#).unwrap();
+        assert!(plan.usage().is_none());
+    }
 }
