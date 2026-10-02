@@ -1,6 +1,6 @@
 # Brief 0005: Claude Code via ACP in a GPUI panel, one MCP tool
 
-Status: open
+Status: done on Linux; second OS not run ([report](0005-report.md))
 Plan reference: PLAN.md sections 3 (D3), 5.1, 5.2, 10 (Phase 0 item 5), 13 (risks 8, 9)
 Related ADR: ADR-0003
 
@@ -20,7 +20,7 @@ Do not edit `protocol/**` without adding the schema first. The command's input a
 
 ## Contract
 
-- Agent process: `npx claude-code-acp`. It uses the user's existing Claude Code subscription login, so no API key is read or stored by Niello. If the user is not logged in, the panel shows that state and the agent's own login instructions.
+- Agent process: `npx -y @agentclientprotocol/claude-agent-acp@0.85.0` (the official adapter, verified by this brief; the originally guessed `npx claude-code-acp` resolves to an unrelated community package). It uses the user's existing Claude Code subscription login, so no API key is read or stored by Niello. If the user is not logged in, the panel shows that state and the agent's own login instructions.
 - ACP: implement the client side of the Agent Client Protocol: `initialize`, `session/new`, `session/prompt`, streaming `session/update` notifications (message chunks, tool calls, tool call updates), and `session/request_permission`. Use the protocol version the adapter reports and record it.
 - MCP: the panel passes a Niello MCP server to the agent in `session/new` (`mcpServers`). The server listens on a local transport (stdio or localhost HTTP, document which) and exposes one tool, `diagnostics.list`, mapped to the command bus command of the same name. Input schema: optional `severity` filter. Output schema: array of `{path, line, column, severity, code, message}`.
 - The Error List for the spike is a fixed in-memory fixture of at least 5 diagnostics. No host or compiler is involved.
