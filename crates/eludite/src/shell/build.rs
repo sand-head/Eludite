@@ -215,6 +215,8 @@ pub struct Builds {
     pub diagnostics: Vec<BuildDiagnostic>,
     /// The running Cargo build, to cancel it (brief 0019).
     pub cargo: Option<CargoRun>,
+    /// The `cargo` to run: `ELUDITE_CARGO`, else `cargo` on PATH.
+    pub cargo_program: std::ffi::OsString,
     next_cargo_id: u64,
     /// A build of every system: what is left to run, and what the finished ones produced.
     pub chain: Option<Chain>,
@@ -240,6 +242,7 @@ impl Builds {
             last: None,
             diagnostics: Vec::new(),
             cargo: None,
+            cargo_program: std::env::var_os("ELUDITE_CARGO").unwrap_or_else(|| "cargo".into()),
             next_cargo_id: cargo_build::CARGO_BUILD_ID_BASE,
             chain: None,
             configuration: CONFIGURATIONS[0].to_owned(),
@@ -799,7 +802,7 @@ impl Shell {
                             manifest: p.manifest_path.clone(),
                         })
                         .collect(),
-                    program: std::env::var_os("ELUDITE_CARGO").unwrap_or_else(|| "cargo".into()),
+                    program: self.builds.cargo_program.clone(),
                 };
                 self.builds.cargo = Some(cargo_build::start(spec, self.build_events.clone()));
             }

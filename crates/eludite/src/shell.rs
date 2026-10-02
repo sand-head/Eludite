@@ -31,6 +31,8 @@ pub mod output;
 mod refactor_tests;
 pub mod references;
 pub mod rename;
+#[cfg(test)]
+mod rust_tests;
 pub mod servers;
 pub mod session;
 pub mod target;
