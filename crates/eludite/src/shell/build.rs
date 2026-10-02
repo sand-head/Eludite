@@ -858,6 +858,7 @@ impl Shell {
         &mut self,
         ticket: u64,
         message: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(b) = self.builds.current.take_if(|b| b.ticket == ticket) else {
@@ -888,8 +889,14 @@ impl Shell {
                 warnings: None,
                 projects: Vec::new(),
                 diagnostics: Vec::new(),
-                message: Some(message),
+                message: Some(message.clone()),
             },
+        );
+        self.prelaunch_build_done(
+            ticket,
+            super::debug::PrelaunchBuild::Ended(message),
+            window,
+            cx,
         );
         cx.notify();
     }
@@ -1058,9 +1065,18 @@ impl Shell {
             }
         }
         let out = self.result_output(&b, &finished);
+        let prelaunch = match finished.result {
+            BuildResult::Succeeded => super::debug::PrelaunchBuild::Succeeded,
+            BuildResult::Failed => super::debug::PrelaunchBuild::Failed {
+                errors: s.errors,
+                warnings: s.warnings,
+            },
+            BuildResult::Canceled => super::debug::PrelaunchBuild::Ended("canceled".into()),
+        };
         self.builds.last = Some(finished);
         self.builds.shared.publish(b.ticket, out);
-        let _ = window;
+        // F5's build (brief 0020): the launch follows, or the start ends with the reason.
+        self.prelaunch_build_done(b.ticket, prelaunch, window, cx);
         cx.notify();
     }
 
@@ -1121,7 +1137,9 @@ impl Shell {
                     };
                     self.on_build_finished(finished, Instant::now(), window, cx);
                 }
-                None => self.on_build_lost("eludite-host restarted and the build ended", cx),
+                None => {
+                    self.on_build_lost("eludite-host restarted and the build ended", window, cx)
+                }
             }
             return;
         };
@@ -1188,7 +1206,7 @@ impl Shell {
     }
 
     /// The host went away mid-build: the build is over.
-    pub(super) fn on_build_lost(&mut self, why: &str, cx: &mut Context<Self>) {
+    pub(super) fn on_build_lost(&mut self, why: &str, window: &mut Window, cx: &mut Context<Self>) {
         // Only the host's builds end with the host (a Cargo build runs in the shell).
         self.builds.awaiting_status = false;
         let Some(b) = self
@@ -1220,6 +1238,12 @@ impl Shell {
                 diagnostics: Vec::new(),
                 message: Some(why.to_owned()),
             },
+        );
+        self.prelaunch_build_done(
+            b.ticket,
+            super::debug::PrelaunchBuild::Ended(why.to_owned()),
+            window,
+            cx,
         );
     }
 

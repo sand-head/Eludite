@@ -138,10 +138,28 @@ fn setup_dotnet(
     write("src/App/Program.cs", PROGRAM_CS);
     write("src/App/Calc.cs", CALC_CS);
     write("src/App/bin/Debug/net10.0/App.dll", "");
-    Dbg { w, fake, store }
+    let mut d = Dbg { w, fake, store };
+    // These tests launch the built program at once; build before run has its own tests (brief 0020).
+    d.set_build_before_run(false);
+    d
 }
 
 impl Dbg {
+    /// The setting `build.beforeRun`, through the bus.
+    fn set_build_before_run(&mut self, on: bool) {
+        self.w
+            .commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": "build.beforeRun", "value": on}),
+            )
+            .unwrap();
+        self.w.wait("build before run", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.builds().build_before_run == on)
+        });
+    }
+
     fn fake(&self) -> FakeHandle {
         self.fake
             .lock()
@@ -796,6 +814,16 @@ fn an_adapter_crash_ends_the_session_and_a_stalled_one_never_blocks_the_ui(
     .unwrap();
     std::fs::create_dir_all(e.path("src/App/bin/Debug/net10.0")).unwrap();
     std::fs::write(e.path("src/App/bin/Debug/net10.0/App.dll"), "").unwrap();
+    e.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "build.beforeRun", "value": false}),
+        )
+        .unwrap();
+    e.wait("build before run off", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.builds().build_before_run)
+    });
     e.vcx.simulate_keystrokes("f5");
     e.wait("the launch failure", |w| {
         w.shell.read_with(&w.vcx, |s, _| {
@@ -984,4 +1012,158 @@ fn an_agent_drives_a_session_from_the_bus_and_reads_the_same_state(cx: &mut Test
     for id in cmds::ALL {
         assert!(d.w.commands.lookup(id).unwrap().agent_visible, "{id}");
     }
+}
+
+/// Wait for the fake host to have a build running, and return its `eludite/build/start` params.
+fn wait_build(d: &mut Dbg) -> Value {
+    let fake = d.w.fake.clone();
+    d.w.wait("the build before the launch", |_| {
+        fake.running_build().is_some()
+    });
+    d.w.fake
+        .received_params("eludite/build/start")
+        .last()
+        .cloned()
+        .unwrap()
+}
+
+fn debug_status(d: &Dbg) -> String {
+    d.w.shell.read_with(&d.w.vcx, |s, _| {
+        s.status()
+            .get(super::DEBUG_SLOT)
+            .unwrap_or_default()
+            .to_owned()
+    })
+}
+
+/// Brief 0020: F5 builds the startup project first, through `eludite.build.project`, and launches only when the
+/// build succeeds; the launch adds little to the build.
+#[gpui::test]
+fn f5_builds_the_startup_project_then_launches(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.set_build_before_run(true);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    assert_eq!(d.mode(), Mode::Building);
+    assert_eq!(d.state()["mode"], "building");
+    let start = wait_build(&mut d);
+    assert_eq!(
+        Path::new(start["project"].as_str().unwrap()),
+        d.w.path("src/App/App.csproj"),
+        "the startup project, not the solution"
+    );
+    assert_eq!(start["target"], "build");
+    assert!(d.w.audit().contains(&"eludite.build.project".to_owned()));
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: building before starting\u{2026}"
+    );
+    assert!(
+        d.fake.lock().unwrap().is_none(),
+        "no adapter before the build ends"
+    );
+    // A second F5 meanwhile is refused, not queued.
+    assert!(
+        d.cmd(cmds::START, json!({}))
+            .unwrap_err()
+            .to_string()
+            .contains("building")
+    );
+    d.w.fake.build_output("App -> /s/App.dll\n");
+    d.w.fake.finish_build("succeeded", json!([]));
+    d.wait_mode(Mode::Running);
+    assert!(d.fake.lock().unwrap().is_some(), "the adapter started");
+    let (start, req, done, launched) = d.w.shell.read_with(&d.w.vcx, |s, _| {
+        let t = &s.debugger().timings;
+        (
+            t.start.unwrap(),
+            t.build_requested.unwrap(),
+            t.build_finished.unwrap(),
+            t.launched.unwrap(),
+        )
+    });
+    let added = (launched - start).saturating_sub(done - req);
+    eprintln!(
+        "F5 to launch {:.2} ms, build {:.2} ms, added {:.2} ms",
+        (launched - start).as_secs_f64() * 1e3,
+        (done - req).as_secs_f64() * 1e3,
+        added.as_secs_f64() * 1e3
+    );
+    assert!(added < Duration::from_millis(500), "{added:?}");
+    assert!(launched - done < Duration::from_millis(50));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // With the setting off, F5 launches the last build at once.
+    d.set_build_before_run(false);
+    let builds = d.w.fake.received_params("eludite/build/start").len();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    assert_eq!(
+        d.w.fake.received_params("eludite/build/start").len(),
+        builds
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // And an agent can ask for the build per start.
+    d.cmd(cmds::START, json!({"build": true})).unwrap();
+    assert_eq!(d.mode(), Mode::Building);
+    wait_build(&mut d);
+    // Shift+F5 during the build cancels the build and the start.
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+    let fake = d.w.fake.clone();
+    d.w.wait("the build canceled", |_| fake.running_build().is_none());
+    assert_eq!(debug_status(&d), "Start canceled");
+}
+
+/// Brief 0020: F5 on a failing build stops before the launch, with the Error List forward and the reason in the
+/// status bar; Ctrl+F5 builds first too.
+#[gpui::test]
+fn f5_on_a_failing_build_stops_with_the_error_list_forward(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.set_build_before_run(true);
+    d.w.open_solution();
+    // The Output window is the active bottom tab while building.
+    d.w.vcx.simulate_keystrokes("f5");
+    wait_build(&mut d);
+    let program = d.w.path("src/App/Program.cs");
+    let project = d.w.path("src/App/App.csproj");
+    d.w.fake.finish_build(
+        "failed",
+        json!([{"severity": "error", "code": "CS1002", "message": "; expected", "file": program,
+                "line": 5, "column": 18, "project": project}]),
+    );
+    d.wait_mode(Mode::Design);
+    assert_eq!(
+        debug_status(&d),
+        "Not started: the build failed (1 error, 0 warnings)"
+    );
+    assert!(d.fake.lock().unwrap().is_none(), "never launched");
+    let error_list =
+        d.w.controller
+            .all_states()
+            .into_iter()
+            .find(|s| s.id == ids::ERROR_LIST)
+            .unwrap();
+    assert!(error_list.active, "the Error List comes forward");
+    let state = d.state();
+    assert_eq!(state["mode"], "design");
+    assert!(
+        state["message"]
+            .as_str()
+            .unwrap()
+            .contains("the build failed")
+    );
+    // Ctrl+F5 builds first as well, and runs nothing when the build fails.
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    assert_eq!(d.mode(), Mode::Building);
+    let start = wait_build(&mut d);
+    assert_eq!(start["target"], "build");
+    d.w.fake.finish_build(
+        "failed",
+        json!([{"severity": "error", "code": "CS1002", "message": "; expected", "file": program,
+                "line": 5, "column": 18, "project": project}]),
+    );
+    d.wait_mode(Mode::Design);
+    assert!(debug_status(&d).starts_with("Not started: the build failed"));
 }

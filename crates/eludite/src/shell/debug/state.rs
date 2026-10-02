@@ -38,6 +38,8 @@ pub const MAX_VARIABLES: usize = 500;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Design,
+    /// F5 or Ctrl+F5 builds the startup project before launching it (brief 0020).
+    Building,
     Launching,
     Running,
     Break,
@@ -49,6 +51,7 @@ impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::Design => "design",
+            Mode::Building => "building",
             Mode::Launching => "launching",
             Mode::Running => "running",
             Mode::Break => "break",
@@ -733,6 +736,7 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                build: None,
                 wait_ms: None
             })
             .is_ok()
@@ -744,6 +748,7 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                build: None,
                 wait_ms: None
             })
             .unwrap_err()
