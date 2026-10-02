@@ -525,6 +525,7 @@ mod tests {
                 "debugger.monoAdapterPath",
                 "debugger.lldbDapPath",
                 "debugger.rustFormatters",
+                "debugger.allowAgentsByDefault",
                 "languageServers.rustAnalyzerPath",
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
@@ -558,7 +559,11 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 5);
+        assert_eq!(s.section("Debugging > General").count(), 6);
+        assert_eq!(
+            s.get("debugger.allowAgentsByDefault").unwrap().default,
+            json!(true)
+        );
         assert_eq!(
             s.get("debugger.lldbDapPath").unwrap().env.as_deref(),
             Some("ELUDITE_LLDB_DAP")

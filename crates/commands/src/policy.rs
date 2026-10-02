@@ -11,6 +11,13 @@
 //! - **`browser`** (brief 0024): `origins` (where an agent may send the browser; [`BrowserPolicy::check_url`]),
 //!   `network_bodies` and `evaluate`. The browser commands read it through their escalation hooks (ADR-0009), which
 //!   see a [`PolicyView`]: this policy, the workspace folder and its launch urls, loaded on first use.
+//! - **`debug`** (brief 0027, proposal 0001 section 5.5): `drive` (agents starting, attaching, restarting, resuming and
+//!   changing a debugging session), `attach` (attaching to a process Eludite did not start) and `evaluate` (running
+//!   debuggee code through expressions), applied by the debug commands' escalation hooks through
+//!   [`DebugPolicy::decide`]: `prompt` makes a call dangerous (Always Allow writes `allow`, [`AlwaysAllow::Debug`]),
+//!   `deny` refuses it for an agent with the policy named. Tool rules are checked first ([`DebugPolicy::decide_for`]).
+//!   Whether a process is one Eludite started is the shell's knowledge, given to the hooks as
+//!   [`PolicySnapshot::launched`].
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -72,6 +79,190 @@ pub enum EvaluatePolicy {
     Prompt,
     Deny,
 }
+
+/// `debug.drive`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrivePolicy {
+    #[default]
+    Allow,
+    Prompt,
+    Deny,
+}
+
+/// `debug.attach`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachPolicy {
+    #[default]
+    Prompt,
+    Deny,
+}
+
+/// A key of the `debug` object that Always Allow sets to `allow`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DebugKnob {
+    Drive,
+    Evaluate,
+}
+
+impl DebugKnob {
+    pub fn key(self) -> &'static str {
+        match self {
+            DebugKnob::Drive => "debug.drive",
+            DebugKnob::Evaluate => "debug.evaluate",
+        }
+    }
+}
+
+/// `agents-policy.json`'s `debug` object (brief 0027).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DebugPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drive: Option<DrivePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach: Option<AttachPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluate: Option<EvaluatePolicy>,
+}
+
+/// What a debug command's call does, for the `debug` policy: whether it drives the session, runs debuggee code
+/// through an expression, and attaches (to a process Eludite started, or not).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DebugCall {
+    pub drive: bool,
+    pub evaluate: bool,
+    /// `Some(foreign)` for an attach: `true` when the process is not one Eludite started.
+    pub attach: Option<bool>,
+}
+
+impl DebugPolicy {
+    /// What the policy makes of `call`: a refusal (`deny`, naming the key), a raise to dangerous (`prompt`, or an
+    /// attach to a process Eludite did not start), or `None` (the command's declared class).
+    pub fn decide(&self, call: DebugCall) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        let drive = self.drive.unwrap_or_default();
+        let evaluate = self.evaluate.unwrap_or_default();
+        if call.attach.is_some() && self.attach.unwrap_or_default() == AttachPolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets debug.attach to deny".into(),
+            ));
+        }
+        if call.drive && drive == DrivePolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets debug.drive to deny".into(),
+            ));
+        }
+        if call.evaluate && evaluate == EvaluatePolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets debug.evaluate to deny".into(),
+            ));
+        }
+        let mut reasons = Vec::new();
+        let mut knobs = Vec::new();
+        let foreign = call.attach == Some(true);
+        if foreign {
+            reasons.push("attach to a process Eludite did not start".to_owned());
+        }
+        if call.drive && drive == DrivePolicy::Prompt {
+            reasons.push(
+                "the solution's policy asks before an agent drives the debugger (debug.drive: prompt)".into(),
+            );
+            knobs.push(DebugKnob::Drive);
+        }
+        if call.evaluate && evaluate == EvaluatePolicy::Prompt {
+            reasons.push(
+                "the solution's policy asks before an agent runs debuggee code (debug.evaluate: prompt)".into(),
+            );
+            knobs.push(DebugKnob::Evaluate);
+        }
+        if reasons.is_empty() {
+            return None;
+        }
+        Some(Escalation::Raise {
+            class: PermissionClass::Dangerous,
+            reason: reasons.join("; "),
+            // An attach to a foreign process is allowed once: `attach` has no `allow` to write.
+            always_allow: if foreign {
+                AlwaysAllow::Never
+            } else {
+                AlwaysAllow::Debug(knobs)
+            },
+        })
+    }
+
+    /// [`DebugPolicy::decide`] for a call of `tool` with `input` under `rules`: a tool rule is checked first (proposal
+    /// 0001 section 5.5), so when one matches, a refusal becomes a raise to dangerous and every raise lets the rules
+    /// decide ([`AlwaysAllow::Rule`]).
+    pub fn decide_for(
+        &self,
+        call: DebugCall,
+        rules: &[PolicyRule],
+        tool: &str,
+        input: &Value,
+    ) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        let e = self.decide(call)?;
+        if !rules.iter().any(|r| r.matches(tool, input)) {
+            return Some(e);
+        }
+        Some(match e {
+            Escalation::Refuse(why) => Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: why,
+                always_allow: AlwaysAllow::Rule,
+            },
+            Escalation::Raise { class, reason, .. } => Escalation::Raise {
+                class,
+                reason,
+                always_allow: AlwaysAllow::Rule,
+            },
+        })
+    }
+}
+
+/// Whether a process is one Eludite started (Start Debugging or Start Without Debugging in this session, or a child
+/// process of one): by id, or by name. The shell gives it to the escalation hooks ([`PolicySnapshot::launched`]);
+/// without one no process is.
+#[derive(Clone, Default)]
+pub struct LaunchedProcesses(Option<LaunchedCheck>);
+
+/// Is a process (by id, or without one by name) one Eludite started?
+pub type LaunchedCheck = Arc<dyn Fn(Option<u32>, Option<&str>) -> bool + Send + Sync>;
+
+impl LaunchedProcesses {
+    pub fn new(f: impl Fn(Option<u32>, Option<&str>) -> bool + Send + Sync + 'static) -> Self {
+        Self(Some(Arc::new(f)))
+    }
+
+    /// Whether process `pid` (or, without a pid, a process named `name`) is one Eludite started.
+    pub fn contains(&self, pid: Option<u32>, name: Option<&str>) -> bool {
+        self.0.as_ref().is_some_and(|f| f(pid, name))
+    }
+}
+
+impl std::fmt::Debug for LaunchedProcesses {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "LaunchedProcesses(..)"
+        } else {
+            "LaunchedProcesses(none)"
+        })
+    }
+}
+
+impl PartialEq for LaunchedProcesses {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for LaunchedProcesses {}
 
 /// The `origins` entry for file urls under the workspace folder.
 pub const WORKSPACE_ORIGIN: &str = "$workspace";
@@ -403,6 +594,8 @@ pub struct PolicySnapshot {
     pub workspace: Option<PathBuf>,
     /// [`launch_urls`] of the workspace.
     pub launch_urls: Vec<String>,
+    /// Which processes Eludite started (the debug commands' `attach` hook; brief 0027).
+    pub launched: LaunchedProcesses,
 }
 
 /// Makes the [`PolicySnapshot`] of the moment (the shell's: the open solution's policy file).
@@ -461,6 +654,16 @@ impl PolicyView {
         self.policy().browser.clone().unwrap_or_default()
     }
 
+    /// The `debug` object (its defaults when absent).
+    pub fn debug(&self) -> DebugPolicy {
+        self.policy().debug.clone().unwrap_or_default()
+    }
+
+    /// Which processes Eludite started.
+    pub fn launched(&self) -> &LaunchedProcesses {
+        &self.get().launched
+    }
+
     /// [`BrowserPolicy::check_url`] with this view's workspace and launch urls.
     pub fn check_url(&self, url: &str) -> Result<(), OffOrigin> {
         self.browser()
@@ -486,6 +689,8 @@ pub enum AlwaysAllow {
     Origin(String),
     /// Nothing: Always Allow allows this call once. Allow rules do not apply to the call.
     Never,
+    /// Set these keys of the `debug` object to `allow` (brief 0027). Allow rules do not apply to the call.
+    Debug(Vec<DebugKnob>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -506,7 +711,9 @@ pub struct PolicyRule {
 }
 
 impl PolicyRule {
-    fn matches(&self, tool: &str, input: &Value) -> bool {
+    /// Whether the rule is for `tool` (as the agent names it; an Eludite MCP tool also by its bare name) and, with a
+    /// `command_prefix`, for `input`'s shell command.
+    pub fn matches(&self, tool: &str, input: &Value) -> bool {
         let named = self.tool == tool
             || tool
                 .strip_prefix(MCP_PREFIX)
@@ -542,6 +749,8 @@ pub struct AgentPolicy {
     pub rules: Vec<PolicyRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<DebugPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -553,6 +762,7 @@ impl Default for AgentPolicy {
             dangerous: None,
             rules: Vec::new(),
             browser: None,
+            debug: None,
         }
     }
 }
@@ -707,6 +917,22 @@ impl AgentPolicy {
             AlwaysAllow::Origin(origin) => {
                 self.allow_origin(origin);
                 Some(format!("the origin {origin}"))
+            }
+            AlwaysAllow::Debug(knobs) => {
+                let debug = self.debug.get_or_insert_with(DebugPolicy::default);
+                for k in knobs {
+                    match k {
+                        DebugKnob::Drive => debug.drive = Some(DrivePolicy::Allow),
+                        DebugKnob::Evaluate => debug.evaluate = Some(EvaluatePolicy::Allow),
+                    }
+                }
+                Some(
+                    knobs
+                        .iter()
+                        .map(|k| format!("{}: allow", k.key()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                )
             }
             AlwaysAllow::Never => None,
         }
@@ -1146,6 +1372,164 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn the_debug_object_parses_defaults_decides_and_remembers() {
+        use crate::Escalation;
+        let p: AgentPolicy = serde_json::from_str(
+            r#"{"version": 1, "debug": {"drive": "prompt", "attach": "deny", "evaluate": "deny"}}"#,
+        )
+        .unwrap();
+        let d = p.debug.clone().unwrap();
+        assert_eq!(d.drive, Some(DrivePolicy::Prompt));
+        assert_eq!(d.attach, Some(AttachPolicy::Deny));
+        assert_eq!(d.evaluate, Some(EvaluatePolicy::Deny));
+        for bad in [
+            r#"{"version": 1, "debug": {"bogus": 1}}"#,
+            r#"{"version": 1, "debug": {"attach": "allow"}}"#,
+            r#"{"version": 1, "debug": {"drive": "maybe"}}"#,
+        ] {
+            assert!(serde_json::from_str::<AgentPolicy>(bad).is_err(), "{bad}");
+        }
+        // Every key and value the Rust type writes is in the schema.
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let ds = &schema["properties"]["debug"];
+        assert_eq!(ds["additionalProperties"], false);
+        for (k, e) in [
+            ("drive", ["allow", "prompt", "deny"].as_slice()),
+            ("attach", &["prompt", "deny"]),
+            ("evaluate", &["allow", "prompt", "deny"]),
+        ] {
+            assert_eq!(ds["properties"][k]["enum"], json!(e), "{k}");
+        }
+        let v = serde_json::to_value(&p).unwrap();
+        for (k, val) in v["debug"].as_object().unwrap() {
+            assert!(
+                ds["properties"][k]["enum"]
+                    .as_array()
+                    .unwrap()
+                    .contains(val)
+            );
+        }
+        // Defaults: drive allow, attach prompt, evaluate allow.
+        let none = DebugPolicy::default();
+        let drive = DebugCall {
+            drive: true,
+            ..DebugCall::default()
+        };
+        let eval = DebugCall {
+            evaluate: true,
+            ..DebugCall::default()
+        };
+        let attach = |foreign| DebugCall {
+            drive: true,
+            evaluate: false,
+            attach: Some(foreign),
+        };
+        assert_eq!(none.decide(drive), None);
+        assert_eq!(none.decide(eval), None);
+        assert_eq!(none.decide(attach(false)), None);
+        assert!(matches!(
+            none.decide(attach(true)),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                always_allow: AlwaysAllow::Never,
+                ..
+            })
+        ));
+        assert_eq!(none.decide(DebugCall::default()), None, "reads");
+        // The file's: attach denied outright; evaluate denied; drive asks.
+        assert!(
+            matches!(d.decide(attach(false)), Some(Escalation::Refuse(m)) if m.contains("debug.attach"))
+        );
+        assert!(
+            matches!(d.decide(eval), Some(Escalation::Refuse(m)) if m.contains("debug.evaluate"))
+        );
+        assert!(matches!(
+            d.decide(drive),
+            Some(Escalation::Raise { always_allow: AlwaysAllow::Debug(k), .. }) if k == vec![DebugKnob::Drive]
+        ));
+        // A foreign attach under drive: prompt names both and is allowed once.
+        let prompt = DebugPolicy {
+            drive: Some(DrivePolicy::Prompt),
+            ..DebugPolicy::default()
+        };
+        match prompt.decide(attach(true)) {
+            Some(Escalation::Raise {
+                reason,
+                always_allow,
+                ..
+            }) => {
+                assert!(reason.contains("did not start") && reason.contains("debug.drive: prompt"));
+                assert_eq!(always_allow, AlwaysAllow::Never);
+            }
+            other => panic!("{other:?}"),
+        }
+        // The view's defaults when the object is absent.
+        assert_eq!(
+            PolicyView::of(PolicySnapshot::default()).debug(),
+            DebugPolicy::default()
+        );
+        assert!(
+            !PolicyView::of(PolicySnapshot::default())
+                .launched()
+                .contains(Some(1), None)
+        );
+        // Always Allow writes `allow` for the keys that asked, and the file keeps sorted keys.
+        let mut q = AgentPolicy::default();
+        let call = CallClass {
+            class: PermissionClass::Dangerous,
+            reason: Some("x".into()),
+            always_allow: AlwaysAllow::Debug(vec![DebugKnob::Drive, DebugKnob::Evaluate]),
+            refused: None,
+        };
+        assert_eq!(
+            q.remember(
+                &call,
+                "mcp__eludite__eludite-debug-set_variable",
+                &json!({})
+            ),
+            Some("debug.drive: allow, debug.evaluate: allow".into())
+        );
+        let qd = q.debug.clone().unwrap();
+        assert_eq!(qd.drive, Some(DrivePolicy::Allow));
+        assert_eq!(qd.evaluate, Some(EvaluatePolicy::Allow));
+        assert!(q.rules.is_empty());
+        // An escalated debug call is not allowed by allow rules written for ordinary calls... unless the hook found a
+        // rule for the tool, which then decides (`decide_for`).
+        let tool = "mcp__eludite__eludite-debug-continue";
+        let mut r = AgentPolicy::default();
+        r.allow_always(tool, &json!({}));
+        assert_eq!(r.decide_call(&call, tool, &json!({})), Verdict::Ask);
+        let ruled = prompt
+            .decide_for(drive, &r.rules, tool, &json!({}))
+            .unwrap();
+        let Escalation::Raise {
+            class,
+            reason,
+            always_allow,
+        } = ruled
+        else {
+            panic!("a raise")
+        };
+        let c = CallClass {
+            class,
+            reason: Some(reason),
+            always_allow,
+            refused: None,
+        };
+        assert!(matches!(
+            r.decide_call(&c, tool, &json!({})),
+            Verdict::Allow(_)
+        ));
+        let dir = tempdir("debug");
+        let path = AgentPolicy::path_for(&dir);
+        q.save(&path).unwrap();
+        assert_eq!(AgentPolicy::load(&path).unwrap(), q);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.find("\"drive\"").unwrap() < saved.find("\"evaluate\"").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn tempdir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("eludite-policy-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1184,6 +1568,7 @@ mod tests {
             policy: AgentPolicy::default(),
             workspace: Some(dir.clone()),
             launch_urls: urls,
+            ..Default::default()
         });
         assert!(view.check_url("https://web.test:7001/orders").is_ok());
         assert!(view.check_url("https://web.test:7002/").is_err());

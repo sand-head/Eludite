@@ -2266,6 +2266,7 @@ mod tests {
             policy: serde_json::from_value(policy).unwrap(),
             workspace: workspace.map(Into::into),
             launch_urls: vec!["https://localhost:7001".into()],
+            ..Default::default()
         })
     }
 

@@ -16,6 +16,14 @@
 //! `log_message` with `{expression}` runs debuggee code at each hit, so `toggle_breakpoint` is of the execute class (the
 //! class is per command; the policy's rules by input refine it).
 //!
+//! Brief 0027 (proposal 0001 brief C) adds `attach` (Debug > Attach to Process..., by `pid` or `process_name`;
+//! [`AttachTarget`]), `processes` (the candidates, read class: [`ProcessesOutput`]), `restart` (Debug > Restart) and
+//! `allow_agents` (Debug > Allow Agents to Drive: [`AllowAgentsOutput`]), `agents_allowed` in the state, `attached` on the
+//! session, and `interrupted_by` on the stop summary (the person took over while an agent's command waited). The
+//! commands that drive a session, run debuggee code or attach register escalation hooks ([`escalation`], ADR-0009) that
+//! apply the solution policy's `debug` object ([`crate::policy::DebugPolicy`]); an attach to a process Eludite did not
+//! start is dangerous.
+//!
 //! The keys, the Debug menu, the margin, the debugger windows and agents all run these, against one state machine
 //! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `toggle_breakpoint`, `state`, `select_frame`, `watch` and
 //! `exception_settings` answer with the debugger's state ([`DebugState`], `debug-state.output.json`), which is what
@@ -29,7 +37,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
+use crate::policy::{DebugCall, PolicyView};
+use crate::{
+    CommandError, CommandId, CommandRegistry, CommandSpec, EscalationHook, PermissionClass,
+};
 
 pub const START: &str = "eludite.debug.start";
 pub const STOP: &str = "eludite.debug.stop";
@@ -55,8 +66,12 @@ pub const RUN_UNTIL: &str = "eludite.debug.run_until";
 pub const TRACE: &str = "eludite.debug.trace";
 pub const SET_VARIABLE: &str = "eludite.debug.set_variable";
 pub const SET_NEXT_STATEMENT: &str = "eludite.debug.set_next_statement";
+pub const ATTACH: &str = "eludite.debug.attach";
+pub const PROCESSES: &str = "eludite.debug.processes";
+pub const RESTART: &str = "eludite.debug.restart";
+pub const ALLOW_AGENTS: &str = "eludite.debug.allow_agents";
 
-pub const ALL: [&str; 24] = [
+pub const ALL: [&str; 28] = [
     START,
     STOP,
     CONTINUE,
@@ -81,6 +96,10 @@ pub const ALL: [&str; 24] = [
     TRACE,
     SET_VARIABLE,
     SET_NEXT_STATEMENT,
+    ATTACH,
+    PROCESSES,
+    RESTART,
+    ALLOW_AGENTS,
 ];
 
 /// The longest an agent's command may wait for the debuggee (`wait_ms`).
@@ -109,6 +128,13 @@ pub const MAX_HITS: usize = 10_000;
 pub const MAX_TRACE_TEXT: usize = 1_000;
 /// Exception types in the settings, at most.
 pub const MAX_EXCEPTION_TYPES: usize = 100;
+/// `processes` lists at most this many rows.
+pub const MAX_PROCESSES: usize = 500;
+/// A process's command line is cut at this many characters.
+pub const MAX_COMMAND_LINE: usize = 500;
+/// What an agent's command is refused with while Allow Agents to Drive is off.
+pub const AGENTS_NOT_ALLOWED: &str =
+    "agents are not allowed to drive this session (Debug > Allow Agents to Drive)";
 
 const STATE_OUTPUT: &str = include_str!("../../../protocol/schemas/debug-state.output.json");
 const SUMMARY_OUTPUT: &str =
@@ -247,6 +273,33 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             "Debug: Toggle Breakpoint",
             input!("debug-toggle-breakpoint.input.json"),
             STATE_OUTPUT,
+            Execute,
+        ),
+        // Attach and restart start sessions (brief 0027); attaching to a process Eludite did not start is dangerous,
+        // through the escalation hook.
+        ATTACH => (
+            "Debug: Attach to Process",
+            input!("debug-attach.input.json"),
+            SUMMARY_OUTPUT,
+            Execute,
+        ),
+        RESTART => (
+            "Debug: Restart",
+            input!("debug-restart.input.json"),
+            SUMMARY_OUTPUT,
+            Execute,
+        ),
+        PROCESSES => (
+            "Debug: Processes",
+            input!("debug-processes.input.json"),
+            input!("debug-processes.output.json"),
+            Read,
+        ),
+        // Who may drive the session: the person's control; an agent may only turn it off.
+        ALLOW_AGENTS => (
+            "Debug: Allow Agents to Drive",
+            input!("debug-allow-agents.input.json"),
+            input!("debug-allow-agents.output.json"),
             Execute,
         ),
         // Watches, frame selection and exception settings change what the debugger shows and where it stops, not
@@ -596,6 +649,16 @@ pub struct ExceptionTypeRow {
     pub break_when_user_unhandled: bool,
 }
 
+/// Which process `attach` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachTarget {
+    Pid(u32),
+    /// A unique process name (compared without regard to case, the extension optional).
+    Name(String),
+    /// Neither: from the UI, the Attach to Process dialog opens.
+    Dialog,
+}
+
 /// A parsed, validated debug command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugRequest {
@@ -745,6 +808,27 @@ pub enum DebugRequest {
         wait_ms: Option<u64>,
         budget: Budget,
     },
+    Attach {
+        target: AttachTarget,
+        /// `coreclr`, `mono`, `netfx` or `lldb`; `None`: from the process's runtime.
+        adapter: Option<String>,
+        /// An adapter listening at (host, port) instead of one started here.
+        transport: Option<(String, u16)>,
+        /// A Mono program's debugger agent: (address, port).
+        mono: Option<(String, u16)>,
+        wait_ms: Option<u64>,
+        budget: Budget,
+    },
+    Processes {
+        filter: Option<String>,
+    },
+    Restart {
+        wait_ms: Option<u64>,
+        budget: Budget,
+    },
+    AllowAgents {
+        enabled: bool,
+    },
 }
 
 impl DebugRequest {
@@ -772,6 +856,10 @@ impl DebugRequest {
             DebugRequest::Trace { .. } => TRACE,
             DebugRequest::SetVariable { .. } => SET_VARIABLE,
             DebugRequest::SetNextStatement { .. } => SET_NEXT_STATEMENT,
+            DebugRequest::Attach { .. } => ATTACH,
+            DebugRequest::Processes { .. } => PROCESSES,
+            DebugRequest::Restart { .. } => RESTART,
+            DebugRequest::AllowAgents { .. } => ALLOW_AGENTS,
         }
     }
 
@@ -784,7 +872,9 @@ impl DebugRequest {
             | DebugRequest::RunToCursor { wait_ms, .. }
             | DebugRequest::Pause { wait_ms, .. }
             | DebugRequest::RunUntil { wait_ms, .. }
-            | DebugRequest::SetNextStatement { wait_ms, .. } => *wait_ms,
+            | DebugRequest::SetNextStatement { wait_ms, .. }
+            | DebugRequest::Attach { wait_ms, .. }
+            | DebugRequest::Restart { wait_ms, .. } => *wait_ms,
             DebugRequest::Wait { wait_ms, .. } | DebugRequest::Trace { wait_ms, .. } => {
                 Some(*wait_ms)
             }
@@ -804,7 +894,9 @@ impl DebugRequest {
             | DebugRequest::Wait { budget, .. }
             | DebugRequest::RunUntil { budget, .. }
             | DebugRequest::Trace { budget, .. }
-            | DebugRequest::SetNextStatement { budget, .. } => Some(*budget),
+            | DebugRequest::SetNextStatement { budget, .. }
+            | DebugRequest::Attach { budget, .. }
+            | DebugRequest::Restart { budget, .. } => Some(*budget),
             _ => None,
         }
     }
@@ -821,8 +913,32 @@ impl DebugRequest {
                 | DebugRequest::Trace { .. }
                 | DebugRequest::SetNextStatement { .. }
                 | DebugRequest::Stop
+                | DebugRequest::Attach { .. }
+                | DebugRequest::Restart { .. }
         )
     }
+
+    /// Whether Allow Agents to Drive governs it (brief 0027): the commands that start, attach to, restart, resume or
+    /// change the session; a breakpoint edit only for a tracepoint message with an expression. Reads, watches, frame
+    /// selection, exception settings, plain breakpoints and `evaluate` are not driving.
+    pub fn drives(&self) -> bool {
+        match self {
+            DebugRequest::Breakpoint { log_message, .. } => {
+                log_message.as_deref().is_some_and(has_expression)
+            }
+            DebugRequest::Pause { .. } | DebugRequest::SetVariable { .. } => true,
+            DebugRequest::Attach {
+                target: AttachTarget::Dialog,
+                ..
+            } => false,
+            other => other.resumes(),
+        }
+    }
+}
+
+/// Whether a tracepoint message has an `{expression}` (`{{` and `}}` are literal braces).
+pub fn has_expression(message: &str) -> bool {
+    message.replace("{{", "").replace("}}", "").contains('{')
 }
 
 /// `debug-state.output.json`'s variables.
@@ -855,6 +971,9 @@ pub struct SessionRow {
     pub runtime: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_id: Option<i64>,
+    /// Attached to a running process (brief 0027): Stop detaches.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub attached: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1048,6 +1167,13 @@ pub struct DebugState {
     /// The last command that started, resumed or paused the debuggee came from an agent.
     #[serde(default)]
     pub agent_driving: bool,
+    /// Agents may drive the session (Debug > Allow Agents to Drive; brief 0027).
+    #[serde(default = "yes")]
+    pub agents_allowed: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 /// `debug-state.output.json`'s `$defs/capabilities`: what the session's adapter supports.
@@ -1270,6 +1396,10 @@ pub struct StopSummary {
     pub satisfied: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timed_out: Option<bool>,
+    /// `user`: the person resumed, paused, stopped or restarted the debuggee while this agent's command waited
+    /// (proposal 0001 rule 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_by: Option<String>,
 }
 
 /// One thread's page of `debug-stack.output.json`.
@@ -1433,6 +1563,40 @@ pub struct SetVariableOutput {
     pub stop: u64,
 }
 
+/// One row of `debug-processes.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessRow {
+    pub pid: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u32>,
+    pub name: String,
+    pub command_line: String,
+    /// `dotnet`, `netfx`, `mono`, `native` or `unknown`.
+    pub runtime: String,
+    pub launched_by_eludite: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debugger_agent: Option<String>,
+}
+
+/// `debug-processes.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessesOutput {
+    pub processes: Vec<ProcessRow>,
+    pub total: usize,
+    pub truncated: bool,
+}
+
+/// `debug-allow-agents.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AllowAgentsOutput {
+    pub agents_allowed: bool,
+    pub default: bool,
+    pub mode: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugOutput {
     State(Box<DebugState>),
@@ -1444,6 +1608,8 @@ pub enum DebugOutput {
     ExceptionInfo(ExceptionInfoOutput),
     Trace(Box<TraceOutput>),
     SetVariable(SetVariableOutput),
+    Processes(ProcessesOutput),
+    AllowAgents(AllowAgentsOutput),
 }
 
 impl DebugOutput {
@@ -1458,6 +1624,8 @@ impl DebugOutput {
             DebugOutput::ExceptionInfo(e) => serde_json::to_value(e),
             DebugOutput::Trace(t) => serde_json::to_value(t),
             DebugOutput::SetVariable(v) => serde_json::to_value(v),
+            DebugOutput::Processes(p) => serde_json::to_value(p),
+            DebugOutput::AllowAgents(a) => serde_json::to_value(a),
         }
         .expect("debug outputs serialize")
     }
@@ -1699,6 +1867,50 @@ struct WaitIn {
 #[serde(deny_unknown_fields)]
 struct Empty {}
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TransportIn {
+    kind: String,
+    host: String,
+    port: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MonoIn {
+    address: Option<String>,
+    port: u16,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct AttachIn {
+    pid: Option<u32>,
+    process_name: Option<String>,
+    adapter: Option<String>,
+    transport: Option<TransportIn>,
+    mono: Option<MonoIn>,
+    wait_ms: Option<u64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ProcessesIn {
+    filter: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct RestartIn {
+    wait_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AllowAgentsIn {
+    enabled: bool,
+}
+
 fn input<T: for<'de> Deserialize<'de> + Default>(value: Value) -> Result<T, CommandError> {
     if value.is_null() {
         return Ok(T::default());
@@ -1814,7 +2026,9 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
     // The commands that answer with the stop summary take its budget parameters.
     let budget = match id {
         START | CONTINUE | STEP_OVER | STEP_INTO | STEP_OUT | RUN_TO_CURSOR | SNAPSHOT | PAUSE
-        | WAIT | RUN_UNTIL | TRACE | SET_NEXT_STATEMENT => take_budget(&mut value)?,
+        | WAIT | RUN_UNTIL | TRACE | SET_NEXT_STATEMENT | ATTACH | RESTART => {
+            take_budget(&mut value)?
+        }
         _ => Budget::default(),
     };
     Ok(match id {
@@ -2206,6 +2420,81 @@ pub fn parse(id: &str, mut value: Value) -> Result<DebugRequest, CommandError> {
                 budget,
             }
         }
+        ATTACH => {
+            let i: AttachIn = input(value)?;
+            let target = match (i.pid, non_empty("process_name", i.process_name)?) {
+                (Some(0), _) => return Err(invalid("`pid` is at least 1")),
+                (Some(pid), _) => AttachTarget::Pid(pid),
+                (None, Some(name)) => AttachTarget::Name(name.trim().to_owned()),
+                (None, None) => AttachTarget::Dialog,
+            };
+            let adapter = match i.adapter.as_deref() {
+                None => i.mono.as_ref().map(|_| "mono".to_owned()),
+                Some(a @ ("coreclr" | "mono" | "netfx" | "lldb")) => Some(a.to_owned()),
+                Some(other) => {
+                    return Err(invalid(format!(
+                        "`adapter` is coreclr, mono, netfx or lldb, not `{other}`"
+                    )));
+                }
+            };
+            if i.mono.is_some() && adapter.as_deref() != Some("mono") {
+                return Err(invalid("`mono` is for adapter `mono`"));
+            }
+            let transport = match i.transport {
+                None => None,
+                Some(t) if t.kind != "tcp" => {
+                    return Err(invalid(format!(
+                        "`transport.kind` is `tcp`, not `{}`",
+                        t.kind
+                    )));
+                }
+                Some(t) if t.host.trim().is_empty() || t.port == 0 => {
+                    return Err(invalid("`transport` needs a `host` and a `port` from 1"));
+                }
+                Some(t) => Some((t.host, t.port)),
+            };
+            let mono = match i.mono {
+                Some(m) if m.port == 0 => return Err(invalid("`mono.port` is at least 1")),
+                Some(m) => Some((
+                    m.address
+                        .filter(|a| !a.trim().is_empty())
+                        .unwrap_or_else(|| "127.0.0.1".into()),
+                    m.port,
+                )),
+                None => None,
+            };
+            DebugRequest::Attach {
+                target,
+                adapter,
+                transport,
+                mono,
+                wait_ms: check_wait(i.wait_ms)?,
+                budget,
+            }
+        }
+        PROCESSES => {
+            let i: ProcessesIn = input(value)?;
+            let filter = non_empty("filter", i.filter)?;
+            if filter.as_ref().is_some_and(|f| f.chars().count() > 200) {
+                return Err(invalid("`filter` is at most 200 characters"));
+            }
+            DebugRequest::Processes { filter }
+        }
+        RESTART => {
+            let i: RestartIn = input(value)?;
+            DebugRequest::Restart {
+                wait_ms: check_wait(i.wait_ms)?,
+                budget,
+            }
+        }
+        ALLOW_AGENTS => {
+            if value.is_null() {
+                return Err(invalid("`enabled` is required"));
+            }
+            let i: AllowAgentsIn = serde_json::from_value(value)
+                .map_err(|e| CommandError::InvalidInput(e.to_string()))?;
+            DebugRequest::AllowAgents { enabled: i.enabled }
+        }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
 }
@@ -2242,11 +2531,93 @@ pub fn spec(id: &str) -> CommandSpec {
     }
 }
 
-/// Register every debug command, applying them to `target`.
+// ---- escalation (ADR-0009, brief 0027) ----
+
+/// What call `input` of debug command `id` does, for the `debug` policy; `None` for commands it does not govern
+/// (reads, watches, frame selection, exception settings, plain breakpoints, `allow_agents`).
+pub fn debug_call(id: &str, input: &Value, view: &PolicyView) -> Option<DebugCall> {
+    let message_expression = |v: &Value| v.as_str().is_some_and(has_expression);
+    Some(match id {
+        START | RESTART | STOP | CONTINUE | STEP_OVER | STEP_INTO | STEP_OUT | RUN_TO_CURSOR
+        | RUN_UNTIL | PAUSE | SET_NEXT_STATEMENT => DebugCall {
+            drive: true,
+            ..DebugCall::default()
+        },
+        SET_VARIABLE => DebugCall {
+            drive: true,
+            evaluate: true,
+            attach: None,
+        },
+        EVALUATE => DebugCall {
+            evaluate: true,
+            ..DebugCall::default()
+        },
+        TRACE => DebugCall {
+            drive: true,
+            evaluate: input
+                .get("points")
+                .and_then(Value::as_array)
+                .is_some_and(|ps| ps.iter().any(|p| message_expression(&p["message"]))),
+            attach: None,
+        },
+        TOGGLE_BREAKPOINT if input.get("log_message").is_some_and(message_expression) => {
+            DebugCall {
+                drive: true,
+                evaluate: true,
+                attach: None,
+            }
+        }
+        ATTACH => {
+            let pid = input
+                .get("pid")
+                .and_then(Value::as_u64)
+                .and_then(|p| u32::try_from(p).ok());
+            let name = input.get("process_name").and_then(Value::as_str);
+            if pid.is_none() && name.is_none() {
+                // The dialog: it attaches nothing itself.
+                return None;
+            }
+            // A process on another machine (`transport`) is never one Eludite started here.
+            let ours = input.get("transport").is_none_or(Value::is_null)
+                && view
+                    .launched()
+                    .contains(pid, if pid.is_some() { None } else { name });
+            DebugCall {
+                drive: true,
+                evaluate: false,
+                attach: Some(!ours),
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// The escalation hook of debug command `id`, if it has one: the solution policy's `debug` object applied to the
+/// call (ADR-0009), tool rules first.
+pub fn escalation(id: &'static str) -> Option<EscalationHook> {
+    debug_call(id, &json_object(id), &PolicyView::of(Default::default()))?;
+    let tool = id.replace('.', "-");
+    Some(Arc::new(move |input: &Value, view: &PolicyView| {
+        let call = debug_call(id, input, view)?;
+        view.debug()
+            .decide_for(call, &view.policy().rules, &tool, input)
+    }))
+}
+
+/// An input that makes [`debug_call`] answer for every command it governs (to know which commands have hooks).
+fn json_object(id: &str) -> Value {
+    match id {
+        TOGGLE_BREAKPOINT => serde_json::json!({"log_message": "{x}"}),
+        ATTACH => serde_json::json!({"pid": 1}),
+        _ => serde_json::json!({}),
+    }
+}
+
+/// Register every debug command, applying them to `target`, with their escalation hooks.
 pub fn register(registry: &CommandRegistry, target: Arc<dyn DebugTarget>) {
     for id in ALL {
         let target = target.clone();
-        registry.replace(spec(id), move |input| {
+        registry.replace_with_escalation(spec(id), escalation(id), move |input| {
             let request = parse(id, input)?;
             target.apply(request).map(|out| out.to_json())
         });
@@ -2618,6 +2989,7 @@ mod tests {
                 adapter: Some("netcoredbg".into()),
                 runtime: Some("coreclr".into()),
                 process_id: Some(7),
+                attached: true,
             }),
             stopped: Some(StoppedRow {
                 reason: "breakpoint".into(),
@@ -2673,6 +3045,7 @@ mod tests {
             message: None,
             capabilities: None,
             agent_driving: true,
+            agents_allowed: false,
         }))
         .to_json();
         schema_keys_match(STATE_OUTPUT, &state);
@@ -3152,6 +3525,7 @@ mod tests {
             truncated: true,
             satisfied: Some("stopped".into()),
             timed_out: None,
+            interrupted_by: None,
         }))
         .to_json();
         conforms(SUMMARY_OUTPUT, &summary);
@@ -3640,5 +4014,395 @@ mod tests {
         )
         .unwrap();
         assert_eq!(old.kind, BreakpointKind::Line);
+    }
+
+    #[test]
+    fn the_attach_and_policy_commands_parse_and_validate() {
+        let b = Budget::default();
+        assert_eq!(
+            parse(ATTACH, json!({"pid": 42})).unwrap(),
+            DebugRequest::Attach {
+                target: AttachTarget::Pid(42),
+                adapter: None,
+                transport: None,
+                mono: None,
+                wait_ms: None,
+                budget: b
+            }
+        );
+        assert_eq!(
+            parse(
+                ATTACH,
+                json!({"process_name": " App ", "adapter": "coreclr", "wait_ms": 100, "max_frames": 3,
+                       "transport": {"kind": "tcp", "host": "winbox", "port": 4711}})
+            )
+            .unwrap(),
+            DebugRequest::Attach {
+                target: AttachTarget::Name("App".into()),
+                adapter: Some("coreclr".into()),
+                transport: Some(("winbox".into(), 4711)),
+                mono: None,
+                wait_ms: Some(100),
+                budget: Budget {
+                    max_frames: 3,
+                    ..b
+                }
+            }
+        );
+        // `mono` implies the Mono adapter; its address defaults to the loopback.
+        assert_eq!(
+            parse(ATTACH, json!({"pid": 7, "mono": {"port": 55555}})).unwrap(),
+            DebugRequest::Attach {
+                target: AttachTarget::Pid(7),
+                adapter: Some("mono".into()),
+                transport: None,
+                mono: Some(("127.0.0.1".into(), 55555)),
+                wait_ms: None,
+                budget: b
+            }
+        );
+        assert!(matches!(
+            parse(ATTACH, json!({})).unwrap(),
+            DebugRequest::Attach {
+                target: AttachTarget::Dialog,
+                ..
+            }
+        ));
+        for bad in [
+            json!({"pid": 0}),
+            json!({"process_name": " "}),
+            json!({"pid": 1, "adapter": "gdb"}),
+            json!({"pid": 1, "adapter": "coreclr", "mono": {"port": 1}}),
+            json!({"pid": 1, "mono": {"port": 0}}),
+            json!({"pid": 1, "transport": {"kind": "ssh", "host": "h", "port": 1}}),
+            json!({"pid": 1, "transport": {"kind": "tcp", "host": "", "port": 1}}),
+            json!({"pid": 1, "wait_ms": 40000}),
+            json!({"pid": 1, "bogus": true}),
+        ] {
+            assert!(parse(ATTACH, bad.clone()).is_err(), "{bad}");
+        }
+        assert_eq!(
+            parse(PROCESSES, json!({})).unwrap(),
+            DebugRequest::Processes { filter: None }
+        );
+        assert_eq!(
+            parse(PROCESSES, json!({"filter": "dotnet"})).unwrap(),
+            DebugRequest::Processes {
+                filter: Some("dotnet".into())
+            }
+        );
+        assert!(parse(PROCESSES, json!({"filter": ""})).is_err());
+        assert!(parse(PROCESSES, json!({"filter": "x".repeat(201)})).is_err());
+        assert_eq!(
+            parse(RESTART, json!({"wait_ms": 0, "depth": 2})).unwrap(),
+            DebugRequest::Restart {
+                wait_ms: Some(0),
+                budget: Budget { depth: 2, ..b }
+            }
+        );
+        assert!(parse(RESTART, json!({"stop": 1})).is_err());
+        assert_eq!(
+            parse(ALLOW_AGENTS, json!({"enabled": false})).unwrap(),
+            DebugRequest::AllowAgents { enabled: false }
+        );
+        assert!(parse(ALLOW_AGENTS, json!({})).is_err());
+        assert!(parse(ALLOW_AGENTS, Value::Null).is_err());
+        // Classes: attach, restart and the toggle execute, processes reads; attach may escalate.
+        for (id, class) in [
+            (ATTACH, PermissionClass::Execute),
+            (RESTART, PermissionClass::Execute),
+            (ALLOW_AGENTS, PermissionClass::Execute),
+            (PROCESSES, PermissionClass::Read),
+        ] {
+            assert_eq!(spec(id).permission, class, "{id}");
+            assert!(spec(id).agent_visible);
+        }
+        assert!(
+            spec(ATTACH)
+                .escalates()
+                .unwrap()
+                .contains("Eludite started")
+        );
+        assert!(spec(PROCESSES).escalates().is_none());
+        // Which requests the toggle governs.
+        let p = |id: &str, v: Value| parse(id, v).unwrap();
+        assert!(p(CONTINUE, json!({})).drives());
+        assert!(p(SET_VARIABLE, json!({"name": "x", "value": "1"})).drives());
+        assert!(p(PAUSE, json!({})).drives());
+        assert!(p(ATTACH, json!({"pid": 3})).drives());
+        assert!(p(RESTART, json!({})).drives());
+        assert!(
+            p(
+                TOGGLE_BREAKPOINT,
+                json!({"path": "a", "line": 1, "action": "set", "log_message": "x={x}"})
+            )
+            .drives()
+        );
+        assert!(
+            !p(
+                TOGGLE_BREAKPOINT,
+                json!({"path": "a", "line": 1, "action": "set", "log_message": "{{x}}"})
+            )
+            .drives()
+        );
+        assert!(!p(TOGGLE_BREAKPOINT, json!({"path": "a", "line": 1})).drives());
+        assert!(!p(ATTACH, json!({})).drives());
+        for read in [SNAPSHOT, STATE, OUTPUT, PROCESSES, WAIT, EVALUATE] {
+            let v = if read == EVALUATE {
+                json!({"expression": "x"})
+            } else {
+                json!({})
+            };
+            assert!(!p(read, v).drives(), "{read}");
+        }
+        assert!(has_expression("a {b} c") && !has_expression("a {{b}} c") && !has_expression("x"));
+    }
+
+    #[test]
+    fn the_attach_and_policy_outputs_follow_their_schemas() {
+        let out = DebugOutput::Processes(ProcessesOutput {
+            processes: vec![
+                ProcessRow {
+                    pid: 4242,
+                    parent: Some(1),
+                    name: "dotnet".into(),
+                    command_line: "/usr/bin/dotnet /s/App.dll".into(),
+                    runtime: "dotnet".into(),
+                    launched_by_eludite: true,
+                    debugger_agent: None,
+                },
+                ProcessRow {
+                    pid: 7,
+                    name: "mono".into(),
+                    command_line: "mono --debugger-agent=server=y,address=127.0.0.1:1 a.exe".into(),
+                    runtime: "mono".into(),
+                    debugger_agent: Some("127.0.0.1:1".into()),
+                    ..Default::default()
+                },
+            ],
+            total: 2,
+            truncated: false,
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-processes.output.json"),
+            &out,
+        );
+        let a = DebugOutput::AllowAgents(AllowAgentsOutput {
+            agents_allowed: false,
+            default: true,
+            mode: "break".into(),
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-allow-agents.output.json"),
+            &a,
+        );
+        let s = DebugOutput::Summary(Box::new(StopSummary {
+            mode: "running".into(),
+            interrupted_by: Some("user".into()),
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(SUMMARY_OUTPUT, &s);
+        assert_eq!(s["interrupted_by"], "user");
+        let state = DebugOutput::State(Box::new(DebugState {
+            mode: "running".into(),
+            session: Some(SessionRow {
+                project: "dotnet".into(),
+                program: "/usr/bin/dotnet".into(),
+                attached: true,
+                process_id: Some(4242),
+                ..Default::default()
+            }),
+            agents_allowed: false,
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(STATE_OUTPUT, &state);
+        assert_eq!(state["session"]["attached"], true);
+        assert_eq!(state["agents_allowed"], false);
+        // A state of brief 0026 (no agents_allowed) reads as allowed.
+        let old: DebugState =
+            serde_json::from_value(json!({"mode": "design", "generation": 0, "stop": 0,
+            "threads": [], "frames": [], "locals": [], "watches": [], "breakpoints": [],
+            "exceptions": {"break_when_thrown": false, "break_when_user_unhandled": true},
+            "console": {"lines": 0, "tail": []}}))
+            .unwrap();
+        assert!(old.agents_allowed);
+        let trace = DebugOutput::Trace(Box::new(TraceOutput {
+            stopped_by: "interrupted".into(),
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-trace.output.json"),
+            &trace,
+        );
+    }
+
+    #[test]
+    fn hooks_apply_the_debug_policy() {
+        use crate::Escalation;
+        use crate::policy::{AlwaysAllow, DebugKnob, LaunchedProcesses, PolicySnapshot};
+        let view = |policy: Value| {
+            PolicyView::of(PolicySnapshot {
+                policy: serde_json::from_value(policy).unwrap(),
+                launched: LaunchedProcesses::new(|pid, name| {
+                    pid == Some(100) || (pid.is_none() && name == Some("App"))
+                }),
+                ..Default::default()
+            })
+        };
+        let hook = |id: &'static str, input: Value, v: &PolicyView| {
+            escalation(id).and_then(|h| h(&input, v))
+        };
+        let defaults = view(json!({"version": 1}));
+        // Defaults: driving and evaluating keep their class; an attach to a process Eludite did not start is
+        // dangerous and allowed once; to one it started (by pid or name) it is not.
+        assert_eq!(hook(CONTINUE, json!({}), &defaults), None);
+        assert_eq!(hook(EVALUATE, json!({"expression": "x"}), &defaults), None);
+        assert_eq!(hook(ATTACH, json!({"pid": 100}), &defaults), None);
+        assert_eq!(
+            hook(ATTACH, json!({"process_name": "App"}), &defaults),
+            None
+        );
+        assert_eq!(
+            hook(ATTACH, json!({"pid": 31337}), &defaults),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "attach to a process Eludite did not start".into(),
+                always_allow: AlwaysAllow::Never,
+            })
+        );
+        assert!(hook(ATTACH, json!({"process_name": "Other"}), &defaults).is_some());
+        // A process on another machine is never Eludite's.
+        assert!(
+            hook(
+                ATTACH,
+                json!({"pid": 100, "transport": {"kind": "tcp", "host": "h", "port": 1}}),
+                &defaults
+            )
+            .is_some()
+        );
+        // The dialog attaches nothing.
+        assert_eq!(hook(ATTACH, json!({}), &defaults), None);
+        // drive: deny refuses every driving command, not reads; attach: deny refuses every attach.
+        let deny = view(json!({"version": 1, "debug": {"drive": "deny"}}));
+        for id in [
+            START, CONTINUE, STEP_OVER, RUN_UNTIL, TRACE, PAUSE, STOP, RESTART, ATTACH,
+        ] {
+            let input = if id == ATTACH {
+                json!({"pid": 100})
+            } else {
+                json!({})
+            };
+            assert_eq!(
+                hook(id, input, &deny),
+                Some(Escalation::Refuse(
+                    "the solution's policy sets debug.drive to deny".into()
+                )),
+                "{id}"
+            );
+        }
+        assert_eq!(hook(EVALUATE, json!({"expression": "x"}), &deny), None);
+        assert!(escalation(SNAPSHOT).is_none() && escalation(PROCESSES).is_none());
+        assert!(escalation(ALLOW_AGENTS).is_none() && escalation(WATCH).is_none());
+        let no_attach = view(json!({"version": 1, "debug": {"attach": "deny"}}));
+        assert!(matches!(
+            hook(ATTACH, json!({"pid": 100}), &no_attach),
+            Some(Escalation::Refuse(m)) if m.contains("debug.attach")
+        ));
+        // prompt raises to dangerous; Always Allow writes `allow`.
+        let prompt =
+            view(json!({"version": 1, "debug": {"drive": "prompt", "evaluate": "prompt"}}));
+        assert_eq!(
+            hook(STEP_OVER, json!({}), &prompt),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "the solution's policy asks before an agent drives the debugger (debug.drive: prompt)"
+                    .into(),
+                always_allow: AlwaysAllow::Debug(vec![DebugKnob::Drive]),
+            })
+        );
+        assert!(matches!(
+            hook(EVALUATE, json!({"expression": "x"}), &prompt),
+            Some(Escalation::Raise { always_allow: AlwaysAllow::Debug(k), .. }) if k == vec![DebugKnob::Evaluate]
+        ));
+        assert!(matches!(
+            hook(SET_VARIABLE, json!({"name": "x", "value": "1"}), &prompt),
+            Some(Escalation::Raise { always_allow: AlwaysAllow::Debug(k), .. })
+                if k == vec![DebugKnob::Drive, DebugKnob::Evaluate]
+        ));
+        // Expressions in tracepoints count as evaluating; plain breakpoints are neither.
+        let eval_deny = view(json!({"version": 1, "debug": {"evaluate": "deny"}}));
+        assert!(matches!(
+            hook(TRACE, json!({"points": [{"path": "a", "line": 1, "message": "i={i}"}]}), &eval_deny),
+            Some(Escalation::Refuse(m)) if m.contains("debug.evaluate")
+        ));
+        assert_eq!(
+            hook(
+                TRACE,
+                json!({"points": [{"path": "a", "line": 1, "message": "here"}]}),
+                &eval_deny
+            ),
+            None
+        );
+        assert!(
+            hook(
+                TOGGLE_BREAKPOINT,
+                json!({"path": "a", "line": 1, "log_message": "{x}"}),
+                &eval_deny
+            )
+            .is_some()
+        );
+        assert_eq!(
+            hook(
+                TOGGLE_BREAKPOINT,
+                json!({"path": "a", "line": 1}),
+                &eval_deny
+            ),
+            None
+        );
+        // Tool rules are checked first: with a rule for the tool, the policy's verdict becomes a raise the rules decide.
+        let ruled = view(json!({"version": 1, "debug": {"drive": "deny"},
+            "rules": [{"tool": "eludite-debug-step_over", "decision": "allow"}]}));
+        assert_eq!(
+            hook(STEP_OVER, json!({}), &ruled),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "the solution's policy sets debug.drive to deny".into(),
+                always_allow: AlwaysAllow::Rule,
+            })
+        );
+        assert!(matches!(
+            hook(CONTINUE, json!({}), &ruled),
+            Some(Escalation::Refuse(_))
+        ));
+        // Through the registry: the call's class and the audit.
+        struct Nothing;
+        impl DebugTarget for Nothing {
+            fn apply(&self, _: DebugRequest) -> Result<DebugOutput, CommandError> {
+                Ok(DebugOutput::AllowAgents(AllowAgentsOutput::default()))
+            }
+        }
+        let r = CommandRegistry::new();
+        register(&r, Arc::new(Nothing));
+        assert!(r.has_escalation(ATTACH) && r.has_escalation(EVALUATE));
+        assert!(!r.has_escalation(SNAPSHOT));
+        let c = r.classify(ATTACH, &json!({"pid": 31337})).unwrap();
+        assert_eq!(c.class, PermissionClass::Dangerous);
+        r.set_policy_source(Arc::new(|| PolicySnapshot {
+            policy: serde_json::from_value(json!({"version": 1, "debug": {"evaluate": "prompt"}}))
+                .unwrap(),
+            ..Default::default()
+        }));
+        let c = r.classify(EVALUATE, &json!({"expression": "x"})).unwrap();
+        assert_eq!(c.class, PermissionClass::Dangerous);
+        assert!(c.reason.unwrap().contains("debug.evaluate: prompt"));
+        assert_eq!(
+            r.classify(CONTINUE, &json!({})).unwrap(),
+            crate::CallClass::declared(PermissionClass::Execute)
+        );
     }
 }

@@ -1394,6 +1394,7 @@ impl DebugModel {
             message: self.message.clone(),
             capabilities: self.capabilities.clone(),
             agent_driving: self.agent_driving(),
+            agents_allowed: true,
         }
     }
 
@@ -1503,6 +1504,7 @@ impl DebugModel {
             agent_driving: self.agent_driving(),
             satisfied: None,
             timed_out: None,
+            interrupted_by: None,
         }
     }
 
