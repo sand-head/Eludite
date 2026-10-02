@@ -1,6 +1,6 @@
 # Brief 0008: Docking and tool windows in the production shell
 
-Status: open
+Status: done on Linux ([report](0008-report.md)); Windows and macOS not run
 Phase: 1
 Plan reference: PLAN.md sections 2 (principle 1), 3 (D1), 4.2, 4.12, 8, 9
 Related ADR: ADR-0001

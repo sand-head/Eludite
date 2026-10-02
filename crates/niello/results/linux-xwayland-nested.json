@@ -1,0 +1,955 @@
+{
+ "label": "linux-xwayland-nested",
+ "time": "2026-10-01T22:41:31-0500",
+ "env": {
+  "WAYLAND_DISPLAY": "",
+  "DISPLAY": ":1",
+  "XDG_SESSION_TYPE": "wayland"
+ },
+ "start_runs": [
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 177.861,
+   "launch_to_first_present_ms": 179.47776,
+   "launch_to_main_ms": 1.609728,
+   "layout_loader_join_wait_ms": 0.002,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 89.264,
+   "launch_to_first_present_ms": 91.07456,
+   "launch_to_main_ms": 1.806592,
+   "layout_loader_join_wait_ms": 0.002,
+   "rss": {
+    "rss_mib": 72.6,
+    "peak_rss_mib": 72.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 90.571,
+   "launch_to_first_present_ms": 92.749568,
+   "launch_to_main_ms": 2.173952,
+   "layout_loader_join_wait_ms": 0.002,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 94.525,
+   "launch_to_first_present_ms": 96.211712,
+   "launch_to_main_ms": 1.675008,
+   "layout_loader_join_wait_ms": 0.002,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 92.638,
+   "launch_to_first_present_ms": 94.514176,
+   "launch_to_main_ms": 1.872128,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 89.469,
+   "launch_to_first_present_ms": 91.153408,
+   "launch_to_main_ms": 1.680128,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.5,
+    "peak_rss_mib": 72.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 88.248,
+   "launch_to_first_present_ms": 90.664448,
+   "launch_to_main_ms": 2.413568,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.5,
+    "peak_rss_mib": 72.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 86.665,
+   "launch_to_first_present_ms": 89.952256,
+   "launch_to_main_ms": 3.283456,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 92.433,
+   "launch_to_first_present_ms": 94.819328,
+   "launch_to_main_ms": 2.382592,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.6,
+    "peak_rss_mib": 72.6
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 82.854,
+   "launch_to_first_present_ms": 85.743872,
+   "launch_to_main_ms": 2.886912,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.5,
+    "peak_rss_mib": 72.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.89
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 90.325,
+   "launch_to_first_present_ms": 92.85888,
+   "launch_to_main_ms": 2.53056,
+   "layout_loader_join_wait_ms": 0.002,
+   "rss": {
+    "rss_mib": 72.1,
+    "peak_rss_mib": 72.1
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 90.306,
+   "launch_to_first_present_ms": 92.97152,
+   "launch_to_main_ms": 2.662144,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 87.933,
+   "launch_to_first_present_ms": 90.607872,
+   "launch_to_main_ms": 2.671872,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.5,
+    "peak_rss_mib": 72.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 90.837,
+   "launch_to_first_present_ms": 94.41024,
+   "launch_to_main_ms": 3.569408,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 90.411,
+   "launch_to_first_present_ms": 92.845568,
+   "launch_to_main_ms": 2.431488,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 92.677,
+   "launch_to_first_present_ms": 94.98496,
+   "launch_to_main_ms": 2.30528,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 88.425,
+   "launch_to_first_present_ms": 90.133504,
+   "launch_to_main_ms": 1.705472,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.2,
+    "peak_rss_mib": 72.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 81.731,
+   "launch_to_first_present_ms": 83.895296,
+   "launch_to_main_ms": 2.157824,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.4,
+    "peak_rss_mib": 72.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 92.612,
+   "launch_to_first_present_ms": 95.18208,
+   "launch_to_main_ms": 2.56768,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.5,
+    "peak_rss_mib": 72.5
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "start",
+   "main_to_first_present_ms": 84.678,
+   "launch_to_first_present_ms": 88.006656,
+   "launch_to_main_ms": 3.32544,
+   "layout_loader_join_wait_ms": 0.001,
+   "rss": {
+    "rss_mib": 72.3,
+    "peak_rss_mib": 72.3
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  }
+ ],
+ "start_summary": {
+  "first_run_launch_to_first_present_ms": 179.47776,
+  "warm_launch_to_first_present_ms": {
+   "n": 19,
+   "median": 92.75,
+   "min": 83.895,
+   "max": 96.212
+  },
+  "warm_main_to_first_present_ms": {
+   "n": 19,
+   "median": 90.306,
+   "min": 81.731,
+   "max": 94.525
+  },
+  "rss_mib_at_first_present": {
+   "n": 19,
+   "median": 72.4,
+   "min": 72.1,
+   "max": 72.6
+  }
+ },
+ "drag_runs": [
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.965,
+    "p95_ms": 2.584,
+    "p99_ms": 3.022,
+    "max_ms": 3.331
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.85,
+    "p95_ms": 2.448,
+    "p99_ms": 2.94,
+    "max_ms": 3.233
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.683,
+    "p95_ms": 16.728,
+    "p99_ms": 16.873,
+    "max_ms": 17.436
+   },
+   "worst_frames": [
+    [
+     599,
+     3.331
+    ],
+    [
+     304,
+     3.237
+    ],
+    [
+     107,
+     3.229
+    ],
+    [
+     256,
+     3.217
+    ],
+    [
+     308,
+     3.095
+    ],
+    [
+     181,
+     3.052
+    ],
+    [
+     148,
+     3.022
+    ],
+    [
+     53,
+     2.985
+    ],
+    [
+     350,
+     2.952
+    ],
+    [
+     356,
+     2.951
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.4,
+    "peak_rss_mib": 74.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.65
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.839,
+    "p95_ms": 2.372,
+    "p99_ms": 2.959,
+    "max_ms": 3.91
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.731,
+    "p95_ms": 2.241,
+    "p99_ms": 2.834,
+    "max_ms": 3.786
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.683,
+    "p95_ms": 16.698,
+    "p99_ms": 17.132,
+    "max_ms": 18.188
+   },
+   "worst_frames": [
+    [
+     231,
+     3.91
+    ],
+    [
+     229,
+     3.816
+    ],
+    [
+     136,
+     3.785
+    ],
+    [
+     133,
+     3.72
+    ],
+    [
+     267,
+     3.51
+    ],
+    [
+     257,
+     3.226
+    ],
+    [
+     120,
+     2.959
+    ],
+    [
+     275,
+     2.945
+    ],
+    [
+     122,
+     2.855
+    ],
+    [
+     172,
+     2.803
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.4,
+    "peak_rss_mib": 74.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.27
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.805,
+    "p95_ms": 2.344,
+    "p99_ms": 2.666,
+    "max_ms": 3.013
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.689,
+    "p95_ms": 2.219,
+    "p99_ms": 2.533,
+    "max_ms": 2.884
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.683,
+    "p95_ms": 16.709,
+    "p99_ms": 16.733,
+    "max_ms": 16.762
+   },
+   "worst_frames": [
+    [
+     300,
+     3.013
+    ],
+    [
+     395,
+     2.946
+    ],
+    [
+     436,
+     2.902
+    ],
+    [
+     564,
+     2.78
+    ],
+    [
+     326,
+     2.716
+    ],
+    [
+     507,
+     2.694
+    ],
+    [
+     226,
+     2.666
+    ],
+    [
+     29,
+     2.649
+    ],
+    [
+     401,
+     2.64
+    ],
+    [
+     381,
+     2.633
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.7,
+    "peak_rss_mib": 74.7
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 7.02
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 1.88,
+    "p95_ms": 2.533,
+    "p99_ms": 4.905,
+    "max_ms": 9.987
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 1.773,
+    "p95_ms": 2.381,
+    "p99_ms": 4.765,
+    "max_ms": 9.849
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.683,
+    "p95_ms": 16.716,
+    "p99_ms": 17.118,
+    "max_ms": 18.427
+   },
+   "worst_frames": [
+    [
+     332,
+     9.987
+    ],
+    [
+     344,
+     7.052
+    ],
+    [
+     427,
+     7.052
+    ],
+    [
+     334,
+     5.626
+    ],
+    [
+     264,
+     5.141
+    ],
+    [
+     265,
+     5.137
+    ],
+    [
+     413,
+     4.905
+    ],
+    [
+     333,
+     4.845
+    ],
+    [
+     263,
+     4.829
+    ],
+    [
+     326,
+     4.363
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.4,
+    "peak_rss_mib": 74.4
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.62
+  },
+  {
+   "bench": "drag",
+   "method": "on_next_frame -> Window::dispatch_event(MouseMove) during an active tool window drag; frame start to end of present",
+   "frames": 600,
+   "frames_presented": 600,
+   "renders_with_guides_visible": 601,
+   "renders": 601,
+   "frame_cost": {
+    "n": 600,
+    "p50_ms": 3.453,
+    "p95_ms": 7.192,
+    "p99_ms": 9.158,
+    "max_ms": 13.225
+   },
+   "render_to_present": {
+    "n": 601,
+    "p50_ms": 3.322,
+    "p95_ms": 7.062,
+    "p99_ms": 8.979,
+    "max_ms": 13.098
+   },
+   "frame_interval": {
+    "n": 599,
+    "p50_ms": 16.683,
+    "p95_ms": 18.151,
+    "p99_ms": 19.05,
+    "max_ms": 29.879
+   },
+   "worst_frames": [
+    [
+     322,
+     13.225
+    ],
+    [
+     321,
+     12.881
+    ],
+    [
+     326,
+     11.842
+    ],
+    [
+     337,
+     11.491
+    ],
+    [
+     320,
+     10.668
+    ],
+    [
+     323,
+     10.478
+    ],
+    [
+     324,
+     9.158
+    ],
+    [
+     329,
+     9.098
+    ],
+    [
+     584,
+     8.927
+    ],
+    [
+     338,
+     8.766
+    ]
+   ],
+   "rss": {
+    "rss_mib": 74.2,
+    "peak_rss_mib": 74.2
+   },
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":1",
+    "scale_factor": 1.0,
+    "viewport": [
+     1280.0,
+     800.0
+    ]
+   },
+   "loadavg_1min_before": 6.38
+  }
+ ],
+ "drag_summary": {
+  "frame_cost_p99_ms": [
+   3.022,
+   2.959,
+   2.666,
+   4.905,
+   9.158
+  ],
+  "frame_cost_p50_ms": [
+   1.965,
+   1.839,
+   1.805,
+   1.88,
+   3.453
+  ],
+  "frame_cost_max_ms": [
+   3.331,
+   3.91,
+   3.013,
+   9.987,
+   13.225
+  ],
+  "render_to_present_p99_ms": [
+   2.94,
+   2.834,
+   2.533,
+   4.765,
+   8.979
+  ],
+  "frame_interval_p99_ms": [
+   16.873,
+   17.132,
+   16.733,
+   17.118,
+   19.05
+  ],
+  "loadavg_1min_before": [
+   6.65,
+   6.27,
+   7.02,
+   6.62,
+   6.38
+  ],
+  "guides_visible_fraction": [
+   1.0,
+   1.0,
+   1.0,
+   1.0,
+   1.0
+  ]
+ }
+}
