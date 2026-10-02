@@ -1,0 +1,38 @@
+# Throwaway spike for brief 0005 (docs/briefs/0005-acp-claude-code-spike.md).
+# Its own workspace root, so the production workspace does not claim it.
+[workspace]
+
+[package]
+name = "spike-acp-panel"
+description = "Brief 0005 spike: Claude Code over ACP in a GPUI panel, one Niello MCP tool."
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.98"
+publish = false
+
+[[bin]]
+name = "spike-acp-panel"
+path = "src/main.rs"
+
+[dependencies]
+# Same pin and features as the root Cargo.toml (both Apache-2.0).
+gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["wayland", "x11", "font-kit"] }
+# The production crates this brief touches (GPL-3.0-or-later; niello-protocol is MIT).
+niello-acp = { path = "../../crates/acp" }
+niello-mcp = { path = "../../crates/mcp" }
+niello-commands = { path = "../../crates/commands" }
+async-channel = "2" # Apache-2.0 OR MIT; already in GPUI's tree. Bridges I/O threads to the UI thread.
+serde_json = "1" # MIT OR Apache-2.0
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8", features = ["test-support"] }
+jsonschema = { version = "0.58", default-features = false } # MIT; a full validator for the tests
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
