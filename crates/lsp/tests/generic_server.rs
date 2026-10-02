@@ -372,6 +372,31 @@ fn pulled_and_pushed_diagnostics_merge_per_document() {
         unreachable!()
     };
     assert_eq!(both.params.diagnostics.len(), 2);
+    // `cargo check` reporting the pulled error again, worded its own way, is the same problem.
+    fake.publish_diagnostics(
+        uri,
+        None,
+        json!([{"range": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 4}},
+                "severity": 2, "code": "dead_code", "message": "function `f` is never used"},
+               {"range": {"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 7}},
+                "severity": 1, "code": "E0107", "message": "this function takes 1 argument but 0 arguments were supplied"}]),
+    );
+    let Event::Diagnostics(same) = next(&rx, "merged diagnostics", pulled) else {
+        unreachable!()
+    };
+    assert_eq!(
+        same.params.diagnostics.len(),
+        2,
+        "{:?}",
+        same.params.diagnostics
+    );
+    fake.publish_diagnostics(
+        uri,
+        None,
+        json!([{"range": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 4}},
+                "severity": 2, "code": "dead_code", "message": "function `f` is never used"}]),
+    );
+    next(&rx, "merged diagnostics", pulled);
 
     // An edit is pulled again after the debounce; the fixed error leaves only the pushed warning.
     fixed.store(true, Ordering::SeqCst);
@@ -396,7 +421,12 @@ fn pulled_and_pushed_diagnostics_merge_per_document() {
     ) else {
         unreachable!()
     };
-    assert_eq!(after.params.diagnostics.len(), 1);
+    assert_eq!(
+        after.params.diagnostics.len(),
+        1,
+        "{:?}",
+        after.params.diagnostics
+    );
     assert_eq!(after.params.diagnostics[0].code, Some(json!("dead_code")));
     // Open, the edit, and possibly the pull of every open document when the server turned quiescent.
     assert!(fake.received_params("textDocument/diagnostic").len() >= 2);

@@ -526,7 +526,8 @@ pinned rust-analyzer computes its native diagnostics (syntax and semantic, codes
 once, 150 ms after the last `didChange`, and for every open document when `experimental/serverStatus` turns
 quiescent or the server sends `workspace/diagnostic/refresh`. A newer pull for a document cancels the older one,
 and a result for a document version that is no longer the last one sent is dropped. Each push or pull result is
-delivered as the union of the document's pushed and pulled lists (duplicates by range, code and message removed),
+delivered as the union of the document's pushed and pulled lists (a pushed diagnostic with the same range and code
+as a pulled one, or the same range and message when it has no code, is the same problem and is dropped),
 with the version the pull ran on. `didClose` delivers an empty list.
 
 **Diagnostics and the Error List.** Live rows come from the server; `cargo build` rows come from the build. A build

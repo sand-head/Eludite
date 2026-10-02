@@ -48,16 +48,17 @@ pub(crate) struct Diagnostics {
     puller: Mutex<Option<Sender<Cmd>>>,
 }
 
+/// One problem reported twice (rust-analyzer's native diagnostic and `cargo check`'s, worded differently) has the
+/// same range and code; without a code, the message tells them apart.
 fn key(d: &Diagnostic) -> String {
-    format!(
-        "{}:{}-{}:{}|{}|{}",
-        d.range.start.line,
-        d.range.start.character,
-        d.range.end.line,
-        d.range.end.character,
-        d.code.as_ref().map(Value::to_string).unwrap_or_default(),
-        d.message
-    )
+    let range = format!(
+        "{}:{}-{}:{}",
+        d.range.start.line, d.range.start.character, d.range.end.line, d.range.end.character
+    );
+    match &d.code {
+        Some(code) => format!("{range}|{code}"),
+        None => format!("{range}||{}", d.message),
+    }
 }
 
 impl Diagnostics {
