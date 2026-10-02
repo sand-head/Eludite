@@ -28,9 +28,9 @@ mimalloc.workspace = true
 serde_json.workspace = true
 
 [features]
-# Build the example viewer on the system allocator instead of mimalloc, to
-# compare the two (brief 0011).
-system-allocator = []
+# Build the example viewer with mimalloc as the global allocator instead of
+# the system one, to compare the two (brief 0011).
+mimalloc-global = []
 
 [[example]]
 name = "viewer"

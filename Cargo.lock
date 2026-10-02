@@ -1543,7 +1543,6 @@ dependencies = [
  "futures",
  "gpui",
  "gpui_platform",
- "mimalloc",
  "serde_json",
  "tempfile",
 ]

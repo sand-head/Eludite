@@ -89,16 +89,17 @@ fn parse_args() -> Args {
 
 // ----- allocator -----
 
-/// The viewer uses mimalloc, as the `eludite` binary does (brief 0011).
-/// `--features system-allocator` builds it on the system allocator instead,
-/// for the with-and-without comparison.
-#[cfg(not(feature = "system-allocator"))]
+/// The viewer uses the system allocator, as the `eludite` binary does.
+/// `--features mimalloc-global` builds it with mimalloc as the global
+/// allocator, for the comparison in brief 0011 (tree-sitter allocates from
+/// its own mimalloc heap either way; see `syntax::alloc`).
+#[cfg(feature = "mimalloc-global")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[cfg(not(feature = "system-allocator"))]
+#[cfg(feature = "mimalloc-global")]
 const ALLOCATOR: &str = "mimalloc";
-#[cfg(feature = "system-allocator")]
+#[cfg(not(feature = "mimalloc-global"))]
 const ALLOCATOR: &str = "system";
 
 // ----- measurement -----

@@ -7,9 +7,11 @@
 //! (MIT) instead, on a heap of its own so tree nodes do not share pages
 //! with longer-lived objects, whatever global allocator the binary uses, and
 //! [`release_free_memory`] asks mimalloc to return free pages, which it
-//! otherwise does only when the owning thread allocates again. The `eludite`
-//! binary also uses mimalloc as its global allocator, so the same call
-//! returns the highlighter's own freed buffers.
+//! otherwise does only when the owning thread allocates again.
+//!
+//! The rest of the process stays on the system allocator: brief 0011
+//! measured mimalloc as the global allocator and it cost 18 to 24 MB more
+//! at idle in the viewer (40 MB in the `eludite` shell) for no speed gain.
 //!
 //! On Linux, [`install`] also turns off transparent huge pages for the
 //! process; see [`disable_transparent_huge_pages`].
@@ -92,12 +94,13 @@ pub(crate) fn install() {
 /// `MIMALLOC_ALLOW_THP=0` does.
 ///
 /// Where the kernel's THP mode is `always` (CachyOS and other distributions
-/// default to it), every 2 MiB-aligned range mimalloc touches becomes a huge
-/// page, and a process with GPUI's dozen threads, each with its own heap
-/// pages, starts 60 MB larger (brief 0011 report: 146 MB instead of 86 MB
-/// at first paint). Under the more common `madvise` mode this changes
-/// nothing. It affects pages faulted in after the call, so the first
-/// language registration, before any file is open, is early enough.
+/// default to it), every 2 MiB-aligned range of mimalloc's arenas that is
+/// touched becomes a huge page, so a tree heap with free gaps keeps far
+/// more resident than it uses: brief 0011 measured 14 MB more at idle for
+/// the 100k-line C# file (112 MB instead of 98 MB). Under the more common
+/// `madvise` mode this changes nothing. It affects pages faulted in after
+/// the call, so the first language registration, before any file is
+/// open, is early enough.
 fn disable_transparent_huge_pages() {
     #[cfg(target_os = "linux")]
     {

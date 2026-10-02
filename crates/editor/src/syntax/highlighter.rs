@@ -20,11 +20,13 @@ pub const ROWS_PER_STEP: u32 = 8_000;
 /// pass completes and parse from scratch on the next edit.
 ///
 /// Chosen from measurements in `docs/briefs/0011-report.md`: a tree-sitter
-/// tree costs about 45 bytes per source byte for C# and Rust, so a 1 MiB
-/// file holds about 45 MB of tree, which fits the PLAN.md section 9 memory
-/// budget alongside the shell; a full re-parse of 1 MiB takes tens of
-/// milliseconds on the syntax thread, so dropping the tree above it costs a
-/// short wait for fresh colors after an edit, with stale ones shown meanwhile.
+/// tree costs about 45 bytes per source byte for C# (37 for Rust). A C#
+/// file just under 1 MiB keeps a 45 MB tree, and the example viewer then
+/// uses 137 MB idle and 143 MB after 500 keystrokes, inside the 150 MB
+/// editor budget; twice the limit would not fit. Above the limit the cost is
+/// a full re-parse after the first edit following a completed pass (about
+/// 220 ms at 1 MiB, 690 ms at 3.2 MB), off the UI thread, with stale colors
+/// shown meanwhile.
 pub const TREE_RETAIN_LIMIT: usize = 1024 * 1024;
 
 /// The result of one [`Highlighter::step`].

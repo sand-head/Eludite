@@ -61,9 +61,10 @@ text = { path = "vendor/text" }
 
 # Third-party
 git2 = { version = "0.20", default-features = false }
-# Global allocator for the eludite binary and the editor viewer (brief 0011). MIT.
+# mimalloc as a global allocator, only for the editor viewer's comparison
+# build (brief 0011 measured it and kept the system allocator). MIT.
 mimalloc = "0.1.52"
-# mimalloc's C API, for tree-sitter's allocations in eludite-editor (brief 0011). MIT.
+# mimalloc's C API: tree-sitter's own heap in eludite-editor (brief 0011). MIT.
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 roxmltree = "0.20"
 serde = { version = "1", features = ["derive"] }

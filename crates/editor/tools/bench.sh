@@ -9,7 +9,7 @@
 # 2.5), so other builds on the machine do not skew frame times; the load at
 # start is recorded. ONLY=<regex> limits the runs to matching labels.
 # VIEWER=<path> runs a prebuilt viewer instead of building one (for example a
-# `--features system-allocator` build, to compare allocators). TAG=<text> is
+# `--features mimalloc-global` build, to compare allocators). TAG=<text> is
 # recorded with each result.
 #
 # Memory (brief 0011): the open runs record RSS at first paint, when
@@ -68,7 +68,7 @@ run type-10mb-cs "$big" --bench-type 500
 
 # Memory summary over this TAG's runs: MiB, min to max over the runs.
 jq -rs --arg tag "${TAG:-}" '
-  def span(f): [.[] | f | select(. != null)] | if length == 0 then "-" else "\(min) to \(max)" end;
+  def span(f): [.[] | f | select(. != null) | (. * 10 | round) / 10] | if length == 0 then "-" else "\(min) to \(max)" end;
   [.[] | select(.tag == $tag and .result != null)] as $all
   | ["file", "idle highlighted", "peak (open)", "after 500 keys (settled)", "peak (typing)"],
     (["100k-cs", "20k-rs", "10mb-cs"][] as $f
