@@ -1,6 +1,6 @@
 # Brief 0029: Debug Rust with lldb-dap
 
-Status: in progress
+Status: done on Linux (Windows and macOS not run); [report](0029-report.md)
 Phase: 2 (proposal 0001, brief E2)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 5), 3 (D3, D7), 4.5 (Rust and native via CodeLLDB or lldb-dap), 7 (the Rust row: debugging), 9, 10 (Phase 2: Rust at parity); proposal 0001 sections 6 (the CodeLLDB or lldb-dap column), 8 (E2); brief 0020's report section 9 (the sizing)
 Related ADRs: ADR-0003, ADR-0007
