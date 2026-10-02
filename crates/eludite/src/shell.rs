@@ -91,6 +91,10 @@ pub struct Services {
     pub published: Arc<Mutex<Vec<ListedDiagnostic>>>,
     /// Where the Agents window's agents come from.
     pub agents: agents::AgentsSetup,
+    /// `eludite.agents.*` from other threads, for the UI thread to apply.
+    pub agent_jobs: UnboundedReceiver<agents::AgentsJob>,
+    /// What `eludite.solution.tree` reads, on any thread.
+    pub tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
 }
 
 /// Start the host session and register the workspace commands and `diagnostics.list` on `commands`. Call on the UI
@@ -113,12 +117,34 @@ pub fn register_workspace(commands: &mut CommandRegistry, launch: HostLaunch) ->
         Arc::new(move || source.lock().unwrap_or_else(|e| e.into_inner()).clone()),
     )
     .expect("diagnostics.list registers once");
+    let tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>> = Arc::default();
+    let tree_source = tree.clone();
+    eludite_commands::solution::register(
+        commands,
+        Arc::new(move || {
+            tree_source
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        }),
+    )
+    .expect("eludite.solution.tree registers once");
+    let (agent_jobs_tx, agent_jobs) = unbounded();
+    eludite_commands::agents::register(
+        commands,
+        Arc::new(agents::AgentsBus {
+            ui_thread: std::thread::current().id(),
+            jobs: agent_jobs_tx,
+        }),
+    );
     Services {
         session,
         events,
         jobs,
         published,
         agents: agents::AgentsSetup::from_env(),
+        agent_jobs,
+        tree,
     }
 }
 
@@ -190,6 +216,8 @@ pub struct Shell {
     agents: agents::Agents,
     /// An agent's edit command is running: the applier's next edit is held as pending changes for review.
     capture_next: Option<eludite_commands::Caller>,
+    /// What `eludite.solution.tree` returns.
+    tree: Arc<Mutex<eludite_commands::solution::SolutionTreeOutput>>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -288,6 +316,8 @@ impl Shell {
             mut jobs,
             published,
             agents: agents_setup,
+            mut agent_jobs,
+            tree,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let dock = cx.new(|cx| {
@@ -392,6 +422,18 @@ impl Shell {
                 let _ = reply.send(outcome);
             }
         });
+        // `eludite.agents.*` from other threads (an outer agent).
+        let agent_job_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = agent_jobs.next().await {
+                let agents::AgentsJob { request, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| {
+                        shell.apply_agents(request, window, cx)
+                    })
+                    .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
+                let _ = reply.send(outcome);
+            }
+        });
         // Agent events arrive from the agents' threads; everything queued is applied as one batch, so a burst of
         // streamed chunks costs one frame.
         let agent_task = cx.spawn_in(window, async move |this, cx| {
@@ -445,8 +487,9 @@ impl Shell {
             apply_edit: None,
             agents,
             capture_next: None,
+            tree,
             timings: Timings::default(),
-            _tasks: vec![event_task, job_task, agent_task],
+            _tasks: vec![event_task, job_task, agent_task, agent_job_task],
         }
     }
 
@@ -575,6 +618,12 @@ impl Shell {
         if ui_bound && let Ok(request) = workspace::parse(command, args.clone()) {
             let outcome = self.apply(request, window, cx);
             target::stage(outcome);
+        }
+        if eludite_commands::agents::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::agents::parse(command, args.clone())
+        {
+            let outcome = self.apply_agents(request, window, cx);
+            agents::stage(outcome);
         }
         if command == workspace::SOLUTION_OPEN {
             self.timings = Timings {
@@ -912,6 +961,7 @@ impl Shell {
                     return;
                 }
                 self.timings.tree.get_or_insert_with(Instant::now);
+                self.publish_tree(&tree);
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
@@ -942,6 +992,7 @@ impl Shell {
                 params,
             } => self.on_host_apply_edit(id, generation, params, window, cx),
             SessionEvent::Closed => {
+                *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = Default::default();
                 self.solution = None;
                 self.solution_state = None;
                 self.diagnostics.clear();
@@ -995,6 +1046,37 @@ impl Shell {
             self.diagnostics.insert(params.uri, params.diagnostics);
         }
         self.update_error_list(cx);
+    }
+
+    /// What `eludite.solution.tree` returns from now on.
+    fn publish_tree(&mut self, tree: &eludite_lsp::host::SolutionTree) {
+        use eludite_commands::solution::{SolutionTreeOutput, TreeProject};
+        let state = match self.solution_state {
+            Some(SolutionState::Failed) => "failed",
+            Some(SolutionState::Loaded) => "loaded",
+            _ => "loading",
+        };
+        let out = SolutionTreeOutput {
+            path: tree.path.clone(),
+            state: if tree.path.is_some() { state } else { "none" }.into(),
+            projects: tree
+                .projects
+                .iter()
+                .map(|p| TreeProject {
+                    name: p.name.clone(),
+                    path: p.path.clone(),
+                    kind: match p.kind {
+                        eludite_lsp::host::TreeProjectKind::Sdk => "sdk",
+                        eludite_lsp::host::TreeProjectKind::Legacy => "legacy",
+                    }
+                    .into(),
+                    target_frameworks: p.target_frameworks.clone(),
+                    files: p.files.iter().map(|f| f.path.clone()).collect(),
+                    error: p.error.clone(),
+                })
+                .collect(),
+        };
+        *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = out;
     }
 
     /// Rebuild the Error List rows and what `diagnostics.list` returns.

@@ -873,10 +873,17 @@ impl Shell {
                 cx.subscribe_in(
                     &view,
                     window,
+                    // The review view's buttons run `eludite.agents.review`, like the window's.
                     |shell, _, e: &ReviewEvent, window, cx| match *e {
-                        ReviewEvent::Decide { change, accept } => {
-                            shell.review_from_ui(Some(change), accept, window, cx);
-                        }
+                        ReviewEvent::Decide { change, accept } => shell.run(
+                            eludite_commands::agents::REVIEW,
+                            json!({
+                                "change": change,
+                                "decision": if accept { "accept" } else { "reject" }
+                            }),
+                            window,
+                            cx,
+                        ),
                     },
                 )
                 .detach();
@@ -950,20 +957,6 @@ impl Shell {
             .filter(|c| c.state == ChangeState::Pending && change.is_none_or(|id| id == c.id))
             .map(|c| c.id)
             .collect()
-    }
-
-    /// The window's and the review view's Accept and Reject.
-    pub(in crate::shell) fn review_from_ui(
-        &mut self,
-        change: Option<u64>,
-        accept: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let ids = self.pending_ids(change);
-        if let Err(e) = self.decide(&ids, accept, window, cx) {
-            self.status.set(eludite_ui::slots::STATE, e);
-        }
     }
 
     /// Accept or reject pending changes `ids`. Accepted edits go through the applier together (one undo step per
