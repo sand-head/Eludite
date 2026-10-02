@@ -368,7 +368,9 @@ fn pulled_and_pushed_diagnostics_merge_per_document() {
         json!([{"range": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 4}},
                 "severity": 2, "code": "dead_code", "message": "function `f` is never used"}]),
     );
-    let Event::Diagnostics(both) = next(&rx, "merged diagnostics", pulled) else {
+    // The open's debounced re-pull may deliver the single pulled diagnostic again first; wait for the merged list.
+    let merged = |e: &Event| matches!(e, Event::Diagnostics(d) if d.params.uri == uri && d.params.diagnostics.len() == 2);
+    let Event::Diagnostics(both) = next(&rx, "merged diagnostics", merged) else {
         unreachable!()
     };
     assert_eq!(both.params.diagnostics.len(), 2);
