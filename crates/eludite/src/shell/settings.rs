@@ -188,7 +188,12 @@ impl Shell {
             None => {
                 let schema = self.settings.lock().schema().clone();
                 let theme = self.theme;
-                let d = cx.new(|cx| OptionsDialog::new(theme, schema, section.as_deref(), cx));
+                let probe = self.ui_bounds.clone();
+                let d = cx.new(|cx| {
+                    let mut d = OptionsDialog::new(theme, schema, section.as_deref(), cx);
+                    d.set_probe(probe);
+                    d
+                });
                 cx.subscribe_in(&d, window, Self::on_options_event).detach();
                 self.options = Some(d.clone());
                 d

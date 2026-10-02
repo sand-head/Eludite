@@ -348,6 +348,8 @@ pub struct Shell {
     /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
     folder_opener: startup::FolderOpener,
     default_startup: Option<PathBuf>,
+    /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
+    ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -758,6 +760,7 @@ impl Shell {
             options: None,
             folder_opener,
             default_startup: None,
+            ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
                 event_task,
@@ -843,7 +846,16 @@ impl Shell {
     }
 
     pub fn set_probe(&mut self, probe: Option<Probe>, cx: &mut Context<Self>) {
+        // The menu bar and the Options dialog record theirs too (brief 0020's manual run clicks them).
+        self.ui_bounds = probe.as_ref().map(|_| eludite_ui::BoundsMap::default());
+        let ui = self.ui_bounds.clone();
+        self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
+    }
+
+    /// Where the menu bar's and the Options dialog's probed elements were drawn.
+    pub fn ui_bounds(&self) -> Option<&eludite_ui::BoundsMap> {
+        self.ui_bounds.as_ref()
     }
 
     /// Run `f` once, after the first frame is presented.

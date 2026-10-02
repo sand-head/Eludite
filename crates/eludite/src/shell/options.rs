@@ -65,6 +65,8 @@ pub struct OptionsDialog {
     user_file: String,
     solution_file: Option<String>,
     focus: FocusHandle,
+    /// Records where the pages, editors and OK are drawn (`eludite --bounds-out`).
+    probe: Option<eludite_ui::BoundsMap>,
 }
 
 impl OptionsDialog {
@@ -86,7 +88,12 @@ impl OptionsDialog {
             user_file: String::new(),
             solution_file: None,
             focus: cx.focus_handle(),
+            probe: None,
         }
+    }
+
+    pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
+        self.probe = probe;
     }
 
     /// The current values (after every change, the shell passes `eludite.settings.get`'s output).
@@ -193,14 +200,18 @@ impl OptionsDialog {
                     .flex()
                     .flex_row()
                     .child(
-                        check_box(setting_selector(&key), spec.label.clone(), on, &t).on_click(
-                            cx.listener(move |_, _, _, cx| {
+                        check_box(setting_selector(&key), spec.label.clone(), on, &t)
+                            .relative()
+                            .children(eludite_ui::bounds_canvas(
+                                self.probe.as_ref(),
+                                setting_selector(&key),
+                            ))
+                            .on_click(cx.listener(move |_, _, _, cx| {
                                 cx.emit(OptionsEvent::Set {
                                     key: key.clone(),
                                     value: Value::Bool(!on),
                                 })
-                            }),
-                        ),
+                            })),
                     )
                     .into_any_element()
             }
@@ -360,9 +371,12 @@ impl Render for OptionsDialog {
             parent = p;
             let selected = ix == self.section;
             let sel = section_selector(ix);
+            let probed = eludite_ui::bounds_canvas(self.probe.as_ref(), sel.clone());
             let item = div()
                 .id(SharedString::from(sel.clone()))
                 .debug_selector(move || sel)
+                .relative()
+                .children(probed)
                 .pl(px(indent))
                 .h(px(20.))
                 .flex()
@@ -385,10 +399,12 @@ impl Render for OptionsDialog {
             .map(|spec| self.setting_row(spec, focused, cx))
             .collect();
         let files = match &self.solution_file {
-            Some(s) => format!("User settings: {}   Solution settings: {s}", self.user_file),
+            Some(s) => format!("User settings: {}\nSolution settings: {s}", self.user_file),
             None => format!("User settings: {}", self.user_file),
         };
         let ok = push_button(OK, "OK", true, true, &t)
+            .relative()
+            .children(eludite_ui::bounds_canvas(self.probe.as_ref(), OK))
             .on_click(cx.listener(|_, _, _, cx| cx.emit(OptionsEvent::Close)));
         let panel = dialog_panel(&t, "Options")
             .id(DIALOG)
@@ -443,8 +459,11 @@ impl Render for OptionsDialog {
                     .gap_2()
                     .p_3()
                     .child(
+                        // Long paths wrap: OK stays inside the dialog.
                         div()
                             .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
                             .text_size(t.typography.small)
                             .text_color(t.text_muted)
                             .child(files),
