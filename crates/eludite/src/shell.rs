@@ -340,8 +340,12 @@ impl Shell {
         &self.timings
     }
 
+    /// The active document tab's id (its path).
+    pub fn active_document(&self) -> Option<String> {
+        self.controller.active_document()
+    }
+
     /// When the steps of each completion happened (oldest first, at most 4096).
-    #[allow(dead_code)] // Read by the measurement harness.
     pub fn completion_timings(&self) -> &[intellisense::CompletionTiming] {
         &self.completion_timings
     }

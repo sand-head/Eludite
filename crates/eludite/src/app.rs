@@ -216,6 +216,7 @@ pub fn run(args: Args, t_main: Instant) {
             let open_file = args.open_file.clone();
             let timings_out = args.timings_out.clone();
             let bench_type = args.bench_type;
+            let bench_complete = args.bench_complete;
             let _ = window.update(cx, |shell, window, cx| {
                 if let Some(solution) = &solution {
                     shell.run(
@@ -236,9 +237,12 @@ pub fn run(args: Args, t_main: Instant) {
                 if let Some(path) = timings_out {
                     bench::timings_out(cx.entity(), path, window, cx);
                 }
-                if let (Some(count), Some(file)) = (bench_type, open_file) {
+                if let (Some(count), Some(file)) = (bench_type, open_file.clone()) {
                     let with_host = solution.is_some();
                     bench::type_keys(cx.entity(), file, count, with_host, window, cx);
+                }
+                if let (Some(count), Some(file)) = (bench_complete, open_file) {
+                    bench::complete(cx.entity(), file, count, window, cx);
                 }
             });
         }
