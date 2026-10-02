@@ -12,6 +12,8 @@ publish.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# `/regex/` patterns of eludite.debug.output (brief 0025). MIT OR Apache-2.0; already in the build.
+regex = "1"
 
 [lints]
 workspace = true
