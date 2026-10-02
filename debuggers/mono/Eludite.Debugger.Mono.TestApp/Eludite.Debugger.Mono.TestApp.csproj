@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The program eludite-dbg-mono's tests debug under Mono (brief 0022). The tests find lines by the `MARK:` comments
+       in Program.cs, so edit those with the tests. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- Breakpoints bind by source path: keep the real paths in the PDB even in a CI build. -->
+    <DeterministicSourcePaths>false</DeterministicSourcePaths>
+    <Optimize>false</Optimize>
+  </PropertyGroup>
+
+</Project>

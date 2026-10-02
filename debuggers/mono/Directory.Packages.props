@@ -1,0 +1,4 @@
+<Project>
+  <!-- Central package versions live in dotnet/Directory.Packages.props (brief 0022 adds the adapter's there). -->
+  <Import Project="../../dotnet/Directory.Packages.props" />
+</Project>

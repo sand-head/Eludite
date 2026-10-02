@@ -1,0 +1,5 @@
+<Project>
+  <!-- The conventions of dotnet/ (nullable, warnings as errors, analyzers, GPL-3.0-or-later); each project sets its
+       own TargetFramework (the adapter runs under Mono, so it is net472; brief 0022). -->
+  <Import Project="../../dotnet/Directory.Build.props" />
+</Project>
