@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-network-body.input.json",
+  "title": "eludite.browser.network_body input",
+  "description": "Read the response body of a request the page made, by its `request_id` from eludite.browser.network (Network.getResponseBody): the JSON an API answered, the HTML of a document, a script. Text comes back as `body`, binary data as `body_base64`, either cut at `max_bytes` (default 65,536) with `truncated`. The browser keeps bodies of requests since the tab was opened, within its buffers (50 MB per resource, 200 MB in all); a body it no longer has, or never had (a failed request, a redirect), fails the command and says so. Permission class read; refused when the solution's policy sets `browser.network_bodies` to `deny`. Next: eludite.browser.network for other requests.",
+  "x-eludite-escalates": "Refused for agents when the solution's policy sets `browser.network_bodies` to `deny`.",
+  "type": "object",
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "description": "A request's `request_id` from eludite.browser.network.",
+      "type": "string",
+      "minLength": 1
+    },
+    "max_bytes": {
+      "description": "The most bytes of the body to answer (default 65536).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10485760
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-open-external.output.json",
+  "title": "eludite.browser.open_external output",
+  "description": "What was opened, and with which command.",
+  "type": "object",
+  "required": [
+    "url",
+    "command"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "url": {
+      "type": "string"
+    },
+    "command": {
+      "description": "The command line that was started (`xdg-open http://localhost:5000/`).",
+      "type": "string"
+    }
+  }
+}

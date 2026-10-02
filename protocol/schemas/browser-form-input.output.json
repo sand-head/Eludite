@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-form-input.output.json",
+  "title": "eludite.browser.form_input output",
+  "description": "Each field's result, in the order given.",
+  "type": "object",
+  "required": [
+    "tab",
+    "fields",
+    "page_generation",
+    "console_errors"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "ok"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "description": "The field's ref.",
+            "type": "string",
+            "pattern": "^e[0-9]+$"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Why the field was not set.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "console_errors": {
+      "description": "Console errors (console.error, uncaught exceptions, failed loads the browser logged) emitted during the action, oldest first.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "text",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "source": {
+            "description": "`console` (console.error), `exception` (uncaught), or the browser's log source (`network`, `javascript`, ...).",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "stack": {
+            "description": "For exceptions: the stack, one `at function (url:line:column)` per line.",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

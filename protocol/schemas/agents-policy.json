@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-policy.json",
   "title": "Eludite agent permission policy",
-  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
+  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable, except where `browser` refuses a call outright. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
   "type": "object",
   "required": [
     "version"
@@ -62,6 +62,38 @@
               "deny"
             ]
           }
+        }
+      }
+    },
+    "browser": {
+      "description": "The browser commands (eludite.browser.*; brief 0024, ADR-0009). Every key is optional; a missing key is its default.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "origins": {
+          "description": "Where an agent may send the browser without the call becoming dangerous (eludite.browser.navigate and tab_open with a url, open_external). Each entry is a host (`localhost`, `[::1]`, `*.example.com` for the domain and its subdomains) or a host and port (`localhost:5000`), for http and https; an origin (`https://example.com`: that scheme and host on any port; `https://example.com:8443`: that port only); a `file:///` path (file urls under it); `$workspace` (file urls under the workspace folder); or `$launch_urls` (the `applicationUrl`s of the workspace's `Properties/launchSettings.json` profiles). Absent: `localhost`, `127.0.0.1`, `[::1]`, `$workspace` and `$launch_urls`. `about:` urls are always allowed. Always Allow on an off-origin navigation adds its origin here, writing the defaults first when the list was absent, and keeps the list sorted.",
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "network_bodies": {
+          "description": "eludite.browser.network_body: `allow` (default) or `deny` (agents are refused, with this policy named).",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "evaluate": {
+          "description": "eludite.browser.evaluate: `allow` (default: class execute), `prompt` (class dangerous, which prompts) or `deny` (agents are refused, with this policy named).",
+          "enum": [
+            "allow",
+            "prompt",
+            "deny"
+          ]
         }
       }
     }

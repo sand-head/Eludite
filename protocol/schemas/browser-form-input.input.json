@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-form-input.input.json",
+  "title": "eludite.browser.form_input input",
+  "description": "Fill several form fields of a tab's page in one call. Each field is an element by `ref` (from eludite.browser.read_page or find) and a `value`: a string for text boxes, text areas, contenteditable elements and a single `<select>` (an option's value or label), true or false for checkboxes and radio buttons, a list of strings for a multiple `<select>`, and `{\"files\": [absolute paths]}` for a file input. The value is set on the element and it gets `input` and `change` events, as typing would give it, so frameworks such as React see the change. Faster and steadier than typing with eludite.browser.input; use input when a page must see real keystrokes or clicks. Answers each field's result (a field that is not a form control, is disabled or read-only, or names no option fails alone, with a message) and the console errors emitted. Refs from an older page_generation are refused: call read_page again. Permission class execute; a file outside the workspace makes the call dangerous, as for eludite.browser.upload. Next: eludite.browser.input to click Submit, eludite.browser.read_page to check the values.",
+  "x-eludite-escalates": "Dangerous when a `files` value names a file outside the workspace folder.",
+  "type": "object",
+  "required": [
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "ref",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "description": "A ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+            "type": "string",
+            "pattern": "^e[0-9]+$"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "description": "Text, or a single select's option (value or label).",
+                "type": "string"
+              },
+              {
+                "description": "Checked or not (checkbox, radio).",
+                "type": "boolean"
+              },
+              {
+                "description": "A multiple select's options (values or labels).",
+                "type": "array",
+                "maxItems": 500,
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "description": "A file input's files.",
+                "type": "object",
+                "required": [
+                  "files"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "files": {
+                    "description": "Absolute paths of existing files.",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

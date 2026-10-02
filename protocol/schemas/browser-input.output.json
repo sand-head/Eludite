@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-input.output.json",
+  "title": "eludite.browser.input output",
+  "description": "What was done and where it landed.",
+  "type": "object",
+  "required": [
+    "tab",
+    "action",
+    "target",
+    "page_generation",
+    "navigated",
+    "console_errors",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "action": {
+      "enum": [
+        "click",
+        "double_click",
+        "right_click",
+        "hover",
+        "type",
+        "key",
+        "scroll",
+        "drag",
+        "select",
+        "focus"
+      ]
+    },
+    "target": {
+      "description": "The element the action landed on (for a point, the element there; for `type` and `key` without a target, the focused element) and the point in CSS pixels of the viewport. `ref` is in the page generation from before the action.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "description": "The element's ref.",
+          "type": "string",
+          "pattern": "^e[0-9]+$"
+        },
+        "role": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "point": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "to": {
+      "description": "For `drag`: where it was released.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "description": "The element's ref.",
+          "type": "string",
+          "pattern": "^e[0-9]+$"
+        },
+        "point": {
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "selected": {
+      "description": "For `select`: the values selected now.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "navigated": {
+      "description": "The main frame navigated within `wait_ms` (refs from before are stale).",
+      "type": "boolean"
+    },
+    "url": {
+      "description": "The page's url when it navigated.",
+      "type": "string"
+    },
+    "console_errors": {
+      "description": "Console errors (console.error, uncaught exceptions, failed loads the browser logged) emitted during the action, oldest first.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "text",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "source": {
+            "description": "`console` (console.error), `exception` (uncaught), or the browser's log source (`network`, `javascript`, ...).",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "stack": {
+            "description": "For exceptions: the stack, one `at function (url:line:column)` per line.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}
