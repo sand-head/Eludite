@@ -8,7 +8,7 @@
 //!   buffers `Network.enable` set when the tab was adopted ([`super::RESOURCE_BUFFER`], [`super::TOTAL_BUFFER`]); a
 //!   body it no longer has, or never had, fails the command and says so.
 //! - **`open_external`** starts the system's opener (`xdg-open`, `open`, `cmd /c start`), or `ELUDITE_OPENER` when
-//!   set (tests), and never waits for it: a thread reaps it.
+//!   set, or the program [`Browser::set_opener`] gave (tests), and never waits for it: a thread reaps it.
 
 use std::collections::BTreeMap;
 
@@ -26,8 +26,12 @@ use super::{Browser, Tab, failed, invalid};
 /// The environment variable naming a program to open urls with instead of the system's (tests).
 pub const OPENER_ENV: &str = "ELUDITE_OPENER";
 
-/// The command line that opens `url` in the system browser: `ELUDITE_OPENER` when set, else the platform's.
-pub fn opener(url: &str) -> (String, Vec<String>) {
+/// The command line that opens `url` in the system browser: `program` ([`Browser::set_opener`]), else
+/// `ELUDITE_OPENER` when set, else the platform's.
+pub fn opener(url: &str, program: Option<&str>) -> (String, Vec<String>) {
+    if let Some(p) = program {
+        return (p.to_owned(), vec![url.to_owned()]);
+    }
     if let Some(p) = std::env::var_os(OPENER_ENV).filter(|p| !p.is_empty()) {
         return (p.to_string_lossy().into_owned(), vec![url.to_owned()]);
     }
@@ -359,7 +363,7 @@ impl Browser {
                 url
             }
         };
-        let (program, args) = opener(&url);
+        let (program, args) = opener(&url, self.opener.as_deref());
         let command = std::iter::once(program.as_str())
             .chain(args.iter().map(String::as_str).filter(|a| !a.is_empty()))
             .collect::<Vec<_>>()
@@ -424,7 +428,11 @@ mod tests {
 
     #[test]
     fn the_opener_is_the_platforms_unless_set() {
-        let (p, a) = opener("http://localhost/");
+        assert_eq!(
+            opener("http://a/", Some("/bin/fake")),
+            ("/bin/fake".to_owned(), vec!["http://a/".to_owned()])
+        );
+        let (p, a) = opener("http://localhost/", None);
         if std::env::var_os(OPENER_ENV).is_none() {
             #[cfg(target_os = "linux")]
             assert_eq!(p, "xdg-open");
