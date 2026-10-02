@@ -246,7 +246,7 @@ cargo run -p eludite-cdp-generator && cargo test -p eludite-cdp-generator
     every test binary running at once beside another agent's build (load average above 30); alone it was 321 ms
     against Chrome for Testing. The two Chrome tests now take turns so this brief's test does not add to it.
 13. **The .NET suite under load:** see section 1; the failing test is one known to fail
-    failing under heavy machine load, and this branch does not touch what it runs.
+    under heavy machine load, and this branch does not touch what it runs.
 14. **CI** was not run; the Linux job already exports `ELUDITE_CHROME` and `ELUDITE_CHROME_NO_SANDBOX`, so the new
     Chrome tests and the proof run there; on Windows and macOS they skip.
 
