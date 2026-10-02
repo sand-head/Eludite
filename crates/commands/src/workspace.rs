@@ -1178,7 +1178,10 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
             let _: Empty = input(value)?;
             WorkspaceRequest::SolutionClose
         }
-        WORKSPACE_CLOSE => WorkspaceRequest::CloseWorkspace,
+        WORKSPACE_CLOSE => {
+            let _: Empty = input(value)?;
+            WorkspaceRequest::CloseWorkspace
+        }
         WORKSPACE_OPEN_FOLDER => {
             let i: PathIn = required(value)?;
             non_empty("path", &i.path)?;
