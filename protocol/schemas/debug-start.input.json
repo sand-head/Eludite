@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-start.input.json",
   "title": "eludite.debug.start input",
-  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break).",
+  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -25,10 +25,45 @@
       "type": "boolean"
     },
     "wait_ms": {
-      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it: an answer with mode `building` or `launching` means the session is still starting; read eludite.debug.state later.",
+      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it: an answer with mode `building` or `launching` means the session is still starting; call eludite.debug.wait or eludite.debug.snapshot later.",
       "type": "integer",
       "minimum": 0,
       "maximum": 30000
+    },
+    "depth": {
+      "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "max_variables": {
+      "description": "The most variable rows listed, counting every level (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "max_frames": {
+      "description": "The most stack frames listed (default 10, at most 200); page further with eludite.debug.stack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "max_output_lines": {
+      "description": "The most program output lines listed (default 20, at most 1000; 0 lists none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "output_since": {
+      "description": "An output cursor (`output.next` of an earlier answer, or eludite.debug.output's `next`): list the program's lines from it on. Default: the last `max_output_lines` lines.",
+      "type": "integer",
+      "minimum": 0
     }
   }
 }

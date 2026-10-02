@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-state.output.json",
   "title": "eludite.debug output",
-  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows, the Output window's Debug source and the status bar show it. Every eludite.debug command but evaluate answers with it.",
+  "description": "The debugger's state, as the Locals, Watch, Call Stack, Threads, Breakpoints and Exception Settings windows, the Output window's Debug source and the status bar show it: the whole model. eludite.debug.state, stop, toggle_breakpoint, select_frame, watch and exception_settings answer with it; the commands that run the debuggee answer with the smaller stop summary (debug-stop-summary.output.json).",
   "type": "object",
   "required": [
     "mode",
@@ -337,7 +337,7 @@
       }
     },
     "console": {
-      "description": "The program's output (the Output window's Debug source): how many lines the session wrote and the last ones (at most 20). The standalone Debug Console window was retired by brief 0020.",
+      "description": "The program's output and the debugger's messages, as the Output window's Debug source shows them: how many lines the session wrote and the last ones (at most 20), and `next`, the cursor of the program's own lines (pass it as eludite.debug.output's `since` to read only what comes after). The standalone Debug Console window was retired by brief 0020.",
       "type": "object",
       "required": [
         "lines",
@@ -355,6 +355,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "next": {
+          "description": "The program output's next sequence number (eludite.debug.output, source `program`).",
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
@@ -365,6 +370,105 @@
     "message": {
       "description": "The last error or notice (for example why the adapter could not start).",
       "type": "string"
+    },
+    "capabilities": {
+      "description": "The debug adapter's capabilities, once a debugging session has started it (absent otherwise).",
+      "$ref": "#/$defs/capabilities"
+    },
+    "agent_driving": {
+      "description": "True when the last command that started, resumed or paused the debuggee came from an agent (`last_driver` starts with `agent:`); the status bar slot then ends with `, agent driving`.",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "capabilities": {
+      "description": "What the session's debug adapter supports, so a caller does not try what it lacks. Booleans unless noted; `adapter` or `shell` where the shell provides what the adapter lacks.",
+      "type": "object",
+      "required": [
+        "adapter",
+        "pause"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `fake` (tests).",
+          "type": "string"
+        },
+        "pause": {
+          "description": "Debug > Break All (eludite.debug.pause); every adapter has it.",
+          "type": "boolean"
+        },
+        "set_variable": {
+          "description": "Values can be changed (DAP setVariable).",
+          "type": "boolean"
+        },
+        "exception_info": {
+          "description": "eludite.debug.exception_info has the details (DAP exceptionInfo).",
+          "type": "boolean"
+        },
+        "function_breakpoints": {
+          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints).",
+          "type": "boolean"
+        },
+        "log_points": {
+          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them).",
+          "enum": [
+            "adapter",
+            "shell"
+          ]
+        },
+        "hit_conditions": {
+          "description": "Hit counts on breakpoints: `adapter` or `shell` (the debugger counts hits itself).",
+          "enum": [
+            "adapter",
+            "shell"
+          ]
+        },
+        "exception_filter_options": {
+          "description": "Exception settings can name exception types (DAP exceptionFilterOptions).",
+          "type": "boolean"
+        },
+        "set_next_statement": {
+          "description": "Set Next Statement (DAP gotoTargets and goto).",
+          "type": "boolean"
+        },
+        "data_breakpoints": {
+          "description": "Break when a value changes (DAP data breakpoints).",
+          "type": "boolean"
+        },
+        "step_back": {
+          "description": "Stepping backwards (DAP stepBack).",
+          "type": "boolean"
+        },
+        "restart": {
+          "description": "The adapter restarts a session itself (DAP restart).",
+          "type": "boolean"
+        },
+        "terminate": {
+          "description": "The debuggee can be asked to end gracefully (DAP terminate).",
+          "type": "boolean"
+        },
+        "modules": {
+          "description": "Loaded modules can be listed (DAP modules).",
+          "type": "boolean"
+        },
+        "memory": {
+          "description": "Memory can be read (DAP readMemory).",
+          "type": "boolean"
+        },
+        "disassembly": {
+          "description": "Code can be disassembled (DAP disassemble).",
+          "type": "boolean"
+        },
+        "delayed_stack_loading": {
+          "description": "The adapter pages call stacks itself (DAP supportsDelayedStackTraceLoading); otherwise the debugger reads the stack once and pages it.",
+          "type": "boolean"
+        },
+        "variable_paging": {
+          "description": "The adapter pages variables by `start` and `count`; otherwise the debugger reads them all and pages.",
+          "type": "boolean"
+        }
+      }
     }
   }
 }

@@ -1,18 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-continue.input.json",
-  "title": "eludite.debug.continue input",
-  "description": "Debug > Continue (F5 in break mode): resume every thread of the debuggee until the next breakpoint, exception or exit. Refused unless the debuggee is in break mode. The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-pause.input.json",
+  "title": "eludite.debug.pause input",
+  "description": "Debug > Break All (Ctrl+Alt+Break): stop a running debuggee wherever it is, for example when it hangs or loops. Only while it runs; refused in any other mode. Nothing changes until the adapter reports the stop (reason `pause`); then it is shown as any break. From an agent it waits like a resuming command and answers the stop summary (debug-stop-summary.output.json); the pause point is often in external code, so read `frames` and use eludite.debug.stack or eludite.debug.snapshot with `frame` to find your code.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "stop": {
-      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+    "thread": {
+      "description": "The thread to pause. Default: the last thread that stopped, else 0 (all threads; adapters pause every thread anyway).",
       "type": "integer",
-      "minimum": 1
+      "minimum": 0
     },
     "wait_ms": {
-      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+      "description": "How long to wait for the debuggee to break before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
       "type": "integer",
       "minimum": 0,
       "maximum": 30000

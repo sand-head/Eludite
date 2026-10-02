@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-variables.output.json",
+  "title": "eludite.debug.variables output",
+  "description": "A page of variables.",
+  "type": "object",
+  "required": [
+    "rows",
+    "total",
+    "truncated",
+    "stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "rows": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    },
+    "total": {
+      "description": "How many rows the scope or value has (after `filter`): exact when the adapter gives counts or the debugger read them all, else what is known so far, `truncated` saying more follow.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "Rows after these exist: page with `start: next`.",
+      "type": "boolean"
+    },
+    "next": {
+      "description": "When `truncated`: the `start` of the next page.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the references belong to.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "required": [
+        "name",
+        "value",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "description": "As the Locals window shows it; cut at `max_value_chars` with `… (N chars)` at the end.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "reference": {
+          "description": "Non-zero when the value has members: pass it to eludite.debug.variables (`reference`) with this stop.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "evaluate_name": {
+          "description": "An expression that evaluates to this value.",
+          "type": "string"
+        },
+        "indexed": {
+          "description": "How many indexed members (elements) it has, when the adapter says.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "named": {
+          "description": "How many named members (fields, properties) it has, when the adapter says.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "value_truncated": {
+          "description": "The value was cut at `max_value_chars`.",
+          "type": "boolean"
+        },
+        "children": {
+          "description": "With `depth` above 1: the members, each a row of this shape.",
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "truncated": {
+          "description": "Not every member is listed in `children` (the row budget ran out); read them with `reference`.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
