@@ -420,6 +420,7 @@ impl Shell {
     }
 
     fn on_editor_changed(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.wake_intellisense_waiters();
         let Some(doc) = self.documents.get_mut(id) else {
             return;
         };

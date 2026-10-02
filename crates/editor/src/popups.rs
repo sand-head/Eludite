@@ -29,7 +29,7 @@ use crate::view::EditorView;
 pub(crate) struct CompletionMenu {
     /// The newest request for this list.
     id: u64,
-    /// The request the shown items came from.
+    /// The request the latest items came from (the next filter runs on them).
     items_id: u64,
     /// Start of the word being completed.
     anchor: Anchor,
@@ -39,6 +39,11 @@ pub(crate) struct CompletionMenu {
     incomplete: bool,
     /// Waiting for an answer to `id`.
     loading: bool,
+    /// The items `matches` index into, their request and source: the latest items once a filter ran on them, so
+    /// the list keeps showing the previous items (no flicker) while a new answer is filtered.
+    shown: Arc<Vec<CompletionItem>>,
+    shown_id: u64,
+    shown_source: Option<CompletionSource>,
     matches: Vec<ListMatch>,
     /// The filter `matches` were computed for (`None`: not yet).
     filter: Option<String>,
@@ -160,6 +165,9 @@ impl EditorView {
                 source: None,
                 incomplete: false,
                 loading: true,
+                shown: Arc::default(),
+                shown_id: 0,
+                shown_source: None,
                 matches: Vec::new(),
                 filter: None,
                 selected: 0,
@@ -217,8 +225,6 @@ impl EditorView {
         menu.source = Some(source);
         menu.incomplete = incomplete;
         menu.filter = None;
-        menu.matches.clear();
-        menu.resolving = None;
         self.refilter(cx);
         cx.notify();
         true
@@ -299,27 +305,35 @@ impl EditorView {
         let Some(menu) = self.popups.completion.as_mut() else {
             return false;
         };
-        if menu.items_id != id || index >= menu.items.len() {
-            return false;
+        let mut found = false;
+        for (list_id, items) in [
+            (menu.items_id, &mut menu.items),
+            (menu.shown_id, &mut menu.shown),
+        ] {
+            if list_id != id || index >= items.len() {
+                continue;
+            }
+            let item = &mut Arc::make_mut(items)[index];
+            if detail.is_some() {
+                item.detail.clone_from(&detail);
+            }
+            if documentation.is_some() {
+                item.documentation.clone_from(&documentation);
+            }
+            item.resolved = true;
+            found = true;
         }
-        let items = Arc::make_mut(&mut menu.items);
-        let item = &mut items[index];
-        if detail.is_some() {
-            item.detail = detail;
+        if found {
+            cx.notify();
         }
-        if documentation.is_some() {
-            item.documentation = documentation;
-        }
-        item.resolved = true;
-        cx.notify();
-        true
+        found
     }
 
     /// The item of list `id` at `index`, as the owner gave it.
     pub fn completion_item(&self, id: u64, index: usize) -> Option<&CompletionItem> {
         let menu = self.popups.completion.as_ref()?;
-        (menu.items_id == id)
-            .then(|| menu.items.get(index))
+        (menu.shown_id == id)
+            .then(|| menu.shown.get(index))
             .flatten()
     }
 
@@ -330,13 +344,13 @@ impl EditorView {
             id: menu.id,
             loading: menu.loading,
             visible: menu.visible(),
-            source: menu.source,
+            source: menu.shown_source,
             filter: self.typed_word(),
             items: menu
                 .matches
                 .iter()
                 .map(|m| {
-                    let i = &menu.items[m.item];
+                    let i = &menu.shown[m.item];
                     (i.label.clone(), i.kind, i.detail.clone())
                 })
                 .collect(),
@@ -358,11 +372,11 @@ impl EditorView {
                 .matches
                 .iter()
                 .map(|m| m.item)
-                .find(|&i| menu.items[i].label == l)
-                .or_else(|| menu.items.iter().position(|i| i.label == l))?,
+                .find(|&i| menu.shown[i].label == l)
+                .or_else(|| menu.shown.iter().position(|i| i.label == l))?,
             None => menu.matches.get(menu.selected)?.item,
         };
-        let item = menu.items[index].clone();
+        let item = menu.shown[index].clone();
         let word_start = self.editor.buffer().offset_for_anchor(&menu.anchor);
         self.editor.collapse_to_primary();
         let caret = self.editor.primary_selection().head;
@@ -466,9 +480,10 @@ impl EditorView {
         }
         menu.filter_seq += 1;
         let seq = menu.filter_seq;
+        let list = (menu.items.clone(), menu.items_id, menu.source);
         if query.is_empty() || menu.items.is_empty() {
             let matches = rank(&menu.items, &menu.candidates, "", Vec::new());
-            self.apply_matches(seq, query, matches, cx);
+            self.apply_matches(seq, query, matches, list, cx);
             return true;
         }
         let items = menu.items.clone();
@@ -487,7 +502,9 @@ impl EditorView {
             )
             .await;
             let matches = rank(&items, &candidates, &query, found);
-            let _ = this.update(cx, |this, cx| this.apply_matches(seq, query, matches, cx));
+            let _ = this.update(cx, |this, cx| {
+                this.apply_matches(seq, query, matches, list, cx)
+            });
         }));
         true
     }
@@ -497,6 +514,7 @@ impl EditorView {
         seq: u64,
         query: String,
         matches: Vec<ListMatch>,
+        (items, items_id, source): (Arc<Vec<CompletionItem>>, u64, Option<CompletionSource>),
         cx: &mut Context<Self>,
     ) {
         let Some(menu) = self.popups.completion.as_mut() else {
@@ -505,15 +523,30 @@ impl EditorView {
         if menu.filter_seq != seq {
             return;
         }
+        // Keep an explicit selection on the same item (by label when the items changed).
         let previous = menu
             .explicit
-            .then(|| menu.matches.get(menu.selected).map(|m| m.item))
+            .then(|| {
+                menu.matches
+                    .get(menu.selected)
+                    .map(|m| menu.shown[m.item].label.clone())
+            })
             .flatten();
+        if menu.shown_id != items_id {
+            menu.resolving = None;
+        }
         menu.filter_task = None;
         menu.filter = Some(query);
+        menu.shown = items;
+        menu.shown_id = items_id;
+        menu.shown_source = source;
         menu.matches = matches;
         menu.selected = previous
-            .and_then(|p| menu.matches.iter().position(|m| m.item == p))
+            .and_then(|p| {
+                menu.matches
+                    .iter()
+                    .position(|m| menu.shown[m.item].label == p)
+            })
             .unwrap_or(0);
         if !menu.explicit {
             menu.scroll_top = 0;
@@ -543,8 +576,8 @@ impl EditorView {
         let Some(m) = menu.matches.get(menu.selected) else {
             return;
         };
-        let key = (menu.items_id, m.item);
-        if menu.items[m.item].resolved || menu.resolving == Some(key) {
+        let key = (menu.shown_id, m.item);
+        if menu.shown[m.item].resolved || menu.resolving == Some(key) {
             return;
         }
         menu.resolving = Some(key);
@@ -1161,7 +1194,7 @@ impl EditorView {
         let end = (menu.scroll_top + COMPLETION_ROWS).min(menu.matches.len());
         let longest = menu.matches[menu.scroll_top..end]
             .iter()
-            .map(|m| menu.items[m.item].label.chars().count())
+            .map(|m| menu.shown[m.item].label.chars().count())
             .max()
             .unwrap_or(0);
         let width = px((longest as f32 * 7.5 + 48.).clamp(220., 480.));
@@ -1172,7 +1205,7 @@ impl EditorView {
             .flex_col();
         for (row, m) in menu.matches[menu.scroll_top..end].iter().enumerate() {
             let index = menu.scroll_top + row;
-            let item = &menu.items[m.item];
+            let item = &menu.shown[m.item];
             let selected = index == menu.selected;
             let el = completion_row(
                 &theme,
@@ -1197,7 +1230,7 @@ impl EditorView {
                 }),
             ));
         }
-        if menu.source == Some(CompletionSource::Syntax) {
+        if menu.shown_source == Some(CompletionSource::Syntax) {
             list = list.child(
                 div()
                     .px(px(6.))
@@ -1217,7 +1250,7 @@ impl EditorView {
             .items_start()
             .gap(px(2.))
             .child(list);
-        let selected = menu.matches.get(menu.selected).map(|m| &menu.items[m.item]);
+        let selected = menu.matches.get(menu.selected).map(|m| &menu.shown[m.item]);
         if let Some(item) = selected
             && !menu.soft
             && (item.detail.is_some() || item.documentation.is_some())

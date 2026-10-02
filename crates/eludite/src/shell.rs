@@ -9,6 +9,8 @@ mod documents;
 pub mod error_list;
 pub mod explorer;
 pub mod intellisense;
+#[cfg(test)]
+mod intellisense_tests;
 pub mod session;
 pub mod target;
 #[cfg(test)]
@@ -152,6 +154,8 @@ pub struct Shell {
     solution_state: Option<SolutionState>,
     features: intellisense::ServerFeatures,
     completion_timings: Vec<intellisense::CompletionTiming>,
+    /// Agents waiting for an IntelliSense answer: woken whenever an editor changes.
+    intellisense_waiters: Vec<futures::channel::oneshot::Sender<()>>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
@@ -275,12 +279,19 @@ impl Shell {
                         shell.apply(request.clone(), window, cx)
                     })
                     .unwrap_or_else(|_| Err(CommandError::Failed("the window is closed".into())));
-                // An agent asking for IntelliSense gets the answer, not the request: wait for it (up to 5 s).
-                let deadline = Instant::now() + intellisense::AGENT_WAIT;
-                while outcome.as_ref().is_ok_and(|o| o.is_loading()) && Instant::now() < deadline {
-                    cx.background_executor()
-                        .timer(std::time::Duration::from_millis(10))
-                        .await;
+                // An agent asking for IntelliSense gets the answer, not the request: wait for it (up to 5 s), checking
+                // again whenever an editor changes.
+                let mut deadline = cx.background_executor().timer(intellisense::AGENT_WAIT);
+                while outcome.as_ref().is_ok_and(|o| o.is_loading()) {
+                    let Ok(changed) = this.update(cx, |shell, _| shell.intellisense_waiter())
+                    else {
+                        break;
+                    };
+                    if let futures::future::Either::Right(_) =
+                        futures::future::select(changed, &mut deadline).await
+                    {
+                        break;
+                    }
                     match this.update(cx, |shell, cx| shell.intellisense_state(&request, cx)) {
                         Ok(Some(o)) => outcome = o,
                         _ => break,
@@ -315,6 +326,7 @@ impl Shell {
             solution_state: None,
             features: Default::default(),
             completion_timings: Vec::new(),
+            intellisense_waiters: Vec::new(),
             timings: Timings::default(),
             _tasks: vec![event_task, job_task],
         }
