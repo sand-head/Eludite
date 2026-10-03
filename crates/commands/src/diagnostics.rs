@@ -34,13 +34,15 @@ pub enum Severity {
 
 /// Where an Error List row comes from (brief 0017), as Visual Studio's "Build + IntelliSense" filter names them:
 /// the last build only, the live analysis only (the language server, the solution load), or both (the build reported
-/// the same file, position and code as a live diagnostic; the row is shown once).
+/// the same file, position and code as a live diagnostic; the row is shown once), or a test that failed in the last
+/// test run (brief 0035).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RowSource {
     Build,
     Live,
     Both,
+    Test,
 }
 
 /// The input's `source` filter: build rows and rows shown as both, or live rows and rows shown as both.
@@ -49,6 +51,7 @@ pub enum RowSource {
 enum SourceFilter {
     Build,
     Live,
+    Test,
 }
 
 impl RowSource {
@@ -58,7 +61,8 @@ impl RowSource {
             (RowSource::Both, _)
                 | (RowSource::Build, SourceFilter::Build)
                 | (RowSource::Live, SourceFilter::Live)
-        )
+                | (RowSource::Test, SourceFilter::Test)
+        ) && !(self == RowSource::Both && filter == SourceFilter::Test)
     }
 }
 
@@ -267,6 +271,7 @@ mod tests {
         rows[0].source = Some(RowSource::Build);
         rows[1].source = Some(RowSource::Both);
         rows[2].source = Some(RowSource::Live);
+        rows[3].source = Some(RowSource::Test);
         let mut r = CommandRegistry::new();
         let source = rows.clone();
         register(&mut r, Arc::new(move || source.clone())).unwrap();
@@ -283,9 +288,16 @@ mod tests {
         .unwrap();
         assert_eq!(
             live.len(),
-            rows.len() - 1,
-            "everything but the build-only row"
+            rows.len() - 2,
+            "everything but the build-only and test rows"
         );
+        // A failed test's row (brief 0035).
+        let test: Vec<Diagnostic> = serde_json::from_value(
+            r.invoke(DIAGNOSTICS_LIST, json!({"source": "test"}))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(test, vec![rows[3].clone()]);
         assert_eq!(
             r.invoke(DIAGNOSTICS_LIST, json!({}))
                 .unwrap()
@@ -301,7 +313,7 @@ mod tests {
         let schema: Value = serde_json::from_str(INPUT_SCHEMA).unwrap();
         assert_eq!(
             schema["properties"]["source"]["enum"],
-            json!(["build", "live"])
+            json!(["build", "live", "test"])
         );
     }
 

@@ -216,6 +216,9 @@ pub enum Event {
     BuildProgress(BuildProgress),
     /// `eludite/build/finished`: the build's result and diagnostics.
     BuildFinished(BuildFinished),
+    /// `eludite/test/update` (brief 0035): the next piece of a test discovery or run, any generation (the shell drops
+    /// a stale one).
+    TestUpdate(Box<eludite_protocol::host::TestUpdate>),
     /// `workspace/applyEdit` from the server. Answer it with `respond_apply_edit` and `id`; until then the server
     /// waits.
     ApplyEdit {
