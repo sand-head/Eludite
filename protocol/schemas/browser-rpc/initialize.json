@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/initialize.json",
+  "title": "initialize",
+  "description": "The handshake: the first message the shell sends after starting eludite-chromium. The engine has initialized CEF before it reads stdin, so the answer means the engine can open tabs.",
+  "x-eludite-method": "initialize",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "clientName",
+        "clientVersion",
+        "protocolVersion"
+      ],
+      "properties": {
+        "clientName": {
+          "type": "string"
+        },
+        "clientVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "description": "The version of this protocol and of the shared-memory layout the shell speaks (browser-rpc.md).",
+          "const": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "engineName",
+        "engineVersion",
+        "protocolVersion",
+        "cefVersion",
+        "chromiumVersion",
+        "pid",
+        "sandbox",
+        "frameTransport"
+      ],
+      "properties": {
+        "engineName": {
+          "const": "eludite-chromium"
+        },
+        "engineVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "const": 1
+        },
+        "cefVersion": {
+          "description": "CEF's version string, `154.0.32+g682c378+chromium-154.0.8037.58`.",
+          "type": "string"
+        },
+        "chromiumVersion": {
+          "description": "`154.0.8037.58`.",
+          "type": "string"
+        },
+        "pid": {
+          "description": "The engine (CEF browser) process id.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "sandbox": {
+          "description": "False when the engine runs with --no-sandbox (only ever because ELUDITE_CHROME_NO_SANDBOX=1).",
+          "type": "boolean"
+        },
+        "frameTransport": {
+          "description": "How the shared-memory regions reach the shell: `memfd+scm_rights` (Linux: memfd_create, the descriptor sent over the Unix socket the shell passed as fd 3). `file-mapping` (Windows) and `shm_open` (macOS) are reserved (browser-rpc.md).",
+          "enum": [
+            "memfd+scm_rights",
+            "file-mapping",
+            "shm_open"
+          ]
+        }
+      }
+    }
+  }
+}

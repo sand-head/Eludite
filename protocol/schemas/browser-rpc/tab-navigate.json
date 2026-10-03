@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-navigate.json",
+  "title": "tab/navigate",
+  "description": "Load `url` in the tab's main frame. Answers when the navigation started; progress arrives as tab/state and as CDP events.",
+  "x-eludite-method": "tab/navigate",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "url"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}

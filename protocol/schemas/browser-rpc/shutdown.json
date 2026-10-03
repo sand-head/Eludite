@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/shutdown.json",
+  "title": "shutdown",
+  "description": "Close every tab and exit. The engine answers once the tabs are closed and exits with code 0 after flushing stdout. A closed stdin is treated as shutdown.",
+  "x-eludite-method": "shutdown",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [],
+      "properties": {}
+    },
+    "result": {
+      "type": "object",
+      "properties": {}
+    }
+  }
+}

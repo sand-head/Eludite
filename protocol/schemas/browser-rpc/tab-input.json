@@ -1,0 +1,361 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-input.json",
+  "title": "tab/input",
+  "description": "Shell-to-engine notification: one input event for the tab, in its view's CSS pixel space (x and y), forwarded to CEF's CefBrowserHost::Send*Event. No answer: input never waits on the engine.",
+  "x-eludite-method": "tab/input",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "event"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "event": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/mouseMove"
+            },
+            {
+              "$ref": "#/$defs/mouseDown"
+            },
+            {
+              "$ref": "#/$defs/mouseUp"
+            },
+            {
+              "$ref": "#/$defs/wheel"
+            },
+            {
+              "$ref": "#/$defs/key"
+            },
+            {
+              "$ref": "#/$defs/char"
+            },
+            {
+              "$ref": "#/$defs/imeSetComposition"
+            },
+            {
+              "$ref": "#/$defs/imeCommitText"
+            },
+            {
+              "$ref": "#/$defs/imeFinishComposing"
+            },
+            {
+              "$ref": "#/$defs/imeCancelComposition"
+            },
+            {
+              "$ref": "#/$defs/focus"
+            }
+          ]
+        }
+      }
+    },
+    "mouseMove": {
+      "type": "object",
+      "required": [
+        "type",
+        "x",
+        "y"
+      ],
+      "properties": {
+        "type": {
+          "const": "mouseMove"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "leave": {
+          "description": "The pointer left the view.",
+          "type": "boolean"
+        }
+      }
+    },
+    "mouseDown": {
+      "type": "object",
+      "required": [
+        "type",
+        "x",
+        "y",
+        "button"
+      ],
+      "properties": {
+        "type": {
+          "const": "mouseDown"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "button": {
+          "enum": [
+            "left",
+            "middle",
+            "right"
+          ]
+        },
+        "clickCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "mouseUp": {
+      "type": "object",
+      "required": [
+        "type",
+        "x",
+        "y",
+        "button"
+      ],
+      "properties": {
+        "type": {
+          "const": "mouseUp"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "button": {
+          "enum": [
+            "left",
+            "middle",
+            "right"
+          ]
+        },
+        "clickCount": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "wheel": {
+      "type": "object",
+      "required": [
+        "type",
+        "x",
+        "y",
+        "deltaX",
+        "deltaY"
+      ],
+      "properties": {
+        "type": {
+          "const": "wheel"
+        },
+        "x": {
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "deltaX": {
+          "description": "Pixels; positive scrolls right.",
+          "type": "integer"
+        },
+        "deltaY": {
+          "description": "Pixels; positive scrolls up (CEF's sign: a wheel turned away from the user).",
+          "type": "integer"
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "type",
+        "windowsKeyCode"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "keyDown",
+            "keyUp",
+            "rawKeyDown"
+          ]
+        },
+        "windowsKeyCode": {
+          "description": "The Windows virtual-key code (VK_*), which CEF uses on every platform.",
+          "type": "integer"
+        },
+        "nativeKeyCode": {
+          "type": "integer"
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "isSystemKey": {
+          "type": "boolean"
+        }
+      }
+    },
+    "char": {
+      "type": "object",
+      "required": [
+        "type",
+        "character"
+      ],
+      "properties": {
+        "type": {
+          "const": "char"
+        },
+        "character": {
+          "description": "One UTF-16 code unit as a string of one character (a pair is sent as two events).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2
+        },
+        "windowsKeyCode": {
+          "type": "integer"
+        },
+        "modifiers": {
+          "description": "Held modifiers and buttons, CEF's cef_event_flags_t bits: 2 shift, 4 control, 8 alt, 16 left button, 32 middle button, 64 right button, 128 command (macOS), 256 num lock, 512 is keypad, 1024 is left, 2048 is right, 4096 altgr, 8192 is repeat.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "imeSetComposition": {
+      "type": "object",
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "imeSetComposition"
+        },
+        "text": {
+          "type": "string"
+        },
+        "selectionStart": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "selectionEnd": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "underlines": {
+          "description": "Ranges of `text` (UTF-16 offsets) drawn underlined, thick when the clause is selected.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "integer"
+              },
+              "to": {
+                "type": "integer"
+              },
+              "thick": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "description": "Documented, not forwarded by the spike's shell (brief 0031): CefBrowserHost::ImeSetComposition."
+    },
+    "imeCommitText": {
+      "type": "object",
+      "required": [
+        "type",
+        "text"
+      ],
+      "properties": {
+        "type": {
+          "const": "imeCommitText"
+        },
+        "text": {
+          "type": "string"
+        },
+        "relativeCursorPos": {
+          "type": "integer"
+        }
+      },
+      "description": "CefBrowserHost::ImeCommitText."
+    },
+    "imeFinishComposing": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "imeFinishComposing"
+        },
+        "keepSelection": {
+          "type": "boolean"
+        }
+      }
+    },
+    "imeCancelComposition": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "imeCancelComposition"
+        }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "required": [
+        "type",
+        "focused"
+      ],
+      "properties": {
+        "type": {
+          "const": "focus"
+        },
+        "focused": {
+          "type": "boolean"
+        }
+      },
+      "description": "CefBrowserHost::SetFocus: the tool window gained or lost the keyboard focus."
+    }
+  }
+}
