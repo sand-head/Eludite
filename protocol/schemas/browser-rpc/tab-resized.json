@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-resized.json",
+  "title": "tab/resized",
+  "description": "Engine-to-shell notification: the tab has a new shared-memory region (at tab/create, and when a frame outgrows the old one). On Linux the region's memfd was sent over the fd-3 socket just before this message, with the region id as its payload (browser-rpc.md). The shell maps the new region and unmaps the old one; frames after this message are in the new region.",
+  "x-eludite-method": "tab/resized",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "region",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "object",
+          "required": [
+            "id",
+            "size",
+            "headerSize",
+            "slotSize",
+            "slotCount"
+          ],
+          "properties": {
+            "id": {
+              "description": "Unique in the engine process; matches the payload sent with the descriptor.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "size": {
+              "description": "Bytes: headerSize + slotCount * slotSize.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "headerSize": {
+              "const": 4096
+            },
+            "slotSize": {
+              "description": "Bytes per slot, a multiple of 4096; at least width * height * 4 of the largest frame the region was made for.",
+              "type": "integer",
+              "minimum": 4096
+            },
+            "slotCount": {
+              "const": 2
+            },
+            "name": {
+              "description": "Windows and macOS (reserved): the file mapping or shm_open name instead of a descriptor.",
+              "type": "string"
+            }
+          }
+        },
+        "width": {
+          "description": "The view's size in device pixels when the region was made.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

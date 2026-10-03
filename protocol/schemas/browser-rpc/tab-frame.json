@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-frame.json",
+  "title": "tab/frame",
+  "description": "Engine-to-shell notification: a frame is ready in a slot of the tab's region (its state is ready). The header holds the same fields; this message only wakes the shell. Frames may be skipped: when the shell has not read a ready slot before the next paint, the engine overwrites the older one.",
+  "x-eludite-method": "tab/frame",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "region",
+        "slot",
+        "sequence",
+        "width",
+        "height",
+        "dirty",
+        "paintNs",
+        "copyNs"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "sequence": {
+          "description": "Grows by one per painted frame of the tab, across regions; starts at 1.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "width": {
+          "description": "Device pixels.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "dirty": {
+          "description": "CEF's dirty rectangles of this paint, at most 16 (more are merged into their bounding box).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/rect"
+          },
+          "maxItems": 16
+        },
+        "paintNs": {
+          "description": "CLOCK_MONOTONIC nanoseconds when OnPaint began (Linux and macOS; QueryPerformanceCounter-based on Windows): the shell measures paint-to-present on the same clock.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "copyNs": {
+          "description": "Nanoseconds the engine spent copying the frame into the slot.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "rect": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "A rectangle in device pixels of the frame, origin top left."
+    }
+  }
+}

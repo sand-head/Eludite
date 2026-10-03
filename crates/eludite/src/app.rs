@@ -152,7 +152,13 @@ pub fn run(args: Args, t_main: Instant) {
             ),
             None => "Eludite".to_owned(),
         };
-        let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
+        // The browser bench shows its whole 1600 by 1000 tab in the document area (brief 0031).
+        let window_size = if args.bench_browser.is_some() {
+            size(px(2200.), px(1500.))
+        } else {
+            size(px(1280.), px(800.))
+        };
+        let bounds = Bounds::centered(None, window_size, cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
@@ -237,6 +243,11 @@ pub fn run(args: Args, t_main: Instant) {
         }
         if let Some(n) = args.bench_diff {
             bench::diff(&shell, n, cx);
+        }
+        if let Some(secs) = args.bench_browser {
+            bench::browser(&shell, secs, cx);
+        } else if let Some(url) = args.spike_browser.clone() {
+            crate::shell::browser_view::open_spike(&shell, url, None, cx);
         }
         if let Some(secs) = args.bench_output {
             bench::output_stream(&shell, secs, cx);

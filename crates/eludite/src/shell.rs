@@ -14,6 +14,7 @@ pub mod agents;
 pub mod browser;
 #[cfg(test)]
 mod browser_tests;
+pub mod browser_view;
 pub mod build;
 #[cfg(test)]
 mod build_tests;
@@ -357,6 +358,8 @@ pub struct Shell {
     options: Option<Entity<options::OptionsDialog>>,
     /// The browser of `eludite.browser.*` (brief 0023).
     browser: browser::BrowserBus,
+    /// Embedded browser tabs in the document area (brief 0031's spike tab).
+    browser_views: browser_view::Views,
     /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
     folder_opener: startup::FolderOpener,
     default_startup: Option<PathBuf>,
@@ -405,8 +408,12 @@ fn document_body(
     views: Rc<RefCell<HashMap<String, Entity<EditorView>>>>,
     reviews: agents::Reviews,
     gutters: agents::Gutters,
+    browser_views: browser_view::Views,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
+        if let Some(view) = browser_views.borrow().get(&tab.id) {
+            return view.clone().into_any_element();
+        }
         if let Some(view) = views.borrow().get(&tab.id) {
             // An agent's pending change marks the lines it touches in the gutter (brief 0016).
             if let Some(marks) = gutters.borrow().get(&tab.id) {
@@ -475,6 +482,7 @@ impl Shell {
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let output = cx.new(|_| OutputWindow::new(theme));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
+        let browser_views: browser_view::Views = Rc::default();
         let Services {
             session,
             mut events,
@@ -523,6 +531,7 @@ impl Shell {
                     views.clone(),
                     agents.reviews.clone(),
                     agents.gutters.clone(),
+                    browser_views.clone(),
                 )),
                 persistence,
                 cx,
@@ -788,6 +797,7 @@ impl Shell {
             settings_applied: Vec::new(),
             options: None,
             browser,
+            browser_views,
             folder_opener,
             default_startup: None,
             ui_bounds: None,
