@@ -2,14 +2,52 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-exception-settings.input.json",
   "title": "eludite.debug.exception_settings input",
-  "description": "The Exception Settings window's Common Language Runtime Exceptions: break when an exception is thrown (first chance), or only when user code does not handle it (Visual Studio's default). Persisted per solution and applied to a running session at once.",
+  "description": "The Exception Settings window's Common Language Runtime Exceptions: break when an exception is thrown (first chance), or only when user code does not handle it (Visual Studio's default), for every exception or for exception types by name (`types`). Persisted per solution and applied to a running session at once. Types go to the debug adapter as exception filter conditions (DAP exceptionFilterOptions: the comma-separated type names of each filter); while a session runs on an adapter without them, a change of `types` is refused naming the adapter (`capabilities.exception_filter_options` in eludite.debug.state). A category box that is on breaks for every type; its types matter while it is off.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "break_when_thrown": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Break when any exception is thrown (the category's Thrown box)."
     },
     "break_when_user_unhandled": {
+      "type": "boolean",
+      "description": "Break when user code does not handle any exception (the category's User-Unhandled box)."
+    },
+    "types": {
+      "description": "Add or change exception types under the category: each entry replaces that type's row.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "description": "The exception's full type name, `System.InvalidOperationException`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "break_when_thrown": {
+            "description": "Break when this type (or a subclass, as the adapter matches it) is thrown. Default true.",
+            "type": "boolean"
+          },
+          "break_when_user_unhandled": {
+            "description": "Break when user code does not handle this type. Default true.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "remove": {
+      "description": "Remove this type's row.",
+      "type": "string",
+      "minLength": 1
+    },
+    "clear": {
+      "description": "Remove every type's row (before `types` is applied).",
       "type": "boolean"
     }
   }

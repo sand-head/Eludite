@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-set-variable.input.json",
+  "title": "eludite.debug.set_variable input",
+  "description": "Change a value in the stopped debuggee, as editing a value in the Locals or Watch window does: a variable of a frame by `name`, or a member (`name`) of a value by its `reference` (from eludite.debug.variables or a stop summary at this stop). `value` is a C# expression the debugger evaluates (`42`, `\"text\"`, `order.Total + 1`), so it can run debuggee code. Through DAP setVariable, else setExpression where the adapter has only that, else refused (`capabilities.set_variable`). Only in break mode; the Locals and Watch windows show the new value. Next: continue, or read the value back with eludite.debug.variables.",
+  "type": "object",
+  "required": [
+    "name",
+    "value"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The variable (a local or parameter of the frame) or, with `reference`, the member's name as eludite.debug.variables lists it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "description": "The new value: a C# expression.",
+      "type": "string",
+      "minLength": 1
+    },
+    "reference": {
+      "description": "The `reference` of the value whose member `name` is (at this stop). Not with `thread` or `frame`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "thread": {
+      "description": "A thread id. Default: the thread that stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "frame": {
+      "description": "Index in that thread's call stack (0 is the top). Default: 0, or the selected frame from the UI.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-trace.output.json",
+  "title": "eludite.debug.trace output",
+  "description": "The lines the tracepoints printed, in order, and why collecting ended.",
+  "type": "object",
+  "required": [
+    "lines",
+    "hits",
+    "truncated",
+    "stopped_by",
+    "points"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "lines": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "required": [
+          "seq",
+          "path",
+          "line",
+          "hit",
+          "time_ms",
+          "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "seq": {
+            "description": "The line's position in this answer, from 0.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "description": "The point's 1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "hit": {
+            "description": "The point's hit count at this line (1 for its first hit).",
+            "type": "integer",
+            "minimum": 1
+          },
+          "time_ms": {
+            "description": "Milliseconds since the run began.",
+            "type": "number",
+            "minimum": 0
+          },
+          "text": {
+            "description": "The message as printed (cut at 1000 characters with `… (N chars)`).",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "hits": {
+      "description": "Lines collected (every point's hits).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "`max_hits` was reached: the points were disabled and the debuggee keeps running.",
+      "type": "boolean"
+    },
+    "stopped_by": {
+      "description": "`terminated`: the session ended (see `exit_code`). `stopped`: a visible stop (see `summary`). `hits`: `count` or `max_hits` hits. `timeout`: `wait_ms` ran out (the debuggee goes on running).",
+      "enum": [
+        "terminated",
+        "stopped",
+        "hits",
+        "timeout"
+      ]
+    },
+    "summary": {
+      "description": "With `stopped_by: stopped`: the stop summary (debug-stop-summary.output.json) within the budget parameters.",
+      "type": "object"
+    },
+    "exit_code": {
+      "description": "With `stopped_by: terminated`: the program's exit code, when the adapter reported it.",
+      "type": "integer"
+    },
+    "points": {
+      "description": "The points, in the order given.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "hits",
+          "verified"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "hits": {
+            "description": "Lines this point printed.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "verified": {
+            "description": "The debug adapter bound it to code (false: it never printed and `message` may say why).",
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Why the adapter did not bind it.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "overhead_ms_per_hit": {
+      "description": "When the debugger emulated the tracepoints (the adapter has no log points): the mean time from a hit's stop to its resume, in milliseconds. Absent when the adapter printed the lines.",
+      "type": "number",
+      "minimum": 0
+    },
+    "emulated": {
+      "description": "The debugger emulated the tracepoints (a stop and a resume per hit).",
+      "type": "boolean"
+    },
+    "generation": {
+      "description": "The session generation the trace ran in.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
