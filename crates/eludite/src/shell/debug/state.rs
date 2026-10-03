@@ -21,6 +21,15 @@
 //! 6. **Editing is always allowed.** Breakpoints, watches and exception settings change in any mode; the session
 //!    picks them up at once.
 //!
+//! # Run control (brief 0026)
+//!
+//! Breakpoints are line breakpoints, tracepoints (a line breakpoint with a `log_message`) and function breakpoints
+//! ([`FunctionBreakpoint`], by name). `run_until` and `trace` add `temporary` ones for the length of the call; they are
+//! never persisted. `run_until`, `trace` (from break mode) and `set_next_statement` need break mode and are refused, not
+//! queued, otherwise (`trace` with `run: start` needs no session); `set_variable` needs break mode. Exception settings
+//! hold exception types too ([`ExceptionPlan`] turns them into DAP filters and filter options). What persists is
+//! version 2 ([`Persisted`]); a version 1 file loads unchanged.
+//!
 //! # Inspection (brief 0025)
 //!
 //! Reads never move what the windows show: `snapshot`, `stack`, `variables` and `exception_info` take the thread and
@@ -34,13 +43,15 @@ use std::collections::VecDeque;
 
 use eludite_commands::CommandError;
 use eludite_commands::debug::{
-    BreakpointBrief, BreakpointRow, Budget, CapabilitiesRow, ConsoleRow, DebugRequest, DebugState,
-    ExceptionBrief, ExceptionSettingsRow, FrameRow, FramesBlock, HitCondition, LocalsBlock,
-    LocationRow, OutputBlock, OutputKind, OutputLine, OutputPattern, SessionRow, StackFrameRow,
-    StopSummary, StoppedRow, SummaryStopped, SummaryWatch, ThreadRow, VarRow, VariableRow,
-    WatchRow, cut_value,
+    BreakpointBrief, BreakpointKind, BreakpointRow, Budget, CapabilitiesRow, ConsoleRow,
+    DebugRequest, DebugState, ExceptionBrief, ExceptionSettingsRow, ExceptionTypeRow, FrameRow,
+    FramesBlock, HitCondition, LocalsBlock, LocationRow, OutputBlock, OutputKind, OutputLine,
+    OutputPattern, SessionRow, StackFrameRow, StopSummary, StoppedRow, SummaryStopped,
+    SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow, cut_value,
 };
-use eludite_dap::types::SourceBreakpoint;
+use eludite_dap::types::{
+    ExceptionFilterOptions, FunctionBreakpoint as DapFunction, SourceBreakpoint,
+};
 use eludite_editor::BreakpointGlyph;
 use serde::{Deserialize, Serialize};
 
@@ -196,6 +207,98 @@ impl Mode {
     }
 }
 
+/// Visual Studio's tracepoint specials the debugger fills in (others, `$PID` and `$ADDRESS` among them, stay text).
+pub const SPECIALS: [&str; 4] = ["$FUNCTION", "$CALLER", "$TID", "$TNAME"];
+
+/// A tracepoint message: literal text, `{expression}`s and specials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Segment {
+    Text(String),
+    Expression(String),
+    Special(&'static str),
+}
+
+/// Split a tracepoint message: `{expression}` (`{{` and `}}` are literal braces) and [`SPECIALS`].
+pub fn parse_message(message: &str) -> Vec<Segment> {
+    let mut out = Vec::new();
+    let mut text = String::new();
+    let mut rest = message;
+    while let Some(c) = rest.chars().next() {
+        if let Some(r) = rest.strip_prefix("{{") {
+            text.push('{');
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("}}") {
+            text.push('}');
+            rest = r;
+        } else if c == '{'
+            && let Some(end) = rest.find('}')
+        {
+            if !text.is_empty() {
+                out.push(Segment::Text(std::mem::take(&mut text)));
+            }
+            out.push(Segment::Expression(rest[1..end].trim().to_owned()));
+            rest = &rest[end + 1..];
+        } else if let Some(sp) = SPECIALS.iter().find(|sp| {
+            rest.starts_with(**sp)
+                && !rest[sp.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+        }) {
+            if !text.is_empty() {
+                out.push(Segment::Text(std::mem::take(&mut text)));
+            }
+            out.push(Segment::Special(sp));
+            rest = &rest[sp.len()..];
+        } else {
+            text.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    if !text.is_empty() {
+        out.push(Segment::Text(text));
+    }
+    out
+}
+
+/// Whether a message uses a special: the debugger then prints it itself, since DAP log messages have none.
+pub fn has_specials(message: &str) -> bool {
+    parse_message(message)
+        .iter()
+        .any(|s| matches!(s, Segment::Special(_)))
+}
+
+/// Whether `line` is what an adapter printed for `message` (its `{expression}`s matching anything): how the lines an
+/// adapter prints for log points are told apart from its other console output.
+pub fn message_matches(message: &str, line: &str) -> bool {
+    let segments = parse_message(message);
+    let mut rest = line;
+    let mut wild = false;
+    let n = segments.len();
+    for (i, seg) in segments.iter().enumerate() {
+        match seg {
+            Segment::Text(t) => {
+                let last = i + 1 == n;
+                if wild {
+                    let found = if last {
+                        rest.ends_with(t.as_str()).then(|| rest.len() - t.len())
+                    } else {
+                        rest.find(t.as_str())
+                    };
+                    match found {
+                        Some(at) => rest = &rest[at + t.len()..],
+                        None => return false,
+                    }
+                } else if let Some(r) = rest.strip_prefix(t.as_str()) {
+                    rest = r;
+                } else {
+                    return false;
+                }
+                wild = false;
+            }
+            Segment::Expression(_) | Segment::Special(_) => wild = true,
+        }
+    }
+    wild || rest.is_empty()
+}
+
 /// One breakpoint. `line` is 1-based; `path` is the normalized absolute path (the document id).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Breakpoint {
@@ -204,6 +307,12 @@ pub struct Breakpoint {
     pub enabled: bool,
     pub condition: Option<String>,
     pub hit_condition: Option<HitCondition>,
+    /// A tracepoint's message (brief 0026).
+    pub log_message: Option<String>,
+    /// Deleted at its first visible stop.
+    pub remove_after: bool,
+    /// `run_until`'s or `trace`'s for the length of that call: removed after it, never persisted.
+    pub temporary: bool,
     /// The session's: bound by the adapter, times reached, the adapter's message and id.
     pub verified: bool,
     pub hits: u32,
@@ -219,6 +328,9 @@ impl Breakpoint {
             enabled: true,
             condition: None,
             hit_condition: None,
+            log_message: None,
+            remove_after: false,
+            temporary: false,
             verified: false,
             hits: 0,
             message: None,
@@ -226,8 +338,26 @@ impl Breakpoint {
         }
     }
 
+    /// Whether the adapter prints this tracepoint's message (`log_points`: it has log points) rather than the debugger.
+    pub fn adapter_logs(&self, log_points: bool) -> bool {
+        log_points
+            && self
+                .log_message
+                .as_deref()
+                .is_some_and(|m| !has_specials(m))
+    }
+
     /// The glyph the margin draws, `in_session` when a debugging session runs.
     pub fn glyph(&self, in_session: bool) -> BreakpointGlyph {
+        if self.log_message.is_some() {
+            return if !self.enabled {
+                BreakpointGlyph::TracepointDisabled
+            } else if in_session && !self.verified {
+                BreakpointGlyph::TracepointUnbound
+            } else {
+                BreakpointGlyph::Tracepoint
+            };
+        }
         if !self.enabled {
             BreakpointGlyph::Disabled
         } else if in_session && !self.verified {
@@ -239,6 +369,48 @@ impl Breakpoint {
         }
     }
 }
+
+/// A function breakpoint (brief 0026): a method by name, `Namespace.Type.Method`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionBreakpoint {
+    pub name: String,
+    pub enabled: bool,
+    pub condition: Option<String>,
+    pub hit_condition: Option<HitCondition>,
+    pub remove_after: bool,
+    /// The session's, as for [`Breakpoint`].
+    pub verified: bool,
+    pub hits: u32,
+    pub message: Option<String>,
+    pub adapter_id: Option<i64>,
+}
+
+impl FunctionBreakpoint {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            enabled: true,
+            condition: None,
+            hit_condition: None,
+            remove_after: false,
+            verified: false,
+            hits: 0,
+            message: None,
+            adapter_id: None,
+        }
+    }
+
+    /// Whether a frame named `frame` (`App.Calc.Add(int a, int b)`) is in this function.
+    pub fn matches_frame(&self, frame: &str) -> bool {
+        let base = frame.split('(').next().unwrap_or_default().trim();
+        let name = self.name.split('(').next().unwrap_or_default().trim();
+        !name.is_empty() && (base == name || base.ends_with(&format!(".{name}")))
+    }
+}
+
+/// The persisted file's version: 2 adds tracepoints, function breakpoints, Delete when hit and exception types (brief
+/// 0026); a version 1 file has none of them and loads as is.
+pub const PERSISTED_VERSION: u32 = 2;
 
 /// What persists per solution and per user (Visual Studio's .suo): breakpoints (without session state), exception
 /// settings, watch expressions and the startup project (brief 0020).
@@ -256,7 +428,11 @@ pub struct Persisted {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedBreakpoint {
+    /// Empty for a function breakpoint.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub path: String,
+    /// 0 for a function breakpoint.
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub line: u32,
     #[serde(default = "yes")]
     pub enabled: bool,
@@ -264,6 +440,19 @@ pub struct PersistedBreakpoint {
     pub condition: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hit_condition: Option<String>,
+    /// Version 2: a tracepoint's message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_message: Option<String>,
+    /// Version 2: a function breakpoint's function.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    /// Version 2: Delete when hit.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub remove_after: bool,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn yes() -> bool {
@@ -394,6 +583,24 @@ pub fn flatten(nodes: &[VarNode]) -> Vec<FlatRow> {
     out
 }
 
+/// For each row [`flatten`] lists, the variables reference of the value it is a member of (0 at the top: a frame's
+/// variable), which `set_variable` of a member needs.
+pub fn flatten_parents(nodes: &[VarNode]) -> Vec<i64> {
+    fn walk(nodes: &[VarNode], parent: i64, out: &mut Vec<i64>) {
+        for n in nodes {
+            out.push(parent);
+            if n.expanded
+                && let Some(c) = &n.children
+            {
+                walk(c, n.reference, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, 0, &mut out);
+    out
+}
+
 /// A frame of the stopped thread's call stack.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frame {
@@ -439,10 +646,11 @@ impl Frame {
     }
 }
 
-/// The breakpoints, sorted by path and line.
+/// The breakpoints, sorted by path and line, and the function breakpoints in the order they were added.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Breakpoints {
     list: Vec<Breakpoint>,
+    functions: Vec<FunctionBreakpoint>,
 }
 
 impl Breakpoints {
@@ -464,6 +672,98 @@ impl Breakpoints {
         self.list
             .iter_mut()
             .find(|b| b.path == path && b.line == line)
+    }
+
+    /// Take the breakpoint off the line (`trace` keeps it to put it back).
+    pub fn take(&mut self, path: &str, line: u32) -> Option<Breakpoint> {
+        let i = self
+            .list
+            .iter()
+            .position(|b| b.path == path && b.line == line)?;
+        Some(self.list.remove(i))
+    }
+
+    /// Put a breakpoint (back) on its line, replacing any there.
+    pub fn put(&mut self, b: Breakpoint) {
+        self.delete(&b.path, b.line);
+        self.list.push(b);
+        self.sort();
+    }
+
+    /// Every line breakpoint, mutably.
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Breakpoint> {
+        self.list.iter_mut()
+    }
+
+    /// Delete the temporary breakpoints `remove` picks; returns the files that changed.
+    pub fn remove_temporary(&mut self, remove: impl Fn(&Breakpoint) -> bool) -> Vec<String> {
+        let mut files: Vec<String> = Vec::new();
+        self.list.retain(|b| {
+            let drop = b.temporary && remove(b);
+            if drop && !files.contains(&b.path) {
+                files.push(b.path.clone());
+            }
+            !drop
+        });
+        files
+    }
+
+    pub fn functions(&self) -> &[FunctionBreakpoint] {
+        &self.functions
+    }
+
+    pub fn function_mut(&mut self, name: &str) -> Option<&mut FunctionBreakpoint> {
+        self.functions.iter_mut().find(|f| f.name == name)
+    }
+
+    /// The function breakpoint on `name`, created if needed.
+    pub fn ensure_function(&mut self, name: &str) -> &mut FunctionBreakpoint {
+        if self.function_mut(name).is_none() {
+            self.functions.push(FunctionBreakpoint::new(name));
+        }
+        self.function_mut(name).expect("just ensured")
+    }
+
+    pub fn delete_function(&mut self, name: &str) -> bool {
+        let before = self.functions.len();
+        self.functions.retain(|f| f.name != name);
+        self.functions.len() != before
+    }
+
+    /// The enabled function breakpoints as `setFunctionBreakpoints` sends them (hit conditions only when the adapter
+    /// supports them), with their names in the same order.
+    pub fn function_breakpoints(&self, hit_conditions: bool) -> (Vec<String>, Vec<DapFunction>) {
+        self.functions
+            .iter()
+            .filter(|f| f.enabled)
+            .map(|f| {
+                (
+                    f.name.clone(),
+                    DapFunction {
+                        name: f.name.clone(),
+                        condition: f.condition.clone(),
+                        hit_condition: hit_conditions
+                            .then(|| f.hit_condition.map(|h| h.to_string()))
+                            .flatten(),
+                    },
+                )
+            })
+            .unzip()
+    }
+
+    /// The adapter's answer for the function breakpoints sent, in order.
+    pub fn apply_function_answer(
+        &mut self,
+        names: &[String],
+        answer: &[eludite_dap::types::Breakpoint],
+    ) {
+        for (name, a) in names.iter().zip(answer) {
+            if let Some(f) = self.function_mut(name) {
+                f.verified = a.verified;
+                f.adapter_id = a.id;
+                f.message = a.message.clone().filter(|_| !a.verified);
+            }
+        }
     }
 
     /// Add a breakpoint on the line, or delete the one there. True when added.
@@ -491,10 +791,11 @@ impl Breakpoints {
         self.list.len() != before
     }
 
-    /// Delete every breakpoint; returns the files that had some.
+    /// Delete every breakpoint, function breakpoints too; returns the files that had some.
     pub fn delete_all(&mut self) -> Vec<String> {
         let files = self.files();
         self.list.clear();
+        self.functions.clear();
         files
     }
 
@@ -512,6 +813,7 @@ impl Breakpoints {
         &self,
         path: &str,
         hit_conditions: bool,
+        log_points: bool,
         extra: Option<u32>,
     ) -> (Vec<u32>, Vec<SourceBreakpoint>) {
         let mut lines = Vec::new();
@@ -525,7 +827,11 @@ impl Breakpoints {
                 hit_condition: hit_conditions
                     .then(|| b.hit_condition.map(|h| h.to_string()))
                     .flatten(),
-                log_message: None,
+                // A tracepoint the adapter prints; otherwise it breaks and the debugger prints and resumes.
+                log_message: b
+                    .adapter_logs(log_points)
+                    .then(|| b.log_message.clone())
+                    .flatten(),
             });
         }
         if let Some(l) = extra.filter(|l| !lines.contains(l)) {
@@ -557,10 +863,15 @@ impl Breakpoints {
     /// A `breakpoint` event: the adapter bound (or unbound) breakpoint `id`. True when one changed.
     pub fn apply_event(&mut self, bp: &eludite_dap::types::Breakpoint) -> bool {
         let Some(id) = bp.id else { return false };
-        match self.list.iter_mut().find(|b| b.adapter_id == Some(id)) {
-            Some(b) => {
-                b.verified = bp.verified;
-                b.message = bp.message.clone().filter(|_| !bp.verified);
+        if let Some(b) = self.list.iter_mut().find(|b| b.adapter_id == Some(id)) {
+            b.verified = bp.verified;
+            b.message = bp.message.clone().filter(|_| !bp.verified);
+            return true;
+        }
+        match self.functions.iter_mut().find(|f| f.adapter_id == Some(id)) {
+            Some(f) => {
+                f.verified = bp.verified;
+                f.message = bp.message.clone().filter(|_| !bp.verified);
                 true
             }
             None => false,
@@ -574,6 +885,26 @@ impl Breakpoints {
             b.hits = 0;
             b.message = None;
             b.adapter_id = None;
+        }
+        for f in &mut self.functions {
+            f.verified = false;
+            f.hits = 0;
+            f.message = None;
+            f.adapter_id = None;
+        }
+    }
+
+    /// The session ended: nothing is bound any more (hits stay until the next session).
+    pub fn unbind(&mut self) {
+        for b in &mut self.list {
+            b.verified = false;
+            b.adapter_id = None;
+            b.message = None;
+        }
+        for f in &mut self.functions {
+            f.verified = false;
+            f.adapter_id = None;
+            f.message = None;
         }
     }
 
@@ -601,65 +932,161 @@ impl Breakpoints {
         true
     }
 
+    /// What persists: every breakpoint but the temporary ones, then the function breakpoints.
     pub fn to_persisted(&self) -> Vec<PersistedBreakpoint> {
-        self.list
+        let lines = self
+            .list
             .iter()
+            .filter(|b| !b.temporary)
             .map(|b| PersistedBreakpoint {
                 path: b.path.clone(),
                 line: b.line,
                 enabled: b.enabled,
                 condition: b.condition.clone(),
                 hit_condition: b.hit_condition.map(|h| h.to_string()),
-            })
-            .collect()
+                log_message: b.log_message.clone(),
+                function: None,
+                remove_after: b.remove_after,
+            });
+        let functions = self.functions.iter().map(|f| PersistedBreakpoint {
+            path: String::new(),
+            line: 0,
+            enabled: f.enabled,
+            condition: f.condition.clone(),
+            hit_condition: f.hit_condition.map(|h| h.to_string()),
+            log_message: None,
+            function: Some(f.name.clone()),
+            remove_after: f.remove_after,
+        });
+        lines.chain(functions).collect()
     }
 
     pub fn from_persisted(rows: &[PersistedBreakpoint]) -> Self {
+        let condition =
+            |r: &PersistedBreakpoint| r.condition.clone().filter(|c| !c.trim().is_empty());
         let mut b = Self {
             list: rows
                 .iter()
-                .filter(|r| r.line >= 1)
+                .filter(|r| r.function.is_none() && r.line >= 1 && !r.path.is_empty())
                 .map(|r| Breakpoint {
                     enabled: r.enabled,
-                    condition: r.condition.clone().filter(|c| !c.trim().is_empty()),
+                    condition: condition(r),
                     hit_condition: r.hit_condition.as_deref().and_then(HitCondition::parse),
+                    log_message: r.log_message.clone().filter(|m| !m.is_empty()),
+                    remove_after: r.remove_after,
                     ..Breakpoint::new(&r.path, r.line)
                 })
                 .collect(),
+            functions: Vec::new(),
         };
+        for r in rows {
+            if let Some(name) = r.function.as_deref().filter(|n| !n.trim().is_empty())
+                && b.function_mut(name).is_none()
+            {
+                b.functions.push(FunctionBreakpoint {
+                    enabled: r.enabled,
+                    condition: condition(r),
+                    hit_condition: r.hit_condition.as_deref().and_then(HitCondition::parse),
+                    remove_after: r.remove_after,
+                    ..FunctionBreakpoint::new(name)
+                });
+            }
+        }
         b.sort();
         b.list.dedup_by(|a, b| a.path == b.path && a.line == b.line);
         b
     }
 
     pub fn rows(&self) -> Vec<BreakpointRow> {
-        self.list
-            .iter()
-            .map(|b| BreakpointRow {
-                path: Some(b.path.clone()),
-                line: Some(b.line),
-                enabled: b.enabled,
-                verified: b.verified,
-                condition: b.condition.clone(),
-                hit_condition: b.hit_condition.map(|h| h.to_string()),
-                hits: b.hits,
-                message: b.message.clone(),
-                ..Default::default()
-            })
-            .collect()
+        let lines = self.list.iter().map(|b| BreakpointRow {
+            kind: if b.log_message.is_some() {
+                BreakpointKind::Tracepoint
+            } else {
+                BreakpointKind::Line
+            },
+            path: Some(b.path.clone()),
+            line: Some(b.line),
+            function: None,
+            enabled: b.enabled,
+            verified: b.verified,
+            condition: b.condition.clone(),
+            hit_condition: b.hit_condition.map(|h| h.to_string()),
+            hits: b.hits,
+            message: b.message.clone(),
+            log_message: b.log_message.clone(),
+            remove_after: b.remove_after,
+            temporary: b.temporary,
+        });
+        let functions = self.functions.iter().map(|f| BreakpointRow {
+            kind: BreakpointKind::Function,
+            path: None,
+            line: None,
+            function: Some(f.name.clone()),
+            enabled: f.enabled,
+            verified: f.verified,
+            condition: f.condition.clone(),
+            hit_condition: f.hit_condition.map(|h| h.to_string()),
+            hits: f.hits,
+            message: f.message.clone(),
+            log_message: None,
+            remove_after: f.remove_after,
+            temporary: false,
+        });
+        lines.chain(functions).collect()
     }
 }
 
-/// The DAP exception filters for these settings (netcoredbg's `all` and `user-unhandled`).
+/// The DAP exception filters for these settings (netcoredbg's `all` and `user-unhandled`): a category box that is on
+/// is its filter without a condition; while it is off, the types checked in that column are the filter's condition
+/// (comma-separated, a `filterOptions` entry), so `options` is empty without types.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExceptionPlan {
+    pub filters: Vec<String>,
+    pub options: Vec<ExceptionFilterOptions>,
+}
+
+impl ExceptionPlan {
+    /// `setExceptionBreakpoints`' arguments; the options only when the adapter takes them.
+    pub fn arguments(&self, filter_options: bool) -> serde_json::Value {
+        let none: [ExceptionFilterOptions; 0] = [];
+        eludite_dap::session::set_exception_breakpoints_arguments(
+            &self.filters,
+            if filter_options { &self.options } else { &none },
+        )
+    }
+}
+
+pub fn exception_plan(e: &ExceptionSettingsRow) -> ExceptionPlan {
+    let mut plan = ExceptionPlan::default();
+    let mut filter = |on: bool, id: &str, pick: fn(&ExceptionTypeRow) -> bool| {
+        if on {
+            plan.filters.push(id.to_owned());
+            return;
+        }
+        let types: Vec<&str> = e
+            .types
+            .iter()
+            .filter(|t| pick(t))
+            .map(|t| t.type_name.as_str())
+            .collect();
+        if !types.is_empty() {
+            plan.options.push(ExceptionFilterOptions {
+                filter_id: id.to_owned(),
+                condition: Some(types.join(", ")),
+            });
+        }
+    };
+    filter(e.break_when_thrown, "all", |t| t.break_when_thrown);
+    filter(e.break_when_user_unhandled, "user-unhandled", |t| {
+        t.break_when_user_unhandled
+    });
+    plan
+}
+
+/// The DAP exception filters without conditions (an adapter without filter options gets these only).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn exception_filters(e: &ExceptionSettingsRow) -> Vec<String> {
-    let mut f = Vec::new();
-    if e.break_when_thrown {
-        f.push("all".to_owned());
-    }
-    if e.break_when_user_unhandled {
-        f.push("user-unhandled".to_owned());
-    }
-    f
+    exception_plan(e).filters
 }
 
 /// The whole debugger state.
@@ -806,6 +1233,23 @@ impl DebugModel {
                      generation {g}, stop {s}); eludite.debug.wait waits for it"
                 ))),
             },
+            DebugRequest::RunUntil { stop, .. } => needs_break("run until", *stop),
+            DebugRequest::Trace {
+                run: TraceRun::Continue,
+                stop,
+                ..
+            } => needs_break("trace", *stop),
+            DebugRequest::Trace {
+                run: TraceRun::Start,
+                ..
+            } if self.mode != Mode::Design => Err(refused(format!(
+                "cannot trace with `run: start`: a session is already {mode} (generation {g}); use `run: continue` \
+                 from break mode, or stop it first"
+            ))),
+            DebugRequest::SetVariable { stop, .. } => needs_break("set a value", *stop),
+            DebugRequest::SetNextStatement { stop, .. } => {
+                needs_break("set the next statement", *stop)
+            }
             DebugRequest::Pause { .. } if self.mode != Mode::Running => Err(refused(format!(
                 "cannot break all: the debuggee is not running (it is {mode}, generation {g}, stop {s}); Break All \
                  needs a running debuggee"
@@ -893,11 +1337,7 @@ impl DebugModel {
         self.threads.clear();
         self.thread = None;
         self.clear_break();
-        for b in &mut self.breakpoints.list {
-            b.verified = false;
-            b.adapter_id = None;
-            b.message = None;
-        }
+        self.breakpoints.unbind();
     }
 
     pub fn push_console(&mut self, line: impl Into<String>) {
@@ -1121,7 +1561,7 @@ impl DebugModel {
     /// What persists.
     pub fn persisted(&self) -> Persisted {
         Persisted {
-            version: 1,
+            version: PERSISTED_VERSION,
             breakpoints: self.breakpoints.to_persisted(),
             exceptions: Some(self.exceptions.clone()),
             watches: self.watches.iter().map(|w| w.name.clone()).collect(),
@@ -1316,11 +1756,11 @@ mod tests {
         b.ensure("/s/A.cs", 2).enabled = true;
         assert_eq!(b.glyphs("/s/A.cs", true)[0], (1, BreakpointGlyph::Unbound));
         // setBreakpoints: enabled ones in line order; hit conditions only if the adapter supports them.
-        let (lines, sent) = b.source_breakpoints("/s/A.cs", false, Some(4));
+        let (lines, sent) = b.source_breakpoints("/s/A.cs", false, false, Some(4));
         assert_eq!(lines, [2, 9, 4]);
         assert_eq!(sent[1].condition.as_deref(), Some("i > 3"));
         assert_eq!(sent[1].hit_condition, None);
-        let (_, sent) = b.source_breakpoints("/s/A.cs", true, None);
+        let (_, sent) = b.source_breakpoints("/s/A.cs", true, false, None);
         assert_eq!(sent[1].hit_condition.as_deref(), Some(">=2"));
         let answer = vec![
             eludite_dap::types::Breakpoint {
