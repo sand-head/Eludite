@@ -1436,7 +1436,6 @@ fn interpolate(message: &str, locals: &[FakeVar]) -> String {
     out
 }
 
-/// `name == value`, `name != value` (value compared as shown, quotes optional), `true`, `false`; anything else holds.
 /// What the fake answers for a breakpoint on a line without a statement (brief 0036).
 fn no_code(line: i64) -> String {
     format!("The breakpoint location is invalid: line {line} has no code.")
@@ -1457,6 +1456,7 @@ fn condition_error(condition: Option<&str>, locals: &[FakeVar]) -> Option<String
         .then(|| format!("Unknown identifier: {first}"))
 }
 
+/// `name == value`, `name != value` (value compared as shown, quotes optional), `true`, `false`; anything else holds.
 fn condition_holds(condition: Option<&str>, locals: &[FakeVar]) -> bool {
     let Some(c) = condition.map(str::trim).filter(|c| !c.is_empty()) else {
         return true;
