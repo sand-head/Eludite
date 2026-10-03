@@ -27,6 +27,12 @@ pub enum MenuEntry {
         label: &'static str,
         command: &'static str,
     },
+    /// A check item bound to a boolean setting (brief 0037): a click runs `eludite.settings.set` with the key and the
+    /// other value; [`MenuBar::set_checked`] is asked with the key.
+    SettingCheck {
+        label: &'static str,
+        key: &'static str,
+    },
     Separator,
 }
 
@@ -42,10 +48,27 @@ impl MenuEntry {
             MenuEntry::Check { label, command } => {
                 Some((label, command, json!({ "enabled": !checked })))
             }
+            MenuEntry::SettingCheck { label, key } => Some((
+                label,
+                SETTINGS_SET,
+                json!({ "key": key, "value": !checked }),
+            )),
             MenuEntry::Separator => None,
         }
     }
+
+    /// What [`MenuBar::set_checked`] is asked about a check item: its command, or its setting's key.
+    fn check_key(&self) -> Option<&'static str> {
+        match self {
+            MenuEntry::Check { command, .. } => Some(command),
+            MenuEntry::SettingCheck { key, .. } => Some(key),
+            _ => None,
+        }
+    }
 }
+
+/// The command a setting's check item runs.
+pub const SETTINGS_SET: &str = "eludite.settings.set";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Menu {
@@ -215,6 +238,17 @@ pub fn vs_menus() -> Vec<Menu> {
                     command: "eludite.debug.start",
                     args: json!({ "debug": false }),
                 },
+                // A web project's page in the system browser instead of the Web Browser window (brief 0037).
+                MenuEntry::Item {
+                    label: "Start in External Browser",
+                    command: "eludite.debug.start",
+                    args: json!({ "browser": "external" }),
+                },
+                // Where F5 opens a web project's page: the setting browser.useBuiltIn (brief 0037).
+                MenuEntry::SettingCheck {
+                    label: "Open in Web Browser Window",
+                    key: "browser.useBuiltIn",
+                },
                 item("Stop Debugging", "eludite.debug.stop"),
                 // Restart (brief 0027): Ctrl+Shift+F5; not for an attached session.
                 item("Restart", "eludite.debug.restart"),
@@ -323,8 +357,12 @@ pub fn vs_menus() -> Vec<Menu> {
 /// Whether a command id is registered (the item is enabled).
 pub type IsEnabled = Rc<dyn Fn(&str) -> bool>;
 
-/// Whether the check item of a command id is on.
+/// Whether the check item of a command id (or of a setting's key) is on.
 pub type IsChecked = Rc<dyn Fn(&str) -> bool>;
+
+/// Whether an item with this command and these arguments is enabled, for items that share a command with another
+/// (Start in External Browser is `eludite.debug.start` too; brief 0037). Asked after [`IsEnabled`].
+pub type IsItemEnabled = Rc<dyn Fn(&str, &Value) -> bool>;
 
 /// The menu bar view: titles, and the open drop-down.
 pub struct MenuBar {
@@ -333,6 +371,7 @@ pub struct MenuBar {
     theme: Theme,
     is_enabled: IsEnabled,
     is_checked: Option<IsChecked>,
+    is_item_enabled: Option<IsItemEnabled>,
     open: Option<usize>,
     /// Records where the titles (`menu-<title>`) and the open menu's items (`menu-item-<title>-<label>`) are drawn
     /// (the manual runs' real-input drivers).
@@ -352,6 +391,7 @@ impl MenuBar {
             theme,
             is_enabled,
             is_checked: None,
+            is_item_enabled: None,
             open: None,
             probe: None,
         }
@@ -366,6 +406,24 @@ impl MenuBar {
         self.is_checked.as_ref().is_some_and(|f| f(command))
     }
 
+    /// Where items that share a command read whether they are enabled (brief 0037).
+    pub fn set_item_enabled(&mut self, is_item_enabled: IsItemEnabled) {
+        self.is_item_enabled = Some(is_item_enabled);
+    }
+
+    fn enabled(&self, command: &str, args: &Value) -> bool {
+        (self.is_enabled)(command)
+            && self
+                .is_item_enabled
+                .as_ref()
+                .is_none_or(|f| f(command, args))
+    }
+
+    /// Whether `entry` is a check item that is on.
+    fn entry_checked(&self, entry: &MenuEntry) -> bool {
+        entry.check_key().is_some_and(|k| self.checked(k))
+    }
+
     /// Whether the check item labelled `label` in menu `title` is on (`None`: no such check item).
     pub fn is_item_checked(&self, title: &str, label: &str) -> Option<bool> {
         self.menus
@@ -374,8 +432,10 @@ impl MenuBar {
             .entries
             .iter()
             .find_map(|e| match e {
-                MenuEntry::Check { label: l, command } if *l == label => {
-                    Some(self.checked(command))
+                MenuEntry::Check { label: l, .. } | MenuEntry::SettingCheck { label: l, .. }
+                    if *l == label =>
+                {
+                    Some(self.entry_checked(e))
                 }
                 _ => None,
             })
@@ -407,8 +467,8 @@ impl MenuBar {
             .find(|m| m.title == title)?
             .entries
             .iter()
-            .find_map(|e| match e.action(false) {
-                Some((l, command, _)) if l == label => Some((self.is_enabled)(command)),
+            .find_map(|e| match e.action(self.entry_checked(e)) {
+                Some((l, command, args)) if l == label => Some(self.enabled(command, &args)),
                 _ => None,
             })
     }
@@ -421,8 +481,8 @@ impl MenuBar {
             .map(|m| {
                 m.entries
                     .iter()
-                    .filter_map(|e| match e.action(false) {
-                        Some((label, command, _)) if (self.is_enabled)(command) => Some(label),
+                    .filter_map(|e| match e.action(self.entry_checked(e)) {
+                        Some((label, command, args)) if self.enabled(command, &args) => Some(label),
                         _ => None,
                     })
                     .collect()
@@ -447,10 +507,9 @@ impl MenuBar {
                     .bg(t.popup_border)
                     .into_any_element(),
                 entry => {
-                    let checked =
-                        matches!(entry, MenuEntry::Check { command, .. } if self.checked(command));
+                    let checked = self.entry_checked(entry);
                     let (label, command, args) = entry.action(checked).expect("not a separator");
-                    let enabled = (self.is_enabled)(command);
+                    let enabled = self.enabled(command, &args);
                     let shortcut = shortcut_for(&self.keymap, command, &args).unwrap_or_default();
                     let selector = format!("menu-item-{title}-{label}");
                     let probed = crate::bounds_canvas(self.probe.as_ref(), selector.clone());
@@ -652,7 +711,9 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator | MenuEntry::Check { .. } => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } | MenuEntry::SettingCheck { .. } => {
+                    None
+                }
             })
             .collect();
         assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
@@ -669,7 +730,9 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator | MenuEntry::Check { .. } => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } | MenuEntry::SettingCheck { .. } => {
+                    None
+                }
             })
             .collect();
         assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
@@ -690,7 +753,9 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, *command, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator | MenuEntry::Check { .. } => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } | MenuEntry::SettingCheck { .. } => {
+                    None
+                }
             })
             .collect();
         let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
@@ -723,7 +788,9 @@ mod tests {
                     command,
                     args,
                 } => Some((*label, *command, shortcut_for(&keymap, command, args))),
-                MenuEntry::Separator | MenuEntry::Check { .. } => None,
+                MenuEntry::Separator | MenuEntry::Check { .. } | MenuEntry::SettingCheck { .. } => {
+                    None
+                }
             })
             .collect();
         let at = |label: &str| items.iter().position(|i| i.0 == label).unwrap();
@@ -776,6 +843,43 @@ mod tests {
         .unwrap();
         assert_eq!(off.2, json!({"enabled": true}));
         assert!(MenuEntry::Separator.action(false).is_none());
+    }
+
+    /// Brief 0037: Debug > Start in External Browser starts with `browser: external` and no key of its own; Debug >
+    /// Open in Web Browser Window is a check item on the setting browser.useBuiltIn, dispatching the other value.
+    #[test]
+    fn the_debug_menu_starts_in_the_external_browser_and_checks_the_web_browser_window() {
+        let keymap = crate::keymap::vs_keymap();
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let labels: Vec<&str> = debug
+            .entries
+            .iter()
+            .filter_map(|e| e.action(false).map(|a| a.0))
+            .collect();
+        let at = |label: &str| labels.iter().position(|l| *l == label).unwrap();
+        assert!(at("Start Without Debugging") < at("Start in External Browser"));
+        assert!(at("Start in External Browser") < at("Open in Web Browser Window"));
+        assert!(at("Open in Web Browser Window") < at("Stop Debugging"));
+        let external = debug.entries[at("Start in External Browser")]
+            .action(false)
+            .unwrap();
+        assert_eq!(external.1, "eludite.debug.start");
+        assert_eq!(external.2, json!({"browser": "external"}));
+        assert_eq!(shortcut_for(&keymap, external.1, &external.2), None);
+        let check = &debug.entries[at("Open in Web Browser Window")];
+        assert_eq!(check.check_key(), Some("browser.useBuiltIn"));
+        assert_eq!(
+            check.action(true).unwrap(),
+            (
+                "Open in Web Browser Window",
+                SETTINGS_SET,
+                json!({"key": "browser.useBuiltIn", "value": false})
+            )
+        );
+        assert_eq!(
+            check.action(false).unwrap().2,
+            json!({"key": "browser.useBuiltIn", "value": true})
+        );
     }
 
     /// Brief 0028: Project > Set Startup Projects... opens the Startup Projects dialog through
