@@ -6998,7 +6998,10 @@ fn f5_on_a_web_project_opens_its_page_in_the_web_browser_window(cx: &mut TestApp
     d.w.wait("the reload", |_| !engine.reloads.lock().unwrap().is_empty());
     let page = d.wait_page("opened");
     assert_eq!(page["tab"], "t1");
-    assert_eq!(*engine.reloads.lock().unwrap(), std::slice::from_ref(&target));
+    assert_eq!(
+        *engine.reloads.lock().unwrap(),
+        std::slice::from_ref(&target)
+    );
     assert_eq!(engine.navigated.lock().unwrap().len(), 1);
     // A restart with another launchUrl navigates the same tab there.
     web_project(&d, &url, "api/time");
@@ -7048,6 +7051,52 @@ fn f5_on_a_web_project_opens_its_page_in_the_web_browser_window(cx: &mut TestApp
     let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
     assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1, "{tabs}");
     d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+}
+
+/// A server that answers on `127.0.0.1` (404 to everything): its port.
+fn answering_server() -> u16 {
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = server.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        use std::io::{Read as _, Write as _};
+        for mut s in server.incoming().flatten() {
+            let _ = s.read(&mut [0u8; 1024]);
+            let _ = s.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    port
+}
+
+/// Restart through the adapter's `restart` (the program starts over in the same session): the browser step runs
+/// again on a thread of its own and reloads the same tab once the server answers.
+#[gpui::test]
+fn a_restart_through_the_adapter_reloads_the_same_tab(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.extra_capabilities = json!({"supportsRestartRequest": true})
+    });
+    let url = format!("http://127.0.0.1:{}", answering_server());
+    web_project(&d, &url, "");
+    let engine = super::super::browser_tests::install_page_engine(&d.w);
+    d.w.open_solution();
+    d.cmd(cmds::START, json!({})).unwrap();
+    assert_eq!(d.wait_page("opened")["tab"], "t1");
+    let target = engine.navigated.lock().unwrap()[0].0.clone();
+    let generation = d.state()["generation"].clone();
+    d.cmd(cmds::RESTART, json!({})).unwrap();
+    d.w.wait("the reload", |_| !engine.reloads.lock().unwrap().is_empty());
+    let page = d.wait_page("opened");
+    assert_eq!(page["tab"], "t1");
+    assert_eq!(
+        *engine.reloads.lock().unwrap(),
+        std::slice::from_ref(&target)
+    );
+    // The same session: the adapter restarted the program.
+    assert_eq!(d.state()["generation"], generation);
+    assert!(d.fake().commands().contains(&"restart".to_owned()));
+    d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_mode(Mode::Design);
 }
 
@@ -7209,17 +7258,7 @@ fn the_start_chooses_where_the_page_opens_and_says_when_it_cannot(cx: &mut TestA
     stop(&mut d);
 
     // No line, but the url answers (any status): the page opens.
-    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let live = server.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        use std::io::{Read as _, Write as _};
-        for mut s in server.incoming().flatten() {
-            let _ = s.read(&mut [0u8; 1024]);
-            let _ = s.write_all(
-                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            );
-        }
-    });
+    let live = answering_server();
     let live_url = format!("http://127.0.0.1:{live}");
     web_project(&d, &live_url, "");
     d.launch_browser(|b| b.timeout = Duration::from_secs(10));

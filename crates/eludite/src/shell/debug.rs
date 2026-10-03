@@ -3084,8 +3084,13 @@ fn run_browser_step(
         Readiness::Answered { .. } => (url.unwrap_or_default(), None),
     };
     trace(format_args!(
-        "debug start: {} answered {:.1} ms into the wait; opening it ({})",
+        "debug start: {} is up ({}) {:.1} ms into the wait; opening it ({})",
         url,
+        if heard.is_some() {
+            "Kestrel's listening line"
+        } else {
+            "it answered"
+        },
         waited.elapsed().as_secs_f64() * 1e3,
         planned.engine()
     ));
