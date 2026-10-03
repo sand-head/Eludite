@@ -4,8 +4,8 @@
 //! Stateless: the shell owns the transcript, the expansion state and the click handlers.
 
 use gpui::{
-    Div, Font, FontWeight, InteractiveElement, ParentElement, Rgba, SharedString, Stateful, Styled,
-    div, rgb,
+    Div, ElementId, Font, FontWeight, InteractiveElement, ParentElement, Rgba, SharedString,
+    Stateful, Styled, div, rgb,
 };
 
 use crate::Theme;
@@ -78,15 +78,23 @@ pub fn user_prompt(text: impl Into<SharedString>, theme: &Theme) -> Div {
     )
 }
 
-/// One top-level Markdown block of the agent's message, drawn by [`markdown::render`]: text in `font`, code in `mono`.
-pub fn agent_block(blocks: &[Block], theme: &Theme, font: &Font, mono: &Font) -> Div {
+/// One top-level Markdown block of the agent's message, drawn by [`markdown::render_linked`]: text in `font`, code in
+/// `mono`; a click on a link calls `on_link` with its target. `id` is unique among the transcript's rows.
+pub fn agent_block(
+    id: impl Into<ElementId>,
+    blocks: &[Block],
+    theme: &Theme,
+    font: &Font,
+    mono: &Font,
+    on_link: markdown::OnLink,
+) -> Div {
     let block = div().w_full().px_3().text_color(theme.text);
     if blocks.is_empty() {
         block
     } else {
-        block
-            .pb_1p5()
-            .child(markdown::render(blocks, theme, font, mono))
+        block.pb_1p5().child(markdown::render_linked(
+            id, blocks, theme, font, mono, on_link,
+        ))
     }
 }
 

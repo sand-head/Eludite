@@ -1214,6 +1214,24 @@ impl Shell {
                     self.status.set(eludite_ui::slots::STATE, e.to_string());
                 }
             }
+            // A link in the agent's message: a web page in the person's browser, a file in the editor at its line.
+            AgentsWindowEvent::OpenLink(url) => {
+                match resolve_link(url, self.workspace_root().as_deref()) {
+                    Link::Web(url) => cx.open_url(&url),
+                    Link::File { path, line } => {
+                        let path = path.to_string_lossy().into_owned();
+                        if let Err(e) = self.open_at(&path, line, 1, window, cx) {
+                            self.status.set(eludite_ui::slots::STATE, e.to_string());
+                        }
+                    }
+                    Link::Unsupported => {
+                        self.status.set(
+                            eludite_ui::slots::STATE,
+                            format!("Cannot open the link {url}"),
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1693,3 +1711,142 @@ impl Shell {
 
 #[cfg(test)]
 pub(in crate::shell) mod tests;
+
+/// Where a link in an agent's message leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Link {
+    /// `http`, `https` or `mailto`: the person's browser or mail client.
+    Web(String),
+    /// A file, at `line` (1 when the link names none).
+    File { path: PathBuf, line: u32 },
+    /// Any other scheme: not followed.
+    Unsupported,
+}
+
+/// Resolve a link's target as an agent writes it: a URL, `file://`, or a path (absolute, or relative to the workspace
+/// `root`) with the line as `#L42`, `#L42-L50` or `:42` (`:42:7`).
+pub(crate) fn resolve_link(url: &str, root: Option<&Path>) -> Link {
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|s| lower.starts_with(s))
+    {
+        return Link::Web(url.to_owned());
+    }
+    let path = match url.get(..7) {
+        Some(p) if p.eq_ignore_ascii_case("file://") => &url[7..],
+        _ => {
+            // Another scheme (`javascript:`, `vscode:`), but not a Windows drive (`C:\`).
+            let scheme = url.split_once(':').map(|(s, _)| s);
+            if scheme.is_some_and(|s| {
+                s.len() > 1
+                    && s.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+            }) {
+                return Link::Unsupported;
+            }
+            url
+        }
+    };
+    let (path, fragment) = path.split_once('#').unwrap_or((path, ""));
+    let mut line = fragment
+        .strip_prefix('L')
+        .and_then(|l| l.split('-').next()?.parse().ok());
+    let mut path = percent_decode(path);
+    // `a.rs:42` or `a.rs:42:7`: the line is the first number after the path.
+    for _ in 0..2 {
+        if let Some((head, tail)) = path.rsplit_once(':')
+            && !tail.is_empty()
+            && tail.chars().all(|c| c.is_ascii_digit())
+            && !head.is_empty()
+        {
+            line = tail.parse().ok().or(line);
+            path = head.to_owned();
+        }
+    }
+    if path.is_empty() {
+        return Link::Unsupported;
+    }
+    let path = PathBuf::from(path);
+    let path = match root {
+        Some(root) if path.is_relative() => root.join(path),
+        _ => path,
+    };
+    Link::File {
+        path,
+        line: line.unwrap_or(1).max(1),
+    }
+}
+
+/// `%20` and the like in a link's path.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        if bytes[i] == b'%'
+            && let (Some(Some(h)), Some(Some(l))) = (
+                bytes.get(i + 1).map(|&b| hex(b)),
+                bytes.get(i + 2).map(|&b| hex(b)),
+            )
+        {
+            out.push((h * 16 + l) as u8);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::{Link, resolve_link};
+    use std::path::{Path, PathBuf};
+
+    fn file(path: &str, line: u32) -> Link {
+        Link::File {
+            path: PathBuf::from(path),
+            line,
+        }
+    }
+
+    #[test]
+    fn links_resolve_to_web_pages_or_files_at_their_line() {
+        let root = Some(Path::new("/ws"));
+        assert_eq!(
+            resolve_link("https://example.org/a#b", root),
+            Link::Web("https://example.org/a#b".into())
+        );
+        assert_eq!(
+            resolve_link("mailto:a@b.c", root),
+            Link::Web("mailto:a@b.c".into())
+        );
+        assert_eq!(resolve_link("src/a.rs", root), file("/ws/src/a.rs", 1));
+        assert_eq!(resolve_link("src/a.rs#L42", root), file("/ws/src/a.rs", 42));
+        assert_eq!(
+            resolve_link("src/a.rs#L42-L50", root),
+            file("/ws/src/a.rs", 42)
+        );
+        assert_eq!(resolve_link("src/a.rs:42", root), file("/ws/src/a.rs", 42));
+        assert_eq!(
+            resolve_link("src/a.rs:42:7", root),
+            file("/ws/src/a.rs", 42)
+        );
+        assert_eq!(
+            resolve_link("/abs/My%20File.cs", root),
+            file("/abs/My File.cs", 1)
+        );
+        assert_eq!(
+            resolve_link("file:///abs/b.cs#L3", root),
+            file("/abs/b.cs", 3)
+        );
+        assert_eq!(resolve_link("a.rs", None), file("a.rs", 1));
+        assert_eq!(resolve_link("javascript:alert(1)", root), Link::Unsupported);
+        assert_eq!(resolve_link("vscode://file/x", root), Link::Unsupported);
+        assert_eq!(resolve_link("#anchor", root), Link::Unsupported);
+    }
+}
