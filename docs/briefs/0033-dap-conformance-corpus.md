@@ -1,6 +1,6 @@
 # Brief 0033: The DAP conformance corpus
 
-Status: in progress
+Status: done on Linux (Windows and macOS not run); [report](0033-report.md)
 Phase: 2 (proposal 0001, brief G)
 Plan reference: PLAN.md sections 2 (principle 6: a corpus of real inputs and golden outputs), 4.5, 10 (Phase 2), 11 (protocol conformance tests replayed against recorded sessions, CI on all three OSes); proposal 0001 sections 6 (the adapter matrix), 8 (G), 11 (adapter gaps hidden by shell emulation)
 Related ADRs: ADR-0003, ADR-0007
