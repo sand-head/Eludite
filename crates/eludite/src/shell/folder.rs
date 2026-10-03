@@ -535,7 +535,11 @@ impl Shell {
             .startup_project()
             .map(|p| super::documents::normalize_path(&p))
         {
-            for p in out.projects.iter_mut().filter(|p| p.kind == "csproj") {
+            for p in out
+                .projects
+                .iter_mut()
+                .filter(|p| p.kind == "csproj" || p.kind == "cargo")
+            {
                 if super::documents::normalize_path(Path::new(&p.path)) == startup {
                     p.startup = Some(true);
                 }

@@ -523,6 +523,8 @@ mod tests {
                 "debugger.netcoredbgPath",
                 "debugger.monoPrefix",
                 "debugger.monoAdapterPath",
+                "debugger.lldbDapPath",
+                "debugger.rustFormatters",
                 "languageServers.rustAnalyzerPath",
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
@@ -556,7 +558,15 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 3);
+        assert_eq!(s.section("Debugging > General").count(), 5);
+        assert_eq!(
+            s.get("debugger.lldbDapPath").unwrap().env.as_deref(),
+            Some("ELUDITE_LLDB_DAP")
+        );
+        assert_eq!(
+            s.get("debugger.rustFormatters").unwrap().default,
+            json!(true)
+        );
         assert_eq!(
             s.get("debugger.monoPrefix").unwrap().env.as_deref(),
             Some("ELUDITE_MONO_PREFIX")
