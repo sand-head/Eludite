@@ -213,6 +213,11 @@ with `int` parameters and the static `Main`). With the adapter's fixes:
     is looked up as a method; lambdas, array creation, `default` and `checked` are unsupported.
 11. **Step timing is bimodal:** `next` takes about 2 ms or about 12 ms (one of Mono.Debugging's waits); p95 stays near
     12.5 ms, far under the budget, so it was not chased.
+12. **Detach left the adapter spinning (found by brief 0027, fixed since):** `DebuggerSession.Detach` only queues the
+    work on the thread pool, the adapter detached twice (on `disconnect`, then on shutdown), and the second
+    `VM_Dispose` could wait forever; Mono's `Environment.Exit`, which suspends every other thread first, then spun at
+    about 90% of a core. The adapter now detaches once, waits for it (at most 1 s), sends `terminated` without
+    `exited`, and exits through libc's `_exit`: 10 to 45 ms from the detach to its exit, the program running on.
 
 ## 7. Tests
 
