@@ -605,6 +605,18 @@ fn dialogs_and_permission_requests_are_shell_dialogs_answered_through_the_engine
     w.vcx.simulate_keystrokes("A d a enter");
     let last = seen.notified.lock().unwrap().last().cloned().unwrap();
     assert_eq!(last.1["text"], "Ada", "{last:?}");
+    // Answered, the dialog gives the keys back to the page.
+    w.vcx.run_until_parked();
+    seen.inputs.lock().unwrap().clear();
+    w.vcx.simulate_keystrokes("q");
+    assert!(
+        seen.inputs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(t, e)| *t == target && e["type"] == "rawKeyDown"),
+        "the page has the keys"
+    );
 
     // A permission request, blocked.
     seen.tell(WindowEvent::Notification {

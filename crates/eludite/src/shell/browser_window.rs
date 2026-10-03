@@ -182,6 +182,8 @@ pub struct BrowserWindow {
     driving: Vec<String>,
     prompts: Vec<Prompt>,
     prompt_focus: FocusHandle,
+    /// A dialog was answered: the next render gives the keys back to the page (or the next dialog).
+    refocus: bool,
     menu: Option<ContextMenu>,
     /// Why the window cannot show pages, with what to run.
     message: Option<String>,
@@ -260,6 +262,7 @@ impl BrowserWindow {
             driving: Vec::new(),
             prompts: Vec::new(),
             prompt_focus: cx.focus_handle(),
+            refocus: false,
             menu: None,
             message: None,
             status: String::new(),
@@ -1048,6 +1051,7 @@ impl BrowserWindow {
             return;
         };
         let p = self.prompts.remove(ix);
+        self.refocus = true;
         self.bus.person_acted();
         if let Some(d) = &self.driver {
             if p.kind == "permission" {
@@ -1717,6 +1721,13 @@ impl Focusable for BrowserWindow {
 impl Render for BrowserWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
+        if std::mem::take(&mut self.refocus) && self.open {
+            if self.prompts.is_empty() {
+                self.focus_page(window, cx);
+            } else {
+                window.focus(&self.prompt_focus, cx);
+            }
+        }
         let status = self
             .shown_target()
             .and_then(|x| self.info.get(&x))
