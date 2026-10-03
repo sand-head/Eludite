@@ -227,11 +227,14 @@ impl Shell {
                 }
             }
         }
-        window.set_window_title(&format!(
-            "{} - Eludite",
-            root.file_name()
-                .map_or_else(|| root.to_string_lossy(), |n| n.to_string_lossy())
-        ));
+        self.set_title(
+            format!(
+                "{} - Eludite",
+                root.file_name()
+                    .map_or_else(|| root.to_string_lossy(), |n| n.to_string_lossy())
+            ),
+            window,
+        );
         self.recompose(cx);
 
         // The folder's files and the Cargo workspace, off the UI thread.
@@ -312,7 +315,7 @@ impl Shell {
         if solution.is_none() {
             // No `SessionEvent::Closed` will follow, so clear the window here.
             self.explorer.update(cx, |e, cx| e.clear(cx));
-            window.set_window_title("Eludite");
+            self.set_title("Eludite".into(), window);
             self.publish_workspace_tree();
             cx.notify();
         }

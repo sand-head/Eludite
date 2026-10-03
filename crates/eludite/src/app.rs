@@ -11,7 +11,7 @@ use eludite_docking::{
 use eludite_ui::{EDITOR_COMMAND_KEYS, RunCommand, Theme, bind_keymap, vs_keymap};
 use gpui::{
     App, AppContext as _, Bounds, Focusable as _, KeyBinding, TitlebarOptions, WindowBounds,
-    WindowOptions, px, size,
+    WindowDecorations, WindowOptions, px, size,
 };
 use serde_json::json;
 
@@ -162,10 +162,14 @@ pub fn run(args: Args, t_main: Instant) {
         let bounds = Bounds::centered(None, window_size, cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            // Eludite draws the title bar (ADR-0010): the content goes under it on macOS and Windows, and Linux asks
+            // the compositor for client-side decorations (title_bar::chrome falls back when it refuses).
             titlebar: Some(TitlebarOptions {
-                title: Some(title.into()),
-                ..Default::default()
+                title: Some(title.clone().into()),
+                appears_transparent: true,
+                traffic_light_position: Some(eludite_ui::title_bar::MAC_BUTTONS_POSITION),
             }),
+            window_decorations: Some(WindowDecorations::Client),
             app_id: Some("eludite".into()),
             // The harness must not be throttled if the compositor withholds focus.
             inactive_frame_interval: if args.benching() {
@@ -178,7 +182,7 @@ pub fn run(args: Args, t_main: Instant) {
         let window = cx
             .open_window(options, |window, cx| {
                 let shell = cx.new(|cx| {
-                    Shell::new(
+                    let mut shell = Shell::new(
                         commands,
                         controller,
                         theme,
@@ -186,7 +190,9 @@ pub fn run(args: Args, t_main: Instant) {
                         services,
                         window,
                         cx,
-                    )
+                    );
+                    shell.set_title(title, window);
+                    shell
                 });
                 shell.focus_handle(cx).focus(window, cx);
                 shell

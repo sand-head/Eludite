@@ -793,3 +793,97 @@ fn close_workspace_closes_the_solution_and_clears_the_window(cx: &mut TestAppCon
     let again = invoke(&mut w);
     assert_eq!(again["closed"], false);
 }
+
+/// ADR-0010: the title bar Eludite draws holds the menu bar, the window's title and the caption buttons, as each
+/// platform's chrome asks; the test window itself reports server-side decorations, where the platform draws it.
+#[gpui::test]
+fn the_title_bar_holds_the_menu_the_title_and_the_caption_buttons(cx: &mut TestAppContext) {
+    use eludite_ui::title_bar::{
+        CAPTION_BUTTON_WIDTH, FRAME_INSET, MAC_BUTTONS_INSET, Platform, TITLE_BAR_HEIGHT, chrome,
+    };
+    use gpui::{Decorations, Tiling, point};
+
+    let mut w = setup(cx);
+    if cfg!(target_os = "linux") {
+        // Server-side decorations: the platform's title bar over Eludite's plain menu row.
+        assert!(w.vcx.debug_bounds("title-bar").is_none());
+        assert!(w.vcx.debug_bounds("menu-File").is_some());
+    }
+    w.open_solution();
+    assert_eq!(
+        w.shell.read_with(&w.vcx, |s, _| s.title().to_string()),
+        "App - Eludite"
+    );
+    let set_chrome = |w: &mut Ws, c| {
+        w.shell.update(&mut w.vcx, |s, cx| {
+            s.chrome_override = Some(c);
+            cx.notify();
+        });
+        w.vcx.run_until_parked();
+    };
+
+    // Linux with client-side decorations: the whole row, and the frame around the window.
+    let client = Decorations::Client {
+        tiling: Tiling::default(),
+    };
+    set_chrome(&mut w, chrome(Platform::Linux, client, false));
+    let bar = w.bounds("title-bar");
+    assert_eq!(bar.size.height, TITLE_BAR_HEIGHT);
+    assert_eq!(
+        w.bounds("window-frame").origin,
+        point(FRAME_INSET, FRAME_INSET)
+    );
+    let (menu, title) = (w.bounds("menu-File"), w.bounds("title-bar-title"));
+    assert!(bar.contains(&menu.center()) && bar.contains(&title.center()));
+    assert!(
+        title.left() > menu.right(),
+        "the title follows the menu bar"
+    );
+    let mut left = title.right();
+    for caption in ["caption-minimize", "caption-maximize", "caption-close"] {
+        let b = w.bounds(caption);
+        assert!(bar.contains(&b.center()), "{caption} in the title bar");
+        assert_eq!(b.size.width, CAPTION_BUTTON_WIDTH);
+        assert!(b.left() >= left, "{caption} in order at the right");
+        left = b.right();
+    }
+    assert!(bar.right() - left < px(1.), "Close ends the row");
+    // The menu bar still works from the title bar. (Minimize and Maximize call the platform window, which the test
+    // platform leaves unimplemented.)
+    w.click("menu-File");
+    assert_eq!(
+        w.shell.read_with(&w.vcx, |s, cx| s
+            .menu()
+            .read(cx)
+            .open_menu()
+            .map(str::to_owned)),
+        Some("File".to_owned())
+    );
+    w.click("menu-backdrop");
+
+    // A tiled window has no frame on its tiled sides.
+    set_chrome(
+        &mut w,
+        chrome(
+            Platform::Linux,
+            Decorations::Client {
+                tiling: Tiling::tiled(),
+            },
+            false,
+        ),
+    );
+    assert_eq!(w.bounds("window-frame").origin, point(px(0.), px(0.)));
+
+    // Windows: the buttons are drawn, the platform presses them; no frame.
+    set_chrome(
+        &mut w,
+        chrome(Platform::Windows, Decorations::Server, false),
+    );
+    assert!(w.vcx.debug_bounds("window-frame").is_none());
+    assert_eq!(w.bounds("caption-close").size.width, CAPTION_BUTTON_WIDTH);
+
+    // macOS: room for its own buttons before the menu bar, none drawn.
+    set_chrome(&mut w, chrome(Platform::Mac, Decorations::Server, false));
+    assert!(w.bounds("menu-File").left() - w.bounds("title-bar").left() >= MAC_BUTTONS_INSET);
+    assert!(w.vcx.debug_bounds("caption-close").is_none());
+}
