@@ -1,6 +1,6 @@
 # Brief 0030: The agent debugging proving scenario
 
-Status: in progress
+Status: done on Linux (Windows and macOS not run); [report](0030-report.md)
 Phase: 2 and 4 (proposal 0001, brief F; PLAN.md's Phase 4 exit in its measurable form)
 Plan reference: PLAN.md sections 2 (principle 6: a corpus of real inputs and golden outputs), 5.2, 5.5, 5.7, 10 (Phase 2: agent-driven debugging; Phase 4: an agent takes a failing test to a reviewed, passing fix), 11 (verification over trust); proposal 0001 sections 1 (the proving scenario), 8 (F), 9, 11 (context cost)
 Related ADRs: ADR-0003
