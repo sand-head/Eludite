@@ -2,7 +2,8 @@
 //! the test) the window opens with the tree, Run All streams results into its rows, the Error List and the status
 //! bar, Run Failed Tests and Repeat Last Run rerun the right tests, the search box filters, Cancel ends a run, an
 //! agent discovers, runs with `wait_ms` and reads the same results, stale updates are dropped and a restarted host's
-//! status is replayed, a discovery that outlives its solution generation starts over, and Debug Test starts a
+//! status is replayed, a discovery that outlives its solution generation starts over, a 100-test tree is built and
+//! drawn in under 50 ms, and Debug Test starts a
 //! session that breaks at the test's first line (the fake adapter); with the real `cargo` on the corpus package, Rust
 //! tests are listed and run with libtest's output parsed, and Debug Test breaks in one under the real lldb-dap when it
 //! is installed; with the real `eludite-host` and `eludite-dbg-mono`, Debug Test breaks in the corpus's xunit.v3 test
@@ -388,6 +389,55 @@ fn the_window_opens_with_the_tree_and_run_all_streams_results_into_rows_the_erro
         timings.tree_built.unwrap().as_secs_f64() * 1e3
     );
     assert!(shown < Duration::from_millis(100), "{shown:?}");
+}
+
+/// The budget's tree: a 100-test MTP project (brief 0035's generated `Corpus.Many`) shown in the window, its rows
+/// built from the model and the window drawn, timed over 5 builds.
+#[gpui::test]
+fn a_hundred_test_tree_is_built_and_drawn_in_under_50_ms(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    let root = t.w.dir.path().to_path_buf();
+    let project = root.join("tests/Corpus.Many/Corpus.Many.csproj");
+    let source = root.join("tests/Corpus.Many/ManyTests.cs");
+    let tests: Vec<Value> = (0..100)
+        .map(|i| {
+            json!({"id": format!("m{i}"), "displayName": format!("Corpus.Many.ManyTests.Fact{i:03}"),
+                   "fullyQualifiedName": format!("Corpus.Many.ManyTests.Fact{i:03}"),
+                   "namespace": "Corpus.Many", "className": "ManyTests", "method": format!("Fact{i:03}"),
+                   "source": source, "line": 5 + i * 3})
+        })
+        .collect();
+    t.w.fake.set_tests(json!([
+        {"container": {"id": format!("{}|net10.0", project.display()), "name": "Corpus.Many",
+                       "project": project, "targetFramework": "net10.0", "protocol": "mtp", "runtime": "dotnet"},
+         "tests": tests}
+    ]));
+    t.w.open_solution();
+    t.cmd(cmds::EXPLORER, json!({})).unwrap();
+    t.wait_phase(Phase::Ready);
+    assert_eq!(t.rows().len(), 103);
+    let mut took = Vec::new();
+    for _ in 0..5 {
+        let started = Instant::now();
+        t.w.shell.update(&mut t.w.vcx, |s, cx| {
+            s.tests.dirty = true;
+            s.refresh_tests_window(cx);
+        });
+        t.w.vcx.update(|window, cx| {
+            window.refresh();
+            let _ = window.draw(cx);
+        });
+        took.push(started.elapsed());
+    }
+    eprintln!(
+        "timing: 100-test tree built and drawn: {}",
+        took.iter()
+            .map(|d| format!("{:.1} ms", d.as_secs_f64() * 1e3))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    took.sort();
+    assert!(took[2] < Duration::from_millis(50), "{took:?}");
 }
 
 #[gpui::test]
