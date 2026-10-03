@@ -67,7 +67,7 @@
       "type": "boolean"
     },
     "until": {
-      "description": "When to stop collecting: `terminated` (default: the session ends), `stopped` (the next visible stop: a breakpoint, an exception; the answer has its stop summary) or `hits` (the points were hit `count` times in all; the debuggee goes on running).",
+      "description": "When to stop collecting: `terminated` (default: the session ends), `stopped` (the next visible stop: a breakpoint, an exception; the answer has its stop summary) or `hits` (the points were hit `count` times in all; the debuggee goes on running). Whatever `until` says, a visible stop (the debuggee in break mode) ends collecting with `stopped_by: stopped`, since nothing prints until someone resumes it.",
       "enum": [
         "terminated",
         "stopped",
