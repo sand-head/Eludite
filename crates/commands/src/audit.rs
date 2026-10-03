@@ -8,7 +8,7 @@ use std::time::SystemTime;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{Caller, CommandId, PermissionClass};
+use crate::{CallClass, Caller, CommandId, PermissionClass};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "message", rename_all = "snake_case")]
@@ -45,7 +45,9 @@ pub struct EditRecord {
     pub summary: Option<String>,
 }
 
-/// One recorded invocation. Unknown commands are recorded with `permission: None`.
+/// One recorded invocation. Unknown commands are recorded with `permission: None`. `permission` is the call's
+/// effective class (ADR-0009): the spec's, or what its escalation hook raised it to, with the hook's reason in
+/// `escalation`.
 #[derive(Debug, Clone, Serialize)]
 pub struct AuditEntry {
     /// Position in the log, from 1.
@@ -55,6 +57,9 @@ pub struct AuditEntry {
     #[serde(skip)]
     pub timestamp: SystemTime,
     pub permission: Option<PermissionClass>,
+    /// Why an escalation hook raised the class, or why the policy refused the call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub escalation: Option<String>,
     pub outcome: Outcome,
     pub caller: Caller,
     /// The arguments, for agent calls.
@@ -98,6 +103,32 @@ impl AuditLog {
         caller: Caller,
         arguments: Option<Value>,
     ) -> u64 {
+        self.push(command, permission, None, outcome, caller, arguments)
+    }
+
+    /// Record an invocation of effective class `class` (ADR-0009): its class, and the escalation's reason or the
+    /// refusal. Returns the entry's `seq`.
+    pub fn record_call_class(
+        &self,
+        command: &str,
+        class: &CallClass,
+        outcome: Outcome,
+        caller: Caller,
+        arguments: Option<Value>,
+    ) -> u64 {
+        let why = class.refused.clone().or_else(|| class.reason.clone());
+        self.push(command, Some(class.class), why, outcome, caller, arguments)
+    }
+
+    fn push(
+        &self,
+        command: &str,
+        permission: Option<PermissionClass>,
+        escalation: Option<String>,
+        outcome: Outcome,
+        caller: Caller,
+        arguments: Option<Value>,
+    ) -> u64 {
         let mut entries = self.lock();
         let seq = entries.len() as u64 + 1;
         entries.push(AuditEntry {
@@ -105,6 +136,7 @@ impl AuditLog {
             command: command.to_owned(),
             timestamp: SystemTime::now(),
             permission,
+            escalation,
             outcome,
             caller,
             arguments,
