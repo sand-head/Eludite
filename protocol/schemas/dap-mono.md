@@ -79,7 +79,12 @@ detaches unless `terminateDebuggee` is true.
 naming the command.
 
 - Breakpoints set before the program loads their assembly answer `verified: false`; a `breakpoint` event with reason
-  `changed`, `verified: true` and the bound line follows when Mono binds them.
+  `changed`, `verified: true` and the bound line follows when Mono binds them. The `message` of an unbound breakpoint
+  says whether it is pending (`The breakpoint will not currently be hit`, `The breakpoint could not yet be bound to a
+  valid location`) or failed (`The breakpoint location is invalid...`, `The breakpoint could not be bound`, the
+  condition's error).
+- `setBreakpoints` keeps a breakpoint the request repeats unchanged (same line asked for, condition, hit condition and
+  log message): same `id`, its binding and hit count kept (brief 0036). The others of the file are replaced.
 - `scopes` answers one scope, `Locals`, holding `this`, the parameters and the locals, in that order.
 - `variables` honors `start` and `count`. A variables reference names one expandable value in one stop; every
   reference (and frame id) is dropped when the debuggee resumes.
@@ -116,15 +121,41 @@ too.
 ## Expressions
 
 C# as Mono.Debugging's evaluator (NRefactory 5.5) reads it, in the stopped frame: locals, parameters, `this`, members,
-indexers, method and property calls (which run debuggee code), casts, literals, operators. Two gaps of the 2017 build
-are closed by the adapter: integer and floating arithmetic and comparisons (`i == 5`, `a + b * 2`) are retried with
-explicit `long` or `double` casts when the evaluator's numeric unboxing fails, and type names (`Program.Hang()`,
-`Calculator.Twice(2)`, `Math.Max(a, b)`, `DateTime.Now`) resolve against the debuggee's types, loaded or not, from
-the frame's namespace outwards and then `System`; namespace-qualified names (`System.Math.Max(a, b)`,
-`MyApp.Program.Hang()`) and `global::` names work too. A type of an assembly the debuggee has not loaded (LINQ's
-`System.Linq.Enumerable` in a program that never used `System.Core`) is not found. Lambdas, array creation,
-`default(T)`, `checked`, `nameof` and `++`/`--` are not supported by the evaluator. NRefactory 5.5 reads an
-interpolated string (`$"{x}"`) as its literal text, so the adapter refuses one with an error naming `string.Format`.
+indexers, method and property calls (which run debuggee code), casts, literals, operators. Integer and floating
+arithmetic and comparisons (`i == 5`, `a + b * 2`), which the 2017 build's numeric unboxing fails, are retried with
+explicit `long` or `double` casts. Lambdas, array creation, `default(T)`, `checked`, `nameof` and `++`/`--` are not
+supported by the evaluator. NRefactory 5.5 reads an interpolated string (`$"{x}"`) as its literal text, so the adapter
+refuses one with an error naming `string.Format`.
+
+### Type names (brief 0036)
+
+`evaluate` (every context), breakpoint conditions and the `{expressions}` of log points resolve a type name the way
+Visual Studio's C# expression evaluator does, so `Coin.Quarter` works at a break in `MissingCase.Program.Main` without
+`MissingCase.`. A name that is not a local, a parameter or a member of `this` or of the enclosing types (those come
+first, as in C#) is looked up as a type:
+
+1. a nested type of the stopped method's type, then of each type enclosing it;
+2. each namespace level of the method, innermost first, ending with the global namespace: the level's own types (the
+   method's namespace, then its parents: `A.B.Coin`, `A.Coin`, `Coin`), then the `using` aliases and the namespaces the
+   `using` directives declared at that level import (inside `namespace A.B { ... }`, or at the top of the file for
+   the global level; `global using` counts as top level, `using static` is ignored). The directives are read from the
+   source file the debug information names for the frame (cached per file and its time stamp; file-scoped
+   namespaces, records and raw strings are understood). Two imports of one level that both have the name make it
+   ambiguous;
+3. `System` (for a file without `using System;`);
+4. a unique simple name among the types of the loaded assemblies: all of the method's own assembly, the public ones of
+   the debuggee's other assemblies (those outside Mono's `lib/mono`) and the types Mono.Debugging has seen loaded; two
+   or more make it ambiguous;
+5. the first segment of a namespace (`System` in `System.Math.Max(a, b)`), which then evaluates as `global::System`.
+
+Namespace-qualified names (`MissingCase.Coin.Quarter`, `System.Math.Max(a, b)`) and `global::` names always work. An
+ambiguous name fails with `'Kind' is ambiguous between A.Kind and B.Kind: qualify it`. A type of an assembly the
+debuggee has not loaded is not found. Each resolution is written to the adapter's log with its time
+(`type name `Coin` in MissingCase.Coins: MissingCase.Coin (0.6 ms, pre-pass)`).
+
+A condition that fails to evaluate (an unknown or ambiguous name, a non-boolean result) is not inserted: the adapter
+sends a `breakpoint` event with `reason: changed`, `verified: false` and the evaluator's message (for example
+`Unknown identifier: Coin`), and the breakpoint does not stop until it is set again with another condition.
 
 ## Stepping
 
@@ -137,6 +168,13 @@ interpolated string (`$"{x}"`) as its literal text, so the adapter refuses one w
 ## Breakpoint behavior
 
 - Hit conditions count hits before the condition is checked (Mono.Debugging's order) for source breakpoints.
+- Breakpoints set while the program runs bind even while it loads types (brief 0036). Mono.Debugging 2017 inserts a
+  breakpoint on its own operation thread from the tables of loaded types its event thread fills, without a lock: an
+  insertion during a type load could fail ("Could not set breakpoint at location ... (Collection was modified; ...)")
+  or miss the type and stay pending forever. The adapter changes the breakpoint list only under the lock the library's
+  start-up enumeration takes, inserts again at once a breakpoint whose insertion failed (the library's message is
+  logged, not shown), and re-inserts a breakpoint still pending although a loaded type of its file has code on its
+  line, checked soon after the insertion, at every assembly load and at every stop.
 - Function breakpoints: Mono.Debugging 2017 binds a function breakpoint to every method of the named type, so the
   adapter lets only the named method stop and applies the function breakpoint's condition, hit condition (counted
   after the condition) and log message itself. Its `breakpoint` event has no line.

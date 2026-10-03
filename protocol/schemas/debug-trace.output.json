@@ -122,6 +122,14 @@
         }
       }
     },
+    "points_failed": {
+      "description": "The points the session's adapter never bound during the trace (failed, or still pending), with the adapter's reason (brief 0036): they printed nothing. Absent when every point bound.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/failed"
+      }
+    },
     "overhead_ms_per_hit": {
       "description": "When the debugger emulated the tracepoints (the adapter has no log points): the mean time from a hit's stop to its resume, in milliseconds. Absent when the adapter printed the lines.",
       "type": "number",
@@ -135,6 +143,41 @@
       "description": "The session generation the trace ran in.",
       "type": "integer",
       "minimum": 0
+    }
+  },
+  "$defs": {
+    "failed": {
+      "description": "A breakpoint (or a point of eludite.debug.run_until or eludite.debug.trace) that a session's adapter did not bind, or whose condition it rejected (brief 0036): it never stops there.",
+      "type": "object",
+      "required": [
+        "session",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "The source file (absent for a function breakpoint).",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line (absent for a function breakpoint).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "function": {
+          "description": "A function breakpoint's function.",
+          "type": "string"
+        },
+        "session": {
+          "description": "The session whose adapter said so.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "message": {
+          "description": "The adapter's reason, as it gave it: the line has no code (`The breakpoint location is invalid`), the condition does not compile (`Unknown identifier: Coin`), or, for a point that never bound, why it is not bound yet.",
+          "type": "string"
+        }
+      }
     }
   }
 }
