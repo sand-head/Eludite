@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-open.input.json",
   "title": "eludite.browser.tab_open input",
-  "description": "Open a new browser tab, make it the active tab, and, when `url` is given, navigate it and wait for the page's load event (up to 30 s). Launches the browser first when it is not running (a few hundred milliseconds to a few seconds), with the workspace's own profile under .eludite/browser/profile. Answers the tab. Next: eludite.browser.read_page or eludite.browser.screenshot to see the page, eludite.browser.navigate to go elsewhere. A navigation error (`net::ERR_CONNECTION_REFUSED`, ...) fails the command; the tab stays open.",
+  "description": "Open a new browser tab, make it the active tab, and, when `url` is given, navigate it and wait for the page's load event (up to 30 s). Launches the browser first when it is not running (a few hundred milliseconds to a few seconds), with the workspace's own profile under .eludite/browser/profile. Answers the tab. Next: eludite.browser.read_page or eludite.browser.screenshot to see the page, eludite.browser.navigate to go elsewhere. A navigation error (`net::ERR_CONNECTION_REFUSED`, ...) fails the command; the tab stays open. Permission class execute; a `url` off the allowed origins (the solution policy's `browser.origins`: localhost, 127.0.0.1, [::1], files under the workspace and the workspace's launch urls by default) makes the call dangerous, which prompts (ADR-0009).",
+  "x-eludite-escalates": "Dangerous when `url` is off the allowed origins (the solution policy's `browser.origins`).",
   "type": "object",
   "additionalProperties": false,
   "properties": {

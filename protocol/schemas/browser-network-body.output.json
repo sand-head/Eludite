@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-network-body.output.json",
+  "title": "eludite.browser.network_body output",
+  "description": "The response and its body.",
+  "type": "object",
+  "required": [
+    "tab",
+    "request_id",
+    "url",
+    "headers",
+    "mime_type",
+    "size",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "status": {
+      "description": "The HTTP status.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "headers": {
+      "description": "The response headers, by name as the server sent them.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "mime_type": {
+      "type": "string"
+    },
+    "body": {
+      "description": "The body as text (UTF-8), when it is text.",
+      "type": "string"
+    },
+    "body_base64": {
+      "description": "The body's bytes in base64, when it is not text.",
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "size": {
+      "description": "The whole body's size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "The body is longer than `max_bytes` and is cut.",
+      "type": "boolean"
+    }
+  }
+}

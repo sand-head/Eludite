@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/command-spec.json",
   "title": "Eludite command spec",
-  "description": "The public description of a command on the Eludite command bus (PLAN.md 5.1), shared by the UI, the audit log and the MCP server. A command whose `agent_visible` is true is advertised to hosted agents as an MCP tool (protocol/schemas/mcp-tool.json); the others stay UI-only (window layout and view filters). The permission class decides what the MCP boundary does with an agent's call (PLAN.md 5.3): `read` runs without a prompt; `edit_buffer` edits are held as pending changes for review; `execute` and `dangerous` prompt in the Agents window unless the solution's policy file (protocol/schemas/agents-policy.json) decides.",
+  "description": "The public description of a command on the Eludite command bus (PLAN.md 5.1), shared by the UI, the audit log and the MCP server. A command whose `agent_visible` is true is advertised to hosted agents as an MCP tool (protocol/schemas/mcp-tool.json); the others stay UI-only (window layout and view filters). The permission class decides what the MCP boundary does with an agent's call (PLAN.md 5.3): `read` runs without a prompt; `edit_buffer` edits are held as pending changes for review; `execute` and `dangerous` prompt in the Agents window unless the solution's policy file (protocol/schemas/agents-policy.json) decides. `permission` is the class every call has at least; a command with `escalates` may raise one call's class from its input (ADR-0009).",
   "type": "object",
   "required": [
     "id",
@@ -43,6 +43,11 @@
     "agent_visible": {
       "description": "Advertised to agents as an MCP tool.",
       "type": "boolean"
+    },
+    "escalates": {
+      "description": "When a call of this command is raised above `permission` (ADR-0009): the command registers an escalation hook that reads the call's input and the solution's policy, and may raise the call's class (never lower it) or refuse it for an agent. Taken from the input schema's root `x-eludite-escalates`; MCP's `tools/list` sends it as `_meta` `eludite/escalates`. Absent: every call is `permission`.",
+      "type": "string",
+      "minLength": 1
     }
   }
 }
