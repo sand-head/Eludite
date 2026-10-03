@@ -199,14 +199,14 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
     let enabled = h.shell.read_with(&h.vcx, |s, cx| {
         let m = s.menu().read(cx);
         (
-            m.is_item_enabled("Test", "Run All Tests"),
+            m.is_item_enabled("Analyze", "Code Cleanup"),
             m.is_item_enabled("View", "Output"),
-            m.enabled_labels("Test"),
+            m.enabled_labels("Analyze"),
             m.enabled_labels("Window"),
             m.enabled_labels("Build"),
         )
     });
-    assert_eq!(enabled.0, Some(false), "no test command exists yet");
+    assert_eq!(enabled.0, Some(false), "no analysis command exists yet");
     assert_eq!(enabled.1, Some(true));
     assert!(enabled.2.is_empty());
     assert_eq!(
@@ -229,14 +229,32 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
     let before = h.audit();
     h.click("menu-Build");
     h.click("menu-item-Build-Cancel");
-    h.click("menu-Test");
-    h.click("menu-item-Test-Run All Tests");
-    h.click("menu-item-Test-Debug All Tests");
+    h.click("menu-Analyze");
+    h.click("menu-item-Analyze-Code Cleanup");
+    h.click("menu-item-Analyze-Run Code Analysis");
     assert_eq!(h.audit(), before, "disabled items invoke nothing");
     let open = h.shell.read_with(&h.vcx, |s, cx| {
         s.menu().read(cx).open_menu().map(str::to_owned)
     });
-    assert_eq!(open.as_deref(), Some("Test"), "and do not close the menu");
+    assert_eq!(
+        open.as_deref(),
+        Some("Analyze"),
+        "and do not close the menu"
+    );
+    // Brief 0035: the Test menu's items exist (Run All Tests and Debug All Tests wait while a test run goes).
+    let test = h
+        .shell
+        .read_with(&h.vcx, |s, cx| s.menu().read(cx).enabled_labels("Test"));
+    assert_eq!(
+        test,
+        [
+            "Run All Tests",
+            "Debug All Tests",
+            "Run Failed Tests",
+            "Repeat Last Run",
+            "Test Explorer"
+        ]
+    );
     // Clicking outside closes it.
     h.click("menu-backdrop");
     let open = h.shell.read_with(&h.vcx, |s, cx| {

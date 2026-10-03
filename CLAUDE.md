@@ -19,7 +19,7 @@ dotnet build dotnet/Eludite.slnx
 dotnet test dotnet/Eludite.slnx
 ```
 
-Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`. On Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`. Optional: Mono (`mono-devel` on Debian/Ubuntu, `mono` on Arch) to debug .NET Framework programs with `eludite-dbg-mono`; without it that adapter's tests skip. Optional: lldb-dap (`lldb-18` on Debian/Ubuntu, `lldb` on Arch) to debug Rust (Cargo packages); without it `crates/dap/tests/lldb.rs` skips. Optional: CEF for the embedded browser engine: `export CEF_PATH="$(tools/cef/fetch.sh)"`, then add `--features eludite-chromium/cef` to the cargo commands; without it the engine tests skip.
+Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`. On Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`. Optional: Mono (`mono-devel` on Debian/Ubuntu, `mono` on Arch) to debug .NET Framework programs with `eludite-dbg-mono`; without it that adapter's tests skip. Optional: lldb-dap (`lldb-18` on Debian/Ubuntu, `lldb` on Arch) to debug Rust (Cargo packages); without it `crates/dap/tests/lldb.rs` skips. Optional: `corpus/tests/build.sh` (`build.ps1` on Windows) builds the Test Explorer's corpus in place; without it the real-host and shell Test Explorer tests that use it skip. Optional: CEF for the embedded browser engine: `export CEF_PATH="$(tools/cef/fetch.sh)"`, then add `--features eludite-chromium/cef` to the cargo commands; without it the engine tests skip.
 
 ## Crate and project map
 
@@ -46,7 +46,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
 | `browsers/chromium` | `eludite-chromium`: CEF's browser process (GPL), windowless tabs rendered into a shared-memory frame ring, JSON-RPC control on stdio (`protocol/schemas/browser-rpc/`); the real engine needs the `cef` feature and `CEF_PATH` from `tools/cef/fetch.sh`, else it is a stub and its tests skip; Linux only so far (brief 0031); popups, dialogs, permissions, downloads, DevTools as a tab and the privacy switches (brief 0032) | 4.9, 12 |
 | `debuggers/mono` | `eludite-dbg-mono`, Mono soft-debugger DAP server (C#, net472 on Mono.Debugging.Soft, runs under the located Mono): .NET Framework debugging on Linux and macOS; built by `dotnet build dotnet/Eludite.slnx` (brief 0022) | 4.5 |
-| `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
+| `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC; tests discovered and run out of process over Microsoft.Testing.Platform's server mode and VSTest's translation layer (`Eludite.TestBridge`, brief 0035) | 3 (D2, D4), 4.3, 4.6 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
 | `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `cef/` (CEF minimal distribution fetch, brief 0031), `lldb-dap/` (install notes only: distributions carry it; brief 0029), `legacy-load/` (brief 0003 runner); also `dap-corpus/` (re-records `corpus/dap/`, brief 0033) | 3 (D3), 4.3, 4.5, 7 |
 

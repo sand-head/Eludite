@@ -83,6 +83,9 @@ impl Dialect for HostDialect {
             methods::BUILD_OUTPUT => typed_or_untyped::<BuildOutput>(n, Event::BuildOutput),
             methods::BUILD_PROGRESS => typed_or_untyped::<BuildProgress>(n, Event::BuildProgress),
             methods::BUILD_FINISHED => typed_or_untyped::<BuildFinished>(n, Event::BuildFinished),
+            methods::TEST_UPDATE => {
+                typed_or_untyped::<host::TestUpdate>(n, |u| Event::TestUpdate(Box::new(u)))
+            }
             _ => Event::Notification(n),
         })
     }

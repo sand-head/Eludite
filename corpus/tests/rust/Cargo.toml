@@ -1,0 +1,10 @@
+# The Test Explorer corpus's Cargo package (brief 0035): passing, failing, ignored and output-writing tests in the
+# library's unit tests and an integration test. Its own workspace, apart from the repository's.
+[package]
+name = "corpus-tests"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]

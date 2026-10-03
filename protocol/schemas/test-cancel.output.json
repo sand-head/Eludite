@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-cancel.output.json",
+  "title": "eludite.test.cancel output",
+  "description": "Whether a run was going and is being canceled.",
+  "type": "object",
+  "required": [
+    "canceled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "canceled": {
+      "type": "boolean"
+    },
+    "run": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

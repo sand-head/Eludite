@@ -1,0 +1,355 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-status.json",
+  "title": "eludite/test/status",
+  "description": "The discoveries and runs that are running, with what they reported so far, and the last one that finished. A shell that (re)connects to the host calls it to recover them (as eludite/build/status recovers a build): it replaces each running one's tests and results with these and then applies only eludite/test/update notifications whose seq is at least `nextSeq`. Allowed before eludite/host/initialize (it then reports nothing). Never fails.",
+  "x-eludite-method": "eludite/test/status",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null or an empty object.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "running"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "running": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "runId",
+              "kind",
+              "generation",
+              "containers",
+              "elapsedMs",
+              "nextSeq",
+              "tests",
+              "results"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "runId": {
+                "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+                "type": "integer",
+                "minimum": 1
+              },
+              "kind": {
+                "enum": [
+                  "discover",
+                  "run"
+                ]
+              },
+              "generation": {
+                "description": "The solution generation it runs under. A new generation (another solution opened, or this one closed) cancels it.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "debug": {
+                "type": "boolean"
+              },
+              "containers": {
+                "type": "array",
+                "items": {
+                  "description": "One test container: a test project built for one target framework (a multi-targeted project is one container per framework, as Visual Studio's Test Explorer lists it).",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name",
+                    "project",
+                    "targetFramework",
+                    "protocol"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "name": {
+                      "description": "As the Test Explorer shows it: the project's name, with the target framework in parentheses when the project has several (`Corpus.XunitV3 (net10.0)`).",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "project": {
+                      "description": "Absolute path of the project file.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetFramework": {
+                      "description": "The target framework moniker (`net10.0`, `net472`).",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "protocol": {
+                      "description": "mtp: Microsoft.Testing.Platform's server mode (JSON-RPC between the host and the test application). vstest: the VSTest translation-layer protocol to vstest.console, for projects that have not migrated.",
+                      "enum": [
+                        "mtp",
+                        "vstest"
+                      ]
+                    },
+                    "runtime": {
+                      "description": "What runs the tests: dotnet (the apphost or `dotnet <dll>`), mono (`mono <exe>` for .NET Framework off Windows, the located Mono), netfx (the .exe on Windows).",
+                      "enum": [
+                        "dotnet",
+                        "mono",
+                        "netfx"
+                      ]
+                    },
+                    "program": {
+                      "description": "MTP: the test application (the apphost, the DLL or the .exe). VSTest: the test assembly vstest.console loads (its source).",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "error": {
+                      "description": "Why the container cannot be discovered or run (`not built: ... does not exist; build the project first`, `.NET Framework tests need Mono off Windows`). Such a container has no tests; its containerFinished update says failed with this message.",
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "elapsedMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "nextSeq": {
+                "description": "The seq of its next eludite/test/update.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "tests": {
+                "description": "A discovery's tests so far, each with its `container`.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "container",
+                    "test"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "container": {
+                      "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "test": {
+                      "description": "A discovered test.",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "displayName",
+                        "fullyQualifiedName"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "description": "The runner's id of the test, unique in its container: MTP's node `uid`, VSTest's TestCase `Id`. Stable across discoveries of the same build.",
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "displayName": {
+                          "description": "As the framework names it (a theory's data row includes its arguments: `AddsPairs(a: 1, b: 1, sum: 2)`).",
+                          "type": "string"
+                        },
+                        "fullyQualifiedName": {
+                          "description": "`Namespace.Class.Method`, without a data row's arguments (MTP: `location.type` and `location.method`; VSTest: TestCase.ManagedType and ManagedMethod, else FullyQualifiedName).",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "The class's namespace (empty or omitted for the global namespace).",
+                          "type": "string"
+                        },
+                        "className": {
+                          "description": "The class name without its namespace (a nested class keeps its `+` path).",
+                          "type": "string"
+                        },
+                        "method": {
+                          "description": "The method name, without parameters.",
+                          "type": "string"
+                        },
+                        "source": {
+                          "description": "Absolute path of the source file that declares the test, when the framework reports it.",
+                          "type": "string"
+                        },
+                        "line": {
+                          "description": "1-based line the framework reports for the test (xunit.v3: the line of the `[Fact]` attribute; VSTest's DIA lookup: the method's first sequence point, its opening brace).",
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "traits": {
+                          "description": "The test's traits (xunit `[Trait]`, MSTest `[TestCategory]` as Category, NUnit `[Category]`).",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "name",
+                              "value"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "results": {
+                "description": "A run's latest state per test so far, each with its `container`.",
+                "type": "array",
+                "items": {
+                  "description": "A test's state in a run.",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "outcome"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "description": "The test's id (its discovered `id`). A test the runner reports that discovery did not list (a data row expanded at run time) has an id of its own and carries `displayName` and `fullyQualifiedName`.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "container": {
+                      "description": "Its container (eludite/test/status only; an update names its container once).",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "outcome": {
+                      "description": "running: started (MTP `in-progress`, VSTest's active tests). passed, failed (MTP `failed`, `timed-out`, `error`; VSTest Failed), skipped (MTP `skipped`; VSTest Skipped), notRun (MTP `cancelled`; VSTest None or NotFound).",
+                      "enum": [
+                        "running",
+                        "passed",
+                        "failed",
+                        "skipped",
+                        "notRun"
+                      ]
+                    },
+                    "durationMs": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "message": {
+                      "description": "The failure message (MTP `error.message`, VSTest ErrorMessage), or the skip reason.",
+                      "type": "string"
+                    },
+                    "stackTrace": {
+                      "description": "The failure's stack trace as the runtime printed it (MTP `error.stacktrace`, VSTest ErrorStackTrace).",
+                      "type": "string"
+                    },
+                    "output": {
+                      "description": "What the test wrote: standard output, then standard error (MTP `standardOutput`, `standardError`; VSTest's StdOutMsgs, StdErrMsgs and AdditionalInfo messages).",
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "fullyQualifiedName": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "last": {
+          "description": "The last discovery or run that finished in this host process (omitted when none has).",
+          "type": "object",
+          "required": [
+            "runId",
+            "kind",
+            "generation",
+            "state",
+            "summary",
+            "elapsedMs"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "runId": {
+              "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+              "type": "integer",
+              "minimum": 1
+            },
+            "kind": {
+              "enum": [
+                "discover",
+                "run"
+              ]
+            },
+            "generation": {
+              "description": "The solution generation it runs under. A new generation (another solution opened, or this one closed) cancels it.",
+              "type": "integer",
+              "minimum": 0
+            },
+            "state": {
+              "enum": [
+                "completed",
+                "failed",
+                "canceled"
+              ]
+            },
+            "summary": {
+              "description": "Counts over every test the run covered.",
+              "type": "object",
+              "required": [
+                "total",
+                "passed",
+                "failed",
+                "skipped",
+                "notRun"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "failed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "skipped": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "notRun": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "elapsedMs": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  }
+}

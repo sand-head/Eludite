@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-explorer.input.json",
+  "title": "eludite.test.explorer input",
+  "description": "Test > Test Explorer (Ctrl+E, T): show the Test Explorer window. When nothing is discovered for the open workspace yet, it discovers the tests of the build outputs as they are (eludite.test.discover with `rebuild: false`); a project that is not built says so. With `filter`, its search box shows that text (Visual Studio's `FullName:`, `Outcome:` and `Trait:` filters, or a substring of the name), as typing in it does. The output is the window's place (view-tool-window.output.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filter": {
+      "description": "The search box's text: `FullName:<text>`, `Outcome:<Passed|Failed|Skipped|Not Run>`, `Trait:<Name=Value>` and plain text (a case-insensitive substring of the test's name or full name), every term holding. Empty clears it.",
+      "type": "string"
+    }
+  }
+}

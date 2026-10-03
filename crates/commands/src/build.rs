@@ -144,6 +144,8 @@ pub enum OutputSource {
     /// The browser of `eludite.browser.*` (brief 0023): its launch, tabs, navigation failures, console errors and
     /// exit.
     Browser,
+    /// The test runners' output (brief 0035): eludite-host's MTP and VSTest logs and cargo test's output.
+    Tests,
 }
 
 impl OutputSource {
@@ -154,6 +156,7 @@ impl OutputSource {
             OutputSource::LanguageServers => "language_servers",
             OutputSource::Debug => "debug",
             OutputSource::Browser => "browser",
+            OutputSource::Tests => "tests",
         }
     }
 }

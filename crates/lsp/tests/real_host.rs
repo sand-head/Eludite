@@ -247,3 +247,128 @@ fn real_host_builds_a_project() {
     assert_eq!(client.shutdown(T).unwrap(), Some(0));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The test corpus's MTP project (corpus/tests, built by `corpus/tests/build.sh`), its discovery and its run through
+/// the real host (brief 0035). Skips when the host or the corpus is not built or `dotnet` is not on PATH.
+#[test]
+fn real_host_discovers_and_runs_the_mtp_corpus_project() {
+    let Some(dll) = host_dll() else {
+        eprintln!(
+            "skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx) and ELUDITE_HOST_DLL unset"
+        );
+        return;
+    };
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests");
+    let project = corpus.join("Corpus.XunitV3").join("Corpus.XunitV3.csproj");
+    let built = corpus.join("Corpus.XunitV3/bin/Debug/net10.0/Corpus.XunitV3.dll");
+    if !built.exists() {
+        eprintln!("skipped: corpus/tests is not built (corpus/tests/build.sh)");
+        return;
+    }
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
+        return;
+    }
+    let (client, rx) = HostClient::start(
+        HostCommand::dotnet_host(&dll)
+            .arg("--no-roslyn")
+            .stderr(StderrMode::Discard),
+        ClientInfo {
+            name: "eludite-lsp-test".into(),
+            version: "0".into(),
+        },
+        RestartPolicy {
+            max_restarts: 0,
+            backoff: Duration::ZERO,
+        },
+    )
+    .expect("start eludite-host");
+    let project = std::fs::canonicalize(project).unwrap();
+    client.open_solution(project.to_str().unwrap(), T).unwrap();
+    let found = client
+        .request::<host::TestDiscover>(host::TestDiscoverParams::default())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let net10 = found
+        .containers
+        .iter()
+        .find(|c| c.target_framework == "net10.0")
+        .expect("the net10.0 container");
+    assert_eq!(net10.protocol, host::TestProtocol::Mtp);
+    let wait_finished = |run_id: u64| {
+        let mut updates = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            if let Event::TestUpdate(u) = rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("test updates")
+                && u.run_id == run_id
+            {
+                let done = u.kind == host::TestUpdateKind::Finished;
+                updates.push(*u);
+                if done {
+                    return updates;
+                }
+            }
+        }
+    };
+    let updates = wait_finished(found.run_id);
+    let tests: Vec<host::TestItem> = updates
+        .iter()
+        .filter(|u| u.container.as_deref() == Some(net10.id.as_str()))
+        .filter_map(|u| u.tests.clone())
+        .flatten()
+        .collect();
+    assert_eq!(tests.len(), 7, "{tests:?}");
+    let subtracts = tests
+        .iter()
+        .find(|t| t.method.as_deref() == Some("Subtracts"))
+        .unwrap();
+    assert_eq!(
+        subtracts.fully_qualified_name,
+        "Corpus.XunitV3.CalculatorTests.Subtracts"
+    );
+    let run = client
+        .request::<host::TestRun>(host::TestRunParams {
+            containers: Some(vec![host::TestRunContainer {
+                id: net10.id.clone(),
+                tests: None,
+            }]),
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let updates = wait_finished(run.run_id);
+    let finished = updates.last().unwrap();
+    let summary = finished.summary.unwrap();
+    assert_eq!(
+        (
+            summary.total,
+            summary.passed,
+            summary.failed,
+            summary.skipped
+        ),
+        (7, 5, 1, 1)
+    );
+    let failed: Vec<host::TestResultItem> = updates
+        .iter()
+        .filter_map(|u| u.results.clone())
+        .flatten()
+        .filter(|r| r.outcome == host::TestOutcome::Failed)
+        .collect();
+    assert_eq!(failed[0].id, subtracts.id);
+    assert!(
+        failed[0]
+            .stack_trace
+            .as_deref()
+            .unwrap()
+            .contains("CalculatorTests.cs:line 25")
+    );
+    client.shutdown(Duration::from_secs(10)).unwrap();
+}
