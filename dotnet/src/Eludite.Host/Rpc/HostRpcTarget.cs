@@ -5,6 +5,7 @@ using Eludite.Host.Build;
 using Eludite.Host.Lsp;
 using Eludite.Host.Projects;
 using Eludite.Host.Sdk;
+using Eludite.Host.Testing;
 using StreamJsonRpc;
 
 namespace Eludite.Host.Rpc;
@@ -26,7 +27,8 @@ public sealed class HostRpcTarget
     /// <c>eludite/solution/*</c> and forwarded requests answer with documented failures instead of MethodNotFound.</param>
     /// <param name="tree">Answers <c>eludite/solution/tree</c>; when null, one backed by the in-process MSBuild evaluator.</param>
     /// <param name="build">Runs <c>eludite/build/*</c>; when null, one that locates the MSBuilds on its first build.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null)
+    /// <param name="tests">Runs <c>eludite/test/*</c>; when null, one with the MTP and VSTest runners.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -34,7 +36,11 @@ public sealed class HostRpcTarget
         LanguageServer = languageServer ?? new LspProxy(null, log);
         Tree = tree ?? new SolutionTreeProvider(new MsBuildProjectTreeEvaluator(), log);
         Build = build ?? new BuildService(LanguageServer.CurrentSolution, log);
+        Tests = tests ?? new TestService(LanguageServer.CurrentSolution, log);
     }
+
+    /// <summary>The <c>eludite/test/*</c> service (brief 0035).</summary>
+    public TestService Tests { get; }
 
     /// <summary>The <c>eludite/build/*</c> service (brief 0017).</summary>
     public BuildService Build { get; }
@@ -145,6 +151,54 @@ public sealed class HostRpcTarget
     /// <summary>Allowed before <c>eludite/host/initialize</c>: no build can run before it, so the answer is empty.</summary>
     [JsonRpcMethod("eludite/build/status", UseSingleObjectParameterDeserialization = true)]
     public BuildStatusResult BuildStatus(object? parameters = null) => Build.Status();
+
+    [JsonRpcMethod("eludite/test/discover", UseSingleObjectParameterDeserialization = true)]
+    public TestDiscoverResult DiscoverTests(TestDiscoverParams? parameters = null)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Tests.Discover(parameters);
+    }
+
+    [JsonRpcMethod("eludite/test/run", UseSingleObjectParameterDeserialization = true)]
+    public TestRunResult RunTests(TestRunParams? parameters = null)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Tests.Run(parameters);
+    }
+
+    [JsonRpcMethod("eludite/test/cancel", UseSingleObjectParameterDeserialization = true)]
+    public TestCancelResult CancelTests(TestCancelParams? parameters = null)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Tests.Cancel(parameters);
+    }
+
+    [JsonRpcMethod("eludite/test/attached", UseSingleObjectParameterDeserialization = true)]
+    public TestAttachedResult TestAttached(TestAttachedParams parameters)
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
+
+        return Tests.Attached(parameters);
+    }
+
+    /// <summary>Allowed before <c>eludite/host/initialize</c>: nothing can run before it, so the answer is empty.</summary>
+    [JsonRpcMethod("eludite/test/status", UseSingleObjectParameterDeserialization = true)]
+    public TestStatusResult TestStatus(object? parameters = null) => Tests.Status();
 
     [JsonRpcMethod("eludite/host/shutdown")]
     public void Shutdown()

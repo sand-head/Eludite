@@ -303,16 +303,20 @@ starts a .NET test runner itself, and runs `cargo test` for Rust through its own
   one request (a fresh build may have replaced it). Cancel is `$/cancelRequest` for the request (MTP has no
   `testing/cancel`); frameworks stop between tests, so the host kills the application's process tree when it has not
   answered within 2 s. `testing/runTests` with a tree-node `filter` is refused by xunit.v3, so runs always name nodes.
+  Every test application, vstest.console and testhost runs with `TESTINGPLATFORM_TELEMETRY_OPTOUT=1` and
+  `DOTNET_CLI_TELEMETRY_OPTOUT=1` (no telemetry, CLAUDE.md); without them MTP 2.4 reports usage to Microsoft.
 - **VSTest's translation-layer protocol** (projects that have not migrated). The host listens on a loopback TCP port and
   starts `dotnet <vstest.console.dll> --port:<port> --parentprocessid:<host pid>` (the SDK's, or `vstestConsolePath`);
   vstest.console connects, sends `TestSession.Connected`, and messages are JSON `{ MessageType, Version, Payload }` with a
-  7-bit-encoded length prefix (BinaryWriter's string format), protocol version 7 after `ProtocolVersion`. Discovery is
+  7-bit-encoded length prefix (BinaryWriter's string format), protocol version 7 after `ProtocolVersion`. The host writes
+  the JSON indented: vstest.console 18.6 does not find a run's sources in its `TestCases` when there is no space after
+  the colons (the run aborts with ArgumentNullException). Discovery is
   `TestDiscovery.Start` (`Sources`, `RunSettings`) answered by `TestDiscovery.TestFound` batches and
   `TestDiscovery.Completed`; a run is `TestExecution.RunAllWithDefaultHost` (`Sources`) or
   `TestExecution.RunSelectedWithDefaultHost` (`TestCases`: the discovered TestCase objects as vstest.console sent them),
   answered by `TestExecution.StatsChange` (new results and active tests) and `TestExecution.Completed`; logs arrive as
   `TestSession.Message`. Cancel is `TestExecution.Cancel` (`TestDiscovery.Cancel` for a discovery), then the process tree
-  is killed after 2 s. One vstest.console serves one discovery or run and ends with `TestSession.Terminate`.
+  is killed after 2 s. One vstest.console serves one container's discovery or run and ends with `TestSession.Terminate`.
 - **Debugging a test.** `eludite/test/run` with `debug: true` names one container and starts no test application
   itself.
   - MTP: the host listens and sends a `launch` update with the test application's command line plus `--server
