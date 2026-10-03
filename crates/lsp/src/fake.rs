@@ -513,7 +513,8 @@ impl FakeHost {
         self.lock().tests.outcomes = outcomes.as_object().cloned().unwrap_or_default();
     }
 
-    /// When true, runs wait for [`FakeHost::test_results`] and [`FakeHost::finish_test_run`].
+    /// When true, runs wait for [`FakeHost::test_results`] and [`FakeHost::finish_test_run`], and discoveries (their
+    /// tests sent) for [`FakeHost::finish_test_run`].
     pub fn set_hold_test_runs(&self, hold: bool) {
         self.lock().tests.hold = hold;
     }
@@ -730,7 +731,9 @@ impl FakeHost {
                         true,
                     );
                 }
-                self.finish_test_run("completed");
+                if !self.lock().tests.hold {
+                    self.finish_test_run("completed");
+                }
             }
             _ => self.run_tests(params, reply, error),
         }

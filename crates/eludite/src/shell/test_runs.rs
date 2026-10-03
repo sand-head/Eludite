@@ -1407,14 +1407,16 @@ impl Shell {
     }
 
     /// A new solution generation: the .NET tests are forgotten; a run of them ends.
-    pub(super) fn tests_new_generation(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn tests_new_generation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.tests.replace_projects(false, Vec::new());
         self.tests.fresh = false;
         self.tests.generation = self.generation;
         if self.tests.host_pending {
+            // The discovery going is of the old generation (a solution that was still loading when it started): its
+            // updates are dropped and it starts over under the new one, so a waiting run or agent gets the new tree.
             self.tests.host_pending = false;
             self.tests.host_discovery = None;
-            self.tests.set_discovery_done();
+            self.discover_now(window, cx);
         }
         let going: Vec<u64> = self
             .tests
@@ -1811,6 +1813,17 @@ impl Shell {
             }
         }
         self.tests.dirty = true;
+        let n = ids.len();
+        let doing = if debug.is_some() {
+            "debugging"
+        } else {
+            "running"
+        };
+        let plural = if n == 1 { "" } else { "s" };
+        self.status.set(
+            TESTS_SLOT,
+            format!("Tests: {doing} {n} test{plural}\u{2026}"),
+        );
         self.output.update(cx, |o, cx| {
             o.append(
                 OutputSource::Tests,
@@ -2945,24 +2958,46 @@ impl Shell {
                 };
                 self.record_result(run, &id, data, now);
             }
-            if let Some(rec) = self.tests.run_mut(run)
-                && let Some(dd) = rec.debug.as_mut()
-            {
-                dd.session = None;
+            if let Some(rec) = self.tests.run_mut(run) {
+                if let Some(dd) = rec.debug.as_mut() {
+                    dd.session = None;
+                }
+                // A session stopped before its tests finished (Stop Debugging): the run was canceled.
+                if rec.tests.iter().any(|id| unfinished(rec, id)) {
+                    rec.canceled = true;
+                }
             }
             self.maybe_finish_run(run, cx);
         } else if let Some(rec) = self.tests.run_mut(run) {
             if let Some(dd) = rec.debug.as_mut() {
                 dd.session = None;
             }
+            // Stop Debugging before the tests finished: the run was canceled, and the host's run is canceled too so
+            // it ends at once rather than as a test application that went away.
+            let stopped = rec.tests.iter().any(|id| unfinished(rec, id));
+            if stopped {
+                rec.canceled = true;
+            }
             // The host's run ends on its own (its finished update); a session that never ran it ends it here.
             if rec.host_run.is_none() || !rec.host_pending {
                 self.maybe_finish_run(run, cx);
+            } else if stopped {
+                let host_run = rec.host_run;
+                let (_, _reply) = self
+                    .session
+                    .request::<host::TestCancel>(host::TestCancelParams { run_id: host_run });
             }
         }
         self.after_tests_change(cx);
         true
     }
+}
+
+/// Whether `id` of the run has no final result (never reported, still running, or not run).
+fn unfinished(run: &RunRecord, id: &str) -> bool {
+    run.results
+        .get(id)
+        .is_none_or(|x| matches!(x.outcome, Outcome::Running | Outcome::NotRun))
 }
 
 #[cfg(test)]
