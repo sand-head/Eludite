@@ -1,0 +1,2277 @@
+{
+  "adapter": "lldb",
+  "scenario": "launch-break-step",
+  "steps": [
+    {
+      "step": "F9 at call-add",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": false,
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "main.rs, line 19 [enabled] hits 0"
+        ]
+      }
+    },
+    {
+      "step": "hit count %4 in the loop",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": false,
+            "hits": 0
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": false,
+            "hit_condition": "%4",
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "main.rs, line 19 [enabled] hits 0",
+          "main.rs, line 23 [enabled] hits 0 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "F5",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 1,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": "${PID}",
+          "description": "breakpoint 1.1",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "column": 17
+          },
+          {
+            "index": 1,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 2,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 3,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 5,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 7,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 8,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 9,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 11,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 12,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 14,
+            "name": "main"
+          },
+          {
+            "index": 15,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 17,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "size=1",
+            "type": "alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+            "reference": 4,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "text",
+            "value": "\"hello\"",
+            "type": "alloc::string::String",
+            "reference": 5,
+            "evaluate_name": "text"
+          },
+          {
+            "name": "v",
+            "value": "size=3",
+            "type": "alloc::vec::Vec<int, alloc::alloc::Global>",
+            "reference": 6,
+            "evaluate_name": "v"
+          },
+          {
+            "name": "count",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "count"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 0,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 1,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = size=1 : alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+          "+ text = \"hello\" : alloc::string::String",
+          "+ v = size=3 : alloc::vec::Vec<int, alloc::alloc::Global>",
+          "count = 7 : int"
+        ],
+        "call_stack": [
+          "> conformance::main | main.rs, line 19",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::main"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 0 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "F11",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 2,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": "${PID}",
+          "description": "step in",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::add",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 2,
+            "column": 15
+          },
+          {
+            "index": 1,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "column": 13
+          },
+          {
+            "index": 2,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 3,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 5,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 7,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 8,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 9,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 11,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 12,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 14,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 15,
+            "name": "main"
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 17,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 18,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "a",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "a"
+          },
+          {
+            "name": "b",
+            "value": "3",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "b"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 0,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 2,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "a = 7 : int",
+          "b = 3 : int"
+        ],
+        "call_stack": [
+          "> conformance::add | main.rs, line 2",
+          "  conformance::main | main.rs, line 19",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::add"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 0 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "F10",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 3,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": "${PID}",
+          "description": "step over",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::add",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 4,
+            "column": 2
+          },
+          {
+            "index": 1,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "column": 13
+          },
+          {
+            "index": 2,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 3,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 5,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 7,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 8,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 9,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 11,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 12,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 14,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 15,
+            "name": "main"
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 17,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 18,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "a",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "a"
+          },
+          {
+            "name": "b",
+            "value": "3",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "b"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 0,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 3,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "a = 7 : int",
+          "b = 3 : int"
+        ],
+        "call_stack": [
+          "> conformance::add | main.rs, line 4",
+          "  conformance::main | main.rs, line 19",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::add"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 0 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "Shift+F11",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 4,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": "${PID}",
+          "description": "step out",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "column": 13
+          },
+          {
+            "index": 1,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 2,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 3,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 5,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 7,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 8,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 9,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 11,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 12,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 14,
+            "name": "main"
+          },
+          {
+            "index": 15,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 17,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "size=1",
+            "type": "alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+            "reference": 7,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "text",
+            "value": "\"hello\"",
+            "type": "alloc::string::String",
+            "reference": 8,
+            "evaluate_name": "text"
+          },
+          {
+            "name": "v",
+            "value": "size=3",
+            "type": "alloc::vec::Vec<int, alloc::alloc::Global>",
+            "reference": 9,
+            "evaluate_name": "v"
+          },
+          {
+            "name": "count",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "count"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 0,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 4,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = size=1 : alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+          "+ text = \"hello\" : alloc::string::String",
+          "+ v = size=3 : alloc::vec::Vec<int, alloc::alloc::Global>",
+          "count = 7 : int"
+        ],
+        "call_stack": [
+          "> conformance::main | main.rs, line 19",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::main"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 0 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the 4th hit",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 5,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": "${PID}",
+          "description": "breakpoint 2.1",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "column": 18
+          },
+          {
+            "index": 1,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 2,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 3,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 5,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 7,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 8,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 9,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 11,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 12,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 14,
+            "name": "main"
+          },
+          {
+            "index": 15,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 17,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "size=1",
+            "type": "alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+            "reference": 10,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "text",
+            "value": "\"hello\"",
+            "type": "alloc::string::String",
+            "reference": 11,
+            "evaluate_name": "text"
+          },
+          {
+            "name": "v",
+            "value": "size=3",
+            "type": "alloc::vec::Vec<int, alloc::alloc::Global>",
+            "reference": 12,
+            "evaluate_name": "v"
+          },
+          {
+            "name": "count",
+            "value": "17",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "count"
+          },
+          {
+            "name": "r",
+            "value": "10",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "r"
+          },
+          {
+            "name": "total",
+            "value": "6",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "iter",
+            "value": "{start:4, end:10}",
+            "type": "core::ops::range::Range<int>",
+            "reference": 13,
+            "evaluate_name": "iter"
+          },
+          {
+            "name": "i",
+            "value": "3",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "i"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 4,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 4
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 5,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = size=1 : alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+          "+ text = \"hello\" : alloc::string::String",
+          "+ v = size=3 : alloc::vec::Vec<int, alloc::alloc::Global>",
+          "count = 17 : int",
+          "r = 10 : int",
+          "total = 6 : int",
+          "+ iter = {start:4, end:10} : core::ops::range::Range<int>",
+          "i = 3 : int"
+        ],
+        "call_stack": [
+          "> conformance::main | main.rs, line 23",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::main"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 4 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the 8th hit",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 6,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": "${PID}",
+          "description": "breakpoint 2.1",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "column": 18
+          },
+          {
+            "index": 1,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 2,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 3,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 5,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 7,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 8,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 9,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 11,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 12,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 14,
+            "name": "main"
+          },
+          {
+            "index": 15,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 17,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "size=1",
+            "type": "alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+            "reference": 14,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "text",
+            "value": "\"hello\"",
+            "type": "alloc::string::String",
+            "reference": 15,
+            "evaluate_name": "text"
+          },
+          {
+            "name": "v",
+            "value": "size=3",
+            "type": "alloc::vec::Vec<int, alloc::alloc::Global>",
+            "reference": 16,
+            "evaluate_name": "v"
+          },
+          {
+            "name": "count",
+            "value": "17",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "count"
+          },
+          {
+            "name": "r",
+            "value": "10",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "r"
+          },
+          {
+            "name": "total",
+            "value": "42",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "iter",
+            "value": "{start:8, end:10}",
+            "type": "core::ops::range::Range<int>",
+            "reference": 17,
+            "evaluate_name": "iter"
+          },
+          {
+            "name": "i",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "i"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": "%4",
+            "hits": 8,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 8
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 6,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = size=1 : alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+          "+ text = \"hello\" : alloc::string::String",
+          "+ v = size=3 : alloc::vec::Vec<int, alloc::alloc::Global>",
+          "count = 17 : int",
+          "r = 10 : int",
+          "total = 42 : int",
+          "+ iter = {start:8, end:10} : core::ops::range::Range<int>",
+          "i = 7 : int"
+        ],
+        "call_stack": [
+          "> conformance::main | main.rs, line 23",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::main"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1",
+          "main.rs, line 23 [enabled, bound] hits 8 hit count %4"
+        ]
+      }
+    },
+    {
+      "step": "delete the loop breakpoint",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 6,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": "${PID}",
+          "description": "breakpoint 2.1",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": "${PID}",
+            "name": "conformance"
+          }
+        ],
+        "thread": "${PID}",
+        "frames": [
+          {
+            "index": 0,
+            "name": "conformance::main",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 23,
+            "column": 18
+          },
+          {
+            "index": 1,
+            "name": "<fn() as core::ops::function::FnOnce<()>>::call_once",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/core/src/ops/function.rs",
+            "line": 250,
+            "column": 5
+          },
+          {
+            "index": 2,
+            "name": "std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/sys/backtrace.rs",
+            "line": 166,
+            "column": 18
+          },
+          {
+            "index": 3,
+            "name": "std::rt::lang_start::<()>::{closure#0}",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 206,
+            "column": 18
+          },
+          {
+            "index": 4,
+            "name": "<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once"
+          },
+          {
+            "index": 5,
+            "name": "std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 6,
+            "name": "std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync>"
+          },
+          {
+            "index": 7,
+            "name": "std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32>"
+          },
+          {
+            "index": 8,
+            "name": "std::rt::lang_start_internal::{closure#0}"
+          },
+          {
+            "index": 9,
+            "name": "std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 10,
+            "name": "std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}>"
+          },
+          {
+            "index": 11,
+            "name": "std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize>"
+          },
+          {
+            "index": 12,
+            "name": "std::rt::lang_start_internal"
+          },
+          {
+            "index": 13,
+            "name": "std::rt::lang_start::<()>",
+            "path": "${SYSROOT}/lib/rustlib/src/rust/library/std/src/rt.rs",
+            "line": 205,
+            "column": 5
+          },
+          {
+            "index": 14,
+            "name": "main"
+          },
+          {
+            "index": 15,
+            "name": "__libc_start_call_main",
+            "path": "sysdeps/nptl/libc_start_call_main.h",
+            "line": 58,
+            "column": 16
+          },
+          {
+            "index": 16,
+            "name": "__libc_start_main_impl",
+            "path": "csu/libc-start.c",
+            "line": 360,
+            "column": 3
+          },
+          {
+            "index": 17,
+            "name": "_start"
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "size=1",
+            "type": "alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+            "reference": 14,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "text",
+            "value": "\"hello\"",
+            "type": "alloc::string::String",
+            "reference": 15,
+            "evaluate_name": "text"
+          },
+          {
+            "name": "v",
+            "value": "size=3",
+            "type": "alloc::vec::Vec<int, alloc::alloc::Global>",
+            "reference": 16,
+            "evaluate_name": "v"
+          },
+          {
+            "name": "count",
+            "value": "17",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "count"
+          },
+          {
+            "name": "r",
+            "value": "10",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "r"
+          },
+          {
+            "name": "total",
+            "value": "42",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "iter",
+            "value": "{start:8, end:10}",
+            "type": "core::ops::range::Range<int>",
+            "reference": 17,
+            "evaluate_name": "iter"
+          },
+          {
+            "name": "i",
+            "value": "7",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "i"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 10,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging conformance ",
+            "Running initCommands:",
+            "(lldb) settings set target.process.thread.step-avoid-regexp ^<?(std|core|alloc)::",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetValueAsAddress'): lldb.SBValue.GetValueAsAddress = lldb.SBValue.GetValueAsUnsigned",
+            "(lldb) script if not hasattr(lldb.SBValue, 'GetSyntheticValue'): lldb.SBValue.GetSyntheticValue = lambda self: (lambda v: (v.SetPreferSyntheticValue(True), v)[1] if v.IsValid() else v)(self.GetNonSyntheticValue())",
+            "(lldb) command script import \"${TMP}/sysroot/lib/rustlib/etc/lldb_lookup.py\"",
+            "Setting source map:",
+            "(lldb) settings set target.source-map ",
+            "error: 'settings set' takes more arguments"
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "rs",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 6,
+            "runtime": "native",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/rs/Cargo.toml",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = size=1 : alloc::vec::Vec<alloc::string::String, alloc::alloc::Global>",
+          "+ text = \"hello\" : alloc::string::String",
+          "+ v = size=3 : alloc::vec::Vec<int, alloc::alloc::Global>",
+          "count = 17 : int",
+          "r = 10 : int",
+          "total = 42 : int",
+          "+ iter = {start:8, end:10} : core::ops::range::Range<int>",
+          "i = 7 : int"
+        ],
+        "call_stack": [
+          "> conformance::main | main.rs, line 23",
+          "  <fn() as core::ops::function::FnOnce<()>>::call_once | function.rs, line 250",
+          "  std::sys::backtrace::__rust_begin_short_backtrace::<fn(), ()> | backtrace.rs, line 166",
+          "  std::rt::lang_start::<()>::{closure#0} | rt.rs, line 206",
+          "  <&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync as core::ops::function::FnOnce<()>>::call_once | ",
+          "  std::panicking::catch_unwind::do_call::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::panicking::catch_unwind::<i32, &dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync> | ",
+          "  std::panic::catch_unwind::<&dyn core::ops::function::Fn<(), Output = i32> + core::panic::unwind_safe::RefUnwindSafe + core::marker::Sync, i32> | ",
+          "  std::rt::lang_start_internal::{closure#0} | ",
+          "  std::panicking::catch_unwind::do_call::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::panicking::catch_unwind::<isize, std::rt::lang_start_internal::{closure#0}> | ",
+          "  std::panic::catch_unwind::<std::rt::lang_start_internal::{closure#0}, isize> | ",
+          "  std::rt::lang_start_internal | ",
+          "  std::rt::lang_start::<()> | rt.rs, line 205",
+          "  main | ",
+          "  __libc_start_call_main | libc_start_call_main.h, line 58",
+          "  __libc_start_main_impl | libc-start.c, line 360",
+          "  _start | "
+        ],
+        "threads": [
+          "> ${PID} conformance | conformance::main"
+        ],
+        "breakpoints": [
+          "main.rs, line 19 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the end",
+      "state": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 6,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/rs/Cargo.toml",
+          "program": "${TMP}/rs/target/debug/conformance",
+          "args": [],
+          "cwd": "${TMP}/rs",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "native",
+          "process_id": "${PID}"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/rs/src/main.rs",
+            "line": 19,
+            "enabled": true,
+            "verified": false,
+            "hits": 1
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 47,
+          "tail": [
+            "#13 0x00007fc9f08addce cfree ./malloc/malloc.c:3401:3",
+            "#14 0x00007fc9f89fa09d (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x1fa09d)",
+            "#15 0x00007fc9f89d0d33 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x1d0d33)",
+            "#16 0x00007fc9f8d19603 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x519603)",
+            "#17 0x00007fc9f92aeb8e (/lib/x86_64-linux-gnu/liblldb-18.so.1+0xaaeb8e)",
+            "#18 0x00007fc9f92aebb2 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0xaaebb2)",
+            "#19 0x00007fc9f89d0d33 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x1d0d33)",
+            "#20 0x00007fc9f8d19603 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x519603)",
+            "#21 0x00007fc9f8d19037 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x519037)",
+            "#22 0x00007fc9f8d190d2 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x5190d2)",
+            "#23 0x00007fc9f8c28e10 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x428e10)",
+            "#24 0x00007fc9f8c295e2 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x4295e2)",
+            "#25 0x00007fc9f89d0d33 (/lib/x86_64-linux-gnu/liblldb-18.so.1+0x1d0d33)",
+            "#26 0x00005591725f18df (/usr/bin/lldb-dap-18+0x3f8df)",
+            "#27 0x00007fc9f0847a76 __run_exit_handlers ./stdlib/exit.c:109:8",
+            "#28 0x00007fc9f0847bbe (/lib/x86_64-linux-gnu/libc.so.6+0x47bbe)",
+            "#29 0x00007fc9f082a1d1 __libc_start_call_main ./csu/../sysdeps/nptl/libc_start_call_main.h:63:7",
+            "#30 0x00007fc9f082a28b call_init ./csu/../csu/libc-start.c:128:20",
+            "#31 0x00007fc9f082a28b __libc_start_main ./csu/../csu/libc-start.c:347:5",
+            "#32 0x00005591725c4cd5 (/usr/bin/lldb-dap-18+0x12cd5)"
+          ],
+          "next": 36
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "lldb",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "shell",
+          "exception_filter_options": false,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": true,
+          "memory": false,
+          "disassembly": true,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "main.rs, line 19 [enabled] hits 1"
+        ]
+      }
+    }
+  ]
+}

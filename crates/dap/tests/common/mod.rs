@@ -1,13 +1,17 @@
-//! The program the client tests debug, and a sink that records what the client reports.
+//! The program the client tests debug, a sink that records what the client reports, and the `RECORD_DAP` mode of the
+//! real-adapter tests (brief 0033).
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eludite_dap::fake::{FakeProgram, FakeStep, FakeThrow, FakeVar};
+use eludite_dap::record::{self, RecordOptions};
 use eludite_dap::types::Event;
-use eludite_dap::{ClientEvent, EventSink};
+use eludite_dap::{ClientEvent, Connection, EventSink};
 
 pub const PROGRAM: &str = "/src/App/Program.cs";
 pub const CALC: &str = "/src/App/Calc.cs";
@@ -177,4 +181,73 @@ pub fn mean_p95(times: &[Duration]) -> (f64, f64) {
         .copied()
         .unwrap_or_default();
     (mean, p95)
+}
+
+/// The repository's root.
+pub fn repo_root() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::canonicalize(&root).unwrap_or(root)
+}
+
+/// `RECORD_DAP`: the folder the real-adapter tests write their sessions to, when set.
+pub fn record_dir() -> Option<PathBuf> {
+    std::env::var_os("RECORD_DAP")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+static SESSIONS: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
+
+/// With `RECORD_DAP=<dir>`, record the session on `connection` to `<dir>/<adapter>/client/<test>.dap.json` (the
+/// test's name from its thread; `-2`, `-3`, ... for its later sessions), scrubbed with `${ROOT}` (the repository),
+/// `tmp` as `${TMP}` (the test's temporary folder) and `${HOME}` (the user's home). Without it, `connection` as it is.
+pub fn recorded(
+    connection: Connection,
+    adapter: &str,
+    version: &str,
+    tmp: Option<&std::path::Path>,
+) -> Connection {
+    let Some(dir) = record_dir() else {
+        return connection;
+    };
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("session")
+        .rsplit("::")
+        .next()
+        .unwrap_or("session")
+        .to_owned();
+    let n = {
+        let mut m = SESSIONS.lock().unwrap();
+        let c = m
+            .get_or_insert_with(HashMap::new)
+            .entry(test.clone())
+            .or_default();
+        *c += 1;
+        *c
+    };
+    let name = if n == 1 { test } else { format!("{test}-{n}") };
+    let mut roots = vec![("${ROOT}".to_owned(), repo_root())];
+    if let Some(t) = tmp {
+        roots.push(("${TMP}".to_owned(), t.to_path_buf()));
+    }
+    // The toolchain's and the user's own paths (the Rust sysroot under ~/.rustup).
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        roots.push(("${HOME}".to_owned(), PathBuf::from(home)));
+    }
+    let path = dir
+        .join(adapter)
+        .join("client")
+        .join(format!("{name}.dap.json"));
+    eprintln!("recording: {}", path.display());
+    let (connection, _handle) = record::record(
+        connection,
+        RecordOptions {
+            path,
+            adapter: adapter.to_owned(),
+            version: version.to_owned(),
+            roots,
+        },
+    );
+    connection
 }

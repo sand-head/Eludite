@@ -63,6 +63,8 @@
 //!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
 //!   Output window's Debug source still shows the program's output and the debugger's messages together.
 
+#[cfg(test)]
+mod conformance_tests;
 pub mod native;
 #[cfg(test)]
 mod native_tests;

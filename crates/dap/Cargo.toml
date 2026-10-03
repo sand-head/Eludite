@@ -18,9 +18,11 @@ toml.workspace = true
 [features]
 # fake: a scripted fake debug adapter for the client's and the shell's tests.
 fake = []
+# replay: the replaying adapter that serves a recorded session (brief 0033's conformance tests).
+replay = []
 
 [dev-dependencies]
-eludite-dap = { path = ".", features = ["fake"] }
+eludite-dap = { path = ".", features = ["fake", "replay"] }
 tempfile.workspace = true
 
 [lints]

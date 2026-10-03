@@ -48,7 +48,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `debuggers/mono` | `eludite-dbg-mono`, Mono soft-debugger DAP server (C#, net472 on Mono.Debugging.Soft, runs under the located Mono): .NET Framework debugging on Linux and macOS; built by `dotnet build dotnet/Eludite.slnx` (brief 0022) | 4.5 |
 | `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
-| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `cef/` (CEF minimal distribution fetch, brief 0031), `lldb-dap/` (install notes only: distributions carry it; brief 0029), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
+| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `cef/` (CEF minimal distribution fetch, brief 0031), `lldb-dap/` (install notes only: distributions carry it; brief 0029), `legacy-load/` (brief 0003 runner); also `dap-corpus/` (re-records `corpus/dap/`, brief 0033) | 3 (D3), 4.3, 4.5, 7 |
 
 GPUI is a git dependency on zed-industries/zed at rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`, as the `gpui` and `gpui_platform` crates (both Apache-2.0; `gpui_platform` holds the window backends at this rev). Do not bump it without an ADR note.
 
@@ -127,5 +127,6 @@ Per-crate `CLAUDE.md` files exist only where rules are non-obvious (editor core,
 - No new dependency without a license check; put the SPDX id in the PR. It must be compatible with GPL-3.0-or-later, and with MIT for `protocol/` and `extension-sdk/`.
 - Do not edit `vendor/` by hand. Changes go through `vendor/sync.sh`, which re-fetches at the pinned Zed commit and reports drift; each vendored crate keeps a `WHY.md`. `vendor/` is its own cargo workspace under Zed's lint rules, used by path from the root workspace.
 - Do not edit generated protocol bindings by hand.
+- Do not edit recordings in `corpus/dap/` (or their golden files) by hand; re-record them from the real adapters with `tools/dap-corpus/record.sh` (brief 0033). A recording is only ever produced by the recorder.
 - Do not add features absent from PLAN.md. Propose them through an ADR or a brief.
 - Do not modify `docs/PLAN.md` unless a brief says so.

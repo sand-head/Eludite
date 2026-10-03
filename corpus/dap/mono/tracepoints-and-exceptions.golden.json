@@ -1,0 +1,1476 @@
+{
+  "adapter": "mono",
+  "scenario": "tracepoints-and-exceptions",
+  "steps": [
+    {
+      "step": "hit count >=24 in the names loop",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "enabled": true,
+            "verified": false,
+            "hit_condition": ">=24",
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "Program.cs, line 67 [enabled] hits 0 hit count >=24"
+        ]
+      }
+    },
+    {
+      "step": "tracepoint at loop-body",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "enabled": true,
+            "verified": false,
+            "hit_condition": ">=24",
+            "hits": 0
+          },
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": false,
+            "condition": "i % 25 == 0",
+            "hits": 0,
+            "log_message": "i={i} total={total}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "Program.cs, line 67 [enabled] hits 0 hit count >=24",
+          "Program.cs, line 78 [enabled] hits 0 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "break when InvalidOperationException is thrown",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "enabled": true,
+            "verified": false,
+            "hit_condition": ">=24",
+            "hits": 0
+          },
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": false,
+            "condition": "i % 25 == 0",
+            "hits": 0,
+            "log_message": "i={i} total={total}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "Program.cs, line 67 [enabled] hits 0 hit count >=24",
+          "Program.cs, line 78 [enabled] hits 0 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the 24th hit",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 1,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": 1,
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "column": 17,
+            "end_line": 67,
+            "end_column": 39
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "{string[0]}",
+            "type": "string[]",
+            "reference": 2,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "mode",
+            "value": "\"run\"",
+            "type": "string",
+            "reference": 0,
+            "evaluate_name": "mode"
+          },
+          {
+            "name": "names",
+            "value": "{string[25]}",
+            "type": "string[]",
+            "reference": 3,
+            "evaluate_name": "names"
+          },
+          {
+            "name": "big",
+            "value": "(null)",
+            "type": "int[]",
+            "reference": 0,
+            "evaluate_name": "big"
+          },
+          {
+            "name": "order",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Order",
+            "reference": 0,
+            "evaluate_name": "order"
+          },
+          {
+            "name": "calc",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Calculator",
+            "reference": 0,
+            "evaluate_name": "calc"
+          },
+          {
+            "name": "result",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "result"
+          },
+          {
+            "name": "total",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "n",
+            "value": "23",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "n"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": ">=24",
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          },
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 0,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 5,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0]."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 1,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = {string[0]} : string[]",
+          "mode = \"run\" : string",
+          "+ names = {string[25]} : string[]",
+          "big = (null) : int[]",
+          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "result = 0 : int",
+          "total = 0 : int",
+          "n = 23 : int"
+        ],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 67"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)"
+        ],
+        "breakpoints": [
+          "Program.cs, line 67 [enabled, bound] hits 1 hit count >=24",
+          "Program.cs, line 78 [enabled, bound] hits 0 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the 25th hit",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 2,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": 1,
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "column": 17,
+            "end_line": 67,
+            "end_column": 39
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "{string[0]}",
+            "type": "string[]",
+            "reference": 5,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "mode",
+            "value": "\"run\"",
+            "type": "string",
+            "reference": 0,
+            "evaluate_name": "mode"
+          },
+          {
+            "name": "names",
+            "value": "{string[25]}",
+            "type": "string[]",
+            "reference": 6,
+            "evaluate_name": "names"
+          },
+          {
+            "name": "big",
+            "value": "(null)",
+            "type": "int[]",
+            "reference": 0,
+            "evaluate_name": "big"
+          },
+          {
+            "name": "order",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Order",
+            "reference": 0,
+            "evaluate_name": "order"
+          },
+          {
+            "name": "calc",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Calculator",
+            "reference": 0,
+            "evaluate_name": "calc"
+          },
+          {
+            "name": "result",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "result"
+          },
+          {
+            "name": "total",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "n",
+            "value": "24",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "n"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "enabled": true,
+            "verified": true,
+            "hit_condition": ">=24",
+            "hits": 2,
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 2
+              }
+            ]
+          },
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 0,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 5,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0]."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 2,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = {string[0]} : string[]",
+          "mode = \"run\" : string",
+          "+ names = {string[25]} : string[]",
+          "big = (null) : int[]",
+          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "result = 0 : int",
+          "total = 0 : int",
+          "n = 24 : int"
+        ],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 67"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)"
+        ],
+        "breakpoints": [
+          "Program.cs, line 67 [enabled, bound] hits 2 hit count >=24",
+          "Program.cs, line 78 [enabled, bound] hits 0 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "delete the hit count breakpoint",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 2,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": 1,
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 67,
+            "column": 17,
+            "end_line": 67,
+            "end_column": 39
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "args",
+            "value": "{string[0]}",
+            "type": "string[]",
+            "reference": 5,
+            "evaluate_name": "args"
+          },
+          {
+            "name": "mode",
+            "value": "\"run\"",
+            "type": "string",
+            "reference": 0,
+            "evaluate_name": "mode"
+          },
+          {
+            "name": "names",
+            "value": "{string[25]}",
+            "type": "string[]",
+            "reference": 6,
+            "evaluate_name": "names"
+          },
+          {
+            "name": "big",
+            "value": "(null)",
+            "type": "int[]",
+            "reference": 0,
+            "evaluate_name": "big"
+          },
+          {
+            "name": "order",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Order",
+            "reference": 0,
+            "evaluate_name": "order"
+          },
+          {
+            "name": "calc",
+            "value": "(null)",
+            "type": "Eludite.Debugger.Mono.TestApp.Calculator",
+            "reference": 0,
+            "evaluate_name": "calc"
+          },
+          {
+            "name": "result",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "result"
+          },
+          {
+            "name": "total",
+            "value": "0",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "total"
+          },
+          {
+            "name": "n",
+            "value": "24",
+            "type": "int",
+            "reference": 0,
+            "evaluate_name": "n"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 0,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 6,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0]."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 2,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ args = {string[0]} : string[]",
+          "mode = \"run\" : string",
+          "+ names = {string[25]} : string[]",
+          "big = (null) : int[]",
+          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "result = 0 : int",
+          "total = 0 : int",
+          "n = 24 : int"
+        ],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 67"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)"
+        ],
+        "breakpoints": [
+          "Program.cs, line 78 [enabled, bound] hits 0 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the throw",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 3,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "exception",
+          "thread": 1,
+          "description": "Exception thrown: System.InvalidOperationException",
+          "exception": {
+            "id": "System.InvalidOperationException",
+            "description": "boom",
+            "break_mode": "always"
+          },
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Fail()",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 97,
+            "column": 13,
+            "end_line": 97,
+            "end_column": 64
+          },
+          {
+            "index": 1,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 83,
+            "column": 17,
+            "end_line": 83,
+            "end_column": 24
+          }
+        ],
+        "frame": 0,
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 4,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 4
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 12,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "result 10",
+            "i=0 total=0",
+            "i=25 total=300",
+            "i=50 total=1225",
+            "i=75 total=2775",
+            "Exception thrown: 'System.InvalidOperationException': boom"
+          ],
+          "next": 1
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 3,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "exception"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Fail() | Program.cs, line 97",
+          "  Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 83"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Fail()"
+        ],
+        "breakpoints": [
+          "Program.cs, line 78 [enabled, bound] hits 4 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "agent exception_info",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 3,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "exception",
+          "thread": 1,
+          "description": "Exception thrown: System.InvalidOperationException",
+          "exception": {
+            "id": "System.InvalidOperationException",
+            "description": "boom",
+            "break_mode": "always"
+          },
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Fail()",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 97,
+            "column": 13,
+            "end_line": 97,
+            "end_column": 64
+          },
+          {
+            "index": 1,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 83,
+            "column": 17,
+            "end_line": 83,
+            "end_column": 24
+          }
+        ],
+        "frame": 0,
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 4,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 4
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 12,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "result 10",
+            "i=0 total=0",
+            "i=25 total=300",
+            "i=50 total=1225",
+            "i=75 total=2775",
+            "Exception thrown: 'System.InvalidOperationException': boom"
+          ],
+          "next": 1
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 3,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "exception"
+          }
+        ]
+      },
+      "answer": {
+        "supported": true,
+        "type": "System.InvalidOperationException",
+        "message": "boom",
+        "break_mode": "always",
+        "details": {
+          "message": "boom",
+          "type_name": "System.InvalidOperationException",
+          "full_type_name": "System.InvalidOperationException",
+          "stack_trace": "   at Eludite.Debugger.Mono.TestApp.Program.Fail () [0x00001] in ${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:line 97\n   at Eludite.Debugger.Mono.TestApp.Program.Main (System.String[] args) [0x000dc] in ${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:line 83"
+        },
+        "thread": 1,
+        "stop": 3
+      },
+      "windows": {
+        "locals": [],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Fail() | Program.cs, line 97",
+          "  Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 83"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Fail()"
+        ],
+        "breakpoints": [
+          "Program.cs, line 78 [enabled, bound] hits 4 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "agent output of the tracepoints",
+      "state": {
+        "mode": "break",
+        "generation": 1,
+        "stop": 3,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "stopped": {
+          "reason": "exception",
+          "thread": 1,
+          "description": "Exception thrown: System.InvalidOperationException",
+          "exception": {
+            "id": "System.InvalidOperationException",
+            "description": "boom",
+            "break_mode": "always"
+          },
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 1,
+            "name": "Thread 1"
+          }
+        ],
+        "thread": 1,
+        "frames": [
+          {
+            "index": 0,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Fail()",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 97,
+            "column": 13,
+            "end_line": 97,
+            "end_column": 64
+          },
+          {
+            "index": 1,
+            "name": "Eludite.Debugger.Mono.TestApp.Program.Main(string[] args)",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 83,
+            "column": 17,
+            "end_line": 83,
+            "end_column": 24
+          }
+        ],
+        "frame": 0,
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": true,
+            "condition": "i % 25 == 0",
+            "hits": 4,
+            "log_message": "i={i} total={total}",
+            "sessions": [
+              {
+                "session": 1,
+                "verified": true,
+                "hits": 4
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 12,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "result 10",
+            "i=0 total=0",
+            "i=25 total=300",
+            "i=50 total=1225",
+            "i=75 total=2775",
+            "Exception thrown: 'System.InvalidOperationException': boom"
+          ],
+          "next": 1
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "App",
+            "mode": "break",
+            "active": true,
+            "generation": 1,
+            "stop": 3,
+            "runtime": "mono",
+            "adapter": "${ADAPTER}",
+            "process_id": "${PID}",
+            "project": "${TMP}/src/App/App.csproj",
+            "agents_allowed": true,
+            "stopped": "exception"
+          }
+        ]
+      },
+      "answer": {
+        "source": "debug",
+        "lines": [
+          {
+            "seq": 0,
+            "text": "Starting debugging the startup project…"
+          },
+          {
+            "seq": 1,
+            "text": "Debugging Eludite.Debugger.Mono.TestApp.exe "
+          },
+          {
+            "seq": 2,
+            "text": "i=0 total=0"
+          },
+          {
+            "seq": 3,
+            "text": "i=25 total=300"
+          },
+          {
+            "seq": 4,
+            "text": "i=50 total=1225"
+          },
+          {
+            "seq": 5,
+            "text": "i=75 total=2775"
+          },
+          {
+            "seq": 6,
+            "text": "Exception thrown: 'System.InvalidOperationException': boom"
+          }
+        ],
+        "next": 7,
+        "dropped": 0,
+        "total": 7,
+        "truncated": false
+      },
+      "windows": {
+        "locals": [],
+        "call_stack": [
+          "> Eludite.Debugger.Mono.TestApp.Program.Fail() | Program.cs, line 97",
+          "  Eludite.Debugger.Mono.TestApp.Program.Main(string[] args) | Program.cs, line 83"
+        ],
+        "threads": [
+          "> 1 Thread 1 | Eludite.Debugger.Mono.TestApp.Program.Fail()"
+        ],
+        "breakpoints": [
+          "Program.cs, line 78 [enabled, bound] hits 4 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    },
+    {
+      "step": "F5 to the end",
+      "state": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 3,
+        "session": {
+          "id": 1,
+          "project": "${TMP}/src/App/App.csproj",
+          "program": "${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+          "args": [],
+          "cwd": "${TMP}/src/App",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "mono",
+          "process_id": "${PID}"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs",
+            "line": 78,
+            "enabled": true,
+            "verified": false,
+            "condition": "i % 25 == 0",
+            "hits": 4,
+            "log_message": "i={i} total={total}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true,
+          "types": [
+            {
+              "type": "System.InvalidOperationException",
+              "break_when_thrown": true,
+              "break_when_user_unhandled": true
+            }
+          ]
+        },
+        "console": {
+          "lines": 15,
+          "tail": [
+            "Starting debugging the startup project…",
+            "Debugging Eludite.Debugger.Mono.TestApp.exe ",
+            "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
+            "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
+            "result 10",
+            "i=0 total=0",
+            "i=25 total=300",
+            "i=50 total=1225",
+            "i=75 total=2775",
+            "Exception thrown: 'System.InvalidOperationException': boom",
+            "caught boom",
+            "done 4950 Contoso #7 25 1000",
+            "The program '[${PID}] Eludite.Debugger.Mono.TestApp.exe' has exited with code 3 (0x3)."
+          ],
+          "next": 3
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "mono",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": true,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": false,
+          "terminate": true,
+          "modules": false,
+          "memory": false,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": true
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "Program.cs, line 78 [enabled] hits 4 when i % 25 == 0 print i={i} total={total}"
+        ]
+      }
+    }
+  ]
+}
