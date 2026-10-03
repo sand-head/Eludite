@@ -1,6 +1,6 @@
 # Brief 0003 report: legacy project load, WebForms code-behind IntelliSense
 
-Status: Linux done; Windows not run on this machine (none available). Spike code, not production.
+Status: Linux done; Windows done (2026-10-03, see "Windows"). Spike code, not production.
 Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 
 ## Summary
@@ -23,8 +23,9 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
   loaded 4.5 s after `initialize`, or 6.8 to 7.4 s with eludite-host's preparation in front.
 - **Recommendations:** **locate** Mono, do not bundle it. A **from-scratch evaluator fallback is not needed**: the
   fallback should be the .NET SDK's MSBuild in-process plus a small set of corrections. See below for both.
-- Windows: **not run on this machine.** `run.ps1` and `BuildToolsInstallation` (vswhere) are written but untested.
-  Every Windows column below says "not run".
+- Windows (2026-10-03, see "Windows"): vswhere finds MSBuild, the evaluator's Compile items match real
+  `MSBuild.exe -getItem:Compile` exactly for all 4 projects compared, and the completion test passes with the Build
+  Tools MSBuild. 23 of 29 load cleanly; the other 6 need Visual Studio's web targets, which this machine lacked.
 
 ## Machine
 
@@ -50,7 +51,7 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 | Path | What |
 |---|---|
 | `dotnet/src/Eludite.Host/Legacy/MonoInstallation.cs` | Finds Mono and its `MSBuild.dll`: `ELUDITE_MONO_PREFIX`, then `mono` on `PATH`, then `~/.local/opt/mono-root/usr`, `/usr`, `/usr/local`, the macOS framework. Supplies the environment a relocated Mono needs. |
-| `Legacy/BuildToolsInstallation.cs` | `vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe` (Windows; untested) |
+| `Legacy/BuildToolsInstallation.cs` | `vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe` (Windows; found Visual Studio 2026's MSBuild on 2026-10-03) |
 | `Legacy/CommandLineMsBuildEvaluator.cs` | Runs a located MSBuild (Mono, Build Tools, or `dotnet msbuild`) once per batch. It uses a generated traversal project and an injected `EluditeDesignTimeDump` target that runs `ResolveReferences` with `ContinueOnError` and writes Compile items, resolved references, defines, TFM, project references and markup items. It never compiles. |
 | `Legacy/InProcessMsBuildEvaluator.cs` | Same through the .NET SDK's MSBuild in-process (Microsoft.Build.Locator), optionally ignoring missing imports |
 | `Legacy/ReferenceAssemblies.cs` | `TargetFrameworkRootPath` from the reference-assembly packages, with a merged symlink root covering every version |
@@ -62,7 +63,7 @@ Branch: `brief/0003-legacy-project-load`. Date: 2026-10-01.
 | `Lsp/LspProxy.cs`, `Lsp/RoslynProcessLauncher.cs`, `Program.cs` | Pre-launch hook, extra child environment, `project/open` when `solutionPath` is a bare `.csproj` |
 | `dotnet/src/Eludite.Web/{ControlRegistration, ControlTypeResolver, DesignerControlScanner, DesignerPartialGenerator, MetadataTypeCatalog, RegisterDirectiveParser, WebConfigControls}.cs` | Designer-partial prototype: finds server controls (skipping templates and `asp:Content`), reads `Register` directives and `web.config` `<pages><controls>` (plus the framework defaults), resolves control types against the referenced assemblies' metadata, and renders the partial class |
 | `corpus/legacy/manifest.json`, `fetch.sh` | Corpus manifest (SPDX id, pinned commit) and a shallow, idempotent fetch into `.checkout/` (gitignored) |
-| `tools/legacy-load/run.sh`, `run.ps1`, `runner/` | Matrix runner. Phases: restore, eval, getitem, compile, roslyn, designer. Writes a JSON file per project and per phase, plus `matrix.md`, to `results/<stamp>/` (gitignored). `run.ps1` is untested. |
+| `tools/legacy-load/run.sh`, `run.ps1`, `runner/` | Matrix runner. Phases: restore, eval, getitem, compile, roslyn, designer. Writes a JSON file per project and per phase, plus `matrix.md`, to `results/<stamp>/` (gitignored). `run.ps1` ran on Windows on 2026-10-03 after three fixes (see "Windows"). |
 | `dotnet/tests/Eludite.Host.Tests/LegacyEvaluatorTests.cs` | Unit and integration tests for the evaluators, injection, case fixups, classifier, solution parsing and designer modes |
 | `dotnet/tests/Eludite.Host.Tests/LegacyWebFormsCompletionTests.cs` | Proving test for WebForms completion. It skips when the Roslyn build, the corpus checkout or the reference packages are absent. |
 | `dotnet/tests/Eludite.Web.Tests/DesignerPartialGeneratorTests.cs` | Generator and resolver tests |
@@ -118,42 +119,42 @@ Columns:
   build host. The host's corrections are on (mode `mono-fixed`).
 - **as written**: the same without corrections (mode `mono`).
 - **Linux SDK**: Mono hidden, so Roslyn uses its .NET SDK build host; corrections on (mode `sdk-fixed`).
-- **Windows Build Tools**: not run on this machine.
+- **Windows Build Tools**: eludite-host's evaluation with the Build Tools MSBuild that vswhere found, then the Roslyn LS through eludite-host (mode `sdk-fixed`; Roslyn's own build host uses .NET Framework MSBuild on Windows). Run on 2026-10-03.
 
 "Errors" counts Roslyn compilation errors (`CS*`, severity Error) from `textDocument/diagnostic` pulled for every
 Compile item. Eval time is Mono MSBuild evaluation plus `ResolveReferences` for that project alone, in a new process.
 
 | Project | Eval (Mono, cold) | Files / refs | Linux Mono | as written | Linux SDK | Windows Build Tools |
 |---|---|---|---|---|---|---|
-| changepk / PrimaryKeysConfigTest | 577 ms | 39 / 42 (3 unresolved) | loaded, 54 err (packages, upstream) | loaded, 54 | loaded, 54 | not run |
-| sqlmembership / SQLMembership-Identity-OWIN | 572 ms | 32 / 33 (3 unresolved) | loaded, 21 err (packages, upstream) | loaded, 21 | loaded, 21 | not run |
-| wcf / service | failed | - | **failed (missing targets: case)** | failed | failed | not run |
-| sharex / ShareX | 1,543 ms | 137 / 120 | loaded, 17 err (packages: Windows SDK contracts) | 17 | 74 | not run |
-| sharex / ShareX.HelpersLib | 727 ms (COM error) | 235 / 21 | loaded, 9 err (COM) | 9 | 143 | not run |
-| sharex / ShareX.HistoryLib | 604 ms | 24 / 11 | loaded, 0 | 0 | 115 | not run |
-| sharex / ShareX.ScreenCaptureLib | 1,082 ms | 101 / 13 | loaded, 0 | 0 | 76 | not run |
-| sharex / ShareX.UploadersLib | 616 ms | 207 / 23 | loaded, 0 | 0 | 312 | not run |
-| sharex / ShareX.IndexerLib | 591 ms | 14 / 10 | loaded, 0 | 0 | 7 | not run |
-| sharex / ShareX.ImageEffectsLib | 611 ms | 64 / 9 | loaded, 0 | 0 | 16 | not run |
-| sharex / ShareX.Setup | 560 ms | 3 / 5 | loaded, 0 | 0 | 0 | not run |
-| sharex / ShareX.MediaLib | 579 ms | 28 / 13 | loaded, 0 | 0 | 0 | not run |
-| sharex / ShareX.Steam | 514 ms | 6 / 6 | loaded, 0 | 0 | 0 | not run |
-| sharex / ShareX.NativeMessagingHost | 580 ms | 3 / 5 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / Umbraco.Web.UI | failed | - | **failed (web targets: WebPublishingTasks)** | failed | failed | not run |
-| umbraco7 / Umbraco.Web | 1,720 ms | 1,160 / 121 | loaded, 0 | 128 | 0 | not run |
-| umbraco7 / umbraco.businesslogic | 1,027 ms | 39 / 25 | loaded, 0 | 2 | 0 | not run |
-| umbraco7 / umbraco.cms | 1,129 ms | 147 / 24 | loaded, 0 | 26 | 0 | not run |
-| umbraco7 / umbraco.interfaces | 511 ms | 28 / 6 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / umbraco.editorControls | 2,070 ms | 165 / 20 | loaded, 0 | 4 | 0 | not run |
-| umbraco7 / umbraco.providers | 1,243 ms | 11 / 13 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / umbraco.datalayer | 606 ms | 44 / 12 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / umbraco.controls | 1,206 ms | 29 / 15 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / SqlCE4Umbraco | 557 ms | 11 / 11 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / umbraco.MacroEngines | 1,534 ms | 55 / 34 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / Umbraco.Core | 653 ms | 1,513 / 98 | loaded, 0 | 75 | 0 | not run |
-| umbraco7 / Umbraco.Tests | 2,041 ms | 438 / 70 (1 unresolved) | loaded, 0 | 105 | 0 | not run |
-| umbraco7 / UmbracoExamine | 1,225 ms | 38 / 18 | loaded, 0 | 0 | 0 | not run |
-| umbraco7 / Umbraco.Tests.Benchmarks | 1,165 ms | 12 / 146 | loaded, 0 | 1 | 0 | not run |
+| changepk / PrimaryKeysConfigTest | 577 ms | 39 / 42 (3 unresolved) | loaded, 54 err (packages, upstream) | loaded, 54 | loaded, 54 | eval 521 ms; loaded, 54 err |
+| sqlmembership / SQLMembership-Identity-OWIN | 572 ms | 32 / 33 (3 unresolved) | loaded, 21 err (packages, upstream) | loaded, 21 | loaded, 21 | eval 589 ms; loaded, 21 err |
+| wcf / service | failed | - | **failed (missing targets: case)** | failed | failed | eval 455 ms; loaded, 0 err |
+| sharex / ShareX | 1,543 ms | 137 / 120 | loaded, 17 err (packages: Windows SDK contracts) | 17 | 74 | eval 1709 ms; loaded, 0 err |
+| sharex / ShareX.HelpersLib | 727 ms (COM error) | 235 / 21 | loaded, 9 err (COM) | 9 | 143 | eval 1000 ms; loaded, 0 err |
+| sharex / ShareX.HistoryLib | 604 ms | 24 / 11 | loaded, 0 | 0 | 115 | eval 625 ms; loaded, 0 err |
+| sharex / ShareX.ScreenCaptureLib | 1,082 ms | 101 / 13 | loaded, 0 | 0 | 76 | eval 952 ms; loaded, 0 err |
+| sharex / ShareX.UploadersLib | 616 ms | 207 / 23 | loaded, 0 | 0 | 312 | eval 595 ms; loaded, 0 err |
+| sharex / ShareX.IndexerLib | 591 ms | 14 / 10 | loaded, 0 | 0 | 7 | eval 567 ms; loaded, 0 err |
+| sharex / ShareX.ImageEffectsLib | 611 ms | 64 / 9 | loaded, 0 | 0 | 16 | eval 642 ms; loaded, 0 err |
+| sharex / ShareX.Setup | 560 ms | 3 / 5 | loaded, 0 | 0 | 0 | eval 596 ms; loaded, 0 err |
+| sharex / ShareX.MediaLib | 579 ms | 28 / 13 | loaded, 0 | 0 | 0 | eval 558 ms; loaded, 0 err |
+| sharex / ShareX.Steam | 514 ms | 6 / 6 | loaded, 0 | 0 | 0 | eval 436 ms; loaded, 0 err |
+| sharex / ShareX.NativeMessagingHost | 580 ms | 3 / 5 | loaded, 0 | 0 | 0 | eval 540 ms; loaded, 0 err |
+| umbraco7 / Umbraco.Web.UI | failed | - | **failed (web targets: WebPublishingTasks)** | failed | failed | FAIL (web targets); failed (web targets) |
+| umbraco7 / Umbraco.Web | 1,720 ms | 1,160 / 121 | loaded, 0 | 128 | 0 | FAIL (web targets); failed (web targets) |
+| umbraco7 / umbraco.businesslogic | 1,027 ms | 39 / 25 | loaded, 0 | 2 | 0 | eval 982 ms; loaded, 0 err |
+| umbraco7 / umbraco.cms | 1,129 ms | 147 / 24 | loaded, 0 | 26 | 0 | eval 984 ms; loaded, 0 err |
+| umbraco7 / umbraco.interfaces | 511 ms | 28 / 6 | loaded, 0 | 0 | 0 | eval 423 ms; loaded, 0 err |
+| umbraco7 / umbraco.editorControls | 2,070 ms | 165 / 20 | loaded, 0 | 4 | 0 | eval 1174 ms, web targets error; not reported, 0 err |
+| umbraco7 / umbraco.providers | 1,243 ms | 11 / 13 | loaded, 0 | 0 | 0 | eval 1023 ms; loaded, 0 err |
+| umbraco7 / umbraco.datalayer | 606 ms | 44 / 12 | loaded, 0 | 0 | 0 | eval 566 ms; loaded, 0 err |
+| umbraco7 / umbraco.controls | 1,206 ms | 29 / 15 | loaded, 0 | 0 | 0 | eval 1000 ms; loaded, 0 err |
+| umbraco7 / SqlCE4Umbraco | 557 ms | 11 / 11 | loaded, 0 | 0 | 0 | eval 526 ms; loaded, 0 err |
+| umbraco7 / umbraco.MacroEngines | 1,534 ms | 55 / 34 | loaded, 0 | 0 | 0 | eval 1209 ms, web targets error; not reported, 0 err |
+| umbraco7 / Umbraco.Core | 653 ms | 1,513 / 98 | loaded, 0 | 75 | 0 | eval 752 ms; loaded, 0 err |
+| umbraco7 / Umbraco.Tests | 2,041 ms | 438 / 70 (1 unresolved) | loaded, 0 | 105 | 0 | eval 1456 ms, web targets error; not reported, 0 err |
+| umbraco7 / UmbracoExamine | 1,225 ms | 38 / 18 | loaded, 0 | 0 | 0 | eval 1052 ms; loaded, 0 err |
+| umbraco7 / Umbraco.Tests.Benchmarks | 1,165 ms | 12 / 146 | loaded, 0 | 1 | 0 | eval 1681 ms, web targets error; not reported, 0 err |
 
 Most projects are "loaded with warnings" in Roslyn's terms. The warnings are Visual Studio code-analysis rule sets
 that do not exist off Windows (`MinimumRecommendedRules.ruleset`, `AllRules.ruleset`), and NuGet asking for a `win`
@@ -176,7 +177,7 @@ Failure reasons and classes:
 **Linux: pass, with caveats.** 25 of 29 (86 %) with Mono plus eludite-host's corrections:
 - 23 load with zero errors.
 - ChangePK and SQLMembership have errors only from the upstream package/HintPath mismatch, which Windows MSBuild
-  would also hit. This is judged from the project files; it was not verified on Windows.
+  would also hit. Verified on Windows: the same 54 and 21 errors.
 - Failing: wcf/service (missing targets), Umbraco.Web.UI (web targets), ShareX (packages), ShareX.HelpersLib (COM).
 
 | Configuration | Zero errors, or errors Windows also has |
@@ -186,7 +187,7 @@ Failure reasons and classes:
 | Mono, as written (`mono`) | 18 / 29 (62 %) |
 | .NET SDK MSBuild, as written (`sdk`) | 13 / 29 (45 %) |
 
-Windows Build Tools: not run on this machine.
+Windows Build Tools: **23 / 29 (79 %)**, just under the bar, and every miss has one cause. 21 load with zero errors (ShareX and ShareX.HelpersLib included, which fail on Linux), plus the 2 WebForms samples with their upstream errors. Umbraco.Web.UI and Umbraco.Web fail to evaluate, and 4 more Umbraco projects that reference Umbraco.Web are not reported by Roslyn, all because `Microsoft.WebApplication.targets` was missing: this Visual Studio 2026 install had no web development workload, which the checklist asks for. With it installed the expected result is 29 / 29 or close, but that is not measured.
 
 **Evaluator versus Roslyn.** The runner's `compile` phase feeds the evaluator's Compile items and resolved
 references straight into a `CSharpCompilation`. For 25 of the 27 loaded projects, that gives exactly the same error
@@ -200,12 +201,12 @@ run. On Linux, an independent reference was used instead: `dotnet msbuild -getIt
 given Mono's `VSToolsPath` for web projects. It produced item lists for 27 projects. Every evaluator that loaded a given
 project agrees with it on all 27 (0 differences; the strict and command-line SDK evaluators cannot load the two
 WebForms samples). The other 2, wcf/service and Umbraco.Web.UI, cannot be evaluated there for the reasons
-above. `run.ps1` includes the Windows comparison against `MSBuild.exe -getItem:Compile` for 4 projects (ChangePK,
-the WCF service, ShareX.HelpersLib and Umbraco.Core), untested.
+above. On Windows, `run.ps1` compared against `MSBuild.exe -getItem:Compile` (Visual Studio 2026's MSBuild) for 4 projects:
+ChangePK (39 items), the WCF service (2), ShareX.HelpersLib (235) and Umbraco.Core (1,513). **0 differences in all 4.**
 
 ### 3. WebForms code-behind completion test passes on both OSes
 
-**Linux: pass (both MSBuild variants).** Windows: not run on this machine.
+**Linux: pass (both MSBuild variants).** **Windows: pass** with the Build Tools MSBuild (the host prefers it to the .NET SDK's when vswhere finds it; Mono is the Linux path).
 
 `LegacyWebFormsCompletionTests.CodeBehind_CompletionOnMarkupOnlyField_ListsControlMembers(mono|sdk)`:
 1. Copies the ChangePK project to a temp directory.
@@ -311,8 +312,7 @@ Missing for this feature:
 
 ## Not covered
 
-- **Windows, all of it:** the Build Tools column, the `-getItem` comparison against real `MSBuild.exe`, the
-  completion test, `run.ps1`, `BuildToolsInstallation`. Not run on this machine.
+- **Windows with the web development build tools installed**, which should clear the 6 web-target misses.
 - **True cold-disk timings:** the page cache could not be dropped without root.
 - **Evaluation runs before Roslyn starts, one after the other.** That adds the batch evaluation time (2.3 to 2.6 s on
   ShareX and Umbraco) to time-to-first-semantic-result. Running it alongside Roslyn's startup, caching it keyed by
@@ -331,10 +331,7 @@ Missing for this feature:
 - the protocol additions above (schema first), with the Error List and Output wiring;
 - case-insensitive import resolution;
 - PackageReference asset resolution for the no-Mono fallback;
-- a Windows run of this matrix and of the completion test.
-
-The last item could be a small brief of its own on any Windows machine with Build Tools: run
-`tools\legacy-load\run.ps1` and fill in the Windows column.
+- a Windows re-run with the web development build tools installed (see "Windows").
 
 ## Reproduce
 
@@ -350,3 +347,30 @@ Raw data for this report: `tools/legacy-load/results/20261001-195344/` (gitignor
 `summary.json`, `matrix.md`, `eval/<entry>/<evaluator>/<project>.json`, `getitem.json`, `compile.json`,
 `roslyn.json` and the per-entry Roslyn logs. The `mono-fixed` and `sdk-fixed` modes come from a rerun at 20:10 after
 the designer change.
+
+## Windows
+
+Run on 2026-10-03 from the `windows-run` branch (`tools\legacy-load\run.ps1`, then `dotnet test dotnet/Eludite.slnx` with `ELUDITE_ROSLYN_LS` set).
+
+| | |
+|---|---|
+| Machine | Intel Core Ultra 9 185H laptop, 31 GB RAM, NVMe, Windows 11 Pro 10.0.26200 |
+| MSBuild | Visual Studio 2026 Enterprise 18.9 (`MSBuild\Current\Bin\MSBuild.exe`), found by vswhere. No separate Build Tools install. Workloads: .NET desktop, ASP.NET and web, C++ desktop; **no** web development build tools, so no `Microsoft.WebApplication.targets` |
+| Mono | not installed (the Windows path does not use it) |
+| Roslyn | the pinned server, built with `tools/roslyn-pin/build.ps1` (see brief 0002's report) |
+
+**What it took to run.** `run.ps1` and the corpus fetch had never run on Windows:
+
+1. `run.ps1` called `bash`, which on Windows is System32's WSL launcher; it cannot take a Windows path, so the fetch failed at once. It now uses Git for Windows' own `bash.exe`, found beside `git.exe`.
+2. `corpus/legacy/fetch.sh` under Git for Windows' bash produced wrong checkouts while reporting success. Python on Windows ends lines with CRLF, so the last tab field read as `"\r"`, which made the two full-clone repos (ShareX, Umbraco) sparse with a pattern of `\r`, and MSYS rewrote the sparse patterns' leading `/` into Windows paths (and globbed `/LICENSE*` against Git's install root). Only `*.md` files were checked out, and the runner reported both solutions missing. The script now strips the `\r`, turns off globbing and MSYS path conversion for the patterns, and repairs a checkout already at the pinned commit instead of skipping it.
+3. The `-getItem` comparison crashed when MSBuild printed an error instead of JSON. It now records the failure and goes on.
+
+eludite-host itself needed one change: on Windows without Developer Mode, `ReferenceAssemblies.MergedRoot` could not create symlinks and returned null, so the merged reference-assembly root was never used. It now falls back to directory junctions (`mklink /J`), which need no special rights.
+
+**Results.**
+
+- **Compile items:** the evaluator (Build Tools MSBuild) against `MSBuild.exe -getItem:Compile`: ChangePK 39 / 39, the WCF service 2 / 2, ShareX.HelpersLib 235 / 235, Umbraco.Core 1,513 / 1,513. **0 differences.**
+- **Load matrix:** the Windows column above. 23 of 29 load with zero errors or with the WebForms samples' upstream errors (identical to Linux: 54 and 21). The wcf service, which fails on Linux on a case-sensitive import, loads with 0 errors. ShareX and ShareX.HelpersLib, which have Windows SDK contract and COM errors on Linux, load with 0. The 6 misses are Umbraco.Web.UI and Umbraco.Web (evaluation fails on the missing `Microsoft.WebApplication.targets`) and 4 projects that reference Umbraco.Web.
+- **Evaluation time,** single project, cold process: 423 to 1,709 ms with the Build Tools MSBuild (budget 5 s), and 292 to 604 ms with the .NET SDK's.
+- **Completion test:** `CodeBehind_CompletionOnMarkupOnlyField_ListsControlMembers` passes with the Build Tools MSBuild. The test had asserted the SDK MSBuild for its non-Mono case; on Windows the host correctly prefers the Build Tools MSBuild, so the test now expects whichever one the host will find.
+- **Owed:** a re-run with the web development build tools workload installed. The runner's own SDK-based `-getItem` reference (the off-Windows stand-in) still cannot evaluate web projects on Windows without Mono's targets; on Windows the real `MSBuild.exe` comparison above replaces it.

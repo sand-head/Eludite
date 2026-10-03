@@ -1,6 +1,6 @@
 # Brief 0002 report: `eludite-host` with Roslyn, time-to-IntelliSense
 
-Status: Linux done; Windows not run on this machine (none available). Spike code, not production.
+Status: Linux done; Windows done (2026-10-03, see "Windows"). Spike code, not production.
 Branch: `brief/0002-eludite-host-roslyn`. Date: 2026-10-01.
 
 ## Summary
@@ -36,8 +36,7 @@ Branch: `brief/0002-eludite-host-roslyn`. Date: 2026-10-01.
 | .NET | SDK 10.0.302, runtime 10.0.10 (Roslyn's build used its own SDK 11.0.100-rc.1.26425.128) |
 | Roslyn | `7c238e7cb19650384de7dcb93a93d4e38a5f7ed9`, dotnet/roslyn `main` tip, committed 2026-10-01T20:42:35Z |
 
-Windows: **not run on this machine.** No Windows numbers exist. `build.ps1` and `run.ps1` are
-written but untested.
+Windows: run on 2026-10-03; see the "Windows" section at the end.
 
 ## What was built
 
@@ -73,8 +72,7 @@ is skipped.
 - Output: `$ROSLYN_SRC_DIR/artifacts/bin/Microsoft.CodeAnalysis.LanguageServer/Release/net10.0/Microsoft.CodeAnalysis.LanguageServer.dll`
   (119 MB, 98 assemblies, plus `BuildHost-netcore/` and `BuildHost-net472/`).
 
-**Windows: not run on this machine.** `build.ps1` calls `Build.cmd` with the same arguments and
-is untested.
+**Windows: pass** after four fixes to `build.ps1` (see "Windows"): 266 s wall time, 0 warnings, 0 errors.
 
 ### 2. Handshake, `eludite/ping`, `eludite/host/info`
 
@@ -89,7 +87,7 @@ is untested.
 
 ### 3. The 200-project solution loads and T2 succeeds (Linux and Windows)
 
-**Linux: pass.** Windows: **not run on this machine.**
+**Linux: pass.** **Windows: pass**, but load and T2 take about twice as long (see "Windows").
 
 What the generator produces:
 - 160 class libraries in 7 layers (L0 to L6). Every project in layer k references one project in
@@ -375,7 +373,7 @@ eludite-owned project system feeding Roslyn's `workspace/_roslyn_*` project APIs
 
 ## Not covered
 
-- Windows, for every criterion: not run on this machine.
+- Windows: peak memory of the Roslyn server and of the process tree (the driver samples them on Linux only).
 - VB.NET feature coverage, which PLAN.md section 4.3 mentions for "Spike 2". It is not in this
   brief's exit criteria and was not tested.
 - True cold-disk numbers, which need dropping the page cache (root). Only the first cold run
@@ -391,3 +389,49 @@ bench/roslyn-200/run.sh --prepare-only       # generate, restore (offline), buil
 dotnet test dotnet/Eludite.slnx              # includes the integration test once the above exist
 bench/roslyn-200/run.sh                      # 10 cold + 10 warm; COLD=3 WARM=3 for a quick run
 ```
+
+## Windows
+
+Run on 2026-10-03 from the `windows-run` branch, 3 cold and 3 warm runs (`$env:COLD=3; $env:WARM=3; pwsh bench/roslyn-200/run.ps1`).
+
+| | |
+|---|---|
+| CPU | Intel Core Ultra 9 185H (16 cores, 22 threads), laptop on AC power, Balanced power plan |
+| RAM | 31.5 GB |
+| Disk | NVMe, SK hynix PC811 1 TB, NTFS |
+| OS | Windows 11 Pro 10.0.26200 |
+| .NET | SDK 10.0.400 (Roslyn's build used its own SDK 11.0.100-rc.1.26425.128) |
+| Roslyn | `7c238e7cb19650384de7dcb93a93d4e38a5f7ed9`, as on Linux |
+
+**Building Roslyn.** `tools/roslyn-pin/build.ps1` had never run and needed four fixes, now in the script:
+
+1. The clone needs `core.longpaths`: Roslyn's Razor test files pass `MAX_PATH` under `~\.cache\eludite\roslyn`, and the checkout aborts.
+2. Roslyn's build itself refuses to run unless Windows long path support is on machine-wide (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`, which needs an elevated prompt once). The script now checks for it first and prints the command.
+3. `Build.cmd` already passes `-build`, so passing it again fails PowerShell's parameter binding; and it re-parses its arguments in a nested PowerShell, so `-nodeReuse:$false` must be passed as the literal text `'$false'`.
+4. By default Roslyn's Windows build requires a Visual Studio MSBuild 17.14 or later. `-msbuildEngine dotnet` builds with the SDK instead, as on Linux, so no Visual Studio is needed.
+
+With those, the build takes **266 s** wall time (Linux: 117 s), including the download of Roslyn's SDK and the restore, with 0 warnings and 0 errors.
+
+**Results** (medians; cold / warm):
+
+| Metric | Windows cold | Windows warm | Linux cold / warm |
+|---|---|---|---|
+| T0: process start to `initialize` response | 273 ms | 261 ms | 104 / 104 ms |
+| T1: `initialize` to first non-empty `documentSymbol` | 2,276 ms | 2,107 ms | 1,218 / 1,012 ms |
+| Tload: `initialize` to solution loaded | 18,696 ms | 18,117 ms | about 9,200 to 9,600 ms |
+| T2: `initialize` to completion, depth-6 project | **20,473 ms** | **19,961 ms** | 9,623 / 9,643 ms |
+| T2 minus Tload | 1,777 ms | 1,845 ms | |
+| T3 completion p95 | 5.5 ms | 6.0 ms | 7.0 ms (warm) |
+| T3-typing (didChange + completion) p95 / p99 | 10.5 / 29.2 ms | 10.5 / 45.3 ms | 36.5 / 49.1 ms (warm) |
+| Completion during a warming pull, p95 | 7.7 ms | 7.8 ms | |
+| Cancel completion, max cancel to response | 2.4 ms | 1.7 ms | under 3 ms (worst 6.4 ms) |
+| Late result responses after cancel | 0 | 0 | 0 |
+| eludite-host peak working set | 62.9 MB | 63.1 MB | |
+
+Every completion contained the expected item in every run, and no result was delivered for a canceled request.
+
+**Findings.**
+
+- **Loading the solution takes about twice as long as on Linux** (18 to 19 s against 9 to 10 s), and T2 follows it. Once loaded, Roslyn is as fast or faster than on Linux: completion latency and the typing loop are better here. Windows Defender real-time protection was off; the machine is corporate-managed and runs an endpoint agent (`SecureConnector`) that was the busiest process on the machine, so file-open interception is a suspect, but this run cannot separate it from NTFS and process-creation costs. A run on an unmanaged Windows machine, or a WPR file-I/O profile of the load, is the next step.
+- **Peak memory of the Roslyn server is not measured on Windows.** The driver samples the process tree from `/proc`; on Windows `run.ps1` only reports eludite-host's own peak working set.
+- The integration test (`RoslynIntegrationTests`, the 200-project solution with completion six layers deep) passes on Windows with `ELUDITE_ROSLYN_LS` pointing at the built server.
