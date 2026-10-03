@@ -49,6 +49,35 @@ A session by hand (each message framed with `Content-Length`, as LSP):
 {"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}
 ```
 
+## The Web Browser window's methods (brief 0032)
+
+Beside the spike's tabs, frames, input and CDP, the engine serves the window (`browser-rpc.md` has the contract):
+
+- **Popups become tabs**: `OnBeforePopup` gives the popup windowless rendering and the tab's handlers, so
+  `window.open` and `target=_blank` make a tab of their own (`tab/resized`, then `tab/popup` naming the opener) and
+  `window.opener` works.
+- **`<select>` lists** are painted by CEF as a separate element; the engine draws them over the view's next frame and
+  flags it (`popup` in `tab/frame`).
+- **State**: `tab/state` carries the title, address, loading, `canGoBack`, `canGoForward`, the status text and the
+  favicon (downloaded with `DownloadImage`, at most 32 pixels, as a PNG data url); `tab/cursor` the cursor.
+- **Dialogs and prompts are the shell's**: JavaScript `alert`, `confirm`, `prompt` and `beforeunload`
+  (`CefJSDialogHandler`), file choosers (`CefDialogHandler`), authentication (`GetAuthCredentials`, with
+  `--disable-chrome-login-prompt` so Chrome's own prompt never shows) and permissions (`CefPermissionHandler`,
+  geolocation, notifications, camera, microphone, clipboard, ...) hold CEF's callback and send `tab/dialog` or
+  `tab/permission`; `tab/dialogAnswer` and `tab/permissionAnswer` continue it; `tab/dialogClosed` says it is gone.
+- **Downloads** go to `initialize`'s `downloadDir` (the workspace's `.eludite/browser/downloads/`) without a prompt,
+  under a safe, unique name; over `maxDownloadBytes` (100 MB) they are refused (`tab/download`).
+- **The context menu is the shell's**: `RunContextMenu` cancels Chromium's and sends `tab/contextMenu` with the link,
+  image, selection and edit state under the pointer; `tab/action` runs Copy, Paste, Select All, Stop and Save As.
+- **DevTools as a tab**: CEF 154 cannot show DevTools windowless (`ShowDevTools` always makes a Chrome-style window;
+  CEF logs "Windowless rendering is not supported for this DevTools window"). So `tab/devtools` loads Chromium's own
+  front end (`devtools://devtools/bundled/inspector.html`) in a windowless tab and connects it to the page through a
+  websocket bridge in the engine on 127.0.0.1, on a random port and an unguessable path, open only while that tab is.
+  The front end shares the page's one DevTools session with the shell: its message ids are moved above 2^29 and back,
+  so each side gets its own answers, and both get the events. Inspect (`inspectAt`) selects the element at a point.
+- **IME**: `imeSetComposition` and `imeCommitText` replace the current selection (CEF's invalid range), as CEF's own
+  clients do.
+
 ## Privacy: no request nobody asked for
 
 The engine makes no network request other than the pages the person or an agent navigates to (and what those pages
@@ -84,7 +113,11 @@ asserts there is none (`ELUDITE_NET_LOG_KEEP=FILE` keeps the log to read by hand
 
 ## Tests
 
-`cargo test -p eludite-chromium` runs the ring, framing, options and sandbox unit tests. With `--features cef` (and
-`CEF_PATH`), `tests/engine.rs` drives the real engine: a tab rendering four colored quadrants read back from the ring
-at known points, resize into a new region, a CDP `Runtime.evaluate`, mouse and key input changing the page, errors,
-close, shutdown, and a closed stdin. As root they set `ELUDITE_CHROME_NO_SANDBOX=1` and say so.
+`cargo test -p eludite-chromium` runs the ring, framing, options, sandbox, privacy and window-helper unit tests. With
+`--features cef` (and `CEF_PATH`), `tests/engine.rs` drives the real engine: a tab rendering four colored quadrants
+read back from the ring at known points, resize into a new region, a CDP `Runtime.evaluate`, mouse and key input
+changing the page, errors, close, shutdown, and a closed stdin (brief 0031); the net log on `about:blank`, popups as
+tabs keeping their opener, a `<select>` list flagged in the frames and picked with the keys, cursors, the context
+menu, `alert`, `confirm` and `prompt` answered by the shell, a file chooser, a geolocation prompt denied, an
+authentication challenge, downloads and their limit, DevTools as a tab closing with its page, IME composition and
+commit, history and the favicon (brief 0032). As root they set `ELUDITE_CHROME_NO_SANDBOX=1` and say so.
