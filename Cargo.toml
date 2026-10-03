@@ -70,6 +70,8 @@ git2 = { version = "0.20", default-features = false }
 mimalloc = "0.1.52"
 # mimalloc's C API: tree-sitter's own heap in eludite-editor (brief 0011). MIT.
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
+# CommonMark with GitHub tables and strikethrough: tooltips and the Agents transcript. MIT.
+pulldown-cmark = { version = "0.13", default-features = false }
 roxmltree = "0.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
