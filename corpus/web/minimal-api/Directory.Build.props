@@ -1,0 +1,4 @@
+<Project>
+  <!-- Stops MSBuild's search for a Directory.Build.props further up, so the project builds the same wherever it is
+       checked out (or copied, as the shell's tests do). Its settings are in MinimalApi.csproj. -->
+</Project>
