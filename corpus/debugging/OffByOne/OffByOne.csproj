@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- .NET 10 runs it under netcoredbg, .NET Framework 4.7.2 under eludite-dbg-mono (Mono 6.8). No packages. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0;net472</TargetFrameworks>
+    <RootNamespace>OffByOne</RootNamespace>
+  </PropertyGroup>
+
+</Project>
