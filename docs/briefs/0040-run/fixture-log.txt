@@ -1,0 +1,7 @@
+* 5aec85c Note an edit
+*   9606ccd Merge branch 'feature'
+|\  
+| * 946f7ca Add mul
+* | 8d84cf5 Add a README
+|/  
+* 286edae Add the calculator

@@ -200,6 +200,9 @@ pub struct GitChanges {
     /// The last command's message (`true`: an error), shown under the message box.
     info: Option<(String, bool)>,
     scroll: UniformListScrollHandle,
+    /// Where the message box, the Commit button and the file rows were drawn, while `--bounds-out` probes (the Xvfb
+    /// run clicks them).
+    probe: Option<eludite_ui::BoundsMap>,
 }
 
 impl EventEmitter<ChangesEvent> for GitChanges {}
@@ -217,7 +220,12 @@ impl GitChanges {
             selected: None,
             info: None,
             scroll: UniformListScrollHandle::new(),
+            probe: None,
         }
+    }
+
+    pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
+        self.probe = probe;
     }
 
     pub fn set_model(&mut self, model: ChangesModel, cx: &mut Context<Self>) {
@@ -475,6 +483,7 @@ impl GitChanges {
         }
         let staged = group == Group::Staged;
         let open = path.clone();
+        let probed = eludite_ui::bounds_canvas(self.probe.as_ref(), key.clone());
         let label = match &f.old_path {
             Some(old) => format!("{name} \u{2190} {old}"),
             None => name,
@@ -494,6 +503,8 @@ impl GitChanges {
             .gap_1()
             .whitespace_nowrap()
             .overflow_hidden()
+            .relative()
+            .children(probed)
             .when_selected(selected, &t)
             .on_click(cx.listener(move |this, e: &gpui::ClickEvent, window, cx| {
                 this.selected = Some(key.clone());
@@ -701,6 +712,8 @@ impl Render for GitChanges {
         let message_box = div()
             .id(MESSAGE_BOX)
             .debug_selector(|| MESSAGE_BOX.into())
+            .relative()
+            .children(eludite_ui::bounds_canvas(self.probe.as_ref(), MESSAGE_BOX))
             .track_focus(&self.focus)
             .key_context("GitCommitMessage")
             .on_key_down(cx.listener(Self::message_key))
@@ -744,6 +757,8 @@ impl Render for GitChanges {
             .gap_1()
             .child(
                 push_button(COMMIT, commit_label, true, true, &t)
+                    .relative()
+                    .children(eludite_ui::bounds_canvas(self.probe.as_ref(), COMMIT))
                     .on_click(cx.listener(|this, _, window, cx| this.commit(false, window, cx))),
             )
             .child(
