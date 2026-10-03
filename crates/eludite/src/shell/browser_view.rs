@@ -264,7 +264,11 @@ impl BrowserSurface {
             } else if f.sequence == last + 1 {
                 Some(f.dirty.to_vec())
             } else {
-                source.dirty_between(last, f.sequence)
+                // The frame's own rectangles from its header (its notification may not have arrived yet).
+                source.dirty_between(last, f.sequence - 1).map(|mut d| {
+                    d.extend_from_slice(f.dirty);
+                    d
+                })
             };
             let partial =
                 matches!(&old, Some(t) if t.size == size && t.tile == tile) && dirty.is_some();
@@ -1155,16 +1159,14 @@ mod tests {
         );
         // A skipped sequence: the dirty rectangles of the frames in between are unknown, so every tile.
         frame(5, vec![small]);
-        // Skipped frames the source still knows (the engine paints faster than the shell draws): theirs and its own.
-        *fake.between.lock().unwrap() = Some(vec![
-            DirtyRect {
-                x: 10,
-                y: 10,
-                width: 20,
-                height: 20,
-            },
-            small,
-        ]);
+        // A skipped frame the source still knows (the engine paints faster than the shell draws): its rectangle (in
+        // the first tile) and the drawn frame's own (in the second).
+        *fake.between.lock().unwrap() = Some(vec![DirtyRect {
+            x: 10,
+            y: 10,
+            width: 20,
+            height: 20,
+        }]);
         frame(7, vec![small]);
         let s = stats.borrow();
         assert_eq!(s.tiles_uploaded, vec![6, 1, 4, 6, 2]);
