@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-restart.input.json",
   "title": "eludite.debug.restart input",
-  "description": "Debug > Restart (Ctrl+Shift+F5): end the debugging session and start it again with the same configuration. With an adapter that has DAP's `restart` request (`capabilities.restart`) the adapter restarts the debuggee in the same session; otherwise Eludite stops it (as Shift+F5) and starts the same project, launch profile and debug flag again, building first when the setting build.beforeRun says so. Breakpoints, watches and exception settings carry over. Refused when no session runs (mode `design`) and for an attached session (Visual Studio disables Restart there too: detach with eludite.debug.stop and attach again). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "description": "Debug > Restart (Ctrl+Shift+F5): end the debugging session and start it again with the same configuration. With an adapter that has DAP's `restart` request (`capabilities.restart`) the adapter restarts the debuggee in the same session; otherwise Eludite stops it (as Shift+F5) and starts the same project, launch profile and debug flag again, building first when the setting build.beforeRun says so. Breakpoints, watches and exception settings carry over. Refused when no session runs (mode `design`) and for an attached session (Visual Studio disables Restart there too: detach with eludite.debug.stop and attach again). The answer is the stop summary (debug-stop-summary.output.json), given as soon as the new session's program runs (`mode: running`), as eludite.debug.start's: a break or the end is answered only when it came before the program was seen running. Set the breakpoints you need first (eludite.debug.toggle_breakpoint with `remove_after`), then call eludite.debug.wait with `until: stopped` for the first stop or the end. A multi-targeted project runs the framework `ActiveDebugFramework` in its `.user` file selects, when it lists it, else its first, as eludite.debug.start does.",
   "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "additionalProperties": false,
@@ -13,7 +13,7 @@
       "minimum": 1
     },
     "wait_ms": {
-      "description": "How long to wait for the new session to run (or break) before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it.",
+      "description": "How long to wait for the new session's program to run (or to break or end before it is seen running) before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. A build before the launch counts against it. After a `running` answer, call eludite.debug.wait (`until: stopped`) for the first stop.",
       "type": "integer",
       "minimum": 0,
       "maximum": 30000
