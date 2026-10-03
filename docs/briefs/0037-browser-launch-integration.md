@@ -1,6 +1,6 @@
 # Brief 0037: Launch integration: F5 on a web project opens it in the Web Browser window
 
-Status: in progress
+Status: done
 Phase: 2 (proposal 0002, brief C)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 4), 4.5 (launch profiles), 4.9 (launch: Kestrel for modern projects, browser launch and attach), 5.8, 8 (Debug menu), 10 (Phase 2); proposal 0002 sections 4.4 (launch integration), 8 (C)
 Related ADRs: ADR-0008
