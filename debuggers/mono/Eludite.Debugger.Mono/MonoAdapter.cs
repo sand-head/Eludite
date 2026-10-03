@@ -120,16 +120,33 @@ internal sealed class MonoAdapter
         _columnBase = Json.Bool(args, "columnsStartAt1") is false ? 0 : 1;
         var s = new SoftDebuggerSession();
         s.OutputWriter = (isStderr, text) => _d.Post(() => Output(isStderr ? "stderr" : "stdout", text));
-        s.LogWriter = (isStderr, text) => _d.Post(() => Output("console", text));
+        s.LogWriter = (isStderr, text) => _d.Post(() =>
+        {
+            // An insertion lost to the type-loading race is inserted again (ReinsertLost): not a failure to show.
+            if (text.StartsWith("Could not set breakpoint at location", StringComparison.Ordinal) && text.Contains("(Collection was modified;"))
+            {
+                _log.Write("Mono.Debugging: " + text.TrimEnd() + "; inserting it again");
+                return;
+            }
+
+            Output("console", text);
+            // Pending breakpoints the library missed resolving bind at the next assembly load at the latest.
+            if (text.StartsWith("Loaded assembly:", StringComparison.Ordinal))
+            {
+                SweepPending();
+            }
+        });
         s.DebugWriter = (level, category, message) => _d.Post(() => Output("console", message));
         s.ExceptionHandler = ex =>
         {
             _log.Write("Mono.Debugging: " + ex);
+            // An insertion that failed while the debuggee loaded types: insert again what was lost.
+            _d.Post(ReinsertLost);
             return true;
         };
         s.BreakpointTraceHandler = (be, trace) => _d.Post(() => Output("console", trace.EndsWith("\n", StringComparison.Ordinal) ? trace : trace + "\n"));
         EvaluateSynchronously(s);
-        var evaluator = new MonoEvaluator(s);
+        var evaluator = new MonoEvaluator(s, _log.Write);
         _evaluator = evaluator;
         s.GetExpressionEvaluator = extension => evaluator;
         s.TypeResolverHandler = evaluator.ResolveType;
@@ -226,7 +243,7 @@ internal sealed class MonoAdapter
             _entryBreakpoint = EntryBreakpoint(a.Program);
             if (_entryBreakpoint is not null)
             {
-                s.Breakpoints.Add(_entryBreakpoint);
+                AddBreakEvent(s, _entryBreakpoint);
             }
         }
 
@@ -382,6 +399,12 @@ internal sealed class MonoAdapter
 
         _stopped = false;
         ClearStop();
+        foreach (var timer in _timers)
+        {
+            timer.Dispose();
+        }
+
+        _timers.Clear();
     }
 
     private global::Mono.Debugger.Soft.ITargetProcess StartTarget(ProcessStartInfo info)
@@ -471,23 +494,55 @@ internal sealed class MonoAdapter
             throw new DapException("setBreakpoints needs `source.path` (sources by reference are not supported)");
         }
 
-        if (_sourceBreakpoints.TryGetValue(path!, out var old))
-        {
-            foreach (var bp in old)
-            {
-                s.Breakpoints.Remove(bp);
-                _breakpointIds.Remove(bp);
-            }
-        }
-
-        var list = new List<Breakpoint>();
-        var answers = new JArray();
+        // A breakpoint sent again unchanged (the shell sends a file's whole list after every edit, and again once the
+        // session runs) is kept: re-inserting it would reset its hit count and race Mono.Debugging's type loading.
+        var old = _sourceBreakpoints.TryGetValue(path!, out var known) ? known : new List<Breakpoint>();
+        var requested = new List<(Breakpoint Bp, string? Problem)>();
         foreach (var b in (args["breakpoints"] as JArray ?? new JArray()).OfType<JObject>())
         {
             var line = (Json.Int(b, "line") ?? throw new DapException("a breakpoint needs `line`")) + 1 - _lineBase;
             var bp = new Breakpoint(path, line);
-            var problem = Configure(bp, b);
-            s.Breakpoints.Add(bp);
+            requested.Add((bp, Configure(bp, b)));
+        }
+
+        var kept = new Breakpoint?[requested.Count];
+        var used = new HashSet<Breakpoint>();
+        for (var i = 0; i < requested.Count; i++)
+        {
+            kept[i] = old.FirstOrDefault(o => !used.Contains(o) && _breakpointIds.ContainsKey(o) && SameBreakpoint(o, requested[i].Bp));
+            if (kept[i] is { } k)
+            {
+                used.Add(k);
+            }
+        }
+
+        foreach (var bp in old.Where(o => !used.Contains(o)))
+        {
+            RemoveBreakEvent(s, bp);
+            _breakpointIds.Remove(bp);
+            _requestedLines.Remove(bp);
+            _sweep.Remove(bp);
+        }
+
+        var list = new List<Breakpoint>();
+        var answers = new JArray();
+        for (var i = 0; i < requested.Count; i++)
+        {
+            var (bp, problem) = requested[i];
+            if (kept[i] is { } same)
+            {
+                list.Add(same);
+                answers.Add(BreakpointJson(same, _breakpointIds[same], problem));
+                continue;
+            }
+
+            _requestedLines[bp] = bp.Line;
+            AddBreakEvent(s, bp);
+            if (_started && !_stopped)
+            {
+                _sweep.Add(bp);
+            }
+
             list.Add(bp);
             var id = _nextBreakpointId++;
             _breakpointIds[bp] = id;
@@ -495,6 +550,15 @@ internal sealed class MonoAdapter
         }
 
         _sourceBreakpoints[path!] = list;
+        if (_sweep.Count > 0 && !_stopped)
+        {
+            // Mono.Debugging may miss resolving them while the debuggee loads their types (see SweepPending).
+            foreach (var ms in SweepDelaysMs)
+            {
+                After(ms, SweepPending);
+            }
+        }
+
         return new JObject { ["breakpoints"] = answers };
     }
 
@@ -503,7 +567,7 @@ internal sealed class MonoAdapter
         var s = Session;
         foreach (var bp in _functionBreakpoints)
         {
-            s.Breakpoints.Remove(bp);
+            RemoveBreakEvent(s, bp);
             _breakpointIds.Remove(bp);
         }
 
@@ -553,7 +617,7 @@ internal sealed class MonoAdapter
                 }
             }
 
-            s.Breakpoints.Add(bp);
+            AddBreakEvent(s, bp);
             _functionBreakpoints.Add(bp);
             _functionSpecs[bp] = spec;
             var id = _nextBreakpointId++;
@@ -607,6 +671,239 @@ internal sealed class MonoAdapter
         return problem;
     }
 
+    /// <summary>
+    /// Whether an existing source breakpoint and a requested one behave the same: the line asked for (Mono.Debugging
+    /// moves a bound breakpoint's line and column to its statement's), condition, hit condition, log message.
+    /// </summary>
+    private bool SameBreakpoint(Breakpoint existing, Breakpoint b) =>
+        (_requestedLines.TryGetValue(existing, out var asked) ? asked : existing.Line) == b.Line && existing.Enabled == b.Enabled &&
+        string.Equals(existing.ConditionExpression, b.ConditionExpression, StringComparison.Ordinal) &&
+        existing.HitCountMode == b.HitCountMode && existing.HitCount == b.HitCount && existing.HitAction == b.HitAction &&
+        string.Equals(existing.TraceExpression, b.TraceExpression, StringComparison.Ordinal);
+
+    /// <summary>The line each source breakpoint was asked for.</summary>
+    private readonly Dictionary<Breakpoint, int> _requestedLines = new();
+
+    /// <summary>
+    /// Add a break event to the session. Mono.Debugging's store has no lock of its own, and its event thread enumerates
+    /// it (under a lock on the store) when the debuggee starts, so every change the adapter makes holds that lock too:
+    /// a breakpoint sent while the debuggee starts can no longer end that enumeration with "Collection was modified".
+    /// </summary>
+    private static void AddBreakEvent(SoftDebuggerSession s, BreakEvent be)
+    {
+        lock (s.Breakpoints)
+        {
+            s.Breakpoints.Add(be);
+        }
+    }
+
+    private static void RemoveBreakEvent(SoftDebuggerSession s, BreakEvent be)
+    {
+        lock (s.Breakpoints)
+        {
+            s.Breakpoints.Remove(be);
+        }
+    }
+
+    /// <summary>The session's table of inserted break events (private to Mono.Debugging; null when it cannot be read).</summary>
+    private static readonly FieldInfo? InsertedField = typeof(DebuggerSession).GetField("breakpoints", BindingFlags.Instance | BindingFlags.NonPublic);
+
+    /// <summary>Whether Mono.Debugging inserted <paramref name="be"/> (bound or pending); true when that cannot be known.</summary>
+    private static bool Inserted(SoftDebuggerSession s, BreakEvent be)
+    {
+        if (InsertedField?.GetValue(s) is not System.Collections.IDictionary table)
+        {
+            return true;
+        }
+
+        lock (table)
+        {
+            return table.Contains(be);
+        }
+    }
+
+    private readonly Dictionary<BreakEvent, int> _reinserted = new();
+
+    /// <summary>
+    /// Insert again the break events Mono.Debugging lost (brief 0036). It inserts a break event on its operation thread
+    /// by reading its tables of loaded types, which its event thread fills as the debuggee loads types: when they change
+    /// during the insertion, the insertion fails ("Could not set breakpoint at location ... (Collection was modified;
+    /// enumeration operation may not execute.)"), the break event is in no table, and it would never bind. Every failure
+    /// it reports comes here: each lost break event the adapter still has is inserted again at once (from a snapshot of
+    /// the adapter's list), at most three times; one that is pending then binds on a later type load like any other.
+    /// </summary>
+    private void ReinsertLost()
+    {
+        var s = _session;
+        if (s is null || _ended || !_started || !s.IsConnected)
+        {
+            return;
+        }
+
+        foreach (var be in _breakpointIds.Keys.ToList())
+        {
+            bool present;
+            lock (s.Breakpoints)
+            {
+                present = s.Breakpoints.Contains(be);
+            }
+
+            if (!present || Inserted(s, be))
+            {
+                _suspects.Remove(be);
+                continue;
+            }
+
+            // Seen lost twice, 60 ms apart: an insertion still queued on the library's thread is not lost.
+            if (_suspects.Add(be))
+            {
+                After(RecheckMs, ReinsertLost);
+                continue;
+            }
+
+            _suspects.Remove(be);
+            _reinserted.TryGetValue(be, out var times);
+            if (times >= 3)
+            {
+                continue;
+            }
+
+            _reinserted[be] = times + 1;
+            _log.Write("inserting again a break event Mono.Debugging lost while the debuggee loaded types: " + Describe(be));
+            RemoveBreakEvent(s, be);
+            AddBreakEvent(s, be);
+            if (be is Breakpoint bp and not FunctionBreakpoint && !_stopped)
+            {
+                _sweep.Add(bp);
+            }
+        }
+    }
+
+    /// <summary>How long after a first sighting a lost or stuck break event is checked again.</summary>
+    private const int RecheckMs = 60;
+
+    /// <summary>Break events seen lost or stuck once: inserted again when seen so a second time.</summary>
+    private readonly HashSet<BreakEvent> _suspects = new();
+
+    /// <summary>When a sweep runs after a source breakpoint is inserted while the debuggee runs.</summary>
+    private static readonly int[] SweepDelaysMs = { 50, 250, 1000 };
+
+    /// <summary>Source breakpoints inserted while the debuggee ran and not bound yet: what <see cref="SweepPending"/> checks.</summary>
+    private readonly HashSet<Breakpoint> _sweep = new();
+
+    private readonly List<Timer> _timers = new();
+
+    /// <summary>Run <paramref name="work"/> on the dispatcher thread in <paramref name="ms"/> milliseconds.</summary>
+    private void After(int ms, Action work)
+    {
+        var timer = new Timer(_ => _d.Post(work), null, ms, Timeout.Infinite);
+        _timers.Add(timer);
+    }
+
+    /// <summary>
+    /// Insert again the pending breakpoints whose code has loaded (brief 0036). Mono.Debugging resolves a pending
+    /// breakpoint when its type loads, on its event thread, from a snapshot of its pending list; a breakpoint the
+    /// operation thread inserts meanwhile can miss both that snapshot and the type tables it read before the type was
+    /// added, and then stays pending though its code runs. A sweep finds each breakpoint inserted while the debuggee ran
+    /// that is still pending although a loaded type of its file has code on its line, and inserts it again, which binds
+    /// it. Sweeps run soon after such an insertion, at every assembly load and at every stop (where nothing loads).
+    /// </summary>
+    private void SweepPending()
+    {
+        var s = _session;
+        if (s is null || _ended || !_started || !s.IsConnected || _sweep.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var bp in _sweep.ToList())
+        {
+            if (!_breakpointIds.ContainsKey(bp))
+            {
+                _sweep.Remove(bp);
+                continue;
+            }
+
+            if (!Inserted(s, bp))
+            {
+                continue;
+            }
+
+            if (bp.GetStatus(s) != BreakEventStatus.NotBound)
+            {
+                _sweep.Remove(bp);
+                continue;
+            }
+
+            var line = _requestedLines.TryGetValue(bp, out var asked) ? asked : bp.Line;
+            if (!HasLoadedCode(s, bp.FileName, line))
+            {
+                _suspects.Remove(bp);
+                continue;
+            }
+
+            // Seen stuck twice, 60 ms apart: a resolution in progress on the library's event thread is not stuck, and
+            // inserting such a breakpoint again could leave a hit of its first request in flight.
+            if (_suspects.Add(bp))
+            {
+                After(RecheckMs, SweepPending);
+                continue;
+            }
+
+            _suspects.Remove(bp);
+            _reinserted.TryGetValue(bp, out var times);
+            if (times >= 3)
+            {
+                _sweep.Remove(bp);
+                continue;
+            }
+
+            _reinserted[bp] = times + 1;
+            _log.Write("inserting again a pending breakpoint whose code has loaded: " + Describe(bp));
+            RemoveBreakEvent(s, bp);
+            AddBreakEvent(s, bp);
+        }
+    }
+
+    /// <summary>Whether a type of <paramref name="file"/> the debuggee has loaded has code on <paramref name="line"/>.</summary>
+    private static bool HasLoadedCode(SoftDebuggerSession s, string file, int line)
+    {
+        try
+        {
+            if (s.VirtualMachine is not { } vm)
+            {
+                return false;
+            }
+
+            var name = Path.GetFileName(file);
+            foreach (var type in vm.GetTypesForSourceFile(name, false))
+            {
+                foreach (var method in type.GetMethods())
+                {
+                    if (method.Locations.Any(l => l.LineNumber == line && string.Equals(Path.GetFileName(l.SourceFile), name, StringComparison.Ordinal)))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+#pragma warning disable CA1031 // A file the debuggee cannot answer about has no loaded code as far as the sweep knows.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+        }
+
+        return false;
+    }
+
+    private static string Describe(BreakEvent be) => be switch
+    {
+        FunctionBreakpoint f => f.FunctionName,
+        Breakpoint b => b.FileName + ":" + b.Line.ToString(CultureInfo.InvariantCulture),
+        Catchpoint c => c.ExceptionName,
+        _ => be.ToString() ?? string.Empty,
+    };
+
     private JObject BreakpointJson(BreakEvent be, int id, string? problem = null)
     {
         var status = _session is null ? BreakEventStatus.Disconnected : be.GetStatus(_session);
@@ -650,14 +947,14 @@ internal sealed class MonoAdapter
         var settings = ExceptionSettings.Parse(args);
         foreach (var cp in _catchpoints)
         {
-            s.Breakpoints.Remove(cp);
+            RemoveBreakEvent(s, cp);
         }
 
         _catchpoints.Clear();
         foreach (var type in settings.ThrownTypes)
         {
             var cp = new Catchpoint(type, includeSubclasses: true);
-            s.Breakpoints.Add(cp);
+            AddBreakEvent(s, cp);
             _catchpoints.Add(cp);
         }
 
@@ -753,15 +1050,24 @@ internal sealed class MonoAdapter
     private void OnBreakpointHit(TargetEventArgs e)
     {
         var be = e.BreakEvent;
+        if (be is null)
+        {
+            // A hit of a breakpoint removed while the hit was on its way (Mono.Debugging no longer knows its request):
+            // the breakpoint is gone, so the program goes on, as in Visual Studio.
+            _log.Write("a hit of a removed breakpoint: resuming");
+            Session.Continue();
+            return;
+        }
+
         if (be is FunctionBreakpoint fb && !FunctionHitBreaks(fb, e))
         {
             Session.Continue();
             return;
         }
 
-        if (be is not null && ReferenceEquals(be, _entryBreakpoint))
+        if (ReferenceEquals(be, _entryBreakpoint))
         {
-            Session.Breakpoints.Remove(be);
+            RemoveBreakEvent(Session, be);
             _entryBreakpoint = null;
             Stopped(e, "entry");
             return;
@@ -769,7 +1075,7 @@ internal sealed class MonoAdapter
 
         var reason = be is FunctionBreakpoint ? "function breakpoint" : be is Catchpoint ? "exception" : "breakpoint";
         var ids = new JArray();
-        if (be is not null && _breakpointIds.TryGetValue(be, out var id))
+        if (_breakpointIds.TryGetValue(be, out var id))
         {
             ids.Add(id);
         }
@@ -919,6 +1225,8 @@ internal sealed class MonoAdapter
 
     private void Stopped(TargetEventArgs e, string reason, JArray? hitIds = null)
     {
+        // The debuggee is suspended: no type loads now, so a missed resolution is redone without racing one.
+        SweepPending();
         _stepInFrom = null;
         ClearStop();
         _stopped = true;

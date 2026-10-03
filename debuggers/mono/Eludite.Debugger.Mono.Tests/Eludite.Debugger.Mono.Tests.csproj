@@ -22,6 +22,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The adapter's source scanner has no Mono dependency: tested here directly (brief 0036). -->
+    <Compile Include="../Eludite.Debugger.Mono/SourceScopes.cs" Link="Adapter/SourceScopes.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <AssemblyMetadata Include="AdapterPath" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono/bin/$(Configuration)/net472/eludite-dbg-mono.exe" />
     <AssemblyMetadata Include="TestAppPath" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono.TestApp/bin/$(Configuration)/net472/Eludite.Debugger.Mono.TestApp.exe" />
     <AssemblyMetadata Include="TestAppSource" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono.TestApp/Program.cs" />

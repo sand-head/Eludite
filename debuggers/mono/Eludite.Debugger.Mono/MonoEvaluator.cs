@@ -1,3 +1,4 @@
+using System.Globalization;
 using ICSharpCode.NRefactory.CSharp;
 using Mono.Debugging.Client;
 using Mono.Debugging.Evaluation;
@@ -6,7 +7,7 @@ using Mono.Debugging.Soft;
 namespace Eludite.Debugger.Mono;
 
 /// <summary>
-/// Mono.Debugging's C# evaluator with two gaps of its 2017 build closed (docs/briefs/0022-report.md):
+/// Mono.Debugging's C# evaluator with the gaps of its 2017 build closed (docs/briefs/0022-report.md, brief 0036):
 /// <list type="bullet">
 /// <item>Integer arithmetic and comparisons fail: the evaluator unboxes both operands as <c>long</c> (or <c>double</c>),
 /// so <c>i == 5</c> on an <c>int</c> answers "Value '0' of type System.Int32 cannot be casted to System.Int64" (fixed
@@ -14,27 +15,42 @@ namespace Eludite.Debugger.Mono;
 /// each numeric operand cast to <c>long</c> or <c>double</c> explicitly, which the evaluator handles, and the result cast
 /// back to the type C# gives it (<c>int</c> for two <c>int</c>s). Finding the operands' types evaluates them, so an
 /// operand with side effects runs twice in that retry.</item>
-/// <item>Type names (<c>Program.Hang()</c>, <c>Calculator.Twice(2)</c>, <c>Math.Max(a, b)</c>) are unknown identifiers
-/// without an IDE's type system: <see cref="ResolveType"/> resolves them against the debuggee's types, from the frame's
-/// type outwards through its namespaces and then <c>System</c>, and answers a namespace's first segment (<c>System</c>,
-/// <c>Microsoft</c>, the frame's own) as itself so a namespace-qualified name (<c>System.Math.Max(a, b)</c>) evaluates
-/// as the evaluator's <c>global::</c> form does.</item>
+/// <item>Type names (<c>Program.Hang()</c>, <c>Coin.Quarter</c>, <c>Math.Max(a, b)</c>) are unknown identifiers without
+/// an IDE's type system. Two passes resolve them, the same for <c>evaluate</c>, watches, breakpoint conditions and
+/// tracepoint expressions. Mono.Debugging's own pre-pass asks <see cref="ResolveType"/> about every identifier before
+/// the evaluation: it answers the types of the frame's enclosing types and namespaces and <c>System</c> (from the source
+/// file's declarations when Mono.Debugging gives only the method's name, as it does for a condition), and a namespace's
+/// first segment as itself so that <c>System.Math.Max(a, b)</c> evaluates in its <c>global::</c> form. Then, when the
+/// evaluator still reports an unknown identifier or type (after the locals, parameters and members, C#'s order), the
+/// expression is evaluated again with that name qualified by <see cref="TypeNames"/>: the enclosing types, each
+/// namespace level with the file's <c>using</c> directives declared there, <c>System</c>, then a unique simple name
+/// among the loaded assemblies' types; an ambiguous name is an error naming the candidates.</item>
 /// </list>
 /// </summary>
 internal sealed class MonoEvaluator : IExpressionEvaluator
 {
-    private readonly SoftDebuggerSession _session;
+    private readonly Action<string> _log;
 
-    public MonoEvaluator(SoftDebuggerSession session)
+    public MonoEvaluator(SoftDebuggerSession session, Action<string> log)
     {
-        _session = session;
+        _log = log;
+        Names = new TypeNames(session, log);
+        Evaluator = new NumericEvaluator(Names);
     }
 
-    public ExpressionEvaluator Evaluator { get; } = new NumericEvaluator();
+    public ExpressionEvaluator Evaluator { get; }
+
+    /// <summary>The full resolution, after the evaluator's own lookups failed (brief 0036).</summary>
+    public TypeNames Names { get; }
 
     public ObjectValue[] GetLocals(global::Mono.Debugging.Client.StackFrame sf) => sf.GetAllLocals(sf.DebuggerSession.EvaluationOptions);
 
-    /// <summary>The full name of type <paramref name="identifier"/> as seen from <paramref name="location"/>, or null.</summary>
+    /// <summary>
+    /// Mono.Debugging's pre-pass: the full name of type <paramref name="identifier"/> as seen from
+    /// <paramref name="location"/>, or null. A condition's location names only the method (<c>Cents</c>, not
+    /// <c>MissingCase.Coins.Cents</c>): its type and namespace then come from the declarations around the line in the
+    /// source file.
+    /// </summary>
     public string? ResolveType(string identifier, SourceLocation location)
     {
         if (string.IsNullOrEmpty(identifier) || !char.IsLetter(identifier[0]) && identifier[0] != '_')
@@ -44,7 +60,7 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
 
         var method = location?.MethodName ?? string.Empty;
         var dot = method.LastIndexOf('.');
-        var scope = dot > 0 ? method.Substring(0, dot) : string.Empty;
+        var scope = dot > 0 ? method.Substring(0, dot) : ScopeFromFile(location);
         var key = scope + "|" + identifier;
         lock (_resolved)
         {
@@ -65,7 +81,12 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
 
         candidates.Add(identifier);
         candidates.Add("System." + identifier);
-        string? found = candidates.FirstOrDefault(c => IsType(c, char.IsUpper(identifier[0])));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        string? found = candidates.FirstOrDefault(c => Names.IsType(c, char.IsUpper(identifier[0])));
+        if (found is not null)
+        {
+            _log(FormattableString.Invariant($"type name `{identifier}` in {scope}: {found} ({clock.Elapsed.TotalMilliseconds:F1} ms, pre-pass)"));
+        }
         if (found is null && IsNamespaceRoot(identifier, scope))
         {
             found = identifier;
@@ -77,6 +98,18 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
         }
 
         return found;
+    }
+
+    /// <summary>The innermost type (else namespace) declared around the location's line in its source file, or empty.</summary>
+    private static string ScopeFromFile(SourceLocation? location)
+    {
+        if (location is null || location.Line <= 0 || SourceScopes.ForFile(location.FileName) is not { } scopes)
+        {
+            return string.Empty;
+        }
+
+        var (types, _) = scopes.At(location.Line);
+        return types.Count > 0 ? types[0] : scopes.NamespaceAt(location.Line);
     }
 
     /// <summary>Names resolved per scope (breakpoint conditions resolve on Mono.Debugging's thread, hence the lock).</summary>
@@ -92,37 +125,29 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
                 _resolved.Remove(k);
             }
         }
+
+        Names.ForgetMisses();
     }
 
     private static bool IsNamespaceRoot(string identifier, string scope) =>
         identifier is "System" or "Microsoft" || scope == identifier || scope.StartsWith(identifier + ".", StringComparison.Ordinal);
 
     /// <summary>
-    /// Whether <paramref name="name"/> is a type in the debuggee: one Mono.Debugging has seen loaded, else (for a
-    /// capitalized name, so locals cost no round trip) one the debuggee's assemblies define, loaded or not.
+    /// The C# evaluator, retrying an expression that hit the numeric cast bug with explicit casts, and one that named
+    /// a type the evaluator did not find with that name qualified.
     /// </summary>
-    private bool IsType(string name, bool askTheDebuggee)
-    {
-        try
-        {
-            if (_session.GetType(name) is not null)
-            {
-                return true;
-            }
-
-            return askTheDebuggee && _session.VirtualMachine is { } vm && vm.GetTypes(name, false).Count > 0;
-        }
-#pragma warning disable CA1031 // A name the debuggee cannot look up is not a type.
-        catch (Exception)
-#pragma warning restore CA1031
-        {
-            return false;
-        }
-    }
-
-    /// <summary>The C# evaluator, retrying an expression that hit the numeric cast bug with explicit casts.</summary>
     private sealed class NumericEvaluator : NRefactoryExpressionEvaluator
     {
+        /// <summary>At most this many names are qualified in one expression.</summary>
+        private const int MaxQualified = 8;
+
+        private readonly TypeNames _names;
+
+        public NumericEvaluator(TypeNames names)
+        {
+            _names = names;
+        }
+
         public override ValueReference Evaluate(EvaluationContext ctx, string expression, object expectedType)
         {
             // NRefactory 5.5 predates C# 6: it reads $"{x}" as the plain string "{x}", a wrong answer, not an error.
@@ -131,6 +156,27 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
                 throw new EvaluatorException("interpolated strings are not supported by Mono's evaluator; use string.Format");
             }
 
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    return EvaluateWithCasts(ctx, expression, expectedType);
+                }
+                catch (EvaluatorException e) when (attempt < MaxQualified && TypeNames.UnknownName(e.Message) is not null)
+                {
+                    var rewritten = _names.Qualify(ctx, expression, TypeNames.UnknownName(e.Message)!);
+                    if (rewritten is null || rewritten == expression)
+                    {
+                        throw;
+                    }
+
+                    expression = rewritten;
+                }
+            }
+        }
+
+        private ValueReference EvaluateWithCasts(EvaluationContext ctx, string expression, object expectedType)
+        {
             try
             {
                 return base.Evaluate(ctx, expression, expectedType);
