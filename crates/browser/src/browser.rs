@@ -5,10 +5,19 @@
 //! `Runtime`, `Log`, `Network` and `DOM` on its session and starts a pump thread that feeds the tab's state
 //! ([`crate::tab`]) from its events, so console messages and requests are recorded between commands.
 //!
+//! Acting on the page (`input`, `form_input`, `upload`) is in `act`, and `storage`, `network_body` and
+//! `open_external` in `data` (brief 0024).
+//!
 //! Waiting (`navigate`'s `wait_until`, `wait`) is event-driven where CDP has the event (lifecycle events per loader,
 //! requests in flight, console messages, main-frame navigations) and polls every 100 ms where it has not (a
 //! selector, text, an expression). A navigation restored from the back/forward cache fires no lifecycle events, so
 //! once the main frame has committed, `document.readyState` is checked as well.
+
+mod act;
+mod data;
+
+pub use self::act::SET_JS;
+pub use self::data::{OPENER_ENV, base64_decode, base64_encode, opener};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -82,6 +91,9 @@ const PARENTS_JS: &str = r#"function() {
   });
 }"#;
 const NO_TAB: &str = "no tab: the browser has no open tab; call eludite.browser.tab_open first";
+/// `Network.enable`'s buffers for response bodies (`eludite.browser.network_body`): per resource and in all.
+pub const RESOURCE_BUFFER: u64 = 50 * 1024 * 1024;
+pub const TOTAL_BUFFER: u64 = 200 * 1024 * 1024;
 
 #[derive(Clone)]
 struct Tab {
@@ -109,6 +121,8 @@ pub struct Browser {
     /// Targets this browser closed: `Target.getTargets` may still list one for a moment after `closeTarget`
     /// answers, and it must not come back as a new tab.
     closed: std::collections::HashSet<String>,
+    /// The program `open_external` runs instead of the system's opener (tests).
+    opener: Option<String>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -194,7 +208,14 @@ impl Browser {
             recent: Vec::new(),
             next_tab: 1,
             closed: std::collections::HashSet::new(),
+            opener: None,
         }
+    }
+
+    /// Run `program url` for `open_external` instead of the system's opener (`None`: the system's, or
+    /// `ELUDITE_OPENER`).
+    pub fn set_opener(&mut self, program: Option<String>) {
+        self.opener = program;
     }
 
     /// The configuration of the next launch.
@@ -362,6 +383,60 @@ impl Browser {
                 return_by_value,
                 max_chars,
             )?),
+            BrowserRequest::Input {
+                tab,
+                action,
+                target,
+                text,
+                per_key,
+                keys,
+                delta,
+                to,
+                values,
+                modifiers,
+                wait_ms,
+            } => BrowserOutput::Input(self.input(
+                tab.as_deref(),
+                action,
+                target.as_ref(),
+                text.as_deref(),
+                per_key,
+                &keys,
+                delta,
+                to.as_ref(),
+                &values,
+                modifiers,
+                wait_ms,
+            )?),
+            BrowserRequest::FormInput { tab, fields } => {
+                BrowserOutput::FormInput(self.form_input(tab.as_deref(), &fields)?)
+            }
+            BrowserRequest::Upload { tab, ref_, paths } => {
+                BrowserOutput::Upload(self.upload(tab.as_deref(), &ref_, &paths)?)
+            }
+            BrowserRequest::Storage {
+                tab,
+                kind,
+                action,
+                origin,
+            } => BrowserOutput::Storage(self.storage(
+                tab.as_deref(),
+                kind,
+                action,
+                origin.as_deref(),
+            )?),
+            BrowserRequest::NetworkBody {
+                tab,
+                request_id,
+                max_bytes,
+            } => BrowserOutput::NetworkBody(self.network_body(
+                tab.as_deref(),
+                &request_id,
+                max_bytes,
+            )?),
+            BrowserRequest::OpenExternal { url } => {
+                BrowserOutput::OpenExternal(self.open_external(url.as_deref())?)
+            }
         };
         Ok(out)
     }
@@ -424,7 +499,10 @@ impl Browser {
             ),
             ("Runtime.enable".to_owned(), json!({})),
             ("Log.enable".to_owned(), json!({})),
-            ("Network.enable".to_owned(), json!({})),
+            (
+                "Network.enable".to_owned(),
+                json!({"maxResourceBufferSize": RESOURCE_BUFFER, "maxTotalBufferSize": TOTAL_BUFFER}),
+            ),
             ("DOM.enable".to_owned(), json!({})),
             ("Page.getFrameTree".to_owned(), json!({})),
         ];

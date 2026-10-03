@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-storage.output.json",
+  "title": "eludite.browser.storage output",
+  "description": "For `get`, the cookies and items of the kinds asked; for `clear`, how many of each were deleted.",
+  "type": "object",
+  "required": [
+    "tab",
+    "origin",
+    "action",
+    "total"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "origin": {
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "get",
+        "clear"
+      ]
+    },
+    "cookies": {
+      "description": "The cookies the browser would send to `origin`.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "domain",
+          "path",
+          "expires",
+          "http_only",
+          "secure"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "expires": {
+            "description": "Seconds since the Unix epoch; -1 for a session cookie.",
+            "type": "number"
+          },
+          "http_only": {
+            "type": "boolean"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "same_site": {
+            "description": "`Strict`, `Lax` or `None`; absent when the cookie does not say.",
+            "type": "string"
+          },
+          "truncated": {
+            "description": "The value was longer than 1,000 characters and is cut.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "local": {
+      "description": "`localStorage` items.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "truncated": {
+            "description": "The value was longer than 1,000 characters and is cut.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "session": {
+      "description": "`sessionStorage` items.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "value"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "truncated": {
+            "description": "The value was longer than 1,000 characters and is cut.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "cleared": {
+      "description": "For `clear`: how many were deleted, by kind.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cookies": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "local": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "session": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "total": {
+      "description": "Cookies and items listed (`get`) or deleted (`clear`).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

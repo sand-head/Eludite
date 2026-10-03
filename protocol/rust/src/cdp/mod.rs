@@ -2,7 +2,7 @@
 // change the generator or the pin and run `cargo run -p eludite-cdp-generator`.
 //! Chrome DevTools Protocol types, generated from the pinned protocol JSON in `protocol/cdp/` (brief 0023).
 //!
-//! The domains Eludite uses (Target, Page, DOM, Accessibility, Runtime, Log, Network, Input, Emulation, Browser, Security) and every domain they reference. Each command has `<Command>Params`
+//! The domains Eludite uses (Target, Page, DOM, Accessibility, Runtime, Log, Network, Input, Emulation, Browser, Security, Storage, DOMStorage) and every domain they reference. Each command has `<Command>Params`
 //! (implementing [`Command`]) and `<Command>Returns`; each event a `<Event>Event` (implementing [`Event`]). Every
 //! enum decodes a value this protocol version does not list as `Other(String)`, since Chrome adds values. The
 //! message envelope (`id`, `method`, `params`, `sessionId`, `result`, `error`) is not described by the protocol
@@ -80,6 +80,7 @@ pub mod accessibility;
 pub mod browser;
 pub mod debugger;
 pub mod dom;
+pub mod dom_storage;
 pub mod emulation;
 pub mod input;
 pub mod io;
@@ -88,4 +89,5 @@ pub mod network;
 pub mod page;
 pub mod runtime;
 pub mod security;
+pub mod storage;
 pub mod target;

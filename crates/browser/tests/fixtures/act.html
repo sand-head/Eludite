@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Order</title>
+<style>
+  body { font: 14px sans-serif; margin: 16px; }
+  label { display: block; margin: 6px 0; }
+  #volume { width: 200px; }
+  #hoverme { display: inline-block; padding: 4px 8px; border: 1px solid #888; }
+  #spacer { height: 2400px; }
+</style>
+</head>
+<body>
+<h1>Order</h1>
+<form id="order" aria-label="Order">
+  <label>Name <input id="name" name="name" type="text"></label>
+  <label>Notes <textarea id="notes" name="notes"></textarea></label>
+  <fieldset>
+    <legend>Size</legend>
+    <label><input type="radio" name="size" value="small" id="small"> Small</label>
+    <label><input type="radio" name="size" value="large" id="large"> Large</label>
+  </fieldset>
+  <label><input id="gift" type="checkbox"> Gift wrap</label>
+  <label><input id="express" type="checkbox" checked> Express</label>
+  <label>Plan
+    <select id="plan" name="plan">
+      <option value="free">Free</option>
+      <option value="pro">Pro</option>
+      <option value="team">Team</option>
+    </select>
+  </label>
+  <label>Extras
+    <select id="extras" name="extras" multiple>
+      <option value="stickers">Stickers</option>
+      <option value="mug">Mug</option>
+      <option value="shirt">Shirt</option>
+    </select>
+  </label>
+  <label>Volume <input id="volume" type="range" min="0" max="100" value="0"></label>
+  <label>Attachment <input id="file" name="file" type="file"></label>
+  <label>Disabled <input id="locked" type="text" disabled></label>
+  <button id="submit" type="submit">Submit</button>
+</form>
+<p id="filename"></p>
+<p><button id="boom" type="button">Boom</button> <button id="counter" type="button">Count</button></p>
+<p><span id="hoverme" title="Tooltip text">Hover me</span> <span id="tooltip"></span></p>
+<form id="search" action="act.html" method="get" role="search">
+  <label>Search <input id="q" name="q" type="search"></label>
+</form>
+<div id="spacer"></div>
+<p id="bottom">Bottom of the page</p>
+<script>
+  window.events = [];
+  const log = (e) => window.events.push(e);
+  const $ = (id) => document.getElementById(id);
+  for (const id of ['name', 'notes', 'gift', 'express', 'plan', 'extras', 'volume', 'small', 'large']) {
+    $(id).addEventListener('input', () => log('input:' + id));
+    $(id).addEventListener('change', () => log('change:' + id));
+  }
+  $('name').addEventListener('keydown', (e) => log('keydown:' + e.key));
+  $('counter').addEventListener('click', (e) => log('click:counter:' + e.detail + (e.shiftKey ? ':shift' : '')));
+  $('counter').addEventListener('dblclick', () => log('dblclick:counter'));
+  $('counter').addEventListener('contextmenu', (e) => { e.preventDefault(); log('contextmenu:counter'); });
+  $('counter').addEventListener('focus', () => log('focus:counter'));
+  $('boom').addEventListener('click', () => { throw new Error('boom from the click handler'); });
+  $('hoverme').addEventListener('mouseover', (e) => { $('tooltip').textContent = e.target.title; });
+  $('file').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    f.text().then((t) => { $('filename').textContent = f.name + ' (' + f.size + ' bytes): ' + t.trim(); });
+  });
+  $('order').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const size = (document.querySelector('input[name=size]:checked') || {}).value || 'none';
+    const extras = [...$('extras').selectedOptions].map((o) => o.value).join('+') || 'none';
+    // The result appears a moment later, as an answer from a server would.
+    setTimeout(() => {
+      const p = document.createElement('p');
+      p.id = 'result';
+      p.textContent = `Ordered: ${$('name').value}, ${size}, ${$('plan').value}, extras ${extras}, gift ${$('gift').checked}`;
+      document.body.append(p);
+    }, 150);
+  });
+  const q = new URLSearchParams(location.search).get('q');
+  if (q !== null) document.title = 'Search: ' + q;
+</script>
+</body>
+</html>

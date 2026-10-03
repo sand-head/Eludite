@@ -18,6 +18,9 @@ clock.workspace = true
 futures = "0.3" # MIT OR Apache-2.0; already in the build through GPUI
 gpui.workspace = true
 gpui_platform.workspace = true
+# Decoding and scaling the Agents window's thumbnails (brief 0024). MIT OR Apache-2.0; already in the build through
+# GPUI, with these features.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 eludite-acp.workspace = true
 # The browser of eludite.browser.* (brief 0023): the engine trait, the external Chrome over CDP.
 eludite-browser.workspace = true

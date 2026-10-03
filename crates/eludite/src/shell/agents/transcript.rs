@@ -2,8 +2,13 @@
 //! that changed (brief 0005's finding: agent text is one row per line, and while it streams only the last line
 //! changes). Tool calls fold every `tool_call_update`, their permission request, the Eludite MCP call that served them
 //! (with its audit entry) and the pending changes they produced into one row.
+//!
+//! Brief 0024: a tool call whose result carries images (an `eludite.browser.screenshot` the agent took, or image
+//! content in the agent's own tool results) shows them as thumbnails in its row ([`Thumb`], at most
+//! [`THUMB_WIDTH`] pixels wide, decoded and scaled off the UI thread by [`decode_thumb`]).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use eludite_acp::protocol::{
     PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate, ToolCall, ToolCallStatus,
@@ -42,6 +47,87 @@ pub struct McpLink {
     pub audit: u64,
 }
 
+/// The widest a thumbnail is, in pixels.
+pub const THUMB_WIDTH: u32 = 160;
+
+/// An image a tool call returned, as its row shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Thumb {
+    /// A hash of the encoded image, so the same image from the agent's content and Eludite's own result shows once.
+    pub id: u64,
+    /// `image/png`, `image/jpeg`.
+    pub mime: String,
+    /// The encoded image, for opening it.
+    pub bytes: Arc<Vec<u8>>,
+    /// The full image's size.
+    pub width: u32,
+    pub height: u32,
+    /// The scaled image, in BGRA, at most [`THUMB_WIDTH`] wide.
+    pub render: Arc<gpui::RenderImage>,
+}
+
+impl Thumb {
+    /// The thumbnail's size in pixels.
+    pub fn thumb_size(&self) -> (u32, u32) {
+        let s = self.render.size(0);
+        (s.width.0 as u32, s.height.0 as u32)
+    }
+}
+
+/// An image to decode: base64 data and its media type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageData {
+    pub data: String,
+    pub mime: String,
+}
+
+/// The image content blocks of a tool call's ACP content (`{"type": "content", "content": {"type": "image", ...}}`).
+pub fn content_images(content: &[Value]) -> Vec<ImageData> {
+    content
+        .iter()
+        .filter(|c| c["type"] == "content" && c["content"]["type"] == "image")
+        .filter_map(|c| {
+            Some(ImageData {
+                data: c["content"]["data"].as_str()?.to_owned(),
+                mime: c["content"]["mimeType"]
+                    .as_str()
+                    .unwrap_or("image/png")
+                    .to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// Decode an image and scale it to at most [`THUMB_WIDTH`] wide. Slow (milliseconds to tens of them): call it off
+/// the UI thread. `None` when the data is not a PNG or JPEG image.
+pub fn decode_thumb(image: &ImageData) -> Option<Thumb> {
+    use std::hash::{Hash, Hasher};
+    let bytes = eludite_browser::browser::base64_decode(&image.data)?;
+    let decoded = image::load_from_memory(&bytes).ok()?;
+    let (width, height) = (decoded.width(), decoded.height());
+    let small = if width > THUMB_WIDTH {
+        let h =
+            ((u64::from(height) * u64::from(THUMB_WIDTH)) / u64::from(width.max(1))).max(1) as u32;
+        decoded.thumbnail_exact(THUMB_WIDTH, h)
+    } else {
+        decoded
+    };
+    let mut rgba = small.to_rgba8();
+    for px in rgba.pixels_mut() {
+        px.0.swap(0, 2);
+    }
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    image.data.hash(&mut hasher);
+    Some(Thumb {
+        id: hasher.finish(),
+        mime: image.mime.clone(),
+        bytes: Arc::new(bytes),
+        width,
+        height,
+        render: Arc::new(gpui::RenderImage::new([image::Frame::new(rgba)])),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolRow {
     pub call: ToolCall,
@@ -52,6 +138,8 @@ pub struct ToolRow {
     pub changes: Vec<(u64, String, String)>,
     /// The audit entry of an agent's own tool (Eludite's tools have theirs in `mcp`).
     pub audit: Option<u64>,
+    /// Images its result carried, as thumbnails.
+    pub images: Vec<Thumb>,
 }
 
 impl ToolRow {
@@ -269,6 +357,7 @@ impl Transcript {
             mcp: None,
             changes: Vec::new(),
             audit: None,
+            images: Vec::new(),
         })));
         ix
     }
@@ -442,6 +531,22 @@ impl Transcript {
             .collect()
     }
 
+    /// Thumbnails for tool call `id` (one per image; an image the row has already is skipped).
+    pub fn add_thumbs(&mut self, id: &str, thumbs: Vec<Thumb>) -> bool {
+        let Some(&ix) = self.tools.get(id) else {
+            return false;
+        };
+        let Some(row) = self.tool_mut(ix) else {
+            return false;
+        };
+        for t in thumbs {
+            if !row.images.iter().any(|i| i.id == t.id) {
+                row.images.push(t);
+            }
+        }
+        true
+    }
+
     /// Link tool call `id` to its audit entry.
     pub fn set_audit(&mut self, id: &str, seq: u64) {
         if let Some(&ix) = self.tools.get(id)
@@ -532,11 +637,25 @@ impl Transcript {
             out.push(match r {
                 Row::User(t) => json!({"user": t}),
                 Row::Thought { text, .. } => json!({"thought": text}),
-                Row::Tool(t) => json!({"tool_call": {
-                    "id": t.call.tool_call_id, "tool": t.name(), "kind": t.call.kind,
-                    "status": t.status().label(), "arguments": t.call.raw_input,
-                    "result": t.call.content_text(), "note": t.note()
-                }}),
+                Row::Tool(t) => {
+                    let mut call = json!({
+                        "id": t.call.tool_call_id, "tool": t.name(), "kind": t.call.kind,
+                        "status": t.status().label(), "arguments": t.call.raw_input,
+                        "result": t.call.content_text(), "note": t.note()
+                    });
+                    if !t.images.is_empty() {
+                        call["images"] = t
+                            .images
+                            .iter()
+                            .map(|i| {
+                                let (w, h) = i.thumb_size();
+                                json!({"mime": i.mime, "width": i.width, "height": i.height,
+                                    "thumb_width": w, "thumb_height": h})
+                            })
+                            .collect();
+                    }
+                    json!({ "tool_call": call })
+                }
                 Row::Plan(entries) => json!({"plan": entries}),
                 Row::Notice(t) => json!({"notice": t}),
                 Row::Error(t) => json!({"error": t}),
@@ -549,7 +668,7 @@ impl Transcript {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use eludite_acp::protocol::ContentBlock;
 
@@ -594,6 +713,65 @@ mod tests {
             })
         );
         assert_eq!(t.agent_message(), "Hello world\nsecond line");
+    }
+
+    /// A `w` by `h` PNG, base64.
+    pub(crate) fn png(w: u32, h: u32) -> String {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 255]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        eludite_browser::browser::base64_encode(out.get_ref())
+    }
+
+    #[test]
+    fn images_become_thumbnails_once_per_row() {
+        let data = png(640, 400);
+        let content = vec![
+            json!({"type": "content", "content": {"type": "text", "text": "{}"}}),
+            json!({"type": "content", "content": {"type": "image", "data": data, "mimeType": "image/png"}}),
+        ];
+        let images = content_images(&content);
+        assert_eq!(images.len(), 1);
+        let thumb = decode_thumb(&images[0]).unwrap();
+        assert_eq!((thumb.width, thumb.height), (640, 400));
+        assert_eq!(thumb.thumb_size(), (THUMB_WIDTH, 100));
+        // BGRA: the red and blue channels are swapped.
+        assert_eq!(&thumb.render.as_bytes(0).unwrap()[..4], &[30, 20, 10, 255]);
+        let small = decode_thumb(&ImageData {
+            data: png(20, 10),
+            mime: "image/png".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            small.thumb_size(),
+            (20, 10),
+            "small images are not scaled up"
+        );
+        assert!(
+            decode_thumb(&ImageData {
+                data: "bm90IGFuIGltYWdl".into(),
+                mime: "image/png".into()
+            })
+            .is_none()
+        );
+
+        let mut t = Transcript::default();
+        t.apply(&SessionUpdate::ToolCall(call(
+            "s",
+            "mcp__eludite__eludite-browser-screenshot",
+        )));
+        assert!(t.add_thumbs("s", vec![thumb.clone()]));
+        assert!(
+            t.add_thumbs("s", vec![thumb.clone()]),
+            "the same image again"
+        );
+        assert!(!t.add_thumbs("nope", vec![thumb]));
+        assert_eq!(t.tool("s").unwrap().images.len(), 1);
+        let json = t.to_json();
+        assert_eq!(
+            json[0]["tool_call"]["images"][0]["thumb_width"],
+            THUMB_WIDTH
+        );
     }
 
     #[test]

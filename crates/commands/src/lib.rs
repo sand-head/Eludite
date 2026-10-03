@@ -21,8 +21,13 @@
 //! [`workspace_tree`] holds `eludite.workspace.tree`, every project of the open workspace whatever its build system
 //! (brief 0019). [`settings`] holds the settings schema and `eludite.settings.*` with Tools > Options, and [`project`] the
 //! Workspace context menu's Set as Startup Project and Open Containing Folder (brief 0020). [`browser`] holds the
-//! browser automation commands `eludite.browser.*` (brief 0023), registered by the shell through a
+//! browser automation commands `eludite.browser.*` (briefs 0023 and 0024), registered by the shell through a
 //! [`browser::BrowserTarget`].
+//!
+//! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
+//! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
+//! (never lowers it) or refuses it for an agent. [`CommandRegistry::classify`] gives a call's [`CallClass`]; the MCP
+//! boundary decides on it and invokes with it ([`CommandRegistry::invoke_as`]), and the audit entry records it.
 
 pub mod agents;
 mod audit;
@@ -45,4 +50,7 @@ pub mod workspace_tree;
 pub use audit::{AuditEntry, AuditLog, EditRecord, EditState, Outcome};
 pub use caller::{Caller, current_caller, next_call_id, with_caller};
 pub use id::{CommandId, InvalidCommandId};
-pub use registry::{CommandError, CommandRegistry, CommandSpec, Handler, PermissionClass};
+pub use registry::{
+    CallClass, CommandError, CommandRegistry, CommandSpec, ESCALATES_KEY, Escalation,
+    EscalationHook, Handler, PermissionClass,
+};

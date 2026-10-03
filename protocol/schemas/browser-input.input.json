@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-input.input.json",
+  "title": "eludite.browser.input input",
+  "description": "Act on a tab's page as a person would: `click`, `double_click`, `right_click`, `hover`, `type`, `key`, `scroll`, `drag`, `select` or `focus`, on an element by `ref` (from eludite.browser.read_page or find: it is scrolled into view and the action lands on the center of its first box) or at a point `x`, `y` in CSS pixels of the viewport (the space eludite.browser.screenshot reports). The events are real input (Input.dispatchMouseEvent, dispatchKeyEvent, insertText), so the page's handlers run as they do for a person. After the action it waits `wait_ms` (default 500) to collect console errors and a navigation the action caused (ending early once such a navigation has loaded), and answers the element it landed on (ref, role, name, point), the new page_generation, whether the page navigated, and the console errors emitted meanwhile. A ref from an older page_generation is refused: call read_page again. To fill several fields at once, eludite.browser.form_input is faster. Permission class execute. Next: eludite.browser.read_page or screenshot to see the result, eludite.browser.wait for something the action started.",
+  "type": "object",
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "`click`, `double_click`, `right_click` and `hover` need a target. `type` inserts `text` into the target (focused first) or the focused element. `key` presses `keys` in the target (focused first) or the focused element. `scroll` turns the mouse wheel by `delta` at the target (default: the viewport's center). `drag` presses at the target, moves to `to` and releases. `select` picks `values` in a `<select>` target. `focus` focuses the target.",
+      "enum": [
+        "click",
+        "double_click",
+        "right_click",
+        "hover",
+        "type",
+        "key",
+        "scroll",
+        "drag",
+        "select",
+        "focus"
+      ]
+    },
+    "ref": {
+      "description": "The element to act on: a ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation. Give `ref` or `x` and `y`, not both.",
+      "type": "string",
+      "pattern": "^e[0-9]+$"
+    },
+    "x": {
+      "description": "A point's horizontal position in CSS pixels of the viewport, with `y`.",
+      "type": "number",
+      "minimum": 0
+    },
+    "y": {
+      "description": "A point's vertical position in CSS pixels of the viewport, with `x`.",
+      "type": "number",
+      "minimum": 0
+    },
+    "text": {
+      "description": "For `type`: the text to insert (Input.insertText, as an IME or a paste would).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "per_key": {
+      "description": "For `type`: send each character as its own key events (keydown, keypress, input, keyup) instead of one insertion, for pages that listen to keys. Slower. Default false.",
+      "type": "boolean"
+    },
+    "keys": {
+      "description": "For `key`: the keys to press one after another, each a name (`Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, `Insert`, `ArrowUp`, `ArrowDown`, `ArrowLeft`, `ArrowRight`, `Home`, `End`, `PageUp`, `PageDown`, `Space`, `F1` to `F12`) or one character (`a`, `A`, `1`, `/`), with modifiers joined by `+` (`Control+a`, `Shift+Tab`, `Meta+Enter`; `Ctrl`, `Cmd` and `Command` are accepted). One string is one key.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      ]
+    },
+    "delta": {
+      "description": "For `scroll`: how far, in CSS pixels (default `{\"x\": 0, \"y\": 400}`: down).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "to": {
+      "description": "For `drag`: where to release, a `ref` or a point `x`, `y` in CSS pixels of the viewport.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ref": {
+          "description": "A ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+          "type": "string",
+          "pattern": "^e[0-9]+$"
+        },
+        "x": {
+          "description": "Horizontal, in CSS pixels of the viewport.",
+          "type": "number",
+          "minimum": 0
+        },
+        "y": {
+          "description": "Vertical, in CSS pixels of the viewport.",
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "values": {
+      "description": "For `select`: the options to select, each by its value or its label; a single `<select>` takes one.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "string"
+      }
+    },
+    "modifiers": {
+      "description": "Keys held during a mouse action, or added to every key of `key`.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "shift",
+          "control",
+          "alt",
+          "meta"
+        ]
+      }
+    },
+    "wait_ms": {
+      "description": "How long to wait after the action for console errors and a navigation it caused, in milliseconds (default 500).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

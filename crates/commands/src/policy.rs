@@ -8,13 +8,20 @@
 //! - **Rules** name a tool (as the agent names it; an Eludite MCP tool also by its bare name) and optionally the start
 //!   of its shell command. Always Allow in a permission prompt adds one, and the file is rewritten with sorted keys
 //!   so it diffs cleanly in review.
+//! - **`browser`** (brief 0024): `origins` (where an agent may send the browser; [`BrowserPolicy::check_url`]),
+//!   `network_bodies` and `evaluate`. The browser commands read it through their escalation hooks (ADR-0009), which
+//!   see a [`PolicyView`]: this policy, the workspace folder and its launch urls, loaded on first use.
+//! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
+//!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
+//!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::PermissionClass;
+use crate::{CallClass, PermissionClass};
 
 /// The policy file, relative to the solution's folder.
 pub const POLICY_FILE: &str = ".eludite/agents-policy.json";
@@ -45,6 +52,440 @@ pub enum DangerousPolicy {
     #[default]
     Prompt,
     Deny,
+}
+
+/// `browser.network_bodies`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkBodiesPolicy {
+    #[default]
+    Allow,
+    Deny,
+}
+
+/// `browser.evaluate`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvaluatePolicy {
+    #[default]
+    Allow,
+    Prompt,
+    Deny,
+}
+
+/// The `origins` entry for file urls under the workspace folder.
+pub const WORKSPACE_ORIGIN: &str = "$workspace";
+/// The `origins` entry for the workspace's launch urls.
+pub const LAUNCH_URLS_ORIGIN: &str = "$launch_urls";
+/// `origins` when the policy has none.
+pub const DEFAULT_ORIGINS: [&str; 5] = [
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+    WORKSPACE_ORIGIN,
+    LAUNCH_URLS_ORIGIN,
+];
+
+/// `agents-policy.json`'s `browser` object.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origins: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_bodies: Option<NetworkBodiesPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evaluate: Option<EvaluatePolicy>,
+}
+
+/// A url outside the allowed origins: what to name, and the origin Always Allow would add (none for urls without
+/// one, such as `data:`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OffOrigin {
+    pub shown: String,
+    pub origin: Option<String>,
+}
+
+impl BrowserPolicy {
+    /// The entries in force: the file's, or [`DEFAULT_ORIGINS`].
+    pub fn origins(&self) -> Vec<String> {
+        match &self.origins {
+            Some(o) => o.clone(),
+            None => DEFAULT_ORIGINS.iter().map(|s| (*s).to_owned()).collect(),
+        }
+    }
+
+    /// Whether an agent may send the browser to `url` without the call becoming dangerous. `about:` urls are always
+    /// allowed; a url that does not parse is off the origins.
+    pub fn check_url(
+        &self,
+        url: &str,
+        workspace: Option<&Path>,
+        launch_urls: &[String],
+    ) -> Result<(), OffOrigin> {
+        let parsed = ParsedUrl::parse(url);
+        let off = |p: &Option<ParsedUrl>| OffOrigin {
+            shown: p
+                .as_ref()
+                .and_then(ParsedUrl::origin)
+                .unwrap_or_else(|| url.chars().take(200).collect()),
+            origin: p.as_ref().and_then(ParsedUrl::origin),
+        };
+        let Some(u) = &parsed else {
+            return Err(off(&parsed));
+        };
+        if u.scheme == "about" {
+            return Ok(());
+        }
+        for entry in self.origins() {
+            let hit = match entry.as_str() {
+                WORKSPACE_ORIGIN => workspace.is_some_and(|w| u.is_file_under(w)),
+                LAUNCH_URLS_ORIGIN => launch_urls
+                    .iter()
+                    .filter_map(|l| ParsedUrl::parse(l))
+                    .any(|l| l.scheme == u.scheme && l.host == u.host && l.port() == u.port()),
+                e => u.matches_entry(e),
+            };
+            if hit {
+                return Ok(());
+            }
+        }
+        Err(off(&parsed))
+    }
+}
+
+/// The parts of a url the origin rule looks at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedUrl {
+    /// Lowercase.
+    pub scheme: String,
+    /// Lowercase; IPv6 in brackets. Empty for urls without an authority.
+    pub host: String,
+    pub explicit_port: Option<u16>,
+    /// For `file:` urls: the decoded, normalized path.
+    pub path: Option<PathBuf>,
+}
+
+impl ParsedUrl {
+    /// Parse an absolute url; `None` when it has no scheme or a malformed authority.
+    pub fn parse(url: &str) -> Option<ParsedUrl> {
+        let url = url.trim();
+        let (scheme, rest) = url.split_once(':')?;
+        if scheme.is_empty()
+            || !scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            || !scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        {
+            return None;
+        }
+        let scheme = scheme.to_ascii_lowercase();
+        let Some(after) = rest.strip_prefix("//") else {
+            return Some(ParsedUrl {
+                scheme,
+                host: String::new(),
+                explicit_port: None,
+                path: None,
+            });
+        };
+        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
+        let (authority, tail) = after.split_at(end);
+        let authority = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+        let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
+            let (inner, after) = v6.split_once(']')?;
+            let port = match after.strip_prefix(':') {
+                Some(p) if !p.is_empty() => Some(p.parse().ok()?),
+                Some(_) | None if after.is_empty() || after == ":" => None,
+                _ => return None,
+            };
+            (format!("[{}]", inner.to_ascii_lowercase()), port)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) if !p.is_empty() => (h.to_ascii_lowercase(), Some(p.parse().ok()?)),
+                Some((h, _)) => (h.to_ascii_lowercase(), None),
+                None => (authority.to_ascii_lowercase(), None),
+            }
+        };
+        let path = (scheme == "file").then(|| {
+            let p = tail.split(['?', '#']).next().unwrap_or_default();
+            normalize(&percent_decode(p))
+        });
+        Some(ParsedUrl {
+            scheme,
+            host,
+            explicit_port: port,
+            path,
+        })
+    }
+
+    /// The port in effect: the explicit one, or the scheme's default.
+    pub fn port(&self) -> Option<u16> {
+        self.explicit_port.or(match self.scheme.as_str() {
+            "http" | "ws" => Some(80),
+            "https" | "wss" => Some(443),
+            "ftp" => Some(21),
+            _ => None,
+        })
+    }
+
+    /// `scheme://host[:port]` (the port when it is not the scheme's default), or for a `file:` url the url of its
+    /// path; `None` for urls without an origin (`data:`, `javascript:`, `about:`).
+    pub fn origin(&self) -> Option<String> {
+        if let Some(path) = &self.path {
+            let p = path.to_string_lossy().replace('\\', "/");
+            let p = if p.starts_with('/') {
+                p
+            } else {
+                format!("/{p}")
+            };
+            return Some(format!("file://{p}"));
+        }
+        if self.host.is_empty() {
+            return None;
+        }
+        let default = ParsedUrl {
+            explicit_port: None,
+            ..self.clone()
+        }
+        .port();
+        Some(match self.explicit_port.filter(|p| Some(*p) != default) {
+            Some(p) => format!("{}://{}:{p}", self.scheme, self.host),
+            None => format!("{}://{}", self.scheme, self.host),
+        })
+    }
+
+    fn is_file_under(&self, dir: &Path) -> bool {
+        match &self.path {
+            Some(p) if self.scheme == "file" => p.starts_with(normalize(&dir.to_string_lossy())),
+            _ => false,
+        }
+    }
+
+    fn host_matches(&self, pattern: &str) -> bool {
+        let pattern = pattern.to_ascii_lowercase();
+        match pattern.strip_prefix("*.") {
+            Some(domain) => self.host == domain || self.host.ends_with(&format!(".{domain}")),
+            None => self.host == pattern,
+        }
+    }
+
+    /// One `origins` entry: a host or host and port (http and https), an origin, or a `file:` path.
+    fn matches_entry(&self, entry: &str) -> bool {
+        let entry = entry.trim();
+        if entry.contains("://") {
+            let Some(e) = ParsedUrl::parse(entry) else {
+                return false;
+            };
+            if e.scheme == "file" {
+                return match (&e.path, &self.path) {
+                    (Some(dir), Some(p)) if self.scheme == "file" => p.starts_with(dir),
+                    _ => false,
+                };
+            }
+            return e.scheme == self.scheme
+                && self.host_matches(&e.host)
+                && e.explicit_port.is_none_or(|p| self.port() == Some(p));
+        }
+        if !matches!(self.scheme.as_str(), "http" | "https") {
+            return false;
+        }
+        // `host`, `host:port`, `[v6]`, `[v6]:port`, `*.domain`.
+        let (host, port) = if entry.starts_with('[') {
+            match entry.split_once("]:") {
+                Some((h, p)) => (format!("{h}]"), p.parse::<u16>().ok()),
+                None => (entry.to_owned(), None),
+            }
+        } else {
+            match entry.rsplit_once(':') {
+                Some((h, p)) => match p.parse::<u16>() {
+                    Ok(p) => (h.to_owned(), Some(p)),
+                    Err(_) => return false,
+                },
+                None => (entry.to_owned(), None),
+            }
+        };
+        self.host_matches(&host) && port.is_none_or(|p| self.port() == Some(p))
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let Some(h) = s.get(i + 1..i + 3)
+            && let Ok(b) = u8::from_str_radix(h, 16)
+        {
+            out.push(b);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A path with `.` and `..` resolved lexically (Windows drive paths from `file:///C:/...` keep their drive).
+fn normalize(p: &str) -> PathBuf {
+    let p = p.replace('\\', "/");
+    // `/C:/x` from a file url is `C:/x`.
+    let p = match p.as_bytes() {
+        [b'/', d, b':', ..] if d.is_ascii_alphabetic() => p[1..].to_owned(),
+        _ => p,
+    };
+    let mut out = PathBuf::new();
+    for c in Path::new(&p).components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
+}
+
+/// The `applicationUrl`s of the `Properties/launchSettings.json` profiles under `workspace` (the folder itself and
+/// three levels of subfolders, skipping hidden folders and build output), each split at `;`.
+pub fn launch_urls(workspace: &Path) -> Vec<String> {
+    const SKIP: [&str; 6] = ["bin", "obj", "node_modules", "target", "packages", "dist"];
+    let mut out = Vec::new();
+    let mut dirs = vec![(workspace.to_path_buf(), 0)];
+    while let Some((dir, depth)) = dirs.pop() {
+        let file = dir.join("Properties").join("launchSettings.json");
+        if let Ok(text) = std::fs::read_to_string(&file)
+            && let Ok(v) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}'))
+            && let Some(profiles) = v.get("profiles").and_then(Value::as_object)
+        {
+            for p in profiles.values() {
+                for url in p
+                    .get("applicationUrl")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|u| !u.is_empty())
+                {
+                    if !out.iter().any(|o| o == url) {
+                        out.push(url.to_owned());
+                    }
+                }
+            }
+        }
+        if depth == 3 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                dirs.push((e.path(), depth + 1));
+            }
+        }
+    }
+    out
+}
+
+/// What the escalation hooks see of the policy (ADR-0009): read on first use, so a hook that needs nothing costs
+/// nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PolicySnapshot {
+    pub policy: AgentPolicy,
+    /// The workspace (solution) folder.
+    pub workspace: Option<PathBuf>,
+    /// [`launch_urls`] of the workspace.
+    pub launch_urls: Vec<String>,
+}
+
+/// Makes the [`PolicySnapshot`] of the moment (the shell's: the open solution's policy file).
+pub type PolicySource = Arc<dyn Fn() -> PolicySnapshot + Send + Sync>;
+
+/// What an escalation hook may read: the policy, the workspace folder and its launch urls.
+#[derive(Default)]
+pub struct PolicyView {
+    source: Option<PolicySource>,
+    snapshot: OnceLock<PolicySnapshot>,
+}
+
+impl std::fmt::Debug for PolicyView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PolicyView")
+            .field("snapshot", &self.snapshot.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PolicyView {
+    /// A view of a fixed snapshot.
+    pub fn of(snapshot: PolicySnapshot) -> Self {
+        let view = Self::default();
+        let _ = view.snapshot.set(snapshot);
+        view
+    }
+
+    /// A view that asks `source` on first use.
+    pub fn from_source(source: Option<PolicySource>) -> Self {
+        Self {
+            source,
+            snapshot: OnceLock::new(),
+        }
+    }
+
+    fn get(&self) -> &PolicySnapshot {
+        self.snapshot
+            .get_or_init(|| self.source.as_ref().map(|s| s()).unwrap_or_default())
+    }
+
+    pub fn policy(&self) -> &AgentPolicy {
+        &self.get().policy
+    }
+
+    pub fn workspace(&self) -> Option<&Path> {
+        self.get().workspace.as_deref()
+    }
+
+    pub fn launch_urls(&self) -> &[String] {
+        &self.get().launch_urls
+    }
+
+    /// The `browser` object (its defaults when absent).
+    pub fn browser(&self) -> BrowserPolicy {
+        self.policy().browser.clone().unwrap_or_default()
+    }
+
+    /// [`BrowserPolicy::check_url`] with this view's workspace and launch urls.
+    pub fn check_url(&self, url: &str) -> Result<(), OffOrigin> {
+        self.browser()
+            .check_url(url, self.workspace(), self.launch_urls())
+    }
+
+    /// Whether `path` is in the workspace folder (lexically, after resolving `.` and `..`); false without one.
+    pub fn in_workspace(&self, path: &str) -> bool {
+        self.workspace().is_some_and(|w| {
+            let p = normalize(path);
+            p.is_absolute() && p.starts_with(normalize(&w.to_string_lossy()))
+        })
+    }
+}
+
+/// What Always Allow remembers for a call (an escalation hook says; ADR-0009).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub enum AlwaysAllow {
+    /// A rule for the tool (the calls of every command without an escalation). Rules apply to the call.
+    #[default]
+    Rule,
+    /// Add an origin to `browser.origins`. Allow rules do not apply to the call.
+    Origin(String),
+    /// Nothing: Always Allow allows this call once. Allow rules do not apply to the call.
+    Never,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +540,8 @@ pub struct AgentPolicy {
     pub dangerous: Option<DangerousPolicy>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<PolicyRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<BrowserPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -109,6 +552,7 @@ impl Default for AgentPolicy {
             execute: None,
             dangerous: None,
             rules: Vec::new(),
+            browser: None,
         }
     }
 }
@@ -166,7 +610,37 @@ impl AgentPolicy {
 
     /// Decide a call of `tool` (as the agent names it) of class `class` with `input`.
     pub fn decide(&self, class: PermissionClass, tool: &str, input: &Value) -> Verdict {
-        let rule = || self.rules.iter().find(|r| r.matches(tool, input));
+        self.decide_with(class, tool, input, true)
+    }
+
+    /// Decide a call whose class an escalation hook may have raised (ADR-0009): its effective class, with allow
+    /// rules applying only when the hook says Always Allow writes rules ([`AlwaysAllow::Rule`]); deny rules always
+    /// apply. A refused call is denied with the refusal.
+    pub fn decide_call(&self, call: &CallClass, tool: &str, input: &Value) -> Verdict {
+        if let Some(why) = &call.refused {
+            return Verdict::Deny(why.clone());
+        }
+        self.decide_with(
+            call.class,
+            tool,
+            input,
+            call.always_allow == AlwaysAllow::Rule,
+        )
+    }
+
+    fn decide_with(
+        &self,
+        class: PermissionClass,
+        tool: &str,
+        input: &Value,
+        allow_rules: bool,
+    ) -> Verdict {
+        let rule = || {
+            self.rules
+                .iter()
+                .filter(|r| allow_rules || r.decision == RuleDecision::Deny)
+                .find(|r| r.matches(tool, input))
+        };
         match class {
             PermissionClass::Read => Verdict::Allow(format!("{tool} is class read")),
             PermissionClass::EditBuffer => match self.edit_buffer.unwrap_or_default() {
@@ -220,6 +694,34 @@ impl AgentPolicy {
             self.rules.push(rule.clone());
         }
         rule
+    }
+
+    /// Always Allow for a call: what its [`AlwaysAllow`] says (a rule, an origin, or nothing). Returns what was
+    /// added, for the transcript, or `None` when nothing persists.
+    pub fn remember(&mut self, call: &CallClass, tool: &str, input: &Value) -> Option<String> {
+        match &call.always_allow {
+            AlwaysAllow::Rule => {
+                let r = self.allow_always(tool, input);
+                Some(format!("a rule for {}", r.tool))
+            }
+            AlwaysAllow::Origin(origin) => {
+                self.allow_origin(origin);
+                Some(format!("the origin {origin}"))
+            }
+            AlwaysAllow::Never => None,
+        }
+    }
+
+    /// Add `origin` to `browser.origins` (the defaults first when the list is absent), keeping it sorted.
+    pub fn allow_origin(&mut self, origin: &str) {
+        let browser = self.browser.get_or_insert_with(BrowserPolicy::default);
+        let mut origins = browser.origins();
+        if !origins.iter().any(|o| o == origin) {
+            origins.push(origin.to_owned());
+        }
+        origins.sort();
+        origins.dedup();
+        browser.origins = Some(origins);
     }
 }
 
@@ -351,6 +853,343 @@ mod tests {
         assert!(AgentPolicy::load(&path).unwrap_err().contains("version 2"));
         std::fs::write(&path, r#"{"version": 1, "bogus": true}"#).unwrap();
         assert!(AgentPolicy::load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn origins(list: &[&str]) -> BrowserPolicy {
+        BrowserPolicy {
+            origins: Some(list.iter().map(|s| (*s).to_owned()).collect()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn urls_parse_to_their_origins() {
+        let u = ParsedUrl::parse("HTTP://User@LocalHost:5000/a?b#c").unwrap();
+        assert_eq!(
+            (u.scheme.as_str(), u.host.as_str(), u.port()),
+            ("http", "localhost", Some(5000))
+        );
+        assert_eq!(u.origin().as_deref(), Some("http://localhost:5000"));
+        let u = ParsedUrl::parse("https://example.com/x").unwrap();
+        assert_eq!(u.port(), Some(443));
+        assert_eq!(u.origin().as_deref(), Some("https://example.com"));
+        assert_eq!(
+            ParsedUrl::parse("https://example.com:443/")
+                .unwrap()
+                .origin()
+                .as_deref(),
+            Some("https://example.com")
+        );
+        let u = ParsedUrl::parse("http://[::1]:8080/").unwrap();
+        assert_eq!((u.host.as_str(), u.port()), ("[::1]", Some(8080)));
+        let f = ParsedUrl::parse("file:///w/site/../site/a%20b.html?x").unwrap();
+        assert_eq!(f.path.as_deref(), Some(Path::new("/w/site/a b.html")));
+        assert_eq!(f.origin().as_deref(), Some("file:///w/site/a b.html"));
+        assert_eq!(
+            ParsedUrl::parse("data:text/html,hi").unwrap().origin(),
+            None
+        );
+        assert!(ParsedUrl::parse("no scheme").is_none());
+        assert!(ParsedUrl::parse("http://host:port/").is_none());
+    }
+
+    #[test]
+    fn browser_origins_default_and_match_by_scheme_host_and_port() {
+        let ws = Path::new("/w");
+        let launch = vec![
+            "https://localhost:7001".to_owned(),
+            "http://app.test:5080".to_owned(),
+        ];
+        let d = BrowserPolicy::default();
+        let ok = |p: &BrowserPolicy, url: &str| p.check_url(url, Some(ws), &launch).is_ok();
+        // Defaults: loopback on any port and http or https, files under the workspace, the launch urls.
+        for url in [
+            "http://localhost:5000/",
+            "https://localhost/",
+            "http://127.0.0.1:41234/form.html",
+            "http://[::1]:8080/",
+            "file:///w/site/index.html",
+            "http://app.test:5080/home",
+            "about:blank",
+        ] {
+            assert!(ok(&d, url), "{url}");
+        }
+        for url in [
+            "https://example.com/",
+            "http://app.test:5081/",
+            "https://app.test:5080/",
+            "file:///etc/passwd",
+            "file:///w/../etc/passwd",
+            "ftp://localhost/",
+            "data:text/html,hi",
+            "javascript:alert(1)",
+        ] {
+            assert!(!ok(&d, url), "{url}");
+        }
+        let off = d
+            .check_url("https://example.com/a", Some(ws), &launch)
+            .unwrap_err();
+        assert_eq!(off.origin.as_deref(), Some("https://example.com"));
+        assert_eq!(off.shown, "https://example.com");
+        let off = d
+            .check_url("data:text/html,hi", Some(ws), &launch)
+            .unwrap_err();
+        assert_eq!(off.origin, None);
+        // No workspace: no file is under it.
+        assert!(d.check_url("file:///w/a.html", None, &[]).is_err());
+
+        // An explicit list replaces the defaults.
+        let p = origins(&[
+            "127.0.0.1:8080",
+            "https://example.com",
+            "http://api.test:9000",
+            "*.corp.test",
+            "file:///srv/www",
+        ]);
+        assert!(ok(&p, "http://127.0.0.1:8080/"));
+        assert!(ok(&p, "https://127.0.0.1:8080/"));
+        assert!(
+            !ok(&p, "http://127.0.0.1:8081/"),
+            "the port is part of the entry"
+        );
+        assert!(
+            !ok(&p, "http://localhost:5000/"),
+            "the defaults are replaced"
+        );
+        assert!(
+            ok(&p, "https://example.com:8443/x"),
+            "an origin without a port: any port"
+        );
+        assert!(
+            !ok(&p, "http://example.com/"),
+            "the scheme is part of the origin"
+        );
+        assert!(ok(&p, "http://api.test:9000/v1"));
+        assert!(!ok(&p, "http://api.test/v1"));
+        assert!(ok(&p, "https://corp.test/") && ok(&p, "http://a.b.corp.test:81/"));
+        assert!(!ok(&p, "https://notcorp.test/"));
+        assert!(ok(&p, "file:///srv/www/a/index.html"));
+        assert!(!ok(&p, "file:///srv/www2/index.html"));
+        assert!(!ok(&p, "file:///w/a.html"), "$workspace is not in the list");
+    }
+
+    #[test]
+    fn always_allow_adds_the_origin_to_a_sorted_list_with_the_defaults() {
+        let mut p = AgentPolicy::default();
+        p.allow_origin("https://example.com");
+        let list = p.browser.as_ref().unwrap().origins.clone().unwrap();
+        assert_eq!(
+            list,
+            [
+                "$launch_urls",
+                "$workspace",
+                "127.0.0.1",
+                "[::1]",
+                "https://example.com",
+                "localhost"
+            ]
+        );
+        p.allow_origin("https://example.com");
+        p.allow_origin("http://a.test:81");
+        let list = p.browser.as_ref().unwrap().origins.clone().unwrap();
+        assert_eq!(list.len(), 7);
+        assert!(list.windows(2).all(|w| w[0] <= w[1]), "{list:?}");
+        assert!(
+            p.browser
+                .as_ref()
+                .unwrap()
+                .check_url("https://example.com/x", None, &[])
+                .is_ok()
+        );
+        // remember: what the call's AlwaysAllow names.
+        let mut q = AgentPolicy::default();
+        let call = CallClass {
+            class: PermissionClass::Dangerous,
+            reason: Some("navigate off the allowed origins: https://b.test".into()),
+            always_allow: AlwaysAllow::Origin("https://b.test".into()),
+            refused: None,
+        };
+        assert_eq!(
+            q.remember(&call, "mcp__eludite__eludite-browser-navigate", &json!({})),
+            Some("the origin https://b.test".into())
+        );
+        assert!(q.rules.is_empty());
+        let once = CallClass {
+            always_allow: AlwaysAllow::Never,
+            ..call.clone()
+        };
+        let before = q.clone();
+        assert_eq!(
+            q.remember(&once, "eludite-browser-upload", &json!({})),
+            None
+        );
+        assert_eq!(q, before);
+        let plain = CallClass::declared(PermissionClass::Execute);
+        assert_eq!(
+            q.remember(&plain, "mcp__eludite__eludite-browser-input", &json!({})),
+            Some("a rule for eludite-browser-input".into())
+        );
+    }
+
+    #[test]
+    fn escalated_calls_are_not_allowed_by_rules_for_ordinary_calls() {
+        let mut p = AgentPolicy {
+            execute: Some(ExecutePolicy::Allow),
+            ..Default::default()
+        };
+        p.allow_always("mcp__eludite__eludite-browser-navigate", &json!({}));
+        let tool = "mcp__eludite__eludite-browser-navigate";
+        let plain = CallClass::declared(PermissionClass::Execute);
+        assert!(matches!(
+            p.decide_call(&plain, tool, &json!({})),
+            Verdict::Allow(_)
+        ));
+        let far = CallClass {
+            class: PermissionClass::Dangerous,
+            reason: Some("navigate off the allowed origins: https://example.com".into()),
+            always_allow: AlwaysAllow::Origin("https://example.com".into()),
+            refused: None,
+        };
+        assert_eq!(p.decide_call(&far, tool, &json!({})), Verdict::Ask);
+        // A rule-remembering escalation (evaluate: prompt) is allowed by its rule.
+        let rule = CallClass {
+            always_allow: AlwaysAllow::Rule,
+            ..far.clone()
+        };
+        assert!(matches!(
+            p.decide_call(&rule, tool, &json!({})),
+            Verdict::Allow(_)
+        ));
+        // Deny rules always apply; refusals are denials.
+        p.rules.push(PolicyRule {
+            tool: "eludite-browser-navigate".into(),
+            command_prefix: None,
+            decision: RuleDecision::Deny,
+        });
+        p.rules.remove(0);
+        assert!(matches!(
+            p.decide_call(&far, tool, &json!({})),
+            Verdict::Deny(_)
+        ));
+        let refused = CallClass {
+            refused: Some("the solution's policy sets browser.evaluate to deny".into()),
+            ..CallClass::declared(PermissionClass::Execute)
+        };
+        assert_eq!(
+            AgentPolicy::default().decide_call(&refused, "x", &json!({})),
+            Verdict::Deny("the solution's policy sets browser.evaluate to deny".into())
+        );
+        // dangerous: deny denies escalated calls.
+        let strict = AgentPolicy {
+            dangerous: Some(DangerousPolicy::Deny),
+            ..Default::default()
+        };
+        assert!(matches!(
+            strict.decide_call(&far, tool, &json!({})),
+            Verdict::Deny(_)
+        ));
+    }
+
+    #[test]
+    fn the_browser_object_parses_follows_its_schema_and_round_trips() {
+        let text = r#"{"version": 1, "browser": {"origins": ["localhost", "https://example.com"],
+            "network_bodies": "deny", "evaluate": "prompt"}}"#;
+        let p: AgentPolicy = serde_json::from_str(text).unwrap();
+        let b = p.browser.clone().unwrap();
+        assert_eq!(b.network_bodies, Some(NetworkBodiesPolicy::Deny));
+        assert_eq!(b.evaluate, Some(EvaluatePolicy::Prompt));
+        assert_eq!(b.origins().len(), 2);
+        assert!(
+            serde_json::from_str::<AgentPolicy>(r#"{"version": 1, "browser": {"bogus": 1}}"#)
+                .is_err()
+        );
+        assert!(
+            serde_json::from_str::<AgentPolicy>(
+                r#"{"version": 1, "browser": {"evaluate": "maybe"}}"#
+            )
+            .is_err()
+        );
+        // Every key the Rust type writes is in the schema, with the enum values the schema lists.
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let bs = &schema["properties"]["browser"];
+        assert_eq!(bs["additionalProperties"], false);
+        let v = serde_json::to_value(&p).unwrap();
+        for (k, val) in v["browser"].as_object().unwrap() {
+            let sub = &bs["properties"][k];
+            assert!(!sub.is_null(), "{k}");
+            if let Some(e) = sub["enum"].as_array() {
+                assert!(e.contains(val), "{k}: {val}");
+            }
+        }
+        for (k, e) in [
+            ("network_bodies", ["allow", "deny"].as_slice()),
+            ("evaluate", &["allow", "prompt", "deny"]),
+        ] {
+            assert_eq!(bs["properties"][k]["enum"], json!(e), "{k}");
+        }
+        // Defaults when the object is absent.
+        let d = AgentPolicy::default();
+        assert!(d.browser.is_none());
+        let view = PolicyView::of(PolicySnapshot::default());
+        assert_eq!(view.browser(), BrowserPolicy::default());
+        assert_eq!(view.browser().origins(), DEFAULT_ORIGINS);
+        // Saved sorted, with the browser object.
+        let dir = tempdir("browser");
+        let path = AgentPolicy::path_for(&dir);
+        let mut p = p;
+        p.allow_origin("http://b.test");
+        p.save(&path).unwrap();
+        assert_eq!(AgentPolicy::load(&path).unwrap(), p);
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(saved.find("\"evaluate\"").unwrap() < saved.find("\"network_bodies\"").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tempdir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("eludite-policy-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn launch_urls_come_from_launch_settings_under_the_workspace() {
+        let dir = tempdir("launch");
+        let props = dir.join("src/Web/Properties");
+        std::fs::create_dir_all(&props).unwrap();
+        std::fs::write(
+            props.join("launchSettings.json"),
+            "\u{feff}{\"profiles\": {\"http\": {\"applicationUrl\": \"http://localhost:5080\"}, \"https\": {\"applicationUrl\": \"https://web.test:7001;http://web.test:5000\"}, \"IIS\": {\"commandName\": \"IISExpress\"}}}",
+        )
+        .unwrap();
+        let hidden = dir.join("bin/Properties");
+        std::fs::create_dir_all(&hidden).unwrap();
+        std::fs::write(
+            hidden.join("launchSettings.json"),
+            r#"{"profiles": {"x": {"applicationUrl": "http://skipped.test"}}}"#,
+        )
+        .unwrap();
+        let mut urls = launch_urls(&dir);
+        urls.sort();
+        assert_eq!(
+            urls,
+            [
+                "http://localhost:5080",
+                "http://web.test:5000",
+                "https://web.test:7001"
+            ]
+        );
+        let view = PolicyView::of(PolicySnapshot {
+            policy: AgentPolicy::default(),
+            workspace: Some(dir.clone()),
+            launch_urls: urls,
+        });
+        assert!(view.check_url("https://web.test:7001/orders").is_ok());
+        assert!(view.check_url("https://web.test:7002/").is_err());
+        assert!(view.in_workspace(&dir.join("a/b.txt").to_string_lossy()));
+        assert!(!view.in_workspace(&dir.join("../x.txt").to_string_lossy()));
+        assert!(!view.in_workspace("relative.txt"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

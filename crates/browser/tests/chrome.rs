@@ -7,6 +7,10 @@
 //! document is rewritten, tab_close, then Chrome killed under a pending request and relaunched. The budgets' timings
 //! are printed (`cargo test -p eludite-browser --test chrome -- --nocapture`).
 //!
+//! Brief 0024's actions run in a second test against `act.html`, `storage.html` and `fetch.html`: every `input`
+//! action by ref and by point, `form_input`, `upload`, a stale ref, console errors, a navigating Enter, `storage` and
+//! `network_body`, with their budgets. The two tests take turns ([`ONE_CHROME`]).
+//!
 //! `ELUDITE_RECORD_FIXTURES=1` also rewrites `tests/fixtures/form-axtree.json` (the recorded accessibility tree the
 //! unit tests filter) from this Chrome.
 
@@ -57,24 +61,52 @@ fn answer(mut stream: TcpStream) {
         .trim_start_matches('/');
     let file = fixtures().join(path);
     let ok = !path.is_empty() && !path.contains("..") && file.is_file();
-    let (status, body, mime) = if ok {
-        let mime = if path.ends_with(".html") {
+    let mime_of = |path: &str| {
+        if path.ends_with(".html") {
             "text/html; charset=utf-8"
+        } else if path.ends_with(".png") {
+            "image/png"
+        } else if path.ends_with(".txt") {
+            "text/plain"
         } else {
             "application/json"
-        };
-        ("200 OK", std::fs::read(&file).unwrap(), mime)
+        }
+    };
+    let (status, body, mime) = if path == BIG_JSON {
+        ("200 OK", big_json(), "application/json")
+    } else if ok {
+        ("200 OK", std::fs::read(&file).unwrap(), mime_of(path))
     } else {
         ("404 Not Found", b"not found".to_vec(), "text/plain")
     };
+    // The storage page also gets a cookie from the server, which pages cannot read (HttpOnly).
+    let cookie = if path == "storage.html" {
+        "Set-Cookie: session_id=abc123; Path=/; HttpOnly; SameSite=Strict\r\n"
+    } else {
+        ""
+    };
     let head = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n{cookie}Connection: close\r\n\r\n",
         body.len()
     );
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(&body);
     let _ = stream.flush();
     let _ = stream.read(&mut [0u8; 1]);
+}
+
+/// A 1 MB JSON body the server makes (`network_body`'s budget).
+const BIG_JSON: &str = "big.json";
+const BIG_BYTES: usize = 1024 * 1024;
+
+fn big_json() -> Vec<u8> {
+    let mut s = String::from("{\"data\": \"");
+    while s.len() < BIG_BYTES - 2 {
+        s.push_str("0123456789abcdef");
+    }
+    s.truncate(BIG_BYTES - 2);
+    s.push_str("\"}");
+    s.into_bytes()
 }
 
 fn running_as_root() -> bool {
@@ -166,8 +198,12 @@ fn timed(mut f: impl FnMut()) -> f64 {
     t.elapsed().as_secs_f64() * 1e3
 }
 
+/// The Chrome tests run one at a time, so one's timings are not taken while the other's browser works.
+static ONE_CHROME: Mutex<()> = Mutex::new(());
+
 #[test]
 fn the_commands_against_a_headless_chrome() {
+    let _one = ONE_CHROME.lock().unwrap_or_else(|e| e.into_inner());
     let Some(exe) = chrome() else { return };
     let profile = tempfile::tempdir().unwrap();
     let (mut run, log) = Run::new(&exe, &profile.path().join(".eludite/browser/profile"));
@@ -858,4 +894,555 @@ fn a_bad_chrome_path_fails_the_launch_and_tabs_launches_nothing() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("not an executable"), "{err}");
+}
+
+/// `window.events` of the act fixture since the last call (and clears them).
+fn take_events(run: &mut Run) -> Vec<String> {
+    let v = run.ok(
+        cmds::EVALUATE,
+        json!({"expression": "window.events.splice(0, window.events.length)"}),
+    );
+    v["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e.as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn eval(run: &mut Run, expression: &str) -> Value {
+    run.ok(cmds::EVALUATE, json!({ "expression": expression }))["result"].clone()
+}
+
+fn css_ref(run: &mut Run, css: &str) -> (String, Value) {
+    let f = run.ok(cmds::FIND, json!({ "css": css }));
+    let m = &f["matches"][0];
+    (
+        m["ref"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no {css}: {f}"))
+            .to_owned(),
+        m["box"].clone(),
+    )
+}
+
+#[test]
+fn acting_on_the_page_in_a_headless_chrome() {
+    let _one = ONE_CHROME.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(exe) = chrome() else { return };
+    let profile = tempfile::tempdir().unwrap();
+    let (mut run, _log) = Run::new(&exe, &profile.path().join(".eludite/browser/profile"));
+    let act_url = run.url("act.html");
+    run.ok(cmds::TAB_OPEN, json!({ "url": act_url }));
+    take_events(&mut run);
+
+    // click by ref: the element it landed on, its point, no navigation, no errors.
+    let counter = find_ref(&mut run, "button", "Count");
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "click", "ref": counter, "wait_ms": 100}),
+    );
+    assert_eq!(out["action"], "click");
+    assert_eq!(out["target"]["ref"], counter.as_str());
+    assert_eq!(out["target"]["role"], "button");
+    assert_eq!(out["target"]["name"], "Count");
+    assert_eq!(out["navigated"], false);
+    assert_eq!(out["console_errors"], json!([]));
+    assert!(out["elapsed_ms"].as_f64().unwrap() >= 100., "{out}");
+    let point = out["target"]["point"].clone();
+    assert_eq!(take_events(&mut run), ["focus:counter", "click:counter:1"]);
+    // click by point, with a modifier held: the same element, by the same ref.
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "click", "x": point["x"], "y": point["y"], "modifiers": ["shift"], "wait_ms": 0}),
+    );
+    assert_eq!(out["target"]["ref"], counter.as_str(), "{out}");
+    assert_eq!(take_events(&mut run), ["click:counter:1:shift"]);
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "double_click", "ref": counter, "wait_ms": 0}),
+    );
+    assert_eq!(
+        take_events(&mut run),
+        ["click:counter:1", "click:counter:2", "dblclick:counter"]
+    );
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "right_click", "ref": counter, "wait_ms": 0}),
+    );
+    assert_eq!(take_events(&mut run), ["contextmenu:counter"]);
+
+    // type (one insertion, then per key), key with a modifier, focus.
+    let name = find_ref(&mut run, "textbox", "Name");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "type", "ref": name, "text": "Grace", "wait_ms": 0}),
+    );
+    assert_eq!(
+        eval(&mut run, "document.getElementById('name').value"),
+        "Grace"
+    );
+    assert_eq!(take_events(&mut run), ["input:name"]);
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "type", "text": " Hop", "per_key": true, "wait_ms": 0}),
+    );
+    assert_eq!(
+        eval(&mut run, "document.getElementById('name').value"),
+        "Grace Hop"
+    );
+    let typed = take_events(&mut run);
+    assert!(typed.contains(&"keydown:H".to_owned()), "{typed:?}");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "key", "ref": name, "keys": ["Control+a", "Backspace"], "wait_ms": 0}),
+    );
+    assert_eq!(eval(&mut run, "document.getElementById('name').value"), "");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "focus", "ref": counter, "wait_ms": 0}),
+    );
+    assert_eq!(eval(&mut run, "document.activeElement.id"), "counter");
+
+    // hover shows the title.
+    let (hover, _) = css_ref(&mut run, "#hoverme");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "hover", "ref": hover, "wait_ms": 0}),
+    );
+    assert_eq!(
+        eval(&mut run, "document.getElementById('tooltip').textContent"),
+        "Tooltip text"
+    );
+
+    // select: by label and by value, one and several; a wrong option names the options.
+    let (plan, _) = css_ref(&mut run, "#plan");
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "select", "ref": plan, "values": ["Team"], "wait_ms": 0}),
+    );
+    assert_eq!(out["selected"], json!(["team"]));
+    let (extras, _) = css_ref(&mut run, "#extras");
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "select", "ref": extras, "values": ["mug", "Shirt"], "wait_ms": 0}),
+    );
+    assert_eq!(out["selected"], json!(["mug", "shirt"]));
+    let err = run
+        .call(
+            cmds::INPUT,
+            json!({"action": "select", "ref": plan, "values": ["Gold"]}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("\"Gold\"") && err.contains("\"pro\" (Pro)"),
+        "{err}"
+    );
+    let ev = take_events(&mut run);
+    assert!(ev.contains(&"change:plan".to_owned()) && ev.contains(&"change:extras".to_owned()));
+
+    // drag moves the slider to its right end.
+    let (volume, b) = css_ref(&mut run, "#volume");
+    let right = b["x"].as_f64().unwrap() + b["width"].as_f64().unwrap() - 1.;
+    let mid = b["y"].as_f64().unwrap() + b["height"].as_f64().unwrap() / 2.;
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "drag", "ref": volume, "to": {"x": right, "y": mid}, "wait_ms": 0}),
+    );
+    assert!(out["to"]["point"].is_object(), "{out}");
+    let value: f64 = eval(&mut run, "document.getElementById('volume').value")
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(value >= 90., "the slider moved to {value}");
+
+    // console_errors carry the error a handler throws, with its location.
+    let boom = find_ref(&mut run, "button", "Boom");
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "click", "ref": boom, "wait_ms": 100}),
+    );
+    let errors = out["console_errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1, "{out}");
+    assert!(
+        errors[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("boom from the click handler"),
+        "{out}"
+    );
+    assert_eq!(errors[0]["source"], "exception");
+    assert!(errors[0]["url"].as_str().unwrap().ends_with("act.html"));
+    assert!(errors[0]["line"].as_u64().unwrap() > 1);
+
+    // scroll moves the viewport.
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "scroll", "delta": {"x": 0, "y": 700}, "wait_ms": 300}),
+    );
+    assert!(out["target"]["point"].is_object());
+    let y = eval(&mut run, "scrollY").as_f64().unwrap();
+    assert!(y >= 600., "scrolled to {y}");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "scroll", "delta": {"y": -5000}, "wait_ms": 300}),
+    );
+    assert_eq!(eval(&mut run, "scrollY").as_f64().unwrap(), 0.);
+
+    // form_input: text, a radio, checkboxes, a single and a multiple select, a file; a disabled field and a
+    // non-field fail alone.
+    let dir = tempfile::tempdir().unwrap();
+    let upload = dir.path().join("notes.txt");
+    std::fs::write(&upload, "hello upload\n").unwrap();
+    let upload = upload.to_string_lossy().into_owned();
+    let refs: Vec<String> = [
+        "#name", "#notes", "#large", "#gift", "#express", "#plan", "#extras", "#file", "#locked",
+        "#hoverme",
+    ]
+    .iter()
+    .map(|c| css_ref(&mut run, c).0)
+    .collect();
+    take_events(&mut run);
+    let fields = json!([
+        {"ref": refs[0], "value": "Ada Lovelace"},
+        {"ref": refs[1], "value": "Leave at the door"},
+        {"ref": refs[2], "value": true},
+        {"ref": refs[3], "value": true},
+        {"ref": refs[4], "value": false},
+        {"ref": refs[5], "value": "Pro"},
+        {"ref": refs[6], "value": ["stickers", "mug"]},
+        {"ref": refs[7], "value": {"files": [upload]}},
+        {"ref": refs[8], "value": "x"},
+        {"ref": refs[9], "value": "x"},
+    ]);
+    let out = run.ok(cmds::FORM_INPUT, json!({ "fields": fields }));
+    let oks: Vec<bool> = out["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["ok"].as_bool().unwrap())
+        .collect();
+    assert_eq!(
+        oks,
+        [true, true, true, true, true, true, true, true, false, false],
+        "{out}"
+    );
+    assert!(
+        out["fields"][8]["message"]
+            .as_str()
+            .unwrap()
+            .contains("disabled")
+    );
+    assert!(
+        out["fields"][9]["message"]
+            .as_str()
+            .unwrap()
+            .contains("not a form field")
+    );
+    let state = eval(
+        &mut run,
+        "(() => { const $ = (i) => document.getElementById(i); return [$('name').value, $('notes').value, $('large').checked, $('small').checked, $('gift').checked, $('express').checked, $('plan').value, [...$('extras').selectedOptions].map((o) => o.value).join('+'), $('file').files[0].name]; })()",
+    );
+    assert_eq!(
+        state,
+        json!([
+            "Ada Lovelace",
+            "Leave at the door",
+            true,
+            false,
+            true,
+            false,
+            "pro",
+            "stickers+mug",
+            "notes.txt"
+        ])
+    );
+    let ev = take_events(&mut run);
+    for e in [
+        "input:name",
+        "change:name",
+        "change:large",
+        "change:express",
+        "change:plan",
+    ] {
+        assert!(ev.contains(&e.to_owned()), "{e} in {ev:?}");
+    }
+    // The page reads the file the input holds.
+    let waited = run.ok(
+        cmds::WAIT,
+        json!({"for": "text", "text": "notes.txt (13 bytes): hello upload", "wait_ms": 3000}),
+    );
+    assert_eq!(waited["timeout"], false, "{waited}");
+
+    // upload sets a file input; the page reads the name; a second file needs `multiple`.
+    let other = dir.path().join("photo.txt");
+    std::fs::write(&other, "second file").unwrap();
+    let other = other.to_string_lossy().into_owned();
+    let out = run.ok(
+        cmds::UPLOAD,
+        json!({"ref": refs[7], "paths": [other.clone()]}),
+    );
+    assert_eq!(out["count"], 1);
+    let waited = run.ok(
+        cmds::WAIT,
+        json!({"for": "text", "text": "photo.txt (11 bytes): second file", "wait_ms": 3000}),
+    );
+    assert_eq!(waited["timeout"], false, "{waited}");
+    let err = run
+        .call(
+            cmds::UPLOAD,
+            json!({"ref": refs[7], "paths": [upload, other]}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("one file"), "{err}");
+    assert!(
+        run.call(
+            cmds::UPLOAD,
+            json!({"ref": refs[0], "paths": ["/etc/hostname"]})
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not a file input")
+    );
+    assert!(
+        run.call(
+            cmds::UPLOAD,
+            json!({"ref": refs[7], "paths": ["/nonexistent/x.txt"]})
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("/nonexistent/x.txt")
+    );
+
+    // Submit by clicking; the result appears; its text.
+    let submit = find_ref(&mut run, "button", "Submit");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "click", "ref": submit, "wait_ms": 0}),
+    );
+    let waited = run.ok(
+        cmds::WAIT,
+        json!({"for": "selector", "css": "#result", "wait_ms": 3000}),
+    );
+    let result_ref = waited["satisfied"]["ref"].as_str().unwrap().to_owned();
+    let text = run.ok(cmds::PAGE_TEXT, json!({ "root": result_ref }));
+    assert_eq!(
+        text["text"],
+        "Ordered: Ada Lovelace, large, pro, extras stickers+mug, gift true"
+    );
+
+    // Budgets: an input click round trip with wait_ms 100; form_input with 10 fields.
+    let mut clicks = Vec::new();
+    for _ in 0..20 {
+        clicks.push(timed(|| {
+            run.ok(
+                cmds::INPUT,
+                json!({"action": "click", "ref": counter, "wait_ms": 100}),
+            );
+        }));
+    }
+    let (p50, q95, max) = p95(clicks);
+    println!(
+        "input click round trip (wait_ms 100), 20 clicks: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 150 ms)"
+    );
+    assert!(q95 < 150., "input click p95 {q95:.1} ms");
+    let ten = json!([
+        {"ref": refs[0], "value": "A"}, {"ref": refs[1], "value": "B"}, {"ref": refs[2], "value": true},
+        {"ref": refs[3], "value": false}, {"ref": refs[4], "value": true}, {"ref": refs[5], "value": "free"},
+        {"ref": refs[6], "value": ["shirt"]}, {"ref": refs[0], "value": "Ada"}, {"ref": refs[1], "value": "C"},
+        {"ref": refs[3], "value": true},
+    ]);
+    let mut fills = Vec::new();
+    for _ in 0..20 {
+        fills.push(timed(|| {
+            let out = run.ok(cmds::FORM_INPUT, json!({ "fields": ten }));
+            assert!(
+                out["fields"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|f| f["ok"] == true)
+            );
+        }));
+    }
+    let (p50, q95, max) = p95(fills);
+    println!(
+        "form_input with 10 fields, 20 calls: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 200 ms)"
+    );
+    assert!(q95 < 200., "form_input p95 {q95:.1} ms");
+
+    // key Enter submits the search form: the page navigates, and refs from before are stale.
+    let q = find_ref(&mut run, "searchbox", "Search");
+    run.ok(
+        cmds::INPUT,
+        json!({"action": "type", "ref": q, "text": "cats", "wait_ms": 0}),
+    );
+    let gen_before = run.ok(cmds::TABS, json!({}))["tabs"][0]["page_generation"]
+        .as_u64()
+        .unwrap();
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "key", "keys": "Enter", "wait_ms": 5000}),
+    );
+    assert_eq!(out["navigated"], true, "{out}");
+    assert!(
+        out["url"].as_str().unwrap().ends_with("act.html?q=cats"),
+        "{out}"
+    );
+    assert!(out["page_generation"].as_u64().unwrap() > gen_before);
+    assert!(
+        out["elapsed_ms"].as_f64().unwrap() < 4000.,
+        "ended at the load: {out}"
+    );
+    assert_eq!(
+        run.ok(cmds::TABS, json!({}))["tabs"][0]["title"],
+        "Search: cats"
+    );
+    let err = run
+        .call(cmds::INPUT, json!({"action": "click", "ref": counter}))
+        .unwrap_err();
+    assert!(matches!(err, CommandError::InvalidInput(_)), "{err}");
+    assert!(err.to_string().contains("stale ref"), "{err}");
+    assert!(
+        run.call(
+            cmds::FORM_INPUT,
+            json!({"fields": [{"ref": refs[0], "value": "x"}]})
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("stale ref")
+    );
+
+    // storage: get lists the cookies (the page's and the server's HttpOnly one) and the items; clear empties them.
+    let storage_url = run.url("storage.html");
+    run.ok(cmds::NAVIGATE, json!({ "url": storage_url }));
+    let got = run.ok(cmds::STORAGE, json!({}));
+    let origin = run.base.clone();
+    assert_eq!(got["origin"], origin.as_str());
+    let mut cookies: Vec<(String, String, bool)> = got["cookies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["name"].as_str().unwrap().to_owned(),
+                c["value"].as_str().unwrap().to_owned(),
+                c["http_only"].as_bool().unwrap(),
+            )
+        })
+        .collect();
+    cookies.sort();
+    assert_eq!(
+        cookies,
+        [
+            ("session_id".into(), "abc123".into(), true),
+            ("theme".into(), "dark".into(), false)
+        ]
+    );
+    let local = got["local"].as_array().unwrap();
+    assert_eq!(local.len(), 2, "{got}");
+    let long = local.iter().find(|i| i["key"] == "long").unwrap();
+    assert_eq!(long["truncated"], true);
+    assert_eq!(long["value"].as_str().unwrap().len(), 1000);
+    assert_eq!(
+        local.iter().find(|i| i["key"] == "cart").unwrap()["value"],
+        "{\"items\":3}"
+    );
+    assert_eq!(got["session"], json!([{"key": "step", "value": "2"}]));
+    assert_eq!(got["total"], 5);
+    let only = run.ok(cmds::STORAGE, json!({"kind": "session"}));
+    assert!(only.get("cookies").is_none() && only["total"] == 1);
+    let cleared = run.ok(cmds::STORAGE, json!({"action": "clear"}));
+    assert_eq!(
+        cleared["cleared"],
+        json!({"cookies": 2, "local": 2, "session": 1})
+    );
+    let after = run.ok(cmds::STORAGE, json!({ "origin": origin }));
+    assert_eq!(after["total"], 0, "{after}");
+    assert_eq!(
+        eval(&mut run, "localStorage.length + sessionStorage.length"),
+        0
+    );
+
+    // network_body: the fetch's JSON, a binary body as base64, a request Chrome has no body for, an unknown one.
+    let fetch_url = run.url("fetch.html");
+    run.ok(cmds::NAVIGATE, json!({ "url": fetch_url }));
+    run.ok(
+        cmds::WAIT,
+        json!({"for": "function", "expression": "window.fetched === true", "wait_ms": 5000}),
+    );
+    let requests = run.ok(cmds::NETWORK, json!({"max": 2000}))["requests"].clone();
+    let id_of = |suffix: &str| -> String {
+        requests
+            .as_array()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|r| r["url"].as_str().unwrap().ends_with(suffix))
+            .unwrap_or_else(|| panic!("no request for {suffix}: {requests:#}"))["request_id"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let body = run.ok(
+        cmds::NETWORK_BODY,
+        json!({"request_id": id_of("data.json")}),
+    );
+    assert_eq!(body["status"], 200);
+    assert_eq!(body["mime_type"], "application/json");
+    assert_eq!(body["headers"]["Content-Type"], "application/json");
+    let parsed: Value = serde_json::from_str(body["body"].as_str().unwrap()).unwrap();
+    assert_eq!(parsed["message"], "hello from data.json");
+    assert_eq!(body["truncated"], false);
+    let png = run.ok(
+        cmds::NETWORK_BODY,
+        json!({"request_id": id_of("pixel.png")}),
+    );
+    let bytes =
+        eludite_browser::browser::base64_decode(png["body_base64"].as_str().unwrap()).unwrap();
+    assert_eq!(bytes, std::fs::read(fixtures().join("pixel.png")).unwrap());
+    assert_eq!(png["size"], bytes.len());
+    assert!(png.get("body").is_none());
+    let refused = run
+        .call(cmds::NETWORK_BODY, json!({"request_id": id_of("/refused")}))
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("has no body for request"), "{refused}");
+    assert!(
+        run.call(cmds::NETWORK_BODY, json!({"request_id": "no-such-request"}))
+            .unwrap_err()
+            .to_string()
+            .contains("no request `no-such-request`")
+    );
+    // A 1 MB body: cut at max_bytes by default, whole with a larger max_bytes, timed.
+    let len = run.ok(cmds::EVALUATE, json!({"expression": "fetchBig()"}))["result"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(len as usize, BIG_BYTES);
+    let requests = run.ok(cmds::NETWORK, json!({"url_pattern": BIG_JSON}))["requests"].clone();
+    let big = requests[0]["request_id"].as_str().unwrap().to_owned();
+    let cut = run.ok(cmds::NETWORK_BODY, json!({ "request_id": big }));
+    assert_eq!(cut["truncated"], true);
+    assert_eq!(cut["size"], BIG_BYTES);
+    assert_eq!(cut["body"].as_str().unwrap().len(), 65_536);
+    let mut reads = Vec::new();
+    for _ in 0..20 {
+        reads.push(timed(|| {
+            let whole = run.ok(
+                cmds::NETWORK_BODY,
+                json!({"request_id": big, "max_bytes": 2 * BIG_BYTES}),
+            );
+            assert_eq!(whole["body"].as_str().unwrap().len(), BIG_BYTES);
+        }));
+    }
+    let (p50, q95, max) = p95(reads);
+    println!(
+        "network_body of a 1 MB body, 20 reads: p50 {p50:.1} ms, p95 {q95:.1} ms, max {max:.1} ms (budget p95 < 200 ms)"
+    );
+    assert!(q95 < 200., "network_body p95 {q95:.1} ms");
+
+    run.browser.shutdown();
 }

@@ -1,4 +1,4 @@
-//! Eludite's browser automation (brief 0023, proposal 0002, ADR-0008): the `eludite.browser.*` commands against a
+//! Eludite's browser automation (briefs 0023 and 0024, proposal 0002, ADR-0008): the `eludite.browser.*` commands against a
 //! browser engine, over the Chrome DevTools Protocol.
 //!
 //! Public API:
@@ -14,6 +14,9 @@
 //!   connection, requests correlated by id with timeouts, events fanned out per session through channels).
 //! - [`ring`], [`tab`] and [`page`]: the console and network rings, a tab's state (page generations and refs), and
 //!   reading pages from CDP answers.
+//! - [`keys`]: the key table of `eludite.browser.input` (brief 0024). Acting on the page (`input`, `form_input`,
+//!   `upload`), `storage`, `network_body` and `open_external` (whose opener [`browser::OPENER_ENV`] replaces in
+//!   tests) are [`Browser`] commands like the rest.
 //!
 //! No GPUI and no async runtime: everything here is threads and channels, and `Send`. The CDP domain types are
 //! generated (`eludite-protocol`'s `cdp` module, from `protocol/cdp/`); the message envelope is typed in
@@ -24,6 +27,7 @@ pub mod chrome;
 pub mod connection;
 pub mod discovery;
 pub mod engine;
+pub mod keys;
 pub mod page;
 pub mod ring;
 pub mod tab;

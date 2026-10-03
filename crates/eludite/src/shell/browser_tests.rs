@@ -2,6 +2,11 @@
 //! agent-visible with their schemas, they run on the `browser` worker and never on (or against) the UI thread, the
 //! Output window's Browser source gets the lifecycle lines, the settings reach the launch, and the browser closes
 //! with the workspace. The real Chrome is `crates/browser`'s tests.
+//!
+//! Brief 0024, with the scripted fake agent calling the tools through the MCP endpoint: the policy gate prompts for a
+//! navigation off the allowed origins (class dangerous, with the reason) and lets a local one through, Always Allow
+//! adds the origin to the policy file, `browser.evaluate: deny` and `browser.network_bodies: deny` refuse, and a
+//! screenshot in a tool result becomes a thumbnail in the Agents window that opens the full image.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -16,7 +21,8 @@ use eludite_commands::settings::SET;
 use eludite_commands::workspace;
 use serde_json::{Value, json};
 
-use super::tests::{Ws, setup};
+use super::agents::window::Decision;
+use super::tests::{Ws, setup, setup_full};
 
 /// What the fake engines of one test saw.
 #[derive(Default)]
@@ -109,12 +115,30 @@ impl Engine for FakeEngine {
     fn send(
         &self,
         _session: &str,
-        _method: &str,
+        method: &str,
         _params: Value,
         _timeout: Duration,
     ) -> Result<Value, EngineError> {
         self.record();
-        Ok(json!({}))
+        Ok(match method {
+            "Page.getLayoutMetrics" => {
+                let layout =
+                    json!({"pageX": 0, "pageY": 0, "clientWidth": 1280, "clientHeight": 800});
+                let visual = json!({"offsetX": 0, "offsetY": 0, "pageX": 0, "pageY": 0, "clientWidth": 1280,
+                    "clientHeight": 800, "scale": 1});
+                let size = json!({"x": 0, "y": 0, "width": 1280, "height": 800});
+                json!({"layoutViewport": layout, "visualViewport": visual, "contentSize": size,
+                    "cssLayoutViewport": layout, "cssVisualViewport": visual, "cssContentSize": size})
+            }
+            "Runtime.evaluate" => json!({"result": {"type": "number", "value": 1}}),
+            // No loader: a same-document navigation, done when it answers.
+            "Page.navigate" => json!({"frameId": "F"}),
+            _ => json!({}),
+        })
+    }
+
+    fn screenshot(&self, _: &str, _: Value, _: Duration) -> Result<String, EngineError> {
+        Ok(super::agents::transcript::tests::png(640, 400))
     }
 
     fn subscribe(&self, _session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError> {
@@ -135,6 +159,10 @@ impl Engine for FakeEngine {
 /// The shell with fake engines.
 fn setup_fake(cx: &mut gpui::TestAppContext) -> (Ws, Arc<Seen>) {
     let w = setup(cx);
+    fake_engines(w)
+}
+
+fn fake_engines(w: Ws) -> (Ws, Arc<Seen>) {
     let seen = Arc::new(Seen::default());
     let engines = seen.clone();
     w.shell.read_with(&w.vcx, |s, _| {
@@ -180,7 +208,7 @@ fn browser_commands_are_registered_agent_visible_with_their_schemas(cx: &mut gpu
             .iter()
             .any(|s| s.id.as_str() == cmds::SCREENSHOT)
     );
-    // Registering is all a cold start pays for the browser: the fourteen commands' schemas.
+    // Registering is all a cold start pays for the browser: the twenty commands' schemas.
     let fresh = eludite_commands::CommandRegistry::new();
     let t = Instant::now();
     let _bus = super::browser::register(&fresh);
@@ -326,4 +354,366 @@ fn settings_reach_the_launch_and_the_browser_closes_with_the_workspace(
     let done = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
     done.recv_timeout(super::tests::T).unwrap();
     assert_eq!(seen.shutdowns.load(Ordering::SeqCst), 2);
+}
+
+/// The shell with fake engines, the solution open, its policy file, and one scripted fake agent per entry, each
+/// running its steps (`{"tool": ..., "arguments": ...}`) through the MCP endpoint when prompted.
+fn setup_scripted(
+    cx: &mut gpui::TestAppContext,
+    policy: Value,
+    agents: &[(&str, Value)],
+) -> (Ws, Arc<Seen>, tempfile::TempDir) {
+    let mut setup = super::agents::tests::fake_agents(
+        agents
+            .iter()
+            .map(|(name, steps)| {
+                (
+                    (*name).to_owned(),
+                    vec![
+                        "--scenario".into(),
+                        "script".into(),
+                        "--script".into(),
+                        steps.to_string(),
+                    ],
+                )
+            })
+            .collect(),
+    );
+    // The transcript (and the images opened from it) go to a folder of their own.
+    let out = tempfile::tempdir().unwrap();
+    setup.transcript_out = Some(out.path().join("transcript.json"));
+    let mut w = setup_full(cx, |_| {}, Some(setup));
+    w.open_solution();
+    let file = eludite_commands::policy::AgentPolicy::path_for(w.dir.path());
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, policy.to_string()).unwrap();
+    let (w, seen) = fake_engines(w);
+    (w, seen, out)
+}
+
+impl Ws {
+    /// Start agent `name` and send it a prompt.
+    fn run_agent(&mut self, name: &str) {
+        let name = name.to_owned();
+        self.shell
+            .update(&mut self.vcx, |s, cx| {
+                s.agents_start(Some(&name), true, cx)?;
+                s.agents_prompt("go", cx)
+            })
+            .unwrap();
+    }
+
+    fn turn_over(&self) -> bool {
+        self.shell.read_with(&self.vcx, |s, _| {
+            s.agents().last_stop.is_some()
+                && s.agents().state != super::agents::window::StateKind::Running
+        })
+    }
+
+    fn prompt(&self) -> Option<super::agents::window::Prompt> {
+        self.shell
+            .read_with(&self.vcx, |s, cx| s.agents().window.read(cx).prompt.clone())
+    }
+
+    fn step(&self, n: usize) -> Value {
+        let rows = self.shell.read_with(&self.vcx, |s, cx| {
+            s.agents().window.read(cx).transcript.to_json()
+        });
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["tool_call"]["id"] == format!("toolu_fake_step_{n}"))
+            .map(|r| r["tool_call"].clone())
+            .unwrap_or(Value::Null)
+    }
+
+    fn reset_turn(&mut self) {
+        self.shell
+            .update(&mut self.vcx, |s, _| s.agents.last_stop = None);
+    }
+}
+
+#[gpui::test]
+fn the_gate_prompts_off_the_allowed_origins_and_always_allow_adds_the_origin(
+    cx: &mut gpui::TestAppContext,
+) {
+    let steps = json!([
+        {"tool": "eludite-browser-tab_open"},
+        {"tool": "eludite-browser-navigate", "arguments": {"url": "http://127.0.0.1:4321/form.html"}},
+        {"tool": "eludite-browser-navigate", "arguments": {"url": "https://example.com/"}}
+    ]);
+    let (mut w, _seen, _out) = setup_scripted(
+        cx,
+        json!({"version": 1, "execute": "allow"}),
+        &[("Navigator", steps)],
+    );
+    w.run_agent("Navigator");
+    // The local navigation runs (execute, allowed by the policy); the one to example.com waits for the user.
+    w.wait("the permission prompt", |w| w.prompt().is_some());
+    let p = w.prompt().unwrap();
+    assert_eq!(p.class, "dangerous");
+    assert_eq!(
+        p.reason.as_deref(),
+        Some("navigate off the allowed origins: https://example.com")
+    );
+    assert!(p.can_persist);
+    assert!(p.tool.contains("eludite-browser-navigate"), "{}", p.tool);
+    let local = w.step(2);
+    assert_eq!(local["status"], "completed", "{local}");
+    assert!(
+        local["note"].as_str().unwrap().contains("(execute)"),
+        "{local}"
+    );
+    // The window says why.
+    w.commands
+        .invoke(
+            "eludite.view.show",
+            json!({"id": eludite_docking::ids::AGENTS}),
+        )
+        .unwrap();
+    w.vcx.run_until_parked();
+    assert!(w.vcx.debug_bounds("agents-permission-dialog").is_some());
+
+    let answered = w
+        .shell
+        .update(&mut w.vcx, |s, cx| {
+            s.agents_answer(p.request, Decision::AlwaysAllow, cx)
+        })
+        .unwrap();
+    assert!(answered.persisted);
+    assert_eq!(answered.class, eludite_commands::PermissionClass::Dangerous);
+    w.wait("the turn's end", |w| w.turn_over());
+    let far = w.step(3);
+    assert_eq!(far["status"], "completed", "{far}");
+    assert!(
+        far["note"]
+            .as_str()
+            .unwrap()
+            .contains("always for this solution (the origin https://example.com)"),
+        "{far}"
+    );
+    // The policy file now lists the defaults and the origin, sorted.
+    let file = eludite_commands::policy::AgentPolicy::path_for(w.dir.path());
+    w.wait("the policy file written", |_| {
+        std::fs::read_to_string(&file).is_ok_and(|t| t.contains("https://example.com"))
+    });
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        saved["browser"]["origins"],
+        json!([
+            "$launch_urls",
+            "$workspace",
+            "127.0.0.1",
+            "[::1]",
+            "https://example.com",
+            "localhost"
+        ])
+    );
+    assert_eq!(saved["execute"], "allow");
+    // Every call is audited with its effective class and the reason.
+    let navigations: Vec<_> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.command == cmds::NAVIGATE)
+        .map(|e| (e.permission, e.escalation.clone(), e.is_ok()))
+        .collect();
+    assert_eq!(
+        navigations,
+        [
+            (Some(eludite_commands::PermissionClass::Execute), None, true),
+            (
+                Some(eludite_commands::PermissionClass::Dangerous),
+                Some("navigate off the allowed origins: https://example.com".into()),
+                true
+            ),
+        ]
+    );
+
+    // The next turn: example.com is an allowed origin now; nothing prompts.
+    w.reset_turn();
+    w.run_agent("Navigator");
+    w.wait("the second turn's end", |w| w.turn_over());
+    assert!(w.prompt().is_none());
+    let classes: Vec<_> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.command == cmds::NAVIGATE)
+        .map(|e| e.permission)
+        .collect();
+    assert_eq!(
+        classes[2..],
+        [Some(eludite_commands::PermissionClass::Execute); 2]
+    );
+}
+
+#[gpui::test]
+fn a_denied_off_origin_navigation_fails_and_the_policy_refuses_evaluate_and_bodies(
+    cx: &mut gpui::TestAppContext,
+) {
+    let steps = json!([
+        {"tool": "eludite-browser-tab_open"},
+        {"tool": "eludite-browser-evaluate", "arguments": {"expression": "1 + 1"}},
+        {"tool": "eludite-browser-network_body", "arguments": {"request_id": "1.1"}},
+        {"tool": "eludite-browser-navigate", "arguments": {"url": "https://example.com/"}}
+    ]);
+    let (mut w, _seen, _out) = setup_scripted(
+        cx,
+        json!({"version": 1, "execute": "allow", "browser": {"evaluate": "deny", "network_bodies": "deny"}}),
+        &[("Refused", steps)],
+    );
+    w.run_agent("Refused");
+    w.wait("the permission prompt", |w| w.prompt().is_some());
+    // evaluate and network_body were refused without asking, naming the policy.
+    for (n, policy) in [(2, "browser.evaluate"), (3, "browser.network_bodies")] {
+        let row = w.step(n);
+        assert_eq!(row["status"], "failed", "{row}");
+        let text = row["result"].as_str().unwrap();
+        assert!(
+            text.contains("permission denied") && text.contains(policy),
+            "{text}"
+        );
+    }
+    let p = w.prompt().unwrap();
+    w.shell
+        .update(&mut w.vcx, |s, cx| {
+            s.agents_answer(p.request, Decision::Deny, cx)
+        })
+        .unwrap();
+    w.wait("the turn's end", |w| w.turn_over());
+    let row = w.step(4);
+    assert_eq!(row["status"], "denied", "{row}");
+    assert!(
+        row["result"]
+            .as_str()
+            .unwrap()
+            .contains("is class dangerous")
+    );
+    let refused: Vec<_> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.command == cmds::EVALUATE || e.command == cmds::NETWORK_BODY)
+        .map(|e| {
+            (
+                e.command.clone(),
+                e.escalation.clone().unwrap_or_default(),
+                e.is_ok(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        refused,
+        [
+            (
+                cmds::EVALUATE.to_owned(),
+                "the solution's policy sets browser.evaluate to deny".to_owned(),
+                false
+            ),
+            (
+                cmds::NETWORK_BODY.to_owned(),
+                "the solution's policy sets browser.network_bodies to deny".to_owned(),
+                false
+            ),
+        ]
+    );
+}
+
+#[gpui::test]
+fn a_screenshot_in_a_tool_result_is_a_thumbnail_that_opens_the_image(
+    cx: &mut gpui::TestAppContext,
+) {
+    let steps = json!([
+        {"tool": "eludite-browser-tab_open"},
+        {"tool": "eludite-browser-screenshot"}
+    ]);
+    let (mut w, _seen, _out) = setup_scripted(
+        cx,
+        json!({"version": 1, "execute": "allow"}),
+        &[("Photographer", steps)],
+    );
+    // The system viewer is a script that records what it is asked to open (a shell script: Unix only).
+    let opened = w.dir.path().join("opened.txt");
+    let opener = w.dir.path().join("opener.sh");
+    if cfg!(unix) {
+        std::fs::write(
+            &opener,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n",
+                opened.display()
+            ),
+        )
+        .unwrap();
+        std::process::Command::new("chmod")
+            .args(["+x", &opener.to_string_lossy()])
+            .status()
+            .unwrap();
+    }
+    w.shell.read_with(&w.vcx, |s, _| {
+        s.browser()
+            .set_opener(Some(opener.to_string_lossy().into_owned()))
+    });
+    w.commands
+        .invoke(
+            "eludite.view.show",
+            json!({"id": eludite_docking::ids::AGENTS}),
+        )
+        .unwrap();
+    w.run_agent("Photographer");
+    w.wait("the turn's end", |w| w.turn_over());
+    w.wait("the thumbnail", |w| !w.step(2)["images"].is_null());
+    let shot = w.step(2);
+    assert_eq!(shot["status"], "completed", "{shot}");
+    // Once, though the image came both in Eludite's result and in the agent's forwarded content.
+    assert_eq!(
+        shot["images"],
+        json!([{"mime": "image/png", "width": 640, "height": 400, "thumb_width": 160, "thumb_height": 100}])
+    );
+    assert!(w.step(1)["images"].is_null());
+    // It is drawn in the transcript row, and a click opens the full image with the system viewer.
+    let row = w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents()
+            .window
+            .read(cx)
+            .transcript
+            .rows
+            .iter()
+            .position(|r| matches!(r, super::agents::transcript::Row::Tool(t) if t.call.tool_call_id == "toolu_fake_step_2"))
+            .unwrap()
+    });
+    let sel = super::agents::window::thumb(row, 0);
+    w.wait("the thumbnail drawn", |w| {
+        let sel: &'static str = Box::leak(sel.clone().into_boxed_str());
+        w.vcx.debug_bounds(sel).is_some()
+    });
+    let b = w.bounds(&sel);
+    assert!(b.size.width <= gpui::px(162.), "{b:?}");
+    if !cfg!(unix) {
+        return;
+    }
+    w.click(&sel);
+    w.wait("the image opened", |_| {
+        std::fs::read_to_string(&opened).is_ok_and(|t| !t.is_empty())
+    });
+    let url = std::fs::read_to_string(&opened).unwrap();
+    let url = url.trim();
+    assert!(
+        url.starts_with("file://") && url.ends_with("toolu_fake_step_2-0.png"),
+        "{url}"
+    );
+    let path = url.trim_start_matches("file://");
+    let saved = image::open(path).unwrap();
+    assert_eq!((saved.width(), saved.height()), (640, 400));
+    assert!(
+        w.commands
+            .audit_log()
+            .entries()
+            .iter()
+            .any(|e| e.command == cmds::OPEN_EXTERNAL && e.is_ok()),
+        "the open is a command, audited"
+    );
 }

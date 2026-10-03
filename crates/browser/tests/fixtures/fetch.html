@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fetch</title>
+</head>
+<body>
+<p id="out">loading</p>
+<script>
+  // A JSON answer, a binary answer, and a request that fails (nothing listens on port 9).
+  Promise.all([
+    fetch('data.json').then((r) => r.json()),
+    fetch('pixel.png').then((r) => r.arrayBuffer()),
+    fetch('http://127.0.0.1:9/refused').catch(() => null),
+  ]).then(([data, png]) => {
+    document.getElementById('out').textContent = `${data.message} ${png.byteLength}`;
+    window.fetched = true;
+  });
+  window.fetchBig = () => fetch('big.json').then((r) => r.text()).then((t) => t.length);
+</script>
+</body>
+</html>

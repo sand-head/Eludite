@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-storage.input.json",
+  "title": "eludite.browser.storage input",
+  "description": "Read or clear what a site stores in the browser: its cookies, `localStorage` and `sessionStorage`, for `origin` (default: the tab's page's origin). `get` lists cookies (name, value, domain, path, expiry, flags) and storage items (key, value; values longer than 1,000 characters are cut, with `truncated`). `clear` deletes them and answers how many there were. The browser's profile is the workspace's own (never your personal browser), so this touches only what pages loaded in it stored. Permission class read for `get`; `clear` is execute (ADR-0009). Next: eludite.browser.navigate with `action: reload` to see the page without its data.",
+  "x-eludite-escalates": "Execute when `action` is `clear`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "What to read or clear (default `all`).",
+      "enum": [
+        "cookies",
+        "local",
+        "session",
+        "all"
+      ]
+    },
+    "action": {
+      "description": "`get` (default) or `clear`.",
+      "enum": [
+        "get",
+        "clear"
+      ]
+    },
+    "origin": {
+      "description": "An origin (`http://localhost:5000`): scheme, host and port. Default: the tab's page's origin.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

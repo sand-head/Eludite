@@ -7,16 +7,27 @@
 //! worker thread through `eludite-browser`. The schemas are the files in `protocol/schemas/browser-*.json`
 //! (checked in first, CLAUDE.md invariant 4).
 //!
+//! Brief 0024 adds acting on the page: `input`, `form_input`, `upload`, `storage`, `network_body` and
+//! `open_external`.
+//!
 //! Classes (proposal 0002 section 4): reading the page is `read`; opening, closing and selecting tabs, navigating,
-//! resizing and evaluating JavaScript are `execute`. Brief 0024's browser policy makes `navigate` `dangerous`
-//! outside the allowed origins.
+//! resizing, evaluating JavaScript and acting on the page are `execute`. The escalation hooks ([`escalation`],
+//! ADR-0009) apply the solution policy's `browser` object per call: a url off the allowed origins makes `navigate`,
+//! `tab_open` and `open_external` dangerous; a file outside the workspace makes `upload` and `form_input` dangerous;
+//! `browser.evaluate` makes `evaluate` dangerous (`prompt`) or refuses it (`deny`); `browser.network_bodies: deny`
+//! refuses `network_body`; `storage` with `clear` is execute.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
+use crate::policy::{AlwaysAllow, EvaluatePolicy, NetworkBodiesPolicy, ParsedUrl, PolicyView};
+use crate::{
+    CommandError, CommandId, CommandRegistry, CommandSpec, Escalation, EscalationHook,
+    PermissionClass,
+};
 
 pub const TABS: &str = "eludite.browser.tabs";
 pub const TAB_OPEN: &str = "eludite.browser.tab_open";
@@ -32,10 +43,34 @@ pub const CONSOLE: &str = "eludite.browser.console";
 pub const NETWORK: &str = "eludite.browser.network";
 pub const WAIT: &str = "eludite.browser.wait";
 pub const EVALUATE: &str = "eludite.browser.evaluate";
+pub const INPUT: &str = "eludite.browser.input";
+pub const FORM_INPUT: &str = "eludite.browser.form_input";
+pub const UPLOAD: &str = "eludite.browser.upload";
+pub const STORAGE: &str = "eludite.browser.storage";
+pub const NETWORK_BODY: &str = "eludite.browser.network_body";
+pub const OPEN_EXTERNAL: &str = "eludite.browser.open_external";
 
-pub const ALL: [&str; 14] = [
-    TABS, TAB_OPEN, TAB_CLOSE, TAB_SELECT, NAVIGATE, RESIZE, SCREENSHOT, READ_PAGE, FIND,
-    PAGE_TEXT, CONSOLE, NETWORK, WAIT, EVALUATE,
+pub const ALL: [&str; 20] = [
+    TABS,
+    TAB_OPEN,
+    TAB_CLOSE,
+    TAB_SELECT,
+    NAVIGATE,
+    RESIZE,
+    SCREENSHOT,
+    READ_PAGE,
+    FIND,
+    PAGE_TEXT,
+    CONSOLE,
+    NETWORK,
+    WAIT,
+    EVALUATE,
+    INPUT,
+    FORM_INPUT,
+    UPLOAD,
+    STORAGE,
+    NETWORK_BODY,
+    OPEN_EXTERNAL,
 ];
 
 /// Defaults and limits from the schemas.
@@ -50,6 +85,16 @@ pub const PAGE_TEXT_CHARS: usize = 20_000;
 pub const LOG_MAX: usize = 100;
 pub const EVALUATE_CHARS: usize = 10_000;
 pub const JPEG_QUALITY: u8 = 80;
+pub const INPUT_WAIT_MS: u64 = 500;
+pub const INPUT_MAX_WAIT_MS: u64 = 10_000;
+/// `scroll`'s default delta: down 400 CSS pixels.
+pub const SCROLL_DELTA: (f64, f64) = (0., 400.);
+pub const FORM_FIELDS: usize = 100;
+pub const UPLOAD_FILES: usize = 50;
+/// Storage values longer than this are cut.
+pub const STORAGE_VALUE_CHARS: usize = 1000;
+pub const NETWORK_BODY_BYTES: usize = 65_536;
+pub const NETWORK_BODY_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 /// (title, input schema, output schema, permission)
 fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionClass) {
@@ -85,6 +130,16 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
         NETWORK => ("Browser: Network", s!("network"), Read),
         WAIT => ("Browser: Wait", s!("wait"), Read),
         EVALUATE => ("Browser: Evaluate JavaScript", s!("evaluate"), Execute),
+        INPUT => ("Browser: Input", s!("input"), Execute),
+        FORM_INPUT => ("Browser: Fill Form", s!("form-input"), Execute),
+        UPLOAD => ("Browser: Upload Files", s!("upload"), Execute),
+        STORAGE => ("Browser: Storage", s!("storage"), Read),
+        NETWORK_BODY => ("Browser: Response Body", s!("network-body"), Read),
+        OPEN_EXTERNAL => (
+            "Browser: Open in External Browser",
+            s!("open-external"),
+            Execute,
+        ),
         other => unreachable!("not a browser command: {other}"),
     };
     (title, input, output, permission)
@@ -254,6 +309,228 @@ impl WaitFor {
     }
 }
 
+/// `input`'s actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputAction {
+    Click,
+    DoubleClick,
+    RightClick,
+    Hover,
+    Type,
+    Key,
+    Scroll,
+    Drag,
+    Select,
+    Focus,
+}
+
+impl InputAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InputAction::Click => "click",
+            InputAction::DoubleClick => "double_click",
+            InputAction::RightClick => "right_click",
+            InputAction::Hover => "hover",
+            InputAction::Type => "type",
+            InputAction::Key => "key",
+            InputAction::Scroll => "scroll",
+            InputAction::Drag => "drag",
+            InputAction::Select => "select",
+            InputAction::Focus => "focus",
+        }
+    }
+
+    /// The action needs a `ref` or a point.
+    pub fn needs_target(self) -> bool {
+        !matches!(
+            self,
+            InputAction::Type | InputAction::Key | InputAction::Scroll
+        )
+    }
+}
+
+/// Where an action lands: an element or a point in CSS pixels of the viewport.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target {
+    Ref(String),
+    Point { x: f64, y: f64 },
+}
+
+/// Keys held during an action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Modifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
+impl Modifiers {
+    /// CDP's bit field: Alt 1, Ctrl 2, Meta 4, Shift 8.
+    pub fn bits(self) -> i64 {
+        i64::from(self.alt)
+            | (i64::from(self.control) << 1)
+            | (i64::from(self.meta) << 2)
+            | (i64::from(self.shift) << 3)
+    }
+
+    pub fn union(self, o: Modifiers) -> Modifiers {
+        Modifiers {
+            shift: self.shift || o.shift,
+            control: self.control || o.control,
+            alt: self.alt || o.alt,
+            meta: self.meta || o.meta,
+        }
+    }
+
+    fn set(&mut self, name: &str) -> bool {
+        match name.to_ascii_lowercase().as_str() {
+            "shift" => self.shift = true,
+            "control" | "ctrl" => self.control = true,
+            "alt" | "option" => self.alt = true,
+            "meta" | "cmd" | "command" | "super" => self.meta = true,
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// The named keys `key` knows besides single characters.
+pub const KEY_NAMES: [&str; 28] = [
+    "Enter",
+    "Tab",
+    "Escape",
+    "Backspace",
+    "Delete",
+    "Insert",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "Space",
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "ContextMenu",
+];
+
+/// One key of `keys`: a name from [`KEY_NAMES`] (canonical case) or one character, and its modifiers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyPress {
+    pub key: String,
+    pub modifiers: Modifiers,
+}
+
+impl KeyPress {
+    /// `Enter`, `a`, `Control+a`, `Shift+Tab`, `Control++`.
+    pub fn parse(s: &str) -> Result<KeyPress, String> {
+        let (mods, key) = if s == "+" {
+            ("", "+")
+        } else if let Some(m) = s.strip_suffix("++") {
+            (m, "+")
+        } else {
+            match s.rsplit_once('+') {
+                Some((m, k)) => (m, k),
+                None => ("", s),
+            }
+        };
+        let mut modifiers = Modifiers::default();
+        for m in mods.split('+').filter(|m| !m.is_empty()) {
+            if !modifiers.set(m.trim()) {
+                return Err(format!(
+                    "`{m}` in `{s}` is not a modifier (Shift, Control, Alt, Meta)"
+                ));
+            }
+        }
+        let key = if key.chars().count() == 1 {
+            key.to_owned()
+        } else if let Some(name) = KEY_NAMES.iter().find(|n| n.eq_ignore_ascii_case(key)) {
+            (*name).to_owned()
+        } else if key.eq_ignore_ascii_case("esc") {
+            "Escape".into()
+        } else if key.eq_ignore_ascii_case("return") {
+            "Enter".into()
+        } else {
+            return Err(format!(
+                "`{key}` is not a key: give one character or a name such as Enter, Tab, Escape, ArrowDown, F5"
+            ));
+        };
+        Ok(KeyPress { key, modifiers })
+    }
+}
+
+/// A `form_input` value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldValue {
+    /// Text, or a single select's option.
+    Text(String),
+    /// A checkbox's or a radio's state.
+    Checked(bool),
+    /// A multiple select's options.
+    Options(Vec<String>),
+    /// A file input's files (absolute paths).
+    Files(Vec<String>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormField {
+    pub ref_: String,
+    pub value: FieldValue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageKind {
+    Cookies,
+    Local,
+    Session,
+    #[default]
+    All,
+}
+
+impl StorageKind {
+    pub fn cookies(self) -> bool {
+        matches!(self, StorageKind::Cookies | StorageKind::All)
+    }
+    pub fn local(self) -> bool {
+        matches!(self, StorageKind::Local | StorageKind::All)
+    }
+    pub fn session(self) -> bool {
+        matches!(self, StorageKind::Session | StorageKind::All)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageAction {
+    #[default]
+    Get,
+    Clear,
+}
+
+impl StorageAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StorageAction::Get => "get",
+            StorageAction::Clear => "clear",
+        }
+    }
+}
+
 /// A parsed, validated browser command. `tab` is `None` for the active tab.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowserRequest {
@@ -334,6 +611,48 @@ pub enum BrowserRequest {
         return_by_value: bool,
         max_chars: usize,
     },
+    Input {
+        tab: Option<String>,
+        action: InputAction,
+        target: Option<Target>,
+        /// For `type`.
+        text: Option<String>,
+        per_key: bool,
+        /// For `key`.
+        keys: Vec<KeyPress>,
+        /// For `scroll`, in CSS pixels.
+        delta: (f64, f64),
+        /// For `drag`.
+        to: Option<Target>,
+        /// For `select`.
+        values: Vec<String>,
+        modifiers: Modifiers,
+        wait_ms: u64,
+    },
+    FormInput {
+        tab: Option<String>,
+        fields: Vec<FormField>,
+    },
+    Upload {
+        tab: Option<String>,
+        ref_: String,
+        paths: Vec<String>,
+    },
+    Storage {
+        tab: Option<String>,
+        kind: StorageKind,
+        action: StorageAction,
+        /// Normalized: `scheme://host[:port]`.
+        origin: Option<String>,
+    },
+    NetworkBody {
+        tab: Option<String>,
+        request_id: String,
+        max_bytes: usize,
+    },
+    OpenExternal {
+        url: Option<String>,
+    },
 }
 
 impl BrowserRequest {
@@ -353,13 +672,21 @@ impl BrowserRequest {
             BrowserRequest::Network { .. } => NETWORK,
             BrowserRequest::Wait { .. } => WAIT,
             BrowserRequest::Evaluate { .. } => EVALUATE,
+            BrowserRequest::Input { .. } => INPUT,
+            BrowserRequest::FormInput { .. } => FORM_INPUT,
+            BrowserRequest::Upload { .. } => UPLOAD,
+            BrowserRequest::Storage { .. } => STORAGE,
+            BrowserRequest::NetworkBody { .. } => NETWORK_BODY,
+            BrowserRequest::OpenExternal { .. } => OPEN_EXTERNAL,
         }
     }
 
     /// The tab named, if any.
     pub fn tab(&self) -> Option<&str> {
         match self {
-            BrowserRequest::Tabs | BrowserRequest::TabOpen { .. } => None,
+            BrowserRequest::Tabs
+            | BrowserRequest::TabOpen { .. }
+            | BrowserRequest::OpenExternal { .. } => None,
             BrowserRequest::TabSelect { tab } => Some(tab),
             BrowserRequest::TabClose { tab }
             | BrowserRequest::Navigate { tab, .. }
@@ -371,7 +698,12 @@ impl BrowserRequest {
             | BrowserRequest::Console { tab, .. }
             | BrowserRequest::Network { tab, .. }
             | BrowserRequest::Wait { tab, .. }
-            | BrowserRequest::Evaluate { tab, .. } => tab.as_deref(),
+            | BrowserRequest::Evaluate { tab, .. }
+            | BrowserRequest::Input { tab, .. }
+            | BrowserRequest::FormInput { tab, .. }
+            | BrowserRequest::Upload { tab, .. }
+            | BrowserRequest::Storage { tab, .. }
+            | BrowserRequest::NetworkBody { tab, .. } => tab.as_deref(),
         }
     }
 
@@ -379,9 +711,9 @@ impl BrowserRequest {
     /// a launch and a margin.
     pub fn budget_ms(&self) -> u64 {
         let own = match self {
-            BrowserRequest::Navigate { wait_ms, .. } | BrowserRequest::Wait { wait_ms, .. } => {
-                *wait_ms
-            }
+            BrowserRequest::Navigate { wait_ms, .. }
+            | BrowserRequest::Wait { wait_ms, .. }
+            | BrowserRequest::Input { wait_ms, .. } => *wait_ms,
             BrowserRequest::TabOpen { .. } => NAVIGATE_WAIT_MS,
             _ => 0,
         };
@@ -693,6 +1025,196 @@ pub struct EvaluateOutput {
     pub page_generation: u64,
 }
 
+/// A point in CSS pixels of the viewport.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Where an `input` action landed.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InputTarget {
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point: Option<Point>,
+}
+
+/// Where a `drag` was released.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DropTarget {
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point: Option<Point>,
+}
+
+/// A console error emitted during an action.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ConsoleError {
+    pub text: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
+}
+
+impl From<&ConsoleMessage> for ConsoleError {
+    fn from(m: &ConsoleMessage) -> Self {
+        ConsoleError {
+            text: m.text.clone(),
+            source: m.source.clone(),
+            url: m.url.clone().filter(|u| !u.is_empty()),
+            line: m.line,
+            column: m.column,
+            stack: m.stack.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct InputOutput {
+    pub tab: String,
+    pub action: String,
+    pub target: InputTarget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<DropTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<Vec<String>>,
+    pub page_generation: u64,
+    pub navigated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub console_errors: Vec<ConsoleError>,
+    pub elapsed_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FieldResult {
+    #[serde(rename = "ref")]
+    pub ref_: String,
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct FormInputOutput {
+    pub tab: String,
+    pub fields: Vec<FieldResult>,
+    pub page_generation: u64,
+    pub console_errors: Vec<ConsoleError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct UploadOutput {
+    pub tab: String,
+    pub count: usize,
+    pub page_generation: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CookieRow {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    pub expires: f64,
+    pub http_only: bool,
+    pub secure: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub same_site: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct StorageItem {
+    pub key: String,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+impl StorageItem {
+    /// An item with its value cut at [`STORAGE_VALUE_CHARS`].
+    pub fn new(key: String, value: &str) -> Self {
+        let (value, truncated) = cut(value);
+        StorageItem {
+            key,
+            value,
+            truncated,
+        }
+    }
+}
+
+/// `s` cut at [`STORAGE_VALUE_CHARS`] characters, and whether it was.
+pub fn cut(s: &str) -> (String, bool) {
+    match s.char_indices().nth(STORAGE_VALUE_CHARS) {
+        Some((i, _)) => (s[..i].to_owned(), true),
+        None => (s.to_owned(), false),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Cleared {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookies: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct StorageOutput {
+    pub tab: String,
+    pub origin: String,
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cookies: Option<Vec<CookieRow>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<Vec<StorageItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<Vec<StorageItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleared: Option<Cleared>,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NetworkBodyOutput {
+    pub tab: String,
+    pub request_id: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    pub headers: BTreeMap<String, String>,
+    pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_base64: Option<String>,
+    pub size: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct OpenExternalOutput {
+    pub url: String,
+    pub command: String,
+}
+
 /// What a browser command answers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowserOutput {
@@ -710,6 +1232,12 @@ pub enum BrowserOutput {
     Network(NetworkOutput),
     Wait(WaitOutput),
     Evaluate(EvaluateOutput),
+    Input(InputOutput),
+    FormInput(FormInputOutput),
+    Upload(UploadOutput),
+    Storage(StorageOutput),
+    NetworkBody(NetworkBodyOutput),
+    OpenExternal(OpenExternalOutput),
 }
 
 impl BrowserOutput {
@@ -729,6 +1257,12 @@ impl BrowserOutput {
             BrowserOutput::Network(o) => serde_json::to_value(o),
             BrowserOutput::Wait(o) => serde_json::to_value(o),
             BrowserOutput::Evaluate(o) => serde_json::to_value(o),
+            BrowserOutput::Input(o) => serde_json::to_value(o),
+            BrowserOutput::FormInput(o) => serde_json::to_value(o),
+            BrowserOutput::Upload(o) => serde_json::to_value(o),
+            BrowserOutput::Storage(o) => serde_json::to_value(o),
+            BrowserOutput::NetworkBody(o) => serde_json::to_value(o),
+            BrowserOutput::OpenExternal(o) => serde_json::to_value(o),
         }
         .expect("browser outputs serialize")
     }
@@ -899,6 +1433,124 @@ struct EvaluateIn {
     tab: Option<String>,
 }
 
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct PointIn {
+    #[serde(rename = "ref")]
+    ref_: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct DeltaIn {
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum KeysIn {
+    One(String),
+    Many(Vec<String>),
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum ModifierIn {
+    Shift,
+    Control,
+    Alt,
+    Meta,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputIn {
+    action: InputAction,
+    #[serde(rename = "ref")]
+    ref_: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+    text: Option<String>,
+    per_key: Option<bool>,
+    keys: Option<KeysIn>,
+    delta: Option<DeltaIn>,
+    to: Option<PointIn>,
+    values: Option<Vec<String>>,
+    #[serde(default)]
+    modifiers: Vec<ModifierIn>,
+    wait_ms: Option<u64>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FilesIn {
+    files: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ValueIn {
+    Text(String),
+    Checked(bool),
+    Options(Vec<String>),
+    Files(FilesIn),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FieldIn {
+    #[serde(rename = "ref")]
+    ref_: String,
+    value: ValueIn,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FormInputIn {
+    fields: Vec<FieldIn>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UploadIn {
+    #[serde(rename = "ref")]
+    ref_: String,
+    paths: Vec<String>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct StorageIn {
+    #[serde(default)]
+    kind: StorageKind,
+    #[serde(default)]
+    action: StorageAction,
+    origin: Option<String>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetworkBodyIn {
+    request_id: String,
+    max_bytes: Option<usize>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct OpenExternalIn {
+    url: Option<String>,
+}
+
 fn invalid(m: impl Into<String>) -> CommandError {
     CommandError::InvalidInput(m.into())
 }
@@ -983,6 +1635,148 @@ fn range<T: PartialOrd + std::fmt::Display + Copy>(
 
 fn pattern(field: &str, s: Option<String>) -> Result<Option<TextPattern>, CommandError> {
     Ok(non_empty(field, s)?.map(|s| TextPattern::parse(&s)))
+}
+
+/// A `ref` or a point (`x` and `y`, both finite and not negative).
+fn parse_target(
+    field: &str,
+    ref_: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<Option<Target>, CommandError> {
+    let ref_ = check_ref(field, ref_)?;
+    match (ref_, x, y) {
+        (None, None, None) => Ok(None),
+        (Some(r), None, None) => Ok(Some(Target::Ref(r))),
+        (None, Some(x), Some(y)) if x.is_finite() && y.is_finite() && x >= 0. && y >= 0. => {
+            Ok(Some(Target::Point { x, y }))
+        }
+        (None, Some(_), Some(_)) => Err(invalid(
+            "`x` and `y` are CSS pixels of the viewport, not negative",
+        )),
+        (Some(_), _, _) => Err(invalid(format!("give `{field}` or `x` and `y`, not both"))),
+        _ => Err(invalid("give both `x` and `y`")),
+    }
+}
+
+/// Absolute paths, 1 to [`UPLOAD_FILES`].
+fn files(field: &str, paths: Vec<String>) -> Result<Vec<String>, CommandError> {
+    if paths.is_empty() || paths.len() > UPLOAD_FILES {
+        return Err(invalid(format!(
+            "`{field}` lists 1 to {UPLOAD_FILES} files, not {}",
+            paths.len()
+        )));
+    }
+    for p in &paths {
+        if !std::path::Path::new(p).is_absolute() {
+            return Err(invalid(format!("`{field}`: `{p}` is not an absolute path")));
+        }
+    }
+    Ok(paths)
+}
+
+/// An origin (`http://localhost:5000`) from an origin or a url.
+fn origin(s: Option<String>) -> Result<Option<String>, CommandError> {
+    let Some(s) = s else { return Ok(None) };
+    match ParsedUrl::parse(&s)
+        .filter(|u| !u.host.is_empty())
+        .and_then(|u| u.origin())
+    {
+        Some(o) => Ok(Some(o)),
+        None => Err(invalid(format!(
+            "`origin` is a scheme, host and port such as `http://localhost:5000`, not `{s}`"
+        ))),
+    }
+}
+
+fn parse_input(i: InputIn) -> Result<BrowserRequest, CommandError> {
+    use InputAction as A;
+    let action = i.action;
+    let target = parse_target("ref", i.ref_, i.x, i.y)?;
+    if action.needs_target() && target.is_none() {
+        return Err(invalid(format!(
+            "`{}` needs a target: `ref` or `x` and `y`",
+            action.as_str()
+        )));
+    }
+    let only = |field: &str, given: bool, owner: A| -> Result<(), CommandError> {
+        if given && action != owner {
+            return Err(invalid(format!(
+                "`{field}` goes with `action: {}`",
+                owner.as_str()
+            )));
+        }
+        Ok(())
+    };
+    only("text", i.text.is_some(), A::Type)?;
+    only("per_key", i.per_key.is_some(), A::Type)?;
+    only("keys", i.keys.is_some(), A::Key)?;
+    only("delta", i.delta.is_some(), A::Scroll)?;
+    only("to", i.to.is_some(), A::Drag)?;
+    only("values", i.values.is_some(), A::Select)?;
+    let text = match action {
+        A::Type => Some(
+            i.text
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| invalid("`type` needs `text`"))?,
+        ),
+        _ => None,
+    };
+    let keys = match (action, i.keys) {
+        (A::Key, Some(k)) => {
+            let list = match k {
+                KeysIn::One(s) => vec![s],
+                KeysIn::Many(v) => v,
+            };
+            if list.is_empty() || list.len() > 50 {
+                return Err(invalid("`keys` lists 1 to 50 keys"));
+            }
+            list.iter()
+                .map(|k| KeyPress::parse(k).map_err(invalid))
+                .collect::<Result<Vec<_>, _>>()?
+        }
+        (A::Key, None) => return Err(invalid("`key` needs `keys`")),
+        _ => Vec::new(),
+    };
+    let to = match (action, i.to) {
+        (A::Drag, Some(p)) => Some(
+            parse_target("to.ref", p.ref_, p.x, p.y)?
+                .ok_or_else(|| invalid("`to` is a `ref` or `x` and `y`"))?,
+        ),
+        (A::Drag, None) => return Err(invalid("`drag` needs `to`")),
+        _ => None,
+    };
+    let values = match (action, i.values) {
+        (A::Select, Some(v)) if !v.is_empty() && v.len() <= 500 => v,
+        (A::Select, _) => return Err(invalid("`select` needs `values` (1 to 500)")),
+        _ => Vec::new(),
+    };
+    let delta = i.delta.map_or(SCROLL_DELTA, |d| (d.x, d.y));
+    if !(delta.0.is_finite() && delta.1.is_finite()) {
+        return Err(invalid("`delta` is finite"));
+    }
+    let mut modifiers = Modifiers::default();
+    for m in i.modifiers {
+        match m {
+            ModifierIn::Shift => modifiers.shift = true,
+            ModifierIn::Control => modifiers.control = true,
+            ModifierIn::Alt => modifiers.alt = true,
+            ModifierIn::Meta => modifiers.meta = true,
+        }
+    }
+    Ok(BrowserRequest::Input {
+        tab: check_tab(i.tab)?,
+        action,
+        target,
+        text,
+        per_key: i.per_key.unwrap_or(false),
+        keys,
+        delta,
+        to,
+        values,
+        modifiers,
+        wait_ms: range("wait_ms", i.wait_ms, 0, INPUT_MAX_WAIT_MS, INPUT_WAIT_MS)?,
+    })
 }
 
 /// Parse and validate the input of browser command `id`.
@@ -1202,8 +1996,167 @@ pub fn parse(id: &str, value: Value) -> Result<BrowserRequest, CommandError> {
                 max_chars: range("max_chars", i.max_chars, 1, 1_000_000, EVALUATE_CHARS)?,
             }
         }
+        INPUT => parse_input(required(value)?)?,
+        FORM_INPUT => {
+            let i: FormInputIn = required(value)?;
+            if i.fields.is_empty() || i.fields.len() > FORM_FIELDS {
+                return Err(invalid(format!(
+                    "`fields` lists 1 to {FORM_FIELDS} fields, not {}",
+                    i.fields.len()
+                )));
+            }
+            let fields = i
+                .fields
+                .into_iter()
+                .map(|f| {
+                    Ok(FormField {
+                        ref_: check_ref("ref", Some(f.ref_))?.unwrap_or_default(),
+                        value: match f.value {
+                            ValueIn::Text(t) => FieldValue::Text(t),
+                            ValueIn::Checked(b) => FieldValue::Checked(b),
+                            ValueIn::Options(o) => FieldValue::Options(o),
+                            ValueIn::Files(f) => FieldValue::Files(files("files", f.files)?),
+                        },
+                    })
+                })
+                .collect::<Result<Vec<_>, CommandError>>()?;
+            BrowserRequest::FormInput {
+                tab: check_tab(i.tab)?,
+                fields,
+            }
+        }
+        UPLOAD => {
+            let i: UploadIn = required(value)?;
+            BrowserRequest::Upload {
+                tab: check_tab(i.tab)?,
+                ref_: check_ref("ref", Some(i.ref_))?.unwrap_or_default(),
+                paths: files("paths", i.paths)?,
+            }
+        }
+        STORAGE => {
+            let i: StorageIn = input(value)?;
+            BrowserRequest::Storage {
+                tab: check_tab(i.tab)?,
+                kind: i.kind,
+                action: i.action,
+                origin: origin(i.origin)?,
+            }
+        }
+        NETWORK_BODY => {
+            let i: NetworkBodyIn = required(value)?;
+            BrowserRequest::NetworkBody {
+                tab: check_tab(i.tab)?,
+                request_id: non_empty("request_id", Some(i.request_id))?.unwrap_or_default(),
+                max_bytes: range(
+                    "max_bytes",
+                    i.max_bytes,
+                    1,
+                    NETWORK_BODY_MAX_BYTES,
+                    NETWORK_BODY_BYTES,
+                )?,
+            }
+        }
+        OPEN_EXTERNAL => {
+            let i: OpenExternalIn = input(value)?;
+            BrowserRequest::OpenExternal {
+                url: check_url(i.url)?,
+            }
+        }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
+}
+
+// ---- escalation (ADR-0009) ----
+
+/// A url off the allowed origins: dangerous, Always Allow adding its origin.
+fn off_origin(view: &PolicyView, url: &str, what: &str) -> Option<Escalation> {
+    let off = view.check_url(url).err()?;
+    Some(Escalation::Raise {
+        class: PermissionClass::Dangerous,
+        reason: format!("{what} off the allowed origins: {}", off.shown),
+        always_allow: off.origin.map_or(AlwaysAllow::Never, AlwaysAllow::Origin),
+    })
+}
+
+/// The first of `paths` outside the workspace: dangerous, Always Allow allowing once.
+fn outside_workspace<'a>(
+    view: &PolicyView,
+    paths: impl IntoIterator<Item = &'a str>,
+    what: &str,
+) -> Option<Escalation> {
+    let path = paths.into_iter().find(|p| !view.in_workspace(p))?;
+    Some(Escalation::Raise {
+        class: PermissionClass::Dangerous,
+        reason: format!("{what} a file outside the workspace: {path}"),
+        always_allow: AlwaysAllow::Never,
+    })
+}
+
+fn str_array(v: &Value) -> impl Iterator<Item = &str> {
+    v.as_array().into_iter().flatten().filter_map(Value::as_str)
+}
+
+/// The escalation hook of browser command `id`, if it has one: the solution policy's `browser` object applied to
+/// the call's input (ADR-0009).
+pub fn escalation(id: &str) -> Option<EscalationHook> {
+    let hook: EscalationHook = match id {
+        NAVIGATE => Arc::new(|input: &Value, view: &PolicyView| {
+            off_origin(view, input.get("url")?.as_str()?.trim(), "navigate")
+        }),
+        TAB_OPEN => Arc::new(|input: &Value, view: &PolicyView| {
+            off_origin(view, input.get("url")?.as_str()?.trim(), "open a tab")
+        }),
+        OPEN_EXTERNAL => Arc::new(|input: &Value, view: &PolicyView| {
+            off_origin(
+                view,
+                input.get("url")?.as_str()?.trim(),
+                "open in the system browser",
+            )
+        }),
+        EVALUATE => Arc::new(|_: &Value, view: &PolicyView| {
+            match view.browser().evaluate.unwrap_or_default() {
+                EvaluatePolicy::Allow => None,
+                EvaluatePolicy::Prompt => Some(Escalation::raise(
+                    PermissionClass::Dangerous,
+                    "the solution's policy asks before running JavaScript in the page (browser.evaluate: prompt)",
+                )),
+                EvaluatePolicy::Deny => Some(Escalation::Refuse(
+                    "the solution's policy sets browser.evaluate to deny".into(),
+                )),
+            }
+        }),
+        NETWORK_BODY => Arc::new(|_: &Value, view: &PolicyView| {
+            (view.browser().network_bodies.unwrap_or_default() == NetworkBodiesPolicy::Deny).then(
+                || {
+                    Escalation::Refuse(
+                        "the solution's policy sets browser.network_bodies to deny".into(),
+                    )
+                },
+            )
+        }),
+        UPLOAD => Arc::new(|input: &Value, view: &PolicyView| {
+            outside_workspace(view, str_array(input.get("paths")?), "upload")
+        }),
+        FORM_INPUT => Arc::new(|input: &Value, view: &PolicyView| {
+            let paths = input
+                .get("fields")?
+                .as_array()?
+                .iter()
+                .filter_map(|f| f.pointer("/value/files"))
+                .flat_map(str_array);
+            outside_workspace(view, paths, "fill a file input with")
+        }),
+        STORAGE => Arc::new(|input: &Value, _: &PolicyView| {
+            (input.get("action").and_then(Value::as_str) == Some("clear")).then(|| {
+                Escalation::raise(
+                    PermissionClass::Execute,
+                    "storage clear deletes the site's cookies and storage",
+                )
+            })
+        }),
+        _ => return None,
+    };
+    Some(hook)
 }
 
 /// The public description of browser command `id` (one of [`ALL`]). All are agent-visible.
@@ -1219,11 +2172,11 @@ pub fn spec(id: &str) -> CommandSpec {
     }
 }
 
-/// Register every browser command, applying them to `target`.
+/// Register every browser command, applying them to `target`, with their escalation hooks.
 pub fn register(registry: &CommandRegistry, target: Arc<dyn BrowserTarget>) {
     for id in ALL {
         let target = target.clone();
-        registry.replace(spec(id), move |input| {
+        registry.replace_with_escalation(spec(id), escalation(id), move |input| {
             let request = parse(id, input)?;
             target.apply(request).map(|out| out.to_json())
         });
@@ -1274,7 +2227,16 @@ mod tests {
             );
         }
         let read = [
-            TABS, SCREENSHOT, READ_PAGE, FIND, PAGE_TEXT, CONSOLE, NETWORK, WAIT,
+            TABS,
+            SCREENSHOT,
+            READ_PAGE,
+            FIND,
+            PAGE_TEXT,
+            CONSOLE,
+            NETWORK,
+            WAIT,
+            STORAGE,
+            NETWORK_BODY,
         ];
         for id in ALL {
             let expected = if read.contains(&id) {
@@ -1287,6 +2249,172 @@ mod tests {
         assert_eq!(
             spec(SCREENSHOT).output_schema["properties"]["image"]["x-eludite-mcp-content"],
             "image"
+        );
+        // A command with an escalation hook says when in its schema, and only those do.
+        for id in ALL {
+            assert_eq!(
+                escalation(id).is_some(),
+                spec(id).escalates().is_some(),
+                "{id}"
+            );
+        }
+        assert_eq!(ALL.iter().filter(|id| escalation(id).is_some()).count(), 8);
+    }
+
+    fn view(policy: Value, workspace: Option<&str>) -> crate::policy::PolicyView {
+        crate::policy::PolicyView::of(crate::policy::PolicySnapshot {
+            policy: serde_json::from_value(policy).unwrap(),
+            workspace: workspace.map(Into::into),
+            launch_urls: vec!["https://localhost:7001".into()],
+        })
+    }
+
+    fn class_of(id: &str, input: Value, v: &crate::policy::PolicyView) -> Option<Escalation> {
+        escalation(id).and_then(|h| h(&input, v))
+    }
+
+    #[test]
+    fn hooks_apply_the_browser_policy() {
+        use crate::policy::AlwaysAllow;
+        let d = view(json!({"version": 1}), Some("/w"));
+        // navigate, tab_open, open_external: the origin rule.
+        assert_eq!(
+            class_of(NAVIGATE, json!({"url": "http://127.0.0.1:4000/"}), &d),
+            None
+        );
+        assert_eq!(class_of(NAVIGATE, json!({"action": "reload"}), &d), None);
+        assert_eq!(
+            class_of(NAVIGATE, json!({"url": "https://example.com/x"}), &d),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "navigate off the allowed origins: https://example.com".into(),
+                always_allow: AlwaysAllow::Origin("https://example.com".into()),
+            })
+        );
+        assert!(matches!(
+            class_of(TAB_OPEN, json!({"url": "data:text/html,x"}), &d),
+            Some(Escalation::Raise {
+                always_allow: AlwaysAllow::Never,
+                ..
+            })
+        ));
+        assert_eq!(class_of(TAB_OPEN, json!({}), &d), None);
+        assert!(class_of(OPEN_EXTERNAL, json!({"url": "https://example.com"}), &d).is_some());
+        assert_eq!(
+            class_of(OPEN_EXTERNAL, json!({"url": "https://localhost:7001/"}), &d),
+            None
+        );
+        // The file rule.
+        assert_eq!(
+            class_of(UPLOAD, json!({"ref": "e1", "paths": ["/w/a.txt"]}), &d),
+            None
+        );
+        let up = class_of(
+            UPLOAD,
+            json!({"ref": "e1", "paths": ["/w/a.txt", "/etc/passwd"]}),
+            &d,
+        );
+        assert_eq!(
+            up,
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "upload a file outside the workspace: /etc/passwd".into(),
+                always_allow: AlwaysAllow::Never,
+            })
+        );
+        let fields = json!({"fields": [{"ref": "e1", "value": "x"}, {"ref": "e2", "value": {"files": ["/tmp/x"]}}]});
+        assert!(class_of(FORM_INPUT, fields.clone(), &d).is_some());
+        assert_eq!(
+            class_of(
+                FORM_INPUT,
+                json!({"fields": [{"ref": "e1", "value": "x"}]}),
+                &d
+            ),
+            None
+        );
+        assert!(
+            class_of(
+                UPLOAD,
+                json!({"ref": "e1", "paths": ["/w/a.txt"]}),
+                &view(json!({"version": 1}), None)
+            )
+            .is_some(),
+            "without a workspace every file is outside it"
+        );
+        // evaluate and network_body follow their policies.
+        assert_eq!(class_of(EVALUATE, json!({"expression": "1"}), &d), None);
+        assert!(matches!(
+            class_of(
+                EVALUATE,
+                json!({"expression": "1"}),
+                &view(
+                    json!({"version": 1, "browser": {"evaluate": "prompt"}}),
+                    None
+                )
+            ),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                always_allow: AlwaysAllow::Rule,
+                ..
+            })
+        ));
+        assert_eq!(
+            class_of(
+                EVALUATE,
+                json!({"expression": "1"}),
+                &view(json!({"version": 1, "browser": {"evaluate": "deny"}}), None)
+            ),
+            Some(Escalation::Refuse(
+                "the solution's policy sets browser.evaluate to deny".into()
+            ))
+        );
+        assert_eq!(class_of(NETWORK_BODY, json!({"request_id": "1"}), &d), None);
+        assert!(matches!(
+            class_of(NETWORK_BODY, json!({"request_id": "1"}), &view(json!({"version": 1, "browser": {"network_bodies": "deny"}}), None)),
+            Some(Escalation::Refuse(m)) if m.contains("browser.network_bodies")
+        ));
+        // storage: get is read, clear is execute.
+        assert_eq!(class_of(STORAGE, json!({"action": "get"}), &d), None);
+        assert!(matches!(
+            class_of(STORAGE, json!({"action": "clear"}), &d),
+            Some(Escalation::Raise {
+                class: PermissionClass::Execute,
+                ..
+            })
+        ));
+        assert_eq!(
+            class_of(INPUT, json!({"action": "click", "ref": "e1"}), &d),
+            None
+        );
+    }
+
+    #[test]
+    fn registered_hooks_raise_the_class_of_a_call() {
+        struct Nothing;
+        impl BrowserTarget for Nothing {
+            fn apply(&self, r: BrowserRequest) -> Result<BrowserOutput, CommandError> {
+                Err(CommandError::Failed(format!("{} not here", r.command())))
+            }
+        }
+        let r = CommandRegistry::new();
+        register(&r, Arc::new(Nothing));
+        r.set_policy_source(Arc::new(|| crate::policy::PolicySnapshot {
+            workspace: Some("/w".into()),
+            ..Default::default()
+        }));
+        let c = r
+            .classify(NAVIGATE, &json!({"url": "https://example.com"}))
+            .unwrap();
+        assert_eq!(c.class, PermissionClass::Dangerous);
+        let c = r
+            .classify(NAVIGATE, &json!({"url": "http://localhost:1/"}))
+            .unwrap();
+        assert_eq!(c.class, PermissionClass::Execute);
+        let c = r.classify(STORAGE, &json!({"action": "clear"})).unwrap();
+        assert_eq!(c.class, PermissionClass::Execute);
+        assert_eq!(
+            r.classify(STORAGE, &json!({})).unwrap().class,
+            PermissionClass::Read
         );
     }
 
@@ -1494,7 +2622,237 @@ mod tests {
         );
         assert!(parse(EVALUATE, json!({})).is_err());
         assert!(parse(EVALUATE, json!({"expression": "  "})).is_err());
-        assert!(parse("eludite.browser.input", json!({})).is_err());
+        assert!(parse("eludite.browser.bogus", json!({})).is_err());
+    }
+
+    #[test]
+    fn parses_and_validates_the_actions() {
+        // input
+        assert_eq!(
+            parse(INPUT, json!({"action": "click", "ref": "e3"})).unwrap(),
+            BrowserRequest::Input {
+                tab: None,
+                action: InputAction::Click,
+                target: Some(Target::Ref("e3".into())),
+                text: None,
+                per_key: false,
+                keys: vec![],
+                delta: SCROLL_DELTA,
+                to: None,
+                values: vec![],
+                modifiers: Modifiers::default(),
+                wait_ms: INPUT_WAIT_MS,
+            }
+        );
+        assert!(matches!(
+            parse(INPUT, json!({"action": "double_click", "x": 10, "y": 20.5, "modifiers": ["shift", "control"], "wait_ms": 100})).unwrap(),
+            BrowserRequest::Input { target: Some(Target::Point { x, y }), modifiers, wait_ms: 100, .. }
+                if x == 10. && y == 20.5 && modifiers.bits() == 10
+        ));
+        assert!(
+            parse(INPUT, json!({"action": "click"})).is_err(),
+            "needs a target"
+        );
+        assert!(parse(INPUT, json!({"action": "click", "x": 1})).is_err());
+        assert!(
+            parse(
+                INPUT,
+                json!({"action": "click", "ref": "e1", "x": 1, "y": 2})
+            )
+            .is_err()
+        );
+        assert!(parse(INPUT, json!({"action": "click", "x": -1, "y": 2})).is_err());
+        assert!(parse(INPUT, json!({"action": "click", "ref": "button"})).is_err());
+        assert!(parse(INPUT, json!({"action": "click", "ref": "e1", "text": "x"})).is_err());
+        assert!(parse(INPUT, json!({"action": "tap", "ref": "e1"})).is_err());
+        assert!(
+            parse(
+                INPUT,
+                json!({"action": "click", "ref": "e1", "wait_ms": 10001})
+            )
+            .is_err()
+        );
+        assert!(matches!(
+            parse(INPUT, json!({"action": "type", "text": "hi", "per_key": true})).unwrap(),
+            BrowserRequest::Input { target: None, per_key: true, text: Some(t), .. } if t == "hi"
+        ));
+        assert!(parse(INPUT, json!({"action": "type"})).is_err());
+        let BrowserRequest::Input { keys, .. } =
+            parse(INPUT, json!({"action": "key", "keys": ["enter", "Control+a", "Shift+Tab", "Control++", "+", "Esc"]})).unwrap()
+        else {
+            panic!()
+        };
+        let names: Vec<_> = keys
+            .iter()
+            .map(|k| (k.key.as_str(), k.modifiers.bits()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Enter", 0),
+                ("a", 2),
+                ("Tab", 8),
+                ("+", 2),
+                ("+", 0),
+                ("Escape", 0)
+            ]
+        );
+        assert!(matches!(
+            parse(INPUT, json!({"action": "key", "keys": "ArrowDown"})).unwrap(),
+            BrowserRequest::Input { keys, .. } if keys[0].key == "ArrowDown"
+        ));
+        assert!(parse(INPUT, json!({"action": "key", "keys": ["Hyper+a"]})).is_err());
+        assert!(parse(INPUT, json!({"action": "key", "keys": ["Enterr"]})).is_err());
+        assert!(parse(INPUT, json!({"action": "key"})).is_err());
+        assert!(matches!(
+            parse(INPUT, json!({"action": "scroll", "delta": {"y": -200}})).unwrap(),
+            BrowserRequest::Input {
+                delta: (0., -200.),
+                target: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(
+                INPUT,
+                json!({"action": "drag", "ref": "e1", "to": {"x": 300, "y": 10}})
+            )
+            .unwrap(),
+            BrowserRequest::Input {
+                to: Some(Target::Point { .. }),
+                ..
+            }
+        ));
+        assert!(parse(INPUT, json!({"action": "drag", "ref": "e1"})).is_err());
+        assert!(parse(INPUT, json!({"action": "drag", "ref": "e1", "to": {}})).is_err());
+        assert!(matches!(
+            parse(INPUT, json!({"action": "select", "ref": "e1", "values": ["pro"]})).unwrap(),
+            BrowserRequest::Input { values, .. } if values == ["pro"]
+        ));
+        assert!(parse(INPUT, json!({"action": "select", "ref": "e1"})).is_err());
+        assert!(
+            parse(
+                INPUT,
+                json!({"action": "select", "ref": "e1", "values": []})
+            )
+            .is_err()
+        );
+        // form_input
+        assert_eq!(
+            parse(
+                FORM_INPUT,
+                json!({"fields": [
+                    {"ref": "e1", "value": "Ada"},
+                    {"ref": "e2", "value": true},
+                    {"ref": "e3", "value": ["a", "b"]},
+                    {"ref": "e4", "value": {"files": ["/w/a.txt"]}}
+                ], "tab": "t2"})
+            )
+            .unwrap(),
+            BrowserRequest::FormInput {
+                tab: Some("t2".into()),
+                fields: vec![
+                    FormField {
+                        ref_: "e1".into(),
+                        value: FieldValue::Text("Ada".into())
+                    },
+                    FormField {
+                        ref_: "e2".into(),
+                        value: FieldValue::Checked(true)
+                    },
+                    FormField {
+                        ref_: "e3".into(),
+                        value: FieldValue::Options(vec!["a".into(), "b".into()])
+                    },
+                    FormField {
+                        ref_: "e4".into(),
+                        value: FieldValue::Files(vec!["/w/a.txt".into()])
+                    },
+                ]
+            }
+        );
+        assert!(parse(FORM_INPUT, json!({"fields": []})).is_err());
+        assert!(parse(FORM_INPUT, json!({"fields": [{"ref": "e1"}]})).is_err());
+        assert!(parse(FORM_INPUT, json!({"fields": [{"ref": "e1", "value": 3}]})).is_err());
+        assert!(
+            parse(
+                FORM_INPUT,
+                json!({"fields": [{"ref": "e1", "value": {"files": ["rel.txt"]}}]})
+            )
+            .is_err()
+        );
+        let many: Vec<Value> = (0..101)
+            .map(|i| json!({"ref": format!("e{i}"), "value": "x"}))
+            .collect();
+        assert!(parse(FORM_INPUT, json!({"fields": many})).is_err());
+        // upload
+        assert_eq!(
+            parse(UPLOAD, json!({"ref": "e9", "paths": ["/w/a.txt"]})).unwrap(),
+            BrowserRequest::Upload {
+                tab: None,
+                ref_: "e9".into(),
+                paths: vec!["/w/a.txt".into()]
+            }
+        );
+        assert!(parse(UPLOAD, json!({"ref": "e9", "paths": []})).is_err());
+        assert!(parse(UPLOAD, json!({"paths": ["/a"]})).is_err());
+        // storage
+        assert_eq!(
+            parse(STORAGE, Value::Null).unwrap(),
+            BrowserRequest::Storage {
+                tab: None,
+                kind: StorageKind::All,
+                action: StorageAction::Get,
+                origin: None
+            }
+        );
+        assert_eq!(
+            parse(
+                STORAGE,
+                json!({"kind": "cookies", "action": "clear", "origin": "HTTP://LocalHost:5000/x"})
+            )
+            .unwrap(),
+            BrowserRequest::Storage {
+                tab: None,
+                kind: StorageKind::Cookies,
+                action: StorageAction::Clear,
+                origin: Some("http://localhost:5000".into())
+            }
+        );
+        assert!(parse(STORAGE, json!({"origin": "localhost"})).is_err());
+        assert!(parse(STORAGE, json!({"kind": "indexeddb"})).is_err());
+        // network_body
+        assert_eq!(
+            parse(NETWORK_BODY, json!({"request_id": "12.3"})).unwrap(),
+            BrowserRequest::NetworkBody {
+                tab: None,
+                request_id: "12.3".into(),
+                max_bytes: NETWORK_BODY_BYTES
+            }
+        );
+        assert!(parse(NETWORK_BODY, json!({"request_id": ""})).is_err());
+        assert!(
+            parse(
+                NETWORK_BODY,
+                json!({"request_id": "1", "max_bytes": 10485761})
+            )
+            .is_err()
+        );
+        // open_external
+        assert_eq!(
+            parse(OPEN_EXTERNAL, json!({})).unwrap(),
+            BrowserRequest::OpenExternal { url: None }
+        );
+        assert!(parse(OPEN_EXTERNAL, json!({"url": "example.com"})).is_err());
+        assert_eq!(
+            parse(
+                INPUT,
+                json!({"action": "click", "ref": "e1", "wait_ms": 300})
+            )
+            .unwrap()
+            .budget_ms(),
+            60_300
+        );
     }
 
     #[test]
@@ -1731,9 +3089,133 @@ mod tests {
                 }),
             ),
         ];
-        for (id, out) in samples {
+        let console = vec![ConsoleError {
+            text: "Uncaught Error: boom".into(),
+            source: "exception".into(),
+            url: Some("http://127.0.0.1/act.html".into()),
+            line: Some(30),
+            column: Some(7),
+            stack: Some("at onclick (http://127.0.0.1/act.html:30:7)".into()),
+        }];
+        let actions = [
+            (
+                INPUT,
+                BrowserOutput::Input(InputOutput {
+                    tab: "t1".into(),
+                    action: "drag".into(),
+                    target: InputTarget {
+                        ref_: Some("e4".into()),
+                        role: Some("slider".into()),
+                        name: Some("Volume".into()),
+                        point: Some(Point { x: 10., y: 20. }),
+                    },
+                    to: Some(DropTarget {
+                        ref_: None,
+                        point: Some(Point { x: 200., y: 20. }),
+                    }),
+                    selected: Some(vec!["pro".into()]),
+                    page_generation: 4,
+                    navigated: true,
+                    url: Some("http://127.0.0.1/act.html?q=x".into()),
+                    console_errors: console.clone(),
+                    elapsed_ms: 101.5,
+                }),
+            ),
+            (
+                FORM_INPUT,
+                BrowserOutput::FormInput(FormInputOutput {
+                    tab: "t1".into(),
+                    fields: vec![
+                        FieldResult {
+                            ref_: "e1".into(),
+                            ok: true,
+                            message: None,
+                        },
+                        FieldResult {
+                            ref_: "e2".into(),
+                            ok: false,
+                            message: Some("disabled".into()),
+                        },
+                    ],
+                    page_generation: 4,
+                    console_errors: console,
+                }),
+            ),
+            (
+                UPLOAD,
+                BrowserOutput::Upload(UploadOutput {
+                    tab: "t1".into(),
+                    count: 2,
+                    page_generation: 4,
+                }),
+            ),
+            (
+                STORAGE,
+                BrowserOutput::Storage(StorageOutput {
+                    tab: "t1".into(),
+                    origin: "http://127.0.0.1:8080".into(),
+                    action: "get".into(),
+                    cookies: Some(vec![CookieRow {
+                        name: "sid".into(),
+                        value: "1".into(),
+                        domain: "127.0.0.1".into(),
+                        path: "/".into(),
+                        expires: -1.,
+                        http_only: false,
+                        secure: false,
+                        same_site: Some("Lax".into()),
+                        truncated: false,
+                    }]),
+                    local: Some(vec![StorageItem::new("k".into(), &"v".repeat(1001))]),
+                    session: Some(vec![]),
+                    cleared: None,
+                    total: 2,
+                }),
+            ),
+            (
+                STORAGE,
+                BrowserOutput::Storage(StorageOutput {
+                    tab: "t1".into(),
+                    origin: "http://127.0.0.1:8080".into(),
+                    action: "clear".into(),
+                    cleared: Some(Cleared {
+                        cookies: Some(1),
+                        local: Some(2),
+                        session: None,
+                    }),
+                    total: 3,
+                    ..Default::default()
+                }),
+            ),
+            (
+                NETWORK_BODY,
+                BrowserOutput::NetworkBody(NetworkBodyOutput {
+                    tab: "t1".into(),
+                    request_id: "9.1".into(),
+                    url: "http://127.0.0.1/data.json".into(),
+                    status: Some(200),
+                    headers: BTreeMap::from([("Content-Type".into(), "application/json".into())]),
+                    mime_type: "application/json".into(),
+                    body: Some("{}".into()),
+                    body_base64: None,
+                    size: 2,
+                    truncated: false,
+                }),
+            ),
+            (
+                OPEN_EXTERNAL,
+                BrowserOutput::OpenExternal(OpenExternalOutput {
+                    url: "http://127.0.0.1/".into(),
+                    command: "xdg-open http://127.0.0.1/".into(),
+                }),
+            ),
+        ];
+        for (id, out) in samples.into_iter().chain(actions) {
             conforms(&spec(id).output_schema, &out.to_json(), id);
         }
+        let item = StorageItem::new("k".into(), &"\u{e9}".repeat(1200));
+        assert!(item.truncated);
+        assert_eq!(item.value.chars().count(), STORAGE_VALUE_CHARS);
     }
 
     #[test]

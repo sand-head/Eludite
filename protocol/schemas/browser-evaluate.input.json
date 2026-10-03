@@ -2,7 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-evaluate.input.json",
   "title": "eludite.browser.evaluate input",
-  "description": "Run JavaScript in a tab's page (Runtime.evaluate in the main frame) and answer its value as JSON: promises are awaited by default, objects come back by value. Strings longer than `max_chars` (default 10000) are cut, and so is the JSON text of a larger value, with `truncated: true`. A thrown exception fails the command with its message and stack. It runs with the page's privileges and can change the page, so prefer eludite.browser.read_page, find and page_text for reading. Permission class execute (brief 0024's browser policy can make it prompt or deny). Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "description": "Run JavaScript in a tab's page (Runtime.evaluate in the main frame) and answer its value as JSON: promises are awaited by default, objects come back by value. Strings longer than `max_chars` (default 10000) are cut, and so is the JSON text of a larger value, with `truncated: true`. A thrown exception fails the command with its message and stack. It runs with the page's privileges and can change the page, so prefer eludite.browser.read_page, find and page_text for reading. Permission class execute; the solution policy's `browser.evaluate` can make it dangerous (`prompt`, which prompts) or refuse it (`deny`) (ADR-0009). Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `browser.evaluate` to `prompt`; refused for agents when it is `deny`.",
   "type": "object",
   "required": [
     "expression"
