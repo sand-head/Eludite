@@ -75,16 +75,16 @@ use eludite_lsp::host::{
 };
 use eludite_lsp::lsp;
 use eludite_ui::{
-    MenuBar, RunCommand, SHELL_CONTEXT, SlotAlign, StatusBar, Theme, menu_bar_with, slots,
-    vs_keymap,
+    MenuBar, RunCommand, SHELL_CONTEXT, SlotAlign, StatusBar, Theme, TitleBar, menu_bar_with,
+    slots, title_bar, vs_keymap,
 };
 use eludite_workspace::explorer::SolutionModel;
 use futures::StreamExt as _;
 use futures::channel::mpsc::{UnboundedReceiver, unbounded};
 use gpui::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, PathPromptOptions, PromptLevel, Render, StyleRefinement, Styled,
-    Task, Window, div,
+    IntoElement, ParentElement, PathPromptOptions, PromptLevel, Render, SharedString,
+    StyleRefinement, Styled, Task, Window, div,
 };
 use serde_json::{Value, json};
 
@@ -285,6 +285,12 @@ pub struct Timings {
 
 pub struct Shell {
     theme: Theme,
+    /// The window's title, which the title bar shows when Eludite draws it (ADR-0010).
+    title: SharedString,
+    title_bar: TitleBar,
+    /// Tests draw a platform's chrome on the test window, which reports server-side decorations.
+    #[cfg(test)]
+    pub(crate) chrome_override: Option<title_bar::Chrome>,
     commands: Arc<CommandRegistry>,
     controller: DockController,
     menu: Entity<MenuBar>,
@@ -775,6 +781,10 @@ impl Shell {
             status,
             focus: cx.focus_handle(),
             on_first_render: None,
+            title: "Eludite".into(),
+            title_bar: TitleBar::new(),
+            #[cfg(test)]
+            chrome_override: None,
             session,
             published,
             languages: Arc::new(LanguageRegistry::with_builtins()),
@@ -892,6 +902,30 @@ impl Shell {
             .borrow()
             .get(id.to_string_lossy().as_ref())
             .cloned()
+    }
+
+    /// Set the window's title, and the title bar's when Eludite draws it (ADR-0010).
+    pub fn set_title(&mut self, title: String, window: &mut Window) {
+        window.set_window_title(&title);
+        self.title = title.into();
+    }
+
+    #[cfg(test)]
+    pub fn title(&self) -> &SharedString {
+        &self.title
+    }
+
+    /// The main window's chrome on this platform with the decorations the window got (ADR-0010).
+    fn chrome(&self, window: &Window) -> title_bar::Chrome {
+        #[cfg(test)]
+        if let Some(chrome) = self.chrome_override {
+            return chrome;
+        }
+        title_bar::chrome(
+            title_bar::Platform::current(),
+            window.window_decorations(),
+            window.is_fullscreen(),
+        )
     }
 
     #[cfg(test)]
@@ -1258,11 +1292,14 @@ impl Shell {
                 let name = self.solution_name();
                 // An open folder keeps its title and its tree, where the solution shows as loading.
                 if self.folder.is_none() {
-                    window.set_window_title(&format!(
-                        "{} - Eludite",
-                        path.file_stem()
-                            .map_or("Solution".into(), |s| s.to_string_lossy())
-                    ));
+                    self.set_title(
+                        format!(
+                            "{} - Eludite",
+                            path.file_stem()
+                                .map_or("Solution".into(), |s| s.to_string_lossy())
+                        ),
+                        window,
+                    );
                     self.explorer.update(cx, |e, cx| {
                         e.set_placeholder(Placeholder::Loading(name.clone()), cx)
                     });
@@ -1491,7 +1528,7 @@ impl Shell {
                     self.recompose(cx);
                 } else {
                     self.explorer.update(cx, |e, cx| e.clear(cx));
-                    window.set_window_title("Eludite");
+                    self.set_title("Eludite".into(), window);
                     self.publish_workspace_tree();
                 }
                 self.update_error_list(cx);
@@ -1769,7 +1806,35 @@ impl Render for Shell {
             });
         }
         let t = self.theme;
-        div()
+        let chrome = self.chrome(window);
+        // The solution configuration and platform dropdowns sit at the right of the menu bar's row, so the docking
+        // area keeps its height. Where Eludite draws the title bar, that row is the title bar (ADR-0010).
+        let top = if chrome.custom {
+            self.title_bar
+                .render(
+                    chrome,
+                    &t,
+                    title_bar::TitleBarContent {
+                        title: self.title.clone(),
+                        menu: self.menu.clone().into_any_element(),
+                        tools: self.build_toolbar(cx).into_any_element(),
+                    },
+                    window,
+                    // Eludite's own Close button (Linux) does what the platform's does: quit (app.rs).
+                    |_, cx| cx.quit(),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_row()
+                .flex_none()
+                .bg(t.menu_background)
+                .child(div().flex_1().min_w_0().child(self.menu.clone()))
+                .child(self.build_toolbar(cx))
+                .into_any_element()
+        };
+        let shell = div()
             .id("shell")
             .key_context(SHELL_CONTEXT)
             .track_focus(&self.focus)
@@ -1779,17 +1844,7 @@ impl Render for Shell {
             .size_full()
             .bg(t.chrome)
             .text_color(t.text)
-            // The solution configuration and platform dropdowns sit at the right of the menu bar's row, so the
-            // docking area keeps its height.
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_none()
-                    .bg(t.menu_background)
-                    .child(div().flex_1().min_w_0().child(self.menu.clone()))
-                    .child(self.build_toolbar(cx)),
-            )
+            .child(top)
             .child(self.dock.clone())
             .child(self.status.render_with(&t, self.debug_status_controls(cx)))
             .children(self.navigation.picker.clone())
@@ -1797,7 +1852,16 @@ impl Render for Shell {
             .children(self.options.clone())
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
-            .children(self.code_actions.menu.clone())
+            .children(self.code_actions.menu.clone());
+        match chrome.frame {
+            Some(tiling) => title_bar::client_frame(shell, tiling, &t, window).into_any_element(),
+            None => {
+                if chrome.platform == title_bar::Platform::Linux {
+                    window.set_client_inset(gpui::px(0.));
+                }
+                shell.into_any_element()
+            }
+        }
     }
 }
 

@@ -74,6 +74,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0041](0041-integrated-terminal.md) | The integrated terminal: a PTY and `alacritty_terminal` in our own GPUI view, profiles, shell integration, links, `eludite.terminal.*` for agents (Phase 1 close-out) | 1 | open |
 | [0042](0042-find-in-files.md) | Find in Files and Replace in Files at ripgrep speed, the Find Results windows, Replace with preview through the review view, `eludite.search.*` (Phase 1 close-out) | 1 | open |
 | [0043](0043-agents-markdown.md) | Markdown in the Agents window's transcript: `pulldown-cmark`, one row per top-level block while it streams | 2 | done on Linux; the tooltips use the same parser |
+| [0044](0044-custom-title-bar.md) | Eludite draws the main window's title bar: the menu bar in it, the title, the caption buttons, the Linux frame (ADR-0010) | 2 | done on Linux; macOS and Windows by CI |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.

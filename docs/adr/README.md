@@ -15,6 +15,7 @@ An ADR records one structural decision: what was decided, why, what else was con
 | [0007](0007-remote-capable-debuggers.md) | Debuggers are remote-capable from day one (D7) | Accepted |
 | [0008](0008-embedded-browser-cef.md) | Embedded browser: Chromium through CEF, out of process, CDP as the automation substrate | Accepted |
 | [0009](0009-per-call-permission-escalation.md) | Per-call permission escalation on the command bus | Accepted |
+| [0010](0010-own-title-bar.md) | Eludite draws the main window's title bar | Accepted |
 
 ## Rules
 
