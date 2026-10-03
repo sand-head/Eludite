@@ -30,7 +30,7 @@ pub fn decide(no_sandbox_env: Option<&str>, cef_dir: &Path) -> Result<Decision, 
             helper: Some(helper),
         }),
         found => Err(format!(
-            "eludite-chromium will not start without Chromium's sandbox: the setuid helper {} {}. Install it with \
+            "refusing to start without Chromium's sandbox: the setuid helper {} {}. Install it with \
              `sudo chown root:root {p} && sudo chmod 4755 {p}`, or set {NO_SANDBOX_ENV}=1 to run without the \
              sandbox (needed when running as root).",
             helper.display(),
