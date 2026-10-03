@@ -35,6 +35,8 @@ struct Found {
     config: launch::LaunchConfig,
     source: PathBuf,
     text: String,
+    /// `eludite-dbg-mono under mono 6.8.0.105`, for recordings.
+    version: String,
 }
 
 impl Found {
@@ -69,11 +71,16 @@ impl Found {
     ) -> (DapClient, Recorder) {
         let rec = Recorder::default();
         let client = DapClient::start(
-            transport::connect_with_env(
-                &self.mono.adapter_transport(&self.adapter),
-                &self.mono.env,
-            )
-            .unwrap(),
+            common::recorded(
+                transport::connect_with_env(
+                    &self.mono.adapter_transport(&self.adapter),
+                    &self.mono.env,
+                )
+                .unwrap(),
+                "mono",
+                &self.version,
+                None,
+            ),
             rec.sink(),
         );
         let mut arguments = self.config.mono_arguments(&self.mono.mono);
@@ -164,6 +171,7 @@ fn find() -> Option<Found> {
         config,
         source,
         text,
+        version: format!("eludite-dbg-mono under mono {version}"),
     })
 }
 
@@ -177,7 +185,12 @@ fn eludite_dbg_mono_debugs_the_test_app() {
     let rec = Recorder::default();
     let clock = Instant::now();
     let client = DapClient::start(
-        transport::connect_with_env(&mono.adapter_transport(adapter), &mono.env).unwrap(),
+        common::recorded(
+            transport::connect_with_env(&mono.adapter_transport(adapter), &mono.env).unwrap(),
+            "mono",
+            &found.version,
+            None,
+        ),
         rec.sink(),
     );
     let started = session::start(
@@ -272,6 +285,146 @@ fn eludite_dbg_mono_debugs_the_test_app() {
     client
         .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
         .unwrap();
+}
+
+/// One session of the TestApp to the end, the same requests every time: launch breaking at `add-sum`, the stack, the
+/// locals, a step, an `evaluate`, continue to the exit. Returns every event and answer the client saw, in order (not
+/// the adapter's stderr or its exit code, which are not DAP).
+fn add_sum_session(found: &Found, connection: eludite_dap::Connection) -> Vec<String> {
+    let rec = Recorder::default();
+    let client = DapClient::start(connection, rec.sink());
+    let mut arguments = found.config.mono_arguments(&found.mono.mono);
+    arguments["args"] = json!([]);
+    session::start(
+        &client,
+        &StartPlan {
+            adapter_id: "mono".into(),
+            kind: StartKind::Launch,
+            arguments,
+            breakpoints: vec![(
+                found.source.to_string_lossy().into_owned(),
+                vec![SourceBreakpoint {
+                    line: found.line_of("add-sum"),
+                    ..Default::default()
+                }],
+            )],
+            exception_filters: vec!["user-unhandled".into()],
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
+        },
+        T,
+    )
+    .unwrap();
+    let mut seen = Vec::new();
+    let tid = rec.stopped(1).thread_id.unwrap();
+    let mut ask = |command: &str, args: serde_json::Value| -> serde_json::Value {
+        let a = client.request_wait(command, args, T).unwrap();
+        seen.push(format!("{command} -> {a}"));
+        a
+    };
+    ask("threads", serde_json::Value::Null);
+    let st = ask(
+        "stackTrace",
+        json!({"threadId": tid, "startFrame": 0, "levels": 20}),
+    );
+    let frame = st["stackFrames"][0]["id"].clone();
+    let scopes = ask("scopes", json!({"frameId": frame}));
+    ask(
+        "variables",
+        json!({"variablesReference": scopes["scopes"][0]["variablesReference"]}),
+    );
+    ask(
+        "evaluate",
+        json!({"expression": "a + b * 2", "frameId": frame, "context": "watch"}),
+    );
+    ask("next", json!({"threadId": tid}));
+    rec.stopped(2);
+    ask(
+        "stackTrace",
+        json!({"threadId": tid, "startFrame": 0, "levels": 1}),
+    );
+    ask("continue", json!({"threadId": tid}));
+    rec.wait_nth(1, "terminated", |e| {
+        matches!(e, ClientEvent::Event(Event::Terminated))
+    });
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
+    rec.closed();
+    seen.extend(rec.events().into_iter().filter_map(|e| match e {
+        ClientEvent::Event(ev) => Some(format!("{ev:?}")),
+        _ => None,
+    }));
+    seen
+}
+
+/// Brief 0033's proof against the real adapter: the session is recorded (to `RECORD_DAP`'s folder when set, else a
+/// temporary one) and replayed in the same run through the replaying adapter, and the client sees the same events
+/// and answers from the recording as from Mono.
+#[test]
+fn eludite_dbg_mono_recording_replays_with_the_same_events() {
+    let Some(found) = find() else { return };
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = common::record_dir().unwrap_or_else(|| tmp.path().to_path_buf());
+    let path = dir.join("mono/client/recorded-then-replayed.dap.json");
+    let version = found.version.clone();
+    let roots = vec![
+        ("${ROOT}".to_owned(), common::repo_root()),
+        ("${MONO}".to_owned(), found.mono.mono.clone()),
+    ];
+    let (connection, handle) = eludite_dap::record::record(
+        transport::connect_with_env(
+            &found.mono.adapter_transport(&found.adapter),
+            &found.mono.env,
+        )
+        .unwrap(),
+        eludite_dap::record::RecordOptions {
+            path: path.clone(),
+            adapter: "mono".into(),
+            version,
+            roots: roots.clone(),
+        },
+    );
+    let live = add_sum_session(&found, connection);
+    let recording = handle.write().unwrap();
+    assert!(
+        recording.messages.len() > 20,
+        "{}",
+        recording.messages.len()
+    );
+    let text = recording.to_text();
+    assert!(text.contains("\"runtimeExecutable\":\"${MONO}\""), "{text}");
+    assert!(!text.contains(&*common::repo_root().to_string_lossy()));
+    // Replayed: the same events and answers, in the same order.
+    let (connection, replayer) = eludite_dap::replay::serve(
+        &recording,
+        eludite_dap::replay::ReplayOptions {
+            roots,
+            pid: 4_000_001,
+            real_time: false,
+        },
+    );
+    let clock = Instant::now();
+    let replayed = add_sum_session(&found, connection);
+    eprintln!(
+        "timing: replay of the recorded Mono session ({} messages, {} bytes): {:.1} ms",
+        recording.messages.len(),
+        text.len(),
+        clock.elapsed().as_secs_f64() * 1e3
+    );
+    replayer.check().unwrap();
+    assert!(replayer.finished(), "unsent: {:?}", replayer.unsent());
+    // The process id is this run's in the replay; everything else is identical.
+    let pid = |lines: &[String]| -> Vec<String> {
+        lines
+            .iter()
+            .map(|l| {
+                l.split("system_process_id: Some(")
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect()
+    };
+    assert_eq!(pid(&replayed), pid(&live));
 }
 
 /// Brief 0025's requests against the real adapter: `pause` of the TestApp sleeping, `exceptionInfo` at the
@@ -690,11 +843,16 @@ fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
     let rec = Recorder::default();
     let clock = Instant::now();
     let client = DapClient::start(
-        transport::connect_with_env(
-            &found.mono.adapter_transport(&found.adapter),
-            &found.mono.env,
-        )
-        .unwrap(),
+        common::recorded(
+            transport::connect_with_env(
+                &found.mono.adapter_transport(&found.adapter),
+                &found.mono.env,
+            )
+            .unwrap(),
+            "mono",
+            &found.version,
+            None,
+        ),
         rec.sink(),
     );
     session::start(
