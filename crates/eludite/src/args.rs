@@ -110,6 +110,19 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       continues; then Shift+F5. Report F5 to the first break,
                       step round trips, frame cost while stepping, and the
                       Locals window drawing 200 variables
+  --spike-browser URL open URL in the embedded browser (eludite-chromium, CEF;
+                      brief 0031's spike) in a hidden document tab, Web
+                      Browser; the engine is found beside this executable, at
+                      ELUDITE_CHROMIUM or in the cargo target folder, CEF at
+                      ELUDITE_CEF, CEF_PATH or tools/cef/fetch.sh's cache
+  --bench-browser SECS
+                      open an animation page (a 60 fps canvas filling the
+                      view) in a 1600 by 1000 embedded browser tab, record
+                      SECS seconds of frames (the RenderImage upload, the img
+                      paint, the frame cost, the engine's paint to present),
+                      then the engine's memory and tab_open to the first frame
+                      with the engine running; the window opens at 2200 by
+                      1500 so the whole tab shows
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11
@@ -152,6 +165,10 @@ pub struct Args {
     pub bench_build: Option<usize>,
     /// `--bench-debug N` (brief 0018).
     pub bench_debug: Option<usize>,
+    /// `--spike-browser URL` (brief 0031).
+    pub spike_browser: Option<String>,
+    /// `--bench-browser SECS` (brief 0031).
+    pub bench_browser: Option<u64>,
 }
 
 impl Args {
@@ -229,6 +246,11 @@ impl Args {
                     let n = value("--bench-build")?;
                     a.bench_build = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
                 }
+                "--spike-browser" => a.spike_browser = Some(value("--spike-browser")?),
+                "--bench-browser" => {
+                    let n = value("--bench-browser")?;
+                    a.bench_browser = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);
+                }
                 "--mcp-relay" => {
                     let addr = value("--mcp-relay")?;
                     a.mcp_relay = Some(
@@ -256,6 +278,7 @@ impl Args {
             || self.bench_output.is_some()
             || self.bench_build.is_some()
             || self.bench_debug.is_some()
+            || self.bench_browser.is_some()
     }
 }
 
@@ -344,5 +367,12 @@ mod tests {
         assert!(a.benching());
         assert_eq!(parse(&["--bench-build", "5"]).unwrap().bench_build, Some(5));
         assert!(parse(&["--bench-build", "x"]).is_err());
+        let a = parse(&["--bench-browser", "20"]).unwrap();
+        assert_eq!(a.bench_browser, Some(20));
+        assert!(a.benching());
+        assert!(parse(&["--bench-browser", "x"]).is_err());
+        let a = parse(&["--spike-browser", "https://example.com"]).unwrap();
+        assert_eq!(a.spike_browser.as_deref(), Some("https://example.com"));
+        assert!(!a.benching());
     }
 }

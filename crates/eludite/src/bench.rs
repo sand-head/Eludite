@@ -2288,3 +2288,264 @@ pub fn debug(
     })
     .detach();
 }
+
+/// The page `--bench-browser` plays: a canvas covering the view, redrawn on every animation frame (a full-frame change
+/// each time, the upload's worst case), with the page's own frame rate printed in it.
+const ANIMATION_PAGE: &str = r#"<!doctype html><html><head><title>Animation</title><style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000}canvas{display:block}</style></head><body>
+<canvas id="c"></canvas><script>
+const c = document.getElementById('c'), g = c.getContext('2d');
+function fit() { c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio; }
+fit(); addEventListener('resize', fit);
+let n = 0, t0 = performance.now(), fps = 0, last = t0;
+window.frames_drawn = 0;
+function draw(t) {
+  n++; window.frames_drawn = n;
+  if (t - last >= 1000) { fps = Math.round(n * 1000 / (t - t0)); last = t; }
+  const w = c.width, h = c.height;
+  const grad = g.createLinearGradient(0, 0, w, h);
+  grad.addColorStop(0, `hsl(${(t / 20) % 360},70%,40%)`);
+  grad.addColorStop(1, `hsl(${(t / 20 + 180) % 360},70%,40%)`);
+  g.fillStyle = grad; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++) {
+    const a = t / 900 + i * 0.6;
+    g.fillStyle = `hsl(${(i * 37 + t / 10) % 360},90%,60%)`;
+    g.beginPath();
+    g.arc(w / 2 + Math.cos(a * (1 + i % 3)) * w * 0.4, h / 2 + Math.sin(a) * h * 0.4, 20 + (i % 5) * 12, 0, 6.3);
+    g.fill();
+  }
+  g.fillStyle = '#fff'; g.font = `${48 * devicePixelRatio}px sans-serif`;
+  g.fillText(`frame ${n}  ${fps} fps  ${w}x${h}`, 40, 80 * devicePixelRatio);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script></body></html>"#;
+
+fn data_url(html: &str) -> String {
+    let mut s = String::from("data:text/html,");
+    for b in html.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("%{b:02X}"));
+        }
+    }
+    s
+}
+
+/// Resident and proportional set sizes (MiB) of a process and its descendants (CEF's renderer, GPU, utility and
+/// zygote processes). PSS shares each mapped page of libcef among the processes mapping it. Linux only.
+fn process_tree_memory(root: u32) -> Value {
+    if root == 0 {
+        return Value::Null;
+    }
+    let mut parents: Vec<(u32, u32)> = Vec::new();
+    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            continue;
+        };
+        // The fields after the parenthesized name: state, ppid, ...
+        let ppid = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0);
+        parents.push((pid, ppid));
+    }
+    let mut tree = vec![root];
+    let mut i = 0;
+    while i < tree.len() {
+        let p = tree[i];
+        tree.extend(parents.iter().filter(|(_, pp)| *pp == p).map(|(c, _)| *c));
+        i += 1;
+    }
+    let kib = |pid: u32, file: &str, field: &str| -> f64 {
+        std::fs::read_to_string(format!("/proc/{pid}/{file}"))
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with(field))
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .and_then(|v| v.parse::<f64>().ok())
+            })
+            .unwrap_or(0.)
+    };
+    let r = |x: f64| (x / 1024. * 10.).round() / 10.;
+    let rss: f64 = tree.iter().map(|p| kib(*p, "status", "VmRSS:")).sum();
+    let pss: f64 = tree.iter().map(|p| kib(*p, "smaps_rollup", "Pss:")).sum();
+    json!({
+        "processes": tree.len(),
+        "rss_sum_mib": r(rss),
+        "pss_sum_mib": r(pss),
+        "browser_process_rss_mib": r(kib(root, "status", "VmRSS:")),
+    })
+}
+
+/// `--bench-browser SECS` (brief 0031): the animation page in a 1600 by 1000 tab of the embedded engine, drawn by the
+/// shell's `BrowserSurface` with `img`. After a 2 s warm-up, records SECS seconds: every frame's cost (DockHost render to
+/// the end of its present, the probe the other benches use), and per uploaded frame the `RenderImage` creation, the
+/// `img` paint (GPUI's atlas insert), the engine's copy into the slot and the paint-to-present latency; the engine's
+/// paint rate; the shell's memory before the engine and with the tab open; the engine's processes' memory; the cold
+/// start to the first frame; and `tab/create` to the first frame of a second tab with the engine running. One JSON
+/// line on stdout, then exit.
+pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
+    use crate::shell::browser_view::{SpikeRequest, open_spike};
+    let shell2 = shell.clone();
+    shell.update(cx, |s, _| {
+        s.after_first_present(move |window, cx| {
+            let platform = platform(window);
+            let rss_before = rss_mib();
+            let spike = open_spike(&shell2, data_url(ANIMATION_PAGE), Some((1600, 1000)), cx);
+            let probe = Rc::new(RefCell::new(RenderProbe::default()));
+            let shell = shell2.clone();
+            cx.spawn(async move |cx| {
+                let ex = cx.background_executor().clone();
+                let deadline = Instant::now() + Duration::from_secs(60);
+                loop {
+                    {
+                        let s = spike.borrow();
+                        if s.surface.is_some() || s.error.is_some() || Instant::now() > deadline {
+                            break;
+                        }
+                    }
+                    ex.timer(Duration::from_millis(10)).await;
+                }
+                let (surface, frames, pid, launch, cold, requests) = {
+                    let s = spike.borrow();
+                    match (&s.surface, &s.ready) {
+                        (Some(surface), Some(r)) => (
+                            surface.clone(),
+                            r.frames.clone(),
+                            r.pid,
+                            r.launch,
+                            r.cold_to_first_frame,
+                            s.requests.clone(),
+                        ),
+                        _ => {
+                            let out = json!({"bench": "browser", "error": s.error.clone()
+                                .unwrap_or_else(|| "the embedded browser did not start in 60 s".into())});
+                            println!("{out}");
+                            cx.update(|cx| cx.quit());
+                            return;
+                        }
+                    }
+                };
+                let stats = cx.update(|cx| surface.read(cx).stats());
+                ex.timer(Duration::from_secs(2)).await;
+                cx.update(|cx| shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx)));
+                ex.timer(Duration::from_millis(50)).await;
+                probe.borrow_mut().renders.clear();
+                probe.borrow_mut().presents.clear();
+                stats.borrow_mut().clear_samples();
+                let announced0 = frames.frames_announced();
+                let uploads0 = stats.borrow().uploads;
+                let empty0 = stats.borrow().empty_reads;
+                let started = Instant::now();
+                ex.timer(Duration::from_secs(secs)).await;
+                let elapsed = started.elapsed().as_secs_f64();
+                let (frame_cost, n_frames) = {
+                    let p = probe.borrow();
+                    let frames: Vec<f64> = p
+                        .renders
+                        .iter()
+                        .copied()
+                        .zip(p.presents.iter().copied())
+                        .map(|(r, pr)| ms(pr.saturating_duration_since(r)))
+                        .collect();
+                    (summarize(&frames), frames.len())
+                };
+                let s = stats.borrow().clone();
+                let announced = frames.frames_announced() - announced0;
+                let uploads = s.uploads - uploads0;
+                let rss_tab = rss_mib();
+                // The baseline: the same window and the same image drawn every 16 ms, nothing uploaded. What the
+                // software rasterizer costs for the window itself, which a GPU does not pay.
+                cx.update(|cx| surface.update(cx, |s, _| s.set_frozen(true)));
+                ex.timer(Duration::from_millis(300)).await;
+                probe.borrow_mut().renders.clear();
+                probe.borrow_mut().presents.clear();
+                let base_secs = (secs / 2).max(3);
+                let base_started = Instant::now();
+                while base_started.elapsed() < Duration::from_secs(base_secs) {
+                    cx.update(|cx| surface.update(cx, |_, cx| cx.notify()));
+                    ex.timer(Duration::from_millis(16)).await;
+                }
+                let (baseline_cost, baseline_frames) = {
+                    let p = probe.borrow();
+                    let frames: Vec<f64> = p
+                        .renders
+                        .iter()
+                        .copied()
+                        .zip(p.presents.iter().copied())
+                        .map(|(r, pr)| ms(pr.saturating_duration_since(r)))
+                        .collect();
+                    (summarize(&frames), frames.len())
+                };
+                let engine_memory = process_tree_memory(pid);
+                // A second tab with the engine running: tab/create to its first frame.
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = requests.send(SpikeRequest::OpenTab(
+                    data_url("<body style='margin:0;background:#c00'>second</body>"),
+                    tx,
+                ));
+                let second = ex
+                    .spawn(async move { rx.recv_timeout(Duration::from_secs(15)) })
+                    .await;
+                let tab_open_to_first_frame = match second {
+                    Ok(Ok(d)) => json!(ms(d)),
+                    Ok(Err(e)) => json!(e),
+                    Err(_) => Value::Null,
+                };
+                let (w, h) = s.frame_size;
+                let out = json!({
+                    "bench": "browser",
+                    "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+                    "seconds": (elapsed * 1000.).round() / 1000.,
+                    "frame_size": [w, h],
+                    "bytes_per_frame": u64::from(w) * u64::from(h) * 4,
+                    "engine_paint_rate_fps": (announced as f64 / elapsed * 10.).round() / 10.,
+                    "frames_announced": announced,
+                    "frames_uploaded": uploads,
+                    "uploads_per_s": (uploads as f64 / elapsed * 10.).round() / 10.,
+                    "empty_reads": s.empty_reads - empty0,
+                    "shell_frames": n_frames,
+                    "frame_cost": frame_cost,
+                    "baseline_no_upload": {
+                        "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+                        "seconds": base_secs,
+                        "shell_frames": baseline_frames,
+                        "frame_cost": baseline_cost,
+                    },
+                    "upload": summarize(&s.upload_ms),
+                    "img_paint": summarize(&s.paint_ms),
+                    "engine_copy": summarize(&s.copy_ms),
+                    "paint_to_present": summarize(&s.latency_ms),
+                    "last_dirty": s.last_dirty.iter().map(|r| json!([r.x, r.y, r.width, r.height])).collect::<Vec<_>>(),
+                    "engine_launch_ms": ms(launch),
+                    "engine_cold_start_to_first_frame_ms": ms(cold),
+                    "tab_open_to_first_frame_ms": tab_open_to_first_frame,
+                    "shell_rss_before_engine": rss_before,
+                    "shell_rss_with_tab": rss_tab,
+                    "engine_memory": engine_memory,
+                    // Invariant 2 and the cold-start budget: nothing of CEF in the shell's address space.
+                    "shell_maps_libcef": std::fs::read_to_string("/proc/self/maps")
+                        .map(|m| m.contains("libcef"))
+                        .unwrap_or(false),
+                    "platform": platform,
+                    "loadavg": std::fs::read_to_string("/proc/loadavg").unwrap_or_default().trim(),
+                });
+                println!("{out}");
+                let (done_tx, done_rx) = std::sync::mpsc::channel();
+                let _ = requests.send(SpikeRequest::Shutdown(done_tx));
+                let _ = ex
+                    .spawn(async move { done_rx.recv_timeout(Duration::from_secs(5)) })
+                    .await;
+                cx.update(|cx| cx.quit());
+            })
+            .detach();
+        });
+    });
+}
