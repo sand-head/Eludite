@@ -295,7 +295,7 @@
           }
         }
       },
-      "description": "Documented, not forwarded by the spike's shell (brief 0031): CefBrowserHost::ImeSetComposition."
+      "description": "CefBrowserHost::ImeSetComposition: the composition so far (the Web Browser window forwards GPUI's input handler's marked text, brief 0032)."
     },
     "imeCommitText": {
       "type": "object",

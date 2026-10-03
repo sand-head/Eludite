@@ -157,6 +157,36 @@
     "elapsed_ms": {
       "type": "number",
       "minimum": 0
+    },
+    "dialog": {
+      "description": "The action opened a dialog the page now waits on (the action's events were delivered; the page is paused until it is answered). Answer it with eludite.browser.dialog.",
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "`alert`, `confirm`, `prompt` (JavaScript), `beforeunload` (the page asks to confirm leaving), `file` (a file chooser), `auth` (an HTTP authentication challenge), `permission` (the page asks for geolocation, notifications, the camera, ...).",
+          "enum": [
+            "alert",
+            "confirm",
+            "prompt",
+            "beforeunload",
+            "file",
+            "auth",
+            "permission"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "default_text": {
+          "description": "`prompt`: the default value.",
+          "type": "string"
+        }
+      }
     }
   }
 }

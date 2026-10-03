@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-dialog.output.json",
+  "title": "eludite.browser.dialog output",
+  "description": "The dialog that was answered, and how.",
+  "type": "object",
+  "required": [
+    "tab",
+    "kind",
+    "message",
+    "action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "kind": {
+      "description": "`alert`, `confirm`, `prompt` (JavaScript), `beforeunload` (the page asks to confirm leaving), `file` (a file chooser), `auth` (an HTTP authentication challenge), `permission` (the page asks for geolocation, notifications, the camera, ...).",
+      "enum": [
+        "alert",
+        "confirm",
+        "prompt",
+        "beforeunload",
+        "file",
+        "auth",
+        "permission"
+      ]
+    },
+    "message": {
+      "description": "The dialog's text (for `permission`, what was asked; for `auth`, the host and realm).",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "accept",
+        "dismiss"
+      ]
+    },
+    "text": {
+      "description": "`prompt`: the text answered.",
+      "type": "string"
+    }
+  }
+}

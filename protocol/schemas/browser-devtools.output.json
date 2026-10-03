@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-devtools.output.json",
+  "title": "eludite.browser.devtools output",
+  "description": "DevTools is open for the tab.",
+  "type": "object",
+  "required": [
+    "tab",
+    "opened"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "opened": {
+      "description": "False when DevTools was open for the tab already (it is brought to the front).",
+      "type": "boolean"
+    }
+  }
+}

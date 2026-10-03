@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-record.input.json",
+  "title": "eludite.browser.record input",
+  "description": "Record a tab as an animated GIF, as the Web Browser window shows it: `action: start` begins taking the tab's frames at `fps` (default 10, at most 30) for at most `max_seconds` (default 60, at most 600; the recording stops by itself then), and answers at once; `action: stop` ends it and answers the GIF's path, its frame count and duration, and a thumbnail of the first frame. Frames come from the embedded engine's frame ring (browser.engine: embedded; with the external Chrome the command fails and says so), scaled to at most 960 pixels wide; a frame where the page did not change lengthens the previous one instead of adding a frame. One recording at a time. `path` is where the GIF goes (absolute, or relative to the workspace folder); it must lie under the workspace or Eludite's cache; default: `.eludite/browser/recordings/<tab>-<time>.gif` in the workspace. Use it to show a person what a flow looks like, or to keep evidence of a bug. Permission class execute. Next: stop it with `action: stop`; eludite.browser.input and the rest go on meanwhile.",
+  "type": "object",
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "start",
+        "stop"
+      ]
+    },
+    "path": {
+      "description": "`start`: where to write the GIF (absolute, or relative to the workspace folder; under the workspace or Eludite's cache).",
+      "type": "string",
+      "minLength": 1
+    },
+    "fps": {
+      "description": "`start`: frames per second taken from the ring. Default 10.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30
+    },
+    "max_seconds": {
+      "description": "`start`: the recording stops by itself after this long. Default 60.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}
