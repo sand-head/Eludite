@@ -36,7 +36,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/acp` | ACP client | 5.2 |
 | `crates/mcp` | MCP server over the command bus | 5.1, 5.2 |
 | `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023); `EmbeddedChromium`, the engine over `eludite-chromium` with frames from shared memory (brief 0031); `record`, `devtools`, `dialog`, the engine selection (`browser.engine`) and the key table of the Web Browser window (brief 0032) | 4.9, 5.8 |
-| `crates/git` | libgit2 wrapper | 4.8 |
+| `crates/git` | `eludite-git`, libgit2 with no `git` process (brief 0040): status with renames and the Workspace glyphs, stage, unstage, discard, commit with the identity rule, diff texts, log with graph lanes, branches, checkout, merge, rebase, cherry-pick, reset, stash, fetch, pull and push with the credential callback, worktrees, blame, and the status cache with its polling watcher; the shell's Git Changes and Git Repository windows and `eludite.git.*` sit on it | 4.8 |
 | `crates/terminal` | Integrated terminal | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
 | `protocol/` | MIT schemas and generated bindings (crate `eludite-protocol`) | 3 (D3), 11 |

@@ -70,14 +70,16 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0037](0037-browser-launch-integration.md) | Launch integration: F5 on a web project opens it in the Web Browser window (proposal 0002 C) | 2 | [report](0037-report.md): done on Linux (Xvfb); the page opens 0.7 to 0.8 ms after Kestrel's listening line with a fake session (budget 500 ms), 448 to 897 ms with the real `dotnet` and the embedded engine starting cold, 190 ms on a restart with it running; Ctrl+F5 on the web corpus project to the page 5.4 to 5.8 s with the host's build; `session.browser` and the start's answer carry the tab; netcoredbg not run |
 | [0038](0038-javascript-debugging.md) | JavaScript debugging in the Web Browser window with vscode-js-debug: attach to a tab, compound with the server, source maps, child sessions (proposal 0002 D, proposal 0001 E3) | 2/4 | open |
 | [0039](0039-browser-packaging-linux.md) | Packaging the browser engine on Linux: the layout beside `eludite`, discovery, the sandbox rule and the no-sandbox opt-in (proposal 0002 E, Linux half) | 2 | open |
-| [0040](0040-git-changes.md) | Git basics: the Git Changes and Git Repository windows, status decorations, Compare with Unmodified, branches, sync, stashes and worktrees over libgit2, `eludite.git.*` for agents (Phase 1 close-out) | 1 | open |
+| [0040](0040-git-changes.md) | Git basics: the Git Changes and Git Repository windows, status decorations, Compare with Unmodified, branches, sync, stashes and worktrees over libgit2, `eludite.git.*` for agents (Phase 1 close-out) | 1 | [report](0040-report.md): done on Linux; no `git` process; `status` 2.3 ms p95 from the cache on 10,000 files with 100 changes (first status 30 ms), 1,000 changed files drawn in 5.4 ms at worst, Compare with Unmodified of 5,000 lines 16 ms, the change margin 120 ms idle + 2 ms; the watcher polls (`notify` is not in the build); https and ssh remotes need libgit2 features that add dependencies; [screenshots](0040-run/screenshots/) |
 | [0041](0041-integrated-terminal.md) | The integrated terminal: a PTY and `alacritty_terminal` in our own GPUI view, profiles, shell integration, links, `eludite.terminal.*` for agents (Phase 1 close-out) | 1 | open |
 | [0042](0042-find-in-files.md) | Find in Files and Replace in Files at ripgrep speed, the Find Results windows, Replace with preview through the review view, `eludite.search.*` (Phase 1 close-out) | 1 | open |
 | [0043](0043-agents-markdown.md) | Markdown in the Agents window's transcript: `pulldown-cmark`, one row per top-level block while it streams | 2 | done on Linux; the tooltips use the same parser |
 | [0044](0044-custom-title-bar.md) | Eludite draws the main window's title bar: the menu bar in it, the title, the caption buttons, the Linux frame (ADR-0010) | 2 | done on Linux; macOS and Windows by CI |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
-debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
+debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`; [docs/agents/git.md](../agents/git.md)
+(brief 0040), how an agent reads the status, stages, commits and what needs permission, served as `eludite://guides/git`
+beside the live resource `eludite://git/status`.
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
