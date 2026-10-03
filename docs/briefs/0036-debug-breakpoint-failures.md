@@ -1,6 +1,6 @@
 # Brief 0036: Breakpoints that cannot stop say so, and the Mono adapter resolves names as Visual Studio does
 
-Status: in progress (branch brief/0036-debug-breakpoint-failures)
+Status: done on Linux (Windows and macOS not run); [report](0036-report.md)
 Phase: 2 and 4 (proposal 0001, second follow-up to brief F)
 Plan reference: PLAN.md sections 4.5, 5.5, 5.7, 10 (Phase 4 exit), 11; proposal 0001 sections 4 (rule 2: outputs say what was cut or failed), 9, 11; brief 0034's report section 7 (items 1 to 3)
 Related ADRs: ADR-0003
