@@ -48,7 +48,45 @@ pub fn wall_ns(t: SystemTime) -> u128 {
     t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos())
 }
 
-/// Resident set size in KiB (current, peak). Linux only.
+/// Resident set size in KiB (current, peak): the working set and its peak on Windows.
+#[cfg(windows)]
+pub fn rss_kib() -> Option<(u64, u64)> {
+    // PROCESS_MEMORY_COUNTERS, declared here to keep the spike free of a Windows API crate.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Counters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn K32GetProcessMemoryInfo(process: isize, counters: *mut Counters, cb: u32) -> i32;
+    }
+    let mut c = Counters {
+        cb: size_of::<Counters>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: a pseudo-handle to this process and a counters struct of the size passed.
+    let ok = unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
+    (ok != 0).then(|| {
+        (
+            c.working_set_size as u64 / 1024,
+            c.peak_working_set_size as u64 / 1024,
+        )
+    })
+}
+
+/// Resident set size in KiB (current, peak) from /proc; None off Linux.
+#[cfg(not(windows))]
 pub fn rss_kib() -> Option<(u64, u64)> {
     let s = std::fs::read_to_string("/proc/self/status").ok()?;
     let field = |name: &str| {
