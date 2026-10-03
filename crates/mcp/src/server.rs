@@ -8,13 +8,17 @@
 //! made as the agent ([`eludite_commands::with_caller`]), so the audit log records it with its arguments, and the
 //! permission class is applied here, at the boundary (PLAN.md 5.3): class read runs; every other class asks the
 //! [`PermissionGate`], which may block this connection's thread while the user answers (never the UI thread).
+//!
+//! The class is the call's effective one (ADR-0009): [`CommandRegistry::classify`] runs the command's escalation
+//! hook once, before the gate, and the call is invoked with that class ([`CommandRegistry::invoke_as`]), so the
+//! gate, the prompt and the audit entry agree. A call the policy refuses outright never reaches the gate.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eludite_commands::{
-    Caller, CommandError, CommandId, CommandRegistry, CommandSpec, Outcome, PermissionClass,
-    next_call_id, with_caller,
+    CallClass, Caller, CommandError, CommandId, CommandRegistry, CommandSpec, Outcome,
+    PermissionClass, next_call_id, with_caller,
 };
 use serde_json::{Value, json};
 
@@ -38,6 +42,9 @@ pub struct CallContext {
     /// The agent's own id for the tool call, when the client sends it in the request's `_meta` (a key ending in
     /// `toolUseId` or `toolCallId`).
     pub tool_call: Option<String>,
+    /// The call's effective class: the spec's, or what its escalation hook raised it to (ADR-0009). The gate decides
+    /// on this, not on the spec's class.
+    pub class: CallClass,
 }
 
 impl CallContext {
@@ -59,8 +66,9 @@ pub enum GateDecision {
     Deny(String),
 }
 
-/// Decides whether a tool call that is not class read may run. Read is always allowed (PLAN.md 5.3) and never
-/// reaches the gate. It runs on the connection's thread and may block while the user answers a prompt.
+/// Decides whether a tool call that is not class read may run, on its effective class (`CallContext::class`). Read
+/// is always allowed (PLAN.md 5.3) and never reaches the gate. It runs on the connection's thread and may block
+/// while the user answers a prompt.
 pub type PermissionGate =
     Arc<dyn Fn(&CommandSpec, &Value, &CallContext) -> GateDecision + Send + Sync>;
 
@@ -74,6 +82,7 @@ pub type Invoker =
 pub struct ToolCallRecord {
     pub tool: String,
     pub command: Option<CommandId>,
+    /// The call's effective class.
     pub permission: Option<PermissionClass>,
     pub arguments: Value,
     /// `Ok(output)` or `Err(message)`.
@@ -269,13 +278,21 @@ impl McpServer {
         let spec = self.spec_for_tool(name).ok_or_else(|| {
             ErrorObject::new(ErrorObject::INVALID_PARAMS, format!("unknown tool: {name}"))
         })?;
+        // The call's effective class, once (ADR-0009).
+        let class = self
+            .registry
+            .classify(spec.id.as_str(), &arguments)
+            .unwrap_or_else(|| CallClass::declared(spec.permission));
         let ctx = CallContext {
             agent: (self.agent)(),
             call: next_call_id(),
             tool_call: tool_call_id(params),
+            class,
         };
 
-        let decision = if spec.permission == PermissionClass::Read {
+        let decision = if let Some(why) = &ctx.class.refused {
+            GateDecision::Deny(why.clone())
+        } else if ctx.class.class == PermissionClass::Read {
             GateDecision::Allow
         } else {
             (self.gate)(&spec, &arguments, &ctx)
@@ -284,19 +301,26 @@ impl McpServer {
             GateDecision::Allow => match &self.invoker {
                 Some(invoke) => invoke(&spec, arguments.clone(), &ctx),
                 None => with_caller(ctx.caller(), || {
-                    self.registry.invoke(spec.id.as_str(), arguments.clone())
+                    self.registry
+                        .invoke_as(spec.id.as_str(), arguments.clone(), &ctx.class)
+                        .1
                 }),
             },
             GateDecision::Deny(reason) => {
                 let err = CommandError::Failed(format!(
-                    "permission denied: `{}` is class {} and {reason}",
+                    "permission denied: `{}` is class {}{} and {reason}",
                     spec.id,
-                    spec.permission.as_str()
+                    ctx.class.class.as_str(),
+                    ctx.class
+                        .reason
+                        .as_deref()
+                        .map(|r| format!(" ({r})"))
+                        .unwrap_or_default()
                 ));
                 // Denied calls never reach the bus; record them so every tool call is audited.
-                self.registry.audit_log().record_call(
+                self.registry.audit_log().record_call_class(
                     spec.id.as_str(),
-                    Some(spec.permission),
+                    &ctx.class,
                     Outcome::Err(err.to_string()),
                     ctx.caller(),
                     Some(arguments.clone()),
@@ -307,7 +331,7 @@ impl McpServer {
         let record = ToolCallRecord {
             tool: name.to_owned(),
             command: Some(spec.id.clone()),
-            permission: Some(spec.permission),
+            permission: Some(ctx.class.class),
             arguments,
             outcome: outcome.clone().map_err(|e| e.to_string()),
             elapsed: started.elapsed(),

@@ -9,7 +9,8 @@
 //! Public API: the tool mapping in this module ([`tool_from_command`],
 //! [`tool_name`], [`mcp_output_schema`], [`take_image_content`] for outputs
 //! that carry an image, brief 0023), [`McpServer`] (the protocol, with the
-//! permission gate and the invoker hook the shell supplies), and [`transport`]
+//! permission gate and the invoker hook the shell supplies; the gate sees each
+//! call's effective class, ADR-0009), and [`transport`]
 //! (stdio serving, the IDE's local TCP endpoint and the stdio relay an agent
 //! launches). Hand-written rather than built on `rmcp`: four methods over the
 //! existing `eludite-protocol` types, no async runtime, and the schemas come
@@ -45,13 +46,20 @@ pub struct McpToolDescriptor {
     pub meta: ToolMeta,
 }
 
-/// The descriptor's `_meta`: which command a tool is and its permission class.
+/// The descriptor's `_meta`: which command a tool is, its declared permission class, and when a call is raised
+/// above it (ADR-0009).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolMeta {
     #[serde(rename = "eludite/command")]
     pub command: String,
     #[serde(rename = "eludite/permission")]
     pub permission: PermissionClass,
+    #[serde(
+        rename = "eludite/escalates",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub escalates: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,23 +95,26 @@ pub fn tool_from_command(spec: &CommandSpec) -> McpToolDescriptor {
         input_schema: strip_meta_keywords(spec.input_schema.clone()),
         output_schema: mcp_output_schema(spec),
         annotations: ToolAnnotations {
-            read_only_hint: spec.permission == PermissionClass::Read,
+            // A read command whose calls may escalate (`storage` with `clear`) is not read-only.
+            read_only_hint: spec.permission == PermissionClass::Read && spec.escalates().is_none(),
             destructive_hint: spec.permission == PermissionClass::Dangerous,
         },
         meta: ToolMeta {
             command: spec.id.to_string(),
             permission: spec.permission,
+            escalates: spec.escalates().map(str::to_owned),
         },
     }
 }
 
 /// Drop `$schema` and `$id` from a schema root. MCP defaults to JSON Schema
 /// 2020-12, and some clients' validators reject an explicit 2020-12 `$schema`
-/// or a duplicate `$id`.
+/// or a duplicate `$id`. `x-eludite-escalates` goes to `_meta` instead.
 fn strip_meta_keywords(mut schema: Value) -> Value {
     if let Some(obj) = schema.as_object_mut() {
         obj.remove("$schema");
         obj.remove("$id");
+        obj.remove(eludite_commands::ESCALATES_KEY);
     }
     schema
 }
