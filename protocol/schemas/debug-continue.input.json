@@ -7,6 +7,11 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "session": {
+      "description": "The debugging session to act on (brief 0028): its `id`, from eludite.debug.sessions or `sessions` in eludite.debug.state. Default: the active session, the one the Locals, Watch, Call Stack and Threads windows show and the execution point follows. An unknown or ended id is refused with the ids of the live sessions.",
+      "type": "integer",
+      "minimum": 1
+    },
     "stop": {
       "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
       "type": "integer",

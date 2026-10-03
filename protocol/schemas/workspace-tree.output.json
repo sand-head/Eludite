@@ -127,7 +127,7 @@
             "type": "string"
           },
           "startup": {
-            "description": "True for the startup project (eludite.workspace.set_startup_project; Workspace shows it in bold).",
+            "description": "True for a startup project (eludite.workspace.set_startup_project, one of the multiple startup projects of brief 0028 with an action other than `none`; Workspace shows each in bold).",
             "type": "boolean"
           }
         }

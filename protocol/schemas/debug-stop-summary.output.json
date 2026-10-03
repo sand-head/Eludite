@@ -14,6 +14,11 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "session": {
+      "description": "The session this summary describes (brief 0028): its id, as in eludite.debug.sessions. Absent before any session started.",
+      "type": "integer",
+      "minimum": 1
+    },
     "mode": {
       "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
       "enum": [
@@ -396,6 +401,40 @@
       "enum": [
         "user"
       ]
+    },
+    "sessions": {
+      "description": "A compound start's answer (eludite.debug.start with `compound`) that timed out before any session broke: every session of the compound with its mode.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "mode"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "design",
+              "building",
+              "launching",
+              "running",
+              "break",
+              "stopping",
+              "running_without_debugging"
+            ]
+          }
+        }
+      }
     }
   },
   "$defs": {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-start.input.json",
   "title": "eludite.debug.start input",
-  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A Cargo package (a member of the open folder's Cargo workspace, named by its package name or its Cargo.toml) builds through the Cargo build path (`cargo build -p <package>`, `--release` in the Release configuration) and runs its binary target (`target/debug/<name>`, or `target/release/<name>`) on every platform under lldb-dap, LLVM's LLDB debug adapter located on the machine (setting debugger.lldbDapPath; protocol/schemas/dap-lldb.md), with the Rust toolchain's LLDB formatters loaded (setting debugger.rustFormatters); `session.runtime` is `native`. Its arguments and environment come from `[package.metadata.eludite.run]` in its Cargo.toml (`args`, a list; `env`, a table); it runs in the workspace root, as `cargo run` does; Ctrl+F5 runs the executable. With `test`, the package's test executable is built (`cargo test --no-run -p <package>`) and debugged with `args` as the test filter and `--nocapture`, as `cargo test` passes them. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "description": "Debug > Start Debugging (F5) or Start Without Debugging (Ctrl+F5): build the startup project first (when the setting build.beforeRun is on, the default: eludite.build.project's build, streamed to the Output window) and, when the build succeeds, run its built program with its launchSettings.json profile's arguments and environment, with or without debugging (Ctrl+F5: its output in the Output window's Debug source). The adapter follows the project's target framework and the platform: a .NET (Core) project (`netcoreapp*`, `net5.0` and later) runs as `dotnet <dll>` under netcoredbg; a .NET Framework project (`net2*` to `net4*`, or a legacy project's TargetFrameworkVersion v2.0 to v4.8.1) runs on Linux and macOS as `mono <exe>` under eludite-dbg-mono (the Mono soft-debugger adapter, protocol/schemas/dap-mono.md) with the located Mono (setting debugger.monoPrefix), and on Windows is refused with a message until eludite-dbg-netfx (brief 0004) exists; Ctrl+F5 runs the .exe directly there. A Cargo package (a member of the open folder's Cargo workspace, named by its package name or its Cargo.toml) builds through the Cargo build path (`cargo build -p <package>`, `--release` in the Release configuration) and runs its binary target (`target/debug/<name>`, or `target/release/<name>`) on every platform under lldb-dap, LLVM's LLDB debug adapter located on the machine (setting debugger.lldbDapPath; protocol/schemas/dap-lldb.md), with the Rust toolchain's LLDB formatters loaded (setting debugger.rustFormatters); `session.runtime` is `native`. Its arguments and environment come from `[package.metadata.eludite.run]` in its Cargo.toml (`args`, a list; `env`, a table); it runs in the workspace root, as `cargo run` does; Ctrl+F5 runs the executable. With `test`, the package's test executable is built (`cargo test --no-run -p <package>`) and debugged with `args` as the test filter and `--nocapture`, as `cargo test` passes them. A failed or canceled build does not launch: the Error List comes forward and the status bar says why. Refused while a session is running or building (use eludite.debug.continue to resume a break). The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`. Several debugging sessions run at once (brief 0028): `compound` starts several projects, as Visual Studio's multiple startup projects do; without `project` and `compound`, a solution with multiple startup projects (eludite.workspace.set_startup_project's `projects`) starts them all (F5). A start while sessions run adds a session when it names projects that are not being debugged; a plain start is refused then. A compound builds once for the whole set (the project's build for one project, the solution's for several), then launches the projects in solution order, each its own session; its answer with `wait_ms` is the stop summary of the first session to break, or `running` with `sessions` (every session's mode) when none breaks within the wait.",
   "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "additionalProperties": false,
@@ -11,6 +11,42 @@
       "description": "The project to run: its path (absolute or relative to the solution folder) or its name as the Workspace window shows it. Default: the startup project (eludite.workspace.set_startup_project), else the solution's first executable project.",
       "type": "string",
       "minLength": 1
+    },
+    "compound": {
+      "description": "Start several projects, each in its own debugging session (brief 0028): `\"startup\"` for the solution's multiple startup projects with their actions (eludite.workspace.set_startup_project's `projects`; Start Without Debugging runs them all without the debugger), or a list of projects with their action. Not with `project`, `profile` or the Cargo options.",
+      "oneOf": [
+        {
+          "const": "startup"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": [
+              "project"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "project": {
+                "description": "The project: its path (absolute or relative to the solution folder) or its name as the Workspace window shows it.",
+                "type": "string",
+                "minLength": 1
+              },
+              "debug": {
+                "description": "False runs it without the debugger. Default true.",
+                "type": "boolean"
+              },
+              "profile": {
+                "description": "Its launchSettings.json profile.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "debug": {
       "description": "False runs without the debugger (Ctrl+F5). Default true.",

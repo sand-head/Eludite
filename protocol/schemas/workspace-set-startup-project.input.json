@@ -2,16 +2,41 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-set-startup-project.input.json",
   "title": "eludite.workspace.set_startup_project input",
-  "description": "Set as Startup Project (the Workspace window's context menu on a project or a Cargo package): the project F5 and Ctrl+F5 build and run. A .NET project of the open solution, or a member package of the open folder's Cargo workspace (debugged with lldb-dap: debug-start.input.json). It is kept per solution and per user (Visual Studio keeps it in the .suo), beside the solution's breakpoints under the config directory (for a folder with a Cargo workspace and no solution, beside the Cargo workspace's), and Workspace shows it in bold. Without one, the startup project is the solution's first executable project, else the Cargo workspace's first package with a binary target.",
+  "description": "Set as Startup Project (the Workspace window's context menu on a project or a Cargo package): the project F5 and Ctrl+F5 build and run. A .NET project of the open solution, or a member package of the open folder's Cargo workspace (debugged with lldb-dap: debug-start.input.json). With `projects` (Project > Set Startup Projects..., brief 0028): Visual Studio's multiple startup projects, each with its action; F5 starts every project whose action is `start` (debugged) or `start_without_debugging`, each in its own debugging session (eludite.debug.start with `compound: \"startup\"`). They are kept per solution and per user (Visual Studio keeps them in the .suo), beside the solution's breakpoints under the config directory (for a folder with a Cargo workspace and no solution, beside the Cargo workspace's), and Workspace shows every startup project in bold. Without a choice, the startup project is the solution's first executable project, else the Cargo workspace's first package with a binary target. Give `project` or `projects`; from the Project menu without either, the Startup Projects dialog opens.",
   "type": "object",
-  "required": [
-    "project"
-  ],
   "properties": {
     "project": {
-      "description": "The project: its name as Workspace shows it (a Cargo package's name), or the path of its project file or Cargo.toml (absolute, or relative to the solution folder or the open folder).",
+      "description": "The single startup project: its name as Workspace shows it (a Cargo package's name), or the path of its project file or Cargo.toml (absolute, or relative to the solution folder or the open folder). Not with `projects`.",
       "type": "string",
       "minLength": 1
+    },
+    "projects": {
+      "description": "Multiple startup projects (brief 0028): the projects with their action, in any order (they start in solution order). `start`: debugged; `start_without_debugging`: run without the debugger; `none`: not started (as leaving a project out). At least one project must have an action other than `none`. Replaces the single startup project.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "project",
+          "action"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "description": "As `project`: its name as Workspace shows it, or the path of its project file or Cargo.toml.",
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "start",
+              "start_without_debugging",
+              "none"
+            ]
+          }
+        }
+      }
     }
   },
   "additionalProperties": false
