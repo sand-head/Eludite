@@ -3131,11 +3131,14 @@ fn run_browser_step(
                 Some(t) => format!("Opened {url} in the Web Browser window (tab {t})."),
                 None => format!("Opened {url} in the system browser."),
             };
-            if let Some(l) = latency {
-                trace(format_args!(
+            match latency {
+                Some(l) => trace(format_args!(
                     "debug start: page opened {:.1} ms after the listening line",
                     l.as_secs_f64() * 1e3
-                ));
+                )),
+                None => trace(format_args!(
+                    "debug start: page opened (the url answered before the listening line was read)"
+                )),
             }
             send(
                 browser_row(&planned, Some(&url), tab, "opened", note),

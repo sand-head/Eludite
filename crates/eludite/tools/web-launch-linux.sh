@@ -71,7 +71,9 @@ answered=$(wait_line "debug start: http://" "$pressed" 180 || true)
 opened=$(wait_line "debug start: page opened" "$pressed" 60 || true)
 sleep "${PAINT:-4}"
 shot web-launch-page
-line=$(grep -a "debug start: page opened" "$out/eludite.err" | tail -1 | sed -E 's/.*opened ([0-9.]+) ms.*/\1/' || true)
+# The line-to-page time of the last opening (none when the url answered before Kestrel's line was read).
+opened_after() { grep -a "debug start: page opened" "$out/eludite.err" | tail -1 | sed -nE 's/.*opened ([0-9.]+) ms.*/\1/p'; }
+line=$(opened_after || true)
 pixel=$(grep -a "web browser: first page pixel" "$out/eludite.err" | tail -1 | sed -E 's/.*pixel ([0-9.]+) ms.*/\1/' || true)
 built=$(grep -a "debug start: build succeeded" "$out/eludite.err" | tail -1 | awk '{print $2}' || true)
 xdotool windowfocus --sync "$wid" 2>/dev/null || true
@@ -80,7 +82,7 @@ xdotool key ctrl+shift+F5
 reopened=$(wait_line "debug start: page opened" "$restart_pressed" 180 || true)
 sleep "${PAINT:-4}"
 shot web-launch-restarted
-restart_line=$(grep -a "debug start: page opened" "$out/eludite.err" | tail -1 | sed -E 's/.*opened ([0-9.]+) ms.*/\1/' || true)
+restart_line=$(opened_after || true)
 xdotool windowfocus --sync "$wid" 2>/dev/null || true
 xdotool key shift+F5
 sleep 3
