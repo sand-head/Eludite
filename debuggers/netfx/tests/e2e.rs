@@ -279,7 +279,15 @@ fn remote_client() {
     // The client's own path: the adapter maps it to the PDB's document by file name (no shared paths).
     let source = program_cs().display().to_string();
     let m = run_session(addr, pid, &source, line, || None, &|| None);
-    eprintln!("remote_client against {remote}: {m:?}");
+    eprintln!(
+        "RESULT remote_client against {remote}: attach->initialized {:.1} ms; counter {} then {}; \
+         stopped events {} (no shared clock, so no hit latency); adapter memory not sampled ({:?})",
+        m.attach_to_initialized.as_secs_f64() * 1000.0,
+        m.first_counter,
+        m.second_counter,
+        m.stopped_at.len(),
+        m.paused_working_set,
+    );
 }
 
 #[cfg(windows)]
