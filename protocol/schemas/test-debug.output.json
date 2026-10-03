@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-debug.output.json",
+  "title": "eludite.test.debug output",
+  "description": "The debugged tests and the session's stop summary.",
+  "type": "object",
+  "required": [
+    "run",
+    "project",
+    "tests",
+    "summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "description": "The test run's id: its results flow as for eludite.test.run (eludite.test.results).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "project": {
+      "type": "string"
+    },
+    "tests": {
+      "description": "The ids of the tests being debugged.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "breakpoint": {
+      "description": "The temporary function breakpoint that stops at the first test (deleted at its first stop).",
+      "type": "string"
+    },
+    "summary": {
+      "description": "The stop summary, as eludite.debug.snapshot and the resuming commands answer it (debug-stop-summary.output.json): the first stop, at the test's first line, with `session`; or `building`, `launching` or `running` when the wait ended first, or `design` with the reason the session could not start.",
+      "type": "object"
+    }
+  }
+}

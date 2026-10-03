@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-cancel.json",
+  "title": "eludite/test/cancel",
+  "description": "Cancel a discovery or run (the last started when `runId` is omitted). MTP: `$/cancelRequest` for the test application's `testing/discoverTests` or `testing/runTests` (Microsoft.Testing.Platform has no cancel method of its own), then the application's process tree is killed when it has not answered within 2 s (test frameworks cancel between tests, so a long test would otherwise finish first). VSTest: `TestExecution.Cancel` (or `TestDiscovery.Cancel`), then vstest.console's process tree is killed when the run has not completed within 2 s. Its `finished` update follows with state canceled.",
+  "x-eludite-method": "eludite/test/cancel",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "canceled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "canceled": {
+          "description": "Whether a discovery or run was running and is being canceled.",
+          "type": "boolean"
+        },
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

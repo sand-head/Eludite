@@ -10,6 +10,7 @@
     "Projects and Solutions > Build and Run",
     "Debugging > General",
     "Text Editor > Rust",
+    "Test > General",
     "Agents",
     "Web Browser"
   ],
@@ -122,6 +123,30 @@
       "x-eludite-section": "Text Editor > Rust",
       "x-eludite-label": "rust-analyzer executable",
       "x-eludite-env": "ELUDITE_RUST_ANALYZER"
+    },
+    "test.runSettings": {
+      "description": "A .runsettings file for .NET tests (Visual Studio's Test > Configure Run Settings): VSTest projects get its contents as the RunSettings of every discovery and run; Microsoft.Testing.Platform test applications get `--settings <path>`. A relative path is under the solution's folder. Empty: none.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "Run settings file"
+    },
+    "test.parallel": {
+      "description": "Run tests in parallel (Visual Studio's Run Tests In Parallel, off by default): VSTest runs its test assemblies side by side (`MaxCpuCount` 0); `cargo test` runs a package's tests on several threads, so only a failed test's output is shown (libtest captures the others'). Off: `cargo test` runs one test at a time with `--test-threads=1 --nocapture`, so every test's output is its own. Microsoft.Testing.Platform frameworks keep their own parallelization settings.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "Run tests in parallel"
+    },
+    "test.vstestConsolePath": {
+      "description": "The vstest.console.dll that discovers and runs VSTest projects (xunit 2, NUnit and MSTest projects that have not moved to Microsoft.Testing.Platform), run with `dotnet`. Empty: the one in the newest .NET SDK `dotnet --list-sdks` lists.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Test > General",
+      "x-eludite-label": "vstest.console.dll",
+      "x-eludite-env": "ELUDITE_VSTEST_CONSOLE"
     },
     "agents.default": {
       "description": "The name of the agent the Agents window selects at start. Empty: the first one (the native Claude Code adapter when found).",

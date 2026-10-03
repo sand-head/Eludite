@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/diagnostics-list.input.json",
   "title": "diagnostics.list input",
-  "description": "List the diagnostics currently shown in the Error List: errors, warnings and messages, each with its file, line, column, code and message, and its source (the last build, the live analysis, or both). Optionally filter by severity and source.",
+  "description": "List the diagnostics currently shown in the Error List: errors, warnings and messages, each with its file, line, column, code and message, and its source (the last build, the live analysis, both, or the last test run's failures). Optionally filter by severity and source.",
   "type": "object",
   "properties": {
     "severity": {
@@ -14,10 +14,11 @@
       ]
     },
     "source": {
-      "description": "Only return diagnostics from this source: build (the last build's, including those the live analysis reports too) or live (the language server's and the solution load's, including those the build reports too). Omit to return all.",
+      "description": "Only return diagnostics from this source: build (the last build's, including those the live analysis reports too), live (the language server's and the solution load's, including those the build reports too) or test (the last test run's failures). Omit to return all.",
       "enum": [
         "build",
-        "live"
+        "live",
+        "test"
       ]
     }
   },

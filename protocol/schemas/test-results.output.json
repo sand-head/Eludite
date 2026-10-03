@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-results.output.json",
+  "title": "eludite.test.results output",
+  "description": "A page of a run's results.",
+  "type": "object",
+  "required": [
+    "run",
+    "state",
+    "summary",
+    "results",
+    "total",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "enum": [
+        "building",
+        "discovering",
+        "running",
+        "passed",
+        "failed",
+        "canceled"
+      ]
+    },
+    "summary": {
+      "description": "Counts over the tests the run covers, and its time so far.",
+      "type": "object",
+      "required": [
+        "total",
+        "passed",
+        "failed",
+        "skipped",
+        "not_run"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_run": {
+          "description": "Not reported yet (still to run, or canceled before they ran).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "project",
+          "outcome"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "description": "The fully qualified name (with a data row's arguments: the display name).",
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "not_run",
+              "running"
+            ]
+          },
+          "duration_ms": {
+            "type": "number",
+            "minimum": 0
+          },
+          "message": {
+            "description": "The failure message or the skip reason, cut at the budget (`truncated`).",
+            "type": "string"
+          },
+          "stack_trace": {
+            "type": "string"
+          },
+          "output": {
+            "description": "What the test wrote (eludite.test.results only), cut at `max_output_chars`.",
+            "type": "string"
+          },
+          "source": {
+            "description": "The file and line of the failure's first stack frame in the project, else where the test is declared.",
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "truncated": {
+            "description": "The message, stack trace or output was cut.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "Results matching the input in all.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "next_cursor": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  }
+}
