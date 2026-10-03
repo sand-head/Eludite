@@ -239,3 +239,160 @@ mod tests {
         assert_eq!(enter[0]["text"], "\r");
     }
 }
+
+// ---- the Web Browser window's keys (brief 0032) ----
+
+/// A key the Web Browser window forwards to the embedded engine (`tab/input` key events): GPUI's name for it, the
+/// Windows virtual key code CEF takes on every platform, the X11 key code of the US layout CEF reads the DOM `code`
+/// from on Linux, and the DOM `key` and `code` the page sees (unshifted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShellKey {
+    pub gpui: &'static str,
+    pub windows: i64,
+    pub x11: i64,
+    pub dom_key: &'static str,
+    pub dom_code: &'static str,
+}
+
+const fn k(
+    gpui: &'static str,
+    windows: i64,
+    x11: i64,
+    dom_key: &'static str,
+    dom_code: &'static str,
+) -> ShellKey {
+    ShellKey {
+        gpui,
+        windows,
+        x11,
+        dom_key,
+        dom_code,
+    }
+}
+
+/// Every key the window sends, by GPUI key name (letters and digits on the US layout's positions).
+pub const SHELL_KEYS: &[ShellKey] = &[
+    k("backspace", 8, 22, "Backspace", "Backspace"),
+    k("tab", 9, 23, "Tab", "Tab"),
+    k("enter", 13, 36, "Enter", "Enter"),
+    k("escape", 27, 9, "Escape", "Escape"),
+    k("space", 32, 65, " ", "Space"),
+    k("pageup", 33, 112, "PageUp", "PageUp"),
+    k("pagedown", 34, 117, "PageDown", "PageDown"),
+    k("end", 35, 115, "End", "End"),
+    k("home", 36, 110, "Home", "Home"),
+    k("left", 37, 113, "ArrowLeft", "ArrowLeft"),
+    k("up", 38, 111, "ArrowUp", "ArrowUp"),
+    k("right", 39, 114, "ArrowRight", "ArrowRight"),
+    k("down", 40, 116, "ArrowDown", "ArrowDown"),
+    k("insert", 45, 118, "Insert", "Insert"),
+    k("delete", 46, 119, "Delete", "Delete"),
+    k("menu", 93, 135, "ContextMenu", "ContextMenu"),
+    k("0", 48, 19, "0", "Digit0"),
+    k("1", 49, 10, "1", "Digit1"),
+    k("2", 50, 11, "2", "Digit2"),
+    k("3", 51, 12, "3", "Digit3"),
+    k("4", 52, 13, "4", "Digit4"),
+    k("5", 53, 14, "5", "Digit5"),
+    k("6", 54, 15, "6", "Digit6"),
+    k("7", 55, 16, "7", "Digit7"),
+    k("8", 56, 17, "8", "Digit8"),
+    k("9", 57, 18, "9", "Digit9"),
+    k("a", 65, 38, "a", "KeyA"),
+    k("b", 66, 56, "b", "KeyB"),
+    k("c", 67, 54, "c", "KeyC"),
+    k("d", 68, 40, "d", "KeyD"),
+    k("e", 69, 26, "e", "KeyE"),
+    k("f", 70, 41, "f", "KeyF"),
+    k("g", 71, 42, "g", "KeyG"),
+    k("h", 72, 43, "h", "KeyH"),
+    k("i", 73, 31, "i", "KeyI"),
+    k("j", 74, 44, "j", "KeyJ"),
+    k("k", 75, 45, "k", "KeyK"),
+    k("l", 76, 46, "l", "KeyL"),
+    k("m", 77, 58, "m", "KeyM"),
+    k("n", 78, 57, "n", "KeyN"),
+    k("o", 79, 32, "o", "KeyO"),
+    k("p", 80, 33, "p", "KeyP"),
+    k("q", 81, 24, "q", "KeyQ"),
+    k("r", 82, 27, "r", "KeyR"),
+    k("s", 83, 39, "s", "KeyS"),
+    k("t", 84, 28, "t", "KeyT"),
+    k("u", 85, 30, "u", "KeyU"),
+    k("v", 86, 55, "v", "KeyV"),
+    k("w", 87, 25, "w", "KeyW"),
+    k("x", 88, 53, "x", "KeyX"),
+    k("y", 89, 29, "y", "KeyY"),
+    k("z", 90, 52, "z", "KeyZ"),
+    k("f1", 112, 67, "F1", "F1"),
+    k("f2", 113, 68, "F2", "F2"),
+    k("f3", 114, 69, "F3", "F3"),
+    k("f4", 115, 70, "F4", "F4"),
+    k("f5", 116, 71, "F5", "F5"),
+    k("f6", 117, 72, "F6", "F6"),
+    k("f7", 118, 73, "F7", "F7"),
+    k("f8", 119, 74, "F8", "F8"),
+    k("f9", 120, 75, "F9", "F9"),
+    k("f10", 121, 76, "F10", "F10"),
+    k("f11", 122, 95, "F11", "F11"),
+    k("f12", 123, 96, "F12", "F12"),
+    k(";", 186, 47, ";", "Semicolon"),
+    k("=", 187, 21, "=", "Equal"),
+    k(",", 188, 59, ",", "Comma"),
+    k("-", 189, 20, "-", "Minus"),
+    k(".", 190, 60, ".", "Period"),
+    k("/", 191, 61, "/", "Slash"),
+    k("`", 192, 49, "`", "Backquote"),
+    k("[", 219, 34, "[", "BracketLeft"),
+    k("\\", 220, 51, "\\", "Backslash"),
+    k("]", 221, 35, "]", "BracketRight"),
+    k("'", 222, 48, "'", "Quote"),
+];
+
+/// The window's key for a GPUI key name (`a`, `A`, `enter`, `f5`).
+pub fn shell_key(gpui: &str) -> Option<&'static ShellKey> {
+    let lower = gpui.to_ascii_lowercase();
+    SHELL_KEYS.iter().find(|k| k.gpui == lower)
+}
+
+#[cfg(test)]
+mod shell_key_tests {
+    use super::*;
+
+    #[test]
+    fn the_shell_key_table_is_complete_and_unambiguous() {
+        let mut names: Vec<_> = SHELL_KEYS.iter().map(|k| k.gpui).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), SHELL_KEYS.len(), "one row per key");
+        let mut x11: Vec<_> = SHELL_KEYS.iter().map(|k| k.x11).collect();
+        x11.sort_unstable();
+        x11.dedup();
+        assert_eq!(x11.len(), SHELL_KEYS.len(), "one X11 key code per key");
+        for c in ('a'..='z').chain('0'..='9') {
+            assert!(shell_key(&c.to_string()).is_some(), "{c}");
+        }
+        assert_eq!(shell_key("A").unwrap().windows, 65);
+        assert_eq!(shell_key("enter").unwrap().x11, 36);
+        assert_eq!(shell_key("f12").unwrap().windows, 123);
+        // The same codes the agent's key table (input) uses.
+        for name in [
+            "Enter",
+            "Tab",
+            "Escape",
+            "Backspace",
+            "ArrowLeft",
+            "Home",
+            "F5",
+        ] {
+            let d = key_def(name, false);
+            assert!(
+                SHELL_KEYS
+                    .iter()
+                    .any(|k| k.windows == d.key_code && k.dom_code == d.code),
+                "{name}"
+            );
+        }
+        assert!(shell_key("fly").is_none());
+    }
+}
