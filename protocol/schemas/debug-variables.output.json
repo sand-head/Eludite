@@ -65,7 +65,7 @@
           "minimum": 0
         },
         "evaluate_name": {
-          "description": "An expression that evaluates to this value.",
+          "description": "An expression that evaluates to this value; absent when it is `name` itself (most locals and parameters).",
           "type": "string"
         },
         "indexed": {

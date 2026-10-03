@@ -263,7 +263,7 @@
       }
     },
     "watches": {
-      "description": "The Watch window's expressions evaluated in the frame (in break mode).",
+      "description": "The Watch window's expressions with the values it shows, which are the selected frame's: listed when the summary is of that frame (evaluating them in another frame would run code).",
       "type": "array",
       "maxItems": 100,
       "items": {
@@ -418,7 +418,7 @@
           "minimum": 0
         },
         "evaluate_name": {
-          "description": "An expression that evaluates to this value.",
+          "description": "An expression that evaluates to this value; absent when it is `name` itself (most locals and parameters).",
           "type": "string"
         },
         "indexed": {
