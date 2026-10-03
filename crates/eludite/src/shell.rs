@@ -452,14 +452,21 @@ impl Shell {
         // The Build menu's start items are disabled while a build runs, Cancel only then (brief 0017).
         let building = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let menu_building = building.clone();
+        // The Debug menu's Restart and Attach to Process... follow the session, and Allow Agents to Drive is a check
+        // item (brief 0027).
+        let debug_menu = Arc::new(debug::DebugMenuState::default());
+        let (menu_debug, menu_checked) = (debug_menu.clone(), debug_menu.clone());
         let menu = cx.new(|_| {
-            menu_bar_with(theme, vs_keymap(), move |cmd| {
+            let mut m = menu_bar_with(theme, vs_keymap(), move |cmd| {
                 registry.lookup(cmd).is_some()
                     && build::menu_enabled(
                         cmd,
                         menu_building.load(std::sync::atomic::Ordering::SeqCst),
                     )
-            })
+                    && menu_debug.enabled(cmd)
+            });
+            m.set_checked(Rc::new(move |cmd| menu_checked.checked(cmd)));
+            m
         });
         // Document tabs saved in a layout have no editor behind them after a restart.
         controller.retain_documents(|id| id == WELCOME);
@@ -491,7 +498,14 @@ impl Shell {
             browser_log,
         } = services;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
-        let (debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
+        let (mut debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
+        debugger.menu = debug_menu;
+        // The attach hook knows which processes this shell started, before any agent runs too (brief 0027).
+        let launched = debugger.launched_processes();
+        commands.set_policy_source(Arc::new(move || eludite_commands::policy::PolicySnapshot {
+            launched: launched.clone(),
+            ..Default::default()
+        }));
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
@@ -1741,10 +1755,11 @@ impl Render for Shell {
                     .child(self.build_toolbar(cx)),
             )
             .child(self.dock.clone())
-            .child(self.status.render(&t))
+            .child(self.status.render_with(&t, self.debug_status_controls(cx)))
             .children(self.navigation.picker.clone())
             .children(self.rename.dialog.clone())
             .children(self.options.clone())
+            .children(self.debug.attach_dialog.clone())
             .children(self.code_actions.menu.clone())
     }
 }
