@@ -34,6 +34,9 @@ jobs:
             libwayland-dev libxkbcommon-x11-dev libvulkan-dev \
             libfontconfig1-dev libssl-dev libgit2-dev \
             pkg-config cmake clang xvfb
+          # Brief 0033: the DAP corpus's re-record check (below) runs the real adapters: eludite-dbg-mono under Mono
+          # and lldb-dap 18.
+          sudo apt-get install -y --no-install-recommends mono-devel lldb-18
 
       # With no arguments, rustup installs the toolchain (and components)
       # pinned in rust-toolchain.toml.
@@ -132,6 +135,43 @@ jobs:
       - name: Debug proving scenario
         shell: bash
         run: cargo test --workspace ${{ env.CEF_FEATURES }} -- a_scripted_agent_finds the_corpus_programs --nocapture
+
+      # Brief 0033: the DAP conformance tests replay the recorded sessions in corpus/dap through the shell on every
+      # platform with no adapter installed (they ran in the test step; this runs them alone and prints their times).
+      - name: DAP conformance corpus
+        shell: bash
+        run: cargo test --workspace ${{ env.CEF_FEATURES }} -- "conformance_tests::" --nocapture
+
+      # The corpus is kept honest: Linux re-records the Mono and lldb-dap sessions from the real adapters and fails
+      # when one differs from the checked-in recording beyond timing (an adapter upgrade or a shell change). Re-record
+      # with tools/dap-corpus/record.sh and review the diff.
+      - name: Re-record the DAP corpus (Mono, lldb-dap)
+        if: runner.os == 'Linux'
+        env:
+          RECORD_DAP: ${{ runner.temp }}/dap-corpus
+        run: |
+          # lldb-dap attaches to a process it did not start (lldb/attach-detach); Ubuntu's Yama policy lets only a
+          # process's ancestors attach unless ptrace_scope is 0.
+          sudo sysctl -w kernel.yama.ptrace_scope=0
+          tools/dap-corpus/record.sh --check mono lldb
+
+      # netcoredbg cannot be downloaded where the corpus was first recorded: Linux records its sessions here and
+      # uploads them (artifact dap-corpus-netcoredbg) to be reviewed and checked in under corpus/dap/netcoredbg.
+      # It does not fail the job until those first recordings are checked in.
+      - name: Record the DAP corpus (netcoredbg)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        env:
+          RECORD_DAP: ${{ runner.temp }}/dap-corpus
+        run: tools/dap-corpus/record.sh --check netcoredbg
+
+      - name: Upload the DAP recordings
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dap-corpus-netcoredbg
+          path: ${{ runner.temp }}/dap-corpus/netcoredbg
+          if-no-files-found: warn
 
   dotnet:
     name: dotnet (${{ matrix.os }})
