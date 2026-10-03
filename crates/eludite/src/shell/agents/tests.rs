@@ -1332,14 +1332,18 @@ impl Ws {
     }
 }
 
-/// The summary budget of brief 0025, and brief 0030's for a whole scenario's answers.
+/// The summary budget of brief 0025, brief 0034's for a whole scenario's answers (brief 0030's was 40 KB) and for the
+/// compact `toggle_breakpoint` answer.
 const SUMMARY_BUDGET: usize = 8 * 1024;
-const SCENARIO_BUDGET: usize = 40 * 1024;
+const SCENARIO_BUDGET: usize = 30 * 1024;
+const TOGGLE_BUDGET: usize = 500;
 
-/// Brief 0030's scripted scenario for corpus program `program`: the fake agent, given the proving prompt, debugs it
-/// through Eludite's MCP tools (`steps` step_overs after its breakpoint's stop) against the adapter found here; the test
-/// checks the stop against the README's answer, counts the debug calls from the audit log (at most eight), the
-/// answers' sizes (each summary under 8 KB, all under 40 KB) and the time (under 15 s, adapter launches included).
+/// Brief 0030's scripted scenario for corpus program `program`, re-run by brief 0034 with the new answers: the fake
+/// agent, given the proving prompt, debugs it through Eludite's MCP tools (`steps` step_overs after its breakpoint's
+/// stop) against the adapter found here; the test checks the stop against the README's answer, counts the debug calls
+/// from the audit log (seven or fewer: the threshold is eight), the answers' sizes (each summary under 8 KB, the
+/// `toggle_breakpoint` answer under 500 bytes, all under 30 KB, no `(null)`) and the time (under 15 s, adapter launches
+/// included).
 fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
     let dir = corpus().join(program);
     let project = dir.join(format!("{program}.csproj"));
@@ -1460,7 +1464,7 @@ fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
     }
     println!("  answers: {total} bytes in all\n  the agent's answer: {text}");
     assert_eq!(audited.len(), p.calls.len(), "{audited:?}");
-    assert!(debug_calls.len() <= 8, "{debug_calls:?}");
+    assert!(debug_calls.len() <= 7, "{debug_calls:?}");
 
     // The stop: the README's statement, with the locals that show the bug.
     let last = p.last.clone().expect("a stop summary");
@@ -1497,6 +1501,17 @@ fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
             c.tool,
             c.bytes
         );
+        if c.tool == "eludite-debug-toggle_breakpoint" {
+            assert!(
+                c.bytes < TOGGLE_BUDGET,
+                "toggle_breakpoint answered {} bytes",
+                c.bytes
+            );
+        }
+        // One spelling of null on every adapter (brief 0034).
+        if let Ok(r) = &c.result {
+            assert!(!r.to_string().contains("\"(null)\""), "{}: {r}", c.tool);
+        }
     }
     assert!(total < SCENARIO_BUDGET, "{total} bytes");
     assert!(took < Duration::from_secs(15), "{took:?}");
