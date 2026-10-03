@@ -270,6 +270,16 @@ impl BrowserWindow {
 
     // ---- what tests and the run read ----
 
+    /// Where the shown page is drawn (window coordinates), for `--bounds-out` (the Xvfb run clicks into the page).
+    pub fn painted_bounds(&self, cx: &App) -> Vec<(&'static str, gpui::Bounds<gpui::Pixels>)> {
+        self.shown_target()
+            .and_then(|t| self.surfaces.get(&t))
+            .and_then(|s| s.read(cx).bounds())
+            .map(|b| vec![("web-browser-page", b)])
+            .unwrap_or_default()
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -296,39 +306,48 @@ impl BrowserWindow {
         out
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn driving(&self) -> &[String] {
         &self.driving
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn prompts(&self) -> &[Prompt] {
         &self.prompts
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn context_menu(&self) -> Option<&ContextMenu> {
         self.menu.as_ref()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn address(&self) -> &str {
         &self.address
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn history(&self) -> &[String] {
         &self.history
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn status_line(&self) -> &str {
         &self.status
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn ran(&self) -> &[(String, Value)] {
         &self.ran
     }
 
     /// Replace the address bar's text, as typing does.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn type_address(&mut self, text: &str, cx: &mut Context<Self>) {
         self.address = text.to_owned();
         self.address_edited = true;
@@ -439,7 +458,7 @@ impl BrowserWindow {
     /// Whether the shown page painted since the open at `at` (and then record it); false while waiting, true when
     /// done (found, or the window reopened since).
     fn find_first_pixel(&mut self, at: Instant, cx: &mut Context<Self>) -> bool {
-        let Some((opened, running)) = self.opened_at else {
+        let Some((opened, _)) = self.opened_at else {
             return true;
         };
         if opened != at || self.first_pixel.is_some() {
@@ -484,9 +503,11 @@ impl BrowserWindow {
                 self.on_notification(&method, &params, window, cx)
             }
             WindowEvent::DevtoolsOpened { page, devtools } => {
+                let page_log = page.clone();
                 if !self.devtools.iter().any(|(_, d)| *d == devtools) {
                     self.devtools.push((page, devtools.clone()));
                 }
+                eprintln!("eludite: web browser: devtools opened for {page_log}");
                 self.shown_devtools = Some(devtools);
                 self.focus_page(window, cx);
             }
@@ -520,7 +541,17 @@ impl BrowserWindow {
                     }
                 }
             }
-            WindowEvent::Driving(agents) => self.driving = agents,
+            WindowEvent::Driving(agents) => {
+                if agents != self.driving {
+                    // The Xvfb run (tools/browser_window.py) reads these.
+                    if agents.is_empty() {
+                        eprintln!("eludite: web browser: nobody is driving");
+                    } else {
+                        eprintln!("eludite: web browser: driving: {}", agents.join(", "));
+                    }
+                }
+                self.driving = agents;
+            }
         }
         cx.notify();
     }
@@ -667,6 +698,10 @@ impl BrowserWindow {
                     on_password: false,
                     mode: p["mode"].as_str().unwrap_or("open").to_owned(),
                 });
+                eprintln!(
+                    "eludite: web browser: dialog {} shown",
+                    self.prompts.last().map_or("", |p| p.kind.as_str())
+                );
                 if self.open {
                     window.focus(&self.prompt_focus, cx);
                 }
