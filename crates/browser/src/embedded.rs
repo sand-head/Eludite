@@ -20,7 +20,7 @@
 //!   dialogs, permission prompts, downloads, context menus, closed tabs) reach an [`EngineObserver`] the shell sets
 //!   ([`EmbeddedChromium::set_observer`]) as [`EngineEvent`]s, with [`EngineEvent::Started`] handing it a
 //!   [`TabControl`] to draw and drive the tabs with. Dialogs and prompts are also kept here, so `dialog` and `input`
-//!   see them ([`Engine::pending_dialog`]); downloads are written to the Output window through the log.
+//!   see them ([`Engine::pending_dialog`]); [`download_line`] is a download's line for the Output window.
 //!
 //! Linux only so far: macOS (`shm_open` over the same socket) and Windows (named file mappings) are specified in
 //! browser-rpc.md; on them [`Engine::launch`] fails with a message.
@@ -227,6 +227,29 @@ pub const WINDOW_NOTIFICATIONS: [&str; 9] = [
     "tab/contextMenu",
     "tab/closed",
 ];
+
+/// The Output window's line for a `tab/download` notification: its end (complete, refused, canceled, interrupted);
+/// `None` for its start and progress, which only the Web Browser window shows.
+pub fn download_line(p: &Value) -> Option<String> {
+    let url = p["url"].as_str().unwrap_or_default();
+    Some(match p["state"].as_str().unwrap_or_default() {
+        "complete" => format!(
+            "Downloaded {url} to {} ({} bytes)",
+            p["path"].as_str().unwrap_or_default(),
+            p["receivedBytes"].as_u64().unwrap_or(0)
+        ),
+        "refused" => format!(
+            "Refused the download of {url}: {}",
+            p["message"].as_str().unwrap_or("over the limit")
+        ),
+        "canceled" => format!("The download of {url} was canceled"),
+        "interrupted" => format!(
+            "The download of {url} stopped: {}",
+            p["message"].as_str().unwrap_or("interrupted")
+        ),
+        _ => return None,
+    })
+}
 
 /// A tab's state as the engine last reported it (`tab/state`, `tab/cursor`, `tab/popup`, DevTools).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -642,7 +665,6 @@ struct Control {
     stdin: Mutex<Option<ChildStdin>>,
     /// The Web Browser window's ears (brief 0032).
     observer: Option<EngineObserver>,
-    log: Option<LogSink>,
     /// Dialogs and prompts pages wait on, by the engine's id.
     prompts: Mutex<BTreeMap<u64, (String, PendingDialog)>>,
     next_id: AtomicU64,
@@ -837,7 +859,6 @@ impl Control {
                     lock(&self.prompts).remove(&id);
                 }
             }
-            "tab/download" => self.download_line(p),
             "tab/closed" => {
                 lock(&self.subscribers).remove(&tab);
                 lock(&self.prompts).retain(|_, (t, _)| *t != tab);
@@ -857,30 +878,6 @@ impl Control {
                 params: p.clone(),
             });
         }
-    }
-
-    /// A download's end goes to the Output window (its start and progress only to the window).
-    fn download_line(&self, p: &Value) {
-        let Some(log) = &self.log else { return };
-        let url = p["url"].as_str().unwrap_or_default();
-        let line = match p["state"].as_str().unwrap_or_default() {
-            "complete" => format!(
-                "Downloaded {url} to {} ({} bytes)",
-                p["path"].as_str().unwrap_or_default(),
-                p["receivedBytes"].as_u64().unwrap_or(0)
-            ),
-            "refused" => format!(
-                "Refused the download of {url}: {}",
-                p["message"].as_str().unwrap_or("over the limit")
-            ),
-            "canceled" => format!("The download of {url} was canceled"),
-            "interrupted" => format!(
-                "The download of {url} stopped: {}",
-                p["message"].as_str().unwrap_or("interrupted")
-            ),
-            _ => return,
-        };
-        log(&line);
     }
 
     /// The first dialog or prompt `tab`'s page waits on.
@@ -1258,7 +1255,6 @@ impl EmbeddedChromium {
         let control = Arc::new(Control {
             stdin: Mutex::new(Some(stdin)),
             observer: self.observer.clone(),
-            log: Some(self.log.clone()),
             prompts: Mutex::default(),
             next_id: AtomicU64::new(0),
             pending: Mutex::default(),
@@ -1646,6 +1642,17 @@ impl TabControl {
     /// The dialog or prompt `tab`'s page waits on.
     pub fn pending_dialog(&self, tab: &str) -> Option<PendingDialog> {
         self.0.pending(tab)
+    }
+
+    /// Close a tab (the Web Browser window's DevTools tab, which no command closes); never waits: the request runs on
+    /// a thread of its own.
+    pub fn close(&self, tab: &str) {
+        let (c, tab) = (self.0.clone(), tab.to_owned());
+        let _ = std::thread::Builder::new()
+            .name("chromium-close-tab".into())
+            .spawn(move || {
+                let _ = c.request("tab/close", json!({"tab": tab}), DEFAULT_TIMEOUT);
+            });
     }
 
     /// The open tabs, in the engine's order.
@@ -2052,6 +2059,28 @@ mod tests {
     }
 
     #[test]
+    fn a_downloads_end_makes_an_output_line_and_its_progress_none() {
+        let line = |v: Value| download_line(&v);
+        assert_eq!(
+            line(
+                json!({"url": "http://h/a.zip", "state": "complete", "path": "/w/.eludite/browser/downloads/a.zip",
+                "receivedBytes": 12})
+            ),
+            Some(
+                "Downloaded http://h/a.zip to /w/.eludite/browser/downloads/a.zip (12 bytes)"
+                    .into()
+            )
+        );
+        assert!(
+            line(json!({"url": "u", "state": "refused", "message": "over 100 MB"}))
+                .unwrap()
+                .contains("over 100 MB")
+        );
+        assert!(line(json!({"url": "u", "state": "progress"})).is_none());
+        assert!(line(json!({"url": "u", "state": "started"})).is_none());
+    }
+
+    #[test]
     fn the_pinned_version_is_the_fetch_scripts() {
         let pin = include_str!("../../../tools/cef/PIN");
         let version = pin
@@ -2103,7 +2132,6 @@ mod tests {
         let c = Control {
             stdin: Mutex::new(None),
             observer: None,
-            log: None,
             prompts: Mutex::default(),
             next_id: AtomicU64::new(0),
             pending: Mutex::default(),

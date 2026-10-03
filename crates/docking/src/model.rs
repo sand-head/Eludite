@@ -67,6 +67,11 @@ pub mod ids {
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
+    /// The Web Browser window (brief 0032): View > Other Windows > Web Browser.
+    pub const WEB_BROWSER: &str = "web_browser";
+    /// Windows that open as a document tab, as Visual Studio opens its Web Browser in the document well: `view.show`
+    /// opens them there (id and title), and they close like documents.
+    pub const DOCUMENT_WINDOWS: [(&str, &str); 1] = [(WEB_BROWSER, "Web Browser")];
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.

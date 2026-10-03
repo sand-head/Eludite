@@ -148,6 +148,13 @@ impl Shell {
                         &s.string("browser.viewport"),
                     )
                     .unwrap_or(eludite_browser::EngineConfig::VIEWPORT),
+                    engine: eludite_browser::EngineChoice::from_setting(
+                        &s.string("browser.engine"),
+                    ),
+                    home_page: Some(s.string("browser.homePage"))
+                        .filter(|h| !h.trim().is_empty())
+                        .unwrap_or_else(|| "about:blank".into()),
+                    show_devtools_tab: s.bool("browser.showDevToolsTab"),
                 },
             }
         };

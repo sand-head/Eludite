@@ -148,6 +148,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 show("Output", "output"),
                 show("Properties Window", "properties"),
                 show("Toolbox", "toolbox"),
+                // Visual Studio's View > Other Windows > Web Browser (brief 0032): a document tab.
+                show("Other Windows > Web Browser", "web_browser"),
                 Separator,
                 item("Navigate Backward", "eludite.navigation.back"),
                 item("Navigate Forward", "eludite.navigation.forward"),
@@ -644,6 +646,7 @@ mod tests {
         assert!(shortcuts.contains(&("Workspace", Some("Ctrl+Alt+L"))));
         assert!(shortcuts.contains(&("Error List", Some("Ctrl+\\, Ctrl+E"))));
         assert!(shortcuts.contains(&("Command Palette", None)));
+        assert!(shortcuts.contains(&("Other Windows > Web Browser", None)));
         let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
         let shortcuts: Vec<_> = build
             .entries
