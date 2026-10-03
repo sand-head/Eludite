@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-attached.json",
+  "title": "eludite/test/attached",
+  "description": "The shell's answer to an `attach` update of a debug run (VSTest): whether its debug adapter attached to the testhost. The host answers vstest.console's `TestExecution.EditorAttachDebugger2` with `TestExecution.EditorAttachDebuggerCallback` (`Attached`, `ErrorMessage`), and the testhost runs the tests (under the debugger when attached). A debug run whose attach is not answered within 60 s is answered as not attached.",
+  "x-eludite-method": "eludite/test/attached",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "runId",
+        "processId",
+        "attached"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "processId": {
+          "description": "The `processId` of the attach update.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "attached": {
+          "type": "boolean"
+        },
+        "message": {
+          "description": "Why the adapter did not attach.",
+          "type": "string"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "accepted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "description": "False when the run is over or was not waiting for that process.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

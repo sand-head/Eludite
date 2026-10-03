@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-cancel.input.json",
+  "title": "eludite.test.cancel input",
+  "description": "Cancel a test run or discovery (the Test Explorer's Cancel): MTP `$/cancelRequest` and VSTest `TestExecution.Cancel` in eludite-host, the cargo test process group killed. A debugged run is canceled with its debugging session (Stop Debugging).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "description": "The run's id. Omitted: the one going.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}
