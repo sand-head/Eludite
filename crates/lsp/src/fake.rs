@@ -95,6 +95,38 @@ struct State {
     build_survives_restart: bool,
     /// The last finished build's `eludite/build/status` `last` member.
     last_build: Option<Value>,
+    /// `eludite/test/*` (brief 0035).
+    tests: FakeTests,
+}
+
+#[derive(Default)]
+struct FakeTests {
+    /// `[{ "container": <test-discover.json container>, "tests": [<test item>...] }]`.
+    catalogue: Vec<Value>,
+    /// Result members by test id (`outcome`, `message`, `stackTrace`, `output`, `durationMs`); unlisted tests pass.
+    outcomes: serde_json::Map<String, Value>,
+    hold: bool,
+    survives_restart: bool,
+    next_id: u64,
+    running: Option<FakeTestRun>,
+    last: Option<Value>,
+    discoveries: u64,
+}
+
+#[derive(Debug, Clone)]
+struct FakeTestRun {
+    id: u64,
+    generation: Generation,
+    kind: &'static str,
+    debug: bool,
+    containers: Vec<Value>,
+    /// Requested test ids per container id.
+    requested: Vec<(String, Vec<String>)>,
+    seq: u64,
+    /// For `eludite/test/status`: tests sent (with their container) and the latest result per test.
+    tests: Vec<Value>,
+    results: Vec<Value>,
+    started: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +202,9 @@ impl FakeHost {
                 s.solution = None;
                 if !s.build_survives_restart {
                     s.build = None;
+                }
+                if !s.tests.survives_restart {
+                    s.tests.running = None;
                 }
             }
             thread::Builder::new()
@@ -468,6 +503,380 @@ impl FakeHost {
         );
     }
 
+    /// The test containers and their tests (brief 0035): `[{ "container": {...}, "tests": [...] }]`.
+    pub fn set_tests(&self, catalogue: Value) {
+        self.lock().tests.catalogue = catalogue.as_array().cloned().unwrap_or_default();
+    }
+
+    /// Result members by test id for the runs that are not held (`{"t1": {"outcome": "failed", "message": ...}}`).
+    pub fn set_test_outcomes(&self, outcomes: Value) {
+        self.lock().tests.outcomes = outcomes.as_object().cloned().unwrap_or_default();
+    }
+
+    /// When true, runs wait for [`FakeHost::test_results`] and [`FakeHost::finish_test_run`].
+    pub fn set_hold_test_runs(&self, hold: bool) {
+        self.lock().tests.hold = hold;
+    }
+
+    /// When true, the running discovery or run outlives a restart of the fake.
+    pub fn set_test_survives_restart(&self, survives: bool) {
+        self.lock().tests.survives_restart = survives;
+    }
+
+    /// The discovery or run that is going: its id.
+    pub fn running_test_run(&self) -> Option<u64> {
+        self.lock().tests.running.as_ref().map(|r| r.id)
+    }
+
+    /// How many discoveries the fake answered.
+    pub fn test_discoveries(&self) -> u64 {
+        self.lock().tests.discoveries
+    }
+
+    /// Sends a `results` update of the running run for `container` (`results`: test-update.json result items).
+    pub fn test_results(&self, container: &str, results: Value) {
+        self.test_update(
+            json!({"kind": "results", "container": container, "results": results}),
+            true,
+        );
+    }
+
+    /// Records a `results` update of the running run without sending it (one the shell missed while it was away).
+    pub fn test_results_unsent(&self, container: &str, results: Value) {
+        self.test_update(
+            json!({"kind": "results", "container": container, "results": results}),
+            false,
+        );
+    }
+
+    /// Sends an `output` update of the running run.
+    pub fn test_output(&self, text: &str) {
+        self.test_update(json!({"kind": "output", "text": text}), true);
+    }
+
+    /// Ends the running discovery or run with `state` (`completed`, `failed`, `canceled`): each container finishes,
+    /// then the run, with the summary over what it reported.
+    pub fn finish_test_run(&self, state: &str) {
+        let run = self.lock().tests.running.clone();
+        let Some(run) = run else { return };
+        for (container, _) in &run.requested {
+            let count = run
+                .results
+                .iter()
+                .chain(run.tests.iter())
+                .filter(|r| r["container"] == json!(container))
+                .count();
+            self.test_update(
+                json!({"kind": "containerFinished", "container": container, "state": state, "count": count}),
+                true,
+            );
+        }
+        let run = self.lock().tests.running.clone().expect("still running");
+        let total: usize = if run.kind == "discover" {
+            run.tests.len()
+        } else {
+            run.requested.iter().map(|(_, t)| t.len()).sum()
+        };
+        let count = |o: &str| run.results.iter().filter(|r| r["outcome"] == o).count();
+        let (passed, failed, skipped) = if run.kind == "discover" {
+            (0, 0, 0)
+        } else {
+            (count("passed"), count("failed"), count("skipped"))
+        };
+        let not_run = if run.kind == "discover" {
+            0
+        } else {
+            total.saturating_sub(passed + failed + skipped)
+        };
+        let summary = json!({"total": total, "passed": passed, "failed": failed, "skipped": skipped,
+                             "notRun": not_run});
+        let elapsed = run.started.elapsed().as_secs_f64() * 1e3;
+        self.test_update(
+            json!({"kind": "finished", "state": state, "summary": summary, "elapsedMs": elapsed}),
+            true,
+        );
+        let mut s = self.lock();
+        s.tests.last = Some(
+            json!({"runId": run.id, "kind": run.kind, "generation": run.generation,
+                                   "state": state, "summary": summary, "elapsedMs": elapsed}),
+        );
+        s.tests.running = None;
+    }
+
+    /// Numbers `update` as the running run's next one, records it for `eludite/test/status`, and sends it (unless
+    /// `send` is false).
+    fn test_update(&self, mut update: Value, send: bool) {
+        let update = {
+            let mut s = self.lock();
+            let Some(run) = s.tests.running.as_mut() else {
+                return;
+            };
+            update["runId"] = json!(run.id);
+            update["generation"] = json!(run.generation);
+            update["seq"] = json!(run.seq);
+            run.seq += 1;
+            let container = update["container"].clone();
+            for t in update["tests"].as_array().into_iter().flatten() {
+                run.tests.push(json!({"container": container, "test": t}));
+            }
+            for r in update["results"].as_array().into_iter().flatten() {
+                let mut r = r.clone();
+                r["container"] = container.clone();
+                run.results
+                    .retain(|x| !(x["id"] == r["id"] && x["container"] == container));
+                run.results.push(r);
+            }
+            update
+        };
+        if send {
+            self.notify(methods::TEST_UPDATE, update);
+        }
+    }
+
+    fn answer_test(
+        &self,
+        method: &str,
+        params: &Value,
+        reply: &dyn Fn(Value),
+        error: &dyn Fn(i64, &str, Option<Value>),
+    ) {
+        match method {
+            methods::TEST_STATUS => {
+                let s = self.lock();
+                let running: Vec<Value> = s
+                    .tests
+                    .running
+                    .iter()
+                    .map(|r| {
+                        let mut v = json!({"runId": r.id, "kind": r.kind, "generation": r.generation,
+                                           "containers": r.containers,
+                                           "elapsedMs": r.started.elapsed().as_secs_f64() * 1e3,
+                                           "nextSeq": r.seq, "tests": r.tests, "results": r.results});
+                        if r.debug {
+                            v["debug"] = json!(true);
+                        }
+                        v
+                    })
+                    .collect();
+                let mut result = json!({"running": running});
+                if let Some(last) = &s.tests.last {
+                    result["last"] = last.clone();
+                }
+                drop(s);
+                reply(result);
+            }
+            methods::TEST_CANCEL => {
+                let running = self.running_test_run();
+                match running {
+                    Some(id) if params["runId"].as_u64().is_none_or(|w| w == id) => {
+                        reply(json!({"canceled": true, "runId": id}));
+                        self.finish_test_run("canceled");
+                    }
+                    _ => reply(json!({"canceled": false})),
+                }
+            }
+            methods::TEST_ATTACHED => {
+                let accepted = self
+                    .running_test_run()
+                    .is_some_and(|id| params["runId"].as_u64() == Some(id));
+                reply(json!({"accepted": accepted}));
+            }
+            methods::TEST_DISCOVER => {
+                let (generation, solution, catalogue) = {
+                    let s = self.lock();
+                    (s.generation, s.solution.clone(), s.tests.catalogue.clone())
+                };
+                if solution.is_none() {
+                    return error(-32602, "no solution is open", None);
+                }
+                let containers: Vec<Value> =
+                    catalogue.iter().map(|c| c["container"].clone()).collect();
+                let id = {
+                    let mut s = self.lock();
+                    s.tests.next_id += 1;
+                    s.tests.discoveries += 1;
+                    let id = s.tests.next_id;
+                    s.tests.running = Some(FakeTestRun {
+                        id,
+                        generation,
+                        kind: "discover",
+                        debug: false,
+                        containers: containers.clone(),
+                        requested: catalogue
+                            .iter()
+                            .map(|c| {
+                                (
+                                    c["container"]["id"].as_str().unwrap_or_default().to_owned(),
+                                    vec![],
+                                )
+                            })
+                            .collect(),
+                        seq: 0,
+                        tests: vec![],
+                        results: vec![],
+                        started: Instant::now(),
+                    });
+                    id
+                };
+                reply(json!({"runId": id, "generation": generation, "containers": containers}));
+                for c in &catalogue {
+                    self.test_update(
+                        json!({"kind": "output", "container": c["container"]["id"],
+                               "text": format!("Discovering {}\n", c["container"]["name"].as_str().unwrap_or_default())}),
+                        true,
+                    );
+                    self.test_update(
+                        json!({"kind": "discovered", "container": c["container"]["id"], "tests": c["tests"]}),
+                        true,
+                    );
+                }
+                self.finish_test_run("completed");
+            }
+            _ => self.run_tests(params, reply, error),
+        }
+    }
+
+    fn run_tests(
+        &self,
+        params: &Value,
+        reply: &dyn Fn(Value),
+        error: &dyn Fn(i64, &str, Option<Value>),
+    ) {
+        let (generation, catalogue, running, hold) = {
+            let s = self.lock();
+            if s.solution.is_none() {
+                drop(s);
+                return error(-32602, "no solution is open", None);
+            }
+            (
+                s.generation,
+                s.tests.catalogue.clone(),
+                s.tests.running.clone(),
+                s.tests.hold,
+            )
+        };
+        let named: Vec<(String, Option<Vec<String>>)> = match params["containers"].as_array() {
+            Some(list) => list
+                .iter()
+                .map(|c| {
+                    (
+                        c["id"].as_str().unwrap_or_default().to_owned(),
+                        c["tests"].as_array().map(|t| {
+                            t.iter()
+                                .filter_map(|x| x.as_str().map(str::to_owned))
+                                .collect()
+                        }),
+                    )
+                })
+                .collect(),
+            None => catalogue
+                .iter()
+                .map(|c| {
+                    (
+                        c["container"]["id"].as_str().unwrap_or_default().to_owned(),
+                        None,
+                    )
+                })
+                .collect(),
+        };
+        let mut requested = Vec::new();
+        let mut containers = Vec::new();
+        for (id, tests) in named {
+            let Some(c) = catalogue.iter().find(|c| c["container"]["id"] == json!(id)) else {
+                return error(
+                    -32602,
+                    &format!("{id} is not a test container of the open solution"),
+                    None,
+                );
+            };
+            if let Some(r) = &running
+                && r.kind == "run"
+                && r.requested.iter().any(|(rc, _)| *rc == id)
+            {
+                return error(
+                    host::error_codes::TEST_RUN_IN_PROGRESS,
+                    "a run is running it",
+                    Some(json!({"runId": r.id, "container": id})),
+                );
+            }
+            let all: Vec<String> = c["tests"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|t| t["id"].as_str().map(str::to_owned))
+                .collect();
+            requested.push((id.clone(), tests.unwrap_or(all)));
+            containers.push(c["container"].clone());
+        }
+        let debug = params["debug"].as_bool().unwrap_or(false);
+        if debug && requested.len() != 1 {
+            return error(-32602, "a debug run names exactly one container", None);
+        }
+        let id = {
+            let mut s = self.lock();
+            s.tests.next_id += 1;
+            let id = s.tests.next_id;
+            s.tests.running = Some(FakeTestRun {
+                id,
+                generation,
+                kind: "run",
+                debug,
+                containers: containers.clone(),
+                requested: requested.clone(),
+                seq: 0,
+                tests: vec![],
+                results: vec![],
+                started: Instant::now(),
+            });
+            id
+        };
+        let ids: Vec<&String> = requested.iter().map(|(c, _)| c).collect();
+        let mut answer = json!({"runId": id, "generation": generation, "containers": ids});
+        if debug {
+            answer["debug"] = json!(true);
+        }
+        reply(answer);
+        if debug {
+            let c = &containers[0];
+            if c["protocol"] == "vstest" {
+                self.test_update(
+                    json!({"kind": "attach", "container": c["id"], "processId": 4242}),
+                    true,
+                );
+            } else {
+                let runtime = c["runtime"].as_str().unwrap_or("dotnet");
+                self.test_update(
+                    json!({"kind": "launch", "container": c["id"],
+                           "launch": {"program": c["program"], "args": ["--server", "--client-port", "40000"],
+                                      "cwd": "/", "env": {"TESTINGPLATFORM_TELEMETRY_OPTOUT": "1"},
+                                      "runtime": runtime}}),
+                    true,
+                );
+            }
+            return;
+        }
+        if hold {
+            return;
+        }
+        let outcomes = self.lock().tests.outcomes.clone();
+        for (container, tests) in &requested {
+            let results: Vec<Value> = tests
+                .iter()
+                .map(|t| {
+                    let mut r = json!({"id": t, "outcome": "passed", "durationMs": 1.0});
+                    if let Some(o) = outcomes.get(t).and_then(Value::as_object) {
+                        for (k, v) in o {
+                            r[k] = v.clone();
+                        }
+                    }
+                    r
+                })
+                .collect();
+            self.test_results(container, json!(results));
+        }
+        self.finish_test_run("completed");
+    }
+
     /// Sends any notification to the shell.
     pub fn notify(&self, method: &str, params: Value) {
         let writer = self.lock().writer.clone();
@@ -670,6 +1079,11 @@ impl FakeHost {
                     _ => reply(json!({"canceled": false})),
                 }
             }
+            methods::TEST_DISCOVER
+            | methods::TEST_RUN
+            | methods::TEST_CANCEL
+            | methods::TEST_ATTACHED
+            | methods::TEST_STATUS => self.answer_test(method, params, &reply, &error),
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>
             {

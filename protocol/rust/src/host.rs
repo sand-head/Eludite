@@ -45,6 +45,17 @@ pub mod methods {
     pub const BUILD_PROGRESS: &str = "eludite/build/progress";
     /// Host-to-shell notification, one per accepted build.
     pub const BUILD_FINISHED: &str = "eludite/build/finished";
+    /// Discover tests (brief 0035).
+    pub const TEST_DISCOVER: &str = "eludite/test/discover";
+    /// Run tests, or debug them (brief 0035).
+    pub const TEST_RUN: &str = "eludite/test/run";
+    pub const TEST_CANCEL: &str = "eludite/test/cancel";
+    /// The shell's answer to a debug run's `attach` update.
+    pub const TEST_ATTACHED: &str = "eludite/test/attached";
+    /// The discoveries and runs going, for a shell that (re)connects.
+    pub const TEST_STATUS: &str = "eludite/test/status";
+    /// Host-to-shell notification: the next piece of a discovery or run.
+    pub const TEST_UPDATE: &str = "eludite/test/update";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -59,6 +70,11 @@ pub mod methods {
         BUILD_START,
         BUILD_CANCEL,
         BUILD_STATUS,
+        TEST_DISCOVER,
+        TEST_RUN,
+        TEST_CANCEL,
+        TEST_ATTACHED,
+        TEST_STATUS,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -111,6 +127,7 @@ pub mod methods {
         BUILD_OUTPUT,
         BUILD_PROGRESS,
         BUILD_FINISHED,
+        TEST_UPDATE,
     ];
 
     /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
@@ -129,6 +146,8 @@ pub mod error_codes {
     pub const REQUEST_FAILED: i64 = -32803;
     /// `eludite/build/start` while a build runs (data: [`super::BuildInProgressData`]).
     pub const BUILD_IN_PROGRESS: i64 = -32010;
+    /// `eludite/test/run` naming a container a run is running (data: [`super::TestRunInProgressData`]).
+    pub const TEST_RUN_IN_PROGRESS: i64 = -32012;
 }
 
 /// The `hostName` value every conforming host reports.
@@ -846,6 +865,402 @@ pub enum BuildFinishedNotification {}
 impl NotificationType for BuildFinishedNotification {
     const METHOD: &'static str = methods::BUILD_FINISHED;
     type Params = BuildFinished;
+}
+
+// Tests (brief 0035): `eludite/test/*`, see host-rpc.md "Tests".
+
+/// How a test container is discovered and run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestProtocol {
+    /// Microsoft.Testing.Platform's server mode.
+    Mtp,
+    /// The VSTest translation-layer protocol.
+    Vstest,
+}
+
+/// What runs a container's tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestRuntime {
+    Dotnet,
+    Mono,
+    Netfx,
+}
+
+/// One test container: a test project built for one target framework.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestContainer {
+    /// `<absolute project path>|<target framework>`.
+    pub id: String,
+    pub name: String,
+    pub project: String,
+    pub target_framework: String,
+    pub protocol: TestProtocol,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<TestRuntime>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Why it cannot be discovered or run (not built, no Mono).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `eludite/test/discover` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestDiscoverParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_settings: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vstest_console_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestDiscoverResult {
+    pub run_id: u64,
+    pub generation: Generation,
+    pub containers: Vec<TestContainer>,
+}
+
+/// A container of `eludite/test/run` and, optionally, which of its tests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRunContainer {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<Vec<String>>,
+}
+
+/// `eludite/test/run` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRunParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub containers: Option<Vec<TestRunContainer>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parallel: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_settings: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vstest_console_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRunResult {
+    pub run_id: u64,
+    pub generation: Generation,
+    pub containers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCancelParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestCancelResult {
+    pub canceled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<u64>,
+}
+
+/// `eludite/test/attached` params: the shell's answer to an `attach` update.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestAttachedParams {
+    pub run_id: u64,
+    pub process_id: u32,
+    pub attached: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestAttachedResult {
+    pub accepted: bool,
+}
+
+/// `data` of a -32012 TestRunInProgress error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestRunInProgressData {
+    pub run_id: u64,
+    pub container: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestTrait {
+    pub name: String,
+    pub value: String,
+}
+
+/// A discovered test (host-rpc.md, "Tests", the model).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestItem {
+    /// The runner's id, unique in its container.
+    pub id: String,
+    pub display_name: String,
+    /// `Namespace.Class.Method`, without a data row's arguments.
+    pub fully_qualified_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub traits: Vec<TestTrait>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestOutcome {
+    Running,
+    Passed,
+    Failed,
+    Skipped,
+    NotRun,
+}
+
+/// A test's state in a run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestResultItem {
+    pub id: String,
+    /// `eludite/test/status` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    pub outcome: TestOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack_trace: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    /// Only for a test discovery did not list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fully_qualified_name: Option<String>,
+}
+
+/// How to start a test application under a debug adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestLaunch {
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: String,
+    pub env: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<TestRuntime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestUpdateKind {
+    Discovered,
+    Results,
+    Output,
+    Launch,
+    Attach,
+    ContainerFinished,
+    Finished,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestState {
+    Completed,
+    Failed,
+    Canceled,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestSummary {
+    pub total: u32,
+    pub passed: u32,
+    pub failed: u32,
+    pub skipped: u32,
+    pub not_run: u32,
+}
+
+/// `eludite/test/update` params: `kind` says which members are present.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestUpdate {
+    pub run_id: u64,
+    pub generation: Generation,
+    pub seq: u64,
+    pub kind: TestUpdateKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tests: Option<Vec<TestItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub results: Option<Vec<TestResultItem>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<TestLaunch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<TestState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<TestSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl TestUpdate {
+    /// An update of `kind` with no optional member (tests fill them in).
+    pub fn new(run_id: u64, generation: Generation, seq: u64, kind: TestUpdateKind) -> Self {
+        Self {
+            run_id,
+            generation,
+            seq,
+            kind,
+            container: None,
+            tests: None,
+            results: None,
+            text: None,
+            launch: None,
+            process_id: None,
+            state: None,
+            count: None,
+            summary: None,
+            elapsed_ms: None,
+            message: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestJobKind {
+    Discover,
+    Run,
+}
+
+/// A running discovery's test with its container.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStatusTest {
+    pub container: String,
+    pub test: TestItem,
+}
+
+/// `eludite/test/status`: a discovery or run that is going, with what it reported so far.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStatusRunning {
+    pub run_id: u64,
+    pub kind: TestJobKind,
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debug: Option<bool>,
+    pub containers: Vec<TestContainer>,
+    pub elapsed_ms: f64,
+    /// The seq of its next update: apply updates from this seq on.
+    pub next_seq: u64,
+    pub tests: Vec<TestStatusTest>,
+    pub results: Vec<TestResultItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStatusLast {
+    pub run_id: u64,
+    pub kind: TestJobKind,
+    pub generation: Generation,
+    pub state: TestState,
+    pub summary: TestSummary,
+    pub elapsed_ms: f64,
+}
+
+/// `eludite/test/status` result.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestStatusResult {
+    pub running: Vec<TestStatusRunning>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last: Option<TestStatusLast>,
+}
+
+request!(
+    /// `eludite/test/discover` (brief 0035).
+    TestDiscover,
+    methods::TEST_DISCOVER,
+    TestDiscoverParams,
+    TestDiscoverResult
+);
+request!(
+    /// `eludite/test/run` (brief 0035).
+    TestRun,
+    methods::TEST_RUN,
+    TestRunParams,
+    TestRunResult
+);
+request!(
+    /// `eludite/test/cancel` (brief 0035).
+    TestCancel,
+    methods::TEST_CANCEL,
+    TestCancelParams,
+    TestCancelResult
+);
+request!(
+    /// `eludite/test/attached` (brief 0035).
+    TestAttached,
+    methods::TEST_ATTACHED,
+    TestAttachedParams,
+    TestAttachedResult
+);
+request!(
+    /// `eludite/test/status` (brief 0035).
+    TestStatus,
+    methods::TEST_STATUS,
+    (),
+    TestStatusResult
+);
+
+/// `eludite/test/update` (host to shell).
+#[derive(Debug)]
+pub enum TestUpdateNotification {}
+impl NotificationType for TestUpdateNotification {
+    const METHOD: &'static str = methods::TEST_UPDATE;
+    type Params = TestUpdate;
 }
 
 #[cfg(test)]

@@ -161,6 +161,7 @@ fn every_schema_file_names_a_documented_method() {
         methods::BUILD_OUTPUT,
         methods::BUILD_PROGRESS,
         methods::BUILD_FINISHED,
+        methods::TEST_UPDATE,
     ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
@@ -548,6 +549,11 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::BuildStart>(),
         req::<host::BuildCancel>(),
         req::<host::BuildStatus>(),
+        req::<host::TestDiscover>(),
+        req::<host::TestRun>(),
+        req::<host::TestCancel>(),
+        req::<host::TestAttached>(),
+        req::<host::TestStatus>(),
     ];
     assert!(
         eludite
@@ -572,6 +578,7 @@ fn typed_marker_methods_match_the_method_lists() {
         host::BuildOutputNotification::METHOD,
         host::BuildProgressNotification::METHOD,
         host::BuildFinishedNotification::METHOD,
+        host::TestUpdateNotification::METHOD,
     ] {
         assert!(methods::HOST_TO_SHELL.contains(&m), "{m}");
     }
@@ -1066,4 +1073,219 @@ fn rename_code_action_and_apply_edit_conform_to_their_schemas() {
         "createFile",
         json!({"kind": "rename", "uri": "file:///a.cs"}),
     );
+}
+
+#[test]
+fn test_messages_conform_to_their_schemas() {
+    use host::*;
+    let container = TestContainer {
+        id: "/s/T/T.csproj|net10.0".into(),
+        name: "T (net10.0)".into(),
+        project: "/s/T/T.csproj".into(),
+        target_framework: "net10.0".into(),
+        protocol: TestProtocol::Mtp,
+        runtime: Some(TestRuntime::Dotnet),
+        program: Some("/s/T/bin/Debug/net10.0/T.dll".into()),
+        error: None,
+    };
+    conforms("test-discover.json", "container", &container);
+    conforms(
+        "test-discover.json",
+        "params",
+        &TestDiscoverParams {
+            projects: Some(vec!["/s/T/T.csproj".into()]),
+            configuration: Some("Debug".into()),
+            run_settings: None,
+            vstest_console_path: Some("/sdk/vstest.console.dll".into()),
+        },
+    );
+    conforms(
+        "test-discover.json",
+        "params",
+        &TestDiscoverParams::default(),
+    );
+    rejects("test-discover.json", "params", json!({"project": "/a"}));
+    conforms(
+        "test-discover.json",
+        "result",
+        &TestDiscoverResult {
+            run_id: 1,
+            generation: 2,
+            containers: vec![container.clone()],
+        },
+    );
+    rejects(
+        "test-discover.json",
+        "container",
+        json!({"id": "a", "name": "a", "project": "a", "targetFramework": "net10.0", "protocol": "nunit"}),
+    );
+    conforms(
+        "test-run.json",
+        "params",
+        &TestRunParams {
+            containers: Some(vec![TestRunContainer {
+                id: container.id.clone(),
+                tests: Some(vec!["u1".into()]),
+            }]),
+            debug: Some(true),
+            parallel: Some(false),
+            ..Default::default()
+        },
+    );
+    conforms(
+        "test-run.json",
+        "result",
+        &TestRunResult {
+            run_id: 3,
+            generation: 2,
+            containers: vec![container.id.clone()],
+            debug: Some(true),
+        },
+    );
+    conforms(
+        "test-run.json",
+        "testRunInProgress",
+        &TestRunInProgressData {
+            run_id: 3,
+            container: container.id.clone(),
+        },
+    );
+    conforms("test-cancel.json", "params", &TestCancelParams::default());
+    conforms(
+        "test-cancel.json",
+        "result",
+        &TestCancelResult {
+            canceled: true,
+            run_id: Some(3),
+        },
+    );
+    conforms(
+        "test-attached.json",
+        "params",
+        &TestAttachedParams {
+            run_id: 3,
+            process_id: 4242,
+            attached: false,
+            message: Some("no adapter".into()),
+        },
+    );
+    conforms(
+        "test-attached.json",
+        "result",
+        &TestAttachedResult { accepted: true },
+    );
+    rejects(
+        "test-attached.json",
+        "params",
+        json!({"runId": 3, "attached": true}),
+    );
+
+    let item = TestItem {
+        id: "u1".into(),
+        display_name: "N.C.AddsPairs(a: 1)".into(),
+        fully_qualified_name: "N.C.AddsPairs".into(),
+        namespace: Some("N".into()),
+        class_name: Some("C".into()),
+        method: Some("AddsPairs".into()),
+        source: Some("/s/T/C.cs".into()),
+        line: Some(14),
+        traits: vec![TestTrait {
+            name: "Category".into(),
+            value: "Math".into(),
+        }],
+    };
+    let result = TestResultItem {
+        id: "u1".into(),
+        container: None,
+        outcome: TestOutcome::Failed,
+        duration_ms: Some(2.5),
+        message: Some("boom".into()),
+        stack_trace: Some("at N.C.M() in /s/T/C.cs:line 20".into()),
+        output: Some("out\n".into()),
+        display_name: None,
+        fully_qualified_name: None,
+    };
+    let mut discovered = TestUpdate::new(1, 2, 0, TestUpdateKind::Discovered);
+    discovered.container = Some(container.id.clone());
+    discovered.tests = Some(vec![item.clone()]);
+    conforms("test-update.json", "params", &discovered);
+    let mut results = TestUpdate::new(3, 2, 1, TestUpdateKind::Results);
+    results.container = Some(container.id.clone());
+    results.results = Some(vec![result.clone()]);
+    conforms("test-update.json", "params", &results);
+    let mut launch = TestUpdate::new(3, 2, 2, TestUpdateKind::Launch);
+    launch.launch = Some(TestLaunch {
+        program: "/s/T/bin/Debug/net10.0/T.dll".into(),
+        args: vec!["--server".into()],
+        cwd: "/s/T".into(),
+        env: [(
+            "TESTINGPLATFORM_TELEMETRY_OPTOUT".to_owned(),
+            "1".to_owned(),
+        )]
+        .into(),
+        runtime: Some(TestRuntime::Dotnet),
+    });
+    conforms("test-update.json", "params", &launch);
+    let mut finished = TestUpdate::new(3, 2, 3, TestUpdateKind::Finished);
+    finished.state = Some(TestState::Canceled);
+    finished.summary = Some(TestSummary {
+        total: 2,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        not_run: 1,
+    });
+    finished.elapsed_ms = Some(12.0);
+    conforms("test-update.json", "params", &finished);
+    let v = serde_json::to_value(&finished).unwrap();
+    assert_eq!(v["summary"]["notRun"], 1);
+    assert_eq!(v["kind"], "finished");
+    assert_eq!(
+        serde_json::to_value(TestUpdateKind::ContainerFinished).unwrap(),
+        json!("containerFinished")
+    );
+    assert_eq!(
+        serde_json::to_value(TestOutcome::NotRun).unwrap(),
+        json!("notRun")
+    );
+    rejects(
+        "test-update.json",
+        "params",
+        json!({"runId": 1, "generation": 0, "seq": 0, "kind": "progress"}),
+    );
+
+    conforms("test-status.json", "params", &());
+    conforms("test-status.json", "result", &TestStatusResult::default());
+    let status = TestStatusResult {
+        running: vec![TestStatusRunning {
+            run_id: 3,
+            kind: TestJobKind::Run,
+            generation: 2,
+            debug: None,
+            containers: vec![container.clone()],
+            elapsed_ms: 40.0,
+            next_seq: 2,
+            tests: vec![TestStatusTest {
+                container: container.id.clone(),
+                test: item,
+            }],
+            results: vec![TestResultItem {
+                container: Some(container.id.clone()),
+                ..result
+            }],
+        }],
+        last: Some(TestStatusLast {
+            run_id: 1,
+            kind: TestJobKind::Discover,
+            generation: 2,
+            state: TestState::Completed,
+            summary: TestSummary::default(),
+            elapsed_ms: 300.0,
+        }),
+    };
+    conforms("test-status.json", "result", &status);
+    let back: TestStatusResult =
+        serde_json::from_value(serde_json::to_value(&status).unwrap()).unwrap();
+    assert_eq!(back, status);
+    rejects("test-status.json", "result", json!({}));
 }

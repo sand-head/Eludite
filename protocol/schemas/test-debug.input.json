@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-debug.input.json",
   "title": "eludite.test.debug input",
-  "description": "Debug tests (Test > Debug All Tests, Ctrl+R, Ctrl+A; the Test Explorer's Debug; Debug Tests, Ctrl+R, Ctrl+T): build first (the build gate of F5), then start a debugging session (brief 0028) named after the project and marked as a test session, running the tests under the project's adapter: a Microsoft.Testing.Platform test application with `--server --client-port <port>` under netcoredbg (.NET) or eludite-dbg-mono (.NET Framework off Windows), eludite-host connecting back so results still flow; a VSTest project's testhost, which vstest.console starts paused, with netcoredbg attached to it (a brief 0027 attach); a Cargo package's test executable under lldb-dap with `--exact` filters and `--test-threads=1` (eludite.debug.start's `test: true`). A temporary function breakpoint on the first test of the set (`Namespace.Class.Method`, or `crate::module::test`) stops the session at the test's first line; it is deleted at that first stop. The tests must be of one project. Without `ids` and `filter`, every test of `project` (Debug All Tests: of the first test project). The answer is the stop summary; continue with the eludite.debug.* commands, whose `session` is the summary's.",
+  "description": "Debug tests (Test > Debug All Tests, Ctrl+R, Ctrl+A; the Test Explorer's Debug; Debug Tests, Ctrl+R, Ctrl+T): build first (the build gate of F5), then start a debugging session (brief 0028) named after the project and marked as a test session, running the tests under the project's adapter: a Microsoft.Testing.Platform test application with `--server --client-port <port>` under netcoredbg (.NET) or eludite-dbg-mono (.NET Framework off Windows), eludite-host connecting back so results still flow; a VSTest project's testhost, which vstest.console starts paused, with netcoredbg attached to it (a brief 0027 attach); a Cargo package's test executable under lldb-dap with `--exact` filters and `--test-threads=1` (eludite.debug.start's `test: true`). A temporary function breakpoint on the first test of the set (`Namespace.Class.Method`, or `crate::module::test`) stops the session at the test's first line; it is deleted at that first stop. The tests must be of one project. Without `ids`, `filter` and `selection`, every test of `project` (Debug All Tests: of the first test project). The answer is the stop summary; continue with the eludite.debug.* commands, whose `session` is the summary's.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -24,6 +24,10 @@
       "description": "A test project or Cargo package: its name as the Test Explorer shows it (`Corpus.XunitV3`, `Corpus.XunitV3 (net472)` for one target framework of a multi-targeted project, a Cargo package such as `corpus-tests`), or the path of its project file or Cargo.toml (absolute, or relative to the solution or workspace folder). Omitted: every test project and package.",
       "type": "string",
       "minLength": 1
+    },
+    "selection": {
+      "description": "Debug Tests (Ctrl+R, Ctrl+T): the tests under the Test Explorer's selected node, else the test whose declaration is nearest above the active editor's caret.",
+      "type": "boolean"
     },
     "wait_ms": {
       "description": "How long to wait for the build, the launch and the first stop, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 30000.",
