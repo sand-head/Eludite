@@ -923,6 +923,7 @@ fn launch_thread(job: LaunchJob) {
         kind: StartKind::Launch,
         arguments,
         breakpoints,
+        function_breakpoints: Vec::new(),
         exception_filters: filters,
     };
     let result = dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());

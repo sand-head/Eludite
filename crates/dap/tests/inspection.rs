@@ -38,6 +38,7 @@ fn start(
                 })
                 .collect(),
         )],
+        function_breakpoints: Vec::new(),
         exception_filters: filters.iter().map(|f| (*f).to_owned()).collect(),
     };
     session::start(&client, &plan, T).unwrap();
