@@ -11,9 +11,9 @@
     "Debugging > General",
     "Text Editor > Rust",
     "Test > General",
-    "Source Control > Git Global Settings",
     "Agents",
-    "Web Browser"
+    "Web Browser",
+    "Source Control > Git Global Settings"
   ],
   "properties": {
     "keyboard.preset": {
