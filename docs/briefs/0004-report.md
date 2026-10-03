@@ -1,8 +1,8 @@
 # Brief 0004 report: ICorDebug proof over a TCP DAP transport
 
 Status: done on Windows 11, loopback and a non-loopback address on the same machine. The second-machine run (exit
-criterion 2) is still owed. Linux and macOS: not run (no machines). CI: not run (nothing pushed).
-Branch: `brief/0004-icordebug-dap-spike`, based on `main` at `a8214dc`. Date: 2026-10-03.
+criterion 2) is still owed. Linux and macOS: not run (no machines). CI: not run (GitHub Actions refused every job; see the Windows checklist).
+Branch: written on `brief/0004-icordebug-dap-spike` and merged with the Windows checklist run (`windows-run`). Date: 2026-10-03.
 Brief: [0004-icordebug-dap-spike.md](0004-icordebug-dap-spike.md).
 
 ## 1. Summary
