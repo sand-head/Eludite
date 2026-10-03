@@ -1,6 +1,6 @@
 //! The Agents window's transcript model: a flat list of rows, so the virtualized GPUI `list` re-measures only the rows
-//! that changed (brief 0005's finding: agent text is one row per line, and while it streams only the last line
-//! changes). Tool calls fold every `tool_call_update`, their permission request, the Eludite MCP call that served them
+//! that changed (brief 0005's finding). Agent text is Markdown, one row per top-level block ([`AgentText`]): while it
+//! streams only the last block changes and is parsed again; a block is complete once the next one starts. Tool calls fold every `tool_call_update`, their permission request, the Eludite MCP call that served them
 //! (with its audit entry) and the pending changes they produced into one row.
 //!
 //! Brief 0027: an agent's debug command (`eludite.debug.*`) reads as the person would see it in the Debug toolbar and
@@ -25,6 +25,7 @@ use eludite_acp::protocol::{
     Usage,
 };
 use eludite_commands::PermissionClass;
+use eludite_ui::markdown::{self, Block};
 use eludite_ui::transcript::ToolStatus;
 use serde_json::{Value, json};
 
@@ -444,8 +445,8 @@ fn suffix(reason: &str) -> String {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Row {
     User(String),
-    /// One line of agent text.
-    Agent(String),
+    /// One top-level Markdown block of agent text.
+    Agent(AgentText),
     Thought {
         text: String,
         expanded: bool,
@@ -456,6 +457,23 @@ pub enum Row {
     Usage(TurnUsage),
     Notice(String),
     Error(String),
+}
+
+/// One top-level block of the agent's Markdown: its source, exactly as streamed (with the blank lines after it), and
+/// the blocks parsed from it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentText {
+    pub source: String,
+    pub blocks: Vec<Block>,
+}
+
+impl AgentText {
+    fn new(source: &str) -> Self {
+        Self {
+            source: source.to_owned(),
+            blocks: markdown::parse(source),
+        }
+    }
 }
 
 /// A turn's usage as its line shows it (brief 0034).
@@ -560,7 +578,7 @@ pub struct Splice {
 pub struct Transcript {
     pub rows: Vec<Row>,
     tools: HashMap<String, usize>,
-    /// The last row is an agent line still receiving text.
+    /// The last row is an agent block still receiving text.
     agent_open: bool,
     thought_open: bool,
     dirty_from: Option<usize>,
@@ -577,7 +595,7 @@ impl Transcript {
     }
 
     fn push(&mut self, row: Row) {
-        self.agent_open = false;
+        self.close_agent();
         self.thought_open = false;
         self.mark(self.rows.len());
         self.rows.push(row);
@@ -636,21 +654,58 @@ impl Transcript {
         self.push(Row::Error(text.into()));
     }
 
+    /// Agent text: appended to the open block, which is split at the blocks that start in it on complete lines.
+    /// Every piece but the last is complete; the last stays open.
     fn agent_text(&mut self, text: &str) {
-        let mut lines = text.split('\n');
-        let first = lines.next().unwrap_or_default();
-        if self.agent_open
-            && let Some(Row::Agent(last)) = self.rows.last_mut()
-        {
-            last.push_str(first);
-            self.mark(self.rows.len() - 1);
-        } else {
-            self.push(Row::Agent(first.to_owned()));
-        }
-        for line in lines {
-            self.push(Row::Agent(line.to_owned()));
-        }
+        let open = match self.rows.last() {
+            Some(Row::Agent(last)) if self.agent_open => Some(last.source.clone()),
+            _ => None,
+        };
+        let source = match &open {
+            Some(last) => format!("{last}{text}"),
+            None => text.to_owned(),
+        };
+        // Only complete lines decide where blocks start; the partial line stays in the open block.
+        let complete = source.rfind('\n').map_or(0, |at| at + 1);
+        self.split_agent(&source, &source[..complete], open.is_some());
         self.agent_open = true;
+    }
+
+    /// The agent's text ended (another row follows): its open block is split at every block start, the last line
+    /// included.
+    fn close_agent(&mut self) {
+        if !std::mem::take(&mut self.agent_open) {
+            return;
+        }
+        if let Some(Row::Agent(last)) = self.rows.last() {
+            let source = last.source.clone();
+            self.split_agent(&source, &source, true);
+        }
+    }
+
+    /// Put `source` into rows, one per block starting in `decided`, a prefix of it; the first replaces the last row
+    /// when `replace`.
+    fn split_agent(&mut self, source: &str, decided: &str, replace: bool) {
+        self.agent_open = false;
+        let mut cuts: Vec<usize> = markdown::block_starts(decided)
+            .into_iter()
+            .filter(|&at| at > 0)
+            .collect();
+        cuts.push(source.len());
+        let mut from = 0;
+        for (i, to) in cuts.into_iter().enumerate() {
+            let piece = AgentText::new(&source[from..to]);
+            if i == 0 && replace {
+                let ix = self.rows.len() - 1;
+                if self.rows[ix] != Row::Agent(piece.clone()) {
+                    self.rows[ix] = Row::Agent(piece);
+                    self.mark(ix);
+                }
+            } else {
+                self.push(Row::Agent(piece));
+            }
+            from = to;
+        }
     }
 
     fn thought_text(&mut self, text: &str) {
@@ -936,17 +991,14 @@ impl Transcript {
             .collect()
     }
 
-    /// All agent text, lines joined with `\n`.
+    /// All agent text as streamed; agent messages separated by `\n`.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn agent_message(&self) -> String {
         let mut out = String::new();
         let mut prev_agent = false;
         for r in &self.rows {
             if let Row::Agent(t) = r {
-                if prev_agent {
-                    out.push('\n');
-                }
-                out.push_str(t);
+                out.push_str(&t.source);
                 prev_agent = true;
             } else {
                 if prev_agent {
@@ -969,10 +1021,7 @@ impl Transcript {
         };
         for r in &self.rows {
             if let Row::Agent(t) = r {
-                if !agent.is_empty() {
-                    agent.push('\n');
-                }
-                agent.push_str(t);
+                agent.push_str(&t.source);
                 continue;
             }
             flush(&mut agent, &mut out);
@@ -1032,7 +1081,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn agent_lines_split_and_only_the_tail_is_dirty() {
+    fn agent_blocks_split_and_only_the_tail_is_dirty() {
         let mut t = Transcript::default();
         t.user("hi");
         t.take_splice();
@@ -1040,7 +1089,7 @@ pub(crate) mod tests {
             "Hello ",
         )));
         t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
-            "world\nsecond",
+            "world\n\nsecond\n",
         )));
         assert_eq!(
             t.take_splice(),
@@ -1051,7 +1100,7 @@ pub(crate) mod tests {
             })
         );
         t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
-            " line",
+            "line",
         )));
         assert_eq!(
             t.take_splice(),
@@ -1061,7 +1110,44 @@ pub(crate) mod tests {
                 new_end: 3
             })
         );
-        assert_eq!(t.agent_message(), "Hello world\nsecond line");
+        assert_eq!(t.agent_message(), "Hello world\n\nsecond\nline");
+        // A partial line waits for its line break to start a block; the agent's text ending splits it.
+        t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+            "\n\nthird",
+        )));
+        assert_eq!(t.rows.len(), 3);
+        t.notice("Turn ended");
+        assert_eq!(t.rows.len(), 5);
+        assert_eq!(t.agent_message(), "Hello world\n\nsecond\nline\n\nthird\n");
+    }
+
+    #[test]
+    fn agent_markdown_streams_into_blocks() {
+        let mut t = Transcript::default();
+        let md = "## Plan\nI will:\n\n1. read `a.rs`\n2. fix it\n\n```rust\nfn a() {}\n\nfn b() {}\n```\n| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nDone.";
+        // Streamed a byte at a time: every split of lines, fences and table rows (a lone `|` ends a table).
+        for chunk in md.as_bytes().chunks(1) {
+            t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+                std::str::from_utf8(chunk).unwrap(),
+            )));
+        }
+        assert_eq!(t.agent_message(), md);
+        t.notice("Turn ended");
+        let blocks: Vec<&Block> = t
+            .rows
+            .iter()
+            .flat_map(|r| match r {
+                Row::Agent(a) => a.blocks.iter().collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect();
+        // The same blocks as parsing the whole message at once, one row each.
+        assert_eq!(blocks, markdown::parse(md).iter().collect::<Vec<_>>());
+        assert_eq!(t.rows.len(), 7);
+        assert!(matches!(blocks[0], Block::Heading { level: 2, .. }));
+        assert!(matches!(blocks[2], Block::List { start: Some(1), .. }));
+        assert_eq!(*blocks[3], Block::Code("fn a() {}\n\nfn b() {}".into()));
+        assert!(matches!(blocks[4], Block::Table { rows, .. } if rows.len() == 2));
     }
 
     /// A `w` by `h` PNG, base64.

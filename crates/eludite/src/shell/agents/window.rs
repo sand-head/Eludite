@@ -5,6 +5,7 @@
 //! as thumbnails under its card (brief 0024); clicking one asks the shell to open the full image. An agent's debug
 //! command reads as one line above its card (brief 0027): the action and the result as the person would see them, the
 //! stop's location a link that opens the file at the line, and the summary the agent received folded until expanded.
+//! The agent's messages are Markdown (brief 0043); a click on a link in them emits [`AgentsWindowEvent::OpenLink`].
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ use std::time::Instant;
 use eludite_acp::LoginMethod;
 use eludite_ui::Theme;
 use eludite_ui::transcript::{
-    ToolCard, agent_line, notice, plan_card, thought_block, tool_call_card, user_prompt,
+    ToolCard, agent_block, notice, plan_card, thought_block, tool_call_card, user_prompt,
 };
 use gpui::{
     AnyElement, App, Bounds, Context, Div, EventEmitter, FocusHandle, Focusable, FollowMode,
@@ -58,6 +59,8 @@ pub enum AgentsWindowEvent {
         path: String,
         line: u32,
     },
+    /// Follow a link in the agent's message: its target as written.
+    OpenLink(String),
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -220,6 +223,11 @@ pub fn change_link(change: u64) -> String {
     format!("agents-change-{change}")
 }
 
+/// The Markdown of agent text row `ix`.
+pub fn agent_text(ix: usize) -> String {
+    format!("agents-text-{ix}")
+}
+
 /// The debug line of the tool call in row `ix` (brief 0027), its stop location and its Show/Hide toggle.
 pub fn debug_row(ix: usize) -> String {
     format!("agents-debug-{ix}")
@@ -349,14 +357,32 @@ impl AgentsWindow {
         cx.notify();
     }
 
-    fn render_row(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(&mut self, ix: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
         let Some(row) = self.transcript.rows.get(ix) else {
             return div().into_any_element();
         };
         match row {
             Row::User(text) => user_prompt(text.clone(), &t).into_any_element(),
-            Row::Agent(text) => agent_line(text.clone(), &t).into_any_element(),
+            Row::Agent(text) => {
+                let mono = gpui::font(self.mono.clone());
+                let this = cx.entity().downgrade();
+                let on_link: eludite_ui::markdown::OnLink = Rc::new(move |url, _, cx| {
+                    let url = url.to_owned();
+                    let _ = this.update(cx, |_, cx| cx.emit(AgentsWindowEvent::OpenLink(url)));
+                });
+                let sel = agent_text(ix);
+                agent_block(
+                    sel.clone(),
+                    &text.blocks,
+                    &t,
+                    &window.text_style().font(),
+                    &mono,
+                    on_link,
+                )
+                .debug_selector(move || sel)
+                .into_any_element()
+            }
             Row::Thought { text, expanded } => thought_block(thought(ix), text, *expanded, &t)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.transcript.toggle_thought(ix);
@@ -918,7 +944,7 @@ impl Render for AgentsWindow {
             .child(
                 list(
                     self.list.clone(),
-                    cx.processor(|this, ix, _, cx| this.render_row(ix, cx)),
+                    cx.processor(|this, ix, window, cx| this.render_row(ix, window, cx)),
                 )
                 .flex_1()
                 .py_1(),

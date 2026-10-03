@@ -1612,3 +1612,39 @@ fn a_scripted_agent_reads_why_a_wrong_condition_never_stopped(cx: &mut TestAppCo
     assert!(!carried.is_empty(), "{answers:#?}");
     assert_eq!(carried[0]["mode"], "design");
 }
+
+/// Brief 0043: a link in the agent's Markdown is clickable; a file link opens the file in the editor at its line.
+#[gpui::test]
+fn a_file_link_in_the_agents_message_opens_the_file_at_its_line(cx: &mut TestAppContext) {
+    use eludite_acp::protocol::{ContentBlock, SessionUpdate};
+    let mut w = setup(cx);
+    w.show_agents();
+    let window = w.shell.read_with(&w.vcx, |s, _| s.agents().window.clone());
+    // The link first, so the click at the row's start is on it.
+    let ix = window.update(&mut w.vcx, |win, cx| {
+        let ix = win.transcript.rows.len();
+        win.transcript
+            .apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+                "[Program.cs line 3](src/App/Program.cs#L3) has `Main`.\n\n",
+            )));
+        win.transcript.notice("Turn ended");
+        win.sync(cx);
+        win.reveal(ix, cx);
+        ix
+    });
+    w.vcx.run_until_parked();
+    let row = w.bounds(&super::window::agent_text(ix));
+    // px_3 padding, then the first characters of the link.
+    let at = gpui::point(row.left() + gpui::px(20.), row.top() + gpui::px(8.));
+    w.vcx.simulate_click(at, gpui::Modifiers::none());
+    w.vcx.run_until_parked();
+    let program = w.path("src/App/Program.cs");
+    let view = w.editor(&program);
+    let active = w.shell.read_with(&w.vcx, |s, _| s.active_document());
+    assert_eq!(
+        active.as_deref().map(std::path::Path::new),
+        Some(program.as_path())
+    );
+    let caret_row = view.read_with(&w.vcx, |v, _| v.editor().primary_head().row);
+    assert_eq!(caret_row, 2, "line 3");
+}
