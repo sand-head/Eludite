@@ -116,8 +116,19 @@ C# as Mono.Debugging's evaluator (NRefactory 5.5) reads it, in the stopped frame
 indexers, method and property calls (which run debuggee code), casts, literals, operators. Two gaps of the 2017 build
 are closed by the adapter: integer and floating arithmetic and comparisons (`i == 5`, `a + b * 2`) are retried with
 explicit `long` or `double` casts when the evaluator's numeric unboxing fails, and type names (`Program.Hang()`,
-`Calculator.Twice(2)`) resolve against the types loaded in the debuggee from the frame's namespace outwards. A
-namespace-qualified name (`MyApp.Program.Hang()`) is not resolved.
+`Calculator.Twice(2)`, `Math.Max(a, b)`, `DateTime.Now`) resolve against the debuggee's types, loaded or not, from
+the frame's namespace outwards and then `System`; namespace-qualified names (`System.Math.Max(a, b)`,
+`MyApp.Program.Hang()`) and `global::` names work too. A type of an assembly the debuggee has not loaded (LINQ's
+`System.Linq.Enumerable` in a program that never used `System.Core`) is not found. Lambdas, array creation,
+`default(T)`, `checked`, `nameof`, interpolated strings and `++`/`--` are not supported by the evaluator.
+
+## Stepping
+
+- `next`, `stepIn` and `stepOut` step by source line on the thread named (Mono.Debugging steps its active thread).
+- Just My Code (`justMyCode`, default true): steps do not stop in assemblies without symbols. `stepIn` on a line that
+  calls only such code (`Console.WriteLine("x" + n)`) lands on the next line, as in Visual Studio; Mono itself would
+  stop back on the calling line after the callee returns, so the adapter steps in again when a step in comes back to
+  the frame and line it started on.
 
 ## Breakpoint behavior
 

@@ -53,7 +53,7 @@ namespace Eludite.Debugger.Mono.TestApp
     {
         public static int Main(string[] args)
         {
-            var mode = args.Length > 0 ? args[0] : "run";
+            var mode = args.Length > 0 ? args[0] : "run"; // MARK: entry
             if (mode == "sleep")
             {
                 System.Console.WriteLine("sleeping"); // MARK: sleep-print
@@ -71,8 +71,8 @@ namespace Eludite.Debugger.Mono.TestApp
             var order = new Order(7, "Contoso");
             var calc = new Calculator();
             var result = calc.Add(2, 3); // MARK: main-add
-            System.Console.WriteLine("result " + result);
-            var total = 0;
+            System.Console.WriteLine("result " + result); // MARK: print-result
+            var total = 0; // MARK: total
             for (var i = 0; i < 100; i++)
             {
                 total += i; // MARK: loop-body

@@ -119,14 +119,17 @@ internal sealed class DapTestClient : IDisposable
     private readonly List<JObject> _events = new();
     private readonly StringBuilder _stderr = new();
     private int _seq;
+    private static int _started;
 
     private DapClientState State { get; } = new();
 
-    private DapTestClient(Process process, Stream reader, Stream writer, TcpClient? tcp)
+    private DapTestClient(Process process, Stream reader, Stream writer, TcpClient? tcp, Stopwatch spawned)
     {
         _process = process;
         _writer = writer;
         _tcp = tcp;
+        First = Interlocked.Increment(ref _started) == 1;
+        SinceSpawn = spawned;
         var frames = new FrameReader(reader);
         var thread = new Thread(() =>
         {
@@ -165,6 +168,12 @@ internal sealed class DapTestClient : IDisposable
         { IsBackground = true };
         thread.Start();
     }
+
+    /// <summary>Whether this is the first adapter the test run started (Mono's files least likely to be cached).</summary>
+    public bool First { get; }
+
+    /// <summary>Started when the adapter process was (Mono's start and the adapter's JIT included).</summary>
+    public Stopwatch SinceSpawn { get; }
 
     /// <summary>The adapter process (its pid for the memory reading).</summary>
     public Process Process => _process;
@@ -206,8 +215,9 @@ internal sealed class DapTestClient : IDisposable
     /// <summary><c>mono eludite-dbg-mono.exe</c> over stdio.</summary>
     public static DapTestClient Stdio(string mono, IReadOnlyDictionary<string, string> env)
     {
+        var spawned = Stopwatch.StartNew();
         var p = StartAdapter(mono, env);
-        var c = new DapTestClient(p, p.StandardOutput.BaseStream, p.StandardInput.BaseStream, null);
+        var c = new DapTestClient(p, p.StandardOutput.BaseStream, p.StandardInput.BaseStream, null, spawned);
         c.DrainStderr(p.StandardError);
         return c;
     }
@@ -215,6 +225,7 @@ internal sealed class DapTestClient : IDisposable
     /// <summary><c>mono eludite-dbg-mono.exe --port 0</c>, connected over TCP to the port it prints.</summary>
     public static DapTestClient Tcp(string mono, IReadOnlyDictionary<string, string> env)
     {
+        var spawned = Stopwatch.StartNew();
         var p = StartAdapter(mono, env, "--port", "0");
         var line = p.StandardError.ReadLine() ?? throw new InvalidOperationException("the adapter printed no port");
         const string Prefix = "eludite-dbg-mono: listening on 127.0.0.1:";
@@ -223,7 +234,7 @@ internal sealed class DapTestClient : IDisposable
         var tcp = new TcpClient();
         tcp.Connect("127.0.0.1", port);
         var stream = tcp.GetStream();
-        var c = new DapTestClient(p, stream, stream, tcp);
+        var c = new DapTestClient(p, stream, stream, tcp, spawned);
         c.DrainStderr(p.StandardError);
         return c;
     }
