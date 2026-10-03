@@ -9,17 +9,26 @@
 //! (`eludite.workspace.set_startup_project`, .NET projects and Cargo packages: brief 0029 debugs Cargo packages with
 //! lldb-dap) and Open Containing Folder (`eludite.workspace.open_containing_folder`). Every item runs its command
 //! through the bus.
+//!
+//! In a Git repository (brief 0040) each file carries Visual Studio's source control glyph and color from the
+//! repository's status, a file's context menu has Compare with Unmodified, Undo Changes, Stage, Unstage and Blame,
+//! and Ctrl+D on the selected file is Compare with Unmodified.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use eludite_commands::workspace;
-use eludite_ui::{RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, menu_row, tree_row};
+use eludite_git::GlyphIndex;
+use eludite_ui::{
+    RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, menu_row,
+    tree_row_with_badge,
+};
 use eludite_workspace::explorer::{NodeKind, Row, SolutionModel};
 use gpui::{
-    ClickEvent, Context, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled, Window,
-    anchored, deferred, div, px, uniform_list,
+    ClickEvent, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
+    MouseDownEvent, ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement,
+    Styled, Window, anchored, deferred, div, px, uniform_list,
 };
 use serde_json::{Value, json};
 
@@ -37,9 +46,17 @@ pub fn context_item_selector(item: &str) -> String {
     format!("se-menu-{item}")
 }
 
-/// The command and arguments a context menu item runs for project file (or `Cargo.toml`) `path`.
+/// The command and arguments a context menu item runs for project file (or `Cargo.toml`) `path`, or, for the git
+/// items ([`WORKSPACE_GIT_ITEMS`]), for the file at `path`.
 pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)> {
     let p = path.to_string_lossy();
+    if let Some((_, _, command)) = WORKSPACE_GIT_ITEMS.iter().find(|(i, _, _)| *i == item) {
+        let args = match item {
+            "compare" | "blame" => json!({ "path": p }),
+            _ => json!({ "paths": [p] }),
+        };
+        return Some((command, args));
+    }
     Some(match item {
         "build" => (eludite_commands::build::PROJECT, json!({ "project": p })),
         "rebuild" => (
@@ -81,6 +98,9 @@ pub struct SolutionExplorer {
     startup: Vec<PathBuf>,
     /// The open context menu: the row it is for and where the pointer was.
     menu: Option<(usize, Point<Pixels>)>,
+    /// The repository's root and its files' glyphs (brief 0040).
+    git: Option<(PathBuf, Rc<GlyphIndex>)>,
+    focus: FocusHandle,
 }
 
 /// Debug selector of the row for node `id` (tests and the real-input driver).
@@ -101,7 +121,7 @@ fn glyph(kind: &NodeKind) -> &'static str {
 }
 
 impl SolutionExplorer {
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: Theme, cx: &mut Context<Self>) -> Self {
         Self {
             theme,
             model: None,
@@ -111,7 +131,68 @@ impl SolutionExplorer {
             placeholder: Placeholder::NoSolution,
             startup: Vec::new(),
             menu: None,
+            git: None,
+            focus: cx.focus_handle(),
         }
+    }
+
+    /// The repository's root and its files' glyphs, or none (brief 0040).
+    pub fn set_git(&mut self, git: Option<(PathBuf, Rc<GlyphIndex>)>, cx: &mut Context<Self>) {
+        self.git = git.map(|(root, g)| (super::documents::normalize_path(&root), g));
+        cx.notify();
+    }
+
+    /// `path`'s repository-relative name, when it is in the repository.
+    fn git_relative(&self, path: &Path) -> Option<String> {
+        let (root, _) = self.git.as_ref()?;
+        let p = super::documents::normalize_path(path);
+        let rel = p.strip_prefix(root).ok()?;
+        Some(
+            rel.components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/"),
+        )
+    }
+
+    /// The glyph a row's file shows.
+    pub fn git_glyph(&self, row: &Row) -> Option<eludite_git::FileGlyph> {
+        if !matches!(
+            row.kind,
+            NodeKind::File { .. } | NodeKind::CargoTarget { .. }
+        ) {
+            return None;
+        }
+        let rel = self.git_relative(row.path.as_deref()?)?;
+        self.git.as_ref()?.1.get(&rel)
+    }
+
+    /// Ctrl+D on the selected file: Compare with Unmodified.
+    fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let k = &event.keystroke;
+        if !(k.modifiers.control && k.key == "d" && !k.modifiers.shift && !k.modifiers.alt) {
+            return;
+        }
+        let Some(path) = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.rows.iter().find(|r| &r.id == id))
+            .filter(|r| r.kind.opens_file())
+            .and_then(|r| r.path.clone())
+        else {
+            return;
+        };
+        if self.git_relative(&path).is_none() {
+            return;
+        }
+        cx.stop_propagation();
+        window.dispatch_action(
+            Box::new(RunCommand::new(
+                eludite_commands::git::DIFF,
+                json!({ "path": path.to_string_lossy() }),
+            )),
+            cx,
+        );
     }
 
     /// Every startup project (brief 0028: Visual Studio's multiple startup projects), each drawn bold.
@@ -155,7 +236,12 @@ impl SolutionExplorer {
             row.kind,
             NodeKind::Project { .. } | NodeKind::CargoPackage { .. }
         );
-        self.menu = (project && row.path.is_some()).then_some((ix, event.position));
+        let git_file = row.kind.opens_file()
+            && row
+                .path
+                .as_deref()
+                .is_some_and(|p| self.git_relative(p).is_some());
+        self.menu = ((project || git_file) && row.path.is_some()).then_some((ix, event.position));
         cx.notify();
     }
 
@@ -176,11 +262,20 @@ impl SolutionExplorer {
 
     fn context_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let (ix, at) = self.menu?;
-        self.rows.get(ix)?;
+        let row = self.rows.get(ix)?;
         let t = self.theme;
         let mut items = Vec::new();
-        for (i, (item, label)) in CONTEXT_ITEMS.into_iter().enumerate() {
-            if i == 3 || i == 4 {
+        let entries: Vec<(&'static str, &'static str)> = if row.kind.opens_file() {
+            WORKSPACE_GIT_ITEMS
+                .iter()
+                .map(|(i, l, _)| (*i, *l))
+                .collect()
+        } else {
+            CONTEXT_ITEMS.to_vec()
+        };
+        let file = row.kind.opens_file();
+        for (i, (item, label)) in entries.into_iter().enumerate() {
+            if (!file && (i == 3 || i == 4)) || (file && (i == 2 || i == 4)) {
                 items.push(
                     div()
                         .h(px(1.))
@@ -359,6 +454,12 @@ impl Render for SolutionExplorer {
         div()
             .id("solution-explorer")
             .debug_selector(|| "solution-explorer".into())
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::key))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
+            )
             .size_full()
             .flex()
             .flex_col()
@@ -382,11 +483,13 @@ impl Render for SolutionExplorer {
                                     bold: this.is_startup(row),
                                 };
                                 let id = row.id.clone();
+                                let badge = this.git_glyph(row).map(|g| (g.glyph(), g.color()));
                                 Some(
-                                    tree_row(
+                                    tree_row_with_badge(
                                         &t,
                                         SharedString::from(row_selector(&row.id)),
                                         Some(glyph(&row.kind)),
+                                        badge,
                                         row.label.clone(),
                                         style,
                                         cx.listener(move |this, _, _, cx| this.toggle(&id, cx)),

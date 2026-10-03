@@ -1754,6 +1754,7 @@ dependencies = [
  "eludite-dap",
  "eludite-docking",
  "eludite-editor",
+ "eludite-git",
  "eludite-lsp",
  "eludite-mcp",
  "eludite-protocol",

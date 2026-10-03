@@ -186,6 +186,7 @@ impl Shell {
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
         self.apply_test_settings();
+        self.git_apply_settings(cx);
         let agents_changed = self
             .applied_settings
             .as_ref()
@@ -215,6 +216,8 @@ impl Shell {
         self.settings.set_solution_dir(dir.as_deref());
         // The browser's profile is the workspace's: a running browser closes with the workspace (brief 0023).
         self.browser.set_workspace(dir.as_deref());
+        // The workspace's Git repository, looked for off the UI thread (brief 0040).
+        self.git_workspace_changed(dir.as_deref());
     }
 
     /// What the last [`Shell::apply_settings`] applied.
