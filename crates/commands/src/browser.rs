@@ -8,7 +8,10 @@
 //! (checked in first, CLAUDE.md invariant 4).
 //!
 //! Brief 0024 adds acting on the page: `input`, `form_input`, `upload`, `storage`, `network_body` and
-//! `open_external`.
+//! `open_external`. Brief 0032 adds `record` (a GIF of the tab from the embedded engine's frames), `devtools`
+//! (DevTools as a tab of the Web Browser window) and `dialog` (answer the dialog a page waits on); `navigate` gains
+//! `stop`, `input` answers the dialog an action opened, and `wait` ends with `interrupted_by: "user"` when the person
+//! takes over.
 //!
 //! Classes (proposal 0002 section 4): reading the page is `read`; opening, closing and selecting tabs, navigating,
 //! resizing, evaluating JavaScript and acting on the page are `execute`. The escalation hooks ([`escalation`],
@@ -49,8 +52,11 @@ pub const UPLOAD: &str = "eludite.browser.upload";
 pub const STORAGE: &str = "eludite.browser.storage";
 pub const NETWORK_BODY: &str = "eludite.browser.network_body";
 pub const OPEN_EXTERNAL: &str = "eludite.browser.open_external";
+pub const RECORD: &str = "eludite.browser.record";
+pub const DEVTOOLS: &str = "eludite.browser.devtools";
+pub const DIALOG: &str = "eludite.browser.dialog";
 
-pub const ALL: [&str; 20] = [
+pub const ALL: [&str; 23] = [
     TABS,
     TAB_OPEN,
     TAB_CLOSE,
@@ -71,6 +77,15 @@ pub const ALL: [&str; 20] = [
     STORAGE,
     NETWORK_BODY,
     OPEN_EXTERNAL,
+    RECORD,
+    DEVTOOLS,
+    DIALOG,
+];
+
+/// The commands that act on the page (refused for an agent the person interrupted until it reads `tabs` again).
+pub const ACTIONS: [&str; 13] = [
+    TAB_OPEN, TAB_CLOSE, TAB_SELECT, NAVIGATE, RESIZE, EVALUATE, INPUT, FORM_INPUT, UPLOAD,
+    STORAGE, RECORD, DEVTOOLS, DIALOG,
 ];
 
 /// Defaults and limits from the schemas.
@@ -95,6 +110,11 @@ pub const UPLOAD_FILES: usize = 50;
 pub const STORAGE_VALUE_CHARS: usize = 1000;
 pub const NETWORK_BODY_BYTES: usize = 65_536;
 pub const NETWORK_BODY_MAX_BYTES: usize = 10 * 1024 * 1024;
+pub const RECORD_FPS: u32 = 10;
+pub const RECORD_MAX_FPS: u32 = 30;
+pub const RECORD_SECONDS: u32 = 60;
+pub const RECORD_MAX_SECONDS: u32 = 600;
+pub const DIALOG_FILES: usize = 50;
 
 /// (title, input schema, output schema, permission)
 fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionClass) {
@@ -140,6 +160,9 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             s!("open-external"),
             Execute,
         ),
+        RECORD => ("Browser: Record", s!("record"), Execute),
+        DEVTOOLS => ("Browser: DevTools", s!("devtools"), Execute),
+        DIALOG => ("Browser: Answer Dialog", s!("dialog"), Execute),
         other => unreachable!("not a browser command: {other}"),
     };
     (title, input, output, permission)
@@ -152,6 +175,20 @@ pub enum NavigateTo {
     Back,
     Forward,
     Reload,
+    /// Stop loading (the window's Stop and Escape).
+    Stop,
+}
+
+/// What `record` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecordAction {
+    Start {
+        /// Where the GIF goes: absolute, or relative to the workspace (the shell resolves it); `None`: the default.
+        path: Option<String>,
+        fps: u32,
+        max_seconds: u32,
+    },
+    Stop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -653,6 +690,23 @@ pub enum BrowserRequest {
     OpenExternal {
         url: Option<String>,
     },
+    Record {
+        tab: Option<String>,
+        action: RecordAction,
+    },
+    Devtools {
+        tab: Option<String>,
+        /// Inspect the element at this point (CSS pixels of the viewport).
+        inspect: Option<(f64, f64)>,
+    },
+    Dialog {
+        tab: Option<String>,
+        accept: bool,
+        text: Option<String>,
+        files: Vec<String>,
+        username: Option<String>,
+        password: Option<String>,
+    },
 }
 
 impl BrowserRequest {
@@ -678,6 +732,9 @@ impl BrowserRequest {
             BrowserRequest::Storage { .. } => STORAGE,
             BrowserRequest::NetworkBody { .. } => NETWORK_BODY,
             BrowserRequest::OpenExternal { .. } => OPEN_EXTERNAL,
+            BrowserRequest::Record { .. } => RECORD,
+            BrowserRequest::Devtools { .. } => DEVTOOLS,
+            BrowserRequest::Dialog { .. } => DIALOG,
         }
     }
 
@@ -703,7 +760,10 @@ impl BrowserRequest {
             | BrowserRequest::FormInput { tab, .. }
             | BrowserRequest::Upload { tab, .. }
             | BrowserRequest::Storage { tab, .. }
-            | BrowserRequest::NetworkBody { tab, .. } => tab.as_deref(),
+            | BrowserRequest::NetworkBody { tab, .. }
+            | BrowserRequest::Record { tab, .. }
+            | BrowserRequest::Devtools { tab, .. }
+            | BrowserRequest::Dialog { tab, .. } => tab.as_deref(),
         }
     }
 
@@ -732,6 +792,16 @@ pub struct TabRow {
     pub active: bool,
     pub loading: bool,
     pub page_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favicon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_go_back: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_go_forward: Option<bool>,
+    /// The engine's target id of the tab: for the Web Browser window, which draws the engine's tabs. Not in the
+    /// command's output.
+    #[serde(skip)]
+    pub target: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1011,6 +1081,9 @@ pub struct WaitOutput {
     pub satisfied: Option<WaitSatisfied>,
     pub page_generation: u64,
     pub elapsed_ms: f64,
+    /// `user`: the person took over while the call waited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -1097,6 +1170,18 @@ pub struct InputOutput {
     pub url: Option<String>,
     pub console_errors: Vec<ConsoleError>,
     pub elapsed_ms: f64,
+    /// The dialog the action opened, which the page now waits on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dialog: Option<DialogRow>,
+}
+
+/// A dialog a page waits on (`input`'s `dialog`).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DialogRow {
+    pub kind: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1215,6 +1300,46 @@ pub struct OpenExternalOutput {
     pub command: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct RecordOutput {
+    pub tab: String,
+    pub recording: bool,
+    pub path: String,
+    pub fps: u32,
+    pub max_seconds: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frames: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_by: Option<String>,
+    /// The first frame as a PNG, base64 (image content over MCP).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DevtoolsOutput {
+    pub tab: String,
+    pub opened: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DialogOutput {
+    pub tab: String,
+    pub kind: String,
+    pub message: String,
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
 /// What a browser command answers.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BrowserOutput {
@@ -1238,6 +1363,9 @@ pub enum BrowserOutput {
     Storage(StorageOutput),
     NetworkBody(NetworkBodyOutput),
     OpenExternal(OpenExternalOutput),
+    Record(RecordOutput),
+    Devtools(DevtoolsOutput),
+    Dialog(DialogOutput),
 }
 
 impl BrowserOutput {
@@ -1263,6 +1391,9 @@ impl BrowserOutput {
             BrowserOutput::Storage(o) => serde_json::to_value(o),
             BrowserOutput::NetworkBody(o) => serde_json::to_value(o),
             BrowserOutput::OpenExternal(o) => serde_json::to_value(o),
+            BrowserOutput::Record(o) => serde_json::to_value(o),
+            BrowserOutput::Devtools(o) => serde_json::to_value(o),
+            BrowserOutput::Dialog(o) => serde_json::to_value(o),
         }
         .expect("browser outputs serialize")
     }
@@ -1297,6 +1428,7 @@ enum Action {
     Back,
     Forward,
     Reload,
+    Stop,
 }
 
 #[derive(Deserialize, Default)]
@@ -1549,6 +1681,55 @@ struct NetworkBodyIn {
 #[serde(deny_unknown_fields)]
 struct OpenExternalIn {
     url: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum RecordActionIn {
+    Start,
+    Stop,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordIn {
+    action: RecordActionIn,
+    path: Option<String>,
+    fps: Option<u32>,
+    max_seconds: Option<u32>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct InspectIn {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct DevtoolsIn {
+    inspect: Option<InspectIn>,
+    tab: Option<String>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+enum DialogActionIn {
+    Accept,
+    Dismiss,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DialogIn {
+    action: DialogActionIn,
+    text: Option<String>,
+    files: Option<Vec<String>>,
+    username: Option<String>,
+    password: Option<String>,
+    tab: Option<String>,
 }
 
 fn invalid(m: impl Into<String>) -> CommandError {
@@ -1811,6 +1992,7 @@ pub fn parse(id: &str, value: Value) -> Result<BrowserRequest, CommandError> {
                 (None, Some(Action::Back)) => NavigateTo::Back,
                 (None, Some(Action::Forward)) => NavigateTo::Forward,
                 (None, Some(Action::Reload)) => NavigateTo::Reload,
+                (None, Some(Action::Stop)) => NavigateTo::Stop,
                 _ => return Err(invalid("give exactly one of `url` and `action`")),
             };
             BrowserRequest::Navigate {
@@ -2062,6 +2244,70 @@ pub fn parse(id: &str, value: Value) -> Result<BrowserRequest, CommandError> {
                 url: check_url(i.url)?,
             }
         }
+        RECORD => {
+            let i: RecordIn = required(value)?;
+            let action = match i.action {
+                RecordActionIn::Start => RecordAction::Start {
+                    path: non_empty("path", i.path)?,
+                    fps: range("fps", i.fps, 1, RECORD_MAX_FPS, RECORD_FPS)?,
+                    max_seconds: range(
+                        "max_seconds",
+                        i.max_seconds,
+                        1,
+                        RECORD_MAX_SECONDS,
+                        RECORD_SECONDS,
+                    )?,
+                },
+                RecordActionIn::Stop => {
+                    if i.path.is_some() || i.fps.is_some() || i.max_seconds.is_some() {
+                        return Err(invalid(
+                            "`path`, `fps` and `max_seconds` go with `action: start`",
+                        ));
+                    }
+                    RecordAction::Stop
+                }
+            };
+            BrowserRequest::Record {
+                tab: check_tab(i.tab)?,
+                action,
+            }
+        }
+        DEVTOOLS => {
+            let i: DevtoolsIn = input(value)?;
+            let inspect = match i.inspect {
+                Some(p) if !(p.x.is_finite() && p.y.is_finite() && p.x >= 0. && p.y >= 0.) => {
+                    return Err(invalid("`inspect` is a point with x and y, both 0 or more"));
+                }
+                p => p.map(|p| (p.x, p.y)),
+            };
+            BrowserRequest::Devtools {
+                tab: check_tab(i.tab)?,
+                inspect,
+            }
+        }
+        DIALOG => {
+            let i: DialogIn = required(value)?;
+            let files = match i.files {
+                Some(f) => {
+                    if f.len() > DIALOG_FILES {
+                        return Err(invalid(format!(
+                            "`files` lists 1 to {DIALOG_FILES} files, not {}",
+                            f.len()
+                        )));
+                    }
+                    files("files", f)?
+                }
+                None => Vec::new(),
+            };
+            BrowserRequest::Dialog {
+                tab: check_tab(i.tab)?,
+                accept: matches!(i.action, DialogActionIn::Accept),
+                text: i.text,
+                files,
+                username: i.username,
+                password: i.password,
+            }
+        }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
 }
@@ -2145,6 +2391,9 @@ pub fn escalation(id: &str) -> Option<EscalationHook> {
                 .filter_map(|f| f.pointer("/value/files"))
                 .flat_map(str_array);
             outside_workspace(view, paths, "fill a file input with")
+        }),
+        DIALOG => Arc::new(|input: &Value, view: &PolicyView| {
+            outside_workspace(view, str_array(input.get("files")?), "choose")
         }),
         STORAGE => Arc::new(|input: &Value, _: &PolicyView| {
             (input.get("action").and_then(Value::as_str) == Some("clear")).then(|| {
@@ -2258,7 +2507,7 @@ mod tests {
                 "{id}"
             );
         }
-        assert_eq!(ALL.iter().filter(|id| escalation(id).is_some()).count(), 8);
+        assert_eq!(ALL.iter().filter(|id| escalation(id).is_some()).count(), 9);
     }
 
     fn view(policy: Value, workspace: Option<&str>) -> crate::policy::PolicyView {
@@ -2896,7 +3145,15 @@ mod tests {
             active: true,
             loading: false,
             page_generation: 2,
+            favicon: Some("data:image/png;base64,AAAA".into()),
+            can_go_back: Some(true),
+            can_go_forward: Some(false),
+            target: "1".into(),
         };
+        assert!(
+            serde_json::to_value(&tab).unwrap().get("target").is_none(),
+            "the engine's target id is not in the output"
+        );
         let samples = [
             (
                 TABS,
@@ -3076,6 +3333,52 @@ mod tests {
                     }),
                     page_generation: 3,
                     elapsed_ms: 300.,
+                    interrupted_by: None,
+                }),
+            ),
+            (
+                WAIT,
+                BrowserOutput::Wait(WaitOutput {
+                    tab: "t1".into(),
+                    timeout: false,
+                    satisfied: None,
+                    page_generation: 3,
+                    elapsed_ms: 40.,
+                    interrupted_by: Some("user".into()),
+                }),
+            ),
+            (
+                RECORD,
+                BrowserOutput::Record(RecordOutput {
+                    tab: "t1".into(),
+                    recording: false,
+                    path: "/w/.eludite/browser/recordings/t1.gif".into(),
+                    fps: 10,
+                    max_seconds: 60,
+                    frames: Some(12),
+                    duration_ms: Some(1200.),
+                    width: Some(640),
+                    height: Some(400),
+                    bytes: Some(4096),
+                    stopped_by: Some("request".into()),
+                    thumbnail: Some("iVBORw0KGgo=".into()),
+                }),
+            ),
+            (
+                DEVTOOLS,
+                BrowserOutput::Devtools(DevtoolsOutput {
+                    tab: "t1".into(),
+                    opened: true,
+                }),
+            ),
+            (
+                DIALOG,
+                BrowserOutput::Dialog(DialogOutput {
+                    tab: "t1".into(),
+                    kind: "prompt".into(),
+                    message: "Name?".into(),
+                    action: "accept".into(),
+                    text: Some("Ada".into()),
                 }),
             ),
             (
@@ -3120,6 +3423,11 @@ mod tests {
                     url: Some("http://127.0.0.1/act.html?q=x".into()),
                     console_errors: console.clone(),
                     elapsed_ms: 101.5,
+                    dialog: Some(DialogRow {
+                        kind: "confirm".into(),
+                        message: "Sure?".into(),
+                        default_text: None,
+                    }),
                 }),
             ),
             (
@@ -3252,5 +3560,65 @@ mod tests {
             r.invoke(FIND, json!({})),
             Err(CommandError::InvalidInput(_))
         ));
+    }
+
+    #[test]
+    fn record_devtools_dialog_and_stop_parse() {
+        assert_eq!(
+            parse(RECORD, json!({"action": "start"})).unwrap(),
+            BrowserRequest::Record {
+                tab: None,
+                action: RecordAction::Start {
+                    path: None,
+                    fps: RECORD_FPS,
+                    max_seconds: RECORD_SECONDS
+                }
+            }
+        );
+        assert!(parse(RECORD, json!({"action": "start", "fps": 31})).is_err());
+        assert!(parse(RECORD, json!({"action": "start", "max_seconds": 601})).is_err());
+        assert!(parse(RECORD, json!({"action": "stop", "fps": 5})).is_err());
+        assert_eq!(
+            parse(RECORD, json!({"action": "stop", "tab": "t2"})).unwrap(),
+            BrowserRequest::Record {
+                tab: Some("t2".into()),
+                action: RecordAction::Stop
+            }
+        );
+        assert_eq!(
+            parse(DEVTOOLS, json!({"inspect": {"x": 3, "y": 4}})).unwrap(),
+            BrowserRequest::Devtools {
+                tab: None,
+                inspect: Some((3., 4.))
+            }
+        );
+        assert!(parse(DEVTOOLS, json!({"inspect": {"x": -1, "y": 4}})).is_err());
+        assert!(matches!(
+            parse(DIALOG, json!({"action": "accept", "text": "Ada"})).unwrap(),
+            BrowserRequest::Dialog { accept: true, ref text, .. } if text.as_deref() == Some("Ada")
+        ));
+        assert!(parse(DIALOG, json!({"action": "accept", "files": ["rel.txt"]})).is_err());
+        assert!(parse(DIALOG, json!({"action": "maybe"})).is_err());
+        assert!(matches!(
+            parse(NAVIGATE, json!({"action": "stop"})).unwrap(),
+            BrowserRequest::Navigate {
+                to: NavigateTo::Stop,
+                ..
+            }
+        ));
+        // A file outside the workspace makes `dialog` dangerous, as upload.
+        let hook = escalation(DIALOG).unwrap();
+        let v = view(json!({"version": 1}), Some("/w"));
+        assert!(hook(&json!({"action": "accept", "files": ["/w/a.txt"]}), &v).is_none());
+        assert!(matches!(
+            hook(&json!({"action": "accept", "files": ["/etc/passwd"]}), &v),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                ..
+            })
+        ));
+        for id in ACTIONS {
+            assert!(ALL.contains(&id), "{id}");
+        }
     }
 }
