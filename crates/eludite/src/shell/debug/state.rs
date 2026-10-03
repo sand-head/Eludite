@@ -2041,4 +2041,64 @@ mod tests {
         assert!(rows[2].value_truncated);
         assert_eq!(rows[2].evaluate_name, None, "the name itself is left out");
     }
+
+    #[test]
+    fn tracepoint_messages_parse_match_and_exception_types_plan() {
+        assert_eq!(
+            parse_message("i={i} {{x}} in $FUNCTION $PID $TIDY"),
+            [
+                Segment::Text("i=".into()),
+                Segment::Expression("i".into()),
+                Segment::Text(" {x} in ".into()),
+                Segment::Special("$FUNCTION"),
+                Segment::Text(" $PID $TIDY".into()),
+            ]
+        );
+        assert!(has_specials("$TNAME: {x}") && !has_specials("x = {x}"));
+        // The adapter's lines are told apart from its other console output.
+        assert!(message_matches("i={i} total={total}", "i=3 total=6"));
+        assert!(message_matches("{i}", "anything"));
+        assert!(!message_matches("i={i} total={total}", "Loaded assembly x"));
+        assert!(!message_matches("i={i}!", "i=3"));
+        assert!(message_matches("done", "done") && !message_matches("done", "done twice"));
+        // Exception types: a category box that is on is its filter; off, its checked types are the condition.
+        let mut e = ExceptionSettingsRow::default();
+        assert_eq!(exception_plan(&e).filters, ["user-unhandled"]);
+        e.types = vec![
+            ExceptionTypeRow {
+                type_name: "A.X".into(),
+                break_when_thrown: true,
+                break_when_user_unhandled: false,
+            },
+            ExceptionTypeRow {
+                type_name: "A.Y".into(),
+                break_when_thrown: true,
+                break_when_user_unhandled: true,
+            },
+        ];
+        let plan = exception_plan(&e);
+        assert_eq!(plan.filters, ["user-unhandled"]);
+        assert_eq!(plan.options.len(), 1);
+        assert_eq!(plan.options[0].filter_id, "all");
+        assert_eq!(plan.options[0].condition.as_deref(), Some("A.X, A.Y"));
+        e.break_when_user_unhandled = false;
+        let plan = exception_plan(&e);
+        assert!(plan.filters.is_empty());
+        assert_eq!(plan.options[1].condition.as_deref(), Some("A.Y"));
+        assert_eq!(
+            plan.arguments(false),
+            serde_json::json!({"filters": []}),
+            "an adapter without filter options gets none"
+        );
+        // A version 1 file reads into version 2's shape.
+        let v1: Persisted = serde_json::from_str(
+            r#"{"version": 1, "breakpoints": [{"path": "/s/A.cs", "line": 3, "condition": "x"}],
+                "exceptions": {"break_when_thrown": true, "break_when_user_unhandled": true}, "watches": []}"#,
+        )
+        .unwrap();
+        let b = Breakpoints::from_persisted(&v1.breakpoints);
+        assert_eq!(b.all()[0].condition.as_deref(), Some("x"));
+        assert!(b.all()[0].log_message.is_none() && b.functions().is_empty());
+        assert!(v1.exceptions.unwrap().types.is_empty());
+    }
 }
