@@ -124,10 +124,16 @@ impl Shell {
                 self.refresh_startup(cx);
                 super::documents::trace(format_args!("startup project: {}", path.display()));
                 Ok(ProjectOutput::StartupProject(StartupProjectOutput {
+                    projects: Vec::new(),
                     project: name,
                     path: path.to_string_lossy().into_owned(),
                     solution: solution.to_string_lossy().into_owned(),
                 }))
+            }
+            ProjectRequest::SetStartupProjects { .. } | ProjectRequest::StartupProjectsDialog => {
+                Err(CommandError::Failed(
+                    "multiple startup projects are not supported yet".into(),
+                ))
             }
             ProjectRequest::OpenContainingFolder { path } => {
                 let p = Path::new(&path);
