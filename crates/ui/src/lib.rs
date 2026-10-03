@@ -14,13 +14,14 @@
 //!   disclosure triangle, label), drawn by the caller's list.
 //! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
 //!   icons ([`CompletionKind`]) and the tooltip frame.
-//! - [`markdown`]: the Markdown subset tooltips render (paragraphs, code).
+//! - [`markdown`]: Markdown (CommonMark and GitHub tables, by `pulldown-cmark`) as blocks, plain text and elements,
+//!   for tooltips and the Agents transcript.
 //! - [`dialog`]: the frame of a modal dialog, push buttons, and the light bulb menu's rows and glyphs.
 //! - [`diff`]: the line diff, its hunks and the inline diff rows of the pending-change review view.
 //! - [`vertical_text`]: text rotated 90 degrees clockwise ([`vertical_label`]) for
 //!   the auto-hide strips on the left and right edges.
-//! - [`transcript`]: the Agents window's transcript rows: prompts, agent text, thinking, tool call cards with their
-//!   status, plans and notices.
+//! - [`transcript`]: the Agents window's transcript rows: prompts, agent Markdown blocks, thinking, tool call cards
+//!   with their status, plans and notices.
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.

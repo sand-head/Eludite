@@ -14,7 +14,7 @@ use std::time::Instant;
 use eludite_acp::LoginMethod;
 use eludite_ui::Theme;
 use eludite_ui::transcript::{
-    ToolCard, agent_line, notice, plan_card, thought_block, tool_call_card, user_prompt,
+    ToolCard, agent_block, notice, plan_card, thought_block, tool_call_card, user_prompt,
 };
 use gpui::{
     AnyElement, App, Bounds, Context, Div, EventEmitter, FocusHandle, Focusable, FollowMode,
@@ -349,14 +349,17 @@ impl AgentsWindow {
         cx.notify();
     }
 
-    fn render_row(&mut self, ix: usize, cx: &mut Context<Self>) -> AnyElement {
+    fn render_row(&mut self, ix: usize, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
         let Some(row) = self.transcript.rows.get(ix) else {
             return div().into_any_element();
         };
         match row {
             Row::User(text) => user_prompt(text.clone(), &t).into_any_element(),
-            Row::Agent(text) => agent_line(text.clone(), &t).into_any_element(),
+            Row::Agent(text) => {
+                let mono = gpui::font(self.mono.clone());
+                agent_block(&text.blocks, &t, &window.text_style().font(), &mono).into_any_element()
+            }
             Row::Thought { text, expanded } => thought_block(thought(ix), text, *expanded, &t)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.transcript.toggle_thought(ix);
@@ -918,7 +921,7 @@ impl Render for AgentsWindow {
             .child(
                 list(
                     self.list.clone(),
-                    cx.processor(|this, ix, _, cx| this.render_row(ix, cx)),
+                    cx.processor(|this, ix, window, cx| this.render_row(ix, window, cx)),
                 )
                 .flex_1()
                 .py_1(),

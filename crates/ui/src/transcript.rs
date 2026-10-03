@@ -1,13 +1,15 @@
-//! The Agents window's transcript pieces (brief 0016): the user's prompt, a line of agent text, the collapsed
-//! thinking block, a tool call card with its status, arguments and result, a plan, notices, and the status badge.
+//! The Agents window's transcript pieces (brief 0016): the user's prompt, a block of the agent's Markdown, the
+//! collapsed thinking block, a tool call card with its status, arguments and result, a plan, notices, and the status
+//! badge.
 //! Stateless: the shell owns the transcript, the expansion state and the click handlers.
 
 use gpui::{
-    Div, FontWeight, InteractiveElement, ParentElement, Rgba, SharedString, Stateful, Styled, div,
-    px, rgb,
+    Div, Font, FontWeight, InteractiveElement, ParentElement, Rgba, SharedString, Stateful, Styled,
+    div, rgb,
 };
 
 use crate::Theme;
+use crate::markdown::{self, Block};
 
 /// A tool call's state as the transcript shows it (brief 0016 Contract).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,14 +78,15 @@ pub fn user_prompt(text: impl Into<SharedString>, theme: &Theme) -> Div {
     )
 }
 
-/// One line of the agent's message (an empty line keeps its height).
-pub fn agent_line(text: impl Into<SharedString>, theme: &Theme) -> Div {
-    let text: SharedString = text.into();
-    let line = div().w_full().px_3().text_color(theme.text);
-    if text.is_empty() {
-        line.h(px(8.))
+/// One top-level Markdown block of the agent's message, drawn by [`markdown::render`]: text in `font`, code in `mono`.
+pub fn agent_block(blocks: &[Block], theme: &Theme, font: &Font, mono: &Font) -> Div {
+    let block = div().w_full().px_3().text_color(theme.text);
+    if blocks.is_empty() {
+        block
     } else {
-        line.child(text)
+        block
+            .pb_1p5()
+            .child(markdown::render(blocks, theme, font, mono))
     }
 }
 
