@@ -1434,7 +1434,7 @@ impl Shell {
                     self.generation = status.generation;
                     self.clear_host_diagnostics(cx);
                     self.builds.diagnostics.clear();
-                    self.tests_new_generation(cx);
+                    self.tests_new_generation(window, cx);
                     for doc in self
                         .documents
                         .values_mut()
