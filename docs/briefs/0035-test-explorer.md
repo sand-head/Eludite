@@ -1,6 +1,6 @@
 # Brief 0035: Test Explorer over MTP, VSTest and cargo test
 
-Status: open
+Status: in progress
 Phase: 1 close-out (PLAN.md section 10: "Test Explorer via MTP"), with the Rust row of Phase 2
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 5, 12), 3 (D2, D3: MTP server mode and the VSTest translation-layer protocol), 4.6, 5.1, 5.4, 5.7 (test-to-code mapping), 7 (`cargo test` in Test Explorer), 8, 9, 10 (Phase 1 exit); brief 0020's report section 9 (the sizing: host 1 week, window and commands 1, debugging a test and the agent path 0.5); proposal 0001 section 5.6 (`eludite.test.debug` hands the session to the suite)
 Related ADRs: ADR-0002, ADR-0003, ADR-0004
