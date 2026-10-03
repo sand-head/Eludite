@@ -5947,9 +5947,12 @@ fn a_compound_of_two_reaches_running_within_one_and_a_half_single_launches(
         c.as_secs_f64() * 1e3,
         c.as_secs_f64() / s.as_secs_f64()
     );
-    assert!(
-        c.as_secs_f64() < 1.5 * s.as_secs_f64(),
-        "compound {c:?} vs single {s:?}"
+    // A ratio of two launches is a budget too: under load the compound's second launch waits on a busy
+    // executor, so it is asserted only on a quiet machine (the number is printed above either way).
+    assert_budget(
+        "a two-project compound to both running against 1.5 single launches",
+        c,
+        Duration::from_secs_f64(1.5 * s.as_secs_f64()),
     );
 }
 
