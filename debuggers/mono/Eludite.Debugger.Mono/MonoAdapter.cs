@@ -18,6 +18,9 @@ internal sealed class MonoAdapter
 {
     private const int DefaultEvaluationTimeoutMs = 3000;
 
+    /// <summary>How long a detach waits for the debuggee's agent to answer before the adapter exits anyway.</summary>
+    private const int DetachTimeoutMs = 1000;
+
     private readonly Dispatcher _d;
     private readonly Log _log;
     private readonly HandleTable<object> _variables = new();
@@ -29,6 +32,9 @@ internal sealed class MonoAdapter
     private readonly List<Catchpoint> _catchpoints = new();
     private readonly Dictionary<long, Backtrace> _backtraces = new();
     private readonly EvaluationOptions _evaluation;
+
+    /// <summary>Set on the debugger library's event thread when the session reports the target gone (a detach ends with it).</summary>
+    private readonly ManualResetEventSlim _targetGone = new(false);
 
     private SoftDebuggerSession? _session;
     private MonoEvaluator? _evaluator;
@@ -42,6 +48,8 @@ internal sealed class MonoAdapter
     private bool _stopped;
     private bool _exitedSent;
     private bool _terminatedSent;
+    private bool _ended;
+    private bool _detached;
     private bool _pausing;
     private bool _unhandledStop;
     private ThreadInfo? _stopThread;
@@ -125,7 +133,15 @@ internal sealed class MonoAdapter
         _evaluator = evaluator;
         s.GetExpressionEvaluator = extension => evaluator;
         s.TypeResolverHandler = evaluator.ResolveType;
-        s.TargetEvent += (sender, e) => _d.Post(() => OnTargetEvent(e));
+        s.TargetEvent += (sender, e) =>
+        {
+            if (e.Type == TargetEventType.TargetExited)
+            {
+                _targetGone.Set();
+            }
+
+            _d.Post(() => OnTargetEvent(e));
+        };
         s.Breakpoints.BreakEventStatusChanged += (sender, e) => _d.Post(() => OnBreakEventStatus(e.BreakEvent));
         _session = s;
         return Capabilities.Initialize();
@@ -302,8 +318,27 @@ internal sealed class MonoAdapter
         return null;
     }
 
+    /// <summary>
+    /// End the session once: <c>disconnect</c>, the client closing the channel and <see cref="Shutdown"/> all come here.
+    /// </summary>
+    /// <remarks>
+    /// The detach used to leave the adapter spinning at about 90% of a core instead of exiting (brief 0027 report,
+    /// section 8, item 10). It ran twice (the <c>disconnect</c> handler, then <see cref="Shutdown"/> when the dispatcher
+    /// stopped), and Mono.Debugging's <see cref="DebuggerSession.Detach"/> only queues the work on the thread pool, so
+    /// the adapter reached <see cref="Environment.Exit(int)"/> with a second <c>VM_Dispose</c> waiting, without a
+    /// timeout, for an answer that never came; Mono's exit, which suspends every other thread first, then retried
+    /// forever (the busy loop; see <c>Program.Exit</c> for how the adapter exits now). Now the detach is sent once and
+    /// awaited, bounded, so the program is released before the adapter exits; its end is not reported as <c>exited</c>.
+    /// <see cref="DebuggerSession.Dispose"/> is not a detach: it calls <c>VM.Exit</c>, which ends the debuggee.
+    /// </remarks>
     private void EndSession(bool terminate)
     {
+        if (_ended)
+        {
+            return;
+        }
+
+        _ended = true;
         var s = _session;
         if (s is not null && _started && !_exitedSent)
         {
@@ -315,7 +350,12 @@ internal sealed class MonoAdapter
                 }
                 else
                 {
+                    _detached = true;
                     s.Detach();
+                    if (!_targetGone.Wait(DetachTimeoutMs))
+                    {
+                        _log.Write("detach: the debuggee's agent did not let go within " + DetachTimeoutMs.ToString(CultureInfo.InvariantCulture) + " ms");
+                    }
                 }
             }
 #pragma warning disable CA1031 // Ending the session must not fail the disconnect.
@@ -647,6 +687,13 @@ internal sealed class MonoAdapter
             case TargetEventType.TargetExited:
                 _stopped = false;
                 ClearStop();
+                if (_detached)
+                {
+                    // The detach's own end: the debuggee runs on, so it has no exit code to report.
+                    SendTerminated();
+                    break;
+                }
+
                 SendExited(e.ExitCode ?? _process?.ExitCode ?? 0);
                 SendTerminated();
                 break;
