@@ -70,6 +70,9 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0037](0037-browser-launch-integration.md) | Launch integration: F5 on a web project opens it in the Web Browser window (proposal 0002 C) | 2 | open |
 | [0038](0038-javascript-debugging.md) | JavaScript debugging in the Web Browser window with vscode-js-debug: attach to a tab, compound with the server, source maps, child sessions (proposal 0002 D, proposal 0001 E3) | 2/4 | open |
 | [0039](0039-browser-packaging-linux.md) | Packaging the browser engine on Linux: the layout beside `eludite`, discovery, the sandbox rule and the no-sandbox opt-in (proposal 0002 E, Linux half) | 2 | open |
+| [0040](0040-git-changes.md) | Git basics: the Git Changes and Git Repository windows, status decorations, Compare with Unmodified, branches, sync, stashes and worktrees over libgit2, `eludite.git.*` for agents (Phase 1 close-out) | 1 | open |
+| [0041](0041-integrated-terminal.md) | The integrated terminal: a PTY and `alacritty_terminal` in our own GPUI view, profiles, shell integration, links, `eludite.terminal.*` for agents (Phase 1 close-out) | 1 | open |
+| [0042](0042-find-in-files.md) | Find in Files and Replace in Files at ripgrep speed, the Find Results windows, Replace with preview through the review view, `eludite.search.*` (Phase 1 close-out) | 1 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
