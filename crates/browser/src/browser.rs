@@ -121,6 +121,8 @@ pub struct Browser {
     /// Targets this browser closed: `Target.getTargets` may still list one for a moment after `closeTarget`
     /// answers, and it must not come back as a new tab.
     closed: std::collections::HashSet<String>,
+    /// The program `open_external` runs instead of the system's opener (tests).
+    opener: Option<String>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -206,7 +208,14 @@ impl Browser {
             recent: Vec::new(),
             next_tab: 1,
             closed: std::collections::HashSet::new(),
+            opener: None,
         }
+    }
+
+    /// Run `program url` for `open_external` instead of the system's opener (`None`: the system's, or
+    /// `ELUDITE_OPENER`).
+    pub fn set_opener(&mut self, program: Option<String>) {
+        self.opener = program;
     }
 
     /// The configuration of the next launch.
