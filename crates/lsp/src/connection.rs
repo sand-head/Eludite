@@ -770,10 +770,12 @@ impl Connection {
                 .and_then(|p| p.child.as_mut())
                 .and_then(|c| c.wait().ok())
                 .and_then(|s| s.code());
+            // Recorded before the process entry goes, under the same lock `shutdown` reads both under: it sees
+            // either the process or its exit code, never neither.
+            *lock(&self.inner.exit_code) = code;
             process.take();
             code
         };
-        *lock(&self.inner.exit_code) = code;
         let failed: Vec<Pending> = lock(&self.inner.pending).drain().map(|(_, p)| p).collect();
         for p in failed {
             let _ = p.tx.try_send(Err(Error::HostExited));

@@ -40,6 +40,10 @@ fn main() {
             lifecycle_initialize_ping_shutdown,
         ),
         (
+            "shutdown_always_reports_the_exit_code",
+            shutdown_always_reports_the_exit_code,
+        ),
+        (
             "status_notifications_track_generation",
             status_notifications_track_generation,
         ),
@@ -165,6 +169,17 @@ fn hover(uri: &str) -> TextDocumentPositionParams {
             line: 0,
             character: 0,
         },
+    }
+}
+
+/// The reader thread records the exit code before it drops the process entry, so a shutdown racing it never reads
+/// "exited, code unknown". The race showed as `None` with the real host under heavy load; with the fake host the
+/// window is narrow, so this guards the contract over many cycles rather than reproducing the race on demand.
+fn shutdown_always_reports_the_exit_code() {
+    for _ in 0..40 {
+        let (client, _rx) = start();
+        client.initialize_result().unwrap();
+        assert_eq!(client.shutdown(T).unwrap(), Some(0));
     }
 }
 
