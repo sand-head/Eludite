@@ -502,7 +502,8 @@ impl LldbAdapter {
     }
 }
 
-/// Run `program args` with stdin closed and return its stdout and stderr, killing it after two seconds.
+/// Run `program args` with stdin closed and return its stdout and stderr, killing it after ten seconds (a loaded
+/// machine took more than two to start `lldb --version`).
 fn command_output(program: &Path, args: &[&str]) -> Option<String> {
     let mut child = Command::new(program)
         .args(args)
@@ -511,7 +512,7 @@ fn command_output(program: &Path, args: &[&str]) -> Option<String> {
         .stderr(Stdio::piped())
         .spawn()
         .ok()?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
