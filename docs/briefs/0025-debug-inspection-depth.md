@@ -1,6 +1,6 @@
 # Brief 0025: Inspection depth for the agent debugging suite
 
-Status: open
+Status: in progress
 Phase: 2 (proposal 0001, brief A)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 12), 4.5, 5.1, 5.3, 5.4, 5.5, 9, 10 (Phase 2); proposal 0001 sections 3, 4 (rules 1 to 4, 6, 7), 5.1, 5.3 (`pause`), 8 (A), 11
 Related ADRs: ADR-0003, ADR-0007
