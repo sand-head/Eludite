@@ -2,6 +2,10 @@
 //! frames in shared memory) as the [`Engine`] of an unchanged [`Browser`]. The subset the brief names: `tab_open`,
 //! `navigate`, `screenshot` (from the frame ring, checked pixel by pixel; `Page.captureScreenshot` for a full page),
 //! `read_page` and `evaluate`, then `tab_close`, and the engine killed and relaunched by the next command.
+//! Brief 0032: every key of the Web Browser window's table reaching the page with its key code, DOM key and DOM
+//! code; an agent's click opening a `confirm` answered by `dialog`; `devtools` as a tab `tabs` does not list;
+//! `record` from the ring; and `input` click to the next frame in the ring (the 50 ms p95 budget, asserted on a
+//! quiet machine).
 //!
 //! Skips with a message when the engine is not built with CEF (`tools/cef/fetch.sh`, then `CEF_PATH=...
 //! cargo build -p eludite-chromium --features eludite-chromium/cef`) or off Linux. As root the engine gets
@@ -359,4 +363,258 @@ fn the_commands_against_the_embedded_engine() {
         "Sign up"
     );
     run.browser.shutdown();
+}
+
+/// The window's handle on the engine, once it started.
+type Handle = Arc<Mutex<Option<eludite_browser::TabControl>>>;
+
+/// The engine with a [`Browser`] over it and the window's handle (brief 0032), or `None` when it cannot run here.
+fn window_run() -> Option<(Run, Handle, tempfile::TempDir)> {
+    if !cfg!(target_os = "linux") {
+        println!("SKIPPED: the embedded engine runs on Linux only so far (brief 0031)");
+        return None;
+    }
+    let search = ChromiumSearch::defaults();
+    if let Err(why) = search.find_engine().and_then(|e| search.find_cef(&e)) {
+        println!("SKIPPED: {why}");
+        return None;
+    }
+    let profile = tempfile::tempdir().unwrap();
+    let log: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink = log.clone();
+    let sink2 = log.clone();
+    let control: Handle = Arc::default();
+    let c = control.clone();
+    let mut engine = EmbeddedChromium::new(
+        EngineConfig {
+            executable: None,
+            profile_dir: profile.path().join(".eludite/browser/profile"),
+            headless: true,
+            viewport: (800, 600),
+        },
+        search,
+        Arc::new(move |l: &str| {
+            sink.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(l.to_owned())
+        }),
+    )
+    .no_sandbox(running_as_root() || eludite_browser::chrome::no_sandbox_from_env());
+    engine.set_observer(Some(Arc::new(move |e| {
+        if let eludite_browser::EngineEvent::Started(t) = e {
+            *c.lock().unwrap() = Some(t);
+        }
+    })));
+    let run = Run {
+        browser: Browser::new(
+            Box::new(engine),
+            Arc::new(move |l: &str| {
+                sink2
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(l.to_owned())
+            }),
+        ),
+        log,
+    };
+    Some((run, control, profile))
+}
+
+fn data_url(html: &str) -> String {
+    let mut s = String::from("data:text/html,");
+    for b in html.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) {
+            s.push(b as char);
+        } else {
+            s.push_str(&format!("%{b:02X}"));
+        }
+    }
+    s
+}
+
+#[test]
+fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
+    let Some((mut run, control, profile)) = window_run() else {
+        return;
+    };
+    // Every key the window sends reaches the page with its Windows key code, DOM key and DOM code.
+    let page = "<html><head><title>keys</title></head><body><input id=i autofocus><script>\
+        window.seen = []; addEventListener('keydown', e => { seen.push([e.keyCode, e.key, e.code]); \
+        if (e.key === 'Tab' || e.key === 'F5' || e.key === 'Backspace' || e.key === ' ') e.preventDefault(); }, true);\
+        </script></body></html>";
+    let opened = run.ok(cmds::TAB_OPEN, json!({"url": data_url(page)}));
+    assert_eq!(opened["title"], "keys");
+    let tabs = run.ok(cmds::TABS, json!({}));
+    assert_eq!(tabs["engine"]["name"], "embedded-chromium");
+    // tab_open loads about:blank, then the url: there is a page to go back to.
+    assert_eq!(tabs["tabs"][0]["can_go_back"], true);
+    assert_eq!(tabs["tabs"][0]["can_go_forward"], false);
+    let target = run.browser.targets_of_tabs()[0].1.clone();
+    let ctl = control
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("Started handed the window its handle");
+    for key in eludite_browser::keys::SHELL_KEYS {
+        for t in ["rawKeyDown", "keyUp"] {
+            ctl.input(
+                &target,
+                json!({"type": t, "windowsKeyCode": key.windows, "nativeKeyCode": key.x11}),
+            );
+        }
+    }
+    let n = eludite_browser::keys::SHELL_KEYS.len();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let seen = loop {
+        let v = run.ok(cmds::EVALUATE, json!({"expression": "window.seen"}))["result"].clone();
+        if v.as_array().is_some_and(|a| a.len() >= n) || Instant::now() > deadline {
+            break v;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let seen = seen.as_array().unwrap();
+    assert_eq!(seen.len(), n, "every key arrived: {seen:?}");
+    for (key, got) in eludite_browser::keys::SHELL_KEYS.iter().zip(seen) {
+        assert_eq!(got[0], key.windows, "{} keyCode: {got}", key.gpui);
+        assert_eq!(got[2], key.dom_code, "{} code: {got}", key.gpui);
+        assert_eq!(
+            got[1].as_str().unwrap().to_lowercase(),
+            key.dom_key.to_lowercase(),
+            "{} key: {got}",
+            key.gpui
+        );
+    }
+
+    // An agent's click that opens a dialog gets it in its answer; dialog answers it.
+    let page = "<html><head><title>ask</title></head><body style='margin:0'>\
+        <button id=b style='width:300px;height:100px' onclick=\"document.title = confirm('Delete it?') ? 'yes' : 'no'\">x</button>\
+        </body></html>";
+    run.ok(cmds::NAVIGATE, json!({"url": data_url(page)}));
+    let t0 = Instant::now();
+    let out = run.ok(
+        cmds::INPUT,
+        json!({"action": "click", "x": 50, "y": 50, "wait_ms": 2000}),
+    );
+    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    assert_eq!(
+        out["dialog"],
+        json!({"kind": "confirm", "message": "Delete it?"}),
+        "{out}"
+    );
+    let a = run.ok(cmds::DIALOG, json!({"action": "accept"}));
+    assert_eq!(a["kind"], "confirm");
+    let w = run.ok(
+        cmds::WAIT,
+        json!({"for": "function", "expression": "document.title === 'yes'", "wait_ms": 5000}),
+    );
+    assert_eq!(w["timeout"], false, "{w}");
+
+    // DevTools opens as a tab of its own, which `tabs` does not list (it is not a page).
+    let d = run.ok(cmds::DEVTOOLS, json!({}));
+    assert_eq!(d["opened"], true);
+    let tabs = run.ok(cmds::TABS, json!({}));
+    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1, "{tabs}");
+    assert!(
+        ctl.tabs().len() >= 2,
+        "the window sees DevTools: {:?}",
+        ctl.tabs()
+    );
+    assert_eq!(run.ok(cmds::DEVTOOLS, json!({}))["opened"], false);
+
+    // record: the tab's frames into a GIF while a page animates.
+    let anim = "<html><head><title>anim</title></head><body style='margin:0'><div id=d style='width:100px;height:100px;background:red'></div>\
+        <script>let n=0; setInterval(() => { n++; d.style.background = n % 2 ? 'blue' : 'red'; }, 50);</script></body></html>";
+    run.ok(cmds::NAVIGATE, json!({"url": data_url(anim)}));
+    // The page animates before the recording starts (a loaded machine paints late).
+    let ring = ctl.frames(&target).unwrap();
+    let seq0 = eludite_browser::FrameSource::sequence(ring.as_ref());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while eludite_browser::FrameSource::sequence(ring.as_ref()) < seq0 + 2 {
+        assert!(Instant::now() < deadline, "the animation never painted");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let gif = profile.path().join("anim.gif");
+    run.ok(
+        cmds::RECORD,
+        json!({"action": "start", "path": gif, "fps": 10}),
+    );
+    std::thread::sleep(Duration::from_millis(1500));
+    let done = run.ok(cmds::RECORD, json!({"action": "stop"}));
+    let frames = done["frames"].as_u64().unwrap();
+    let low = if busy() { 2 } else { 8 };
+    assert!(
+        (low..=16).contains(&frames),
+        "about 15 ticks, nearly every one a change: {done}"
+    );
+    assert_eq!(
+        (done["width"].as_u64(), done["height"].as_u64()),
+        (Some(800), Some(600))
+    );
+    assert!(std::fs::read(&gif).unwrap().starts_with(b"GIF89a"));
+    eprintln!(
+        "record: {frames} frames, {} bytes in {}",
+        done["bytes"],
+        gif.display()
+    );
+
+    // `input` click to the next painted frame (the ring's sequence): the page turns the box green on mousedown.
+    let page = "<html><head><title>click</title></head><body style='margin:0'><div id=d style='width:200px;height:200px;background:#000'></div>\
+        <script>let on = false; d.addEventListener('mousedown', () => { on = !on; d.style.background = on ? '#0f0' : '#000'; });</script></body></html>";
+    run.ok(cmds::NAVIGATE, json!({"url": data_url(page)}));
+    let frames = ctl.frames(&target).unwrap();
+    let mut samples = Vec::new();
+    for i in 0..20 {
+        let want: [u8; 4] = if i % 2 == 0 {
+            [0, 255, 0, 255]
+        } else {
+            [0, 0, 0, 255]
+        };
+        let seq0 = eludite_browser::FrameSource::sequence(frames.as_ref());
+        let t0 = Instant::now();
+        run.ok(
+            cmds::INPUT,
+            json!({"action": "click", "x": 100, "y": 100, "wait_ms": 0}),
+        );
+        loop {
+            let mut px = [0u8; 4];
+            let seq = eludite_browser::FrameSource::sequence(frames.as_ref());
+            if seq > seq0 {
+                eludite_browser::FrameSource::read(frames.as_ref(), false, &mut |f| {
+                    let o = (100 * f.stride + 100 * 4) as usize;
+                    px.copy_from_slice(&f.pixels[o..o + 4]);
+                });
+                if [px[2], px[1], px[0], px[3]] == want {
+                    break;
+                }
+            }
+            assert!(
+                t0.elapsed() < Duration::from_secs(5),
+                "no frame with the click's change"
+            );
+            std::thread::sleep(Duration::from_micros(500));
+        }
+        samples.push(t0.elapsed().as_secs_f64() * 1e3);
+    }
+    let (p50, p95, max) = p95(samples);
+    eprintln!(
+        "input click to the next frame in the ring: p50 {p50:.1} ms, p95 {p95:.1} ms, max {max:.1} ms"
+    );
+    if !busy() {
+        assert!(
+            p95 < 50.,
+            "input click to frame p95 {p95:.1} ms (budget 50 ms)"
+        );
+    }
+    run.browser.shutdown();
+}
+
+/// A loaded machine (the one-minute load average over 4): timing budgets are reported, not asserted.
+fn busy() -> bool {
+    std::fs::read_to_string("/proc/loadavg")
+        .unwrap_or_default()
+        .split_whitespace()
+        .next()
+        .and_then(|l| l.parse::<f64>().ok())
+        .unwrap_or(0.)
+        > 4.
 }

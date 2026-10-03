@@ -295,9 +295,19 @@ impl Browser {
                     .map_err(|e| failed(format!("the element cannot take focus: {e}")))?;
             }
         }
+        // A dialog the action opened: the page waits on it, so nothing more will happen until it is answered.
+        let dialog = self.dialog_row(&tab);
         // Console errors and a navigation the action caused.
-        let deadline = Instant::now() + Duration::from_millis(wait_ms);
+        let deadline = Instant::now()
+            + if dialog.is_some() {
+                Duration::ZERO
+            } else {
+                Duration::from_millis(wait_ms)
+            };
         loop {
+            if self.interrupt.interrupted_since(self.marks) {
+                break;
+            }
             {
                 let s = tab.state();
                 if s.gone {
@@ -333,6 +343,7 @@ impl Browser {
             url: navigated.then(|| s.url.clone()),
             console_errors: s.console_error_list_since(seq0),
             elapsed_ms: ms(started.elapsed()),
+            dialog,
         })
     }
 
@@ -456,11 +467,26 @@ impl Browser {
         events: Vec<Value>,
     ) -> Result<(), CommandError> {
         let calls = events.into_iter().map(|e| (method.to_owned(), e)).collect();
-        for r in self
-            .engine
-            .send_many(&tab.session, calls, crate::connection::DEFAULT_TIMEOUT)
-        {
-            r.map_err(|e| failed(format!("{method}: {e}")))?;
+        // A dialog the input opens pauses the page, which then answers no more input: give up waiting and report
+        // the dialog. The person's Stop gives up too.
+        let give_up = || self.dialog_of(tab).is_some() || self.stopped();
+        let answers = self.engine.send_many_unless(
+            &tab.session,
+            calls,
+            crate::connection::DEFAULT_TIMEOUT,
+            &give_up,
+        );
+        if self.stopped() {
+            return Err(super::stopped_error());
+        }
+        for r in answers {
+            match r {
+                Err(crate::engine::EngineError::Interrupted) if self.dialog_of(tab).is_some() => {}
+                Err(crate::engine::EngineError::Cdp(_)) if self.dialog_of(tab).is_some() => {}
+                r => {
+                    r.map_err(|e| failed(format!("{method}: {e}")))?;
+                }
+            }
         }
         Ok(())
     }

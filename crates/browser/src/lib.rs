@@ -17,7 +17,11 @@
 //!   connection, requests correlated by id with timeouts, events fanned out per session through channels).
 //! - [`ring`], [`tab`] and [`page`]: the console and network rings, a tab's state (page generations and refs), and
 //!   reading pages from CDP answers.
-//! - [`keys`]: the key table of `eludite.browser.input` (brief 0024). Acting on the page (`input`, `form_input`,
+//! - Brief 0032, the Web Browser window: [`EngineEvent`]s and [`TabControl`] for the window that draws the embedded
+//!   engine's tabs, [`select_engine`] for the setting `browser.engine`, the engine's dialogs ([`PendingDialog`],
+//!   [`DialogAnswer`]), `record` (`browser::record`), `devtools`, `dialog`, and the person's [`Interrupt`].
+//! - [`keys`]: the key table of `eludite.browser.input` (brief 0024), and the Web Browser window's
+//!   (`keys::SHELL_KEYS`, brief 0032). Acting on the page (`input`, `form_input`,
 //!   `upload`), `storage`, `network_body` and `open_external` (whose opener [`browser::OPENER_ENV`] replaces in
 //!   tests) are [`Browser`] commands like the rest.
 //!
@@ -37,11 +41,18 @@ pub mod ring;
 pub mod tab;
 
 pub use browser::Browser;
+pub use browser::{Interrupt, Marks};
 pub use chrome::ExternalChrome;
 pub use connection::{CdpError, CdpEvent, Connection};
 pub use discovery::ChromeSearch;
-pub use embedded::{ChromiumSearch, EmbeddedChromium, EmbeddedStats, FrameSource, TabFrames};
-pub use engine::{Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
+pub use embedded::{
+    ChromiumSearch, EmbeddedChromium, EmbeddedStats, EngineChoice, EngineEvent, EngineObserver,
+    FrameSource, TabControl, TabFrames, TabInfo, select_engine,
+};
+pub use engine::{
+    DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog, TabHistory,
+    TargetInfo,
+};
 
 /// Where the browser's lifecycle lines go (the shell's Output window, Browser source). Called from any thread;
 /// it must not block.

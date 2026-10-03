@@ -16,13 +16,19 @@
 //! - **Discovery** ([`ChromiumSearch`]): the engine in `ELUDITE_CHROMIUM`, beside this executable, then the cargo
 //!   target folder (development); CEF in `ELUDITE_CEF`, `CEF_PATH`, the fetch script's cache, then beside the engine.
 //!
+//! - **The Web Browser window** (brief 0032). The engine's notifications for the window (state, cursors, popups,
+//!   dialogs, permission prompts, downloads, context menus, closed tabs) reach an [`EngineObserver`] the shell sets
+//!   ([`EmbeddedChromium::set_observer`]) as [`EngineEvent`]s, with [`EngineEvent::Started`] handing it a
+//!   [`TabControl`] to draw and drive the tabs with. Dialogs and prompts are also kept here, so `dialog` and `input`
+//!   see them ([`Engine::pending_dialog`]); downloads are written to the Output window through the log.
+//!
 //! Linux only so far: macOS (`shm_open` over the same socket) and Windows (named file mappings) are specified in
 //! browser-rpc.md; on them [`Engine::launch`] fails with a message.
 
 // Shared memory, descriptor passing and descriptor 3 in the child are system calls; each use is commented.
 #![allow(unsafe_code)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -35,7 +41,10 @@ use serde_json::{Value, json};
 use crate::LogSink;
 use crate::chrome::{NO_SANDBOX_ENV, prepare_profile};
 use crate::connection::{CdpError, CdpEvent, DEFAULT_TIMEOUT};
-use crate::engine::{Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
+use crate::engine::{
+    DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog, TabHistory,
+    TargetInfo,
+};
 
 /// The engine's executable name.
 pub const ENGINE_NAME: &str = "eludite-chromium";
@@ -183,6 +192,111 @@ impl ChromiumSearch {
     }
 }
 
+// ---- what the Web Browser window hears (brief 0032) ----
+
+/// What the engine tells the shell, for the Web Browser window.
+#[derive(Debug, Clone)]
+pub enum EngineEvent {
+    /// The engine started: the handle the window draws and drives its tabs through.
+    Started(TabControl),
+    /// The engine exited or was closed: its tabs are gone.
+    Stopped,
+    /// A notification as the engine sent it: `tab/state`, `tab/cursor`, `tab/popup`, `tab/dialog`,
+    /// `tab/permission`, `tab/dialogClosed`, `tab/download`, `tab/contextMenu` or `tab/closed`.
+    Notification { method: String, params: Value },
+    /// DevTools opened for tab `page` as tab `devtools` (engine tab ids).
+    DevtoolsOpened { page: String, devtools: String },
+}
+
+/// Where [`EngineEvent`]s go; called on the engine's reader thread (or the thread that launched it), so it must
+/// not block.
+pub type EngineObserver = Arc<dyn Fn(EngineEvent) + Send + Sync>;
+
+/// The notifications an [`EngineObserver`] hears.
+pub const WINDOW_NOTIFICATIONS: [&str; 9] = [
+    "tab/state",
+    "tab/cursor",
+    "tab/popup",
+    "tab/dialog",
+    "tab/permission",
+    "tab/dialogClosed",
+    "tab/download",
+    "tab/contextMenu",
+    "tab/closed",
+];
+
+/// A tab's state as the engine last reported it (`tab/state`, `tab/cursor`, `tab/popup`, DevTools).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabInfo {
+    pub url: String,
+    pub title: String,
+    pub loading: bool,
+    /// A `data:` url, or empty.
+    pub favicon: String,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
+    /// CSS's cursor keyword.
+    pub cursor: String,
+    pub status: String,
+    /// A popup: the tab whose page opened it.
+    pub opener: Option<String>,
+    /// A DevTools tab: the page it inspects.
+    pub devtools_of: Option<String>,
+}
+
+// ---- which engine (brief 0032) ----
+
+/// The setting `browser.engine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EngineChoice {
+    /// Eludite's own Chromium, drawn in the Web Browser window, when it and CEF are found.
+    #[default]
+    Embedded,
+    /// A Chrome or Chromium process with its own window (brief 0023).
+    External,
+}
+
+impl EngineChoice {
+    /// From the setting's value; anything else is the default, `embedded`.
+    pub fn from_setting(value: &str) -> Self {
+        match value.trim() {
+            "external" => EngineChoice::External,
+            _ => EngineChoice::Embedded,
+        }
+    }
+}
+
+/// The engine that runs for `choice`: the embedded one when it is chosen and `eludite-chromium` and CEF are found,
+/// else the external Chrome. The second member says why the embedded engine is not used when it was chosen, with
+/// what to run (the Web Browser window shows it).
+pub fn select_engine(
+    choice: EngineChoice,
+    search: &ChromiumSearch,
+) -> (EngineChoice, Option<String>) {
+    if choice == EngineChoice::External {
+        return (EngineChoice::External, None);
+    }
+    if !cfg!(target_os = "linux") {
+        return (
+            EngineChoice::External,
+            Some(
+                "the embedded browser runs on Linux only so far; the browser tools use the external Chrome".into(),
+            ),
+        );
+    }
+    match search.find_engine().and_then(|e| search.find_cef(&e)) {
+        Ok(_) => (EngineChoice::Embedded, None),
+        Err(why) => (
+            EngineChoice::External,
+            Some(format!(
+                "{why}. Fetch CEF with `tools/cef/fetch.sh` and build the engine with `CEF_PATH=\"$(tools/cef/fetch.sh)\" \
+                 cargo build -p eludite-chromium --features eludite-chromium/cef`; meanwhile the browser tools use \
+                 the external Chrome"
+            )),
+        ),
+    }
+}
+
 // ---- the frame ring (browser-rpc.md, "The frame ring") ----
 
 const MAGIC: u32 = 0x5242_4C45;
@@ -232,6 +346,11 @@ pub trait FrameSource: Send + Sync {
 
     /// Called (on the engine's reader thread) whenever a frame is announced; replaces the previous listener.
     fn set_listener(&self, f: Option<Box<dyn Fn() + Send + Sync>>);
+
+    /// The tab is gone: no frame will come.
+    fn is_closed(&self) -> bool {
+        false
+    }
 }
 
 /// `CLOCK_MONOTONIC` in nanoseconds: the engine's `paintNs` clock.
@@ -439,8 +558,7 @@ pub struct TabFrames {
     created: Mutex<Option<Instant>>,
     first_frame: Mutex<Option<Instant>>,
     frames: AtomicU64,
-    url: Mutex<String>,
-    title: Mutex<String>,
+    info: Mutex<TabInfo>,
     closed: AtomicBool,
 }
 
@@ -468,6 +586,11 @@ impl TabFrames {
 
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
+    }
+
+    /// The tab's state as the engine last reported it.
+    pub fn info(&self) -> TabInfo {
+        lock(&self.info).clone()
     }
 
     fn announce(&self, sequence: u64) {
@@ -500,6 +623,10 @@ impl FrameSource for TabFrames {
     fn set_listener(&self, f: Option<Box<dyn Fn() + Send + Sync>>) {
         *lock(&self.listener) = f.map(Arc::from);
     }
+
+    fn is_closed(&self) -> bool {
+        TabFrames::is_closed(self)
+    }
 }
 
 // ---- the control channel ----
@@ -510,6 +637,11 @@ type CdpReply = mpsc::Sender<Result<Value, CdpError>>;
 /// One running engine: its stdin, the requests and CDP calls in flight, the tabs.
 struct Control {
     stdin: Mutex<Option<ChildStdin>>,
+    /// The Web Browser window's ears (brief 0032).
+    observer: Option<EngineObserver>,
+    log: Option<LogSink>,
+    /// Dialogs and prompts pages wait on, by the engine's id.
+    prompts: Mutex<BTreeMap<u64, (String, PendingDialog)>>,
     next_id: AtomicU64,
     pending: Mutex<HashMap<u64, RpcReply>>,
     cdp_next: AtomicU64,
@@ -634,16 +766,78 @@ impl Control {
             "tab/cdpEvent" => self.cdp_event(&tab, &p["message"]),
             "tab/state" => {
                 if let Some(f) = self.tab(&tab) {
-                    if let Some(u) = p["url"].as_str() {
-                        *lock(&f.url) = u.to_owned();
-                    }
-                    if let Some(t) = p["title"].as_str() {
-                        *lock(&f.title) = t.to_owned();
-                    }
+                    let mut i = lock(&f.info);
+                    let text = |k: &str, to: &mut String| {
+                        if let Some(v) = p[k].as_str() {
+                            v.clone_into(to);
+                        }
+                    };
+                    text("url", &mut i.url);
+                    text("title", &mut i.title);
+                    text("favicon", &mut i.favicon);
+                    text("statusText", &mut i.status);
+                    let flag = |k: &str, to: &mut bool| {
+                        if let Some(v) = p[k].as_bool() {
+                            *to = v;
+                        }
+                    };
+                    flag("loading", &mut i.loading);
+                    flag("canGoBack", &mut i.can_go_back);
+                    flag("canGoForward", &mut i.can_go_forward);
                 }
             }
+            "tab/cursor" => {
+                if let Some(f) = self.tab(&tab)
+                    && let Some(c) = p["cursor"].as_str()
+                {
+                    c.clone_into(&mut lock(&f.info).cursor);
+                }
+            }
+            "tab/popup" => {
+                if let Some(f) = self.tab(&tab) {
+                    lock(&f.info).opener = p["opener"].as_str().map(str::to_owned);
+                }
+            }
+            "tab/dialog" | "tab/permission" => {
+                if let Some(id) = p["id"].as_u64() {
+                    let permission = v["method"] == "tab/permission";
+                    let message = if permission {
+                        format!(
+                            "{} wants to use: {}",
+                            p["origin"].as_str().unwrap_or("the page"),
+                            p["permissions"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    } else {
+                        p["message"].as_str().unwrap_or_default().to_owned()
+                    };
+                    let d = PendingDialog {
+                        id,
+                        kind: if permission {
+                            "permission".into()
+                        } else {
+                            p["kind"].as_str().unwrap_or("alert").to_owned()
+                        },
+                        message,
+                        default_text: p["defaultText"].as_str().map(str::to_owned),
+                    };
+                    lock(&self.prompts).insert(id, (tab.clone(), d));
+                }
+            }
+            "tab/dialogClosed" => {
+                if let Some(id) = p["id"].as_u64() {
+                    lock(&self.prompts).remove(&id);
+                }
+            }
+            "tab/download" => self.download_line(p),
             "tab/closed" => {
                 lock(&self.subscribers).remove(&tab);
+                lock(&self.prompts).retain(|_, (t, _)| *t != tab);
                 let mut tabs = lock(&self.tabs);
                 if let Some(i) = tabs.iter().position(|(t, _)| *t == tab) {
                     tabs.remove(i).1.closed.store(true, Ordering::Release);
@@ -651,6 +845,47 @@ impl Control {
             }
             _ => {}
         }
+        if let Some(o) = &self.observer
+            && let Some(m) = v["method"].as_str()
+            && WINDOW_NOTIFICATIONS.contains(&m)
+        {
+            o(EngineEvent::Notification {
+                method: m.to_owned(),
+                params: p.clone(),
+            });
+        }
+    }
+
+    /// A download's end goes to the Output window (its start and progress only to the window).
+    fn download_line(&self, p: &Value) {
+        let Some(log) = &self.log else { return };
+        let url = p["url"].as_str().unwrap_or_default();
+        let line = match p["state"].as_str().unwrap_or_default() {
+            "complete" => format!(
+                "Downloaded {url} to {} ({} bytes)",
+                p["path"].as_str().unwrap_or_default(),
+                p["receivedBytes"].as_u64().unwrap_or(0)
+            ),
+            "refused" => format!(
+                "Refused the download of {url}: {}",
+                p["message"].as_str().unwrap_or("over the limit")
+            ),
+            "canceled" => format!("The download of {url} was canceled"),
+            "interrupted" => format!(
+                "The download of {url} stopped: {}",
+                p["message"].as_str().unwrap_or("interrupted")
+            ),
+            _ => return,
+        };
+        log(&line);
+    }
+
+    /// The first dialog or prompt `tab`'s page waits on.
+    fn pending(&self, tab: &str) -> Option<PendingDialog> {
+        lock(&self.prompts)
+            .values()
+            .find(|(t, _)| t == tab)
+            .map(|(_, d)| d.clone())
     }
 
     #[cfg(unix)]
@@ -663,7 +898,8 @@ impl Control {
                 match ring {
                     Ok(r) => {
                         let frames = self.tab(tab).unwrap_or_else(|| {
-                            // The region arrives before tab/create's answer: the tab starts here.
+                            // The region arrives before tab/create's (or tab/devtools') answer, and before tab/popup:
+                            // the tab starts here.
                             let f = Arc::new(TabFrames::default());
                             lock(&self.tabs).push((tab.to_owned(), f.clone()));
                             f
@@ -835,6 +1071,8 @@ pub struct EmbeddedChromium {
     /// From spawn to `initialize`'s answer, of the last launch.
     last_launch: Option<Duration>,
     stats: Arc<EmbeddedStats>,
+    /// The Web Browser window's ears (brief 0032).
+    observer: Option<EngineObserver>,
 }
 
 impl std::fmt::Debug for EmbeddedChromium {
@@ -857,7 +1095,13 @@ impl EmbeddedChromium {
             running: None,
             last_launch: None,
             stats: Arc::default(),
+            observer: None,
         }
+    }
+
+    /// Tell `observer` what the engine says for the Web Browser window, from the next launch on.
+    pub fn set_observer(&mut self, observer: Option<EngineObserver>) {
+        self.observer = observer;
     }
 
     /// The engine's counters, shared.
@@ -1010,6 +1254,9 @@ impl EmbeddedChromium {
             });
         let control = Arc::new(Control {
             stdin: Mutex::new(Some(stdin)),
+            observer: self.observer.clone(),
+            log: Some(self.log.clone()),
+            prompts: Mutex::default(),
             next_id: AtomicU64::new(0),
             pending: Mutex::default(),
             cdp_next: AtomicU64::new(0),
@@ -1022,8 +1269,12 @@ impl EmbeddedChromium {
         let stopping = Arc::new(AtomicBool::new(false));
         let reader_control = control.clone();
         let sock_fd = ours.as_raw_fd();
-        let (hook_child, hook_stopping, hook_log) =
-            (child.clone(), stopping.clone(), self.log.clone());
+        let (hook_child, hook_stopping, hook_log, hook_observer) = (
+            child.clone(),
+            stopping.clone(),
+            self.log.clone(),
+            self.observer.clone(),
+        );
         std::thread::Builder::new()
             .name("chromium-control".into())
             .spawn(move || {
@@ -1035,6 +1286,9 @@ impl EmbeddedChromium {
                     }
                 }
                 reader_control.close();
+                if let Some(o) = &hook_observer {
+                    o(EngineEvent::Stopped);
+                }
                 if hook_stopping.load(Ordering::Acquire) {
                     return;
                 }
@@ -1078,12 +1332,20 @@ impl EmbeddedChromium {
                 }
             ))
         };
+        // Downloads go beside the profile: the workspace's .eludite/browser/downloads (brief 0032).
+        let downloads = self
+            .config
+            .profile_dir
+            .parent()
+            .map(|p| p.join("downloads"))
+            .unwrap_or_else(|| self.config.profile_dir.join("downloads"));
         let init = control.request(
             "initialize",
             json!({
                 "clientName": "eludite",
                 "clientVersion": env!("CARGO_PKG_VERSION"),
                 "protocolVersion": PROTOCOL_VERSION,
+                "downloadDir": downloads,
             }),
             LAUNCH_TIMEOUT,
         );
@@ -1123,6 +1385,9 @@ impl EmbeddedChromium {
                 ""
             }
         ));
+        if let Some(o) = &self.observer {
+            o(EngineEvent::Started(TabControl(control.clone())));
+        }
         self.running = Some(Running {
             control,
             child,
@@ -1339,7 +1604,9 @@ pub struct TabControl(Arc<Control>);
 
 impl std::fmt::Debug for TabControl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TabControl").finish()
+        f.debug_struct("TabControl")
+            .field("closed", &self.is_closed())
+            .finish()
     }
 }
 
@@ -1361,6 +1628,30 @@ impl TabControl {
 
     pub fn is_closed(&self) -> bool {
         self.0.is_closed()
+    }
+
+    /// A tab's frames and state.
+    pub fn frames(&self, tab: &str) -> Option<Arc<TabFrames>> {
+        self.0.tab(tab)
+    }
+
+    /// Any shell-to-engine notification (`tab/action`, `tab/dialogAnswer`, `tab/permissionAnswer`); never waits.
+    pub fn notify(&self, method: &str, params: Value) {
+        let _ = self.0.notify(method, params);
+    }
+
+    /// The dialog or prompt `tab`'s page waits on.
+    pub fn pending_dialog(&self, tab: &str) -> Option<PendingDialog> {
+        self.0.pending(tab)
+    }
+
+    /// The open tabs, in the engine's order.
+    pub fn tabs(&self) -> Vec<String> {
+        lock(&self.0.tabs)
+            .iter()
+            .filter(|(_, f)| !f.is_closed())
+            .map(|(t, _)| t.clone())
+            .collect()
     }
 }
 
@@ -1401,13 +1692,17 @@ impl Engine for EmbeddedChromium {
 
     fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {
         let c = self.control()?;
+        // DevTools tabs are the window's, not page targets.
         Ok(lock(&c.tabs)
             .iter()
             .filter(|(_, f)| !f.is_closed())
-            .map(|(id, f)| TargetInfo {
-                target_id: id.clone(),
-                url: lock(&f.url).clone(),
-                title: lock(&f.title).clone(),
+            .filter_map(|(id, f)| {
+                let i = f.info();
+                i.devtools_of.is_none().then(|| TargetInfo {
+                    target_id: id.clone(),
+                    url: i.url,
+                    title: i.title,
+                })
             })
             .collect())
     }
@@ -1433,7 +1728,7 @@ impl Engine for EmbeddedChromium {
             f
         });
         *lock(&frames.created) = Some(t0);
-        *lock(&frames.url) = url.to_owned();
+        lock(&frames.info).url = url.to_owned();
         Ok(tab)
     }
 
@@ -1498,6 +1793,124 @@ impl Engine for EmbeddedChromium {
                     .map_err(EngineError::from)
             })
             .collect()
+    }
+
+    fn send_many_unless(
+        &self,
+        session: &str,
+        calls: Vec<(String, Value)>,
+        timeout: Duration,
+        give_up: &dyn Fn() -> bool,
+    ) -> Vec<Result<Value, EngineError>> {
+        let c = match self.control() {
+            Ok(c) => c,
+            Err(_) => return calls.iter().map(|_| Err(EngineError::NotRunning)).collect(),
+        };
+        let sent: Vec<_> = calls
+            .into_iter()
+            .map(|(m, p)| {
+                let r = c.cdp_send(session, &m, p);
+                (m, r)
+            })
+            .collect();
+        crate::engine::collect_unless(sent, timeout, give_up)
+    }
+
+    fn frames(&self, target_id: &str) -> Option<Arc<dyn FrameSource>> {
+        let f: Arc<dyn FrameSource> = self.control().ok()?.tab(target_id)?;
+        Some(f)
+    }
+
+    fn pending_dialog(&self, target_id: &str) -> Option<PendingDialog> {
+        self.control().ok()?.pending(target_id)
+    }
+
+    fn answer_dialog(
+        &self,
+        target_id: &str,
+        answer: &DialogAnswer,
+    ) -> Result<PendingDialog, EngineError> {
+        let c = self.control()?;
+        let d = c.pending(target_id).ok_or_else(|| {
+            EngineError::Launch(
+                "no dialog is open in the tab (it was answered, perhaps by the person, or the page went on)"
+                    .into(),
+            )
+        })?;
+        let (method, params) = if d.kind == "permission" {
+            (
+                "tab/permissionAnswer",
+                json!({"tab": target_id, "id": d.id, "allow": answer.accept}),
+            )
+        } else {
+            let mut p = json!({"tab": target_id, "id": d.id, "accept": answer.accept});
+            if let Some(t) = &answer.text {
+                p["text"] = json!(t);
+            }
+            if !answer.files.is_empty() {
+                p["files"] = json!(answer.files);
+            }
+            if let Some(u) = &answer.username {
+                p["username"] = json!(u);
+            }
+            if let Some(pw) = &answer.password {
+                p["password"] = json!(pw);
+            }
+            ("tab/dialogAnswer", p)
+        };
+        c.notify(method, params).map_err(EngineError::Launch)?;
+        // Answered: the next look sees no dialog even before the engine's tab/dialogClosed arrives.
+        lock(&c.prompts).remove(&d.id);
+        Ok(d)
+    }
+
+    fn devtools(
+        &mut self,
+        target_id: &str,
+        inspect: Option<(f64, f64)>,
+    ) -> Result<bool, EngineError> {
+        let c = self.control()?.clone();
+        let frames = c
+            .tab(target_id)
+            .ok_or_else(|| EngineError::Launch(format!("no tab {target_id}")))?;
+        if frames.info().devtools_of.is_some() {
+            return Err(EngineError::Launch(
+                "that tab is DevTools; open DevTools for its page".into(),
+            ));
+        }
+        // DevTools takes the page's view size (the window shows one tab at a time).
+        let (w, h) = self.config.viewport;
+        let mut params = json!({"tab": target_id, "width": w.max(400), "height": h.max(300)});
+        if let Some((x, y)) = inspect {
+            params["inspectAt"] = json!({"x": x.round() as i64, "y": y.round() as i64});
+        }
+        let r = c
+            .request("tab/devtools", params, DEFAULT_TIMEOUT)
+            .map_err(EngineError::Launch)?;
+        let devtools = r["devtools"]
+            .as_str()
+            .ok_or_else(|| EngineError::Launch("tab/devtools answered no tab".into()))?
+            .to_owned();
+        if let Some(f) = c.tab(&devtools) {
+            lock(&f.info).devtools_of = Some(target_id.to_owned());
+        }
+        let created = r["created"].as_bool().unwrap_or(true);
+        if let Some(o) = &self.observer {
+            o(EngineEvent::DevtoolsOpened {
+                page: target_id.to_owned(),
+                devtools,
+            });
+        }
+        Ok(created)
+    }
+
+    fn history(&self, target_id: &str) -> Option<TabHistory> {
+        let i = self.control().ok()?.tab(target_id)?.info();
+        Some(TabHistory {
+            can_go_back: i.can_go_back,
+            can_go_forward: i.can_go_forward,
+            favicon: i.favicon,
+        })
     }
 
     fn subscribe(&self, session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError> {
@@ -1596,6 +2009,46 @@ mod tests {
     }
 
     #[test]
+    fn the_engine_follows_the_setting_and_what_is_found() {
+        assert_eq!(
+            EngineChoice::from_setting("external"),
+            EngineChoice::External
+        );
+        assert_eq!(
+            EngineChoice::from_setting("embedded"),
+            EngineChoice::Embedded
+        );
+        assert_eq!(EngineChoice::from_setting("??"), EngineChoice::Embedded);
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = ChromiumSearch {
+            engine: None,
+            engine_dirs: vec![dir.path().to_path_buf()],
+            cef: vec![],
+            cef_cache: None,
+        };
+        assert_eq!(
+            select_engine(EngineChoice::External, &s),
+            (EngineChoice::External, None)
+        );
+        let (kind, why) = select_engine(EngineChoice::Embedded, &s);
+        assert_eq!(
+            kind,
+            EngineChoice::External,
+            "nothing found: the external Chrome"
+        );
+        assert!(why.unwrap().contains("tools/cef/fetch.sh"));
+        if cfg!(target_os = "linux") {
+            std::fs::write(dir.path().join(exe_name()), b"").unwrap();
+            std::fs::write(dir.path().join(cef_library()), b"").unwrap();
+            s.cef = vec![dir.path().to_path_buf()];
+            assert_eq!(
+                select_engine(EngineChoice::Embedded, &s),
+                (EngineChoice::Embedded, None)
+            );
+        }
+    }
+
+    #[test]
     fn the_pinned_version_is_the_fetch_scripts() {
         let pin = include_str!("../../../tools/cef/PIN");
         let version = pin
@@ -1630,7 +2083,14 @@ mod tests {
             "tab/frame",
             "tab/state",
             "tab/closed",
-        ] {
+            "tab/devtools",
+            "tab/dialogAnswer",
+            "tab/permissionAnswer",
+            "tab/action",
+        ]
+        .into_iter()
+        .chain(WINDOW_NOTIFICATIONS)
+        {
             assert!(methods.iter().any(|x| x == m), "{m} has no schema");
         }
     }
@@ -1639,6 +2099,9 @@ mod tests {
     fn answers_and_events_are_routed_by_id_and_tab() {
         let c = Control {
             stdin: Mutex::new(None),
+            observer: None,
+            log: None,
+            prompts: Mutex::default(),
             next_id: AtomicU64::new(0),
             pending: Mutex::default(),
             cdp_next: AtomicU64::new(0),
@@ -1682,7 +2145,7 @@ mod tests {
             json!({"method": "tab/state", "params": {"tab": "1", "title": "T"}}),
             None,
         );
-        assert_eq!(*lock(&frames.title), "T");
+        assert_eq!(frames.info().title, "T");
         c.dispatch(
             json!({"method": "tab/closed", "params": {"tab": "1", "reason": "crashed"}}),
             None,

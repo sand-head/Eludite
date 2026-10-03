@@ -6,12 +6,13 @@
 //! their state ([`crate::tab`]).
 
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::connection::{CdpError, CdpEvent};
+use crate::embedded::FrameSource;
 
 /// What configures the next launch (the settings `browser.*` and the workspace).
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +55,37 @@ pub struct LaunchInfo {
     pub endpoint: String,
 }
 
+/// A dialog or prompt a tab's page waits on (brief 0032).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PendingDialog {
+    /// The engine's id for it.
+    pub id: u64,
+    /// `alert`, `confirm`, `prompt`, `beforeunload`, `file`, `auth` or `permission`.
+    pub kind: String,
+    pub message: String,
+    /// `prompt`: the default text.
+    pub default_text: Option<String>,
+}
+
+/// How to answer a [`PendingDialog`].
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DialogAnswer {
+    pub accept: bool,
+    pub text: Option<String>,
+    pub files: Vec<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+/// A tab's history and icon, when the engine knows them without asking the page.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TabHistory {
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
+    /// A data url, or empty.
+    pub favicon: String,
+}
+
 /// A page target.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TargetInfo {
@@ -70,6 +102,8 @@ pub enum EngineError {
     Launch(String),
     /// A CDP request failed.
     Cdp(CdpError),
+    /// [`Engine::send_many_unless`] gave up waiting.
+    Interrupted,
 }
 
 impl std::fmt::Display for EngineError {
@@ -78,6 +112,7 @@ impl std::fmt::Display for EngineError {
             EngineError::NotRunning => write!(f, "the browser is not running"),
             EngineError::Launch(m) => write!(f, "{m}"),
             EngineError::Cdp(e) => write!(f, "{e}"),
+            EngineError::Interrupted => write!(f, "the call stopped waiting for the browser"),
         }
     }
 }
@@ -91,6 +126,45 @@ impl From<CdpError> for EngineError {
             e => EngineError::Cdp(e),
         }
     }
+}
+
+/// A request handed to the connection: the receiver of its answer, or why it was not sent.
+pub type Sent = Result<mpsc::Receiver<Result<Value, CdpError>>, CdpError>;
+
+/// The answers of requests sent at once, each waited for until `timeout` from now, giving up on the missing ones
+/// once `give_up` says so (asked every 10 ms): [`Engine::send_many_unless`] of the engines that queue requests.
+pub fn collect_unless(
+    sent: Vec<(String, Sent)>,
+    timeout: Duration,
+    give_up: &dyn Fn() -> bool,
+) -> Vec<Result<Value, EngineError>> {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut gave_up = false;
+    sent.into_iter()
+        .map(|(m, r)| {
+            let rx = r?;
+            loop {
+                if gave_up {
+                    return Err(EngineError::Interrupted);
+                }
+                match rx.recv_timeout(Duration::from_millis(10)) {
+                    Ok(r) => return r.map_err(EngineError::from),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        return Err(EngineError::NotRunning);
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if std::time::Instant::now() >= deadline {
+                            return Err(EngineError::Cdp(CdpError::Timeout {
+                                method: m.clone(),
+                                after: timeout,
+                            }));
+                        }
+                        gave_up = give_up();
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 /// A browser engine. Owned by one thread (the shell's `browser` worker); the events of a tab arrive on other
@@ -147,8 +221,68 @@ pub trait Engine: Send {
             .collect()
     }
 
+    /// [`Engine::send_many`], giving up on the answers still missing once `give_up` says so (it is asked every
+    /// 10 ms or so; a missing answer is then [`EngineError::Interrupted`]): a page paused in a dialog does not answer
+    /// the input that opened it. Engines that cannot give up wait as `send_many` does.
+    fn send_many_unless(
+        &self,
+        session: &str,
+        calls: Vec<(String, Value)>,
+        timeout: Duration,
+        give_up: &dyn Fn() -> bool,
+    ) -> Vec<Result<Value, EngineError>> {
+        let _ = give_up;
+        self.send_many(session, calls, timeout)
+    }
+
     /// The session's events. The channel disconnects when the tab closes or the browser goes away.
     fn subscribe(&self, session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError>;
+
+    /// The tab's frames, when the engine renders into memory the shell reads (the embedded engine): `record`'s
+    /// source and the Web Browser window's.
+    fn frames(&self, target_id: &str) -> Option<Arc<dyn FrameSource>> {
+        let _ = target_id;
+        None
+    }
+
+    /// The dialog or prompt the tab's page waits on, when the engine shows them itself (the embedded engine). `None`
+    /// means none, or an engine that leaves dialogs to CDP (`Page.javascriptDialogOpening`).
+    fn pending_dialog(&self, target_id: &str) -> Option<PendingDialog> {
+        let _ = target_id;
+        None
+    }
+
+    /// Answer [`Engine::pending_dialog`].
+    fn answer_dialog(
+        &self,
+        target_id: &str,
+        answer: &DialogAnswer,
+    ) -> Result<PendingDialog, EngineError> {
+        let _ = (target_id, answer);
+        Err(EngineError::Launch(
+            "this engine leaves dialogs to the Chrome DevTools Protocol".into(),
+        ))
+    }
+
+    /// Open DevTools for the tab as a tab of the Web Browser window; true when it was not open yet.
+    fn devtools(
+        &mut self,
+        target_id: &str,
+        inspect: Option<(f64, f64)>,
+    ) -> Result<bool, EngineError> {
+        let _ = (target_id, inspect);
+        Err(EngineError::Launch(
+            "DevTools opens as a tab of the Web Browser window, which draws the embedded engine (the setting \
+             browser.engine: embedded; tools/cef/fetch.sh fetches CEF); this browser is an external Chrome"
+                .into(),
+        ))
+    }
+
+    /// The tab's history and icon, when the engine tracks them (the embedded engine); `None`: ask the page.
+    fn history(&self, target_id: &str) -> Option<TabHistory> {
+        let _ = target_id;
+        None
+    }
 
     /// Encoded screenshot pixels (base64) for `Page.captureScreenshot`'s parameters.
     fn screenshot(
