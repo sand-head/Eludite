@@ -244,6 +244,11 @@ impl Browser {
             .collect()
     }
 
+    /// The selected tab (`t1`), as commands without `tab` use it.
+    pub fn active_tab(&self) -> Option<String> {
+        self.active.clone()
+    }
+
     /// Whether the person stopped the current call.
     fn stopped(&self) -> bool {
         self.interrupt.stopped_since(self.marks)

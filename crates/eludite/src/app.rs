@@ -144,6 +144,7 @@ pub fn run(args: Args, t_main: Instant) {
 
         bind_keymap(cx, &vs_keymap());
         bind_editor_keys(cx);
+        crate::shell::browser_window::bind_keys(cx);
         let title = match &args.solution {
             Some(s) => format!(
                 "{} - Eludite",
