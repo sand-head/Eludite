@@ -465,6 +465,8 @@ fn breakpoint_margin_execution_point_and_data_tip_expressions(cx: &mut TestAppCo
             vec![
                 (2, BreakpointGlyph::Enabled),
                 (3, BreakpointGlyph::Conditional),
+                (1, BreakpointGlyph::Tracepoint),
+                (4, BreakpointGlyph::TracepointDisabled),
             ],
             cx,
         );
@@ -482,8 +484,10 @@ fn breakpoint_margin_execution_point_and_data_tip_expressions(cx: &mut TestAppCo
     assert_eq!(
         view.read_with(&cx, |v, _| v.breakpoint_glyphs()),
         [
+            (3, BreakpointGlyph::Tracepoint),
             (4, BreakpointGlyph::Enabled),
-            (5, BreakpointGlyph::Conditional)
+            (5, BreakpointGlyph::Conditional),
+            (6, BreakpointGlyph::TracepointDisabled)
         ]
     );
     assert_eq!(
