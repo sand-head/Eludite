@@ -94,6 +94,7 @@ POLICY
     prompt="The program \`$run/work/$program/$program.csproj\` fails its self-check when run. Debug it with Eludite's tools, find the statement that produces the wrong value, and tell me the statement, the line and the local variable values that show it. Do not edit files."
     echo "$prompt" >"$run/prompt.txt"
     echo "$(date -Is) $program run $n" >&2
+    cut -d' ' -f1-3 /proc/loadavg >"$run/loadavg.txt"
     ELUDITE_CONFIG_DIR="$run/config" ELUDITE_CLAUDE_STREAM="$run/stream.jsonl" \
       "$bin" --reset-layout --solution "$run/work/$program.slnx" --open-file "$run/work/$program/Program.cs" \
       --agent "Claude Code" --bounds-out "$run/bounds.json" --transcript-out "$run/transcript.json" \
