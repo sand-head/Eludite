@@ -507,6 +507,28 @@ impl Engine for ExternalChrome {
         }
     }
 
+    fn send_many_unless(
+        &self,
+        session: &str,
+        calls: Vec<(String, Value)>,
+        timeout: Duration,
+        give_up: &dyn Fn() -> bool,
+    ) -> Vec<Result<Value, EngineError>> {
+        let r = match self.conn() {
+            Ok(r) => r,
+            Err(e) => return calls.iter().map(|_| Err(e.clone())).collect(),
+        };
+        let session = (!session.is_empty()).then_some(session);
+        let sent = calls
+            .into_iter()
+            .map(|(m, p)| {
+                let rx = r.conn.send(session, &m, p);
+                (m, rx)
+            })
+            .collect();
+        crate::engine::collect_unless(sent, timeout, give_up)
+    }
+
     fn subscribe(&self, session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError> {
         Ok(self.conn()?.conn.subscribe(Some(session)))
     }
