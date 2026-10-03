@@ -547,3 +547,110 @@ fn netcoredbg_runs_under_control() {
     });
     let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
 }
+
+/// Brief 0027: netcoredbg attaches by process id (the attach plan for runtime `dotnet`) to `eludite-host` started with
+/// `dotnet`, a breakpoint in `HostRpcTarget.Ping` stops it when a ping arrives on its stdin, and `disconnect` without
+/// terminating detaches: the host keeps running. Skipped unless netcoredbg and the host's build are found.
+#[cfg(target_os = "linux")]
+#[test]
+fn netcoredbg_attaches_to_a_dotnet_process_and_detaches() {
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::Instant;
+
+    use eludite_dap::attach::{AttachAdapter, attach_plan};
+    use eludite_dap::discovery::AdapterSearch;
+    use eludite_dap::launch::{self, Platform};
+    use eludite_dap::processes;
+    use eludite_dap::session::{self, StartKind, StartPlan};
+    use eludite_dap::types::SourceBreakpoint;
+    use eludite_dap::{DapClient, transport};
+    use serde_json::json;
+
+    use common::{Recorder, T};
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join("dotnet/src/Eludite.Host/Eludite.Host.csproj");
+    let source = root.join("dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs");
+    let found = match AdapterSearch::from_env().find_netcoredbg() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let config = match launch::launch_config(&project, None) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let mut host = std::process::Command::new("dotnet")
+        .arg(&config.program)
+        .args(["--stdio", "--no-roslyn"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("dotnet");
+    let listed = processes::list()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.pid == host.id())
+        .unwrap();
+    assert_eq!(listed.runtime, processes::Runtime::Dotnet);
+    let plan = attach_plan(
+        AttachAdapter::for_runtime(listed.runtime).unwrap(),
+        host.id(),
+        None,
+        Platform::Linux,
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&source).unwrap();
+    let line = text
+        .lines()
+        .position(|l| l.contains("var timestamp = _timeProvider"))
+        .expect("Ping's first statement") as i64
+        + 1;
+    let source = std::fs::canonicalize(&source).unwrap();
+    let rec = Recorder::default();
+    let clock = Instant::now();
+    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    session::start(
+        &client,
+        &StartPlan {
+            adapter_id: plan.adapter_id.into(),
+            kind: StartKind::Attach,
+            arguments: plan.arguments,
+            breakpoints: vec![(
+                source.to_string_lossy().into_owned(),
+                vec![SourceBreakpoint {
+                    line,
+                    ..Default::default()
+                }],
+            )],
+            exception_filters: Vec::new(),
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
+        },
+        T,
+    )
+    .unwrap();
+    eprintln!(
+        "timing: netcoredbg attach handshake: {:.0} ms",
+        clock.elapsed().as_secs_f64() * 1e3
+    );
+    let stdin = host.stdin.as_mut().unwrap();
+    let ping = r#"{"jsonrpc":"2.0","id":1,"method":"eludite/ping","params":{}}"#;
+    write!(stdin, "Content-Length: {}\r\n\r\n{ping}", ping.len()).unwrap();
+    stdin.flush().unwrap();
+    assert_eq!(rec.stopped(1).reason, "breakpoint");
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
+        .unwrap();
+    client.kill();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(host.try_wait().unwrap().is_none(), "the host keeps running");
+    let _ = host.kill();
+    let _ = host.wait();
+}
