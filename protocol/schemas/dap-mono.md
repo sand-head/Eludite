@@ -172,9 +172,10 @@ sends a `breakpoint` event with `reason: changed`, `verified: false` and the eva
   breakpoint on its own operation thread from the tables of loaded types its event thread fills, without a lock: an
   insertion during a type load could fail ("Could not set breakpoint at location ... (Collection was modified; ...)")
   or miss the type and stay pending forever. The adapter changes the breakpoint list only under the lock the library's
-  start-up enumeration takes, inserts again at once a breakpoint whose insertion failed (the library's message is
-  logged, not shown), and re-inserts a breakpoint still pending although a loaded type of its file has code on its
-  line, checked soon after the insertion, at every assembly load and at every stop.
+  start-up enumeration takes, inserts again at once (seen lost twice, 60 ms apart) a breakpoint whose insertion failed
+  (the library's message is logged, not shown), and at the next stop (the debuggee suspended, nothing loading)
+  re-inserts a breakpoint still pending although a loaded type of its file has code on its line. A hit of a breakpoint
+  removed while the hit was on its way (Mono.Debugging no longer knows its request) resumes instead of stopping.
 - Function breakpoints: Mono.Debugging 2017 binds a function breakpoint to every method of the named type, so the
   adapter lets only the named method stop and applies the function breakpoint's condition, hit condition (counted
   after the condition) and log message itself. Its `breakpoint` event has no line.
