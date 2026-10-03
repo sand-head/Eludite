@@ -38,6 +38,9 @@ fi
 ws="$out/workspace"; config="$out/config"
 rm -rf "$ws" "$config"; mkdir -p "$ws" "$config"
 echo "A workspace for the Web Browser window's run (brief 0032)." >"$ws/README.txt"
+# The agent's browser calls (class execute) run without a prompt; 127.0.0.1 is among the default origins.
+mkdir -p "$ws/.eludite"
+echo '{"version": 1, "execute": "allow"}' >"$ws/.eludite/agents-policy.json"
 cat >"$config/settings.json" <<JSON
 {
   "agents.custom": [
