@@ -53,7 +53,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0020](0020-integration-pass.md) | Integration pass after build and debug | 1 | [report](0020-report.md): done on Linux; F5 builds first, settings store and Options dialog, Debug output source |
 | 0021 | Rotated auto-hide strip titles (no brief file; merge 89569e5) | 1 | done on Linux |
 | [0022](0022-mono-debug-adapter.md) | The Mono soft-debugger adapter: .NET Framework debugging on Linux and macOS (proposal 0001 E1) | 2 | open |
-| [0023](0023-browser-automation-read.md) | Browser automation over CDP against an external Chrome: tabs, navigation, reading the page (proposal 0002 A, first half) | 2 | in progress |
+| [0023](0023-browser-automation-read.md) | Browser automation over CDP against an external Chrome: tabs, navigation, reading the page (proposal 0002 A, first half) | 2 | [report](0023-report.md): done on Linux; screenshot 52 to 67 ms p95, read_page on 5,000 items 241 to 299 ms p95 |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
