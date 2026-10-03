@@ -401,6 +401,24 @@ fn refusal_text(s: &State, command: &str, key: &Value) -> String {
     }
 }
 
+/// Whether the request entry `i` answers (when it is a response) has arrived.
+fn answered_request_arrived(s: &State, i: usize) -> bool {
+    let Kind::Adapter { message } = &s.entries[i].kind else {
+        return true;
+    };
+    if message["type"] != "response" {
+        return true;
+    }
+    let Some(rec) = message["request_seq"].as_i64() else {
+        return true;
+    };
+    s.seqs.contains_key(&rec)
+        || !s
+            .entries
+            .iter()
+            .any(|e| matches!(&e.kind, Kind::Request { seq, .. } if *seq == rec))
+}
+
 /// Play the adapter's messages in order as their requests arrive, and the refusals at once.
 fn play(shared: &Shared, mut writer: std::io::PipeWriter) {
     loop {
@@ -416,7 +434,10 @@ fn play(shared: &Shared, mut writer: std::io::PipeWriter) {
                 {
                     s.cursor += 1;
                 }
-                let ready = s.cursor < s.entries.len() && s.first_unmatched > s.cursor;
+                // Every request recorded before it has arrived, and a response's own request too.
+                let ready = s.cursor < s.entries.len()
+                    && s.first_unmatched > s.cursor
+                    && answered_request_arrived(&s, s.cursor);
                 if ready {
                     let i = s.cursor;
                     let t = s.entries[i].t_ms;
