@@ -1,0 +1,19 @@
+# CEF (the Chromium Embedded Framework) pinned for eludite-chromium (brief 0031): the version the `cef` crate
+# 154.3.0+154.0.32 is generated against. CEF is BSD-3-Clause; Chromium's code is BSD-3-Clause with the third-party
+# licenses listed in CREDITS.html inside the distribution. Fetched by fetch.sh and fetch.ps1, never vendored and
+# never downloaded at startup. The minimal distributions from Spotify's CEF build CDN; sizes in bytes. The SHA-256
+# checksums were computed from the downloads on 2026-10-03; the SHA-1 is the one index.json lists, kept to compare.
+version 154.0.32+g682c378+chromium-154.0.8037.58
+base https://cef-builds.spotifycdn.com
+file linux64 cef_binary_154.0.32+g682c378+chromium-154.0.8037.58_linux64_minimal.tar.bz2 326397696
+file windows64 cef_binary_154.0.32+g682c378+chromium-154.0.8037.58_windows64_minimal.tar.bz2 172827308
+file macosarm64 cef_binary_154.0.32+g682c378+chromium-154.0.8037.58_macosarm64_minimal.tar.bz2 132224904
+file macosx64 cef_binary_154.0.32+g682c378+chromium-154.0.8037.58_macosx64_minimal.tar.bz2 138660944
+sha256 linux64 9b6a82e04506d5e1af560e031e718c89af5f96760413fd16380358784545d153
+sha256 windows64 aa1f7ab28005307edcc13f95e3ce5cd9d221894b00458fb5e368c00603204a2a
+sha256 macosarm64 0adf18dc3c4dadf0fecdb3ce2b9d558989fa264743cdcd46e89b1b3b118dd85f
+sha256 macosx64 e7e17e6c899ffe6c4cb16065d6dcaf16f9735d9cd0861099558f578d40714552
+sha1 linux64 943abce909ca07b96abc9258266629b4fac616d4
+sha1 windows64 9131b9d7a464202b9274beec1f24569599524cca
+sha1 macosarm64 2e9df1077c097e450d30f26804b7c4b1820da4e3
+sha1 macosx64 324da7f24e498af0f6c5abcb45b3cb8cc2641f08
