@@ -5925,9 +5925,9 @@ fn a_compound_of_two_reaches_running_within_one_and_a_half_single_launches(
 
 /// The frame cost while the sessions `ids` stop by turns ten times a second in all (the person switching to the
 /// next session and continuing it each time; it stops again at the loop's breakpoint), the frame drawn headless every
-/// 16 ms for two seconds: (frame p99, the debugger's share p99, stops). The share is the debugger's messages and the
-/// commands' own work on the UI thread.
-fn frames_while_stopping_by_turns(d: &mut Dbg, ids: &[u32]) -> (Duration, Duration, u32) {
+/// 16 ms for four seconds: (frame p99, the debugger's share p99, stops, frame p50). The share is the debugger's
+/// messages and the commands' own work on the UI thread.
+fn frames_while_stopping_by_turns(d: &mut Dbg, ids: &[u32]) -> (Duration, Duration, u32, Duration) {
     d.w.shell
         .update(&mut d.w.vcx, |s, _| s.debug.timings.msgs_ui.clear());
     let mut frames: Vec<(Duration, Duration)> = Vec::new();
@@ -5935,7 +5935,7 @@ fn frames_while_stopping_by_turns(d: &mut Dbg, ids: &[u32]) -> (Duration, Durati
     let mut next_stop = started;
     let mut stops = 0u32;
     let mut last = Instant::now();
-    while started.elapsed() < Duration::from_secs(2) {
+    while started.elapsed() < Duration::from_secs(4) {
         let mut commands = Duration::ZERO;
         if Instant::now() >= next_stop {
             let id = ids[stops as usize % ids.len()];
@@ -5987,7 +5987,7 @@ fn frames_while_stopping_by_turns(d: &mut Dbg, ids: &[u32]) -> (Duration, Durati
     let mut share: Vec<Duration> = frames.iter().map(|(_, b)| *b).collect();
     share.sort();
     let p99 = |v: &[Duration]| v[(v.len() * 99).div_ceil(100) - 1];
-    (p99(&cost), p99(&share), stops)
+    (p99(&cost), p99(&share), stops, cost[cost.len() / 2])
 }
 
 /// Brief 0028's frame budget: two sessions stopping alternately ten times a second cost the frame what one session
@@ -6012,7 +6012,7 @@ fn two_sessions_stopping_alternately_ten_times_a_second_cost_the_frame_little(
     });
     d.fake_of(1).trigger();
     d.wait_break_in(1, 1);
-    let (one_frame, one_share, one_stops) = frames_while_stopping_by_turns(&mut d, &[1]);
+    let (one_frame, one_share, one_stops, one_p50) = frames_while_stopping_by_turns(&mut d, &[1]);
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_sessions("ended", |s| s.is_empty());
     // Two sessions by turns.
@@ -6044,10 +6044,10 @@ fn two_sessions_stopping_alternately_ten_times_a_second_cost_the_frame_little(
         let again = frames_while_stopping_by_turns(&mut d, &ids);
         stops += again.2;
         if again.1 < best.1 {
-            best = (again.0, again.1, best.2);
+            best = (again.0, again.1, best.2, again.3);
         }
     }
-    let (two_frame, two_share) = (best.0, best.1);
+    let (two_frame, two_share, two_p50) = (best.0, best.1, best.3);
     let s = d.sessions();
     assert_eq!(
         s.iter().map(|r| r.stop).sum::<u64>(),
@@ -6056,14 +6056,16 @@ fn two_sessions_stopping_alternately_ten_times_a_second_cost_the_frame_little(
     );
     let ms = |d: Duration| d.as_secs_f64() * 1e3;
     eprintln!(
-        "timing: frame p99 with one session stopping 10/s {:.2} ms (share {:.3} ms, {one_stops} stops); with two \
-         sessions stopping alternately 10/s {:.2} ms (share {:.3} ms, {stops} stops)",
+        "timing: frame p99 (p50) with one session stopping 10/s {:.2} ({:.2}) ms, share p99 {:.3} ms, {one_stops} \
+         stops; with two sessions stopping alternately 10/s {:.2} ({:.2}) ms, share p99 {:.3} ms, {stops} stops",
         ms(one_frame),
+        ms(one_p50),
         ms(one_share),
         ms(two_frame),
+        ms(two_p50),
         ms(two_share)
     );
-    assert!(stops >= 18 && one_stops >= 18);
+    assert!(stops >= 38 && one_stops >= 38);
     assert!(two_share < Duration::from_millis(8));
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_sessions("ended", |s| s.is_empty());
