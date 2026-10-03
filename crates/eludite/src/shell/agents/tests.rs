@@ -1255,6 +1255,21 @@ impl CorpusAdapter {
     }
 }
 
+/// One scenario at a time per corpus program: its project's `.user` file (below) and its build output are shared
+/// (brief 0036 runs a second MissingCase scenario).
+fn corpus_program_lock(program: &str) -> Arc<std::sync::Mutex<()>> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(program.to_owned())
+        .or_default()
+        .clone()
+}
+
 /// Visual Studio's `ActiveDebugFramework` for a corpus project while the scenario runs (net472 under Mono; none, the
 /// project's first framework, under netcoredbg); removed at the end.
 struct ActiveDebugFramework(std::path::PathBuf);
@@ -1373,6 +1388,8 @@ fn debug_scenario_with(
         );
         return None;
     }
+    let lock = corpus_program_lock(program);
+    let _one_at_a_time = lock.lock().unwrap_or_else(|e| e.into_inner());
     let _framework = ActiveDebugFramework::set(
         &project,
         matches!(adapter, CorpusAdapter::Mono { .. }).then_some("net472"),
