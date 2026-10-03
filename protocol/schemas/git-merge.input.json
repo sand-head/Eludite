@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-merge.input.json",
+  "title": "eludite.git.merge input",
+  "description": "Merge a branch into the current one (the Git Repository window's Merge into current branch): a fast-forward when possible (unless `no_ff`), else a merge commit with the identity rule of eludite.git.commit. On a conflict it stops with the conflicted paths: their files have conflict markers and open in the editor; stage each resolved file, then eludite.git.commit finishes the merge; `abort` returns to HEAD (losing the resolution so far). The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "With `abort`: dangerous for an agent when the solution's policy sets `git.history` to `prompt` (the default), refused when `deny`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "branch": {
+      "description": "The branch (or revision) to merge.",
+      "type": "string",
+      "minLength": 1
+    },
+    "no_ff": {
+      "description": "Always create a merge commit. Default false.",
+      "type": "boolean"
+    },
+    "message": {
+      "description": "The merge commit's message. Default `Merge branch '<branch>'`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "abort": {
+      "description": "Abort the merge in progress instead (history class for agents).",
+      "type": "boolean"
+    }
+  }
+}

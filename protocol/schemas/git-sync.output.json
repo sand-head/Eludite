@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-sync.output.json",
+  "title": "eludite.git.sync output",
+  "description": "How the pull went, and whether the push followed.",
+  "type": "object",
+  "required": [
+    "pull",
+    "pushed",
+    "conflicts",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "pull": {
+      "description": "The pull's result, as eludite.git.pull's.",
+      "enum": [
+        "up_to_date",
+        "fast_forward",
+        "merged",
+        "conflicts"
+      ]
+    },
+    "pushed": {
+      "type": "boolean"
+    },
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "conflicts": {
+      "description": "The pull's conflicted paths (nothing was pushed).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generation": {
+      "description": "The status generation after the call.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

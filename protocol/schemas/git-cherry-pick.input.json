@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-cherry-pick.input.json",
+  "title": "eludite.git.cherry_pick input",
+  "description": "Cherry-pick a commit onto the current branch (the Git Repository window's Cherry-Pick): a new commit with its change, message and author. On a conflict it stops with the conflicted paths; stage each resolved file and eludite.git.commit completes the pick. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "required": [
+    "commit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "commit": {
+      "description": "The commit (id, branch or revision).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

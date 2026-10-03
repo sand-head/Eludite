@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-unstage.input.json",
+  "title": "eludite.git.unstage input",
+  "description": "Unstage files (Git Changes: Unstage, `-`; Unstage All): their index entries go back to HEAD's (removed when HEAD has none); the working tree is untouched. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "description": "Paths relative to the repository root, or absolute paths inside its working tree.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "all": {
+      "description": "Every changed file instead of `paths`.",
+      "type": "boolean"
+    }
+  }
+}

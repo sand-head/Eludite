@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-reset.input.json",
+  "title": "eludite.git.reset input",
+  "description": "Reset the current branch to a revision (the Git Repository window's Reset > Keep Changes (`mixed`), Delete Changes (`hard`, which the UI confirms), and `soft`). Moves the branch: history class for agents; `hard` loses the working tree's changes and is class dangerous. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "Dangerous for an agent when the solution's policy sets `git.history` to `prompt` (the default), refused when `deny`. `hard` is dangerous for everyone.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "description": "Default HEAD.",
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "description": "`soft`: the branch only; `mixed` (default): the branch and the index; `hard`: the working tree too.",
+      "enum": [
+        "soft",
+        "mixed",
+        "hard"
+      ]
+    }
+  }
+}

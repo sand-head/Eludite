@@ -25,7 +25,8 @@
 //! [`browser::BrowserTarget`].
 //!
 //! [`test`] holds the Test Explorer's `eludite.test.*` commands (brief 0035), registered by the shell through a
-//! [`test::TestCommands`].
+//! [`test::TestCommands`]. [`git`] holds `eludite.git.*` (brief 0040), registered by the shell through a
+//! [`git::GitCommands`], with the policy's `git` object applied by their escalation hooks.
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -40,6 +41,7 @@ pub mod builtins;
 mod caller;
 pub mod debug;
 pub mod diagnostics;
+pub mod git;
 mod id;
 pub mod policy;
 pub mod project;

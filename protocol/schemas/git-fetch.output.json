@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-fetch.output.json",
+  "title": "eludite.git.fetch output",
+  "description": "What changed.",
+  "type": "object",
+  "required": [
+    "remote",
+    "updated",
+    "received_objects",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "type": "string"
+    },
+    "updated": {
+      "description": "Remote refs that moved (`origin/main`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "received_objects": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "behind": {
+      "description": "Incoming commits now.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

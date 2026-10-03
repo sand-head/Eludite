@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-stage.input.json",
+  "title": "eludite.git.stage input",
+  "description": "Stage files (Git Changes: Stage, `+`; Stage All): their working-tree content goes to the index; a deleted file's removal is staged; staging a conflicted file marks its conflict resolved (the file as it is, markers and all, so resolve it first). The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "description": "Paths relative to the repository root, or absolute paths inside its working tree.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "all": {
+      "description": "Every changed file instead of `paths`.",
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-discard.output.json",
+  "title": "eludite.git.discard output",
+  "description": "What was restored and deleted.",
+  "type": "object",
+  "required": [
+    "restored",
+    "deleted",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "restored": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "deleted": {
+      "description": "Untracked files deleted.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-init.input.json",
+  "title": "eludite.git.init input",
+  "description": "Create Git Repository (Visual Studio's, in the Git Changes window and the status bar when the workspace is in no repository): `git init` through libgit2 in the workspace folder (or `path`), with the initial branch `main`. Refused when the folder is already in a repository.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The folder (absolute). Default: the open workspace's folder.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-policy.json",
   "title": "Eludite agent permission policy",
-  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable, except where `browser` or `debug` refuses a call outright. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
+  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable, except where `browser`, `debug` or `git` refuses a call outright. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
   "type": "object",
   "required": [
     "version"
@@ -121,6 +121,35 @@
           "description": "Whether agents may run debuggee code through expressions: eludite.debug.evaluate, set_variable, and tracepoints whose message has an `{expression}` (toggle_breakpoint's `log_message`, trace's points): `allow` (default), `prompt` (dangerous) or `deny`.",
           "enum": [
             "allow",
+            "prompt",
+            "deny"
+          ]
+        }
+      }
+    },
+    "git": {
+      "description": "The git commands (eludite.git.*; brief 0040, ADR-0009). Every key is optional; a missing key is its default. Reads (status, diff, log, branches, blame, the stash and worktree lists) are always allowed; staging, checkout, merge, cherry-pick, stash, fetch, pull and worktree changes are class execute; discarding changes, `reset` with `hard` and dropping a stash are class dangerous. `prompt` makes a call dangerous (the Agents window asks; Always Allow writes a tool rule for it), `deny` refuses agents with this policy named; the tool rules above are checked first. A `force` (checkout, push, branch delete, worktree remove) is refused for agents whatever this says.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "description": "eludite.git.commit without `amend`: `allow` (default: class execute, decided by `execute` and the rules), `prompt` (dangerous) or `deny`.",
+          "enum": [
+            "allow",
+            "prompt",
+            "deny"
+          ]
+        },
+        "push": {
+          "description": "eludite.git.push: `prompt` (default: dangerous, which asks) or `deny`.",
+          "enum": [
+            "prompt",
+            "deny"
+          ]
+        },
+        "history": {
+          "description": "Calls that rewrite or move history: eludite.git.commit with `amend`, eludite.git.reset, eludite.git.rebase, eludite.git.pull with `rebase`, eludite.git.merge with `abort`: `prompt` (default: dangerous) or `deny`.",
+          "enum": [
             "prompt",
             "deny"
           ]

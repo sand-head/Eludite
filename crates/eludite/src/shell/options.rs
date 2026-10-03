@@ -127,10 +127,17 @@ impl OptionsDialog {
 
     fn commit_edit(&mut self, cx: &mut Context<Self>) {
         if let Some((key, text)) = self.editing.take() {
-            cx.emit(OptionsEvent::Set {
-                key,
-                value: Value::String(text),
-            });
+            // A whole number is set as one (brief 0040's git.autoFetchMinutes); text that is not one is set as
+            // text, which the setting refuses with its message.
+            let value = match self.schema.get(&key).map(|s| &s.kind) {
+                Some(SettingKind::Integer { .. }) => text
+                    .trim()
+                    .parse::<i64>()
+                    .map(Value::from)
+                    .unwrap_or(Value::String(text)),
+                _ => Value::String(text),
+            };
+            cx.emit(OptionsEvent::Set { key, value });
         }
         cx.notify();
     }
@@ -239,15 +246,16 @@ impl OptionsDialog {
                     .child(div().flex().flex_row().gap_1().children(choices))
                     .into_any_element()
             }
-            SettingKind::Text | SettingKind::Path => {
+            SettingKind::Text | SettingKind::Path | SettingKind::Integer { .. } => {
                 let editing = self
                     .editing
                     .as_ref()
                     .filter(|(k, _)| *k == key)
                     .map(|(_, text)| text.clone());
-                let shown = editing
-                    .clone()
-                    .unwrap_or_else(|| value.as_str().unwrap_or_default().to_owned());
+                let shown = editing.clone().unwrap_or_else(|| match &value {
+                    Value::Number(n) => n.to_string(),
+                    v => v.as_str().unwrap_or_default().to_owned(),
+                });
                 let placeholder = if spec.kind == SettingKind::Path {
                     "(found automatically)"
                 } else {

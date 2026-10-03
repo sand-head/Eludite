@@ -31,6 +31,9 @@ pub mod documents;
 pub mod error_list;
 pub mod explorer;
 pub mod folder;
+pub mod git;
+#[cfg(test)]
+mod git_tests;
 pub mod intellisense;
 #[cfg(test)]
 mod intellisense_tests;
@@ -160,6 +163,9 @@ pub struct Services {
     pub test_jobs: UnboundedReceiver<test_runs::TestJob>,
     pub test_shared: Arc<test_runs::TestShared>,
     pub test_registry: Arc<Mutex<std::sync::Weak<CommandRegistry>>>,
+    /// `eludite.git.*` over libgit2 and what it tells the UI (brief 0040).
+    pub git: Arc<git::service::GitService>,
+    pub git_events: UnboundedReceiver<git::service::GitEvent>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -257,6 +263,9 @@ pub fn register_workspace(
             registry: test_registry.clone(),
         }),
     );
+    let (git_tx, git_events) = unbounded();
+    let git = Arc::new(git::service::GitService::new(git::setup(), git_tx));
+    eludite_commands::git::register(commands, git.clone());
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -289,6 +298,8 @@ pub fn register_workspace(
         test_jobs,
         test_shared,
         test_registry,
+        git,
+        git_events,
     }
 }
 
@@ -405,12 +416,15 @@ pub struct Shell {
     tests: test_runs::TestRuns,
     tests_window: Entity<tests_window::TestExplorer>,
     cargo_test_events: futures::channel::mpsc::UnboundedSender<cargo_tests::CargoTestEvent>,
+    /// Git: the Git Changes and Git Repository windows, the glyphs, the margins (brief 0040).
+    git: git::GitUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
     _tasks: Vec<Task<()>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn tool_body(
     explorer: Entity<SolutionExplorer>,
     error_list: Entity<ErrorList>,
@@ -419,6 +433,10 @@ fn tool_body(
     output: Entity<OutputWindow>,
     debug: debug::windows::DebugWindows,
     tests: Entity<tests_window::TestExplorer>,
+    git_windows: (
+        Entity<git::changes::GitChanges>,
+        Entity<git::repository::GitRepositoryWindow>,
+    ),
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -446,6 +464,16 @@ fn tool_body(
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
+        ids::GIT_CHANGES => git_windows
+            .0
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::GIT_REPOSITORY => git_windows
+            .1
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
         // The debugger's windows (brief 0018); titled empty panels for the rest until later briefs fill them.
         _ => debug.body(id).unwrap_or_else(|| div().into_any_element()),
     }
@@ -456,19 +484,28 @@ fn document_body(
     reviews: agents::Reviews,
     gutters: agents::Gutters,
     browser_views: browser_view::Views,
+    git_documents: git::Documents,
+    git_margins: git::Margins,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
         if let Some(view) = browser_views.borrow().get(&tab.id) {
             return view.clone().into_any_element();
         }
+        if let Some(view) = git_documents.borrow().get(&tab.id) {
+            return view.clone().into_any_element();
+        }
         if let Some(view) = views.borrow().get(&tab.id) {
-            // An agent's pending change marks the lines it touches in the gutter (brief 0016).
-            if let Some(marks) = gutters.borrow().get(&tab.id) {
+            // An agent's pending change marks the lines it touches in the gutter (brief 0016); the change margin marks
+            // the lines that differ from the index (brief 0040).
+            let pending = gutters.borrow().get(&tab.id).cloned();
+            let changed = git_margins.borrow().get(&tab.id).cloned();
+            if pending.is_some() || changed.is_some() {
                 return div()
                     .relative()
                     .size_full()
                     .child(view.clone())
-                    .child(marks.clone())
+                    .children(changed)
+                    .children(pending)
                     .into_any_element();
             }
             return view.clone().into_any_element();
@@ -534,7 +571,7 @@ impl Shell {
         });
         // Document tabs saved in a layout have no editor behind them after a restart.
         controller.retain_documents(|id| id == WELCOME);
-        let explorer = cx.new(|_| SolutionExplorer::new(theme));
+        let explorer = cx.new(|cx| SolutionExplorer::new(theme, cx));
         let error_list = cx.new(|cx| ErrorList::new(theme, cx));
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let output = cx.new(|_| OutputWindow::new(theme));
@@ -565,7 +602,10 @@ impl Shell {
             mut test_jobs,
             test_shared,
             test_registry,
+            git,
+            git_events,
         } = services;
+        let git = git::GitUi::new(git, theme, cx);
         *test_registry.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&commands);
         let mut tests = test_runs::TestRuns::new(test_shared);
         tests.running = testing;
@@ -593,12 +633,15 @@ impl Shell {
                     output.clone(),
                     debugger.windows.clone(),
                     tests_window.clone(),
+                    (git.changes.clone(), git.repository.clone()),
                 )),
                 Rc::new(document_body(
                     views.clone(),
                     agents.reviews.clone(),
                     agents.gutters.clone(),
                     browser_views.clone(),
+                    git.documents.clone(),
+                    git.margins.clone(),
                 )),
                 persistence,
                 cx,
@@ -926,6 +969,7 @@ impl Shell {
             tests,
             tests_window,
             cargo_test_events,
+            git,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -947,6 +991,7 @@ impl Shell {
                 test_job_task,
             ],
         };
+        this.git_install(git_events, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1044,6 +1089,7 @@ impl Shell {
         // The menu bar and the Options dialog record theirs too (brief 0020's manual run clicks them).
         self.ui_bounds = probe.as_ref().map(|_| eludite_ui::BoundsMap::default());
         let ui = self.ui_bounds.clone();
+        self.git.changes.update(cx, |c, _| c.set_probe(ui.clone()));
         self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
     }
@@ -1065,6 +1111,11 @@ impl Shell {
     /// Invoke a command from the UI: the File > Open Project/Solution dialog and the unsaved-changes question come
     /// first, then the bus. The result goes to the status bar.
     pub fn run(&mut self, command: &str, args: Value, window: &mut Window, cx: &mut Context<Self>) {
+        // `eludite.git.*` runs off the UI thread after Visual Studio's confirmations (brief 0040).
+        let mut args = args;
+        if self.run_git(command, &mut args, window, cx) {
+            return;
+        }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
         if command == eludite_commands::debug::START
             && args.get("debug") != Some(&Value::Bool(false))

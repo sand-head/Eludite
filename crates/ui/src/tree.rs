@@ -38,7 +38,22 @@ pub fn tree_row(
     style: TreeRowStyle,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    tree_row_with_badge(theme, id, glyph, None, label, style, on_toggle)
+}
+
+/// [`tree_row`] with a colored badge between the glyph and the label (brief 0040: Visual Studio's source control
+/// glyph on a Workspace file: `(glyph, 0xRRGGBB)`).
+pub fn tree_row_with_badge(
+    theme: &Theme,
+    id: impl Into<SharedString>,
+    glyph: Option<&'static str>,
+    badge: Option<(&'static str, u32)>,
+    label: impl Into<SharedString>,
+    style: TreeRowStyle,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
+    let badge_id = format!("{id}-badge");
     let triangle = match style.disclosure {
         Some(true) => "\u{25E2}",
         Some(false) => "\u{25B7}",
@@ -82,6 +97,15 @@ pub fn tree_row(
                 .text_size(theme.typography.small)
                 .text_color(theme.text_muted)
                 .child(g)
+        }))
+        .children(badge.map(|(b, color)| {
+            div()
+                .debug_selector(move || badge_id)
+                .flex_none()
+                .w(px(12.))
+                .text_size(theme.typography.small)
+                .text_color(gpui::rgb(color))
+                .child(b)
         }))
         .child(label.into());
     let row = if style.bold {

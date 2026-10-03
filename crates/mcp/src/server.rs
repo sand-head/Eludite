@@ -1,5 +1,6 @@
 //! The MCP server proper: `initialize`, `ping`, `tools/list`, `tools/call`, and the guides as resources
-//! (`resources/list`, `resources/read`, `resources/templates/list`; brief 0027, [`crate::resources`]).
+//! (`resources/list`, `resources/read`, `resources/templates/list`; brief 0027, [`crate::resources`]), and the
+//! repository's status as the resource `eludite://git/status` (brief 0040).
 //!
 //! Transport-agnostic: [`McpServer::handle`] maps one JSON-RPC message to at most one reply. See `transport` for
 //! stdio and the local TCP endpoint.
@@ -228,20 +229,27 @@ impl McpServer {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(self.tools_list(&params)),
             "tools/call" => self.tools_call(&params),
-            "resources/list" => Ok(crate::resources::list()),
+            "resources/list" => Ok(crate::resources::list(&self.registry)),
             "resources/templates/list" => Ok(json!({ "resourceTemplates": [] })),
             "resources/read" => {
                 let uri = params.get("uri").and_then(Value::as_str).ok_or_else(|| {
                     ErrorObject::new(ErrorObject::INVALID_PARAMS, "`uri` must be a string")
                 });
-                uri.and_then(|uri| {
-                    crate::resources::read(uri).ok_or_else(|| {
-                        ErrorObject::new(
+                let caller = Caller::Agent {
+                    agent: (self.agent)(),
+                    call: next_call_id(),
+                    tool_call: None,
+                };
+                uri.and_then(
+                    |uri| match crate::resources::read(uri, &self.registry, caller) {
+                        Some(Ok(v)) => Ok(v),
+                        Some(Err(e)) => Err(ErrorObject::new(ErrorObject::INTERNAL_ERROR, e)),
+                        None => Err(ErrorObject::new(
                             crate::resources::RESOURCE_NOT_FOUND,
                             format!("resource not found: {uri}"),
-                        )
-                    })
-                })
+                        )),
+                    },
+                )
             }
             other => Err(ErrorObject::new(
                 ErrorObject::METHOD_NOT_FOUND,
@@ -268,7 +276,7 @@ impl McpServer {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": true}, "resources": {}},
             "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
-            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first. Before driving the debugger (eludite.debug.*), read the resource eludite://guides/debugging."
+            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first. Before driving the debugger (eludite.debug.*), read the resource eludite://guides/debugging; before using git (eludite.git.*), eludite://guides/git. The resource eludite://git/status is the repository's status."
         })
     }
 

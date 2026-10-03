@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-branches.input.json",
+  "title": "eludite.git.branches input",
+  "description": "The branches and tags (Git > Manage Branches: the Git Repository window), each local branch with its upstream and the outgoing and incoming counts; or `delete` a local branch (the Git Repository window's Delete). A branch not merged into HEAD is deleted only with `force`, which is refused for agents. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "`delete` is class execute; `force` is refused for agents outright.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "`list` (default) or `delete`.",
+      "enum": [
+        "list",
+        "delete"
+      ]
+    },
+    "name": {
+      "description": "The branch to delete.",
+      "type": "string",
+      "minLength": 1
+    },
+    "force": {
+      "description": "Delete a branch that is not merged. Refused for agents.",
+      "type": "boolean"
+    },
+    "remote": {
+      "description": "List remote branches too. Default true.",
+      "type": "boolean"
+    }
+  }
+}

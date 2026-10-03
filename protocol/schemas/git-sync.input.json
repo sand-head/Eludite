@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-sync.input.json",
+  "title": "eludite.git.sync input",
+  "description": "Sync (Git > Sync; the status bar's sync arrows): Visual Studio's pull then push. Pulls as eludite.git.pull does (a fast-forward or a merge commit, stopping on a conflict, never a rebase), then pushes the branch to its upstream as eludite.git.push does. A pull that stops on a conflict pushes nothing. Credentials, progress and eludite.git.cancel as for fetch and push. The repository is the one discovered from the open workspace; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "Dangerous for an agent when the solution's policy sets `git.push` to `prompt` (the default), refused when `deny`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "description": "Default: the branch's upstream remote, else `origin`.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-rebase.input.json",
+  "title": "eludite.git.rebase input",
+  "description": "Rebase the current branch onto another (the Git Repository window's Rebase current branch onto): its commits are replayed one by one on `onto`. On a conflict it stops with the conflicted paths (their files have markers); stage each resolved file and call again with `action: continue`, or `abort` to return to where it started. Rewrites history: history class for agents. Interactive rebase is not offered. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "Dangerous for an agent when the solution's policy sets `git.history` to `prompt` (the default), refused when `deny`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "onto": {
+      "description": "The branch or revision to rebase onto (for `start`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "description": "`start` (default), `continue` or `abort`.",
+      "enum": [
+        "start",
+        "continue",
+        "abort"
+      ]
+    }
+  }
+}

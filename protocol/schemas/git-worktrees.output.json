@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-worktrees.output.json",
+  "title": "eludite.git.worktrees output",
+  "description": "The worktrees after the call.",
+  "type": "object",
+  "required": [
+    "worktrees"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "worktrees": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "main"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "description": "A full commit id (40 hexadecimal digits).",
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "main": {
+            "description": "The repository's main working tree.",
+            "type": "boolean"
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "added": {
+      "type": "string"
+    },
+    "removed": {
+      "type": "string"
+    }
+  }
+}

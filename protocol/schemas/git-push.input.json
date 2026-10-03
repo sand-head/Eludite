@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-push.input.json",
+  "title": "eludite.git.push input",
+  "description": "Push (Git > Push; Commit All and Push; the status bar's outgoing arrow): send the branch to its upstream (or `remote`, default `origin`), with `set_upstream` making it the branch's upstream (a branch without one is pushed under its own name and gets it set). A non-fast-forward is refused unless `force`, which is class dangerous and refused for agents outright. Credentials go through libgit2's callback: for ssh urls the ssh agent (`SSH_AUTH_SOCK`), for https the configured `git-credential` helper (`credential.helper`), else nothing; a credential failure names what was tried and how to set a helper up. Runs off the UI thread with its progress in the status bar, and stops at eludite.git.cancel. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "Dangerous for an agent when the solution's policy sets `git.push` to `prompt` (the default), refused when `deny`; `force` is refused for agents outright.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "description": "The local branch. Default the current one.",
+      "type": "string",
+      "minLength": 1
+    },
+    "set_upstream": {
+      "type": "boolean"
+    },
+    "force": {
+      "description": "Overwrite the remote branch. Refused for agents.",
+      "type": "boolean"
+    }
+  }
+}

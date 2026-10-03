@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-cancel.input.json",
+  "title": "eludite.git.cancel input",
+  "description": "Cancel the running fetch, pull, push or log (the status bar's Cancel while one runs). A transfer stops at its next progress report.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

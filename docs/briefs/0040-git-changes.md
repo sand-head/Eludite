@@ -1,6 +1,6 @@
 # Brief 0040: Git basics: the Git Changes window, status decorations, diffs, branches and sync
 
-Status: open
+Status: done (Linux; [report](0040-report.md))
 Phase: 1 close-out (PLAN.md section 10: "git basics"), with the parts of 4.8 an agent uses daily
 Plan reference: PLAN.md sections 2 (principles 1, 3, 4, 5, 12), 3 (D2: libgit2 in the shell), 4.8 (status, staged and unstaged, hunks, log, branches, stashes, worktrees; no shelling out to `git` on hot paths), 5.1, 5.4 (git status is agent-visible state), 8 (Visual Studio names: Git Changes, Git Repository, Compare with Unmodified), 9, 10 (Phase 1 exit)
 Related ADRs: ADR-0002

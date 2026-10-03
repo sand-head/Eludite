@@ -39,6 +39,11 @@ pub enum SettingKind {
     },
     /// A list of agent entries (edited in the file).
     List,
+    /// A whole number from `min` to `max`, edited as text (brief 0040's `git.autoFetchMinutes`).
+    Integer {
+        min: i64,
+        max: i64,
+    },
 }
 
 /// One setting of the schema.
@@ -62,6 +67,9 @@ impl SettingSpec {
     pub fn validate(&self, value: &Value) -> Result<(), String> {
         let ok = match &self.kind {
             SettingKind::Bool => value.is_boolean(),
+            SettingKind::Integer { min, max } => {
+                value.as_i64().is_some_and(|n| (*min..=*max).contains(&n))
+            }
             SettingKind::Text | SettingKind::Path => value.is_string(),
             SettingKind::Enum { values, .. } => value
                 .as_str()
@@ -92,6 +100,8 @@ impl SettingSpec {
                 self.key,
                 match &self.kind {
                     SettingKind::Bool => "true or false".to_owned(),
+                    SettingKind::Integer { min, max } =>
+                        format!("a whole number from {min} to {max}"),
                     SettingKind::Text | SettingKind::Path => "a string".to_owned(),
                     SettingKind::Enum { values, .. } => format!("one of {}", values.join(", ")),
                     SettingKind::List => "a list".to_owned(),
@@ -110,6 +120,12 @@ impl SettingSpec {
                 _ => None,
             },
             SettingKind::Text | SettingKind::Path => Some(Value::String(text.to_owned())),
+            SettingKind::Integer { .. } => text
+                .trim()
+                .parse::<i64>()
+                .ok()
+                .map(Value::from)
+                .filter(|v| self.validate(v).is_ok()),
             SettingKind::Enum { values, .. } => values
                 .iter()
                 .any(|v| v == text)
@@ -205,6 +221,10 @@ impl SettingsSchema {
             } else {
                 match (p["type"].as_str(), p["x-eludite-editor"].as_str()) {
                     (Some("boolean"), _) => SettingKind::Bool,
+                    (Some("integer"), _) => SettingKind::Integer {
+                        min: p["minimum"].as_i64().unwrap_or(i64::MIN),
+                        max: p["maximum"].as_i64().unwrap_or(i64::MAX),
+                    },
                     (Some("string"), Some("path")) => SettingKind::Path,
                     (Some("string"), _) => SettingKind::Text,
                     (Some("array"), _) => SettingKind::List,
@@ -531,6 +551,11 @@ mod tests {
                 "test.runSettings",
                 "test.parallel",
                 "test.vstestConsolePath",
+                "git.enabled",
+                "git.autoFetchMinutes",
+                "git.userName",
+                "git.userEmail",
+                "git.gpgSign",
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
                 "agents.custom",
@@ -611,6 +636,15 @@ mod tests {
         assert!(ok(SET, json!({"key": "build.onSave", "value": "yes"})).is_err());
         assert!(ok(SET, json!({"key": "nope", "value": 1})).is_err());
         assert!(ok(SET, json!({"key": "keyboard.preset", "value": "emacs"})).is_err());
+        // A whole number in its range (brief 0040).
+        assert!(ok(SET, json!({"key": "git.autoFetchMinutes", "value": 15})).is_ok());
+        assert!(ok(SET, json!({"key": "git.autoFetchMinutes", "value": -1})).is_err());
+        assert!(ok(SET, json!({"key": "git.autoFetchMinutes", "value": "15"})).is_err());
+        assert!(ok(SET, json!({"key": "git.autoFetchMinutes", "value": 1.5})).is_err());
+        let minutes = s.get("git.autoFetchMinutes").unwrap();
+        assert_eq!(minutes.default, json!(0));
+        assert_eq!(minutes.parse_env(" 30 "), Some(json!(30)));
+        assert_eq!(minutes.parse_env("2000"), None);
         // null removes the key from the file.
         assert!(
             ok(

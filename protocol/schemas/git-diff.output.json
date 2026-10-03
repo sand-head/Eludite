@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-diff.output.json",
+  "title": "eludite.git.diff output",
+  "description": "The file's hunks.",
+  "type": "object",
+  "required": [
+    "path",
+    "old_label",
+    "new_label",
+    "binary",
+    "old_lines",
+    "new_lines",
+    "added",
+    "removed",
+    "hunks",
+    "omitted",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "old_label": {
+      "description": "What the old side is: `HEAD`, `index`, a revision.",
+      "type": "string"
+    },
+    "new_label": {
+      "description": "`working tree` or `index`.",
+      "type": "string"
+    },
+    "binary": {
+      "description": "Either side is binary: no lines.",
+      "type": "boolean"
+    },
+    "old_lines": {
+      "description": "Lines of the old text.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "new_lines": {
+      "description": "Lines of the new text.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "added": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "removed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "hunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "old_start",
+          "old_len",
+          "new_start",
+          "new_len",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "old_start": {
+            "description": "0-based first row of the old text.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "old_len": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "new_start": {
+            "description": "0-based first row of the new text.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "new_len": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lines": {
+            "description": "The changed lines with `context` lines of context each side.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "text"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "same",
+                    "added",
+                    "removed"
+                  ]
+                },
+                "old": {
+                  "description": "1-based line in the old text.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "new": {
+                  "description": "1-based line in the new text.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "omitted": {
+      "description": "Changed lines not listed (past `max_lines`).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  }
+}

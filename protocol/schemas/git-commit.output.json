@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-commit.output.json",
+  "title": "eludite.git.commit output",
+  "description": "The new commit.",
+  "type": "object",
+  "required": [
+    "commit",
+    "summary",
+    "amended",
+    "files",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "branch": {
+      "description": "The branch it went on (absent when HEAD is detached).",
+      "type": "string"
+    },
+    "amended": {
+      "type": "boolean"
+    },
+    "files": {
+      "description": "Files the commit changed.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

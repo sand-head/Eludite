@@ -428,6 +428,8 @@ impl Shell {
         self.explorer.update(cx, |e, cx| e.reveal(&path, cx));
         // Breakpoints and the debugger's execution point (brief 0018).
         self.debug_document_opened(cx);
+        // The tab's source control glyph and the change margin (brief 0040).
+        self.git_document_opened(&id, cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();
@@ -466,6 +468,11 @@ impl Shell {
             doc.dirty = dirty;
             self.controller.set_document_dirty(id, dirty);
         }
+        // The change margin, once the editor is idle (brief 0040).
+        self.git_editor_changed(id, cx);
+        let Some(doc) = self.documents.get_mut(id) else {
+            return;
+        };
         if doc.language_id.is_none() || doc.read_only {
             return;
         }
@@ -524,6 +531,8 @@ impl Shell {
         if doc.language_id.is_some() {
             doc.session.did_save(doc.uri.clone());
         }
+        // The repository's status follows the saved file (brief 0040).
+        self.git_saved();
         Ok(WorkspaceOutput::Save(SaveOutput {
             path: id,
             bytes: bytes.len() as u64,
@@ -645,6 +654,7 @@ impl Shell {
             None => false,
         };
         let closed = self.controller.close_document(&id) || had;
+        self.git_document_closed(&id);
         self.update_error_list(cx);
         cx.notify();
         Ok(WorkspaceOutput::FileClose(FileCloseOutput {
