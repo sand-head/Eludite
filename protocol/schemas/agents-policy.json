@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-policy.json",
   "title": "Eludite agent permission policy",
-  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable, except where `browser` refuses a call outright. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
+  "description": "The per-solution, committable permission policy for hosted agents (PLAN.md 5.3), in `.eludite/agents-policy.json` beside the solution file. Class `read` always runs and is not configurable, except where `browser` or `debug` refuses a call outright. Every key is optional; a missing file is the defaults. Eludite rewrites the file when the user answers a permission prompt with Always Allow (adding a rule); it keeps unknown keys out and writes the keys sorted, so the file diffs cleanly.",
   "type": "object",
   "required": [
     "version"
@@ -89,6 +89,36 @@
         },
         "evaluate": {
           "description": "eludite.browser.evaluate: `allow` (default: class execute), `prompt` (class dangerous, which prompts) or `deny` (agents are refused, with this policy named).",
+          "enum": [
+            "allow",
+            "prompt",
+            "deny"
+          ]
+        }
+      }
+    },
+    "debug": {
+      "description": "The debugger commands (eludite.debug.*; proposal 0001 section 5.5, brief 0027, ADR-0009). Every key is optional; a missing key is its default. Reads (state, snapshot, stack, variables, output, exception_info, wait, processes) are always allowed. `prompt` makes a call dangerous (the Agents window asks; Always Allow writes `allow` here), `deny` refuses agents with this policy named. The tool rules above are checked first and keep working for finer control.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "description": "Whether agents may start sessions (start, attach, restart) and resume or change them (continue, step_over, step_into, step_out, run_to_cursor, run_until, trace, pause, stop, set_variable, set_next_statement, toggle_breakpoint with a `log_message` expression): `allow` (default: each call keeps its class, execute), `prompt` (dangerous) or `deny`.",
+          "enum": [
+            "allow",
+            "prompt",
+            "deny"
+          ]
+        },
+        "attach": {
+          "description": "eludite.debug.attach to a process Eludite did not start: `prompt` (default: dangerous, which asks) or `deny` (agents are refused any attach).",
+          "enum": [
+            "prompt",
+            "deny"
+          ]
+        },
+        "evaluate": {
+          "description": "Whether agents may run debuggee code through expressions: eludite.debug.evaluate, set_variable, and tracepoints whose message has an `{expression}` (toggle_breakpoint's `log_message`, trace's points): `allow` (default), `prompt` (dangerous) or `deny`.",
           "enum": [
             "allow",
             "prompt",

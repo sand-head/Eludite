@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-processes.input.json",
+  "title": "eludite.debug.processes input",
+  "description": "The processes of this machine that a debugger could attach to, as the Attach to Process dialog lists them: id, name, command line, runtime (`dotnet`, `netfx`, `mono`, `native`, `unknown`), and whether Eludite started it (`launched_by_eludite`: the program of Start Debugging or Start Without Debugging in this session, or one of its child processes; attaching to it is class execute, to any other process dangerous). It reads the process table off the UI thread and changes nothing. Sorted by name, then id; at most 500 rows. Next: eludite.debug.attach with a `pid`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filter": {
+      "description": "Only processes whose name or command line contains this text (without regard to case).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

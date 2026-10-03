@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-set-variable.input.json",
   "title": "eludite.debug.set_variable input",
   "description": "Change a value in the stopped debuggee, as editing a value in the Locals or Watch window does: a variable of a frame by `name`, or a member (`name`) of a value by its `reference` (from eludite.debug.variables or a stop summary at this stop). `value` is a C# expression the debugger evaluates (`42`, `\"text\"`, `order.Total + 1`), so it can run debuggee code. Through DAP setVariable, else setExpression where the adapter has only that, else refused (`capabilities.set_variable`). Only in break mode; the Locals and Watch windows show the new value. Next: continue, or read the value back with eludite.debug.variables.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` or `debug.evaluate` to `prompt`; refused for agents when either is `deny`.",
   "type": "object",
   "required": [
     "name",

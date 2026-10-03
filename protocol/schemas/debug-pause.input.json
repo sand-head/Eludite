@@ -3,6 +3,7 @@
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-pause.input.json",
   "title": "eludite.debug.pause input",
   "description": "Debug > Break All (Ctrl+Alt+Break): stop a running debuggee wherever it is, for example when it hangs or loops. Only while it runs; refused in any other mode. Nothing changes until the adapter reports the stop (reason `pause`); then it is shown as any break. From an agent it waits like a resuming command and answers the stop summary (debug-stop-summary.output.json); the pause point is often in external code, so read `frames` and use eludite.debug.stack or eludite.debug.snapshot with `frame` to find your code.",
+  "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`; refused for agents when it sets `debug.drive` to `deny`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
