@@ -249,7 +249,7 @@ fn real_host_builds_a_project() {
 }
 
 /// The test corpus's MTP project (corpus/tests, built by `corpus/tests/build.sh`), its discovery and its run through
-/// the real host (brief 0035). Skips when the host or the corpus is not built.
+/// the real host (brief 0035). Skips when the host or the corpus is not built or `dotnet` is not on PATH.
 #[test]
 fn real_host_discovers_and_runs_the_mtp_corpus_project() {
     let Some(dll) = host_dll() else {
@@ -263,6 +263,14 @@ fn real_host_discovers_and_runs_the_mtp_corpus_project() {
     let built = corpus.join("Corpus.XunitV3/bin/Debug/net10.0/Corpus.XunitV3.dll");
     if !built.exists() {
         eprintln!("skipped: corpus/tests is not built (corpus/tests/build.sh)");
+        return;
+    }
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
         return;
     }
     let (client, rx) = HostClient::start(
