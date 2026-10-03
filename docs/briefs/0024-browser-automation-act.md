@@ -1,6 +1,6 @@
 # Brief 0024: Browser automation over CDP: acting on the page, the browser policy and the fake-agent proof
 
-Status: open
+Status: in progress
 Phase: 2 (proposal 0002, brief A, second half)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 5), 4.9, 5.1, 5.3 (the `browser` policy object), 5.4, 5.6, 5.8, 9, 10 (Phase 2); proposal 0002 sections 4.3, 5, 7, 8 (A), 11
 Related ADRs: ADR-0003, ADR-0008; a new ADR-0009 (below)
