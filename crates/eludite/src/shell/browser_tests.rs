@@ -180,6 +180,13 @@ fn browser_commands_are_registered_agent_visible_with_their_schemas(cx: &mut gpu
             .iter()
             .any(|s| s.id.as_str() == cmds::SCREENSHOT)
     );
+    // Registering is all a cold start pays for the browser: the fourteen commands' schemas.
+    let fresh = eludite_commands::CommandRegistry::new();
+    let t = Instant::now();
+    let _bus = super::browser::register(&fresh);
+    let took = t.elapsed();
+    eprintln!("registering the browser commands at startup: {took:?}");
+    assert!(took < Duration::from_millis(50), "{took:?}");
     // A cold start does nothing for the browser: no worker, no engine, nothing launched.
     assert!(!w.shell.read_with(&w.vcx, |s, _| s.browser().started()));
     assert!(seen.threads.lock().unwrap().is_empty());
