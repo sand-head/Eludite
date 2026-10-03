@@ -36,13 +36,14 @@ public sealed class TestServiceTests
         var names = containers.Select(c => c.GetProperty("name").GetString()).ToList();
         Assert.Equal(["Corpus.XunitV3 (net10.0)", "Corpus.XunitV3 (net472)", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.Many"], names);
         Assert.Equal(["mtp", "mtp", "vstest", "mtp", "vstest", "mtp"], containers.Select(c => c.GetProperty("protocol").GetString()));
-        Assert.Equal("mono", containers[1].GetProperty("runtime").GetString());
+        Assert.Equal(OperatingSystem.IsWindows() ? "netfx" : "mono", containers[1].GetProperty("runtime").GetString());
         var runId = discover.GetProperty("runId").GetInt64();
         var finished = await host.FinishedAsync(runId);
         var updates = host.Updates(runId);
         Assert.Equal(Enumerable.Range(0, updates.Count).Select(i => (long)i), updates.Select(u => u.GetProperty("seq").GetInt64()));
         Assert.Single(updates, u => u.GetProperty("kind").GetString() == "finished");
-        var monoFound = File.Exists("/usr/bin/mono") || File.Exists("/usr/local/bin/mono");
+        // The net472 container runs on Windows as it is, elsewhere under Mono when there is one.
+        var monoFound = OperatingSystem.IsWindows() || File.Exists("/usr/bin/mono") || File.Exists("/usr/local/bin/mono");
         var expected = 7 + (monoFound ? 7 : 0) + 5 + 6 + 6 + Corpus.ManyTests;
         Assert.Equal(expected, finished.GetProperty("summary").GetProperty("total").GetInt32());
         var perContainer = updates.Where(u => u.GetProperty("kind").GetString() == "containerFinished").ToDictionary(u => u.GetProperty("container").GetString()!, u => u.GetProperty("count").GetInt32());

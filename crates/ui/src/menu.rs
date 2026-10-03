@@ -257,8 +257,20 @@ pub fn vs_menus() -> Vec<Menu> {
         menu(
             "Test",
             vec![
-                item("Run All Tests", "eludite.test.run_all"),
-                item("Debug All Tests", "eludite.test.debug_all"),
+                // Brief 0035: the Test Explorer's commands (Run All Tests and Debug All Tests are eludite.test.run and
+                // eludite.test.debug without a selection).
+                item("Run All Tests", "eludite.test.run"),
+                item("Debug All Tests", "eludite.test.debug"),
+                MenuEntry::Item {
+                    label: "Run Failed Tests",
+                    command: "eludite.test.run",
+                    args: json!({ "failed_only": true }),
+                },
+                MenuEntry::Item {
+                    label: "Repeat Last Run",
+                    command: "eludite.test.run",
+                    args: json!({ "repeat_last": true }),
+                },
                 Separator,
                 item("Test Explorer", "eludite.test.explorer"),
             ],

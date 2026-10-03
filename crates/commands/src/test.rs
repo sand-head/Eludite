@@ -139,7 +139,10 @@ pub struct Selection {
 /// A parsed, validated test command.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TestRequest {
-    Explorer,
+    /// Show the window; `filter` sets its search box.
+    Explorer {
+        filter: Option<String>,
+    },
     Discover {
         project: Option<String>,
         rebuild: Option<bool>,
@@ -173,7 +176,7 @@ pub enum TestRequest {
 impl TestRequest {
     pub fn command(&self) -> &'static str {
         match self {
-            TestRequest::Explorer => EXPLORER,
+            TestRequest::Explorer { .. } => EXPLORER,
             TestRequest::Discover { .. } => DISCOVER,
             TestRequest::Run { .. } => RUN,
             TestRequest::Debug { .. } => DEBUG,
@@ -380,7 +383,9 @@ pub trait TestCommands: Send + Sync {
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-struct Empty {}
+struct ExplorerIn {
+    filter: Option<String>,
+}
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -489,8 +494,8 @@ fn bounded(
 pub fn parse(id: &str, value: Value) -> Result<TestRequest, CommandError> {
     Ok(match id {
         EXPLORER => {
-            let _: Empty = input(value)?;
-            TestRequest::Explorer
+            let i: ExplorerIn = input(value)?;
+            TestRequest::Explorer { filter: i.filter }
         }
         DISCOVER => {
             let i: DiscoverIn = input(value)?;
@@ -621,7 +626,16 @@ mod tests {
 
     #[test]
     fn parses_and_validates_every_command() {
-        assert_eq!(parse(EXPLORER, json!({})).unwrap(), TestRequest::Explorer);
+        assert_eq!(
+            parse(EXPLORER, json!({})).unwrap(),
+            TestRequest::Explorer { filter: None }
+        );
+        assert_eq!(
+            parse(EXPLORER, json!({"filter": "Outcome:Failed"})).unwrap(),
+            TestRequest::Explorer {
+                filter: Some("Outcome:Failed".into())
+            }
+        );
         assert!(parse(EXPLORER, json!({"x": 1})).is_err());
         assert_eq!(
             parse(DISCOVER, Value::Null).unwrap(),
