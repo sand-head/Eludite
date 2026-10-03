@@ -510,6 +510,8 @@ impl Shell {
         // item (brief 0027).
         let debug_menu = Arc::new(debug::DebugMenuState::default());
         let (menu_debug, menu_checked) = (debug_menu.clone(), debug_menu.clone());
+        // Start in External Browser and Open in Web Browser Window share their commands with other items (brief 0037).
+        let menu_items = debug_menu.clone();
         // Run All Tests and Debug All Tests are disabled while a test run goes (brief 0035).
         let testing = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let menu_testing = testing.clone();
@@ -527,6 +529,7 @@ impl Shell {
                     )
             });
             m.set_checked(Rc::new(move |cmd| menu_checked.checked(cmd)));
+            m.set_item_enabled(Rc::new(move |cmd, args| menu_items.item_enabled(cmd, args)));
             m
         });
         // Document tabs saved in a layout have no editor behind them after a restart.
@@ -569,6 +572,8 @@ impl Shell {
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (mut debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
         debugger.menu = debug_menu;
+        // F5 on a web project opens its page through the browser commands (brief 0037).
+        debugger.set_browser(commands.clone(), browser.clone());
         // The attach hook knows which processes this shell started, before any agent runs too (brief 0027).
         let launched = debugger.launched_processes();
         commands.set_policy_source(Arc::new(move || eludite_commands::policy::PolicySnapshot {

@@ -1386,6 +1386,18 @@ pub struct DebugModel {
     /// `run_until`'s points removed at the last stop or at the end, with their binding then: (path, line, bound, the
     /// adapter's message), for its `points_failed` (brief 0036).
     pub removed_points: Vec<(String, u32, bool, Option<String>)>,
+    /// The launch's browser step (brief 0037): the readiness watch the session's program output feeds; cancelled when
+    /// the session ends.
+    pub browser_watch: Option<std::sync::Arc<eludite_dap::launch::ServerWatch>>,
+    /// What the session's launch opens, as its launch thread planned it (a restart through the adapter's `restart`
+    /// runs the step again with it).
+    pub browser_plan: Option<eludite_dap::launch::BrowserLaunch>,
+    /// The start's `browser`, kept for Restart (brief 0037).
+    pub browser_choice: Option<eludite_commands::debug::BrowserChoice>,
+    /// The tab the session's page opened in: a restart navigates it instead of opening another.
+    pub browser_reuse: Option<String>,
+    /// From Kestrel's listening line to the page opened (brief 0037's budget).
+    pub browser_latency: Option<std::time::Duration>,
 }
 
 impl Default for DebugModel {
@@ -1424,6 +1436,11 @@ impl Default for DebugModel {
             agents_next: None,
             ended_failed: Vec::new(),
             removed_points: Vec::new(),
+            browser_watch: None,
+            browser_plan: None,
+            browser_choice: None,
+            browser_reuse: None,
+            browser_latency: None,
         }
     }
 }
@@ -1777,6 +1794,7 @@ impl DebugModel {
         let ended = self.mode == Mode::Design && self.generation > 0;
         StopSummary {
             session: None,
+            browser: self.session.as_ref().and_then(|s| s.browser.clone()),
             sessions: Vec::new(),
             mode: self.mode.as_str().into(),
             generation: self.generation,
@@ -2015,6 +2033,7 @@ mod tests {
                 profile: None,
                 build: None,
                 cargo: Default::default(),
+                browser: None,
                 wait_ms: None,
                 budget: Default::default()
             })
@@ -2030,6 +2049,7 @@ mod tests {
                 profile: None,
                 build: None,
                 cargo: Default::default(),
+                browser: None,
                 wait_ms: None,
                 budget: Default::default()
             })

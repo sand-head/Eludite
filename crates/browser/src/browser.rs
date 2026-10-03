@@ -666,6 +666,8 @@ impl Browser {
                 .filter(|f| !f.is_empty()),
             can_go_back: history.as_ref().map(|h| h.can_go_back),
             can_go_forward: history.as_ref().map(|h| h.can_go_forward),
+            // The shell names the debugging session that opened the tab (brief 0037).
+            session: None,
             target: tab.target.clone(),
         }
     }

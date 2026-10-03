@@ -649,6 +649,41 @@ impl CargoOptions {
     }
 }
 
+/// Where `eludite.debug.start` opens a web project's page (brief 0037).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserChoice {
+    /// The Web Browser window (the system browser when its engine is not found).
+    BuiltIn,
+    /// The system browser (`eludite.browser.open_external`): Debug > Start in External Browser.
+    External,
+    /// No page.
+    None,
+}
+
+/// The page a launch opened or is opening (`debug-state.output.json`'s `$defs/browser`; brief 0037).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionBrowser {
+    /// The Web Browser window's tab, once it opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    pub url: String,
+    /// `embedded` (a tab of the Web Browser window) or `system` (the system browser, no tab).
+    pub engine: String,
+    /// `waiting`, `opened` or `failed`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+impl SessionBrowser {
+    /// Still waiting for the server.
+    pub fn waiting(&self) -> bool {
+        self.state == "waiting"
+    }
+}
+
 /// A point of `run_until`: stop at `line` of `path` (when `condition` holds).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -759,6 +794,8 @@ pub enum DebugRequest {
         cargo: CargoOptions,
         /// Several projects, each in its own session (brief 0028).
         compound: Option<Compound>,
+        /// Where a web project's page opens (brief 0037); `None`: its launch profile and the settings decide.
+        browser: Option<BrowserChoice>,
         wait_ms: Option<u64>,
         budget: Budget,
     },
@@ -1069,6 +1106,9 @@ pub struct SessionRow {
     /// Attached to a running process (brief 0027): Stop detaches.
     #[serde(default, skip_serializing_if = "is_false")]
     pub attached: bool,
+    /// The web project's page (brief 0037).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<SessionBrowser>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1564,6 +1604,9 @@ pub struct StopSummary {
     /// The session it describes (brief 0028).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<u32>,
+    /// The session's web page (brief 0037): a start with `wait_ms` names the tab it opened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<SessionBrowser>,
     pub mode: String,
     pub generation: u64,
     pub stop: u64,
@@ -1893,6 +1936,7 @@ struct StartIn {
     target: Option<String>,
     test: Option<bool>,
     args: Option<Vec<String>>,
+    browser: Option<BrowserChoice>,
     wait_ms: Option<u64>,
 }
 
@@ -2363,6 +2407,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
                     test: i.test.unwrap_or(false),
                     args: i.args,
                 },
+                browser: i.browser,
                 wait_ms: check_wait(i.wait_ms)?,
                 budget,
             }
@@ -3065,6 +3110,7 @@ mod tests {
                 profile: None,
                 build: None,
                 cargo: CargoOptions::default(),
+                browser: None,
                 wait_ms: None,
                 budget: Budget::default()
             }
@@ -3087,6 +3133,7 @@ mod tests {
                     test: true,
                     args: Some(vec!["my_test".into()])
                 },
+                browser: None,
                 wait_ms: None,
                 budget: Budget::default()
             }
@@ -3106,12 +3153,26 @@ mod tests {
                 profile: Some("App".into()),
                 build: Some(false),
                 cargo: CargoOptions::default(),
+                browser: None,
                 wait_ms: None,
                 budget: Budget::default()
             }
         );
         assert!(parse(START, json!({"project": " "})).is_err());
         assert!(parse(START, json!({"wait_ms": 40000})).is_err());
+        // Where a web project's page opens (brief 0037).
+        for (v, want) in [
+            ("built_in", BrowserChoice::BuiltIn),
+            ("external", BrowserChoice::External),
+            ("none", BrowserChoice::None),
+        ] {
+            assert!(matches!(
+                parse(START, json!({"browser": v})).unwrap(),
+                DebugRequest::Start { browser: Some(b), .. } if b == want
+            ));
+        }
+        assert!(parse(START, json!({"browser": "chrome"})).is_err());
+        assert!(parse(START, json!({"browser": true})).is_err());
         assert_eq!(parse(STOP, Value::Null).unwrap(), DebugRequest::Stop);
         assert!(parse(STOP, json!({"x": 1})).is_err());
         assert_eq!(
@@ -3314,6 +3375,14 @@ mod tests {
                 runtime: Some("coreclr".into()),
                 process_id: Some(7),
                 attached: true,
+                // Brief 0037: the web project's page.
+                browser: Some(SessionBrowser {
+                    tab: Some("t1".into()),
+                    url: "http://localhost:5180/".into(),
+                    engine: "embedded".into(),
+                    state: "opened".into(),
+                    message: None,
+                }),
             }),
             stopped: Some(StoppedRow {
                 reason: "breakpoint".into(),
@@ -3879,6 +3948,33 @@ mod tests {
         }))
         .to_json();
         assert!(empty.get("breakpoints_failed").is_none() && empty.get("points_failed").is_none());
+        // A start's answer names the page it opened (brief 0037), and one still waiting or failed.
+        for (tab, state, message) in [
+            (Some("t2"), "opened", None),
+            (None, "waiting", None),
+            (
+                None,
+                "failed",
+                Some("the server did not answer within 30 s"),
+            ),
+        ] {
+            let web = DebugOutput::Summary(Box::new(StopSummary {
+                mode: "running".into(),
+                session: Some(1),
+                browser: Some(SessionBrowser {
+                    tab: tab.map(Into::into),
+                    url: "http://localhost:5180/".into(),
+                    engine: "embedded".into(),
+                    state: state.into(),
+                    message: message.map(Into::into),
+                }),
+                ..StopSummary::default()
+            }))
+            .to_json();
+            conforms(SUMMARY_OUTPUT, &web);
+            assert_eq!(web["browser"]["state"], state);
+        }
+        assert!(empty.get("browser").is_none());
         let trace = DebugOutput::Trace(Box::new(TraceOutput {
             stopped_by: "terminated".into(),
             points: vec![TracePointRow {
@@ -3971,6 +4067,7 @@ mod tests {
         };
         let summary = DebugOutput::Summary(Box::new(StopSummary {
             session: Some(1),
+            browser: None,
             sessions: Vec::new(),
             breakpoints_failed: Vec::new(),
             points_failed: Vec::new(),

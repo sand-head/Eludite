@@ -24,14 +24,18 @@
 //!   running browser is closed; on shell exit it is closed and its process waited for.
 //! - **The Output window.** The engine's lifecycle lines (launch, tabs opened and closed, navigation failures, console
 //!   errors, exit) go to the Output window's Browser source through a channel the shell drains in batches.
+//! - **Tabs of debugging sessions** (brief 0037). A tab a session's launch opened (`tab_open`, or a restart's
+//!   `navigate`, with the caller [`Caller::Session`]) is that session's: `tabs` names it in `session`, and the window
+//!   draws it with the project's name in its tooltip and a debug glyph. Closing the tab forgets it; the session's end
+//!   does not close it.
 //! - **Policy** (brief 0024, ADR-0009). The browser commands' escalation hooks read the open solution's
 //!   `agents-policy.json` (its `browser` object) through the command registry's policy source, which the Agents
 //!   window sets; the MCP gate decides on the class they give each call. Commands that need no engine
 //!   (`open_external` with a url) still run on the worker, so nothing here ever runs on the UI thread.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -134,10 +138,12 @@ pub enum WindowEvent {
     Notification { method: String, params: Value },
     /// DevTools opened for page `page` as tab `devtools` (engine tab ids).
     DevtoolsOpened { page: String, devtools: String },
-    /// The command tabs after a command: `(t1, engine tab id)` in order, and the selected one.
+    /// The command tabs after a command: `(t1, engine tab id)` in order, the selected one, and the debugging
+    /// sessions that opened tabs (by `t1`; brief 0037).
     Tabs {
         tabs: Vec<(String, String)>,
         active: Option<String>,
+        sessions: BTreeMap<String, cmds::TabSession>,
     },
     /// The agents whose calls are in flight now (empty: nobody drives).
     Driving(Vec<String>),
@@ -152,7 +158,11 @@ impl std::fmt::Debug for WindowEvent {
             WindowEvent::DevtoolsOpened { page, devtools } => {
                 write!(f, "DevtoolsOpened({page} -> {devtools})")
             }
-            WindowEvent::Tabs { tabs, active } => write!(f, "Tabs({tabs:?}, {active:?})"),
+            WindowEvent::Tabs {
+                tabs,
+                active,
+                sessions,
+            } => write!(f, "Tabs({tabs:?}, {active:?}, {sessions:?})"),
             WindowEvent::Driving(a) => write!(f, "Driving({a:?})"),
         }
     }
@@ -173,6 +183,7 @@ pub struct EngineStatus {
 enum Job {
     Apply(
         BrowserRequest,
+        Box<Caller>,
         mpsc::SyncSender<Result<BrowserOutput, CommandError>>,
     ),
     /// Close the browser if it runs (the workspace changed or closed, or the shell exits).
@@ -205,6 +216,10 @@ struct Inner {
     log: UnboundedSender<String>,
     /// The program `open_external` runs instead of the system's opener (tests).
     opener: Mutex<Option<String>>,
+    /// The tabs debugging sessions opened, by `t1` (brief 0037).
+    sessions: Mutex<BTreeMap<String, cmds::TabSession>>,
+    /// How many tabs the browser has, as last announced (before the command that changed them answers).
+    tab_count: AtomicUsize,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -319,12 +334,13 @@ impl Inner {
         let mut shown: Option<WindowEvent> = None;
         for job in rx {
             match job {
-                Job::Apply(request, reply) => {
+                Job::Apply(request, caller, reply) => {
                     let now = self.config();
                     let kind = self.status().embedded;
                     if kind != embedded {
                         // browser.engine changed: the other kind of browser from now on.
                         browser.shutdown();
+                        lock(&self.sessions).clear();
                         embedded = kind;
                         config = now.clone();
                         browser = make(embedded, now);
@@ -333,12 +349,19 @@ impl Inner {
                         config = now;
                     }
                     browser.set_opener(lock(&self.opener).clone());
-                    let _ = reply.send(browser.apply(request));
+                    let mut answer = browser.apply(request);
+                    self.follow_sessions(&caller, &mut answer);
+                    // The window hears of the tabs before the caller gets its answer (a session's launch shows the
+                    // window right after its tab opened; brief 0037).
+                    self.announce_tabs(&browser, &mut shown);
+                    let _ = reply.send(answer);
+                    continue;
                 }
                 Job::Shutdown(reply) => {
                     if browser.is_running() {
                         browser.shutdown();
                     }
+                    lock(&self.sessions).clear();
                     if let Some(reply) = reply {
                         let _ = reply.send(());
                     }
@@ -349,6 +372,42 @@ impl Inner {
         browser.shutdown();
     }
 
+    /// Which tabs are debugging sessions' (brief 0037): a session's `tab_open` or `navigate` makes the tab its own,
+    /// closing a tab forgets it, tabs that are gone are forgotten, and `tabs` names each tab's session.
+    fn follow_sessions(&self, caller: &Caller, answer: &mut Result<BrowserOutput, CommandError>) {
+        let mut sessions = lock(&self.sessions);
+        match (&mut *answer, caller) {
+            (Ok(BrowserOutput::TabOpen(o)), Caller::Session { session, name }) => {
+                sessions.insert(
+                    o.tab.id.clone(),
+                    cmds::TabSession {
+                        id: *session,
+                        name: name.clone(),
+                    },
+                );
+            }
+            (Ok(BrowserOutput::Navigate(o)), Caller::Session { session, name }) => {
+                sessions.insert(
+                    o.tab.clone(),
+                    cmds::TabSession {
+                        id: *session,
+                        name: name.clone(),
+                    },
+                );
+            }
+            (Ok(BrowserOutput::TabClose(o)), _) => {
+                sessions.remove(&o.closed);
+            }
+            (Ok(BrowserOutput::Tabs(o)), _) => {
+                sessions.retain(|id, _| o.tabs.iter().any(|t| t.id == *id));
+                for t in &mut o.tabs {
+                    t.session = sessions.get(&t.id).cloned();
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Tell the window the command tabs, when they changed.
     fn announce_tabs(&self, browser: &Browser, shown: &mut Option<WindowEvent>) {
         let (tabs, active) = if browser.is_running() {
@@ -356,9 +415,20 @@ impl Inner {
         } else {
             (Vec::new(), None)
         };
-        let changed = !matches!(shown, Some(WindowEvent::Tabs { tabs: t, active: a }) if *t == tabs && *a == active);
+        self.tab_count.store(tabs.len(), Ordering::SeqCst);
+        let sessions: BTreeMap<String, cmds::TabSession> = lock(&self.sessions)
+            .iter()
+            .filter(|(id, _)| tabs.iter().any(|(t, _)| t == *id))
+            .map(|(id, s)| (id.clone(), s.clone()))
+            .collect();
+        let changed = !matches!(shown, Some(WindowEvent::Tabs { tabs: t, active: a, sessions: s })
+            if *t == tabs && *a == active && *s == sessions);
         if changed {
-            let e = WindowEvent::Tabs { tabs, active };
+            let e = WindowEvent::Tabs {
+                tabs,
+                active,
+                sessions,
+            };
             *shown = Some(e.clone());
             let _ = self.window.unbounded_send(e);
         }
@@ -391,6 +461,12 @@ pub struct BrowserBus {
     inner: Arc<Inner>,
 }
 
+impl std::fmt::Debug for BrowserBus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("BrowserBus")
+    }
+}
+
 impl BrowserTarget for BrowserBus {
     fn apply(&self, request: BrowserRequest) -> Result<BrowserOutput, CommandError> {
         if std::thread::current().id() == self.inner.ui_thread {
@@ -401,9 +477,10 @@ impl BrowserTarget for BrowserBus {
             ));
         }
         let id = request.command();
-        let agent = match current_caller() {
-            Caller::Agent { agent, call, .. } => Some((call, agent)),
-            Caller::User => None,
+        let caller = current_caller();
+        let agent = match &caller {
+            Caller::Agent { agent, call, .. } => Some((*call, agent.clone())),
+            Caller::User | Caller::Session { .. } => None,
         };
         if let Some((_, name)) = &agent {
             let mut stale = lock(&self.inner.stale);
@@ -421,7 +498,7 @@ impl BrowserTarget for BrowserBus {
             .inner
             .sender()
             .and_then(|tx| {
-                tx.send(Job::Apply(request, reply))
+                tx.send(Job::Apply(request, Box::new(caller), reply))
                     .map_err(|_| CommandError::Failed("the browser worker is gone".into()))
             })
             .and_then(|()| {
@@ -584,6 +661,12 @@ impl BrowserBus {
         rx
     }
 
+    /// Whether the browser has tabs, as the worker last announced them (the window opening does not add a blank tab
+    /// to a browser that has some, as a session's launch's; brief 0037).
+    pub fn has_tabs(&self) -> bool {
+        self.inner.tab_count.load(Ordering::SeqCst) > 0
+    }
+
     /// Whether the worker was started (by a browser command).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn started(&self) -> bool {
@@ -613,6 +696,8 @@ pub fn register(commands: &CommandRegistry) -> (BrowserBus, UnboundedReceiver<St
             jobs: Mutex::new(None),
             log,
             opener: Mutex::new(None),
+            sessions: Mutex::default(),
+            tab_count: AtomicUsize::new(0),
         }),
     };
     cmds::register(commands, Arc::new(bus.clone()));

@@ -6833,3 +6833,724 @@ fn run_until_and_trace_report_points_that_never_bound(cx: &mut TestAppContext) {
         "{t}"
     );
 }
+
+// ---- Brief 0037: F5 on a web project opens its page in the Web Browser window ----
+
+/// A port nothing listens on.
+fn closed_port() -> u16 {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    l.local_addr().unwrap().port()
+}
+
+/// What Kestrel writes when it is up on `port` (Microsoft.Hosting.Lifetime's lines).
+fn kestrel_lines(port: u16) -> Vec<String> {
+    vec![
+        "info: Microsoft.Hosting.Lifetime[14]\n".into(),
+        format!("      Now listening on: http://127.0.0.1:{port}\n"),
+        "info: Microsoft.Hosting.Lifetime[0]\n      Application started. Press Ctrl+C to shut down.\n".into(),
+    ]
+}
+
+/// The test solution's project as an ASP.NET Core one: the web SDK and Visual Studio's `http` profile with
+/// `launchBrowser`, its page at `url` (`applicationUrl`) with `launch_url`.
+fn web_project(d: &Dbg, url: &str, launch_url: &str) {
+    let write = |rel: &str, text: &str| {
+        let p = d.w.dir.path().join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "src/App/App.csproj",
+        "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    );
+    write(
+        "src/App/Properties/launchSettings.json",
+        &json!({"profiles": {"http": {
+            "commandName": "Project", "launchBrowser": true, "launchUrl": launch_url,
+            "applicationUrl": url, "environmentVariables": {"ASPNETCORE_ENVIRONMENT": "Development"}}}})
+        .to_string(),
+    );
+}
+
+/// The session's page as `eludite.debug.state` shows it.
+fn page_of(w: &Ws) -> Value {
+    state_of(w)["session"]["browser"].clone()
+}
+
+/// A browser command from a thread of its own as the person (the browser commands never run on the UI thread).
+fn browser_call(d: &mut Dbg, command: &'static str, args: Value) -> Value {
+    let commands = d.w.commands.clone();
+    let handle = std::thread::spawn(move || {
+        commands
+            .invoke(command, args)
+            .unwrap_or_else(|e| json!({ "error": e.to_string() }))
+    });
+    let deadline = Instant::now() + T;
+    while !handle.is_finished() {
+        assert!(Instant::now() < deadline, "{command} did not finish");
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    handle.join().unwrap()
+}
+
+impl Dbg {
+    fn wait_page(&mut self, state: &str) -> Value {
+        self.w.wait(&format!("the page {state}"), |w| {
+            page_of(w)["state"] == state
+        });
+        page_of(&self.w)
+    }
+
+    fn launch_browser(&mut self, f: impl FnOnce(&mut super::LaunchBrowserSettings)) {
+        self.w.shell.update(&mut self.w.vcx, |s, _| {
+            f(&mut s.debug.browser_launch);
+        });
+    }
+}
+
+/// F5 on an ASP.NET Core project (a fake adapter whose program prints Kestrel's listening line, a fake engine standing
+/// for the embedded one): the page opens in the Web Browser window through the bus as the session, the state and the
+/// tab carry each other, Restart reloads (or navigates) the same tab, Stop leaves it open, and closing the tab leaves
+/// a session running. The page opens within 500 ms of the listening line.
+#[gpui::test]
+fn f5_on_a_web_project_opens_its_page_in_the_web_browser_window(cx: &mut TestAppContext) {
+    let port = closed_port();
+    let mut d = setup_with(cx, move |p| p.output_at_start = kestrel_lines(port));
+    let url = format!("http://127.0.0.1:{port}");
+    web_project(&d, &url, "");
+    let engine = super::super::browser_tests::install_page_engine(&d.w);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("f5");
+    let page = d.wait_page("opened");
+    let want = format!("{url}/");
+    assert_eq!(
+        page,
+        json!({"tab": "t1", "url": want, "engine": "embedded", "state": "opened"})
+    );
+    // The fake engine's tab navigated there; the Web Browser window is open on it, a session's tab.
+    let navigated = engine.navigated.lock().unwrap().clone();
+    assert_eq!(navigated.len(), 1, "{navigated:?}");
+    let target = navigated[0].0.clone();
+    assert_eq!(navigated[0].1, want);
+    d.w.wait("the window's tab", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.browser_window().read(cx).tab_session(&target).is_some()
+        })
+    });
+    assert!(
+        d.w.controller
+            .layout()
+            .documents
+            .get(eludite_docking::ids::WEB_BROWSER)
+            .is_some(),
+        "the Web Browser window opened"
+    );
+    let (strip, tip) = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let b = s.browser_window().read(cx);
+        (b.strip(), b.tab_tooltip(&target))
+    });
+    assert_eq!(strip.len(), 1, "no blank tab beside the page: {strip:?}");
+    assert!(tip.contains("App: opened by debugging session 1"), "{tip}");
+    // `tabs` names the session; the audit has the session's call with its arguments.
+    let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"][0]["id"], "t1");
+    assert_eq!(tabs["tabs"][0]["session"], json!({"id": 1, "name": "App"}));
+    let entry =
+        d.w.commands
+            .audit_log()
+            .entries()
+            .into_iter()
+            .find(|e| e.command == eludite_commands::browser::TAB_OPEN)
+            .expect("tab_open audited");
+    assert_eq!(
+        entry.caller,
+        Caller::Session {
+            session: 1,
+            name: "App".into()
+        }
+    );
+    assert_eq!(entry.arguments, Some(json!({"url": want})));
+    let out = debug_output(&d);
+    assert!(
+        out.contains(&format!(
+            "Opened {want} in the Web Browser window (tab t1)."
+        )),
+        "{out:?}"
+    );
+    // The budget: the page opened within 500 ms of the listening line.
+    let latency =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().model.browser_latency)
+            .expect("measured");
+    eprintln!(
+        "timing: page opened {:.1} ms after Kestrel's listening line",
+        latency.as_secs_f64() * 1e3
+    );
+    assert_budget(
+        "listening line to the page opened",
+        latency,
+        Duration::from_millis(500),
+    );
+
+    // Restart (Ctrl+Shift+F5; the fake has no `restart`, so it stops and starts): the same tab, reloaded.
+    d.w.vcx.simulate_keystrokes("ctrl-shift-f5");
+    d.w.wait("the reload", |_| !engine.reloads.lock().unwrap().is_empty());
+    let page = d.wait_page("opened");
+    assert_eq!(page["tab"], "t1");
+    assert_eq!(*engine.reloads.lock().unwrap(), std::slice::from_ref(&target));
+    assert_eq!(engine.navigated.lock().unwrap().len(), 1);
+    // A restart with another launchUrl navigates the same tab there.
+    web_project(&d, &url, "api/time");
+    d.cmd(cmds::RESTART, json!({})).unwrap();
+    let api = format!("{url}/api/time");
+    d.w.wait("the navigation", |_| {
+        engine
+            .navigated
+            .lock()
+            .unwrap()
+            .last()
+            .map(|(_, u)| u.clone())
+            == Some(api.clone())
+    });
+    let page = d.wait_page("opened");
+    assert_eq!(
+        (page["tab"].clone(), page["url"].clone()),
+        (json!("t1"), json!(api))
+    );
+    assert_eq!(engine.navigated.lock().unwrap().last().unwrap().0, target);
+    let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1, "{tabs}");
+
+    // Stop (Shift+F5) leaves the tab open, still the session's.
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+    assert_eq!(page_of(&d.w)["tab"], "t1");
+    let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"][0]["id"], "t1");
+    assert_eq!(tabs["tabs"][0]["session"]["id"], 1);
+
+    // A new start opens a tab of its own; closing it does not stop the session. (F5 itself would reload the page now:
+    // the Web Browser window has the keys, as in Visual Studio.)
+    d.cmd(cmds::START, json!({})).unwrap();
+    d.w.wait("the second page", |w| {
+        page_of(w)["state"] == "opened" && page_of(w)["tab"] == "t2"
+    });
+    let closed = browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_CLOSE,
+        json!({"tab": "t2"}),
+    );
+    assert_eq!(closed["closed"], "t2", "{closed}");
+    std::thread::sleep(Duration::from_millis(100));
+    d.w.vcx.run_until_parked();
+    assert_eq!(d.mode(), Mode::Running);
+    let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1, "{tabs}");
+    d.w.vcx.simulate_keystrokes("shift-f5");
+    d.wait_mode(Mode::Design);
+}
+
+/// A Rust or console project opens nothing; `browser: none` opens nothing; `browser: external` (Debug > Start in
+/// External Browser) and the setting browser.useBuiltIn off run the system's opener with no tab; an agent's start
+/// with `wait_ms` answers with the tab; a server that never answers leaves the Output line and the session running;
+/// a url that answers without the line opens too; the https profile without the development certificate opens the
+/// http page with Visual Studio's message.
+#[gpui::test]
+fn the_start_chooses_where_the_page_opens_and_says_when_it_cannot(cx: &mut TestAppContext) {
+    let port = closed_port();
+    let listening = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let l = listening.clone();
+    let mut d = setup_with(cx, move |p| {
+        if l.load(std::sync::atomic::Ordering::SeqCst) {
+            p.output_at_start = kestrel_lines(port);
+        }
+    });
+    let engine = super::super::browser_tests::install_page_engine(&d.w);
+    let opened = d.w.dir.path().join("opened.txt");
+    let opener = d.w.dir.path().join("opener.sh");
+    std::fs::write(
+        &opener,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\n",
+            opened.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&opener, std::fs::Permissions::from_mode(0o755)).unwrap();
+    d.w.shell.read_with(&d.w.vcx, |s, _| {
+        s.browser()
+            .set_opener(Some(opener.to_string_lossy().into_owned()))
+    });
+    let opened_lines = || -> Vec<String> {
+        std::fs::read_to_string(&opened)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    };
+    d.w.open_solution();
+    let stop = |d: &mut Dbg| {
+        d.cmd(cmds::STOP, json!({})).unwrap();
+        d.wait_mode(Mode::Design);
+    };
+
+    // A console project: no page, whatever the start says.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    std::thread::sleep(Duration::from_millis(100));
+    d.w.vcx.run_until_parked();
+    assert!(page_of(&d.w).is_null(), "{}", state_of(&d.w));
+    stop(&mut d);
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"browser": "built_in", "wait_ms": 5000}),
+    );
+    assert_eq!(out["mode"], "running", "{out}");
+    assert!(out.get("browser").is_none(), "{out}");
+    stop(&mut d);
+
+    // The web project: `browser: none` opens nothing.
+    let url = format!("http://127.0.0.1:{port}");
+    let page = format!("{url}/");
+    web_project(&d, &url, "");
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"browser": "none", "wait_ms": 5000}),
+    );
+    assert_eq!(out["mode"], "running", "{out}");
+    assert!(out.get("browser").is_none(), "{out}");
+    stop(&mut d);
+
+    // An agent's start with `wait_ms` answers once the page opened, with its tab.
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 10000}));
+    assert_eq!(out["mode"], "running", "{out}");
+    assert_eq!(
+        out["browser"],
+        json!({"tab": "t1", "url": page, "engine": "embedded", "state": "opened"}),
+        "{out}"
+    );
+    stop(&mut d);
+    assert!(opened_lines().is_empty());
+
+    // Start in External Browser (the menu's item): the system's opener, no tab.
+    d.cmd(cmds::START, json!({"browser": "external"})).unwrap();
+    let p = d.wait_page("opened");
+    assert_eq!(
+        p,
+        json!({"url": page, "engine": "system", "state": "opened"})
+    );
+    assert!(debug_output(&d).contains(&format!("Opened {page} in the system browser.")));
+    d.w.wait("the opener", |_| opened_lines().len() == 1);
+    assert_eq!(opened_lines(), std::slice::from_ref(&page));
+    stop(&mut d);
+    // So does F5 with Debug > Open in Web Browser Window off (the setting browser.useBuiltIn).
+    d.cmd(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.useBuiltIn", "value": false}),
+    )
+    .unwrap();
+    d.w.wait("the setting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().browser_launch.use_built_in)
+    });
+    d.cmd(cmds::START, json!({})).unwrap();
+    assert_eq!(d.wait_page("opened")["engine"], "system");
+    d.w.wait("the opener", |_| opened_lines().len() == 2);
+    stop(&mut d);
+    d.cmd(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.useBuiltIn", "value": true}),
+    )
+    .unwrap();
+    // debugger.launchBrowser off: the profile's launchBrowser is not followed.
+    d.cmd(
+        eludite_commands::settings::SET,
+        json!({"key": "debugger.launchBrowser", "value": false}),
+    )
+    .unwrap();
+    d.w.wait("the setting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().browser_launch.launch_browser)
+    });
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 5000}));
+    assert!(out.get("browser").is_none(), "{out}");
+    stop(&mut d);
+    d.cmd(
+        eludite_commands::settings::SET,
+        json!({"key": "debugger.launchBrowser", "value": true}),
+    )
+    .unwrap();
+    d.w.wait("the setting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().browser_launch.launch_browser)
+    });
+
+    // No listening line and nothing answering: after the timeout the Output window says so; the session goes on.
+    listening.store(false, std::sync::atomic::Ordering::SeqCst);
+    d.launch_browser(|b| b.timeout = Duration::from_millis(800));
+    let navigations = engine.navigated.lock().unwrap().len();
+    d.cmd(cmds::START, json!({})).unwrap();
+    let p = d.wait_page("failed");
+    assert_eq!(p["url"], page);
+    assert_eq!(p["message"], "the server did not answer within 0.8 s");
+    assert!(
+        debug_output(&d).iter().any(|l| l.starts_with(&format!(
+            "The page {page} could not be opened: the server did not answer within 0.8 s"
+        ))),
+        "{:?}",
+        debug_output(&d)
+    );
+    assert_eq!(d.mode(), Mode::Running);
+    assert_eq!(engine.navigated.lock().unwrap().len(), navigations);
+    stop(&mut d);
+
+    // No line, but the url answers (any status): the page opens.
+    let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let live = server.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        use std::io::{Read as _, Write as _};
+        for mut s in server.incoming().flatten() {
+            let _ = s.read(&mut [0u8; 1024]);
+            let _ = s.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    let live_url = format!("http://127.0.0.1:{live}");
+    web_project(&d, &live_url, "");
+    d.launch_browser(|b| b.timeout = Duration::from_secs(10));
+    d.cmd(cmds::START, json!({})).unwrap();
+    let p = d.wait_page("opened");
+    assert_eq!(p["url"], format!("{live_url}/"));
+    stop(&mut d);
+
+    // The https profile without the development certificate: Visual Studio's message, the http page.
+    std::fs::write(
+        d.w.path("src/App/Properties/launchSettings.json"),
+        json!({"profiles": {"https": {"commandName": "Project", "launchBrowser": true, "launchUrl": "",
+            "applicationUrl": format!("https://127.0.0.1:{};{live_url}", closed_port())}}})
+        .to_string(),
+    )
+    .unwrap();
+    d.launch_browser(|b| b.dev_cert = Some(false));
+    d.cmd(cmds::START, json!({})).unwrap();
+    let p = d.wait_page("opened");
+    assert_eq!(p["url"], format!("{live_url}/"));
+    let message = p["message"].as_str().unwrap_or_default();
+    assert!(
+        message.starts_with(eludite_dap::launch::DEV_CERT_MESSAGE),
+        "{p}"
+    );
+    assert!(
+        debug_output(&d)
+            .iter()
+            .any(|l| l.starts_with(eludite_dap::launch::DEV_CERT_MESSAGE)),
+        "{:?}",
+        debug_output(&d)
+    );
+    stop(&mut d);
+}
+
+/// Ctrl+F5 on a web project: the program's stdout (a stand-in for `dotnet` printing Kestrel's line and staying up)
+/// is read for the line, and the page opens; Stop leaves it.
+#[cfg(unix)]
+#[gpui::test]
+fn ctrl_f5_on_a_web_project_opens_its_page_when_the_program_listens(cx: &mut TestAppContext) {
+    let port = closed_port();
+    let bin = tempfile::tempdir().unwrap().keep();
+    let script = bin.join("dotnet");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho 'info: Microsoft.Hosting.Lifetime[14]'\nsleep 0.2\necho '      Now listening on: \
+             http://127.0.0.1:{port}'\nexec sleep 30\n"
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut d = setup_dotnet(cx, |_| {}, &script.to_string_lossy());
+    web_project(&d, &format!("http://127.0.0.1:{port}"), "");
+    let engine = super::super::browser_tests::install_page_engine(&d.w);
+    d.w.open_solution();
+    d.w.vcx.simulate_keystrokes("ctrl-f5");
+    let p = d.wait_page("opened");
+    assert_eq!(p["tab"], "t1");
+    assert_eq!(d.mode(), Mode::RunningWithoutDebugging);
+    assert_eq!(engine.navigated.lock().unwrap().len(), 1);
+    let latency =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().model.browser_latency)
+            .expect("measured");
+    eprintln!(
+        "timing: Ctrl+F5 page opened {:.1} ms after the listening line",
+        latency.as_secs_f64() * 1e3
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    assert_eq!(page_of(&d.w)["state"], "opened");
+}
+
+/// The Debug menu (brief 0037): Start in External Browser is enabled while no session runs; Open in Web Browser
+/// Window is enabled while the embedded engine is found and shows the setting browser.useBuiltIn, which it toggles.
+#[gpui::test]
+fn the_debug_menus_browser_items_follow_the_session_and_the_engine(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    // No engine: the check item is disabled (and still shows the setting).
+    let empty = tempfile::tempdir().unwrap();
+    d.w.shell.read_with(&d.w.vcx, |s, _| {
+        s.browser()
+            .set_chromium_search(eludite_browser::ChromiumSearch {
+                engine: None,
+                engine_dirs: vec![empty.path().to_path_buf()],
+                cef: Vec::new(),
+                cef_cache: None,
+            })
+    });
+    let checked = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, cx| {
+            s.menu()
+                .read(cx)
+                .is_item_checked("Debug", "Open in Web Browser Window")
+        })
+    };
+    assert_eq!(menu_enabled(&d, "Open in Web Browser Window"), Some(false));
+    assert_eq!(checked(&d), Some(true));
+    // The engine found (the cache looks again after a second).
+    super::super::browser_tests::install_page_engine(&d.w);
+    d.w.wait("the engine", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.menu()
+                .read(cx)
+                .is_item_enabled("Debug", "Open in Web Browser Window")
+        }) == Some(true)
+    });
+    // A click sets the setting to the other value through the bus.
+    let action = json!({"key": "browser.useBuiltIn", "value": false});
+    d.cmd(eludite_commands::settings::SET, action).unwrap();
+    d.w.wait("unchecked", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.menu()
+                .read(cx)
+                .is_item_checked("Debug", "Open in Web Browser Window")
+        }) == Some(false)
+    });
+    // Start in External Browser: while no session runs.
+    d.w.open_solution();
+    assert_eq!(menu_enabled(&d, "Start in External Browser"), Some(true));
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.w.wait("the menu", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.menu()
+                .read(cx)
+                .is_item_enabled("Debug", "Start in External Browser")
+        }) == Some(false)
+    });
+    assert_eq!(menu_enabled(&d, "Start Debugging"), Some(true));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    assert_eq!(menu_enabled(&d, "Start in External Browser"), Some(true));
+}
+
+/// The corpus web project (`corpus/web/minimal-api`) as the test solution's project: copied into `src/App` (its
+/// project file as `App.csproj`), its launch profiles on free ports, and built with the real `dotnet`. `None` when
+/// `dotnet` is missing or the build fails (the test then skips).
+fn corpus_web(d: &Dbg) -> Option<u16> {
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/web/minimal-api");
+    let app = d.w.path("src/App");
+    for stale in ["Calc.cs", "Default.aspx.cs", "Models/Order.cs"] {
+        let _ = std::fs::remove_file(app.join(stale));
+    }
+    for (from, to) in [
+        ("MinimalApi.csproj", "App.csproj"),
+        ("Program.cs", "Program.cs"),
+        ("Directory.Build.props", "Directory.Build.props"),
+    ] {
+        std::fs::copy(corpus.join(from), app.join(to)).unwrap();
+    }
+    let (http, https) = (closed_port(), closed_port());
+    let settings = std::fs::read_to_string(corpus.join("Properties/launchSettings.json"))
+        .unwrap()
+        .replace("localhost:5180", &format!("127.0.0.1:{http}"))
+        .replace("localhost:7180", &format!("127.0.0.1:{https}"));
+    std::fs::create_dir_all(app.join("Properties")).unwrap();
+    std::fs::write(app.join("Properties/launchSettings.json"), settings).unwrap();
+    let built = std::process::Command::new("dotnet")
+        .args([
+            "build",
+            "App.csproj",
+            "--configuration",
+            "Debug",
+            "--nologo",
+        ])
+        .current_dir(&app)
+        .env("DOTNET_NOLOGO", "1")
+        .output();
+    match built {
+        Ok(o) if o.status.success() => Some(http),
+        Ok(o) => {
+            eprintln!(
+                "skipped: the corpus web project did not build:\n{}",
+                String::from_utf8_lossy(&o.stdout)
+            );
+            None
+        }
+        Err(e) => {
+            eprintln!("skipped: dotnet: {e}");
+            None
+        }
+    }
+}
+
+/// Whether the embedded engine (`eludite-chromium` with CEF) is found, else why not.
+fn embedded_engine() -> Result<(), String> {
+    match eludite_browser::select_engine(
+        eludite_browser::EngineChoice::Embedded,
+        &eludite_browser::ChromiumSearch::defaults(),
+    ) {
+        (eludite_browser::EngineChoice::Embedded, _) => Ok(()),
+        (_, why) => Err(why.unwrap_or_else(|| "the embedded engine was not found".into())),
+    }
+}
+
+/// The real run (brief 0037): the corpus web project started (`debug` false: Ctrl+F5 with the real `dotnet`; true:
+/// under the located netcoredbg), its page opened in the real embedded engine once Kestrel listens, `read_page` seeing
+/// the form, Stop leaving the tab.
+fn real_web_run(d: &mut Dbg, debug: bool) {
+    let Some(port) = corpus_web(d) else { return };
+    d.w.open_solution();
+    let started = Instant::now();
+    d.cmd(cmds::START, json!({ "debug": debug })).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        d.w.vcx.run_until_parked();
+        let p = page_of(&d.w);
+        if p["state"] == "opened" || p["state"] == "failed" {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the page did not open: {}\n{:?}",
+            state_of(&d.w),
+            debug_output(d)
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let page = page_of(&d.w);
+    let url = format!("http://127.0.0.1:{port}/");
+    assert_eq!(
+        page,
+        json!({"tab": "t1", "url": url, "engine": "embedded", "state": "opened"}),
+        "{:?}",
+        debug_output(d)
+    );
+    let latency =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().model.browser_latency);
+    eprintln!(
+        "timing: {} to the page opened {:.0} ms (from Kestrel's listening line {:?})",
+        if debug { "F5" } else { "Ctrl+F5" },
+        started.elapsed().as_secs_f64() * 1e3,
+        latency.map(|l| format!("{:.1} ms", l.as_secs_f64() * 1e3))
+    );
+    assert!(
+        debug_output(d)
+            .iter()
+            .any(|l| l.contains("Now listening on: http://127.0.0.1")),
+        "Kestrel's line is in the Debug source"
+    );
+    // An agent's eyes on the page: the form, its text box and its button.
+    let read = browser_call(
+        d,
+        eludite_commands::browser::READ_PAGE,
+        json!({"tab": "t1"}),
+    );
+    let rows: Vec<(String, String)> = read["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|n| {
+            (
+                n["role"].as_str().unwrap_or_default().to_owned(),
+                n["name"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    assert!(
+        rows.contains(&("textbox".into(), "Name".into()))
+            && rows.contains(&("button".into(), "Greet".into())),
+        "{read}"
+    );
+    let text = browser_call(
+        d,
+        eludite_commands::browser::PAGE_TEXT,
+        json!({"tab": "t1"}),
+    );
+    assert!(text.to_string().contains("Minimal API"), "{text}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.w.wait("the end", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().model.mode == Mode::Design)
+    });
+    let tabs = browser_call(d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"][0]["session"]["name"], "App", "{tabs}");
+    let closed = d.w.shell.read_with(&d.w.vcx, |s, _| s.browser().shutdown());
+    let _ = closed.recv_timeout(Duration::from_secs(10));
+}
+
+/// Ctrl+F5 on the corpus web project with the real `dotnet` and the real embedded engine (brief 0037's real run).
+/// Skips without `dotnet`, or without `eludite-chromium` built with CEF (`tools/cef/fetch.sh`); as root the engine
+/// needs `ELUDITE_CHROME_NO_SANDBOX=1`.
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine(
+    cx: &mut TestAppContext,
+) {
+    if let Err(e) = embedded_engine() {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    let mut d = setup(cx);
+    real_web_run(&mut d, false);
+}
+
+/// F5 on the corpus web project under the real netcoredbg (Kestrel's line arrives as DAP `output` events), the page in
+/// the real embedded engine. Skips unless netcoredbg is found (`ELUDITE_NETCOREDBG`, `PATH`;
+/// `tools/netcoredbg/fetch.sh`), and as the Ctrl+F5 test does.
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn f5_on_the_corpus_web_project_under_netcoredbg_opens_the_page(cx: &mut TestAppContext) {
+    let search = eludite_dap::discovery::AdapterSearch::from_env();
+    if let Err(e) = search.find_netcoredbg() {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    if let Err(e) = embedded_engine() {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    let store = tempfile::tempdir().unwrap().keep();
+    let setup = DebugSetup {
+        connect: None,
+        search,
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store.clone()),
+        dotnet: "dotnet".into(),
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let mut d = Dbg {
+        w,
+        fake: Arc::default(),
+        fakes: Arc::default(),
+        store,
+    };
+    d.set_build_before_run(false);
+    real_web_run(&mut d, true);
+}
