@@ -91,14 +91,15 @@ fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::Pa
     script
 }
 
-/// Windows: a batch file; `ping` is the wait that needs no console input.
+/// Windows: a batch file; `ping` is the wait that needs no console input. Two openers run at once, and cmd's `>>`
+/// fails outright while the other holds the file, so the append retries until it gets in.
 #[cfg(windows)]
 fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::PathBuf {
     let script = dir.join("opener.cmd");
     std::fs::write(
         &script,
         format!(
-            "@echo off\r\n>>\"{}\" echo %~1\r\nping -n 3 127.0.0.1 >nul\r\n",
+            "@echo off\r\n:append\r\n2>nul (>>\"{}\" echo %~1) || (ping -n 1 127.0.0.1 >nul & goto append)\r\nping -n 3 127.0.0.1 >nul\r\n",
             record.display()
         ),
     )

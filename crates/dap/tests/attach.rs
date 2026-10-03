@@ -3,12 +3,15 @@
 
 mod common;
 
+#[cfg(target_os = "linux")]
 use std::process::{Child, Command};
+#[cfg(target_os = "linux")]
 use std::time::{Duration, Instant};
 
 use eludite_dap::attach::{AttachAdapter, attach_plan};
 use eludite_dap::fake;
 use eludite_dap::launch::Platform;
+#[cfg(target_os = "linux")]
 use eludite_dap::processes::{self, Runtime};
 use eludite_dap::session::{self, StartKind, StartPlan};
 use eludite_dap::types::{Event, SourceBreakpoint};
@@ -18,8 +21,10 @@ use serde_json::json;
 use common::{PROGRAM, Recorder, T, program};
 
 /// Kills its child when dropped.
+#[cfg(target_os = "linux")]
 struct Kill(Child);
 
+#[cfg(target_os = "linux")]
 impl Drop for Kill {
     fn drop(&mut self) {
         let _ = self.0.kill();
