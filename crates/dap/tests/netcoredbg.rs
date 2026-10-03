@@ -46,7 +46,15 @@ fn netcoredbg_debugs_eludite_host() {
         + 1;
     let source = std::fs::canonicalize(&source).unwrap();
     let rec = Recorder::default();
-    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let client = DapClient::start(
+        common::recorded(
+            transport::connect(&found.transport()).unwrap(),
+            "netcoredbg",
+            "netcoredbg",
+            None,
+        ),
+        rec.sink(),
+    );
     let mut args = config.netcoredbg_arguments();
     args["args"] = json!(["--stdio", "--no-roslyn"]);
     let started = session::start(
@@ -189,7 +197,15 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
         }
     };
     let rec = Recorder::default();
-    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let client = DapClient::start(
+        common::recorded(
+            transport::connect(&found.transport()).unwrap(),
+            "netcoredbg",
+            "netcoredbg",
+            None,
+        ),
+        rec.sink(),
+    );
     let mut args = config.netcoredbg_arguments();
     args["args"] = json!(["--stdio", "--no-roslyn"]);
     let started = session::start(
@@ -394,7 +410,15 @@ fn netcoredbg_runs_under_control() {
         }
     };
     let rec = Recorder::default();
-    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let client = DapClient::start(
+        common::recorded(
+            transport::connect(&found.transport()).unwrap(),
+            "netcoredbg",
+            "netcoredbg",
+            None,
+        ),
+        rec.sink(),
+    );
     let mut args = config.netcoredbg_arguments();
     args["args"] = json!(["--stdio", "--no-roslyn"]);
     let started = session::start(
@@ -509,7 +533,15 @@ fn netcoredbg_runs_under_control() {
     }
     let config = launch::launch_config(&dir.path().join("Loop.csproj"), None).unwrap();
     let rec = Recorder::default();
-    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let client = DapClient::start(
+        common::recorded(
+            transport::connect(&found.transport()).unwrap(),
+            "netcoredbg",
+            "netcoredbg",
+            None,
+        ),
+        rec.sink(),
+    );
     let source = std::fs::canonicalize(dir.path().join("Program.cs")).unwrap();
     let clock = Instant::now();
     session::start(
@@ -615,7 +647,15 @@ fn netcoredbg_attaches_to_a_dotnet_process_and_detaches() {
     let source = std::fs::canonicalize(&source).unwrap();
     let rec = Recorder::default();
     let clock = Instant::now();
-    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let client = DapClient::start(
+        common::recorded(
+            transport::connect(&found.transport()).unwrap(),
+            "netcoredbg",
+            "netcoredbg",
+            None,
+        ),
+        rec.sink(),
+    );
     session::start(
         &client,
         &StartPlan {

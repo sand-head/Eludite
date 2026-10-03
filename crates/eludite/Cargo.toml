@@ -39,8 +39,9 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-# The scripted fake debug adapter (crates/dap, feature `fake`) for the debugger tests.
-eludite-dap = { workspace = true, features = ["fake"] }
+# The scripted fake debug adapter (crates/dap, feature `fake`) for the debugger tests, and the replaying adapter
+# (feature `replay`) for the DAP conformance tests (brief 0033).
+eludite-dap = { workspace = true, features = ["fake", "replay"] }
 gpui = { workspace = true, features = ["test-support"] }
 # The in-process fake eludite-host (crates/lsp, feature `fake`) for the open-solution tests.
 eludite-lsp = { workspace = true, features = ["fake"] }

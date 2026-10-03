@@ -262,7 +262,12 @@ impl Program {
     ) -> (DapClient, Recorder, session::Started) {
         let rec = Recorder::default();
         let client = DapClient::start(
-            transport::connect(&self.adapter.transport()).unwrap(),
+            common::recorded(
+                transport::connect(&self.adapter.transport()).unwrap(),
+                "lldb",
+                &self.adapter.describe(self.adapter.version().as_deref()),
+                Some(self.dir.path()),
+            ),
             rec.sink(),
         );
         let started = session::start(
@@ -816,7 +821,12 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
     let rec = Recorder::default();
     let clock = Instant::now();
     let client = DapClient::start(
-        transport::connect(&adapter.transport()).unwrap(),
+        common::recorded(
+            transport::connect(&adapter.transport()).unwrap(),
+            "lldb",
+            &adapter.describe(adapter.version().as_deref()),
+            None,
+        ),
         rec.sink(),
     );
     let started = session::start(
