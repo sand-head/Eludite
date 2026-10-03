@@ -20,6 +20,8 @@
 //! - [`diff`]: the line diff, its hunks and the inline diff rows of the pending-change review view.
 //! - [`vertical_text`]: text rotated 90 degrees clockwise ([`vertical_label`]) for
 //!   the auto-hide strips on the left and right edges.
+//! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the menu bar, the title, the caption
+//!   buttons, and the window's frame on Linux with client-side decorations.
 //! - [`transcript`]: the Agents window's transcript rows: prompts, agent Markdown blocks, thinking, tool call cards
 //!   with their status, plans and notices.
 //!
@@ -36,6 +38,7 @@ pub mod popup;
 pub mod startup;
 pub mod status;
 mod theme;
+pub mod title_bar;
 pub mod transcript;
 pub mod tree;
 pub mod vertical_text;
@@ -53,5 +56,6 @@ pub use menu::{MENU_TITLES, Menu, MenuBar, MenuEntry, menu_bar_with, vs_menus};
 pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slots, status_toggle};
 pub use theme::{Theme, Typography};
+pub use title_bar::TitleBar;
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};
 pub use vertical_text::{VerticalLabel, vertical_label};
