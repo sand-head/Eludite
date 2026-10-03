@@ -185,6 +185,8 @@ pub struct FakeProgram {
     pub crash_on: Option<String>,
     /// Members merged into the `initialize` answer (for example `{"supportsVariablePaging": false}`).
     pub extra_capabilities: Value,
+    /// The program exits with this code when a run ends (a console program), instead of waiting for the next one.
+    pub exit_at_end: Option<i64>,
 }
 
 impl Default for FakeProgram {
@@ -198,6 +200,7 @@ impl Default for FakeProgram {
             process_id: 4242,
             crash_on: None,
             extra_capabilities: Value::Null,
+            exit_at_end: None,
         }
     }
 }
@@ -433,6 +436,8 @@ struct Machine {
     running_at: Option<usize>,
     /// What `initialize` answered.
     caps: Value,
+    /// The program exited (`exited` was sent).
+    exited: bool,
 }
 
 impl Machine {
@@ -459,6 +464,7 @@ impl Machine {
             stopped_on_exception: false,
             running_at: None,
             caps: Value::Null,
+            exited: false,
         }
     }
 
@@ -757,13 +763,11 @@ impl Machine {
                 self.run_from(pc + 1, mode);
             }
             "terminate" => {
-                self.event("exited", json!({"exitCode": 0}));
-                self.event("terminated", json!({}));
+                self.exit(0);
                 self.respond(seq, command, Ok(json!({})));
             }
             "disconnect" => {
-                self.event("exited", json!({"exitCode": 0}));
-                self.event("terminated", json!({}));
+                self.exit(0);
                 self.respond(seq, command, Ok(json!({})));
                 return false;
             }
@@ -869,8 +873,20 @@ impl Machine {
             }
             self.print(k);
         }
-        // The run is over; the program waits for the next one.
+        // The run is over; the program waits for the next one, or exits.
         self.pc = None;
+        if let Some(code) = self.program.exit_at_end {
+            self.exit(code);
+        }
+    }
+
+    /// The program exits with `code` (once) and the session ends.
+    fn exit(&mut self, code: i64) {
+        if !self.exited {
+            self.exited = true;
+            self.event("exited", json!({ "exitCode": code }));
+            self.event("terminated", json!({}));
+        }
     }
 
     fn stop(&mut self, k: usize, reason: &str, text: Option<String>) {
