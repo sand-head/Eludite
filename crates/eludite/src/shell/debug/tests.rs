@@ -4331,6 +4331,7 @@ fn looping_dotnet() -> PathBuf {
 }
 
 /// Ctrl+F5 the test solution's program; answers its process id once it runs.
+#[cfg(target_os = "linux")]
 fn ctrl_f5(d: &mut Dbg) -> u32 {
     d.w.vcx.simulate_keystrokes("ctrl-f5");
     d.wait_mode(Mode::RunningWithoutDebugging);
@@ -5037,10 +5038,12 @@ fn agent_debug_commands_read_in_the_transcript_as_the_debug_toolbar_would(cx: &m
         "{refused}"
     );
     let (ix, step) = d.step_row(4);
+    // Compared as a path: the fixture's relative path joins with `/`.
     assert_eq!(
-        step["debug_location"],
-        json!({"path": d.w.path("src/App/Calc.cs").to_string_lossy(), "line": 6})
+        std::path::Path::new(step["debug_location"]["path"].as_str().unwrap()),
+        d.w.path("src/App/Calc.cs")
     );
+    assert_eq!(step["debug_location"]["line"], 6);
     // The row draws the line; the summary the agent received is folded until expanded.
     d.cmd("eludite.view.show", json!({"id": ids::AGENTS}))
         .unwrap();

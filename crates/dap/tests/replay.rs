@@ -21,8 +21,16 @@ use common::{Recorder, T};
 /// The fake's program with its files under `root`, run once at `configurationDone` and exiting with 0.
 fn program(root: &Path) -> eludite_dap::fake::FakeProgram {
     let mut p = common::program();
-    let main = root.join("App/Program.cs").to_string_lossy().into_owned();
-    let calc = root.join("App/Calc.cs").to_string_lossy().into_owned();
+    let main = root
+        .join("App")
+        .join("Program.cs")
+        .to_string_lossy()
+        .into_owned();
+    let calc = root
+        .join("App")
+        .join("Calc.cs")
+        .to_string_lossy()
+        .into_owned();
     for s in &mut p.steps {
         s.path = if s.path.ends_with("Calc.cs") {
             calc.clone()
@@ -41,7 +49,11 @@ fn program(root: &Path) -> eludite_dap::fake::FakeProgram {
 fn drive(connection: Connection, root: &Path) -> (Vec<ClientEvent>, Vec<Value>) {
     let rec = Recorder::default();
     let client = DapClient::start(connection, rec.sink());
-    let calc = root.join("App/Calc.cs").to_string_lossy().into_owned();
+    let calc = root
+        .join("App")
+        .join("Calc.cs")
+        .to_string_lossy()
+        .into_owned();
     session::start(
         &client,
         &StartPlan {
@@ -327,7 +339,11 @@ fn answers_and_their_events_wait_for_the_requests_recorded_before_them() {
     );
     let waiting = handle.waiting_for().unwrap();
     assert!(waiting.contains("`setBreakpoints`"), "{waiting}");
-    let calc = root.join("App/Calc.cs").to_string_lossy().into_owned();
+    let calc = root
+        .join("App")
+        .join("Calc.cs")
+        .to_string_lossy()
+        .into_owned();
     session::set_breakpoints(
         &client,
         &calc,
