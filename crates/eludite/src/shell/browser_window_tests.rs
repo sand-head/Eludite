@@ -445,6 +445,20 @@ fn the_window_opens_from_the_view_menu_with_a_tab_and_navigates_through_the_bus(
             .iter()
             .any(|(m, _)| m == "Page.reload")
     });
+    // Ctrl+L selects the whole address: typing replaces it, Backspace edits, Enter goes there.
+    w.vcx
+        .simulate_keystrokes("ctrl-l x y z . c o m backspace m enter");
+    w.wait("the typed address", |_| {
+        seen.sent
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(m, p)| m == "Page.navigate" && p["url"] == "http://xyz.com")
+    });
+    assert_eq!(
+        w.browser_window(|b| b.address().to_owned()),
+        "http://xyz.com"
+    );
 }
 
 #[gpui::test]
@@ -671,12 +685,21 @@ fn the_context_menu_devtools_downloads_and_the_cursor(cx: &mut gpui::TestAppCont
     assert!(strip[1].0.starts_with("DevTools - "), "{strip:?}");
     assert!(strip[1].2, "shown");
     assert!(w.audit().iter().any(|c| c == cmds::DEVTOOLS));
+    seen.tell(WindowEvent::Notification {
+        method: "tab/state".into(),
+        params: json!({"tab": format!("dt{target}"), "url": "devtools://devtools/bundled/inspector.html"}),
+    });
+    w.wait("DevTools' address", |w| {
+        w.browser_window(|b| b.address().starts_with("devtools:"))
+    });
     w.click("web-browser-tab-close-1");
     w.wait("DevTools closed", |w| w.strip().len() == 1);
     assert_eq!(
         seen.closed.lock().unwrap().as_slice(),
         [format!("dt{target}")]
     );
+    // The address bar shows the page's address again.
+    assert_eq!(w.browser_window(|b| b.address().to_owned()), "about:blank");
 
     // Downloads: the window's status line, and the Output window's line at the end.
     seen.tell(WindowEvent::Notification {

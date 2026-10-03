@@ -173,6 +173,8 @@ pub struct BrowserWindow {
     address: String,
     /// The address bar holds the person's typing (not the page's url).
     address_edited: bool,
+    /// The whole address is selected (Ctrl+L, a click into the bar, as browsers do): typing replaces it.
+    address_all: bool,
     address_focus: FocusHandle,
     /// Addresses visited, newest first (the address bar's drop-down).
     history: Vec<String>,
@@ -251,6 +253,7 @@ impl BrowserWindow {
             select_when_known: None,
             address: String::new(),
             address_edited: false,
+            address_all: false,
             address_focus: cx.focus_handle(),
             history: Vec::new(),
             history_open: false,
@@ -846,6 +849,34 @@ impl BrowserWindow {
         self.person_runs(cmds::NAVIGATE, args, cx);
     }
 
+    /// Focus the address bar with its whole text selected (Ctrl+L, a click into it).
+    pub fn focus_address(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.address_all = true;
+        window.focus(&self.address_focus, cx);
+        cx.notify();
+    }
+
+    /// A key typed in the address bar: `key` as GPUI names it, `typed` its text. The selected address is replaced.
+    pub fn address_key(&mut self, key: &str, typed: Option<&str>) {
+        let all = std::mem::take(&mut self.address_all);
+        if key == "backspace" {
+            if all {
+                self.address.clear();
+            } else {
+                self.address.pop();
+            }
+        } else if let Some(c) = typed {
+            if all {
+                self.address.clear();
+            }
+            self.address.push_str(c);
+        } else {
+            self.address_all = all;
+            return;
+        }
+        self.address_edited = true;
+    }
+
     pub fn new_tab(&mut self, cx: &mut Context<Self>) {
         let home = self.bus.settings().home_page;
         self.shown_devtools = None;
@@ -872,6 +903,8 @@ impl BrowserWindow {
             self.devtools.retain(|(_, d)| d != target);
             if self.shown_devtools.as_deref() == Some(target) {
                 self.shown_devtools = None;
+                self.address_edited = false;
+                self.sync_address();
             }
             cx.notify();
             return;
@@ -1264,36 +1297,41 @@ impl BrowserWindow {
             "Enter a URL (localhost:5000)",
             focused,
             &t,
-        )
-        .flex_1()
-        .w_auto()
-        .track_focus(&self.address_focus)
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|w, _, window, cx| {
-                window.focus(&w.address_focus, cx);
-                cx.notify();
-            }),
-        )
-        .on_key_down(cx.listener(|w, e: &KeyDownEvent, _, cx| {
-            let k = &e.keystroke;
-            match k.key.as_str() {
-                "enter" => w.go(cx),
-                "backspace" => {
-                    w.address.pop();
-                    w.address_edited = true;
-                }
-                _ if !k.modifiers.control && !k.modifiers.alt => {
-                    if let Some(c) = k.key_char.as_deref() {
-                        w.address.push_str(c);
-                        w.address_edited = true;
+        );
+        // The whole address selected: drawn as a selection.
+        let address = if focused && self.address_all && !self.address.is_empty() {
+            address.bg(t.accent).text_color(t.text_on_accent)
+        } else {
+            address
+        };
+        let address = address
+            .flex_1()
+            .w_auto()
+            .track_focus(&self.address_focus)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|w, _, window, cx| {
+                    if !w.address_focus.is_focused(window) {
+                        w.focus_address(window, cx);
                     }
+                }),
+            )
+            .on_key_down(cx.listener(|w, e: &KeyDownEvent, window, cx| {
+                let k = &e.keystroke;
+                match k.key.as_str() {
+                    "enter" => {
+                        w.address_all = false;
+                        w.go(cx);
+                        w.focus_page(window, cx);
+                    }
+                    _ if !k.modifiers.control && !k.modifiers.alt => {
+                        w.address_key(&k.key, k.key_char.as_deref());
+                    }
+                    _ => return,
                 }
-                _ => return,
-            }
-            cx.stop_propagation();
-            cx.notify();
-        }));
+                cx.stop_propagation();
+                cx.notify();
+            }));
         div()
             .id("web-browser-toolbar")
             .flex()
@@ -1696,10 +1734,9 @@ impl Render for BrowserWindow {
             .id("web-browser")
             .key_context(CONTEXT)
             .track_focus(&self.focus)
-            .on_action(cx.listener(|w, _: &FocusAddressBar, window, cx| {
-                window.focus(&w.address_focus, cx);
-                cx.notify();
-            }))
+            .on_action(
+                cx.listener(|w, _: &FocusAddressBar, window, cx| w.focus_address(window, cx)),
+            )
             .on_action(cx.listener(|w, _: &Reload, _, cx| w.navigate_action("reload", cx)))
             .on_action(cx.listener(|w, _: &Back, _, cx| w.navigate_action("back", cx)))
             .on_action(cx.listener(|w, _: &Forward, _, cx| w.navigate_action("forward", cx)))
