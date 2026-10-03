@@ -64,6 +64,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0031](0031-cef-offscreen-spike.md) | Spike: CEF offscreen rendering into GPUI, out of process (proposal 0002 S) | 2 | [report](0031-report.md): done on Linux (Xvfb, software rendering); `eludite-chromium` renders into a memfd ring the shell draws with `img`; engine 60 fps, upload 1.15 ms + img paint 1.30 ms p50 per 1600x1000 frame, frame p99 108.8 ms under lavapipe (110.0 ms without uploads); no GO by the rule, fallback: partial uploads from dirty rectangles; owner's GPU run decides |
 | [0032](0032-web-browser-window.md) | The Web Browser window: tabs, address bar, DevTools, dialogs, the Agent is driving strip, record, privacy switches (proposal 0002 B) | 2 | open |
 | [0033](0033-dap-conformance-corpus.md) | The DAP conformance corpus: recorded adapter sessions replayed through the shell on every platform (proposal 0001 G) | 2 | open |
+| [0034](0034-debug-suite-tuning.md) | Tuning the agent debugging suite from the proving run: guide, tool descriptions, compact answers, ACP usage events (proposal 0001 follow-up) | 2/4 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
