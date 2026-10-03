@@ -18,7 +18,10 @@ When you are asked which statement is wrong, show it stopped there, with the loc
    bound, a `switch` without the case, an assignment under an `if`), not where it is noticed (the check that fails,
    the dereference that throws).
 2. Set a breakpoint on that statement: `eludite.debug.toggle_breakpoint` with `action: set`, `remove_after: true` and a
-   `condition` for the case that goes wrong (`i == count - 1`, `coin == Coin.Quarter`, `parent == null`). If the
+   `condition` for the case that goes wrong (`coin == MissingCase.Coin.Quarter`, `parent == null`). A breakpoint on a
+   `for` header stops once, at its initializer: for the last iteration, put the condition on the body's first
+   statement (`i == count - 2` there is the last pass of `for (var i = 0; i < count - 1; i++)`) and leave the header
+   unconditional. Qualify type names (Eludite's Mono adapter and netcoredbg also resolve `Coin.Quarter`). If the
    program is already at a break, `eludite.debug.run_until` with that line and `condition` sets it and runs there in
    one call (skip steps 3 and 4).
 3. `eludite.debug.start` with the `project` (or `eludite.debug.restart` when a session is already running). It answers
@@ -27,7 +30,9 @@ When you are asked which statement is wrong, show it stopped there, with the loc
    locals two levels deep.
 5. Name the location that summary shows (`stopped.location`: file, line, function) and the locals it lists. If it
    stopped elsewhere (an exception, another breakpoint) or the program ended, your suspect or your condition was wrong:
-   read the summary, move the breakpoint and run again. Do not name a statement you never stopped on.
+   read the summary, move the breakpoint and run again. A breakpoint the adapter refused, or whose condition it
+   rejected, never stops: the summary lists it in `breakpoints_failed` with the adapter's reason (`run_until`: in
+   `points_failed`); fix it first. Do not name a statement you never stopped on.
 
 That is three debug calls when the source shows the suspect, five when you first run the program to see how it fails.
 A stop after the statement, or at the exception it causes, shows the symptom: stop on the statement itself before you
@@ -77,8 +82,8 @@ Each command costs a round trip. Get to where you need to be in one call:
   (`stopped_by: stopped`, with the summary).
 - **Breakpoints:** `eludite.debug.toggle_breakpoint` with `condition`, `hit_condition` (`5`, `>=5`, `%2`),
   `log_message` (a tracepoint that prints and continues), `function` (`Namespace.Type.Method`), or `remove_after`
-  (deleted at its first stop). It answers with that breakpoint's row, whether a running session bound it, and the
-  count; `eludite.debug.state` lists them all. `eludite.debug.exception_settings` with `types` stops on specific
+  (deleted at its first stop). It answers with that breakpoint's row, whether a running session bound it (`message`: why
+  not), and the count; `eludite.debug.state` lists them all. `eludite.debug.exception_settings` with `types` stops on specific
   exception types.
 
 Single steps (`eludite.debug.step_over`, `step_into`, `step_out`) and `eludite.debug.run_to_cursor` are for the last
