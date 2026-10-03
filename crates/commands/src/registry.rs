@@ -379,7 +379,7 @@ impl CommandRegistry {
         class: Option<&CallClass>,
     ) -> (u64, Result<Value, CommandError>) {
         let caller = crate::current_caller();
-        let arguments = caller.is_agent().then(|| input.clone());
+        let arguments = caller.keeps_arguments().then(|| input.clone());
         let Some(entry) = self.entry(id) else {
             let err = CommandError::UnknownCommand(id.to_owned());
             let seq =

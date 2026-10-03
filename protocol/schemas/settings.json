@@ -115,6 +115,13 @@
       "x-eludite-section": "Debugging > General",
       "x-eludite-label": "Allow agents to drive new debugging sessions"
     },
+    "debugger.launchBrowser": {
+      "description": "Open a web project's page when it starts (F5, Ctrl+F5), as its launch profile's `launchBrowser` asks. Off: no page opens unless the start names `browser` (Debug > Start in External Browser). Applies to the next start.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Open the launch profile's page when a web project starts"
+    },
     "languageServers.rustAnalyzerPath": {
       "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
       "type": "string",
@@ -218,6 +225,13 @@
         "Embedded Chromium (Web Browser window)",
         "External Chrome"
       ]
+    },
+    "browser.useBuiltIn": {
+      "description": "Open the page of a web project that starts (its launch profile's `launchBrowser` and `launchUrl`) in the Web Browser window, as a tab agents can read and drive (eludite.browser.*): Debug > Open in Web Browser Window. Takes effect while the embedded engine is found (browser.engine `embedded` with `eludite-chromium` and CEF present); otherwise, or off, the page opens in the system browser. Applies to the next start.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Open web projects in the Web Browser window"
     },
     "browser.homePage": {
       "description": "The page a new tab of the Web Browser window opens (Ctrl+T, the + button) and the Home button goes to. A url (`http://localhost:5000/`) or `about:blank`.",

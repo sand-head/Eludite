@@ -20,8 +20,12 @@
 //! - **Without the embedded engine** the window says why and what to run ([`super::browser::EngineStatus`]).
 //! - Closing the window keeps the engine for a minute ([`super::browser::LINGER`]); the shell closes the engine with
 //!   the workspace.
+//! - **Tabs of debugging sessions** (brief 0037). F5 on a web project opens its page here as a tab of the session
+//!   ([`WindowEvent::Tabs`]' `sessions`): a debug glyph before its title and the project's name in its tooltip.
+//!   Restarting the session navigates the same tab; ending it leaves the tab open; closing the tab leaves the session
+//!   running.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -162,6 +166,8 @@ pub struct BrowserWindow {
     /// The command tabs (`t1`, engine tab id), in order, and the selected one.
     tabs: Vec<(String, String)>,
     active: Option<String>,
+    /// The tabs debugging sessions opened, by `t1` (brief 0037).
+    sessions: BTreeMap<String, cmds::TabSession>,
     /// DevTools tabs: (page's engine tab, DevTools' engine tab).
     devtools: Vec<(String, String)>,
     /// A DevTools tab shown instead of its page.
@@ -233,6 +239,27 @@ pub fn address_url(typed: &str) -> String {
     }
 }
 
+/// A tab's tooltip (brief 0037).
+struct TabTip {
+    text: String,
+    theme: Theme,
+}
+
+impl Render for TabTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        div()
+            .px_2()
+            .py_1()
+            .bg(t.panel)
+            .border_1()
+            .border_color(t.border)
+            .text_size(t.typography.ui)
+            .text_color(t.text)
+            .children(self.text.lines().map(|l| div().child(l.to_owned())))
+    }
+}
+
 impl BrowserWindow {
     pub fn new(
         bus: BrowserBus,
@@ -248,6 +275,7 @@ impl BrowserWindow {
             driver: None,
             tabs: Vec::new(),
             active: None,
+            sessions: BTreeMap::new(),
             devtools: Vec::new(),
             shown_devtools: None,
             info: HashMap::new(),
@@ -399,6 +427,32 @@ impl BrowserWindow {
             .map(|(_, t)| t.clone())
     }
 
+    /// The debugging session that opened the tab of engine tab `target` (brief 0037).
+    pub fn tab_session(&self, target: &str) -> Option<&cmds::TabSession> {
+        self.sessions.get(&self.command_tab(target)?)
+    }
+
+    /// A tab's tooltip: its title and url, and for a session's tab the project being debugged.
+    pub fn tab_tooltip(&self, target: &str) -> String {
+        let mut text = self.title_of(target);
+        if let Some(url) = self
+            .info
+            .get(target)
+            .map(|i| i.url.clone())
+            .filter(|u| !u.is_empty() && *u != text)
+        {
+            text.push('\n');
+            text.push_str(&url);
+        }
+        if let Some(s) = self.tab_session(target) {
+            text.push_str(&format!(
+                "\n{}: opened by debugging session {} (Restart reloads it)",
+                s.name, s.id
+            ));
+        }
+        text
+    }
+
     fn title_of(&self, target: &str) -> String {
         match self.info.get(target) {
             Some(i) if !i.title.is_empty() => i.title.clone(),
@@ -436,7 +490,8 @@ impl BrowserWindow {
         let at = Instant::now();
         self.opened_at = Some((at, running));
         self.first_pixel = None;
-        if status.embedded && self.tabs.is_empty() && self.in_flight == 0 {
+        // A browser with tabs (a debugging session's page, opened before the window; brief 0037) gets no blank one.
+        if status.embedded && self.tabs.is_empty() && self.in_flight == 0 && !self.bus.has_tabs() {
             self.new_tab(cx);
         }
         // The first page pixel after the open (the budget): the first paint of a page image since then.
@@ -517,10 +572,15 @@ impl BrowserWindow {
                 self.shown_devtools = Some(devtools);
                 self.focus_page(window, cx);
             }
-            WindowEvent::Tabs { tabs, active } => {
+            WindowEvent::Tabs {
+                tabs,
+                active,
+                sessions,
+            } => {
                 let shown_before = self.shown_target();
                 self.tabs = tabs;
                 self.active = active;
+                self.sessions = sessions;
                 let pages: Vec<String> = self.tabs.iter().map(|(_, t)| t.clone()).collect();
                 self.devtools.retain(|(p, _)| pages.contains(p));
                 if let Some(d) = &self.shown_devtools
@@ -1203,6 +1263,16 @@ impl BrowserWindow {
                 title.into()
             };
             let (select, close) = (target.clone(), target.clone());
+            // A debugging session's tab (brief 0037): Visual Studio's green run glyph before its title.
+            let glyph = self.tab_session(&target).is_some().then(|| {
+                div()
+                    .id(("web-browser-tab-debug", i))
+                    .debug_selector(move || format!("web-browser-tab-debug-{i}"))
+                    .text_color(rgb(0x388A34))
+                    .child("\u{25B6}")
+            });
+            let tip = self.tab_tooltip(&target);
+            let theme = self.theme;
             let mut tab = div()
                 .id(("web-browser-tab", i))
                 .debug_selector(move || format!("web-browser-tab-{i}"))
@@ -1216,7 +1286,12 @@ impl BrowserWindow {
                 .border_color(t.border)
                 .cursor_pointer()
                 .text_size(t.typography.ui)
+                .tooltip(move |_, cx| {
+                    let text = tip.clone();
+                    cx.new(|_| TabTip { text, theme }).into()
+                })
                 .child(icon)
+                .children(glyph)
                 .child(short)
                 .child(
                     div()

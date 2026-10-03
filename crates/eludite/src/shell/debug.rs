@@ -93,10 +93,10 @@ use eludite_commands::debug::{
 use eludite_commands::debug::{AllowAgentsOutput, AttachTarget, ProcessRow, ProcessesOutput};
 use eludite_commands::project::StartupAction;
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
-use eludite_commands::{Caller, CommandError};
+use eludite_commands::{Caller, CommandError, CommandRegistry};
 use eludite_dap::attach::{AttachAdapter, attach_plan};
 use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
-use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform};
+use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform, Readiness, ServerWatch};
 use eludite_dap::processes;
 use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
 use eludite_dap::types::{
@@ -118,6 +118,7 @@ use self::state::{
 };
 use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
+use super::browser::BrowserBus;
 use super::documents::{normalize_path, trace};
 
 /// Status bar slot: the debugger's state (left, after the solution's).
@@ -368,6 +369,11 @@ pub struct DebugMenuState {
     in_break: std::sync::atomic::AtomicBool,
     running: std::sync::atomic::AtomicBool,
     live: std::sync::atomic::AtomicBool,
+    /// The setting `browser.useBuiltIn`: Debug > Open in Web Browser Window's check (brief 0037).
+    pub use_built_in: std::sync::atomic::AtomicBool,
+    /// The browser whose engine the check item needs, and the last look for it (at most one a second).
+    pub browser: Mutex<Option<BrowserBus>>,
+    engine_seen: Mutex<Option<(Instant, bool)>>,
 }
 
 impl Default for DebugMenuState {
@@ -379,9 +385,15 @@ impl Default for DebugMenuState {
             in_break: false.into(),
             running: false.into(),
             live: false.into(),
+            use_built_in: true.into(),
+            browser: Mutex::new(None),
+            engine_seen: Mutex::new(None),
         }
     }
 }
+
+/// The setting behind Debug > Open in Web Browser Window (brief 0037).
+pub const USE_BUILT_IN: &str = "browser.useBuiltIn";
 
 impl DebugMenuState {
     /// Whether the Debug menu's item for `command` is enabled (true for the commands it does not govern).
@@ -402,12 +414,47 @@ impl DebugMenuState {
         }
     }
 
-    /// Whether the check item of `command` is on.
+    /// Whether the check item of `command` (or of a setting's key) is on.
     pub fn checked(&self, command: &str) -> bool {
-        command == cmds::ALLOW_AGENTS
-            && self
-                .agents_allowed
-                .load(std::sync::atomic::Ordering::Relaxed)
+        use std::sync::atomic::Ordering::Relaxed;
+        match command {
+            cmds::ALLOW_AGENTS => self.agents_allowed.load(Relaxed),
+            USE_BUILT_IN => self.use_built_in.load(Relaxed),
+            _ => false,
+        }
+    }
+
+    /// Whether the Debug menu's item for `command` with `args` is enabled, for the items that share a command with
+    /// another (brief 0037): Start in External Browser (`start` with `browser: external`) while no session runs, as
+    /// Start Without Debugging is in Visual Studio; Open in Web Browser Window while the embedded engine is found.
+    pub fn item_enabled(&self, command: &str, args: &Value) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if command == cmds::START && args["browser"] == "external" {
+            return !self.live.load(Relaxed);
+        }
+        if command == eludite_commands::settings::SET && args["key"] == USE_BUILT_IN {
+            return self.engine_found();
+        }
+        true
+    }
+
+    /// Whether the Web Browser window can show pages (the embedded engine, or a test's), looked for at most once a
+    /// second (a few file checks).
+    fn engine_found(&self) -> bool {
+        let mut seen = self.engine_seen.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((at, found)) = *seen
+            && at.elapsed() < Duration::from_secs(1)
+        {
+            return found;
+        }
+        let found = self
+            .browser
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|b| b.status().embedded);
+        *seen = Some((Instant::now(), found));
+        found
     }
 
     /// `m` is the active session's model; `live`: some session runs.
@@ -442,6 +489,8 @@ struct StartArgs {
     profile: Option<String>,
     build: Option<bool>,
     cargo: cmds::CargoOptions,
+    /// Where a web project's page opens (brief 0037).
+    browser: Option<cmds::BrowserChoice>,
 }
 
 /// The stop a resuming command quotes, if any.
@@ -481,6 +530,8 @@ pub enum DebugMsg {
         generation: u64,
         session: SessionRow,
         run: Option<RunHandle>,
+        /// What a web project's launch opens (brief 0037): its `session.browser` is the page, waiting.
+        plan: Option<Box<launch::BrowserLaunch>>,
     },
     Connected {
         generation: u64,
@@ -510,6 +561,14 @@ pub enum DebugMsg {
         generation: u64,
         code: Option<i32>,
     },
+    /// The launch's browser step (brief 0037): the session's page now, a line for the Output window's Debug source,
+    /// and the time from Kestrel's listening line to the page opened.
+    Browser {
+        generation: u64,
+        browser: cmds::SessionBrowser,
+        line: Option<String>,
+        latency: Option<Duration>,
+    },
     /// A solution's persisted breakpoints were read.
     Loaded {
         solution: PathBuf,
@@ -535,6 +594,7 @@ impl DebugMsg {
             | DebugMsg::Client { generation, .. }
             | DebugMsg::Output { generation, .. }
             | DebugMsg::ProgramExited { generation, .. }
+            | DebugMsg::Browser { generation, .. }
             | DebugMsg::StopTimeout { generation } => Some(*generation),
             DebugMsg::Loaded { .. } | DebugMsg::Processes { .. } => None,
         }
@@ -1019,6 +1079,12 @@ pub struct Debugger {
     restarting: bool,
     /// The Cargo options of the start being applied (they become its session's).
     start_cargo: cmds::CargoOptions,
+    /// The `browser` of the start being applied (brief 0037; it becomes its sessions').
+    start_browser: Option<cmds::BrowserChoice>,
+    /// The launch's browser step (brief 0037): its settings, and the bus and browser it opens pages through.
+    pub browser_launch: LaunchBrowserSettings,
+    browser_commands: Option<Arc<CommandRegistry>>,
+    browser_bus: Option<BrowserBus>,
 }
 
 impl Debugger {
@@ -1084,6 +1150,10 @@ impl Debugger {
                 started: None,
                 restarting: false,
                 start_cargo: cmds::CargoOptions::default(),
+                start_browser: None,
+                browser_launch: LaunchBrowserSettings::default(),
+                browser_commands: None,
+                browser_bus: None,
                 test_launch: None,
             },
             rx,
@@ -2229,6 +2299,80 @@ impl Debugger {
         self.model.agents_default = on;
     }
 
+    /// The settings `browser.useBuiltIn` and `debugger.launchBrowser` (brief 0037): the next start's browser step.
+    pub fn set_launch_browser(&mut self, use_built_in: bool, launch_browser: bool) {
+        self.browser_launch.use_built_in = use_built_in;
+        self.browser_launch.launch_browser = launch_browser;
+        self.menu
+            .use_built_in
+            .store(use_built_in, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The bus and the browser the launch's browser step opens pages through (brief 0037).
+    pub fn set_browser(&mut self, commands: Arc<CommandRegistry>, bus: BrowserBus) {
+        *self.menu.browser.lock().unwrap_or_else(|e| e.into_inner()) = Some(bus.clone());
+        self.browser_commands = Some(commands);
+        self.browser_bus = Some(bus);
+    }
+
+    /// The adapter restarted the program in the same session (DAP `restart`): its page opens again once the server
+    /// answers, in the same tab (brief 0037), on a `debug-browser` thread.
+    fn rerun_browser_step(&mut self) {
+        let (Some(plan), Some(row), Some(watch)) = (
+            self.model.browser_plan.clone(),
+            self.model.session.as_ref().and_then(|s| s.browser.clone()),
+            self.model.browser_watch.clone(),
+        ) else {
+            return;
+        };
+        watch.rearm();
+        let embedded = row.engine == "embedded";
+        let mut step = self.browser_step(watch, self.model.browser_reuse.clone());
+        step.choice = Some(if embedded {
+            cmds::BrowserChoice::BuiltIn
+        } else {
+            cmds::BrowserChoice::External
+        });
+        // The page as the launch resolved it: the https rule is not asked again.
+        let planned = PlannedBrowser {
+            plan: launch::BrowserLaunch {
+                url: Some(row.url.clone()).filter(|u| !u.is_empty()).or(plan.url),
+                http_url: None,
+                ..plan
+            },
+            embedded,
+            note: None,
+        };
+        if let Some(s) = self.model.session.as_mut() {
+            s.browser = Some(browser_row(
+                &planned,
+                planned.plan.url.as_deref(),
+                step.reuse_tab.clone(),
+                "waiting",
+                None,
+            ));
+        }
+        let name = Self::name_of(&self.model, &self.session_name);
+        let (generation, tx) = (self.generation(), self.tx.clone());
+        let _ = std::thread::Builder::new()
+            .name("debug-browser".into())
+            .spawn(move || run_browser_step(&step, planned, &name, generation, &tx));
+    }
+
+    /// The browser step of the current session's next launch (or of a restart through the adapter).
+    fn browser_step(&self, watch: Arc<ServerWatch>, reuse_tab: Option<String>) -> BrowserStep {
+        BrowserStep {
+            choice: self.model.browser_choice,
+            settings: self.browser_launch.clone(),
+            reuse_tab,
+            watch,
+            dotnet: self.setup.dotnet.clone(),
+            session: self.session_id,
+            commands: self.browser_commands.clone(),
+            bus: self.browser_bus.clone(),
+        }
+    }
+
     /// Which processes this shell started, for the escalation hooks (brief 0027): by id, the roots and their
     /// descendants (a parent chain walk); by name, a scan of the process table. Called on the hook's thread.
     pub fn launched_processes(&self) -> eludite_commands::policy::LaunchedProcesses {
@@ -2316,6 +2460,7 @@ fn driver_of(caller: &Caller) -> String {
     match caller {
         Caller::User => "user".into(),
         Caller::Agent { agent, .. } => format!("agent:{agent}"),
+        Caller::Session { session, .. } => format!("session:{session}"),
     }
 }
 
@@ -2424,6 +2569,8 @@ struct LaunchJob {
     native: native::NativeJob,
     /// The Test Explorer's launch configuration instead of the project's (brief 0035).
     config: Option<launch::LaunchConfig>,
+    /// A web project's page (brief 0037).
+    browser: BrowserStep,
     tx: UnboundedSender<DebugMsg>,
 }
 
@@ -2442,6 +2589,7 @@ fn launch_thread(job: LaunchJob) {
         setup,
         native,
         config: test_config,
+        browser,
         tx,
     } = job;
     let fail = |message: String| {
@@ -2505,7 +2653,21 @@ fn launch_thread(job: LaunchJob) {
         runtime: Some(launch::runtime_name(config.kind, platform).to_owned()),
         process_id: None,
         attached: false,
+        browser: None,
     };
+    // A web project's page (brief 0037): planned here (it reads the launch profile), opened once the program runs.
+    let planned = plan_browser(&browser, &config);
+    let name = project_name(&config.project.to_string_lossy());
+    if let Some(p) = &planned {
+        session.browser = Some(browser_row(
+            p,
+            p.plan.url.as_deref(),
+            browser.reuse_tab.clone(),
+            "waiting",
+            p.note.clone(),
+        ));
+    }
+    let browser_plan = planned.as_ref().map(|p| Box::new(p.plan.clone()));
     // A .NET Framework program off Windows runs under the located Mono, with or without the debugger.
     let needs_mono = config.kind == FrameworkKind::NetFramework && platform != Platform::Windows;
     let mono = if needs_mono {
@@ -2555,21 +2717,29 @@ fn launch_thread(job: LaunchJob) {
             generation,
             session,
             run: Some(handle.clone()),
+            plan: browser_plan,
         });
         let mut readers = Vec::new();
         for (s, stream) in streams.into_iter().zip(["stdout", "stderr"]) {
             let Some(s) = s else { continue };
             let tx = tx.clone();
+            let watch = browser.watch.clone();
             readers.push(std::thread::spawn(move || {
                 for line in std::io::BufReader::new(s).lines() {
                     let Ok(line) = line else { break };
+                    let text = format!("{line}\n");
+                    // Kestrel's listening line (brief 0037).
+                    watch.feed(&text);
                     let _ = tx.unbounded_send(DebugMsg::Output {
                         generation,
-                        text: format!("{line}\n"),
+                        text,
                         stream,
                     });
                 }
             }));
+        }
+        if let Some(p) = planned {
+            run_browser_step(&browser, p, &name, generation, &tx);
         }
         for r in readers {
             let _ = r.join();
@@ -2654,10 +2824,12 @@ fn launch_thread(job: LaunchJob) {
         generation,
         session,
         run: None,
+        plan: browser_plan,
     });
     let sink_tx = tx.clone();
     // lldb-dap's pause stops and standard library frames, as the shell expects them (brief 0029).
     let rust_src = native_launch.as_ref().map(|n| n.rust_src.clone());
+    let watch = browser.watch.clone();
     let client = DapClient::start(
         connection,
         Arc::new(move |event| {
@@ -2665,6 +2837,15 @@ fn launch_thread(job: LaunchJob) {
                 Some(src) => native::adapt(event, src.as_deref()),
                 None => event,
             };
+            // The program's output, read for Kestrel's listening line (brief 0037).
+            if let ClientEvent::Event(eludite_dap::types::Event::Output(o)) = &event
+                && matches!(
+                    o.category.as_deref(),
+                    None | Some("stdout") | Some("stderr") | Some("console")
+                )
+            {
+                watch.feed(&o.output);
+            }
             let _ = sink_tx.unbounded_send(DebugMsg::Client { generation, event });
         }),
     );
@@ -2696,11 +2877,326 @@ fn launch_thread(job: LaunchJob) {
     } else {
         plan.adapter_id.clone()
     };
+    let started = result.is_ok();
     let _ = tx.unbounded_send(DebugMsg::Started {
         generation,
         result,
         adapter_id,
     });
+    // The program runs: open its page once its server answers (brief 0037).
+    if let (true, Some(p)) = (started, planned) {
+        run_browser_step(&browser, p, &name, generation, &tx);
+    }
+}
+
+// ----- The launch's browser step (brief 0037) -----
+
+/// How long the launch waits for a web project's server before saying the page could not be opened.
+pub const BROWSER_READY_TIMEOUT: Duration = Duration::from_secs(30);
+/// The longest one probe of the server's url may take.
+const BROWSER_PROBE_CAP: Duration = Duration::from_secs(1);
+
+/// How the launch's browser step behaves (brief 0037): the settings, and what tests change.
+#[derive(Debug, Clone)]
+pub struct LaunchBrowserSettings {
+    /// `browser.useBuiltIn` (Debug > Open in Web Browser Window).
+    pub use_built_in: bool,
+    /// `debugger.launchBrowser`.
+    pub launch_browser: bool,
+    /// How long the server has to come up ([`BROWSER_READY_TIMEOUT`]).
+    pub timeout: Duration,
+    /// `Some`: the answer of `dotnet dev-certs https --check` (tests); `None`: run it.
+    pub dev_cert: Option<bool>,
+}
+
+impl Default for LaunchBrowserSettings {
+    fn default() -> Self {
+        Self {
+            use_built_in: true,
+            launch_browser: true,
+            timeout: BROWSER_READY_TIMEOUT,
+            dev_cert: None,
+        }
+    }
+}
+
+/// What the launch thread needs to open a web project's page (brief 0037).
+#[derive(Clone)]
+struct BrowserStep {
+    /// The start's `browser`; `None`: the launch profile's `launchBrowser` and the settings decide.
+    choice: Option<cmds::BrowserChoice>,
+    settings: LaunchBrowserSettings,
+    /// The tab a restart navigates.
+    reuse_tab: Option<String>,
+    watch: Arc<ServerWatch>,
+    dotnet: String,
+    session: u32,
+    commands: Option<Arc<CommandRegistry>>,
+    bus: Option<BrowserBus>,
+}
+
+/// The page a launch will open: the profile's plan, where, and why not the Web Browser window when it was asked for.
+#[derive(Debug, Clone)]
+struct PlannedBrowser {
+    plan: launch::BrowserLaunch,
+    embedded: bool,
+    note: Option<String>,
+}
+
+impl PlannedBrowser {
+    fn engine(&self) -> &'static str {
+        if self.embedded { "embedded" } else { "system" }
+    }
+}
+
+/// Whether and where `config`'s start opens a page (on the launch thread: it reads the launch profile and looks for
+/// the embedded engine). `None`: nothing to open (a console program, a Cargo package, `browser: none`, a profile
+/// without `launchBrowser` when the start does not ask, or the setting debugger.launchBrowser off).
+fn plan_browser(step: &BrowserStep, config: &launch::LaunchConfig) -> Option<PlannedBrowser> {
+    let plan = launch::browser_launch(config)?;
+    let choice = match step.choice {
+        Some(c) => c,
+        None if !plan.requested || !step.settings.launch_browser => return None,
+        None if step.settings.use_built_in => cmds::BrowserChoice::BuiltIn,
+        None => cmds::BrowserChoice::External,
+    };
+    match choice {
+        cmds::BrowserChoice::None => None,
+        cmds::BrowserChoice::External => Some(PlannedBrowser {
+            plan,
+            embedded: false,
+            note: None,
+        }),
+        cmds::BrowserChoice::BuiltIn => {
+            let status = step.bus.as_ref().map(BrowserBus::status);
+            let embedded = status.as_ref().is_some_and(|s| s.embedded);
+            let note = (!embedded).then(|| {
+                format!(
+                    "The Web Browser window cannot show the page ({}), so it opens in the system browser.",
+                    status
+                        .and_then(|s| s.message)
+                        .unwrap_or_else(|| "its engine was not found".into())
+                        .trim_end_matches('.')
+                )
+            });
+            Some(PlannedBrowser {
+                plan,
+                embedded,
+                note,
+            })
+        }
+    }
+}
+
+/// The session's page as the state shows it.
+fn browser_row(
+    planned: &PlannedBrowser,
+    url: Option<&str>,
+    tab: Option<String>,
+    state: &str,
+    message: Option<String>,
+) -> cmds::SessionBrowser {
+    cmds::SessionBrowser {
+        tab: tab.filter(|_| planned.embedded),
+        url: url.unwrap_or_default().to_owned(),
+        engine: planned.engine().into(),
+        state: state.into(),
+        message,
+    }
+}
+
+/// The launch's browser step (brief 0037), on the launch thread once the program runs: the https rule (the
+/// development certificate, checked once), then the wait for the server (Kestrel's listening line in the program's
+/// output, or the url answering, each probe capped at a second, for up to the timeout), then the page: in the Web
+/// Browser window through the bus as the session (`tab_open`, or on a restart `navigate` of the same tab), or in the
+/// system browser (`open_external`). Every outcome reaches the UI thread as [`DebugMsg::Browser`]; the UI never
+/// waits for any of it.
+fn run_browser_step(
+    step: &BrowserStep,
+    planned: PlannedBrowser,
+    name: &str,
+    generation: u64,
+    tx: &UnboundedSender<DebugMsg>,
+) {
+    let send = |browser: cmds::SessionBrowser, line: Option<String>, latency: Option<Duration>| {
+        let _ = tx.unbounded_send(DebugMsg::Browser {
+            generation,
+            browser,
+            line,
+            latency,
+        });
+    };
+    let plan = &planned.plan;
+    let (url, cert_note) = launch::https_choice(plan, || {
+        step.settings
+            .dev_cert
+            .unwrap_or_else(|| launch::dev_cert_found(&step.dotnet))
+    });
+    let note = [planned.note.clone(), cert_note.clone()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let note = (!note.is_empty()).then_some(note);
+    if url != plan.url || note.is_some() {
+        send(
+            browser_row(
+                &planned,
+                url.as_deref(),
+                step.reuse_tab.clone(),
+                "waiting",
+                note.clone(),
+            ),
+            note.clone(),
+            None,
+        );
+    }
+    let waited = Instant::now();
+    let (url, heard) = match step.watch.wait_up(
+        url.as_deref(),
+        step.settings.timeout,
+        BROWSER_PROBE_CAP,
+    ) {
+        Readiness::Cancelled => return,
+        Readiness::TimedOut => {
+            let why = format!(
+                "the server did not answer within {} s",
+                step.settings.timeout.as_secs_f64()
+            );
+            let page = url
+                .clone()
+                .unwrap_or_else(|| "of the launch profile".into());
+            send(
+                browser_row(&planned, url.as_deref(), None, "failed", Some(why.clone())),
+                Some(format!(
+                    "The page {page} could not be opened: {why} (no \"{}\" line in the program's output). The \
+                     session continues.",
+                    launch::LISTENING
+                )),
+                None,
+            );
+            return;
+        }
+        Readiness::Listening { url: heard, at } => (
+            url.unwrap_or_else(|| launch::join_url(&heard, &plan.launch_url)),
+            Some(at),
+        ),
+        Readiness::Answered { .. } => (url.unwrap_or_default(), None),
+    };
+    trace(format_args!(
+        "debug start: {} is up ({}) {:.1} ms into the wait; opening it ({})",
+        url,
+        if heard.is_some() {
+            "Kestrel's listening line"
+        } else {
+            "it answered"
+        },
+        waited.elapsed().as_secs_f64() * 1e3,
+        planned.engine()
+    ));
+    let Some(commands) = step.commands.clone() else {
+        send(
+            browser_row(
+                &planned,
+                Some(&url),
+                None,
+                "failed",
+                Some("the browser commands are not registered".into()),
+            ),
+            None,
+            None,
+        );
+        return;
+    };
+    let caller = Caller::Session {
+        session: step.session,
+        name: name.to_owned(),
+    };
+    let opened = eludite_commands::with_caller(caller, || {
+        if planned.embedded {
+            open_in_window(&commands, &url, step.reuse_tab.as_deref()).map(Some)
+        } else {
+            commands
+                .invoke(
+                    eludite_commands::browser::OPEN_EXTERNAL,
+                    json!({ "url": url }),
+                )
+                .map(|_| None)
+        }
+    });
+    let latency = heard.map(|at| at.elapsed());
+    match opened {
+        Ok(tab) => {
+            let line = match &tab {
+                Some(t) => format!("Opened {url} in the Web Browser window (tab {t})."),
+                None => format!("Opened {url} in the system browser."),
+            };
+            match latency {
+                Some(l) => trace(format_args!(
+                    "debug start: page opened {:.1} ms after the listening line",
+                    l.as_secs_f64() * 1e3
+                )),
+                None => trace(format_args!(
+                    "debug start: page opened (the url answered before the listening line was read)"
+                )),
+            }
+            send(
+                browser_row(&planned, Some(&url), tab, "opened", note),
+                Some(line),
+                latency,
+            );
+        }
+        Err(e) => send(
+            browser_row(&planned, Some(&url), None, "failed", Some(e.to_string())),
+            Some(format!(
+                "The page {url} could not be opened: {e}. The session continues."
+            )),
+            None,
+        ),
+    }
+}
+
+/// Open `url` in the Web Browser window through the bus (the caller is the session): a restart's tab, when it is
+/// still open, is navigated (reloaded when it shows the url already) and selected; otherwise a new tab. Then the
+/// window comes forward (`eludite.view.show`). Answers the tab.
+fn open_in_window(
+    commands: &CommandRegistry,
+    url: &str,
+    reuse: Option<&str>,
+) -> Result<String, CommandError> {
+    use eludite_commands::browser as b;
+    let mut tab = None;
+    if let Some(t) = reuse {
+        let tabs = commands.invoke(b::TABS, json!({}))?;
+        let row = tabs["tabs"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["id"] == t))
+            .cloned();
+        if let Some(row) = row {
+            let args = if row["url"] == url {
+                json!({ "tab": t, "action": "reload" })
+            } else {
+                json!({ "tab": t, "url": url })
+            };
+            commands.invoke(b::NAVIGATE, args)?;
+            if row["active"] != true {
+                commands.invoke(b::TAB_SELECT, json!({ "tab": t }))?;
+            }
+            tab = Some(t.to_owned());
+        }
+    }
+    let tab = match tab {
+        Some(t) => t,
+        None => commands.invoke(b::TAB_OPEN, json!({ "url": url }))?["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    };
+    commands.invoke(
+        eludite_commands::view::SHOW,
+        json!({ "id": ids::WEB_BROWSER }),
+    )?;
+    Ok(tab)
 }
 
 /// What the attach thread needs (brief 0027).
@@ -2791,6 +3287,7 @@ fn attach_thread(job: AttachJob) {
         runtime: Some(adapter.runtime_name().to_owned()),
         process_id: Some(i64::from(info.pid)),
         attached: true,
+        browser: None,
     };
     let Some(kind) = adapter.kind() else {
         return fail(format!("Cannot attach to process {}: no adapter", info.pid));
@@ -2845,6 +3342,7 @@ fn attach_thread(job: AttachJob) {
         generation,
         session,
         run: None,
+        plan: None,
     });
     let sink_tx = tx.clone();
     let lldb = kind == AdapterKind::Lldb;
@@ -2928,7 +3426,15 @@ impl Shell {
     /// Whether an agent's command can answer now: a start once the program runs (or breaks with its locals
     /// loaded), a resume once the debuggee breaks with its locals loaded or the session ends.
     pub fn debug_settled(&self, start: bool) -> bool {
-        (start && self.debug.model.mode == Mode::Running) || self.debug.model.settled()
+        let m = &self.debug.model;
+        // A start waits for its web project's page too (brief 0037), while the program runs.
+        let page = start
+            && matches!(m.mode, Mode::Running | Mode::RunningWithoutDebugging)
+            && m.session
+                .as_ref()
+                .and_then(|s| s.browser.as_ref())
+                .is_some_and(|b| b.waiting());
+        !page && ((start && m.mode == Mode::Running) || m.settled())
     }
 
     /// The tasks that apply the debugger's messages (in batches: a burst of events costs one frame) and agents'
@@ -3254,6 +3760,7 @@ impl Shell {
                 build,
                 cargo,
                 compound,
+                browser,
                 ..
             } => {
                 let plain = project.is_none() && compound.is_none();
@@ -3267,7 +3774,9 @@ impl Shell {
                     ));
                 }
                 self.debug.start_cargo = cargo;
+                self.debug.start_browser = browser;
                 let ids = self.debug_start_set(entries, build, &driver, window, cx);
+                self.debug.start_browser = None;
                 if ids.len() > 1 {
                     self.debug.compound = ids.clone();
                     (agent && !wait.is_zero()).then_some(Followup::Compound { ids, wait, budget })
@@ -4125,12 +4634,15 @@ impl Shell {
             }
             let d = &mut self.debug;
             d.cargo_options = cmds::CargoOptions::default();
+            d.model.browser_choice = d.start_browser;
+            d.model.browser_reuse = None;
             d.last_start = Some(StartArgs {
                 project: e.project.clone(),
                 debug: e.debug,
                 profile: e.profile.clone(),
                 build: None,
                 cargo: cmds::CargoOptions::default(),
+                browser: d.start_browser,
             });
             d.begin(Mode::Building, driver);
             d.reset_for_start();
@@ -4225,6 +4737,11 @@ impl Shell {
             }
         }
         self.debug.cargo_options = std::mem::take(&mut self.debug.start_cargo);
+        // Where a web project's page opens (brief 0037); a restart navigates the tab its page opened in.
+        self.debug.model.browser_choice = self.debug.start_browser;
+        if !self.debug.restarting {
+            self.debug.model.browser_reuse = None;
+        }
         // Restart starts this again (brief 0027).
         self.debug.last_start = Some(StartArgs {
             project: project.clone(),
@@ -4232,6 +4749,7 @@ impl Shell {
             profile: profile.clone(),
             build,
             cargo: self.debug.cargo_options.clone(),
+            browser: self.debug.start_browser,
         });
         // Build first (brief 0020): a .NET solution's projects, or the open folder's Cargo packages (brief 0029).
         let build = build.unwrap_or(self.builds.build_before_run)
@@ -4438,6 +4956,7 @@ impl Shell {
             return;
         };
         self.debug.start_cargo = start.cargo;
+        self.debug.start_browser = start.browser;
         self.debug.restarting = true;
         self.debug_start(
             start.project,
@@ -4449,6 +4968,7 @@ impl Shell {
             cx,
         );
         self.debug.restarting = false;
+        self.debug.start_browser = None;
     }
 
     /// Debug > Attach to Process... (Ctrl+Alt+P): the dialog, with a fresh listing.
@@ -4777,6 +5297,15 @@ impl Shell {
                 rust_panics: d.model.exceptions.break_on_rust_panic,
             },
             config: d.test_launch.take(),
+            browser: {
+                // A fresh watch per launch: the program's output feeds it (brief 0037).
+                let watch = ServerWatch::new();
+                d.model.browser_watch = Some(watch.clone());
+                d.model.browser_plan = None;
+                d.model.browser_latency = None;
+                let reuse = d.model.browser_reuse.clone();
+                d.browser_step(watch, reuse)
+            },
             tx: d.tx.clone(),
         };
         std::thread::Builder::new()
@@ -5634,6 +6163,21 @@ impl Shell {
         if let Some(c) = d.client.take() {
             c.kill();
         }
+        // A page still waiting for the server is not opened (brief 0037); one already open stays (Visual Studio's
+        // behavior).
+        if let Some(w) = d.model.browser_watch.take() {
+            w.cancel();
+        }
+        if let Some(b) = d
+            .model
+            .session
+            .as_mut()
+            .and_then(|s| s.browser.as_mut())
+            .filter(|b| b.waiting())
+        {
+            b.state = "failed".into();
+            b.message = Some("the session ended before the server answered".into());
+        }
         if let Some(run) = d.run.take()
             && let Some(c) = run.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
         {
@@ -5738,7 +6282,9 @@ impl Shell {
                 generation,
                 session,
                 run,
+                plan,
             } if generation == current => {
+                self.debug.model.browser_plan = plan.map(|p| *p);
                 let program = file_name(&session.program);
                 trace(format_args!(
                     "debug launched {} debug={} adapter={:?}",
@@ -5874,6 +6420,26 @@ impl Shell {
                 stream,
             } if generation == current => {
                 self.debug.program_output(&text, stream);
+            }
+            DebugMsg::Browser {
+                generation,
+                browser,
+                line,
+                latency,
+            } if generation == current => {
+                if let Some(line) = line {
+                    self.debug.console_line(line);
+                }
+                if latency.is_some() {
+                    self.debug.model.browser_latency = latency;
+                }
+                // A restart navigates this tab (brief 0037).
+                if browser.state == "opened" && browser.tab.is_some() {
+                    self.debug.model.browser_reuse = browser.tab.clone();
+                }
+                if let Some(s) = self.debug.model.session.as_mut() {
+                    s.browser = Some(browser);
+                }
             }
             DebugMsg::ProgramExited { generation, code } if generation == current => {
                 self.debug.model.exit_code = code.map(i64::from);
@@ -6436,6 +7002,7 @@ impl Shell {
                     }
                 } else {
                     self.debug.console_line("Restarted.");
+                    self.debug.rerun_browser_step();
                 }
             }
             Pending::Resume { generation, stop } if generation == current => {

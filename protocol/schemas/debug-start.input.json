@@ -61,6 +61,14 @@
       "description": "Build the project before launching. Default: the setting build.beforeRun (true unless changed).",
       "type": "boolean"
     },
+    "browser": {
+      "description": "Where the page of a web project opens once its server answers (brief 0037): `built_in` in the Web Browser window (a tab of Eludite's embedded Chromium; the system browser when the engine is not found), `external` in the system browser (eludite.browser.open_external; Debug > Start in External Browser), `none` nowhere. Default: the launch profile's `launchBrowser` decides whether a page opens (Visual Studio's rule; the setting debugger.launchBrowser off opens none), and the setting browser.useBuiltIn (Debug > Open in Web Browser Window) where. The page is the profile's `launchUrl` joined to its first `applicationUrl` (or the `ASPNETCORE_URLS` it sets), http before https unless the profile is named `https`; it opens once the program's output shows Kestrel's `Now listening on:` line or the url answers, within 30 s, else the Output window says it could not be opened and the session goes on. With `wait_ms` the answer waits for the page too and names its tab in `browser` (pass it as `tab` to eludite.browser.*). A project whose profile has no url and whose SDK is not Microsoft.NET.Sdk.Web (a console program, a Cargo package) opens nothing, whatever this says.",
+      "enum": [
+        "built_in",
+        "external",
+        "none"
+      ]
+    },
     "target": {
       "description": "A Cargo package's binary target to run, by name, when the package has several (default: its only binary; with several and none named the start is refused, listing them). With `test`: the test target whose executable to debug (default: the library's unit tests, else the only binary's). Cargo packages only.",
       "type": "string",

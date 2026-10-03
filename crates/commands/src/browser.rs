@@ -798,10 +798,22 @@ pub struct TabRow {
     pub can_go_back: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub can_go_forward: Option<bool>,
+    /// The debugging session whose launch opened the tab (brief 0037): `tabs` only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<TabSession>,
     /// The engine's target id of the tab: for the Web Browser window, which draws the engine's tabs. Not in the
     /// command's output.
     #[serde(skip)]
     pub target: String,
+}
+
+/// The debugging session a tab belongs to (`browser-tabs.output.json`'s `session`; brief 0037).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TabSession {
+    pub id: u32,
+    /// Its project's name.
+    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -3157,7 +3169,18 @@ mod tests {
             favicon: Some("data:image/png;base64,AAAA".into()),
             can_go_back: Some(true),
             can_go_forward: Some(false),
+            session: None,
             target: "1".into(),
+        };
+        // A tab a debugging session's launch opened (brief 0037).
+        let launched = TabRow {
+            id: "t2".into(),
+            active: false,
+            session: Some(TabSession {
+                id: 1,
+                name: "MinimalApi".into(),
+            }),
+            ..tab.clone()
         };
         assert!(
             serde_json::to_value(&tab).unwrap().get("target").is_none(),
@@ -3174,7 +3197,7 @@ mod tests {
                         executable: Some("/opt/chrome".into()),
                     },
                     active: Some("t1".into()),
-                    tabs: vec![tab.clone()],
+                    tabs: vec![tab.clone(), launched],
                 }),
             ),
             (

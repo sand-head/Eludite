@@ -90,6 +90,24 @@
           },
           "can_go_forward": {
             "type": "boolean"
+          },
+          "session": {
+            "description": "The debugging session whose launch opened this tab (brief 0037): its id (eludite.debug.sessions) and its project's name. Restarting the session navigates this tab; ending it leaves the tab open.",
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "name": {
+                "type": "string"
+              }
+            }
           }
         }
       }

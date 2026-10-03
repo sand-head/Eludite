@@ -14,6 +14,7 @@
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
+//! | `browser.useBuiltIn`, `debugger.launchBrowser` | where (and whether) the next start opens a web project's page (brief 0037) |
 //! | `test.parallel`, `test.runSettings`, `test.vstestConsolePath` | the next test discovery and run (`test_runs`, brief 0035) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
@@ -114,6 +115,9 @@ pub struct Applied {
     pub agents: super::agents::RegistryConfig,
     pub keyboard_preset: String,
     pub browser: super::browser::BrowserSettings,
+    /// `browser.useBuiltIn` and `debugger.launchBrowser` (brief 0037).
+    pub use_built_in: bool,
+    pub launch_browser: bool,
 }
 
 impl Shell {
@@ -157,6 +161,8 @@ impl Shell {
                         .unwrap_or_else(|| "about:blank".into()),
                     show_devtools_tab: s.bool("browser.showDevToolsTab"),
                 },
+                use_built_in: s.bool("browser.useBuiltIn"),
+                launch_browser: s.bool("debugger.launchBrowser"),
             }
         };
         let b = &mut self.builds;
@@ -175,6 +181,8 @@ impl Shell {
         self.debug.set_lldb_dap_path(applied.lldb_dap.clone());
         self.debug.set_rust_formatters(applied.rust_formatters);
         self.debug.set_agents_default(applied.agents_drive);
+        self.debug
+            .set_launch_browser(applied.use_built_in, applied.launch_browser);
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
         self.apply_test_settings();

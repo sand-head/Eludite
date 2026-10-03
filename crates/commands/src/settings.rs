@@ -526,6 +526,7 @@ mod tests {
                 "debugger.lldbDapPath",
                 "debugger.rustFormatters",
                 "debugger.allowAgentsByDefault",
+                "debugger.launchBrowser",
                 "languageServers.rustAnalyzerPath",
                 "test.runSettings",
                 "test.parallel",
@@ -534,6 +535,7 @@ mod tests {
                 "agents.claudeCodeAdapterPath",
                 "agents.custom",
                 "browser.engine",
+                "browser.useBuiltIn",
                 "browser.homePage",
                 "browser.showDevToolsTab",
                 "browser.chromePath",
@@ -543,6 +545,12 @@ mod tests {
         );
         assert_eq!(s.get("build.onSave").unwrap().default, json!(false));
         assert_eq!(s.get("build.beforeRun").unwrap().default, json!(true));
+        // Brief 0037: F5 opens a web project's page, in the Web Browser window, by default.
+        assert_eq!(s.get("browser.useBuiltIn").unwrap().default, json!(true));
+        assert_eq!(
+            s.get("debugger.launchBrowser").unwrap().default,
+            json!(true)
+        );
         assert_eq!(
             s.get("build.onSave").unwrap().env.as_deref(),
             Some("ELUDITE_BUILD_ON_SAVE")
@@ -565,7 +573,7 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 6);
+        assert_eq!(s.section("Debugging > General").count(), 7);
         assert_eq!(
             s.get("debugger.allowAgentsByDefault").unwrap().default,
             json!(true)

@@ -717,3 +717,193 @@ fn a_screenshot_in_a_tool_result_is_a_thumbnail_that_opens_the_image(
         "the open is a command, audited"
     );
 }
+
+// ---- A fake embedded engine for the launch tests (brief 0037) ----
+
+/// What [`PageEngine`]s saw: the pages navigated to (by engine tab), reloads, closed tabs.
+#[derive(Default)]
+pub(crate) struct PageSeen {
+    /// `Page.navigate`: (engine tab, url), in order.
+    pub navigated: Mutex<Vec<(String, String)>>,
+    /// `Page.reload`: the engine tabs reloaded, in order.
+    pub reloads: Mutex<Vec<String>>,
+    /// The open engine tabs and their pages.
+    pages: Mutex<Vec<(String, String)>>,
+    next: AtomicUsize,
+    events: Mutex<Vec<(String, mpsc::Sender<CdpEvent>)>>,
+}
+
+impl PageSeen {
+    /// The page engine tab `target` shows.
+    pub fn url_of(&self, target: &str) -> Option<String> {
+        self.pages
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(t, _)| t == target)
+            .map(|(_, u)| u.clone())
+    }
+
+    /// A main-frame navigation that loads, as Chromium reports one (`Page.reload` waits for it).
+    fn loaded(&self, target: &str, url: &str) {
+        let loader = format!("L{}", self.next.fetch_add(1, Ordering::SeqCst));
+        for (session, tx) in self.events.lock().unwrap().iter() {
+            if session != target {
+                continue;
+            }
+            for (method, params) in [
+                (
+                    "Page.frameNavigated",
+                    json!({"frame": {"id": "F", "loaderId": loader, "url": url}}),
+                ),
+                (
+                    "Page.lifecycleEvent",
+                    json!({"frameId": "F", "loaderId": loader, "name": "load"}),
+                ),
+            ] {
+                let _ = tx.send(CdpEvent {
+                    method: method.into(),
+                    params,
+                    session_id: Some(session.clone()),
+                });
+            }
+        }
+    }
+}
+
+/// A fake engine standing for the embedded one: tabs with pages, `navigate`, `reload` (with its load events) and
+/// the window's history.
+pub(crate) struct PageEngine {
+    seen: Arc<PageSeen>,
+    running: bool,
+}
+
+impl Engine for PageEngine {
+    fn name(&self) -> &'static str {
+        "embedded-chromium"
+    }
+    fn configure(&mut self, _config: EngineConfig) {}
+    fn is_running(&self) -> bool {
+        self.running
+    }
+    fn launch(&mut self) -> Result<Option<LaunchInfo>, EngineError> {
+        if self.running {
+            return Ok(None);
+        }
+        self.running = true;
+        Ok(Some(LaunchInfo::default()))
+    }
+    fn info(&self) -> Option<LaunchInfo> {
+        self.running.then(LaunchInfo::default)
+    }
+    fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {
+        if !self.running {
+            return Err(EngineError::NotRunning);
+        }
+        Ok(self
+            .seen
+            .pages
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(t, u)| TargetInfo {
+                target_id: t.clone(),
+                url: u.clone(),
+                title: String::new(),
+            })
+            .collect())
+    }
+    fn open_tab(&mut self, url: &str) -> Result<String, EngineError> {
+        let id = format!("P{}", self.seen.next.fetch_add(1, Ordering::SeqCst) + 1);
+        self.seen
+            .pages
+            .lock()
+            .unwrap()
+            .push((id.clone(), url.to_owned()));
+        Ok(id)
+    }
+    fn close_tab(&mut self, target: &str) -> Result<(), EngineError> {
+        self.seen.pages.lock().unwrap().retain(|(t, _)| t != target);
+        Ok(())
+    }
+    fn activate_tab(&mut self, _target: &str) -> Result<(), EngineError> {
+        Ok(())
+    }
+    fn attach(&mut self, target: &str) -> Result<String, EngineError> {
+        Ok(target.to_owned())
+    }
+    fn send(
+        &self,
+        session: &str,
+        method: &str,
+        params: Value,
+        _timeout: Duration,
+    ) -> Result<Value, EngineError> {
+        let url = self.seen.url_of(session).unwrap_or_default();
+        Ok(match method {
+            "Page.navigate" => {
+                let to = params["url"].as_str().unwrap_or_default().to_owned();
+                self.seen
+                    .navigated
+                    .lock()
+                    .unwrap()
+                    .push((session.to_owned(), to.clone()));
+                if let Some(p) = self
+                    .seen
+                    .pages
+                    .lock()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|(t, _)| t == session)
+                {
+                    p.1 = to;
+                }
+                // No loader: done when it answers.
+                json!({"frameId": "F"})
+            }
+            "Page.reload" => {
+                self.seen.reloads.lock().unwrap().push(session.to_owned());
+                self.seen.loaded(session, &url);
+                json!({})
+            }
+            "Runtime.evaluate" => {
+                json!({"result": {"type": "object", "value": {"u": url, "t": "Minimal API"}}})
+            }
+            "Page.getNavigationHistory" => json!({"currentIndex": 0, "entries": [
+                {"id": 0, "url": url, "userTypedURL": url, "title": "", "transitionType": "typed"}]}),
+            _ => json!({}),
+        })
+    }
+    fn subscribe(&self, session: &str) -> Result<mpsc::Receiver<CdpEvent>, EngineError> {
+        let (tx, rx) = mpsc::channel();
+        self.seen
+            .events
+            .lock()
+            .unwrap()
+            .push((session.to_owned(), tx));
+        Ok(rx)
+    }
+    fn history(&self, _target: &str) -> Option<eludite_browser::TabHistory> {
+        Some(eludite_browser::TabHistory::default())
+    }
+    fn shutdown(&mut self) {
+        self.running = false;
+        self.seen.pages.lock().unwrap().clear();
+    }
+}
+
+/// The shell's browser draws [`PageEngine`]s (as the embedded engine's tabs) from now on.
+pub(crate) fn install_page_engine(w: &Ws) -> Arc<PageSeen> {
+    let seen = Arc::new(PageSeen::default());
+    let engines = seen.clone();
+    w.shell.read_with(&w.vcx, |s, _| {
+        s.browser()
+            .set_engine_factory(Arc::new(move |_config, _log: LogSink| {
+                Box::new(PageEngine {
+                    seen: engines.clone(),
+                    running: false,
+                })
+            }))
+    });
+    seen
+}

@@ -19,6 +19,46 @@
       "type": "integer",
       "minimum": 1
     },
+    "browser": {
+      "description": "The session's page (brief 0037): the page a launch opened, or is opening, for a web project (brief 0037): the launch profile's `launchUrl` joined to its first `applicationUrl` (or `ASPNETCORE_URLS`), opened once the server answered. Pass `tab` as `tab` to eludite.browser.* (read_page, screenshot, input) to look at the page and act on it. The tab is tied to the session: Restart navigates the same tab (a reload when the url is unchanged), Stop leaves it open, and closing it does not stop the session. A start with `wait_ms` waits for it (`state` other than `waiting`) within the wait.",
+      "type": "object",
+      "required": [
+        "url",
+        "engine",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "description": "The Web Browser window's tab (`engine: embedded`), once it opened.",
+          "type": "string",
+          "pattern": "^t[0-9]+$"
+        },
+        "url": {
+          "description": "The page's url.",
+          "type": "string"
+        },
+        "engine": {
+          "description": "`embedded`: a tab of the Web Browser window (Eludite's embedded Chromium; eludite.browser.tab_open through the command bus, the caller being the session); `system`: the system browser (eludite.browser.open_external; Debug > Start in External Browser, or the embedded engine not found), which has no tab and nothing to read back.",
+          "enum": [
+            "embedded",
+            "system"
+          ]
+        },
+        "state": {
+          "description": "`waiting`: for the server (Kestrel's `Now listening on:` line in the program's output, or the url answering any HTTP status) for up to 30 s; `opened`; `failed`: the server did not answer in time or the browser refused the page (`message` says which); the session continues either way.",
+          "enum": [
+            "waiting",
+            "opened",
+            "failed"
+          ]
+        },
+        "message": {
+          "description": "Why the page did not open, or a note on it (the https profile without a trusted ASP.NET Core development certificate opens the http url).",
+          "type": "string"
+        }
+      }
+    },
     "mode": {
       "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
       "enum": [
