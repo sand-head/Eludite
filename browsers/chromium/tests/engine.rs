@@ -30,6 +30,11 @@ struct Engine {
 }
 
 fn spawn_engine() -> Option<(Engine, Duration)> {
+    spawn_engine_with(&[], json!({}))
+}
+
+/// The engine with extra command-line switches and `initialize` members.
+fn spawn_engine_with(extra: &[String], init_extra: Value) -> Option<(Engine, Duration)> {
     if !cfg!(feature = "cef") {
         eprintln!(
             "skipped: eludite-chromium was built without the cef feature (tools/cef/fetch.sh, then CEF_PATH=... \
@@ -39,12 +44,20 @@ fn spawn_engine() -> Option<(Engine, Duration)> {
     }
     let exe = env!("CARGO_BIN_EXE_eludite-chromium");
     let profile = tempfile::tempdir().unwrap();
+    let profile_path = profile.path().to_path_buf();
     let (ours, theirs) = shm::socket_pair().unwrap();
     let theirs_fd = theirs.as_raw_fd();
     let mut cmd = Command::new(exe);
     cmd.arg("--profile")
-        .arg(profile.path())
+        .arg(&profile_path)
         .args(["--frame-socket", "3"])
+        .args(extra)
+        // More switches for a run by hand (`--vmodule=...` to see what a service does).
+        .args(
+            std::env::var("ELUDITE_ENGINE_TEST_ARGS")
+                .unwrap_or_default()
+                .split_whitespace(),
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -91,10 +104,11 @@ fn spawn_engine() -> Option<(Engine, Duration)> {
         seen: Vec::new(),
         _profile: profile,
     };
-    let init = e.request(
-        "initialize",
-        json!({"clientName": "engine-test", "clientVersion": "0", "protocolVersion": 1}),
-    );
+    let mut params = json!({"clientName": "engine-test", "clientVersion": "0", "protocolVersion": 1});
+    if let (Some(p), Some(more)) = (params.as_object_mut(), init_extra.as_object()) {
+        p.extend(more.clone());
+    }
+    let init = e.request("initialize", params);
     let init = match init {
         Ok(v) => v,
         Err(err) => {
@@ -376,4 +390,94 @@ fn a_closed_stdin_shuts_the_engine_down() {
         assert!(t.elapsed() < Duration::from_secs(10), "still running");
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// What a Chromium net log says left the process: urls requested, hosts resolved, sockets connected.
+fn net_log_requests(path: &std::path::Path) -> Vec<String> {
+    let mut text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    // A log cut off by the exit lacks its closing brackets.
+    let parsed: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => {
+            let t = text.trim_end().trim_end_matches(',').to_owned();
+            text = t + "]}";
+            serde_json::from_str(&text).expect("the net log parses")
+        }
+    };
+    let types: HashMap<u64, String> = parsed["constants"]["logEventTypes"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (v.as_u64().unwrap(), k.clone()))
+        .collect();
+    let mut out = Vec::new();
+    for e in parsed["events"].as_array().unwrap() {
+        let kind = types
+            .get(&e["type"].as_u64().unwrap_or(u64::MAX))
+            .cloned()
+            .unwrap_or_default();
+        let p = &e["params"];
+        let url = p["url"].as_str().or(p["original_url"].as_str()).unwrap_or("");
+        let network_url = ["http:", "https:", "ws:", "wss:", "ftp:"]
+            .iter()
+            .any(|s| url.starts_with(s));
+        let connects = matches!(
+            kind.as_str(),
+            "TCP_CONNECT" | "HOST_RESOLVER_MANAGER_REQUEST" | "HOST_RESOLVER_DNS_TASK" | "QUIC_SESSION"
+                | "UDP_CONNECT" | "SSL_CONNECT"
+        );
+        if network_url || connects {
+            let what = if !url.is_empty() {
+                url.to_owned()
+            } else {
+                p["host"]
+                    .as_str()
+                    .or(p["address"].as_str())
+                    .or(p["host_and_port"].as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| p.to_string())
+            };
+            let annotation = p["traffic_annotation"].as_i64().map(|a| format!(" (annotation {a})")).unwrap_or_default();
+            out.push(format!("{kind}: {what}{annotation}"));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+#[test]
+fn the_engine_makes_no_request_on_about_blank() {
+    let dir = tempfile::tempdir().unwrap();
+    // ELUDITE_NET_LOG_KEEP names a file to keep the log in, to read by hand.
+    let log = std::env::var_os("ELUDITE_NET_LOG_KEEP")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| dir.path().join("net-log.json"));
+    let Some((mut e, _)) = spawn_engine_with(
+        &[
+            format!("--log-net-log={}", log.display()),
+            "--net-log-capture-mode=Everything".into(),
+        ],
+        json!({}),
+    ) else {
+        return;
+    };
+    let tab = e
+        .request("tab/create", json!({"url": "about:blank", "width": 400, "height": 300}))
+        .unwrap()["tab"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    e.wait("a frame", |m| m["method"] == "tab/frame" && m["params"]["tab"] == tab);
+    // Ten seconds: Chromium's background services start within the first few after the profile loads.
+    let until = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < until {
+        let _ = e.rx.recv_timeout(Duration::from_millis(200));
+    }
+    e.request("shutdown", json!({})).unwrap();
+    let status = e.child.wait().unwrap();
+    assert!(status.success(), "{status:?}");
+    let requests = net_log_requests(&log);
+    eprintln!("net log: {} bytes, requests: {requests:#?}", std::fs::metadata(&log).unwrap().len());
+    assert!(requests.is_empty(), "the engine reached the network on about:blank: {requests:#?}");
 }

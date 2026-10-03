@@ -9,6 +9,8 @@
 //! - [`shm`]: the frame ring's layout, the engine's writer ([`shm::Region`]), a reader ([`shm::Reader`]) and the
 //!   descriptor passing over the fd-3 socket.
 //! - [`rpc`]: the control channel's messages and framing.
+//! - [`privacy`]: the switches, feature flags and profile preferences that keep Chrome's background services from
+//!   making requests nobody asked for (brief 0032).
 //! - [`sandbox`]: whether the engine may start sandboxed, refuses, or runs with `--no-sandbox` because
 //!   `ELUDITE_CHROME_NO_SANDBOX=1` asked for it.
 //! - `engine` (feature `cef`): CEF itself: the app, the tabs, the render handler, the DevTools pass-through.
@@ -16,6 +18,7 @@
 //! The process's stdout carries the control protocol only: the engine duplicates it for the protocol and points
 //! descriptor 1 at stderr before CEF starts, so nothing else can write there.
 
+pub mod privacy;
 pub mod rpc;
 pub mod sandbox;
 #[cfg(unix)]

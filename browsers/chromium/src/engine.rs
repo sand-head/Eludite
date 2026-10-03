@@ -475,11 +475,19 @@ wrap_app! {
                 .any(|v| std::env::var_os(v).is_some_and(|d| !d.is_empty()));
             for switch in browser_switches(self.gpu, has_display) {
                 match switch.split_once('=') {
-                    Some((k, v)) => cl.append_switch_with_value(
-                        Some(&CefString::from(k)),
-                        Some(&CefString::from(v)),
-                    ),
-                    None => cl.append_switch(Some(&CefString::from(switch))),
+                    Some((k, v)) => {
+                        let key = CefString::from(k);
+                        // CEF sets a feature list of its own: add to it, since a second switch replaces the first.
+                        let mut value = v.to_owned();
+                        if k == "disable-features"
+                            && cl.has_switch(Some(&key)) == 1
+                        {
+                            let old = CefString::from(&cl.switch_value(Some(&key))).to_string();
+                            value = crate::privacy::merge_feature_lists(&old, v);
+                        }
+                        cl.append_switch_with_value(Some(&key), Some(&CefString::from(value.as_str())))
+                    }
+                    None => cl.append_switch(Some(&CefString::from(switch.as_str()))),
                 }
             }
         }
@@ -488,38 +496,18 @@ wrap_app! {
 
 /// The browser process's switches. Software compositing unless `ELUDITE_CHROMIUM_GPU=1`: off-screen frames come back
 /// through `OnPaint` either way, and without a GPU (or under Xvfb) the GPU process only adds a copy.
-pub fn browser_switches(gpu: bool, has_display: bool) -> Vec<&'static str> {
-    let mut s = vec![
-        "enable-logging=stderr",
-        "disable-background-networking",
-        "disable-component-update",
-        "disable-default-apps",
-        "disable-sync",
-        "no-first-run",
-        "no-default-browser-check",
-        "noerrdialogs",
-        // No desktop keyring prompt for a profile that keeps no passwords of the user's.
-        "password-store=basic",
-        // Chrome's background services CEF 154 keeps: fewer requests to Google at startup (brief 0031 found
-        // network time, which these stop, and four more endpoints they do not; the report lists them).
-        "no-pings",
-        "no-service-autorun",
-        "disable-breakpad",
-        "disable-client-side-phishing-detection",
-        "disable-domain-reliability",
-        "disable-field-trial-config",
-        "disable-search-engine-choice-screen",
-        "metrics-recording-only",
-        "disable-features=NetworkTimeServiceQuerying,OptimizationHints,MediaRouter,DialMediaRouteProvider,\
-         Translate,CertificateTransparencyComponentUpdater,LensOverlay,AutofillServerCommunication",
-    ];
+pub fn browser_switches(gpu: bool, has_display: bool) -> Vec<String> {
+    let mut s: Vec<String> = vec!["enable-logging=stderr".into(), "noerrdialogs".into()];
+    // Chrome's background services off (brief 0032, `privacy`): no request the person did not ask for.
+    s.extend(crate::privacy::SWITCHES.iter().map(|x| (*x).to_owned()));
+    s.push(crate::privacy::disable_features_switch());
     if !gpu {
-        s.extend(["disable-gpu", "disable-gpu-compositing"]);
+        s.extend(["disable-gpu".into(), "disable-gpu-compositing".into()]);
     }
     // Windowless tabs need no display, but Chromium's default Ozone platform (X11 or Wayland) refuses to start
     // without one. With neither, use the headless platform: rendering is the same; the system clipboard is lost.
     if !has_display {
-        s.push("ozone-platform=headless");
+        s.push("ozone-platform=headless".into());
     }
     s
 }
@@ -941,6 +929,10 @@ pub fn main() -> ExitCode {
         eprintln!("{NAME}: profile {}: {e}", profile.display());
         return ExitCode::from(2);
     }
+    // Chrome's background services read these preferences at startup (brief 0032).
+    if let Err(e) = crate::privacy::seed_profile(&profile) {
+        eprintln!("{NAME}: the profile's preferences ({}): {e}", profile.display());
+    }
     let path = |p: &Path| CefString::from(p.to_string_lossy().as_ref());
     let exe = std::env::current_exe().unwrap_or_default();
     let settings = Settings {
@@ -954,6 +946,8 @@ pub fn main() -> ExitCode {
         resources_dir_path: path(&cef_dir),
         locales_dir_path: path(&cef_dir.join("locales")),
         log_severity: LogSeverity::WARNING,
+        // Chrome's policies from the profile's policy folder (brief 0032, `privacy`).
+        chrome_policy_id: path(&crate::privacy::policy_dir(&profile)),
         ..Default::default()
     };
     if initialize(
@@ -998,9 +992,10 @@ mod tests {
             for display in [false, true] {
                 let s = browser_switches(gpu, display);
                 assert!(!s.iter().any(|x| x.contains("sandbox")), "{s:?}");
-                assert_eq!(s.contains(&"disable-gpu"), !gpu);
-                assert_eq!(s.contains(&"ozone-platform=headless"), !display);
-                assert!(s.contains(&"enable-logging=stderr"));
+                assert_eq!(s.iter().any(|x| x == "disable-gpu"), !gpu);
+                assert_eq!(s.iter().any(|x| x == "ozone-platform=headless"), !display);
+                assert!(s.iter().any(|x| x == "enable-logging=stderr"));
+                assert!(s.iter().any(|x| x == "disable-component-update"));
                 assert!(s.iter().any(|x| x.starts_with("disable-features=")
                     && x.contains("NetworkTimeServiceQuerying,")));
             }
