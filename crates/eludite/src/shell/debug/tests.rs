@@ -4069,6 +4069,11 @@ fn a_tracepoint_firing_ten_times_a_second_costs_the_ui_little(cx: &mut TestAppCo
 /// `the_reads_work_against_eludite_dbg_mono` sets it up): the debugger and the TestApp's `Program.cs` text and path;
 /// `None` (with a message) to skip.
 fn mono_solution(cx: &mut TestAppContext) -> Option<(Dbg, PathBuf, String)> {
+    mono_solution_with(cx, &[])
+}
+
+/// As [`mono_solution`], with `more` projects in the solution's tree after App (brief 0028).
+fn mono_solution_with(cx: &mut TestAppContext, more: &[Value]) -> Option<(Dbg, PathBuf, String)> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mono_dir = root.join("debuggers/mono");
     let built = |p: &str| mono_dir.join(p).join("bin/Debug/net472");
@@ -4111,6 +4116,14 @@ fn mono_solution(cx: &mut TestAppContext) -> Option<(Dbg, PathBuf, String)> {
         "Eludite.Debugger.Mono.TestApp.exe.config",
     ] {
         std::fs::copy(app.join(f), d.w.path("src/App/bin/Debug/net472").join(f)).unwrap();
+    }
+    if !more.is_empty() {
+        let mut tree = vec![json!({
+            "name": "App", "path": d.w.path("src/App/App.csproj"), "kind": "sdk",
+            "targetFrameworks": ["net472"], "files": []
+        })];
+        tree.extend(more.iter().cloned());
+        d.w.fake.set_tree(Value::Array(tree));
     }
     d.w.open_solution();
     Some((d, source, text))
@@ -6148,6 +6161,115 @@ fn two_sessions_at_once_against_eludite_dbg_mono(cx: &mut TestAppContext) {
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_sessions("every session ended", |s| s.is_empty());
     d.wait_mode(Mode::Design);
+    for pid in pids {
+        kill(pid as u32);
+    }
+}
+
+/// Brief 0028 with two adapters at once: netcoredbg debugging `eludite-host` (a .NET project) beside
+/// `eludite-dbg-mono` debugging the TestApp, started as one compound; the TestApp breaks at its breakpoint, Break All
+/// stops the host in its own session, an agent steps the TestApp while the host stays at its pause, `stop` with the
+/// host's session ends it and the TestApp keeps its break. Skipped unless netcoredbg is found (`ELUDITE_NETCOREDBG`,
+/// `PATH`; `tools/netcoredbg/fetch.sh`), `dotnet build dotnet/Eludite.slnx` has run and Mono is installed.
+#[gpui::test]
+fn netcoredbg_and_eludite_dbg_mono_sessions_at_once(cx: &mut TestAppContext) {
+    let found = match eludite_dap::discovery::AdapterSearch::from_env().find_netcoredbg() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let host =
+        std::fs::canonicalize(root.join("dotnet/src/Eludite.Host/Eludite.Host.csproj")).unwrap();
+    if let Err(e) = eludite_dap::launch::launch_config(&host, None) {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    let more = [json!({
+        "name": "Eludite.Host", "path": host, "kind": "sdk",
+        "targetFrameworks": ["net10.0"], "files": []
+    })];
+    let Some((mut d, source, text)) = mono_solution_with(cx, &more) else {
+        return;
+    };
+    d.w.commands
+        .invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "debugger.netcoredbgPath", "value": found.path.to_string_lossy()}),
+        )
+        .unwrap();
+    let want = Some(found.path.clone().into_os_string());
+    d.w.wait("the netcoredbg path", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.debugger().setup().search.env == want)
+    });
+    let line = text
+        .lines()
+        .position(|l| l.ends_with("// MARK: main-add"))
+        .unwrap() as u32
+        + 1;
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": source.to_string_lossy(), "line": line}),
+    )
+    .unwrap();
+    let out = agent_call(
+        &mut d,
+        cmds::START,
+        json!({"compound": [{"project": "App"}, {"project": "Eludite.Host"}], "wait_ms": 30000}),
+    );
+    assert_eq!(out["mode"], "break", "{out}");
+    let mono = out["session"].as_u64().unwrap() as u32;
+    d.wait_sessions("the host running", |s| {
+        s.len() == 2
+            && s.iter()
+                .any(|r| r.runtime.as_deref() == Some("coreclr") && r.mode == "running")
+    });
+    let host_id = d
+        .sessions()
+        .iter()
+        .find(|r| r.runtime.as_deref() == Some("coreclr"))
+        .unwrap()
+        .id;
+    assert!(
+        d.sessions()
+            .iter()
+            .find(|r| r.id == host_id)
+            .unwrap()
+            .adapter
+            .as_deref()
+            .unwrap()
+            .starts_with("netcoredbg")
+    );
+    // Break All on the host's session only.
+    let paused = agent_call(
+        &mut d,
+        cmds::PAUSE,
+        json!({"session": host_id, "wait_ms": 10000}),
+    );
+    assert_eq!(paused["mode"], "break", "{paused}");
+    assert_eq!(paused["session"], host_id);
+    // The agent steps the TestApp; the host stays at its pause.
+    let step = agent_call(
+        &mut d,
+        cmds::STEP_OVER,
+        json!({"session": mono, "wait_ms": 10000}),
+    );
+    assert_eq!(step["session"], mono, "{step}");
+    assert_eq!(step["mode"], "break");
+    let h = agent_call(&mut d, cmds::STATE, json!({"session": host_id}));
+    assert_eq!(h["mode"], "break");
+    assert_eq!(h["stopped"]["reason"], "pause");
+    // `stop` with the host's session ends it; the TestApp keeps its break.
+    let stopped = agent_call(&mut d, cmds::STOP, json!({"session": host_id}));
+    assert!(stopped.get("error").is_none(), "{stopped}");
+    d.wait_sessions("the TestApp left", |s| s.len() == 1 && s[0].id == mono);
+    assert_eq!(d.sessions()[0].mode, "break");
+    let pids: Vec<i64> = d.sessions().iter().filter_map(|r| r.process_id).collect();
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("every session ended", |s| s.is_empty());
     for pid in pids {
         kill(pid as u32);
     }
