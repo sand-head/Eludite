@@ -37,7 +37,12 @@ fn temp_dir(name: &str) -> PathBuf {
     ));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
-    d.canonicalize().unwrap()
+    // Long names, without the verbatim `\\?\` prefix canonicalize adds on Windows (claude reports plain paths).
+    let d = d.canonicalize().unwrap();
+    match d.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(plain) => PathBuf::from(plain),
+        None => d,
+    }
 }
 
 /// What the test's "user" answers to a permission request.
@@ -350,7 +355,8 @@ fn recorded_session_full_mapping_permissions_and_cancel() {
     let notes = h.cwd.join("notes.txt");
     let diff = &w.content.as_ref().unwrap()[0];
     assert_eq!(diff["type"], "diff");
-    assert_eq!(diff["path"], json!(notes));
+    // Compared as paths: the recorded path joins with `/`.
+    assert_eq!(Path::new(diff["path"].as_str().unwrap()), notes);
     assert_eq!(diff["newText"], "hello\n");
     let calls = tool_calls(&ev);
     assert_eq!(calls.len(), 1);
@@ -549,6 +555,8 @@ fn missing_claude_is_a_clear_error() {
     let env = vec![
         ("PATH".into(), empty.to_string_lossy().into_owned()),
         ("HOME".into(), empty.to_string_lossy().into_owned()),
+        // The home fallback (~/.local/bin) reads USERPROFILE on Windows.
+        ("USERPROFILE".into(), empty.to_string_lossy().into_owned()),
     ];
     let h = spawn("missing", env, read_policy());
     h.client.initialize(info(), T).unwrap();
