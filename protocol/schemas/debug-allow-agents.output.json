@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-allow-agents.output.json",
+  "title": "eludite.debug.allow_agents output",
+  "description": "Whether agents may drive the debugging session now.",
+  "type": "object",
+  "required": [
+    "agents_allowed",
+    "default",
+    "mode"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "agents_allowed": {
+      "description": "Agents may drive the session (or the next one, in mode `design`).",
+      "type": "boolean"
+    },
+    "default": {
+      "description": "The setting debugger.allowAgentsByDefault: what each new session starts with.",
+      "type": "boolean"
+    },
+    "mode": {
+      "description": "The debugger's mode, as in eludite.debug.state.",
+      "type": "string"
+    }
+  }
+}

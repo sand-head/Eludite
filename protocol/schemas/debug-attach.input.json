@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-attach.input.json",
+  "title": "eludite.debug.attach input",
+  "description": "Debug > Attach to Process... (Ctrl+Alt+P): debug a process that is already running, by `pid` or `process_name` (eludite.debug.processes lists the candidates with their runtime and whether Eludite started them). The debug adapter follows the process's runtime unless `adapter` names one: `dotnet` (a `dotnet <app>.dll` process) attaches with netcoredbg by process id; `mono` attaches with eludite-dbg-mono to the debugger agent the program was started with (`mono --debug --debugger-agent=transport=dt_socket,server=y,address=127.0.0.1:PORT`, read from its command line, or `mono`): Mono has no late attach, so a Mono program started without an agent cannot be attached; `native` attaches with lldb-dap by process id. On Windows a .NET Framework process (`netfx`) is refused until eludite-dbg-netfx (brief 0004) exists. The session goes through mode `launching` to `running` (`break` when the adapter stops it at once) with `session.attached` true and no build; every debugger window, key and command then works as for a launch. Stop (eludite.debug.stop, Shift+F5) detaches: the process keeps running, and the status bar says so. Restart is refused for an attached session. Refused while a debugging session runs; the program of Start Without Debugging (Ctrl+F5) may be attached to. Without `pid` or `process_name`, from the UI, the Attach to Process dialog opens; an agent must name the process. Permission class execute for a process Eludite started (`launched_by_eludite`: Ctrl+F5's or F5's program and its child processes), dangerous for any other one; the solution policy's `debug.attach` or `debug.drive` set to `deny` refuses agents. The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "x-eludite-escalates": "Dangerous when the process is not one Eludite started (`launched_by_eludite` false in eludite.debug.processes, or a `process_name` no started process has), and whenever the solution's policy sets `debug.drive` to `prompt`; refused for agents when the policy sets `debug.attach` or `debug.drive` to `deny`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "pid": {
+      "description": "The process id, as eludite.debug.processes lists it.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "process_name": {
+      "description": "The process's name (`dotnet`, `mono`, `MyService`; the extension may be left out), compared without regard to case. Exactly one process must have it; otherwise the command is refused and lists the matching processes with their ids, so pass `pid`. Ignored when `pid` is given.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 260
+    },
+    "adapter": {
+      "description": "The debug adapter: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `netfx` (eludite-dbg-netfx, Windows only, not built yet: refused) or `lldb` (lldb-dap). Default: from the process's runtime (`dotnet`: coreclr, `mono`: mono, `native`: lldb, `netfx`: netfx). A process of runtime `unknown` needs it.",
+      "enum": [
+        "coreclr",
+        "mono",
+        "netfx",
+        "lldb"
+      ]
+    },
+    "transport": {
+      "description": "Reach a debug adapter already listening elsewhere instead of starting one here (ADR-0007): `{\"kind\": \"tcp\", \"host\", \"port\"}`. The process id is then the remote machine's; eludite.debug.processes lists this machine's processes only.",
+      "type": "object",
+      "required": [
+        "kind",
+        "host",
+        "port"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "tcp"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "mono": {
+      "description": "Where a Mono program's debugger agent listens, for `adapter` `mono`: `address` (default 127.0.0.1) and `port`. Default: read from the process's `--debugger-agent=...,address=HOST:PORT,...,server=y` option.",
+      "type": "object",
+      "required": [
+        "port"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "wait_ms": {
+      "description": "How long to wait for the session to start (the adapter attached and the debuggee running or stopped) before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000. An answer with mode `launching` means the attach is still under way; call eludite.debug.wait later.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    },
+    "depth": {
+      "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "max_variables": {
+      "description": "The most variable rows listed, counting every level (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "max_frames": {
+      "description": "The most stack frames listed (default 10, at most 200); page further with eludite.debug.stack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "max_output_lines": {
+      "description": "The most program output lines listed (default 20, at most 1000; 0 lists none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "output_since": {
+      "description": "An output cursor (`output.next` of an earlier answer, or eludite.debug.output's `next`): list the program's lines from it on. Default: the last `max_output_lines` lines.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

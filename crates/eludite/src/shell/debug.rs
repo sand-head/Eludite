@@ -41,6 +41,14 @@
 //!   since the request replaces them all), exception types through `filterOptions`, values through `setVariable` (or
 //!   `setExpression`), and Set Next Statement through `gotoTargets` and `goto`; each only where the adapter's
 //!   capabilities have it (lldb-dap aborts on a request it does not know).
+//! - **Attach, restart and who drives** (brief 0027). `attach` starts a session from a running process on a
+//!   `debug-attach` thread (the process listing, the adapter by the process's runtime, its attach plan, the handshake
+//!   with `attach`), with `session.attached`; Stop then detaches (`terminateDebuggee: false`) and the process keeps
+//!   running. `processes` lists the candidates off the UI thread. `restart` sends DAP `restart` where the adapter has
+//!   it, else stops and starts the last start's configuration again. Allow Agents to Drive
+//!   ([`state::DebugModel::agents_allowed`]) refuses agents' driving commands while off; the person's resuming commands
+//!   end an agent's waiting command at once with `interrupted_by: "user"` and make its next resuming command stale
+//!   until it reads the state (proposal 0001 rule 5).
 //! - **Output by source.** The program's lines (stdout, stderr), the debugger's own messages and the adapter's
 //!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
 //!   Output window's Debug source still shows the program's output and the debugger's messages together.
@@ -70,10 +78,13 @@ use eludite_commands::debug::{
     TraceOutput, TracePointRow, TraceRun, TraceUntil, VarRow, VariableRow, VariablesOutput,
     VariablesTarget, WaitUntil,
 };
+use eludite_commands::debug::{AllowAgentsOutput, AttachTarget, ProcessRow, ProcessesOutput};
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
 use eludite_commands::{Caller, CommandError};
+use eludite_dap::attach::{AttachAdapter, attach_plan};
 use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
 use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform};
+use eludite_dap::processes;
 use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
 use eludite_dap::types::{
     Capabilities, EvaluateResponse, Event, ExceptionDetails, ExceptionInfoResponse,
@@ -98,6 +109,8 @@ use super::documents::{normalize_path, trace};
 
 /// Status bar slot: the debugger's state (left, after the solution's).
 pub const DEBUG_SLOT: &str = "debug";
+/// The status bar's Allow Agents to Drive toggle (a debug selector; brief 0027).
+pub const DEBUG_AGENTS_TOGGLE: &str = "debug-allow-agents";
 /// How long an agent's resuming command waits for the debuggee to settle, and its evaluate for the answer, by
 /// default.
 pub const AGENT_WAIT: Duration = Duration::from_secs(5);
@@ -184,6 +197,7 @@ impl cmds::DebugTarget for DebugBus {
                 )))
             });
         }
+        let request = resolve_attach(request)?;
         let wait = request
             .wait_ms()
             .map(Duration::from_millis)
@@ -198,6 +212,201 @@ impl cmds::DebugTarget for DebugBus {
             .map_err(|_| CommandError::Failed("the window is closed".into()))?;
         rx.recv_timeout(wait + Duration::from_secs(30))
             .map_err(|_| CommandError::Failed("the UI did not answer".into()))?
+    }
+}
+
+/// An attach by process name, off the UI thread (the caller's): the one process with that name, by id, or refused
+/// listing the matches (brief 0027). A pid that no process has is refused here too; a process on another machine
+/// (`transport`) is not looked up.
+fn resolve_attach(request: DebugRequest) -> Result<DebugRequest, CommandError> {
+    let DebugRequest::Attach {
+        target,
+        adapter,
+        transport,
+        mono,
+        wait_ms,
+        budget,
+    } = request
+    else {
+        return Ok(request);
+    };
+    let target = match (&target, &transport) {
+        (AttachTarget::Name(_) | AttachTarget::Pid(_), None) => {
+            let all = processes::list().map_err(CommandError::Failed)?;
+            AttachTarget::Pid(
+                find_process(&all, &target)
+                    .map_err(CommandError::Failed)?
+                    .pid,
+            )
+        }
+        _ => target,
+    };
+    Ok(DebugRequest::Attach {
+        target,
+        adapter,
+        transport,
+        mono,
+        wait_ms,
+        budget,
+    })
+}
+
+/// The process `target` names among `all`: by id, or the one process with that name (case aside, `.exe` optional).
+fn find_process(
+    all: &[processes::ProcessInfo],
+    target: &AttachTarget,
+) -> Result<processes::ProcessInfo, String> {
+    match target {
+        AttachTarget::Pid(pid) => all.iter().find(|p| p.pid == *pid).cloned().ok_or_else(|| {
+            format!(
+                "there is no process {pid} on this machine (eludite.debug.processes lists them)"
+            )
+        }),
+        AttachTarget::Name(name) => {
+            let want = name.trim().trim_end_matches(".exe").to_lowercase();
+            let matches: Vec<&processes::ProcessInfo> = all
+                .iter()
+                .filter(|p| p.name.trim_end_matches(".exe").to_lowercase() == want)
+                .collect();
+            match matches.as_slice() {
+                [] => Err(format!(
+                    "no process is named `{name}` (eludite.debug.processes lists them)"
+                )),
+                [one] => Ok((*one).clone()),
+                many => Err(format!(
+                    "{} processes are named `{name}`: {}; pass `pid`",
+                    many.len(),
+                    many.iter()
+                        .take(10)
+                        .map(|p| format!("{} ({})", p.pid, processes::cut(&p.command_line(), 80)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            }
+        }
+        AttachTarget::Dialog => Err("name the process: `pid` or `process_name`".into()),
+    }
+}
+
+/// `eludite.debug.processes`: this machine's processes matching `filter`, `launched_by_eludite` from `roots` and their
+/// descendants. Blocks (the process table): run it on a worker thread.
+pub fn list_processes(filter: Option<&str>, roots: &[u32]) -> Result<ProcessesOutput, String> {
+    let all = processes::list()?;
+    let launched = processes::launched_set(roots, &all);
+    let needle = filter.map(str::to_lowercase);
+    let mut rows: Vec<ProcessRow> = all
+        .iter()
+        .filter_map(|p| {
+            let line = p.command_line();
+            if let Some(n) = &needle
+                && !p.name.to_lowercase().contains(n)
+                && !line.to_lowercase().contains(n)
+            {
+                return None;
+            }
+            Some(ProcessRow {
+                pid: p.pid,
+                parent: p.parent,
+                name: p.name.clone(),
+                command_line: processes::cut(&line, cmds::MAX_COMMAND_LINE),
+                runtime: p.runtime.as_str().to_owned(),
+                launched_by_eludite: launched.contains(&p.pid),
+                debugger_agent: (p.runtime == processes::Runtime::Mono)
+                    .then(|| processes::mono_agent(&p.argv))
+                    .flatten()
+                    .map(|(h, port)| format!("{h}:{port}")),
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then(a.pid.cmp(&b.pid))
+    });
+    let total = rows.len();
+    let truncated = total > cmds::MAX_PROCESSES;
+    rows.truncate(cmds::MAX_PROCESSES);
+    Ok(ProcessesOutput {
+        processes: rows,
+        total,
+        truncated,
+    })
+}
+
+/// What the Debug menu's Restart and Attach to Process... items and its Allow Agents to Drive check item read (the
+/// menu bar is another entity; the shell updates this with the state).
+#[derive(Debug)]
+pub struct DebugMenuState {
+    restart: std::sync::atomic::AtomicBool,
+    attach: std::sync::atomic::AtomicBool,
+    agents_allowed: std::sync::atomic::AtomicBool,
+}
+
+impl Default for DebugMenuState {
+    fn default() -> Self {
+        Self {
+            restart: false.into(),
+            attach: true.into(),
+            agents_allowed: true.into(),
+        }
+    }
+}
+
+impl DebugMenuState {
+    /// Whether the Debug menu's item for `command` is enabled (true for the commands it does not govern).
+    pub fn enabled(&self, command: &str) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        match command {
+            cmds::RESTART => self.restart.load(Relaxed),
+            cmds::ATTACH => self.attach.load(Relaxed),
+            _ => true,
+        }
+    }
+
+    /// Whether the check item of `command` is on.
+    pub fn checked(&self, command: &str) -> bool {
+        command == cmds::ALLOW_AGENTS
+            && self
+                .agents_allowed
+                .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn update(&self, m: &DebugModel) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.restart.store(
+            !matches!(m.mode, Mode::Design | Mode::Stopping | Mode::Building) && !m.attached(),
+            Relaxed,
+        );
+        self.attach.store(
+            matches!(m.mode, Mode::Design | Mode::RunningWithoutDebugging),
+            Relaxed,
+        );
+        self.agents_allowed.store(m.agents_allowed, Relaxed);
+    }
+}
+
+/// What a start ran (project, launch profile, debug flag, build before run, Cargo options): Restart starts it again.
+#[derive(Debug, Clone)]
+struct StartArgs {
+    project: Option<String>,
+    debug: bool,
+    profile: Option<String>,
+    build: Option<bool>,
+    cargo: cmds::CargoOptions,
+}
+
+/// The stop a resuming command quotes, if any.
+fn quoted_stop(r: &DebugRequest) -> Option<u64> {
+    match r {
+        DebugRequest::Continue { stop, .. }
+        | DebugRequest::Step { stop, .. }
+        | DebugRequest::RunToCursor { stop, .. }
+        | DebugRequest::RunUntil { stop, .. }
+        | DebugRequest::Trace { stop, .. }
+        | DebugRequest::SetVariable { stop, .. }
+        | DebugRequest::SetNextStatement { stop, .. } => *stop,
+        _ => None,
     }
 }
 
@@ -261,6 +470,10 @@ pub enum DebugMsg {
     StopTimeout {
         generation: u64,
     },
+    /// A process listing the person's `processes` asked for (brief 0027).
+    Processes {
+        listing: Result<ProcessesOutput, String>,
+    },
 }
 
 /// What an agent's command waits for after it was applied, off the UI thread (brief 0025).
@@ -274,8 +487,15 @@ pub enum Followup {
         pause: Option<u64>,
         /// Set Next Statement: settled only past this (generation, stop), and failed if its `goto` fails.
         after: Option<(u64, u64)>,
+        /// Restart by stopping and starting: settled only in a session newer than this generation (brief 0027).
+        fresh: Option<u64>,
         wait: Duration,
         budget: Budget,
+    },
+    /// `processes`: the listing, made on a `debug-attach` thread (brief 0027).
+    Processes {
+        filter: Option<String>,
+        roots: Vec<u32>,
     },
     /// `trace`: until its condition holds, then its lines (brief 0026).
     Trace {
@@ -439,6 +659,14 @@ enum Pending {
     Pause {
         generation: u64,
     },
+    /// DAP `restart` was sent (brief 0027).
+    Restart {
+        generation: u64,
+    },
+    /// An attached session's `disconnect` (detach) was sent: its answer ends the session (brief 0027).
+    Detach {
+        generation: u64,
+    },
     /// A request an agent's read waits for (brief 0025): its answer goes to `reply` when it is for the generation and
     /// the stop it was asked in, else the read hears that it is stale.
     Agent {
@@ -528,6 +756,8 @@ pub struct DebugTimings {
     pub build_requested: Option<Instant>,
     pub build_finished: Option<Instant>,
     pub launched: Option<Instant>,
+    /// An agent's interrupted wait was answered (brief 0027; from `Debugger::interrupted_at`).
+    pub interrupt_answered: Option<Instant>,
 }
 
 /// A start waiting for its build (brief 0020).
@@ -614,6 +844,28 @@ pub struct Debugger {
     goto_error: Option<(u64, u64, String)>,
     /// The adapter's console text without its newline yet (its log point lines are matched whole).
     console_partial_adapter: String,
+    /// The programs this shell started (Ctrl+F5's, F5's debuggee), by process id: `processes`' `launched_by_eludite`
+    /// and the attach hook's (brief 0027).
+    pub launched: Arc<Mutex<Vec<u32>>>,
+    /// Grows with every command of the person's that resumes, pauses, stops or restarts the debuggee: an agent's
+    /// command that waits from another value was interrupted (proposal 0001 rule 5).
+    pub interrupt: u64,
+    /// When the last such command was applied.
+    pub interrupted_at: Option<Instant>,
+    /// An agent's wait was interrupted: its next resuming command is stale until it reads the state.
+    agent_stale: bool,
+    /// What the last start ran, for Restart.
+    last_start: Option<StartArgs>,
+    /// Restart without the adapter's `restart`: start this (by this driver) once the session has ended.
+    restart_pending: Option<(StartArgs, String)>,
+    /// The last process listing: the dialog's rows and the UI thread's answer to `processes`.
+    processes: Option<ProcessesOutput>,
+    /// Ctrl+F5 programs an attach left running: no session kills them.
+    background_runs: Vec<RunHandle>,
+    /// The Attach to Process dialog, while open.
+    pub attach_dialog: Option<gpui::Entity<windows::AttachDialog>>,
+    /// What the Debug menu reads.
+    pub menu: Arc<DebugMenuState>,
 }
 
 impl Debugger {
@@ -656,6 +908,16 @@ impl Debugger {
                 trace_job: None,
                 goto_error: None,
                 console_partial_adapter: String::new(),
+                launched: Arc::default(),
+                interrupt: 0,
+                interrupted_at: None,
+                agent_stale: false,
+                last_start: None,
+                restart_pending: None,
+                processes: None,
+                background_runs: Vec::new(),
+                attach_dialog: None,
+                menu: Arc::default(),
             },
             rx,
         )
@@ -1276,6 +1538,65 @@ impl Debugger {
         self.native.formatters = on;
     }
 
+    /// The setting `debugger.allowAgentsByDefault`: what each new session starts with.
+    pub fn set_agents_default(&mut self, on: bool) {
+        self.model.agents_default = on;
+    }
+
+    /// Which processes this shell started, for the escalation hooks (brief 0027): by id, the roots and their
+    /// descendants (a parent chain walk); by name, a scan of the process table. Called on the hook's thread.
+    pub fn launched_processes(&self) -> eludite_commands::policy::LaunchedProcesses {
+        let roots = self.launched.clone();
+        eludite_commands::policy::LaunchedProcesses::new(move |pid, name| {
+            let roots = roots.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if roots.is_empty() {
+                return false;
+            }
+            match (pid, name) {
+                (Some(pid), _) => processes::is_launched(pid, &roots),
+                (None, Some(name)) => processes::list().is_ok_and(|all| {
+                    let set = processes::launched_set(&roots, &all);
+                    let want = name.trim().trim_end_matches(".exe").to_lowercase();
+                    all.iter().any(|p| {
+                        set.contains(&p.pid)
+                            && p.name.trim_end_matches(".exe").to_lowercase() == want
+                    })
+                }),
+                (None, None) => false,
+            }
+        })
+    }
+
+    /// Proposal 0001 rule 5: after an interrupted wait, an agent's driving command is stale until it reads the state
+    /// (or quotes the current stop).
+    fn stale_check(&mut self, request: &DebugRequest) -> Result<(), CommandError> {
+        if !self.agent_stale {
+            return Ok(());
+        }
+        match request {
+            DebugRequest::Snapshot { .. } | DebugRequest::State | DebugRequest::Wait { .. } => {
+                self.agent_stale = false;
+                Ok(())
+            }
+            r if r.drives() => {
+                let m = &self.model;
+                if quoted_stop(r) == Some(m.stop) && m.mode == Mode::Break {
+                    self.agent_stale = false;
+                    return Ok(());
+                }
+                Err(CommandError::Failed(format!(
+                    "stale: the person drove the session while your command waited (now stop {}, {}, generation \
+                     {}); read eludite.debug.snapshot (or state, or wait) and decide again, or quote `stop: {}`",
+                    m.stop,
+                    m.mode.as_str(),
+                    m.generation,
+                    m.stop
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// The searches the next session uses (tests).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn setup(&self) -> &DebugSetup {
@@ -1470,6 +1791,7 @@ fn launch_thread(job: LaunchJob) {
         adapter: None,
         runtime: Some(launch::runtime_name(config.kind, platform).to_owned()),
         process_id: None,
+        attached: false,
     };
     // A .NET Framework program off Windows runs under the located Mono, with or without the debugger.
     let needs_mono = config.kind == FrameworkKind::NetFramework && platform != Platform::Windows;
@@ -1668,6 +1990,209 @@ fn launch_thread(job: LaunchJob) {
     });
 }
 
+/// What the attach thread needs (brief 0027).
+struct AttachJob {
+    generation: u64,
+    target: AttachTarget,
+    adapter: Option<String>,
+    transport: Option<(String, u16)>,
+    mono: Option<(String, u16)>,
+    breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
+    functions: Vec<eludite_dap::types::FunctionBreakpoint>,
+    exceptions: state::ExceptionPlan,
+    setup: DebugSetup,
+    native: native::NativeJob,
+    tx: UnboundedSender<DebugMsg>,
+}
+
+/// Attach (brief 0027), on the `debug-attach` thread: the process from this machine's listing (one on another machine,
+/// reached through `transport`, by id only), the adapter by its runtime unless named, its attach plan, the adapter
+/// reached, the handshake with `attach`; then the session goes on as a launched one does.
+fn attach_thread(job: AttachJob) {
+    let AttachJob {
+        generation,
+        target,
+        adapter,
+        transport,
+        mono,
+        breakpoints,
+        functions,
+        exceptions,
+        setup,
+        native,
+        tx,
+    } = job;
+    let fail = |message: String| {
+        let _ = tx.unbounded_send(DebugMsg::LaunchFailed {
+            generation,
+            message,
+        });
+    };
+    let platform = setup.platform;
+    let info = match (&target, &transport) {
+        (AttachTarget::Pid(pid), Some(_)) => processes::ProcessInfo {
+            pid: *pid,
+            parent: None,
+            name: format!("process {pid}"),
+            argv: Vec::new(),
+            runtime: processes::Runtime::Unknown,
+        },
+        _ => {
+            let all = match processes::list() {
+                Ok(a) => a,
+                Err(e) => return fail(format!("Cannot list processes: {e}")),
+            };
+            match find_process(&all, &target) {
+                Ok(p) => p,
+                Err(e) => return fail(format!("Cannot attach: {e}")),
+            }
+        }
+    };
+    let adapter = match adapter.as_deref().and_then(AttachAdapter::parse) {
+        Some(a) => a,
+        None => match AttachAdapter::for_runtime(info.runtime) {
+            Ok(a) => a,
+            Err(e) => return fail(format!("Cannot attach to process {}: {e}", info.pid)),
+        },
+    };
+    let agent = mono.or_else(|| processes::mono_agent(&info.argv));
+    let plan = match attach_plan(adapter, info.pid, agent, platform) {
+        Ok(p) => p,
+        Err(e) => return fail(format!("Cannot attach to process {}: {e}", info.pid)),
+    };
+    let mut session = SessionRow {
+        project: info.name.clone(),
+        program: info
+            .argv
+            .first()
+            .cloned()
+            .unwrap_or_else(|| info.name.clone()),
+        args: info.argv.iter().skip(1).cloned().collect(),
+        cwd: processes::cwd_of(info.pid)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        profile: None,
+        debug: true,
+        adapter: None,
+        runtime: Some(adapter.runtime_name().to_owned()),
+        process_id: Some(i64::from(info.pid)),
+        attached: true,
+    };
+    let Some(kind) = adapter.kind() else {
+        return fail(format!("Cannot attach to process {}: no adapter", info.pid));
+    };
+    let reached: Result<(Connection, String), String> = if let Some((host, port)) = &transport {
+        let t = eludite_dap::AdapterTransport::Tcp {
+            host: host.clone(),
+            port: *port,
+        };
+        transport::connect(&t)
+            .map(|c| (c, transport::describe(&t)))
+            .map_err(|e| format!("cannot reach the debug adapter at {host}:{port}: {e}"))
+    } else if let Some(connect) = &setup.connect {
+        connect()
+            .map(|c| {
+                let d = c.description.clone();
+                (c, d)
+            })
+            .map_err(|e| format!("cannot reach the debug adapter: {e}"))
+    } else {
+        match kind {
+            AdapterKind::Lldb => native::connect(&native, platform, None),
+            AdapterKind::Mono => setup.mono.find_mono().and_then(|m| {
+                let exe = setup.mono_adapter.find()?;
+                let t = m.adapter_transport(&exe);
+                transport::connect_with_env(&t, &m.env)
+                    .map(|c| {
+                        (
+                            c,
+                            format!(
+                                "eludite-dbg-mono under mono {} (stdio)",
+                                m.version().unwrap_or_else(|| "(unknown version)".into())
+                            ),
+                        )
+                    })
+                    .map_err(|e| format!("cannot start eludite-dbg-mono: {e}"))
+            }),
+            AdapterKind::Netcoredbg => setup.search.find_netcoredbg().and_then(|found| {
+                let t = found.transport();
+                transport::connect(&t)
+                    .map(|c| (c, transport::describe(&t)))
+                    .map_err(|e| format!("cannot start netcoredbg: {e}"))
+            }),
+        }
+    };
+    let (connection, description) = match reached {
+        Ok(r) => r,
+        Err(e) => return fail(e),
+    };
+    session.adapter = Some(description);
+    let _ = tx.unbounded_send(DebugMsg::Launched {
+        generation,
+        session,
+        run: None,
+    });
+    let sink_tx = tx.clone();
+    let lldb = kind == AdapterKind::Lldb;
+    let client = DapClient::start(
+        connection,
+        Arc::new(move |event| {
+            let event = if lldb {
+                native::adapt(event, None)
+            } else {
+                event
+            };
+            let _ = sink_tx.unbounded_send(DebugMsg::Client { generation, event });
+        }),
+    );
+    let _ = tx.unbounded_send(DebugMsg::Connected {
+        generation,
+        client: client.clone(),
+    });
+    let start = StartPlan {
+        adapter_id: plan.adapter_id.into(),
+        kind: StartKind::Attach,
+        arguments: plan.arguments,
+        breakpoints,
+        exception_filters: exceptions.filters,
+        exception_options: exceptions.options,
+        function_breakpoints: if lldb {
+            native::with_rust_panics(functions, native.rust_panics)
+        } else {
+            functions
+        },
+    };
+    let mut result =
+        dap_session::start(&client, &start, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    if lldb && let Ok(started) = &mut result {
+        native::adapt_capabilities(&mut started.capabilities);
+    }
+    let adapter_id = if client.description().starts_with("fake adapter") {
+        "fake".to_owned()
+    } else {
+        start.adapter_id.clone()
+    };
+    let _ = tx.unbounded_send(DebugMsg::Started {
+        generation,
+        result,
+        adapter_id,
+    });
+}
+
+impl Debugger {
+    /// List the processes on a `debug-attach` thread; the answer comes back as [`DebugMsg::Processes`].
+    fn list_processes_later(&self, filter: Option<String>, roots: Vec<u32>) {
+        let tx = self.tx.clone();
+        std::thread::Builder::new()
+            .name("debug-attach".into())
+            .spawn(move || {
+                let listing = list_processes(filter.as_deref(), &roots);
+                let _ = tx.unbounded_send(DebugMsg::Processes { listing });
+            })
+            .expect("spawn debug-attach");
+    }
+}
+
 impl Shell {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn debugger(&self) -> &Debugger {
@@ -1734,7 +2259,8 @@ impl Shell {
                         shell.apply_debug(request, &caller, true, window, cx)
                     });
                     shell.debug.timings.agent_ui.push((t, t.elapsed()));
-                    r
+                    // What the person does from here on interrupts what this command waits for (rule 5).
+                    r.map(|(out, follow)| (out, follow.map(|f| (f, shell.debug.interrupt))))
                 });
                 match applied {
                     Err(_) => {
@@ -1747,10 +2273,10 @@ impl Shell {
                     Ok(Ok((out, None))) => {
                         let _ = reply.send(Ok(out));
                     }
-                    Ok(Ok((out, Some(follow)))) => {
+                    Ok(Ok((out, Some((follow, epoch))))) => {
                         let this = this.clone();
                         cx.spawn(async move |cx| {
-                            let outcome = follow_up(this, cx, out, follow).await;
+                            let outcome = follow_up(this, cx, out, follow, epoch).await;
                             let _ = reply.send(outcome);
                         })
                         .detach();
@@ -1772,7 +2298,32 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<(DebugOutput, Option<Followup>), CommandError> {
+        // Who may drive (brief 0027): Allow Agents to Drive, then rule 5's stale check after an interrupted wait.
+        if caller.is_agent() {
+            if request.drives() && !self.debug.model.agents_allowed {
+                return Err(CommandError::Failed(cmds::AGENTS_NOT_ALLOWED.into()));
+            }
+            if matches!(request, DebugRequest::AllowAgents { enabled: true }) {
+                return Err(CommandError::Failed(
+                    "only the person can allow agents to drive (Debug > Allow Agents to Drive); an agent may turn \
+                     it off"
+                        .into(),
+                ));
+            }
+        }
         self.debug.model.check(&request)?;
+        if caller.is_agent() {
+            self.debug.stale_check(&request)?;
+        } else if request.resumes()
+            || matches!(
+                request,
+                DebugRequest::Pause { .. } | DebugRequest::Restart { .. }
+            )
+        {
+            // The person takes over: an agent's waiting command ends at once (proposal 0001 rule 5).
+            self.debug.interrupt += 1;
+            self.debug.interrupted_at = Some(Instant::now());
+        }
         let driver = driver_of(caller);
         let budget = request.budget().unwrap_or_default();
         let wait = request
@@ -1785,6 +2336,7 @@ impl Shell {
                 start,
                 pause,
                 after: None,
+                fresh: None,
                 wait,
                 budget,
             })
@@ -2121,6 +2673,7 @@ impl Shell {
                     start: false,
                     pause: None,
                     after: Some((generation, stop)),
+                    fresh: None,
                     wait,
                     budget,
                 })
@@ -2332,6 +2885,87 @@ impl Shell {
                 }
                 Some(Followup::ExceptionInfo { thread })
             }
+            // Brief 0027: attach, processes, restart and who may drive.
+            DebugRequest::Attach {
+                target: AttachTarget::Dialog,
+                ..
+            } => {
+                if agent {
+                    return Err(CommandError::Failed(
+                        "name the process to attach to: `pid` or `process_name` (eludite.debug.processes lists the \
+                         candidates)"
+                            .into(),
+                    ));
+                }
+                self.open_attach_dialog(window, cx);
+                None
+            }
+            DebugRequest::Attach {
+                target,
+                adapter,
+                transport,
+                mono,
+                ..
+            } => {
+                self.debug_attach(target, adapter, transport, mono, &driver, cx);
+                settle(true, None)
+            }
+            DebugRequest::Processes { filter } => {
+                let roots = self
+                    .debug
+                    .launched
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                if agent {
+                    return Ok((
+                        DebugOutput::Processes(ProcessesOutput::default()),
+                        Some(Followup::Processes { filter, roots }),
+                    ));
+                }
+                // The UI thread never waits: the listing comes back as a message (the dialog shows it); the answer
+                // is the last one.
+                self.debug.list_processes_later(filter, roots);
+                let out = self.debug.processes.clone().unwrap_or_default();
+                return Ok((DebugOutput::Processes(out), None));
+            }
+            DebugRequest::Restart { .. } => {
+                let generation = self.debug.model.generation;
+                let fresh = self.debug_restart(&driver, window, cx)?;
+                (agent && !wait.is_zero()).then_some(Followup::Settle {
+                    start: true,
+                    pause: None,
+                    after: None,
+                    fresh: fresh.then_some(generation),
+                    wait,
+                    budget,
+                })
+            }
+            DebugRequest::AllowAgents { enabled } => {
+                let m = &mut self.debug.model;
+                m.agents_allowed = enabled;
+                if m.mode == Mode::Design {
+                    m.agents_next = Some(enabled);
+                } else {
+                    let line = if enabled {
+                        "Agents may drive this session."
+                    } else {
+                        "Agents may not drive this session (Debug > Allow Agents to Drive)."
+                    };
+                    self.debug.console_line(line);
+                }
+                self.refresh_debug(cx);
+                let m = &self.debug.model;
+                return Ok((
+                    DebugOutput::AllowAgents(AllowAgentsOutput {
+                        agents_allowed: m.agents_allowed,
+                        default: m.agents_default,
+                        mode: m.mode.as_str().into(),
+                    }),
+                    None,
+                ));
+            }
+
             DebugRequest::Wait { until, stop, .. } => {
                 let m = &self.debug.model;
                 let baseline = budget
@@ -2372,6 +3006,14 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Restart starts this again (brief 0027).
+        self.debug.last_start = Some(StartArgs {
+            project: project.clone(),
+            debug,
+            profile: profile.clone(),
+            build,
+            cargo: self.debug.cargo_options.clone(),
+        });
         // Build first (brief 0020): a .NET solution's projects, or the open folder's Cargo packages (brief 0029).
         let build = build.unwrap_or(self.builds.build_before_run)
             && (self.solution.is_some() || self.cargo_workspace().is_some());
@@ -2434,6 +3076,227 @@ impl Shell {
         })
         .detach();
         self.refresh_debug(cx);
+    }
+
+    /// Attach to a running process (brief 0027): a session in mode `launching` whose handshake (`attach`) runs on a
+    /// `debug-attach` thread. Ctrl+F5's program, if one runs, keeps running: it may be the process attached to.
+    fn debug_attach(
+        &mut self,
+        target: AttachTarget,
+        adapter: Option<String>,
+        transport: Option<(String, u16)>,
+        mono: Option<(String, u16)>,
+        driver: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let d = &mut self.debug;
+        if let Some(run) = d.run.take() {
+            d.background_runs.push(run);
+        }
+        d.model.begin(Mode::Launching, driver);
+        d.timings = DebugTimings {
+            start: Some(Instant::now()),
+            ..DebugTimings::default()
+        };
+        d.model.console.clear();
+        d.console_partial.clear();
+        d.output_queue.clear();
+        d.output_clear = true;
+        d.pending.clear();
+        d.caps = Capabilities::default();
+        d.run_to_cursor = None;
+        d.early_breakpoints.clear();
+        d.trace_hits.clear();
+        d.goto_error = None;
+        d.console_partial_adapter.clear();
+        d.restart_pending = None;
+        let what = match &target {
+            AttachTarget::Pid(pid) => format!("process {pid}"),
+            AttachTarget::Name(name) => format!("`{name}`"),
+            AttachTarget::Dialog => String::new(),
+        };
+        d.console_line(format!("Attaching to {what}\u{2026}"));
+        let breakpoints = d
+            .model
+            .breakpoints
+            .files()
+            .into_iter()
+            .map(|f| {
+                let (_, sbps) = d
+                    .model
+                    .breakpoints
+                    .source_breakpoints(&f, false, false, None);
+                (f, sbps)
+            })
+            .collect();
+        let job = AttachJob {
+            generation: d.model.generation,
+            target,
+            adapter,
+            transport,
+            mono,
+            breakpoints,
+            functions: d.model.breakpoints.function_breakpoints(false).1,
+            exceptions: exception_plan(&d.model.exceptions),
+            setup: d.setup.clone(),
+            native: native::NativeJob {
+                setup: d.native.clone(),
+                cargo: None,
+                options: cmds::CargoOptions::default(),
+                rust_panics: d.model.exceptions.break_on_rust_panic,
+            },
+            tx: d.tx.clone(),
+        };
+        std::thread::Builder::new()
+            .name("debug-attach".into())
+            .spawn(move || attach_thread(job))
+            .expect("spawn debug-attach");
+        self.show_debug_windows();
+        self.output
+            .update(cx, |o, cx| o.select(OutputSource::Debug, cx));
+        self.refresh_glyphs(cx);
+    }
+
+    /// Restart (brief 0027): DAP `restart` where the adapter has it, else stop and start the last start again once the
+    /// session has ended. Returns whether it stops and starts (a new session generation follows).
+    fn debug_restart(
+        &mut self,
+        driver: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<bool, CommandError> {
+        let d = &mut self.debug;
+        if d.client.is_some() && d.caps.supports_restart_request {
+            let generation = d.generation();
+            d.send("restart", json!({}), Pending::Restart { generation })?;
+            d.model.resume(driver);
+            d.exec = None;
+            d.console_line("Restarting\u{2026}");
+            self.apply_exec(cx);
+            self.refresh_debug(cx);
+            return Ok(false);
+        }
+        let Some(start) = d.last_start.clone() else {
+            return Err(CommandError::Failed(
+                "this session cannot be restarted: Eludite did not start it".into(),
+            ));
+        };
+        d.restart_pending = Some((start, driver.to_owned()));
+        d.console_line("Restarting: stopping the session first\u{2026}");
+        self.debug_stop(driver, window, cx);
+        self.maybe_restart(window, cx);
+        Ok(true)
+    }
+
+    /// A restart waiting for its session to end: start it now that it has.
+    fn maybe_restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.debug.model.mode != Mode::Design {
+            return;
+        }
+        let Some((start, driver)) = self.debug.restart_pending.take() else {
+            return;
+        };
+        self.debug.cargo_options = start.cargo;
+        self.debug_start(
+            start.project,
+            start.debug,
+            start.profile,
+            start.build,
+            &driver,
+            window,
+            cx,
+        );
+    }
+
+    /// Debug > Attach to Process... (Ctrl+Alt+P): the dialog, with a fresh listing.
+    pub(super) fn open_attach_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let dialog = match &self.debug.attach_dialog {
+            Some(d) => d.clone(),
+            None => {
+                let theme = self.theme;
+                let d = cx.new(|cx| windows::AttachDialog::new(theme, cx));
+                cx.subscribe_in(&d, window, Self::on_attach_event).detach();
+                self.debug.attach_dialog = Some(d.clone());
+                d
+            }
+        };
+        if let Some(out) = &self.debug.processes {
+            let rows = out.processes.clone();
+            dialog.update(cx, |d, cx| d.set_rows(rows, None, cx));
+        }
+        gpui::Focusable::focus_handle(dialog.read(cx), cx).focus(window, cx);
+        let filter = dialog.read(cx).filter_text();
+        self.run(
+            cmds::PROCESSES,
+            match filter {
+                Some(f) => json!({ "filter": f }),
+                None => json!({}),
+            },
+            window,
+            cx,
+        );
+        cx.notify();
+    }
+
+    pub(super) fn close_attach_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.debug.attach_dialog.take().is_some() {
+            self.focus.focus(window, cx);
+            cx.notify();
+        }
+    }
+
+    /// The dialog's Refresh and Attach run `eludite.debug.processes` and `eludite.debug.attach` through the bus.
+    fn on_attach_event(
+        &mut self,
+        _: &gpui::Entity<windows::AttachDialog>,
+        event: &windows::AttachEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            windows::AttachEvent::Refresh { filter } => self.run(
+                cmds::PROCESSES,
+                match filter {
+                    Some(f) => json!({ "filter": f }),
+                    None => json!({}),
+                },
+                window,
+                cx,
+            ),
+            windows::AttachEvent::Attach { pid } => {
+                let pid = *pid;
+                self.close_attach_dialog(window, cx);
+                self.run(cmds::ATTACH, json!({ "pid": pid }), window, cx);
+            }
+            windows::AttachEvent::Close => self.close_attach_dialog(window, cx),
+        }
+    }
+
+    /// The status bar's Allow Agents to Drive toggle while a session runs (brief 0027).
+    pub(super) fn debug_status_controls(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        use gpui::{IntoElement as _, StatefulInteractiveElement as _};
+        let m = &self.debug.model;
+        if m.mode == Mode::Design {
+            return Vec::new();
+        }
+        let allowed = m.agents_allowed;
+        vec![
+            eludite_ui::status_toggle(
+                DEBUG_AGENTS_TOGGLE,
+                "Allow agents to drive",
+                allowed,
+                &self.theme,
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.run(
+                    cmds::ALLOW_AGENTS,
+                    json!({ "enabled": !allowed }),
+                    window,
+                    cx,
+                )
+            }))
+            .into_any_element(),
+        ]
     }
 
     /// The solution's project files, as the Workspace tree lists them.
@@ -2719,10 +3582,17 @@ impl Shell {
             return;
         }
         if d.client.is_some() {
+            // An attached session detaches: the process keeps running, and the session ends with the answer (an
+            // adapter may stay up after detaching; brief 0027).
+            let attached = d.model.attached();
             let _ = d.send(
                 "disconnect",
-                json!({ "terminateDebuggee": true }),
-                Pending::Other,
+                json!({ "terminateDebuggee": !attached }),
+                if attached {
+                    Pending::Detach { generation }
+                } else {
+                    Pending::Other
+                },
             );
         } else if was == Mode::Launching {
             // Connected or LaunchFailed will see Stopping and end the session.
@@ -3404,11 +4274,12 @@ impl Shell {
             .map(|n| n.trim_end_matches(".csproj").to_owned())
             .unwrap_or_default();
         // While an agent's command drove the debuggee last, the slot says so (proposal 0001 section 7).
-        let driving = if m.agent_driving() {
-            ", agent driving"
-        } else {
-            ""
+        let driving = match (m.agent_driving(), m.agents_allowed) {
+            (_, false) => ", agents not allowed",
+            (true, true) => ", agent driving",
+            (false, true) => "",
         };
+        d.menu.update(m);
         let status = match m.mode {
             Mode::Design => m.message.clone().unwrap_or_default(),
             Mode::Building => "Debugging: building before starting\u{2026}".to_owned(),
@@ -3485,8 +4356,21 @@ impl Shell {
             );
         }
         trace(format_args!("debug ended {message:?}"));
+        // An attached session that ends without the process exiting detached from it (brief 0027).
+        let detached = (d.model.attached() && d.model.exit_code.is_none() && message.is_none())
+            .then(|| {
+                let s = d.model.session.as_ref().expect("attached");
+                format!(
+                    "Detached from {} (process {}); it keeps running.",
+                    s.project,
+                    s.process_id.unwrap_or_default()
+                )
+            });
+        if let Some(m) = &detached {
+            d.console_line(m.clone());
+        }
         d.model.end();
-        d.model.message = message;
+        d.model.message = detached.or(message);
         self.apply_exec(cx);
         self.refresh_glyphs(cx);
     }
@@ -3501,6 +4385,7 @@ impl Shell {
         for msg in batch {
             self.on_debug_msg(msg, window, cx);
         }
+        self.maybe_restart(window, cx);
         self.refresh_debug(cx);
     }
 
@@ -3538,8 +4423,16 @@ impl Shell {
                     },
                     session.args.join(" ")
                 ));
+                let pid = session.process_id.and_then(|p| u32::try_from(p).ok());
                 self.debug.model.session = Some(session);
                 if let Some(run) = run {
+                    if let Some(pid) = pid {
+                        self.debug
+                            .launched
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(pid);
+                    }
                     self.debug.run = Some(run.clone());
                     if self.debug.model.mode == Mode::Stopping {
                         if let Some(c) = run.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
@@ -3670,6 +4563,22 @@ impl Shell {
             DebugMsg::Client { generation, event } if generation == current => {
                 self.on_client_event(event, window, cx)
             }
+            DebugMsg::Processes { listing } => match listing {
+                Ok(out) => {
+                    if let Some(dialog) = self.debug.attach_dialog.clone() {
+                        let rows = out.processes.clone();
+                        dialog.update(cx, |d, cx| d.set_rows(rows, None, cx));
+                    }
+                    self.debug.processes = Some(out);
+                }
+                Err(e) => {
+                    if let Some(dialog) = self.debug.attach_dialog.clone() {
+                        dialog.update(cx, |d, cx| {
+                            d.set_rows(Vec::new(), Some(format!("Cannot list processes: {e}")), cx)
+                        });
+                    }
+                }
+            },
             _ => {}
         }
     }
@@ -3748,6 +4657,15 @@ impl Shell {
                 trace(format_args!("debug process {:?}", p.system_process_id));
                 if let Some(s) = d.model.session.as_mut() {
                     s.process_id = p.system_process_id;
+                    // The debuggee F5 started is Eludite's (brief 0027); an attached one is not.
+                    if !s.attached
+                        && let Some(pid) = p.system_process_id.and_then(|p| u32::try_from(p).ok())
+                    {
+                        d.launched
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(pid);
+                    }
                 }
             }
             Event::Breakpoint(b) => {
@@ -4162,6 +5080,33 @@ impl Shell {
                          answer arrived; read it again"
                     ))
                 });
+            }
+            Pending::Detach { generation } if generation == current => {
+                if let Err(e) = &result {
+                    self.debug.console_line(format!("disconnect: {e}"));
+                }
+                if self.debug.model.mode != Mode::Design {
+                    self.end_session(None, cx);
+                }
+            }
+            Pending::Restart { generation } if generation == current => {
+                if let Err(e) = result {
+                    // The adapter could not restart: stop and start instead.
+                    self.debug
+                        .console_line(format!("restart: {e}; stopping and starting again"));
+                    if let Some(start) = self.debug.last_start.clone() {
+                        let driver = self
+                            .debug
+                            .model
+                            .last_driver
+                            .clone()
+                            .unwrap_or_else(|| "user".into());
+                        self.debug.restart_pending = Some((start, driver.clone()));
+                        self.debug_stop(&driver, window, cx);
+                    }
+                } else {
+                    self.debug.console_line("Restarted.");
+                }
             }
             Pending::Resume { generation, stop } if generation == current => {
                 if let Err(e) = result {
@@ -5286,15 +6231,42 @@ impl Reader {
     }
 }
 
-/// What an agent's command waited for, then its answer (brief 0025).
+/// The summary an agent's interrupted wait answers with (proposal 0001 rule 5): the state the person caused, at once.
+/// The agent's next driving command is stale until it reads the state.
+fn interrupted(s: &mut Shell, budget: &Budget) -> StopSummary {
+    let d = &mut s.debug;
+    d.agent_stale = true;
+    d.timings.interrupt_answered = Some(Instant::now());
+    let mut summary = d.model.summary(budget);
+    summary.interrupted_by = Some("user".into());
+    summary
+}
+
+/// What an agent's command waited for, then its answer (brief 0025). `epoch` is [`Debugger::interrupt`] when the
+/// command was applied: a command of the person's since ends a wait (brief 0027).
 async fn follow_up(
     this: WeakEntity<Shell>,
     cx: &mut AsyncWindowContext,
     out: DebugOutput,
     follow: Followup,
+    epoch: u64,
 ) -> Outcome {
     let closed = || CommandError::Failed(WINDOW_CLOSED.into());
     match follow {
+        Followup::Processes { filter, roots } => {
+            let (tx, rx) = oneshot::channel();
+            std::thread::Builder::new()
+                .name("debug-attach".into())
+                .spawn(move || {
+                    let _ = tx.send(list_processes(filter.as_deref(), &roots));
+                })
+                .map_err(|e| CommandError::Failed(e.to_string()))?;
+            match rx.await {
+                Ok(Ok(out)) => Ok(DebugOutput::Processes(out)),
+                Ok(Err(e)) => Err(CommandError::Failed(format!("cannot list processes: {e}"))),
+                Err(_) => Err(CommandError::Failed("the process listing failed".into())),
+            }
+        }
         Followup::Eval(rx) => {
             let timer = real_timer(AGENT_WAIT);
             Ok(match futures::future::select(rx, timer).await {
@@ -5314,11 +6286,20 @@ async fn follow_up(
             start,
             pause,
             after,
+            fresh,
             wait,
             budget,
         } => {
             let deadline = Instant::now() + wait;
             let settled = loop {
+                let cut = this
+                    .update(cx, |s, _| {
+                        (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                    })
+                    .map_err(|_| closed())?;
+                if let Some(summary) = cut {
+                    return Ok(DebugOutput::Summary(Box::new(summary)));
+                }
                 let (done, failed, waiter) = this
                     .update(cx, |s, _| {
                         let failed = pause
@@ -5342,7 +6323,12 @@ async fn follow_up(
                             let m = &s.debug.model;
                             m.generation != g || m.mode == Mode::Design || m.stop > st
                         });
-                        let done = moved && s.debug_settled(start);
+                        // A restart that stops and starts answers in the new session (or once it fails to start).
+                        let renewed = fresh.is_none_or(|g| {
+                            let m = &s.debug.model;
+                            m.generation > g && s.debug.restart_pending.is_none()
+                        });
+                        let done = moved && renewed && s.debug_settled(start);
                         // A waiter only while waiting: none is left behind once the command answers.
                         let waiter = (!done && failed.is_none()).then(|| s.debug_waiter());
                         (done, failed, waiter)
@@ -5373,7 +6359,14 @@ async fn follow_up(
             let stopped_by = loop {
                 let (ended, waiter) = this
                     .update(cx, |s, _| {
-                        let ended = s.debug.trace_ended();
+                        // The person resumed, paused, stopped or restarted: the trace answers what it has.
+                        let ended = if s.debug.interrupt != epoch {
+                            s.debug.agent_stale = true;
+                            s.debug.timings.interrupt_answered = Some(Instant::now());
+                            Some("interrupted")
+                        } else {
+                            s.debug.trace_ended()
+                        };
                         (ended, ended.is_none().then(|| s.debug_waiter()))
                     })
                     .map_err(|_| closed())?;
@@ -5425,7 +6418,7 @@ async fn follow_up(
                 .set_value(cx, thread, frame, &name, &value)
                 .await
                 .map_err(CommandError::Failed)?;
-            Box::pin(follow_up(this, cx, out, Followup::SetValue(rx))).await
+            Box::pin(follow_up(this, cx, out, Followup::SetValue(rx), epoch)).await
         }
         Followup::Ended { wait } => {
             let deadline = Instant::now() + wait;
@@ -5454,6 +6447,14 @@ async fn follow_up(
         } => {
             let deadline = Instant::now() + wait;
             let satisfied = loop {
+                let cut = this
+                    .update(cx, |s, _| {
+                        (s.debug.interrupt != epoch).then(|| interrupted(s, &budget))
+                    })
+                    .map_err(|_| closed())?;
+                if let Some(summary) = cut {
+                    return Ok(DebugOutput::Summary(Box::new(summary)));
+                }
                 let (holds, waiter) = this
                     .update(cx, |s, _| {
                         let holds = wait_satisfied(&s.debug.model, until, stop, baseline);

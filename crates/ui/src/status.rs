@@ -2,7 +2,10 @@
 //! as in Visual Studio (PLAN.md 8: build/debug state, line/column, encoding,
 //! line endings, branch, host memory).
 
-use gpui::{Div, IntoElement, ParentElement, SharedString, Styled, div};
+use gpui::{
+    AnyElement, Div, InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
+    Styled, div,
+};
 
 use crate::theme::Theme;
 
@@ -103,6 +106,11 @@ impl StatusBar {
     }
 
     pub fn render(&self, theme: &Theme) -> Div {
+        self.render_with(theme, Vec::new())
+    }
+
+    /// [`StatusBar::render`] with controls after the left slots (the debugger's Allow Agents to Drive toggle).
+    pub fn render_with(&self, theme: &Theme, left_controls: Vec<AnyElement>) -> Div {
         let ty = theme.typography;
         let slot = |s: &StatusSlot| div().px_2().child(s.text.clone()).into_any_element();
         div()
@@ -120,7 +128,9 @@ impl StatusBar {
                 div()
                     .flex()
                     .flex_row()
-                    .children(self.visible(SlotAlign::Left).map(slot)),
+                    .items_center()
+                    .children(self.visible(SlotAlign::Left).map(slot))
+                    .children(left_controls),
             )
             .child(
                 div()
@@ -129,6 +139,30 @@ impl StatusBar {
                     .children(self.visible(SlotAlign::Right).map(slot)),
             )
     }
+}
+
+/// A two-state control in the status bar (brief 0027: Allow Agents to Drive while debugging): its label with a box
+/// that is checked while `on`. The caller adds the click handler.
+pub fn status_toggle(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    on: bool,
+    theme: &Theme,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let selector = id.clone();
+    div()
+        .id(id)
+        .debug_selector(move || selector.to_string())
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .px_2()
+        .cursor_pointer()
+        .hover(|s| s.bg(theme.menu_hover))
+        .child(if on { "\u{2611}" } else { "\u{2610}" })
+        .child(label.into())
 }
 
 impl Default for StatusBar {

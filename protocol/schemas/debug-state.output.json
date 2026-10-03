@@ -19,7 +19,7 @@
   "additionalProperties": false,
   "properties": {
     "mode": {
-      "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
+      "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting (or the adapter is attaching, eludite.debug.attach). `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
       "enum": [
         "design",
         "building",
@@ -52,11 +52,11 @@
       "additionalProperties": false,
       "properties": {
         "project": {
-          "description": "The project file (a Cargo package's Cargo.toml).",
+          "description": "The project file (a Cargo package's Cargo.toml); for an attached session, the process's name.",
           "type": "string"
         },
         "program": {
-          "description": "The program run: the built DLL of a .NET (Core) project, the built .exe of a .NET Framework project, the executable of a Cargo package's binary target or test executable (from cargo's compiler-artifact message).",
+          "description": "The program run: the built DLL of a .NET (Core) project, the built .exe of a .NET Framework project, the executable of a Cargo package's binary target or test executable (from cargo's compiler-artifact message). For an attached session, the process's program (its command line's first argument).",
           "type": "string"
         },
         "args": {
@@ -91,6 +91,10 @@
         "process_id": {
           "type": "integer",
           "minimum": 0
+        },
+        "attached": {
+          "description": "The session attached to a running process (eludite.debug.attach): Stop detaches and the process keeps running; Restart is refused. Absent for a launch.",
+          "type": "boolean"
         }
       }
     },
@@ -432,6 +436,10 @@
     },
     "agent_driving": {
       "description": "True when the last command that started, resumed or paused the debuggee came from an agent (`last_driver` starts with `agent:`); the status bar slot then ends with `, agent driving`.",
+      "type": "boolean"
+    },
+    "agents_allowed": {
+      "description": "Whether agents may drive the session (Debug > Allow Agents to Drive, eludite.debug.allow_agents): while false, agents' commands that start, resume or change the session are refused and their reads keep working. Each session starts with the setting debugger.allowAgentsByDefault.",
       "type": "boolean"
     }
   },

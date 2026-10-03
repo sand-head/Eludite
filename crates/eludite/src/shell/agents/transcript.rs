@@ -3,6 +3,11 @@
 //! changes). Tool calls fold every `tool_call_update`, their permission request, the Eludite MCP call that served them
 //! (with its audit entry) and the pending changes they produced into one row.
 //!
+//! Brief 0027: an agent's debug command (`eludite.debug.*`) reads as the person would see it in the Debug toolbar and
+//! the status bar ([`debug_line`]): `Step Over → stopped at Program.cs:42 (breakpoint)`, `Continue → exited (0)`,
+//! `Run Until → interrupted by you`, a refusal as `Continue → refused: …`; the stop's location opens the file at the
+//! line, and the summary the agent received is folded under it until expanded.
+//!
 //! Brief 0024: a tool call whose result carries images (an `eludite.browser.screenshot` the agent took, or image
 //! content in the agent's own tool results) shows them as thumbnails in its row ([`Thumb`], at most
 //! [`THUMB_WIDTH`] pixels wide, decoded and scaled off the UI thread by [`decode_thumb`]).
@@ -45,6 +50,192 @@ pub struct McpLink {
     pub ms: f64,
     /// The audit entry.
     pub audit: u64,
+    /// An `eludite.debug.*` command, as the Debug toolbar and the status bar would say it (brief 0027).
+    pub debug: Option<DebugLine>,
+}
+
+/// An agent's debug command in one line (brief 0027): the action and its result, and where it stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebugLine {
+    pub text: String,
+    /// The stop's file and line, which the row opens.
+    pub location: Option<(String, u32)>,
+}
+
+/// The Debug menu's name for debug command `id` (`Start Without Debugging` for `start` with `debug: false`).
+fn debug_action(id: &str, arguments: &Value) -> String {
+    use eludite_commands::debug as d;
+    let name = match id {
+        d::START if arguments.get("debug") == Some(&Value::Bool(false)) => {
+            "Start Without Debugging"
+        }
+        d::START => "Start Debugging",
+        d::STOP => "Stop Debugging",
+        d::CONTINUE => "Continue",
+        d::STEP_OVER => "Step Over",
+        d::STEP_INTO => "Step Into",
+        d::STEP_OUT => "Step Out",
+        d::RUN_TO_CURSOR => "Run To Cursor",
+        d::PAUSE => "Break All",
+        d::RESTART => "Restart",
+        d::ATTACH => "Attach to Process",
+        d::RUN_UNTIL => "Run Until",
+        d::TRACE => "Trace",
+        d::SET_VARIABLE => "Set Value",
+        d::SET_NEXT_STATEMENT => "Set Next Statement",
+        d::TOGGLE_BREAKPOINT => "Toggle Breakpoint",
+        d::EVALUATE => "Evaluate",
+        d::SNAPSHOT => "Snapshot",
+        d::WAIT => "Wait",
+        d::STACK => "Call Stack",
+        d::VARIABLES => "Variables",
+        d::OUTPUT => "Output",
+        d::EXCEPTION_INFO => "Exception Information",
+        d::PROCESSES => "Processes",
+        d::ALLOW_AGENTS => "Allow Agents to Drive",
+        d::STATE => "Debugger State",
+        d::SELECT_FRAME => "Switch To Frame",
+        d::WATCH => "Watch",
+        d::EXCEPTION_SETTINGS => "Exception Settings",
+        other => other.rsplit('.').next().unwrap_or(other),
+    };
+    name.to_owned()
+}
+
+/// A stop summary's or state's result as the status bar says it, with where it stopped.
+fn summary_result(v: &Value) -> (String, Option<(String, u32)>) {
+    if v.get("interrupted_by").and_then(Value::as_str) == Some("user") {
+        return ("interrupted by you".into(), None);
+    }
+    let mode = v.get("mode").and_then(Value::as_str).unwrap_or_default();
+    match mode {
+        "break" => {
+            let stopped = &v["stopped"];
+            let reason = stopped["reason"].as_str().unwrap_or("break");
+            let at = stopped
+                .pointer("/location/path")
+                .and_then(Value::as_str)
+                .zip(stopped.pointer("/location/line").and_then(Value::as_u64));
+            match at {
+                Some((path, line)) => {
+                    let name = std::path::Path::new(path)
+                        .file_name()
+                        .map_or(path.to_owned(), |n| n.to_string_lossy().into_owned());
+                    (
+                        format!("stopped at {name}:{line} ({reason})"),
+                        Some((path.to_owned(), line as u32)),
+                    )
+                }
+                None => (format!("stopped ({reason})"), None),
+            }
+        }
+        "design" => match v.get("exit_code").and_then(Value::as_i64) {
+            Some(code) => (format!("exited ({code})"), None),
+            None => ("ended".into(), None),
+        },
+        "running" if v.get("timed_out") == Some(&Value::Bool(true)) => {
+            ("still running".into(), None)
+        }
+        "" => ("done".into(), None),
+        other => (other.replace('_', " "), None),
+    }
+}
+
+/// How an agent's call of debug command `command` reads in its row (brief 0027); `None` for other commands.
+pub fn debug_line(
+    command: &str,
+    arguments: &Value,
+    outcome: &Result<Value, String>,
+) -> Option<DebugLine> {
+    use eludite_commands::debug as d;
+    if !command.starts_with("eludite.debug.") {
+        return None;
+    }
+    let action = debug_action(command, arguments);
+    let (result, location) = match outcome {
+        Err(e) => {
+            let e = e
+                .strip_prefix("command failed: ")
+                .unwrap_or(e)
+                .lines()
+                .next()
+                .unwrap_or_default();
+            (format!("refused: {e}"), None)
+        }
+        Ok(v) => match command {
+            d::TRACE => {
+                let lines = v["lines"].as_array().map_or(0, Vec::len);
+                let lines = format!("{lines} line{}", if lines == 1 { "" } else { "s" });
+                match v["stopped_by"].as_str().unwrap_or_default() {
+                    "interrupted" => ("interrupted by you".into(), None),
+                    "terminated" => match v["exit_code"].as_i64() {
+                        Some(c) => (format!("{lines}, exited ({c})"), None),
+                        None => (format!("{lines}, ended"), None),
+                    },
+                    "stopped" => {
+                        let (s, at) = summary_result(&v["summary"]);
+                        (format!("{lines}, {s}"), at)
+                    }
+                    "hits" => (format!("{lines}, hit count reached"), None),
+                    other => (format!("{lines}, {other}"), None),
+                }
+            }
+            d::EVALUATE => match v["state"].as_str() {
+                Some("failed") => (
+                    format!("failed: {}", v["message"].as_str().unwrap_or_default()),
+                    None,
+                ),
+                _ => (
+                    format!(
+                        "{} = {}",
+                        v["expression"].as_str().unwrap_or_default(),
+                        v["result"].as_str().unwrap_or("…")
+                    ),
+                    None,
+                ),
+            },
+            d::SET_VARIABLE => (
+                format!(
+                    "{} = {}",
+                    v["name"].as_str().unwrap_or_default(),
+                    v["value"].as_str().unwrap_or_default()
+                ),
+                None,
+            ),
+            d::PROCESSES => (
+                format!("{} processes", v["total"].as_u64().unwrap_or_default()),
+                None,
+            ),
+            d::ALLOW_AGENTS => (
+                if v["agents_allowed"] == Value::Bool(true) {
+                    "agents allowed".into()
+                } else {
+                    "agents not allowed".into()
+                },
+                None,
+            ),
+            // The commands that answer the whole state change what the debugger shows, not where it is.
+            d::TOGGLE_BREAKPOINT
+            | d::WATCH
+            | d::SELECT_FRAME
+            | d::EXCEPTION_SETTINGS
+            | d::STATE => ("done".into(), None),
+            d::STOP => (
+                match v["session"]["attached"].as_bool() {
+                    _ if v["mode"] == "design" => "ended".into(),
+                    Some(true) => "detaching".into(),
+                    _ => "stopping".into(),
+                },
+                None,
+            ),
+            _ if v.get("mode").is_some() => summary_result(v),
+            _ => ("done".into(), None),
+        },
+    };
+    Some(DebugLine {
+        text: format!("{action} \u{2192} {result}"),
+        location,
+    })
 }
 
 /// The widest a thumbnail is, in pixels.
@@ -140,6 +331,8 @@ pub struct ToolRow {
     pub audit: Option<u64>,
     /// Images its result carried, as thumbnails.
     pub images: Vec<Thumb>,
+    /// A debug command's result (the summary the agent received) is shown (brief 0027; folded by default).
+    pub expanded: bool,
 }
 
 impl ToolRow {
@@ -358,8 +551,16 @@ impl Transcript {
             changes: Vec::new(),
             audit: None,
             images: Vec::new(),
+            expanded: false,
         })));
         ix
+    }
+
+    /// Show or fold the result of the debug command in row `ix` (brief 0027).
+    pub fn toggle_result(&mut self, ix: usize) {
+        if let Some(row) = self.tool_mut(ix) {
+            row.expanded = !row.expanded;
+        }
     }
 
     /// The row of `call`, made if it was not announced.
@@ -643,6 +844,12 @@ impl Transcript {
                         "status": t.status().label(), "arguments": t.call.raw_input,
                         "result": t.call.content_text(), "note": t.note()
                     });
+                    if let Some(d) = t.mcp.as_ref().and_then(|m| m.debug.as_ref()) {
+                        call["debug"] = json!(d.text);
+                        if let Some((path, line)) = &d.location {
+                            call["debug_location"] = json!({"path": path, "line": line});
+                        }
+                    }
                     if !t.images.is_empty() {
                         call["images"] = t
                             .images
@@ -821,6 +1028,7 @@ pub(crate) mod tests {
                 ok: true,
                 ms: 0.1,
                 audit: 3,
+                debug: None,
             },
         );
         assert_eq!(linked.as_deref(), Some("a"));
@@ -897,5 +1105,91 @@ pub(crate) mod tests {
         );
         let json = t.to_json();
         assert_eq!(json[0]["tool_call"]["status"], "completed");
+    }
+
+    /// Brief 0027: agents' debug commands read as the Debug toolbar and the status bar would say them.
+    #[test]
+    fn debug_commands_read_as_the_debug_toolbar_would() {
+        let stop = json!({"mode": "break", "generation": 1, "stop": 3,
+            "stopped": {"reason": "breakpoint", "thread": 1,
+                        "location": {"path": "/s/src/App/Program.cs", "line": 42, "function": "Main"}}});
+        let l = debug_line("eludite.debug.step_over", &json!({}), &Ok(stop.clone())).unwrap();
+        assert_eq!(
+            l.text,
+            "Step Over \u{2192} stopped at Program.cs:42 (breakpoint)"
+        );
+        assert_eq!(l.location, Some(("/s/src/App/Program.cs".into(), 42)));
+        let exited = json!({"mode": "design", "generation": 1, "stop": 3, "exit_code": 0});
+        assert_eq!(
+            debug_line("eludite.debug.continue", &json!({}), &Ok(exited))
+                .unwrap()
+                .text,
+            "Continue \u{2192} exited (0)"
+        );
+        let cut = json!({"mode": "running", "generation": 1, "stop": 3, "interrupted_by": "user"});
+        let l = debug_line("eludite.debug.run_until", &json!({}), &Ok(cut)).unwrap();
+        assert_eq!(l.text, "Run Until \u{2192} interrupted by you");
+        assert_eq!(l.location, None);
+        let refused = debug_line(
+            "eludite.debug.continue",
+            &json!({}),
+            &Err("command failed: agents are not allowed to drive this session (Debug > Allow Agents to Drive)".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            refused.text,
+            "Continue \u{2192} refused: agents are not allowed to drive this session (Debug > Allow Agents to Drive)"
+        );
+        assert_eq!(
+            debug_line(
+                "eludite.debug.start",
+                &json!({"debug": false}),
+                &Ok(json!({"mode": "running_without_debugging"}))
+            )
+            .unwrap()
+            .text,
+            "Start Without Debugging \u{2192} running without debugging"
+        );
+        assert_eq!(
+            debug_line(
+                "eludite.debug.trace",
+                &json!({}),
+                &Ok(json!({"lines": [{"text": "a"}, {"text": "b"}], "stopped_by": "terminated", "exit_code": 3}))
+            )
+            .unwrap()
+            .text,
+            "Trace \u{2192} 2 lines, exited (3)"
+        );
+        assert_eq!(
+            debug_line(
+                "eludite.debug.trace",
+                &json!({}),
+                &Ok(json!({"lines": [], "stopped_by": "interrupted"}))
+            )
+            .unwrap()
+            .text,
+            "Trace \u{2192} interrupted by you"
+        );
+        assert_eq!(
+            debug_line(
+                "eludite.debug.evaluate",
+                &json!({}),
+                &Ok(json!({"expression": "a + b", "state": "done", "result": "3"}))
+            )
+            .unwrap()
+            .text,
+            "Evaluate \u{2192} a + b = 3"
+        );
+        assert_eq!(
+            debug_line(
+                "eludite.debug.processes",
+                &json!({}),
+                &Ok(json!({"total": 7}))
+            )
+            .unwrap()
+            .text,
+            "Processes \u{2192} 7 processes"
+        );
+        assert!(debug_line("eludite.browser.navigate", &json!({}), &Ok(json!({}))).is_none());
     }
 }
