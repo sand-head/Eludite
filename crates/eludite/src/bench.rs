@@ -2384,6 +2384,27 @@ fn process_tree_memory(root: u32) -> Value {
     })
 }
 
+/// Split each probed frame at the end of the `img` element's paint: (render to the image painted, the image painted to
+/// the end of the present), for the frames whose paint carried a new image (`fresh`) or did not.
+fn split_frames(
+    probe: &RenderProbe,
+    painted: &[(Instant, bool)],
+    fresh: bool,
+) -> (Vec<f64>, Vec<f64>) {
+    let mut draw = Vec::new();
+    let mut present = Vec::new();
+    for (r, pr) in probe.renders.iter().zip(probe.presents.iter()) {
+        if let Some((p, _)) = painted
+            .iter()
+            .find(|(p, f)| *f == fresh && p >= r && p <= pr)
+        {
+            draw.push(ms(p.saturating_duration_since(*r)));
+            present.push(ms(pr.saturating_duration_since(*p)));
+        }
+    }
+    (draw, present)
+}
+
 /// `--bench-browser SECS` (brief 0031): the animation page in a 1600 by 1000 tab of the embedded engine, drawn by the
 /// shell's `BrowserSurface` with `img`. After a 2 s warm-up, records SECS seconds: every frame's cost (DockHost render to
 /// the end of its present, the probe the other benches use), and per uploaded frame the `RenderImage` creation, the
@@ -2458,6 +2479,7 @@ pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
                     (summarize(&frames), frames.len())
                 };
                 let s = stats.borrow().clone();
+                let (draw_fresh, present_fresh) = split_frames(&probe.borrow(), &s.painted, true);
                 let announced = frames.frames_announced() - announced0;
                 let uploads = s.uploads - uploads0;
                 let rss_tab = rss_mib();
@@ -2467,12 +2489,15 @@ pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
                 ex.timer(Duration::from_millis(300)).await;
                 probe.borrow_mut().renders.clear();
                 probe.borrow_mut().presents.clear();
+                stats.borrow_mut().painted.clear();
                 let base_secs = (secs / 2).max(3);
                 let base_started = Instant::now();
                 while base_started.elapsed() < Duration::from_secs(base_secs) {
                     cx.update(|cx| surface.update(cx, |_, cx| cx.notify()));
                     ex.timer(Duration::from_millis(16)).await;
                 }
+                let (draw_base, present_base) =
+                    split_frames(&probe.borrow(), &stats.borrow().painted, false);
                 let (baseline_cost, baseline_frames) = {
                     let p = probe.borrow();
                     let frames: Vec<f64> = p
@@ -2513,11 +2538,18 @@ pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
                     "empty_reads": s.empty_reads - empty0,
                     "shell_frames": n_frames,
                     "frame_cost": frame_cost,
+                    "frame_split": {
+                        "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+                        "render_to_img_painted": summarize(&draw_fresh),
+                        "img_painted_to_present": summarize(&present_fresh),
+                    },
                     "baseline_no_upload": {
                         "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
                         "seconds": base_secs,
                         "shell_frames": baseline_frames,
                         "frame_cost": baseline_cost,
+                        "render_to_img_painted": summarize(&draw_base),
+                        "img_painted_to_present": summarize(&present_base),
                     },
                     "upload": summarize(&s.upload_ms),
                     "img_paint": summarize(&s.paint_ms),
