@@ -1470,6 +1470,7 @@ fn launch_thread(job: LaunchJob) {
         adapter: None,
         runtime: Some(launch::runtime_name(config.kind, platform).to_owned()),
         process_id: None,
+        attached: false,
     };
     // A .NET Framework program off Windows runs under the located Mono, with or without the debugger.
     let needs_mono = config.kind == FrameworkKind::NetFramework && platform != Platform::Windows;
@@ -2331,6 +2332,15 @@ impl Shell {
                     return Err(ui_thread_refusal(cmds::EXCEPTION_INFO));
                 }
                 Some(Followup::ExceptionInfo { thread })
+            }
+            DebugRequest::Attach { .. }
+            | DebugRequest::Processes { .. }
+            | DebugRequest::Restart { .. }
+            | DebugRequest::AllowAgents { .. } => {
+                return Err(CommandError::Failed(format!(
+                    "{} is not available yet",
+                    request.command()
+                )));
             }
             DebugRequest::Wait { until, stop, .. } => {
                 let m = &self.debug.model;

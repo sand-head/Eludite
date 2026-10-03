@@ -230,6 +230,7 @@ impl PolicyStore {
             policy: self.get(),
             workspace,
             launch_urls,
+            ..Default::default()
         }
     }
 
