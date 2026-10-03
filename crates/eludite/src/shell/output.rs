@@ -1,7 +1,8 @@
 //! The Output window (PLAN.md 4.4, brief 0017): Visual Studio's "Show output from" dropdown with five sources, Build
 //! (the build log as `eludite-host` or cargo streams it), Debug (the program's output and the debugger's messages,
 //! brief 0020), Host (`eludite-host`'s own log), Language Servers (the servers the shell runs itself, brief 0019)
-//! and Browser (the browser of `eludite.browser.*`: launch, tabs, navigation failures, console errors, brief 0023),
+//! Browser (the browser of `eludite.browser.*`: launch, tabs, navigation failures, console errors, brief 0023) and
+//! Tests (the test runners' output: eludite-host's MTP and VSTest logs, cargo test's output, brief 0035),
 //! Clear All, and a virtualized, append-only text view.
 //!
 //! - **Storage.** One `String` per source plus the byte offset of each line start, so 100k lines cost their bytes and
@@ -32,7 +33,8 @@ pub const LINES: &str = "output-lines";
 pub const BODY: &str = "output-body";
 pub const PAUSED_LABEL: &str = "output-paused";
 
-/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Debug, 2 Host, 3 Language Servers, 4 Browser).
+/// Debug selector of entry `ix` of the source dropdown (0 Build, 1 Debug, 2 Host, 3 Language Servers, 4 Browser,
+/// 5 Tests).
 pub fn source_item_selector(ix: usize) -> String {
     format!("output-source-{ix}")
 }
@@ -155,6 +157,8 @@ pub struct OutputWindow {
     debug: OutputPane,
     /// Brief 0023: the browser of `eludite.browser.*`.
     browser: OutputPane,
+    /// Brief 0035: the test runners.
+    tests: OutputPane,
     selected: OutputSource,
     scroll: UniformListScrollHandle,
     /// Auto-scroll with new output (false after the user scrolled up, until they are back at the end).
@@ -172,6 +176,7 @@ impl OutputWindow {
             servers: OutputPane::default(),
             debug: OutputPane::default(),
             browser: OutputPane::default(),
+            tests: OutputPane::default(),
             selected: OutputSource::Build,
             scroll: UniformListScrollHandle::new(),
             following: true,
@@ -186,6 +191,7 @@ impl OutputWindow {
             OutputSource::LanguageServers => &self.servers,
             OutputSource::Debug => &self.debug,
             OutputSource::Browser => &self.browser,
+            OutputSource::Tests => &self.tests,
         }
     }
 
@@ -196,6 +202,7 @@ impl OutputWindow {
             OutputSource::LanguageServers => &mut self.servers,
             OutputSource::Debug => &mut self.debug,
             OutputSource::Browser => &mut self.browser,
+            OutputSource::Tests => &mut self.tests,
         }
     }
 
@@ -291,6 +298,7 @@ impl Render for OutputWindow {
             OutputSource::LanguageServers => "Language Servers",
             OutputSource::Debug => "Debug",
             OutputSource::Browser => "Browser",
+            OutputSource::Tests => "Tests",
         };
         let source_button = toggle_button(
             SOURCE_BUTTON,
@@ -310,6 +318,7 @@ impl Render for OutputWindow {
                 OutputSource::Host,
                 OutputSource::LanguageServers,
                 OutputSource::Browser,
+                OutputSource::Tests,
             ]
             .into_iter()
             .enumerate()

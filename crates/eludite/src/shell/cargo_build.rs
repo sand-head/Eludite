@@ -71,6 +71,8 @@ pub struct CargoBuildSpec {
     pub members: Vec<Member>,
     /// `cargo` (tests may point it elsewhere).
     pub program: OsString,
+    /// Build the test executables instead (`cargo test --no-run`, the Test Explorer's build; brief 0035).
+    pub tests: bool,
 }
 
 impl CargoBuildSpec {
@@ -81,6 +83,9 @@ impl CargoBuildSpec {
     /// The arguments of one cargo invocation (`build` or `clean`).
     pub fn args(&self, subcommand: &str) -> Vec<String> {
         let mut args = vec![subcommand.to_owned()];
+        if subcommand == "build" && self.tests {
+            args = vec!["test".into(), "--no-run".into()];
+        }
         if subcommand == "build" {
             args.push("--message-format=json-diagnostic-rendered-ansi".into());
         }
@@ -125,7 +130,7 @@ impl CargoRun {
 }
 
 #[cfg(unix)]
-fn kill_tree(pid: u32) {
+pub(super) fn kill_tree(pid: u32) {
     // cargo runs in its own process group (`process_group(0)`), so the group id is its pid.
     let _ = Command::new("kill")
         .args(["-KILL", "--", &format!("-{pid}")])
@@ -136,7 +141,7 @@ fn kill_tree(pid: u32) {
 }
 
 #[cfg(windows)]
-fn kill_tree(pid: u32) {
+pub(super) fn kill_tree(pid: u32) {
     let _ = Command::new("taskkill")
         .args(["/T", "/F", "/PID", &pid.to_string()])
         .stdin(Stdio::null())
@@ -718,6 +723,7 @@ mod tests {
             release: true,
             members: members(),
             program: "cargo".into(),
+            tests: false,
         };
         assert_eq!(
             spec.args("build"),
@@ -737,5 +743,19 @@ mod tests {
              --message-format=json-diagnostic-rendered-ansi --manifest-path /w/ws/Cargo.toml -p app --release"
         );
         assert_eq!(spec.configuration(), "Release");
+        // The Test Explorer's build (brief 0035): the test executables.
+        let tests = CargoBuildSpec {
+            tests: true,
+            kind: BuildKind::Build,
+            ..spec
+        };
+        assert_eq!(
+            tests.args("build")[..3],
+            [
+                "test",
+                "--no-run",
+                "--message-format=json-diagnostic-rendered-ansi"
+            ]
+        );
     }
 }

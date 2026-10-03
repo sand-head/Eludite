@@ -291,8 +291,8 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
         w.applied(|a| a.build_on_save) == Some(false)
     });
 
-    // A text box: Agents, Default agent.
-    w.click(&section_selector(4));
+    // A text box: Agents, Default agent (after Test > General, brief 0035).
+    w.click(&section_selector(5));
     w.click(&setting_selector("agents.default"));
     w.vcx.simulate_keystrokes("G e m i n i enter");
     w.wait("the default agent", |w| {

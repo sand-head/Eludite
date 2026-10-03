@@ -131,6 +131,30 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         // Debug.Restart and Debug.AttachToProcess (brief 0027): Ctrl+Shift+F5 and Ctrl+Alt+P (the dialog).
         command("ctrl-shift-f5", "Ctrl+Shift+F5", "eludite.debug.restart"),
         command("ctrl-alt-p", "Ctrl+Alt+P", "eludite.debug.attach"),
+        // Test (brief 0035): TestExplorer.ShowTestExplorer (Ctrl+E, T), TestExplorer.RunAllTests (Ctrl+R, A),
+        // TestExplorer.DebugAllTests (Ctrl+R, Ctrl+A), TestExplorer.RunAllTestsInContext (Ctrl+R, T),
+        // TestExplorer.DebugAllTestsInContext (Ctrl+R, Ctrl+T) and TestExplorer.RepeatLastRun (Ctrl+R, L).
+        command("ctrl-e t", "Ctrl+E, T", "eludite.test.explorer"),
+        command("ctrl-r a", "Ctrl+R, A", "eludite.test.run"),
+        command("ctrl-r ctrl-a", "Ctrl+R, Ctrl+A", "eludite.test.debug"),
+        KeyBindingSpec {
+            keystrokes: "ctrl-r t",
+            display: "Ctrl+R, T",
+            command: "eludite.test.run",
+            args: json!({ "selection": true }),
+        },
+        KeyBindingSpec {
+            keystrokes: "ctrl-r ctrl-t",
+            display: "Ctrl+R, Ctrl+T",
+            command: "eludite.test.debug",
+            args: json!({ "selection": true }),
+        },
+        KeyBindingSpec {
+            keystrokes: "ctrl-r l",
+            display: "Ctrl+R, L",
+            command: "eludite.test.run",
+            args: json!({ "repeat_last": true }),
+        },
     ]
 }
 
@@ -185,6 +209,35 @@ pub fn shortcut_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_explorer_keys() {
+        let k = vs_keymap();
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.explorer", &json!({})),
+            Some("Ctrl+E, T")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.run", &json!({})),
+            Some("Ctrl+R, A")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.debug", &json!({})),
+            Some("Ctrl+R, Ctrl+A")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.run", &json!({"selection": true})),
+            Some("Ctrl+R, T")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.debug", &json!({"selection": true})),
+            Some("Ctrl+R, Ctrl+T")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.test.run", &json!({"repeat_last": true})),
+            Some("Ctrl+R, L")
+        );
+    }
 
     #[test]
     fn vs_table() {

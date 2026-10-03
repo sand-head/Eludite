@@ -643,3 +643,102 @@ fn build_status_replays_the_running_build_across_a_restart() {
     assert!(status(&client).running.is_none());
     client.shutdown(T).unwrap();
 }
+
+/// Brief 0035: `eludite/test/*` through the fake host: typed updates in order, a second run of a running container
+/// refused with -32012, the status of a held run, and cancel.
+#[test]
+fn test_messages_are_typed_and_a_running_container_is_refused() {
+    let fake = FakeHost::new();
+    fake.set_tests(json!([{
+        "container": {"id": "/s/T/T.csproj|net10.0", "name": "T", "project": "/s/T/T.csproj",
+                      "targetFramework": "net10.0", "protocol": "mtp", "runtime": "dotnet"},
+        "tests": [
+            {"id": "t1", "displayName": "T.C.Adds", "fullyQualifiedName": "T.C.Adds"},
+            {"id": "t2", "displayName": "T.C.Subtracts", "fullyQualifiedName": "T.C.Subtracts"}
+        ]
+    }]));
+    let (client, rx) = start(&fake, 0);
+    let discover = || {
+        client
+            .request::<host::TestDiscover>(host::TestDiscoverParams::default())
+            .unwrap()
+            .wait_timeout(T)
+    };
+    assert!(matches!(discover(), Err(eludite_lsp::Error::Rpc(e)) if e.code == -32602));
+    client.open_solution("/s/T.slnx", T).unwrap();
+    let found = discover().unwrap();
+    assert_eq!(found.containers[0].protocol, host::TestProtocol::Mtp);
+    let mut kinds = Vec::new();
+    loop {
+        let Event::TestUpdate(u) = next(&rx, |e| matches!(e, Event::TestUpdate(_))) else {
+            unreachable!()
+        };
+        assert_eq!((u.run_id, u.seq), (found.run_id, kinds.len() as u64));
+        kinds.push(u.kind);
+        if u.kind == host::TestUpdateKind::Discovered {
+            assert_eq!(u.tests.as_ref().unwrap().len(), 2);
+        }
+        if u.kind == host::TestUpdateKind::Finished {
+            assert_eq!(u.summary.unwrap().total, 2);
+            break;
+        }
+    }
+    assert!(kinds.contains(&host::TestUpdateKind::ContainerFinished));
+
+    fake.set_hold_test_runs(true);
+    let run = |tests: Option<Vec<String>>| {
+        client
+            .request::<host::TestRun>(host::TestRunParams {
+                containers: Some(vec![host::TestRunContainer {
+                    id: "/s/T/T.csproj|net10.0".into(),
+                    tests,
+                }]),
+                ..Default::default()
+            })
+            .unwrap()
+            .wait_timeout(T)
+    };
+    let started = run(Some(vec!["t1".into()])).unwrap();
+    let refused = run(None);
+    let Err(eludite_lsp::Error::Rpc(e)) = refused else {
+        panic!("{refused:?}")
+    };
+    assert_eq!(e.code, host::error_codes::TEST_RUN_IN_PROGRESS);
+    let data: host::TestRunInProgressData = serde_json::from_value(e.data.unwrap()).unwrap();
+    assert_eq!(data.run_id, started.run_id);
+    fake.test_results(
+        "/s/T/T.csproj|net10.0",
+        json!([{"id": "t1", "outcome": "failed", "message": "boom"}]),
+    );
+    let Event::TestUpdate(u) = next(
+        &rx,
+        |e| matches!(e, Event::TestUpdate(u) if u.kind == host::TestUpdateKind::Results),
+    ) else {
+        unreachable!()
+    };
+    assert_eq!(u.results.unwrap()[0].outcome, host::TestOutcome::Failed);
+    let status = client
+        .request::<host::TestStatus>(())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(status.running[0].next_seq, 1);
+    assert_eq!(
+        status.running[0].results[0].container.as_deref(),
+        Some("/s/T/T.csproj|net10.0")
+    );
+    let canceled = client
+        .request::<host::TestCancel>(host::TestCancelParams::default())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(canceled.canceled);
+    let Event::TestUpdate(f) = next(
+        &rx,
+        |e| matches!(e, Event::TestUpdate(u) if u.kind == host::TestUpdateKind::Finished),
+    ) else {
+        unreachable!()
+    };
+    assert_eq!(f.state, Some(host::TestState::Canceled));
+    assert_eq!(f.summary.unwrap().failed, 1);
+}

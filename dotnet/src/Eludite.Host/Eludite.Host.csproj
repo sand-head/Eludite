@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Eludite.Web/Eludite.Web.csproj" />
+    <ProjectReference Include="../Eludite.TestBridge/Eludite.TestBridge.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,8 +4,9 @@
 //! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), builds with the Output window and
 //! the build's rows in the Error List (brief 0017), run and debug (brief 0018), and File > Open Folder
 //! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`), and
-//! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`), and the Web Browser window
-//! (brief 0032, `browser_window`), a document tab View > Other Windows > Web Browser opens.
+//! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`), the Web Browser window
+//! (brief 0032, `browser_window`), a document tab View > Other Windows > Web Browser opens, and the Test Explorer with
+//! `eludite.test.*` over MTP, VSTest and `cargo test` (brief 0035, `test_runs`, `tests_window`, `cargo_tests`).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -23,6 +24,7 @@ pub mod build;
 #[cfg(test)]
 mod build_tests;
 pub mod cargo_build;
+pub mod cargo_tests;
 pub mod code_actions;
 pub mod debug;
 pub mod documents;
@@ -50,8 +52,12 @@ pub mod settings;
 mod settings_tests;
 pub mod startup;
 pub mod target;
+pub mod test_runs;
+#[cfg(test)]
+mod test_runs_tests;
 #[cfg(test)]
 mod tests;
+pub mod tests_window;
 pub mod workspace_edit;
 #[cfg(test)]
 mod workspace_edit_tests;
@@ -149,6 +155,11 @@ pub struct Services {
     /// The browser of `eludite.browser.*` (brief 0023) and its lines for the Output window.
     pub browser: browser::BrowserBus,
     pub browser_log: UnboundedReceiver<String>,
+    /// `eludite.test.*` from other threads (brief 0035), what their callers wait on, and the bus they reach
+    /// `eludite.debug.wait` through.
+    pub test_jobs: UnboundedReceiver<test_runs::TestJob>,
+    pub test_shared: Arc<test_runs::TestShared>,
+    pub test_registry: Arc<Mutex<std::sync::Weak<CommandRegistry>>>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -234,6 +245,18 @@ pub fn register_workspace(
     );
     let debug_jobs = debug::register(commands);
     let (browser, browser_log) = browser::register(commands);
+    let (test_tx, test_jobs) = unbounded();
+    let test_shared = Arc::new(test_runs::TestShared::default());
+    let test_registry: Arc<Mutex<std::sync::Weak<CommandRegistry>>> = Arc::default();
+    eludite_commands::test::register(
+        commands,
+        Arc::new(test_runs::TestBus {
+            ui_thread: std::thread::current().id(),
+            jobs: test_tx,
+            shared: test_shared.clone(),
+            registry: test_registry.clone(),
+        }),
+    );
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -263,6 +286,9 @@ pub fn register_workspace(
         folder_opener: startup::system_folder_opener(),
         browser,
         browser_log,
+        test_jobs,
+        test_shared,
+        test_registry,
     }
 }
 
@@ -369,6 +395,10 @@ pub struct Shell {
     /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
     folder_opener: startup::FolderOpener,
     default_startup: Option<PathBuf>,
+    /// The Test Explorer (brief 0035): its model, its window, and where the cargo test threads report.
+    tests: test_runs::TestRuns,
+    tests_window: Entity<tests_window::TestExplorer>,
+    cargo_test_events: futures::channel::mpsc::UnboundedSender<cargo_tests::CargoTestEvent>,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -382,6 +412,7 @@ fn tool_body(
     agents: Entity<agents::window::AgentsWindow>,
     output: Entity<OutputWindow>,
     debug: debug::windows::DebugWindows,
+    tests: Entity<tests_window::TestExplorer>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -402,6 +433,10 @@ fn tool_body(
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
         ids::OUTPUT => output
+            .clone()
+            .cached(StyleRefinement::default().size_full())
+            .into_any_element(),
+        ids::TEST_EXPLORER => tests
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
@@ -469,6 +504,9 @@ impl Shell {
         // item (brief 0027).
         let debug_menu = Arc::new(debug::DebugMenuState::default());
         let (menu_debug, menu_checked) = (debug_menu.clone(), debug_menu.clone());
+        // Run All Tests and Debug All Tests are disabled while a test run goes (brief 0035).
+        let testing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let menu_testing = testing.clone();
         let menu = cx.new(|_| {
             let mut m = menu_bar_with(theme, vs_keymap(), move |cmd| {
                 registry.lookup(cmd).is_some()
@@ -477,6 +515,10 @@ impl Shell {
                         menu_building.load(std::sync::atomic::Ordering::SeqCst),
                     )
                     && menu_debug.enabled(cmd)
+                    && test_runs::menu_enabled(
+                        cmd,
+                        menu_testing.load(std::sync::atomic::Ordering::SeqCst),
+                    )
             });
             m.set_checked(Rc::new(move |cmd| menu_checked.checked(cmd)));
             m
@@ -487,6 +529,7 @@ impl Shell {
         let error_list = cx.new(|cx| ErrorList::new(theme, cx));
         let references_window = cx.new(|_| ReferencesWindow::new(theme));
         let output = cx.new(|_| OutputWindow::new(theme));
+        let tests_window = cx.new(|cx| tests_window::TestExplorer::new(theme, cx));
         let views: Rc<RefCell<HashMap<String, Entity<EditorView>>>> = Rc::default();
         let browser_views: browser_view::Views = Rc::default();
         let Services {
@@ -510,7 +553,13 @@ impl Shell {
             folder_opener,
             browser,
             browser_log,
+            mut test_jobs,
+            test_shared,
+            test_registry,
         } = services;
+        *test_registry.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&commands);
+        let mut tests = test_runs::TestRuns::new(test_shared);
+        tests.running = testing;
         let (agents, mut agent_msgs) = agents::Agents::new(agents_setup, theme, cx);
         let (mut debugger, debug_msgs) = debug::Debugger::new(debug_setup, theme, cx);
         debugger.menu = debug_menu;
@@ -532,6 +581,7 @@ impl Shell {
                     agents.window.clone(),
                     output.clone(),
                     debugger.windows.clone(),
+                    tests_window.clone(),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -549,6 +599,7 @@ impl Shell {
         cx.observe(&references_window, |_, _, cx| cx.notify())
             .detach();
         cx.observe(&output, |_, _, cx| cx.notify()).detach();
+        cx.observe(&tests_window, |_, _, cx| cx.notify()).detach();
         cx.subscribe_in(
             &references_window,
             window,
@@ -574,6 +625,7 @@ impl Shell {
         let mut status = StatusBar::vs_default();
         status.add_slot(SOLUTION_SLOT, SlotAlign::Left);
         status.add_slot(build::BUILD_SLOT, SlotAlign::Left);
+        status.add_slot(test_runs::TESTS_SLOT, SlotAlign::Left);
         status.add_slot(debug::DEBUG_SLOT, SlotAlign::Left);
         status.add_slot(LANGUAGE_SERVER_SLOT, SlotAlign::Right);
         status.add_slot(agents::AGENTS_SLOT, SlotAlign::Right);
@@ -603,6 +655,46 @@ impl Shell {
                 {
                     break;
                 }
+            }
+        });
+        // The cargo test threads (brief 0035), applied in batches as the build's are.
+        let (cargo_test_events, mut cargo_test_rx) = unbounded();
+        let cargo_test_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(first) = cargo_test_rx.next().await {
+                let mut batch = vec![first];
+                while let Ok(more) = cargo_test_rx.try_recv() {
+                    batch.push(more);
+                }
+                if this
+                    .update_in(cx, |shell, window, cx| {
+                        for event in batch {
+                            shell.on_cargo_test_event(event, window, cx);
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        // `eludite.test.*` from other threads (an agent).
+        let test_job_task = cx.spawn_in(window, async move |this, cx| {
+            while let Some(job) = test_jobs.next().await {
+                let test_runs::TestJob { call, reply } = job;
+                let outcome = this
+                    .update_in(cx, |shell, window, cx| match call {
+                        test_runs::TestCall::Apply(request) => {
+                            shell.apply_test(request, window, cx)
+                        }
+                        other => (shell.answer_test(other, cx), None),
+                    })
+                    .unwrap_or_else(|_| {
+                        (
+                            Err(CommandError::Failed("the window is closed".into())),
+                            None,
+                        )
+                    });
+                let _ = reply.send(outcome);
             }
         });
         // Everything queued is applied in one update, so a burst of build output costs one frame.
@@ -816,6 +908,9 @@ impl Shell {
             browser_window,
             folder_opener,
             default_startup: None,
+            tests,
+            tests_window,
+            cargo_test_events,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -833,6 +928,8 @@ impl Shell {
                 browser_task,
                 browser_window_task.0,
                 browser_window_task.1,
+                cargo_test_task,
+                test_job_task,
             ],
         };
         this.apply_settings(None, cx);
@@ -1019,6 +1116,12 @@ impl Shell {
         {
             let outcome = self.apply_project(request, window, cx);
             self::startup::stage(outcome);
+        }
+        if eludite_commands::test::ALL.contains(&command)
+            && let Ok(request) = eludite_commands::test::parse(command, args.clone())
+        {
+            let (outcome, _) = self.apply_test(request, window, cx);
+            test_runs::stage(outcome);
         }
         if command == eludite_commands::settings::OPTIONS {
             let schema = self.settings.lock().schema().clone();
@@ -1331,6 +1434,7 @@ impl Shell {
                     self.generation = status.generation;
                     self.clear_host_diagnostics(cx);
                     self.builds.diagnostics.clear();
+                    self.tests_new_generation(window, cx);
                     for doc in self
                         .documents
                         .values_mut()
@@ -1462,6 +1566,8 @@ impl Shell {
             }
             SessionEvent::BuildOutput(o) => self.on_build_output(o.build_id, o.seq, &o.text, cx),
             SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),
+            SessionEvent::TestUpdate(update) => self.on_test_update(*update, window, cx),
+            SessionEvent::TestStatus(status) => self.on_test_status(status, window, cx),
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)
@@ -1703,6 +1809,21 @@ impl Shell {
                 line,
                 column,
                 source: RowSource::Build,
+            });
+        }
+        // The last test run's failures (brief 0035), at their first stack frame in the project.
+        for (path, line, name, message, project) in self.test_error_rows() {
+            let _ = name;
+            rows.push(ErrorRow {
+                severity: Severity::Error,
+                code: "Test".into(),
+                message,
+                project,
+                file: file_name(&path),
+                path,
+                line,
+                column: 1,
+                source: RowSource::Test,
             });
         }
         let rank = |s: Severity| match s {

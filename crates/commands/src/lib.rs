@@ -24,6 +24,9 @@
 //! browser automation commands `eludite.browser.*` (briefs 0023 and 0024), registered by the shell through a
 //! [`browser::BrowserTarget`].
 //!
+//! [`test`] holds the Test Explorer's `eludite.test.*` commands (brief 0035), registered by the shell through a
+//! [`test::TestCommands`].
+//!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
 //! (never lowers it) or refuses it for an agent. [`CommandRegistry::classify`] gives a call's [`CallClass`]; the MCP
@@ -43,6 +46,7 @@ pub mod project;
 mod registry;
 pub mod settings;
 pub mod solution;
+pub mod test;
 pub mod view;
 pub mod workspace;
 pub mod workspace_tree;

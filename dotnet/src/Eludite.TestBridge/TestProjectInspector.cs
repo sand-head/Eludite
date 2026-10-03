@@ -2,6 +2,12 @@ using System.Xml.Linq;
 
 namespace Eludite.TestBridge;
 
+/// <summary>What the Test Explorer reads from a test project's file.</summary>
+/// <param name="TargetFrameworks">In the project file's order (<c>TargetFramework</c> or <c>TargetFrameworks</c>).</param>
+/// <param name="AssemblyName">The output's name (<c>AssemblyName</c>, else the project file's name).</param>
+/// <param name="IsExe">An executable (<c>OutputType</c> Exe or WinExe; MTP test projects are).</param>
+public sealed record TestProjectInfo(TestRunnerProtocol Protocol, IReadOnlyList<string> TargetFrameworks, string AssemblyName, bool IsExe);
+
 /// <summary>Decides which test protocol a project will speak by reading its project file.</summary>
 public static class TestProjectInspector
 {
@@ -28,17 +34,66 @@ public static class TestProjectInspector
     public static TestRunnerProtocol? Detect(string csprojXml)
     {
         ArgumentNullException.ThrowIfNull(csprojXml);
-
         var project = XDocument.Parse(csprojXml).Root;
-        if (project is null)
+        return project is null ? null : Detect(project);
+    }
+
+    /// <summary>
+    /// <see cref="Detect(string)"/> for the project file at <paramref name="projectPath"/>, with its target frameworks,
+    /// assembly name and output type; null when it is not a test project or cannot be read.
+    /// </summary>
+    public static TestProjectInfo? Inspect(string projectPath)
+    {
+        ArgumentNullException.ThrowIfNull(projectPath);
+        XElement? project;
+        try
+        {
+            project = XDocument.Load(projectPath).Root;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
             return null;
         }
 
-        var properties = project.Elements()
+        if (project is null || Detect(project) is not { } protocol)
+        {
+            return null;
+        }
+
+        var properties = Properties(project);
+        string? Last(string name) => properties.LastOrDefault(p => p.Name.LocalName == name)?.Value.Trim();
+        var frameworks = (Last("TargetFrameworks") ?? Last("TargetFramework") ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(f => !f.Contains("$(", StringComparison.Ordinal))
+            .ToList();
+        var assembly = Last("AssemblyName") is { Length: > 0 } a && !a.Contains("$(", StringComparison.Ordinal)
+            ? a
+            : Path.GetFileNameWithoutExtension(projectPath);
+        var outputType = Last("OutputType");
+        var isExe = string.Equals(outputType, "Exe", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(outputType, "WinExe", StringComparison.OrdinalIgnoreCase)
+            || (outputType is null && protocol == TestRunnerProtocol.MicrosoftTestingPlatform);
+        return new TestProjectInfo(protocol, frameworks, assembly, isExe);
+    }
+
+    /// <summary>True for a .NET Framework moniker (<c>net20</c> to <c>net481</c>): no dot after <c>net</c>.</summary>
+    public static bool IsNetFramework(string targetFramework)
+    {
+        ArgumentNullException.ThrowIfNull(targetFramework);
+        return targetFramework.StartsWith("net", StringComparison.OrdinalIgnoreCase)
+            && targetFramework.Length > 3
+            && targetFramework[3..].All(char.IsAsciiDigit);
+    }
+
+    private static List<XElement> Properties(XElement project) =>
+        project.Elements()
             .Where(e => e.Name.LocalName == "PropertyGroup")
             .SelectMany(g => g.Elements())
             .ToList();
+
+    private static TestRunnerProtocol? Detect(XElement project)
+    {
+        var properties = Properties(project);
         var packages = project.Descendants()
             .Where(e => e.Name.LocalName == "PackageReference")
             .Select(e => (string?)e.Attribute("Include"))
