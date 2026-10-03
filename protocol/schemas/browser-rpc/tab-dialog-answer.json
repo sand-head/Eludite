@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-dialog-answer.json",
+  "title": "tab/dialogAnswer",
+  "description": "Shell-to-engine notification: the answer to a tab/dialog or tab/permission prompt (the person's, from the shell's dialog, or an agent's eludite.browser.dialog). `accept` true is OK (alert, confirm, prompt: JsDialogCallback::Continue(true, text); beforeunload: leave; file: the chosen `files`; auth: `username` and `password`; a permission prompt: allow); false is Cancel (dismiss, stay, no files, no credentials, deny). An answer for a dialog that is gone is ignored. tab/dialogClosed follows.",
+  "x-eludite-method": "tab/dialogAnswer",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "id",
+        "accept"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accept": {
+          "type": "boolean"
+        },
+        "text": {
+          "description": "`prompt`: the text entered (default: the dialog's defaultText).",
+          "type": "string"
+        },
+        "files": {
+          "description": "`file`: absolute paths.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "description": "`auth`.",
+          "type": "string"
+        },
+        "password": {
+          "description": "`auth`.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

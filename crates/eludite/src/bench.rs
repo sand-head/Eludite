@@ -179,6 +179,22 @@ pub fn bounds_out(shell: &Entity<Shell>, path: std::path::PathBuf, cx: &mut App)
                         ]),
                     );
                 }
+                // The Web Browser window's page (brief 0032's Xvfb run).
+                let page = cx.update(|cx| {
+                    let s = shell.read(cx);
+                    s.browser_window().read(cx).painted_bounds(cx)
+                });
+                for (k, b) in page {
+                    map.insert(
+                        k.into(),
+                        json!([
+                            f32::from(b.origin.x),
+                            f32::from(b.origin.y),
+                            f32::from(b.size.width),
+                            f32::from(b.size.height)
+                        ]),
+                    );
+                }
                 // The Error List's toolbar (brief 0014's filter run).
                 let toolbar = cx.update(|cx| shell.read(cx).error_list().read(cx).painted_bounds());
                 for (k, b) in toolbar {
@@ -2321,6 +2337,29 @@ function draw(t) {
 requestAnimationFrame(draw);
 </script></body></html>"#;
 
+/// The page `--bench-browser` plays with `ELUDITE_BENCH_BROWSER_PAGE=box` (brief 0032's partial uploads): a page of
+/// text with a 200 by 200 canvas redrawn on every animation frame, the rest still (the usual web page: a spinner, a
+/// counter, a chart), so each frame's dirty rectangle is the box.
+const BOX_PAGE: &str = r#"<!doctype html><html><head><title>Box</title><style>
+html,body{margin:0;height:100%;overflow:hidden;background:#fff;font:16px sans-serif}p{margin:16px 40px;max-width:900px}
+canvas{position:absolute;left:600px;top:300px}</style></head><body>
+<h1 style="margin:40px">A page with one moving box</h1>
+<p>Partial uploads: the shell re-creates only the 256 by 256 tiles the dirty rectangles of a frame touch.</p>
+<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
+aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+<canvas id="c" width="200" height="200"></canvas><script>
+const g = document.getElementById('c').getContext('2d');
+let n = 0;
+window.frames_drawn = 0;
+function draw(t) {
+  n++; window.frames_drawn = n;
+  g.fillStyle = `hsl(${(t / 10) % 360},70%,45%)`; g.fillRect(0, 0, 200, 200);
+  g.fillStyle = '#fff'; g.font = '24px sans-serif'; g.fillText(`frame ${n}`, 20, 110);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script></body></html>"#;
+
 fn data_url(html: &str) -> String {
     let mut s = String::from("data:text/html,");
     for b in html.bytes() {
@@ -2419,7 +2458,9 @@ pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
         s.after_first_present(move |window, cx| {
             let platform = platform(window);
             let rss_before = rss_mib();
-            let spike = open_spike(&shell2, data_url(ANIMATION_PAGE), Some((1600, 1000)), cx);
+            let boxed = std::env::var("ELUDITE_BENCH_BROWSER_PAGE").is_ok_and(|p| p == "box");
+            let page = if boxed { BOX_PAGE } else { ANIMATION_PAGE };
+            let spike = open_spike(&shell2, data_url(page), Some((1600, 1000)), cx);
             let probe = Rc::new(RefCell::new(RenderProbe::default()));
             let shell = shell2.clone();
             cx.spawn(async move |cx| {
@@ -2528,8 +2569,15 @@ pub fn browser(shell: &Entity<Shell>, secs: u64, cx: &mut App) {
                 let out = json!({
                     "bench": "browser",
                     "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+                    "page": if boxed { "box: a 200x200 canvas redrawn every animation frame, the rest of the page still (ELUDITE_BENCH_BROWSER_PAGE=box)" } else { "animation: a canvas covering the view, redrawn every animation frame" },
                     "seconds": (elapsed * 1000.).round() / 1000.,
                     "frame_size": [w, h],
+                    "tiles": {
+                        "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+                        "tiled": std::env::var("ELUDITE_BROWSER_TILES").map_or(true, |v| v.trim() != "0"),
+                        "tiles_total": s.tiles_total,
+                        "tiles_per_upload": summarize(&s.tiles_uploaded.iter().map(|n| *n as f64).collect::<Vec<_>>()),
+                    },
                     "bytes_per_frame": u64::from(w) * u64::from(h) * 4,
                     "engine_paint_rate_fps": (announced as f64 / elapsed * 10.).round() / 10.,
                     "frames_announced": announced,

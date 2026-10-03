@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-popup.json",
+  "title": "tab/popup",
+  "description": "Engine-to-shell notification: the page opened a window (window.open, a link with target=_blank, a form posting to a new window) and the engine made it a windowless tab of its own (CefLifeSpanHandler::OnBeforePopup), so popups become tabs and never windows. Its first region came before this message (tab/resized names the new tab), and tab/frame and tab/state follow for it as for any tab. `window.opener` works: the popup is the page's own, not a new navigation.",
+  "x-eludite-method": "tab/popup",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "opener",
+        "url"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The new tab's id (the engine's ids are shared by tabs it was asked to create and popups).",
+          "type": "string",
+          "minLength": 1
+        },
+        "opener": {
+          "description": "The tab whose page opened it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "The url the popup loads (may be empty or about:blank for a window the opener writes into).",
+          "type": "string"
+        },
+        "disposition": {
+          "description": "How the page asked for it (CEF's WindowOpenDisposition): a new foreground or background tab, a popup window, or a new window.",
+          "enum": [
+            "newForegroundTab",
+            "newBackgroundTab",
+            "newPopup",
+            "newWindow",
+            "other"
+          ]
+        },
+        "userGesture": {
+          "description": "The page opened it in answer to the person's (or an agent's) click or key.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

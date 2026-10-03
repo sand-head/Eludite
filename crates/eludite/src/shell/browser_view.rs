@@ -1,10 +1,17 @@
 //! The embedded browser's view (brief 0031, the spike for proposal 0002's Web Browser window).
 //!
-//! - [`BrowserSurface`] draws a tab of `eludite-chromium` with GPUI's `img` element from a [`RenderImage`] built from
-//!   the frame ring ([`FrameSource`]): it uploads only when the frame sequence changed, frees the previous image's
-//!   atlas tile, keeps the dirty rectangles of the last frame for the fallback (partial uploads), and forwards mouse,
-//!   wheel and keyboard input to the tab (`tab/input`, never waiting). The engine's reader thread wakes it through a
-//!   channel; nothing here waits on the engine.
+//! - [`BrowserSurface`] draws a tab of `eludite-chromium` with GPUI's `img` elements from the frame ring
+//!   ([`FrameSource`]): it uploads only when the frame sequence changed, and forwards mouse, wheel, keyboard and IME
+//!   input to the tab (`tab/input`, never waiting). The engine's reader thread wakes it through a channel; nothing
+//!   here waits on the engine.
+//! - **Partial uploads** (brief 0032, the fallback of brief 0031's section 5). The frame is drawn as tiles of
+//!   [`TILE`] by [`TILE`] device pixels, each its own [`RenderImage`]; a frame that follows the last uploaded one
+//!   re-creates only the tiles its dirty rectangles touch (and frees their old atlas entries), any other frame (a
+//!   skipped sequence, a new size) all of them. `ELUDITE_BROWSER_TILES=0` draws one image per frame instead, for the
+//!   bench's comparison.
+//! - The Web Browser window's needs (brief 0032): the page's cursor ([`BrowserSurface::set_cursor`], from
+//!   `tab/cursor`), the key table of `eludite_browser::keys` (Windows and X11 key codes), and IME composition through
+//!   GPUI's input handler (`imeSetComposition`, `imeCommitText`, `imeFinishComposing`).
 //! - [`open_spike`] is the hidden document tab of `--spike-browser URL` (and `--bench-browser`): a thread named
 //!   `browser-spike` owns the [`EmbeddedChromium`] (launch, tab, shutdown), and the UI thread only receives the tab's
 //!   frames and an input handle. The Web Browser window proper (tabs, address bar, commands) is brief B.
@@ -19,17 +26,18 @@ use std::rc::Rc;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use eludite_browser::embedded::{DirtyRect, TabControl, monotonic_ns};
+use eludite_browser::embedded::{DirtyRect, Frame, TabControl, monotonic_ns};
 use eludite_browser::{
     ChromiumSearch, EmbeddedChromium, Engine, EngineConfig, FrameSource, TabFrames,
 };
 use futures::StreamExt as _;
 use gpui::{
-    AnyElement, AnyView, App, AppContext as _, Bounds, Context, Element, ElementId, Entity,
-    FocusHandle, GlobalElementId, ImageSource, InspectorElementId, InteractiveElement as _,
-    IntoElement, KeyDownEvent, KeyUpEvent, LayoutId, Modifiers, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, RenderImage, ScrollDelta,
-    ScrollWheelEvent, Styled as _, Task, Window, div, img, px,
+    AnyElement, AnyView, App, AppContext as _, Bounds, Context, CursorStyle, Element, ElementId,
+    ElementInputHandler, Entity, EntityInputHandler, FocusHandle, GlobalElementId, ImageSource,
+    InspectorElementId, InteractiveElement as _, IntoElement, KeyDownEvent, KeyUpEvent, LayoutId,
+    Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _,
+    Pixels, Render, RenderImage, ScrollDelta, ScrollWheelEvent, Styled as _, Task, UTF16Selection,
+    Window, div, img, px,
 };
 use serde_json::{Value, json};
 
@@ -63,6 +71,9 @@ pub struct SurfaceStats {
     pub last_dirty: Vec<DirtyRect>,
     pub last_sequence: u64,
     pub frame_size: (u32, u32),
+    /// Tiles re-created per uploaded frame (partial uploads), and how many the frame had.
+    pub tiles_uploaded: Vec<usize>,
+    pub tiles_total: usize,
 }
 
 impl SurfaceStats {
@@ -73,6 +84,7 @@ impl SurfaceStats {
         self.copy_ms.clear();
         self.latency_ms.clear();
         self.painted.clear();
+        self.tiles_uploaded.clear();
     }
 }
 
@@ -84,8 +96,65 @@ pub type InputSink = Rc<dyn Fn(Value)>;
 /// Asks the engine for a view size: CSS width, height and the scale factor.
 pub type FitSink = Rc<dyn Fn(u32, u32, f32)>;
 
-/// What one upload made: the image, its sequence, paint and copy times, dirty rectangles and size.
-type Upload = (Arc<RenderImage>, u64, u64, u64, Vec<DirtyRect>, (u32, u32));
+/// The side of a tile, device pixels.
+pub const TILE: u32 = 256;
+
+/// What one upload took from the ring: the frame's sequence, paint and copy times, dirty rectangles and size, and how
+/// many tiles it re-created.
+struct Uploaded {
+    sequence: u64,
+    paint_ns: u64,
+    copy_ns: u64,
+    dirty: Vec<DirtyRect>,
+    size: (u32, u32),
+    redone: usize,
+}
+
+/// A frame as tiles of [`TILE`] pixels (row-major), or one image (`ELUDITE_BROWSER_TILES=0`).
+struct Tiles {
+    size: (u32, u32),
+    /// Tile columns and rows.
+    grid: (u32, u32),
+    tile: u32,
+    images: Vec<Arc<RenderImage>>,
+}
+
+impl Tiles {
+    fn grid(size: (u32, u32), tile: u32) -> (u32, u32) {
+        (size.0.div_ceil(tile).max(1), size.1.div_ceil(tile).max(1))
+    }
+
+    /// The tile at column `c`, row `r` of `f`, as an image (BGRA, as the engine paints and GPUI's `RenderImage` holds).
+    fn cut(f: &Frame<'_>, tile: u32, c: u32, r: u32) -> Option<Arc<RenderImage>> {
+        let (x0, y0) = (c * tile, r * tile);
+        let w = tile.min(f.width.saturating_sub(x0));
+        let h = tile.min(f.height.saturating_sub(y0));
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let row = w as usize * 4;
+        let mut data = Vec::with_capacity(row * h as usize);
+        for y in y0..y0 + h {
+            let o = y as usize * f.stride as usize + x0 as usize * 4;
+            data.extend_from_slice(f.pixels.get(o..o + row)?);
+        }
+        let buffer = image::RgbaImage::from_raw(w, h, data)?;
+        Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
+    }
+
+    /// The tiles a dirty rectangle touches.
+    fn touched(&self, d: &DirtyRect) -> impl Iterator<Item = usize> + '_ {
+        let t = self.tile;
+        let (cols, rows) = self.grid;
+        let (x, y) = (d.x.max(0) as u32, d.y.max(0) as u32);
+        let (w, h) = (d.width.max(0) as u32, d.height.max(0) as u32);
+        let c0 = (x / t).min(cols);
+        let r0 = (y / t).min(rows);
+        let c1 = (x + w).div_ceil(t).min(cols);
+        let r1 = (y + h).div_ceil(t).min(rows);
+        (r0..r1).flat_map(move |r| (c0..c1).map(move |c| (r * cols + c) as usize))
+    }
+}
 
 /// A tab of the embedded engine, drawn with `img`.
 pub struct BrowserSurface {
@@ -94,8 +163,14 @@ pub struct BrowserSurface {
     /// Ask the engine for this view size (CSS pixels) when the surface's bounds change; `None`: the tab keeps its
     /// size and the surface clips it.
     fit: Option<FitSink>,
-    image: Option<Arc<RenderImage>>,
+    tiles: Option<Tiles>,
+    /// Tiles of [`TILE`] pixels (partial uploads), or one image per frame.
+    tiled: bool,
     uploaded: u64,
+    /// The page's cursor (`tab/cursor`).
+    cursor: CursorStyle,
+    /// The IME composition in progress (UTF-16 length of its text), for GPUI's input handler.
+    composing: Option<usize>,
     /// A frame was uploaded in this render: the paint is timed and the present recorded.
     fresh: Option<u64>,
     stats: Stats,
@@ -133,8 +208,11 @@ impl BrowserSurface {
             source,
             input,
             fit,
-            image: None,
+            tiles: None,
+            tiled: std::env::var("ELUDITE_BROWSER_TILES").map_or(true, |v| v.trim() != "0"),
             uploaded: 0,
+            cursor: CursorStyle::Arrow,
+            composing: None,
             fresh: None,
             stats: Stats::default(),
             bounds: Rc::default(),
@@ -154,48 +232,126 @@ impl BrowserSurface {
         self.frozen = frozen;
     }
 
-    /// Upload the newest frame if the sequence changed: a new `RenderImage`, the old one's atlas tile freed.
+    /// The page's cursor, as `tab/cursor` names it (CSS keywords).
+    pub fn set_cursor(&mut self, css: &str, cx: &mut Context<Self>) {
+        let c = cursor_style(css);
+        if c != self.cursor {
+            self.cursor = c;
+            cx.notify();
+        }
+    }
+
+    /// Where the surface was drawn in the last frame (window coordinates).
+    pub fn bounds(&self) -> Option<Bounds<Pixels>> {
+        self.bounds.get()
+    }
+
+    /// The focus handle the window focuses when the page should take the keys.
+    pub fn focus_handle(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
+    /// Upload the newest frame if the sequence changed: the tiles its dirty rectangles touch (all of them when frames
+    /// were skipped or the size changed), their old atlas entries freed.
     fn refresh(&mut self, window: &mut Window) {
         let seq = self.source.sequence();
         if seq == self.uploaded || self.frozen {
             return;
         }
         let t0 = Instant::now();
-        let mut made: Option<Upload> = None;
+        let last = self.stats.borrow().last_sequence;
+        let tile = if self.tiled { TILE } else { u32::MAX };
+        let mut old = self.tiles.take();
+        let mut freed: Vec<Arc<RenderImage>> = Vec::new();
+        let mut made: Option<Uploaded> = None;
+        let source = self.source.clone();
         self.source.read(true, &mut |f| {
-            let row = f.width as usize * 4;
-            let mut data = Vec::with_capacity(row * f.height as usize);
-            if f.stride as usize == row {
-                data.extend_from_slice(&f.pixels[..row * f.height as usize]);
+            let size = (f.width, f.height);
+            let tile = tile.min(size.0.max(size.1).max(1));
+            // The frame's own dirty rectangles when it follows the last one drawn; across frames the ring overwrote,
+            // theirs too, when the source still knows them (else every tile).
+            let dirty: Option<Vec<DirtyRect>> = if last == 0 || f.dirty.is_empty() {
+                None
+            } else if f.sequence == last + 1 {
+                Some(f.dirty.to_vec())
             } else {
-                for y in 0..f.height as usize {
-                    let o = y * f.stride as usize;
-                    data.extend_from_slice(&f.pixels[o..o + row]);
+                // The frame's own rectangles from its header (its notification may not have arrived yet).
+                source.dirty_between(last, f.sequence - 1).map(|mut d| {
+                    d.extend_from_slice(f.dirty);
+                    d
+                })
+            };
+            let partial =
+                matches!(&old, Some(t) if t.size == size && t.tile == tile) && dirty.is_some();
+            let mut tiles = match old.take() {
+                Some(t) if partial => t,
+                prev => {
+                    if let Some(prev) = prev {
+                        freed.extend(prev.images);
+                    }
+                    Tiles {
+                        size,
+                        grid: Tiles::grid(size, tile),
+                        tile,
+                        images: Vec::new(),
+                    }
+                }
+            };
+            let mut redo: Vec<usize> = if partial {
+                dirty
+                    .iter()
+                    .flatten()
+                    .flat_map(|d| tiles.touched(d))
+                    .collect()
+            } else {
+                (0..(tiles.grid.0 * tiles.grid.1) as usize).collect()
+            };
+            redo.sort_unstable();
+            redo.dedup();
+            let cols = tiles.grid.0;
+            let mut fresh = Vec::with_capacity(redo.len());
+            for &i in &redo {
+                let (c, r) = (i as u32 % cols, i as u32 / cols);
+                match Tiles::cut(f, tiles.tile, c, r) {
+                    Some(img) => fresh.push((i, img)),
+                    None => return,
                 }
             }
-            // GPUI's RenderImage holds BGRA in an RgbaImage buffer, which is what the engine paints.
-            let Some(buffer) = image::RgbaImage::from_raw(f.width, f.height, data) else {
-                return;
-            };
-            let image = Arc::new(RenderImage::new(vec![image::Frame::new(buffer)]));
-            made = Some((
-                image,
-                f.sequence,
-                f.paint_ns,
-                f.copy_ns,
-                f.dirty.to_vec(),
-                (f.width, f.height),
-            ));
+            if partial {
+                for (i, img) in fresh {
+                    freed.push(std::mem::replace(&mut tiles.images[i], img));
+                }
+            } else {
+                tiles.images = fresh.into_iter().map(|(_, img)| img).collect();
+            }
+            made = Some(Uploaded {
+                sequence: f.sequence,
+                paint_ns: f.paint_ns,
+                copy_ns: f.copy_ns,
+                dirty: f.dirty.to_vec(),
+                size,
+                redone: redo.len(),
+            });
+            old = Some(tiles);
         });
-        let Some((image, sequence, paint_ns, copy_ns, dirty, size)) = made else {
+        self.tiles = old;
+        for img in freed {
+            let _ = window.drop_image(img);
+        }
+        let Some(Uploaded {
+            sequence,
+            paint_ns,
+            copy_ns,
+            dirty,
+            size,
+            redone,
+        }) = made
+        else {
             self.stats.borrow_mut().empty_reads += 1;
             self.uploaded = seq;
             return;
         };
         let upload = t0.elapsed();
-        if let Some(old) = self.image.replace(image) {
-            let _ = window.drop_image(old);
-        }
         self.uploaded = seq.max(sequence);
         self.fresh = Some(paint_ns);
         let mut s = self.stats.borrow_mut();
@@ -205,6 +361,8 @@ impl BrowserSurface {
         s.last_dirty = dirty;
         s.last_sequence = sequence;
         s.frame_size = size;
+        s.tiles_uploaded.push(redone);
+        s.tiles_total = self.tiles.as_ref().map_or(0, |t| t.images.len());
     }
 
     fn send(&self, event: Value) {
@@ -240,44 +398,30 @@ fn button(b: MouseButton) -> Option<&'static str> {
     }
 }
 
-/// The Windows virtual-key code CEF expects for a GPUI key name (the common keys; brief B completes the table).
-pub fn windows_key_code(key: &str) -> Option<i64> {
-    let k = match key {
-        "backspace" => 8,
-        "tab" => 9,
-        "enter" => 13,
-        "shift" => 16,
-        "control" => 17,
-        "alt" => 18,
-        "escape" => 27,
-        "space" => 32,
-        "pageup" => 33,
-        "pagedown" => 34,
-        "end" => 35,
-        "home" => 36,
-        "left" => 37,
-        "up" => 38,
-        "right" => 39,
-        "down" => 40,
-        "insert" => 45,
-        "delete" => 46,
-        k if k.len() == 1 => {
-            let c = k.chars().next()?.to_ascii_uppercase();
-            if c.is_ascii_alphanumeric() {
-                c as i64
-            } else {
-                return None;
-            }
-        }
-        k if k.starts_with('f') => {
-            111 + k[1..]
-                .parse::<i64>()
-                .ok()
-                .filter(|n| (1..=24).contains(n))?
-        }
-        _ => return None,
-    };
-    Some(k)
+/// The Windows virtual-key code CEF expects for a GPUI key name, and the X11 key code it reads the DOM `code` from
+/// (`eludite_browser::keys::SHELL_KEYS`, brief 0032).
+pub fn key_codes(key: &str) -> Option<(i64, i64)> {
+    eludite_browser::keys::shell_key(key).map(|k| (k.windows, k.x11))
+}
+
+/// GPUI's cursor for a CSS cursor keyword (`tab/cursor`).
+pub fn cursor_style(css: &str) -> CursorStyle {
+    match css {
+        "pointer" => CursorStyle::PointingHand,
+        "text" => CursorStyle::IBeam,
+        "vertical-text" => CursorStyle::IBeamCursorForVerticalLayout,
+        "crosshair" | "cell" => CursorStyle::Crosshair,
+        "grab" => CursorStyle::OpenHand,
+        "grabbing" | "move" | "all-scroll" => CursorStyle::ClosedHand,
+        "not-allowed" | "no-drop" => CursorStyle::OperationNotAllowed,
+        "ew-resize" | "col-resize" | "e-resize" | "w-resize" => CursorStyle::ResizeLeftRight,
+        "ns-resize" | "row-resize" | "n-resize" | "s-resize" => CursorStyle::ResizeUpDown,
+        "nesw-resize" | "ne-resize" | "sw-resize" => CursorStyle::ResizeUpRightDownLeft,
+        "nwse-resize" | "nw-resize" | "se-resize" => CursorStyle::ResizeUpLeftDownRight,
+        "context-menu" => CursorStyle::ContextualMenu,
+        "copy" | "alias" => CursorStyle::DragCopy,
+        _ => CursorStyle::Arrow,
+    }
 }
 
 impl Render for BrowserSurface {
@@ -297,9 +441,11 @@ impl Render for BrowserSurface {
         }
         let surface = div()
             .id("browser-surface")
+            .debug_selector(|| "browser-surface".into())
             .size_full()
             .overflow_hidden()
             .bg(gpui::white())
+            .cursor(self.cursor)
             .track_focus(&self.focus)
             .on_mouse_down(
                 MouseButton::Left,
@@ -357,11 +503,10 @@ impl Render for BrowserSurface {
             }))
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| {
                 let k = &e.keystroke;
-                let m = flags(&k.modifiers);
-                if let Some(code) = windows_key_code(&k.key) {
-                    this.send(
-                        json!({"type": "rawKeyDown", "windowsKeyCode": code, "modifiers": m}),
-                    );
+                let m = flags(&k.modifiers) | if e.is_held { 8192 } else { 0 };
+                if let Some((code, native)) = key_codes(&k.key) {
+                    this.send(json!({"type": "rawKeyDown", "windowsKeyCode": code,
+                        "nativeKeyCode": native, "modifiers": m}));
                 }
                 if let Some(ch) = k.key_char.as_deref().filter(|c| !c.is_empty()) {
                     for unit in ch.encode_utf16() {
@@ -372,13 +517,16 @@ impl Render for BrowserSurface {
                 cx.stop_propagation();
             }))
             .on_key_up(cx.listener(|this, e: &KeyUpEvent, _, _| {
-                if let Some(code) = windows_key_code(&e.keystroke.key) {
-                    this.send(json!({"type": "keyUp", "windowsKeyCode": code,
-                        "modifiers": flags(&e.keystroke.modifiers)}));
+                if let Some((code, native)) = key_codes(&e.keystroke.key) {
+                    this.send(
+                        json!({"type": "keyUp", "windowsKeyCode": code, "nativeKeyCode": native,
+                        "modifiers": flags(&e.keystroke.modifiers)}),
+                    );
                 }
             }));
         // The surface's own bounds: input coordinates, and the tab's size when it fits the document area.
         let (bounds, fitted, fit) = (self.bounds.clone(), self.fitted.clone(), self.fit.clone());
+        let (entity, focus) = (cx.entity(), self.focus.clone());
         let surface = surface.child(
             gpui::canvas(
                 move |b, window, _| {
@@ -394,12 +542,21 @@ impl Render for BrowserSurface {
                         }
                     }
                 },
-                |_, _, _, _| {},
+                // IME: GPUI's input handler while the page has the focus (composition and commits reach the page).
+                move |b, _, window, cx| {
+                    if focus.is_focused(window) {
+                        window.handle_input(
+                            &focus,
+                            ElementInputHandler::new(b, entity.clone()),
+                            cx,
+                        );
+                    }
+                },
             )
             .absolute()
             .size_full(),
         );
-        let Some(image) = self.image.clone() else {
+        let Some(tiles) = self.tiles.as_ref() else {
             return surface
                 .child(
                     div()
@@ -410,18 +567,127 @@ impl Render for BrowserSurface {
                 .into_any_element();
         };
         let scale = window.scale_factor();
-        let size = image.size(0);
-        let (w, h) = (size.width.0 as f32 / scale, size.height.0 as f32 / scale);
+        let (w, h) = (tiles.size.0 as f32 / scale, tiles.size.1 as f32 / scale);
+        let cols = tiles.grid.0;
+        let step = tiles.tile as f32 / scale;
+        let images = tiles.images.iter().enumerate().map(|(i, image)| {
+            let (c, r) = (i as u32 % cols, i as u32 / cols);
+            let size = image.size(0);
+            img(ImageSource::Render(image.clone()))
+                .absolute()
+                .left(px(c as f32 * step))
+                .top(px(r as f32 * step))
+                .w(px(size.width.0 as f32 / scale))
+                .h(px(size.height.0 as f32 / scale))
+                .into_any_element()
+        });
         surface
             .child(Timed {
-                child: img(ImageSource::Render(image))
+                child: div()
+                    .relative()
                     .w(px(w))
                     .h(px(h))
+                    .children(images)
                     .into_any_element(),
                 stats: self.stats.clone(),
                 fresh: fresh.is_some(),
             })
             .into_any_element()
+    }
+}
+
+/// IME (brief 0032): GPUI's input handler hands the composition and the committed text to the page. Typed keys do
+/// not come this way (the key handlers send them and stop the event), so this carries IME only.
+impl EntityInputHandler for BrowserSurface {
+    fn text_for_range(
+        &mut self,
+        _range: std::ops::Range<usize>,
+        _adjusted: &mut Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<String> {
+        None
+    }
+
+    fn selected_text_range(
+        &mut self,
+        _ignore_disabled_input: bool,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        let at = self.composing.unwrap_or(0);
+        Some(UTF16Selection {
+            range: at..at,
+            reversed: false,
+        })
+    }
+
+    fn marked_text_range(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<std::ops::Range<usize>> {
+        self.composing.map(|n| 0..n)
+    }
+
+    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
+        if self.composing.take().is_some() {
+            self.send(json!({"type": "imeFinishComposing", "keepSelection": false}));
+        }
+    }
+
+    fn replace_text_in_range(
+        &mut self,
+        _range: Option<std::ops::Range<usize>>,
+        text: &str,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        self.composing = None;
+        self.send(json!({"type": "imeCommitText", "text": text}));
+    }
+
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        _range: Option<std::ops::Range<usize>>,
+        new_text: &str,
+        new_selected_range: Option<std::ops::Range<usize>>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        let n = new_text.encode_utf16().count();
+        let sel = new_selected_range.unwrap_or(n..n);
+        self.composing = (n > 0).then_some(n);
+        if n == 0 {
+            self.send(json!({"type": "imeCancelComposition"}));
+            return;
+        }
+        self.send(json!({"type": "imeSetComposition", "text": new_text,
+            "selectionStart": sel.start, "selectionEnd": sel.end,
+            "underlines": [{"from": 0, "to": n, "thick": false}]}));
+    }
+
+    fn bounds_for_range(
+        &mut self,
+        _range_utf16: std::ops::Range<usize>,
+        element_bounds: Bounds<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<Bounds<Pixels>> {
+        // The candidate window goes at the surface's top left: the page's caret is not known here.
+        Some(Bounds::new(
+            element_bounds.origin,
+            gpui::size(px(1.), px(16.)),
+        ))
+    }
+
+    fn character_index_for_point(
+        &mut self,
+        _point: gpui::Point<Pixels>,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<usize> {
+        None
     }
 }
 
@@ -825,16 +1091,157 @@ mod tests {
         );
     }
 
+    /// A frame source of a given size whose next frame's sequence and dirty rectangles the test sets.
+    struct Sized {
+        size: (u32, u32),
+        sequence: AtomicU64,
+        dirty: Mutex<Vec<DirtyRect>>,
+        /// What `dirty_between` answers (the frames the ring overwrote).
+        between: Mutex<Option<Vec<DirtyRect>>>,
+    }
+
+    impl FrameSource for Sized {
+        fn sequence(&self) -> u64 {
+            self.sequence.load(Ordering::SeqCst)
+        }
+
+        fn read(
+            &self,
+            _consume: bool,
+            f: &mut dyn FnMut(&eludite_browser::embedded::Frame<'_>),
+        ) -> bool {
+            let (w, h) = self.size;
+            let pixels = vec![self.sequence() as u8; (w * h * 4) as usize];
+            let dirty = self.dirty.lock().unwrap().clone();
+            f(&eludite_browser::embedded::Frame {
+                sequence: self.sequence(),
+                width: w,
+                height: h,
+                stride: w * 4,
+                pixels: &pixels,
+                dirty: &dirty,
+                paint_ns: 0,
+                copy_ns: 0,
+            });
+            true
+        }
+
+        fn set_listener(&self, _f: Option<Box<dyn Fn() + Send + Sync>>) {}
+
+        fn dirty_between(&self, _after: u64, _upto: u64) -> Option<Vec<DirtyRect>> {
+            self.between.lock().unwrap().clone()
+        }
+    }
+
+    #[gpui::test]
+    fn frames_upload_only_the_tiles_their_dirty_rectangles_touch(cx: &mut gpui::TestAppContext) {
+        let fake = Arc::new(Sized {
+            size: (600, 300),
+            sequence: AtomicU64::new(0),
+            dirty: Mutex::default(),
+            between: Mutex::default(),
+        });
+        let source: Arc<dyn FrameSource> = fake.clone();
+        let surface = cx.new(|cx| BrowserSurface::new(source, None, None, cx));
+        surface.update(cx, |s, _| s.tiled = true);
+        let stats = surface.read_with(cx, |s, _| s.stats());
+        let window = cx.add_empty_window();
+        let mut frame = |seq: u64, dirty: Vec<DirtyRect>| {
+            fake.sequence.store(seq, Ordering::SeqCst);
+            *fake.dirty.lock().unwrap() = dirty;
+            let s = surface.clone();
+            window.draw(
+                gpui::point(px(0.), px(0.)),
+                gpui::size(px(700.), px(400.)),
+                move |_, _| s.into_any_element(),
+            );
+        };
+        let small = DirtyRect {
+            x: 300,
+            y: 10,
+            width: 20,
+            height: 20,
+        };
+        // The first frame: every tile (3 by 2 of 256 pixels).
+        frame(1, vec![small]);
+        // The next one: the one tile its dirty rectangle touches.
+        frame(2, vec![small]);
+        // Across a tile boundary: the four tiles around (256, 256)... clipped to the frame's two rows.
+        frame(
+            3,
+            vec![DirtyRect {
+                x: 250,
+                y: 250,
+                width: 10,
+                height: 10,
+            }],
+        );
+        // A skipped sequence: the dirty rectangles of the frames in between are unknown, so every tile.
+        frame(5, vec![small]);
+        // A skipped frame the source still knows (the engine paints faster than the shell draws): its rectangle (in
+        // the first tile) and the drawn frame's own (in the second).
+        *fake.between.lock().unwrap() = Some(vec![DirtyRect {
+            x: 10,
+            y: 10,
+            width: 20,
+            height: 20,
+        }]);
+        frame(7, vec![small]);
+        let s = stats.borrow();
+        assert_eq!(s.tiles_uploaded, vec![6, 1, 4, 6, 2]);
+        assert_eq!(s.tiles_total, 6);
+        assert_eq!(s.frame_size, (600, 300));
+    }
+
+    #[gpui::test]
+    fn ime_composition_reaches_the_page(cx: &mut gpui::TestAppContext) {
+        let sent: Rc<RefCell<Vec<Value>>> = Rc::default();
+        let sink = sent.clone();
+        let input: InputSink = Rc::new(move |e| sink.borrow_mut().push(e));
+        let source: Arc<dyn FrameSource> = Arc::new(Fake::default());
+        let surface = cx.new(|cx| BrowserSurface::new(source, Some(input), None, cx));
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            surface.update(cx, |s, cx| {
+                s.replace_and_mark_text_in_range(None, "\u{306B}", Some(1..1), window, cx);
+                assert_eq!(s.marked_text_range(window, cx), Some(0..1));
+                s.replace_and_mark_text_in_range(None, "\u{306B}\u{307B}", Some(2..2), window, cx);
+                s.replace_text_in_range(None, "\u{65E5}\u{672C}", window, cx);
+                assert_eq!(s.marked_text_range(window, cx), None);
+                s.replace_and_mark_text_in_range(None, "x", None, window, cx);
+                s.unmark_text(window, cx);
+            })
+        });
+        let sent = sent.borrow();
+        let kinds: Vec<&str> = sent.iter().map(|e| e["type"].as_str().unwrap()).collect();
+        assert_eq!(
+            kinds,
+            [
+                "imeSetComposition",
+                "imeSetComposition",
+                "imeCommitText",
+                "imeSetComposition",
+                "imeFinishComposing"
+            ]
+        );
+        assert_eq!(sent[1]["text"], "\u{306B}\u{307B}");
+        assert_eq!(sent[1]["selectionStart"], 2);
+        assert_eq!(sent[2]["text"], "\u{65E5}\u{672C}");
+    }
+
     #[test]
-    fn key_codes() {
-        assert_eq!(windows_key_code("a"), Some(65));
-        assert_eq!(windows_key_code("Z"), Some(90));
-        assert_eq!(windows_key_code("7"), Some(55));
-        assert_eq!(windows_key_code("enter"), Some(13));
-        assert_eq!(windows_key_code("f5"), Some(116));
-        assert_eq!(windows_key_code("left"), Some(37));
-        assert_eq!(windows_key_code("é"), None);
-        assert_eq!(windows_key_code("fly"), None);
+    fn key_codes_cursors_and_flags() {
+        assert_eq!(key_codes("a"), Some((65, 38)));
+        assert_eq!(key_codes("Z"), Some((90, 52)));
+        assert_eq!(key_codes("7"), Some((55, 16)));
+        assert_eq!(key_codes("enter"), Some((13, 36)));
+        assert_eq!(key_codes("f5"), Some((116, 71)));
+        assert_eq!(key_codes("left"), Some((37, 113)));
+        assert_eq!(key_codes("é"), None);
+        assert_eq!(key_codes("fly"), None);
+        assert_eq!(cursor_style("pointer"), CursorStyle::PointingHand);
+        assert_eq!(cursor_style("text"), CursorStyle::IBeam);
+        assert_eq!(cursor_style("whatever"), CursorStyle::Arrow);
         assert_eq!(
             flags(&Modifiers {
                 shift: true,

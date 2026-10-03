@@ -22,8 +22,9 @@
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "`external-chrome`: a Chrome or Chromium process Eludite launched (brief 0023). The embedded engine of the Web Browser window comes later.",
+          "description": "`embedded-chromium`: Eludite's own Chromium (`eludite-chromium` on CEF, brief 0031), drawn in the Web Browser window; `external-chrome`: a Chrome or Chromium process Eludite launched (brief 0023). The setting browser.engine chooses.",
           "enum": [
+            "embedded-chromium",
             "external-chrome"
           ]
         },
@@ -78,6 +79,17 @@
             "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
             "type": "integer",
             "minimum": 0
+          },
+          "favicon": {
+            "description": "The page's icon as a data url (embedded engine), when it has one.",
+            "type": "string"
+          },
+          "can_go_back": {
+            "description": "navigate with `action: back` has somewhere to go.",
+            "type": "boolean"
+          },
+          "can_go_forward": {
+            "type": "boolean"
           }
         }
       }
