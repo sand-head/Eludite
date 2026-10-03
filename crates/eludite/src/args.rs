@@ -122,7 +122,10 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       paint, the frame cost, the engine's paint to present),
                       then the engine's memory and tab_open to the first frame
                       with the engine running; the window opens at 2200 by
-                      1500 so the whole tab shows
+                      1500 so the whole tab shows. ELUDITE_BENCH_BROWSER_PAGE=box
+                      plays a still page with a 200 by 200 animated box
+                      instead; ELUDITE_BROWSER_TILES=0 uploads whole frames
+                      instead of the 256 by 256 tiles the change touches
   --bounds-out PATH   every 200 ms, write the window-relative bounds of tabs,
                       title bars, buttons, strips and guides to PATH as JSON
                       (for tools/drive.py, which drives the UI with real X11

@@ -224,7 +224,9 @@ impl Inner {
         let (kind, why) = eludite_browser::select_engine(choice, &lock(&self.search));
         let message = match (choice, kind) {
             (EngineChoice::External, _) => Some(
-                "The Web Browser window draws Eludite's embedded Chromium, and the setting browser.engine is                  `external`: the browser tools use a Chrome with its own window. Set browser.engine to `embedded`                  (Tools > Options > Web Browser) to browse here."
+                "The Web Browser window draws Eludite's embedded Chromium, and the setting browser.engine is \
+                 `external`: the browser tools use a Chrome with its own window. Set browser.engine to `embedded` \
+                 (Tools > Options > Web Browser) to browse here."
                     .to_owned(),
             ),
             (_, EngineChoice::External) => why,
@@ -683,7 +685,9 @@ impl Shell {
         let controller = controller.clone();
         let w = browser_window.clone();
         let layout_task = cx.spawn_in(window, async move |_, cx| {
-            while changes.next().await.is_some() {
+            // A restored layout may hold the window already; then every layout change.
+            let mut first = true;
+            while std::mem::take(&mut first) || changes.next().await.is_some() {
                 while changes.try_recv().is_ok() {}
                 let open = controller
                     .layout()
