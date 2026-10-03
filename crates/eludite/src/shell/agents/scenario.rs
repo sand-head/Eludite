@@ -13,17 +13,17 @@
 //!    `Program.cs` with `eludite.file.open` and `eludite.editor.find` (` Method(`, its declaration); after an exception,
 //!    the locals show which member of a local is null, `eludite.editor.find` checks which `local.Member.` the stopped
 //!    line dereferences, and finds that type's constructor (`public Type(`).
-//! 3. `eludite.debug.toggle_breakpoint` (`set`) on the function's first statement: the line after the declaration's
-//!    opening brace (the corpus is written in the C# convention, the brace on its own line).
-//! 4. `eludite.debug.start` again (after an exit) or `eludite.debug.restart` (from the exception's break), `wait` for
-//!    the breakpoint, `eludite.debug.snapshot` with `depth: 2`, then [`DebugAgent::steps`] `eludite.debug.step_over`s
-//!    quoting the stop they act on (`depth: 2`): each scenario's one number, how far the faulting statement is from
-//!    the function's first statement.
-//! 5. The answer: the statement's location and the locals of the last summary.
+//! 3. `eludite.debug.toggle_breakpoint` (`set`, `remove_after: true`, as the guide's cleanup rule says) on the
+//!    function's first statement: the line after the declaration's opening brace (the corpus is written in the C#
+//!    convention, the brace on its own line). Its compact answer (brief 0034) must name that line.
+//! 4. `eludite.debug.start` again (after an exit) or `eludite.debug.restart` (from the exception's break), then `wait`
+//!    for the breakpoint with `depth: 2` (its summary has the locals: brief 0034 drops brief 0030's `snapshot` after
+//!    it), then [`DebugAgent::steps`] `eludite.debug.step_over`s quoting the stop they act on (`depth: 2`): each
+//!    scenario's one number, how far the faulting statement is from the function's first statement.
+//! 5. The answer: the statement's location and the locals of the last summary. The session is left at that stop.
 //!
-//! The debug calls this makes with one step: seven (start, wait, toggle, start or restart, wait, snapshot, step); the
-//! proving threshold is eight. A start or restart that answers settled (a break or the end) is not followed by a
-//! `wait`.
+//! The debug calls this makes with one step: six (start, wait, toggle, start or restart, wait, step); the proving
+//! threshold is eight. A start or restart that answers settled (a break or the end) is not followed by a `wait`.
 
 use std::path::Path;
 
@@ -31,10 +31,9 @@ use eludite_acp::fake_agent::{Next, Planner, Seen, Step};
 use serde_json::{Value, json};
 
 /// The tools the scenario needs, as MCP names them; it answers without calling anything when one is missing.
-pub const TOOLS: [&str; 8] = [
+pub const TOOLS: [&str; 7] = [
     "eludite-debug-start",
     "eludite-debug-wait",
-    "eludite-debug-snapshot",
     "eludite-debug-toggle_breakpoint",
     "eludite-debug-step_over",
     "eludite-debug-restart",
@@ -79,7 +78,6 @@ enum Phase {
     Toggled,
     Rerun,
     RerunWaited,
-    Snapshot,
     Stepped,
 }
 
@@ -247,8 +245,8 @@ impl DebugAgent {
         let mut found = Vec::new();
         for row in r["locals"]["rows"].as_array().into_iter().flatten() {
             for child in row["children"].as_array().into_iter().flatten() {
-                // netcoredbg shows `null`, eludite-dbg-mono `(null)`.
-                if matches!(child["value"].as_str(), Some("null" | "(null)")) {
+                // One spelling on every adapter (brief 0034).
+                if child["value"].as_str() == Some("null") {
                     found.push((
                         row["name"].as_str().unwrap_or_default().to_owned(),
                         child["name"].as_str().unwrap_or_default().to_owned(),
@@ -335,11 +333,20 @@ impl DebugAgent {
         self.call(
             Phase::Toggled,
             "eludite-debug-toggle_breakpoint",
-            json!({"path": self.source, "line": self.breakpoint, "action": "set"}),
+            json!({"path": self.source, "line": self.breakpoint, "action": "set", "remove_after": true}),
         )
     }
 
-    fn toggled(&mut self) -> Next {
+    fn toggled(&mut self, r: &Value) -> Next {
+        // The compact answer: the breakpoint's row (brief 0034).
+        if !matches!(r["action"].as_str(), Some("added" | "changed"))
+            || r["breakpoint"]["line"].as_u64() != Some(self.breakpoint)
+        {
+            return self.give_up(format!(
+                "the breakpoint on line {} was not set: {r}",
+                self.breakpoint
+            ));
+        }
         match self.failure {
             // The exception's session is still at its break: start it again from there.
             Some(Failure::Exception { .. }) => self.call(
@@ -372,11 +379,8 @@ impl DebugAgent {
                 self.breakpoint, r["mode"]
             ));
         }
-        self.call(
-            Phase::Snapshot,
-            "eludite-debug-snapshot",
-            json!({"depth": 2}),
-        )
+        // The wait's summary has the locals two deep: no snapshot after it.
+        self.step(r)
     }
 
     fn step(&mut self, r: &Value) -> Next {
@@ -413,10 +417,10 @@ impl Planner for DebugAgent {
             Phase::Opened => self.opened(),
             Phase::FoundDeref => self.found_deref(&r),
             Phase::FoundDeclaration => self.found_declaration(&r),
-            Phase::Toggled => self.toggled(),
+            Phase::Toggled => self.toggled(&r),
             Phase::Rerun => self.rerun(&r),
             Phase::RerunWaited => self.rerun_waited(&r),
-            Phase::Snapshot | Phase::Stepped => self.step(&r),
+            Phase::Stepped => self.step(&r),
         }
     }
 }
@@ -513,21 +517,25 @@ mod tests {
         ));
         let (tool, args) = call(a.next(&s));
         assert_eq!(tool, "eludite-debug-toggle_breakpoint");
-        assert_eq!(args["line"], 12);
-        s.steps.push(step(&tool, json!({})));
+        assert_eq!(
+            (&args["line"], &args["remove_after"]),
+            (&json!(12), &json!(true))
+        );
+        s.steps.push(step(
+            &tool,
+            json!({"action": "added", "verified": false, "breakpoints_total": 1,
+                   "breakpoint": {"kind": "line", "path": "/c/OffByOne/Program.cs", "line": 12, "enabled": true, "verified": false, "hits": 0}}),
+        ));
         let (tool, _) = call(a.next(&s));
         assert_eq!(tool, "eludite-debug-start");
         s.steps
             .push(step(&tool, json!({"mode": "running", "stop": 0})));
-        let (tool, _) = call(a.next(&s));
-        assert_eq!(tool, "eludite-debug-wait");
-        s.steps
-            .push(step(&tool, json!({"mode": "break", "stop": 1})));
         let (tool, args) = call(a.next(&s));
         assert_eq!(
             (tool.as_str(), &args["depth"]),
-            ("eludite-debug-snapshot", &json!(2))
+            ("eludite-debug-wait", &json!(2))
         );
+        // The wait's summary has the locals: the step follows it at once.
         s.steps
             .push(step(&tool, json!({"mode": "break", "stop": 1})));
         let (tool, args) = call(a.next(&s));
@@ -585,7 +593,11 @@ mod tests {
             (tool.as_str(), &args["line"]),
             ("eludite-debug-toggle_breakpoint", &json!(15))
         );
-        s.steps.push(step(&tool, json!({})));
+        s.steps.push(step(
+            &tool,
+            json!({"action": "added", "verified": false, "pending": true, "session": 1, "breakpoints_total": 1,
+                   "breakpoint": {"kind": "line", "path": "/c/P.cs", "line": 15, "enabled": true, "verified": false, "hits": 0}}),
+        ));
         let (tool, _) = call(a.next(&s));
         assert_eq!(tool, "eludite-debug-restart");
         // A failed call ends the turn with what failed.
@@ -599,6 +611,25 @@ mod tests {
         assert_eq!(
             text,
             "I could not finish: eludite-debug-restart failed: refused"
+        );
+    }
+
+    #[test]
+    fn a_breakpoint_on_another_line_ends_the_turn() {
+        let mut a = DebugAgent::new(1);
+        a.phase = Phase::Toggled;
+        a.breakpoint = 12;
+        let mut s = seen();
+        s.steps.push(step(
+            "eludite-debug-toggle_breakpoint",
+            json!({"action": "deleted", "verified": false, "breakpoints_total": 0}),
+        ));
+        let Next::Answer(text) = a.next(&s) else {
+            panic!("no answer")
+        };
+        assert!(
+            text.starts_with("I could not finish: the breakpoint on line 12 was not set"),
+            "{text}"
         );
     }
 

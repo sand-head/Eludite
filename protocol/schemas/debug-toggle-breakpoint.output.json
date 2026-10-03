@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-toggle-breakpoint.output.json",
+  "title": "eludite.debug.toggle_breakpoint output",
+  "description": "The compact answer of eludite.debug.toggle_breakpoint (brief 0034): what the call did, the breakpoint's row, whether a live session bound it, and how many breakpoints there are. The other breakpoints, the frames and the locals are in eludite.debug.state; the commands that run the program answer with the stop summary.",
+  "type": "object",
+  "required": [
+    "action",
+    "verified",
+    "breakpoints_total"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "`added` (a new breakpoint), `changed` (one on that line or function existed), `deleted` (the call removed it, a `toggle` on a line that had one included) or `deleted_all`.",
+      "enum": [
+        "added",
+        "changed",
+        "deleted",
+        "deleted_all"
+      ]
+    },
+    "breakpoint": {
+      "type": "object",
+      "required": [
+        "kind",
+        "enabled",
+        "verified",
+        "hits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "`line` (a breakpoint on a line), `tracepoint` (a line breakpoint with `log_message`: When Hit, print a message and continue) or `function` (a function breakpoint, by `function`; no path or line).",
+          "enum": [
+            "line",
+            "tracepoint",
+            "function"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "The source file (absent for a function breakpoint)."
+        },
+        "line": {
+          "description": "1-based line (absent for a function breakpoint).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "function": {
+          "description": "A function breakpoint's function, `Namespace.Type.Method`.",
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "verified": {
+          "description": "The adapter bound it to code: in any live session (each session's binding is in `sessions`); after the last session ended, as that session left it.",
+          "type": "boolean"
+        },
+        "condition": {
+          "type": "string"
+        },
+        "hit_condition": {
+          "type": "string"
+        },
+        "hits": {
+          "description": "Times it was reached, summed over the live sessions (a tracepoint's hits count its lines); after the last session ended, that session's count.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "message": {
+          "description": "Why it is not bound, from the adapter.",
+          "type": "string"
+        },
+        "log_message": {
+          "description": "A tracepoint's message (eludite.debug.toggle_breakpoint's `log_message`).",
+          "type": "string"
+        },
+        "remove_after": {
+          "description": "Deleted at its first visible stop (\"Delete breakpoint when hit\").",
+          "type": "boolean"
+        },
+        "temporary": {
+          "description": "Set by eludite.debug.run_until or eludite.debug.trace for the length of that call and removed after it; never persisted. The Breakpoints window marks it.",
+          "type": "boolean"
+        },
+        "sessions": {
+          "description": "Per live session (brief 0028): whether that session's adapter bound it, its hits there and why it is not bound. Breakpoints are shared: every change is sent to every session's adapter.",
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": [
+              "session",
+              "verified",
+              "hits"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "session": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "verified": {
+                "type": "boolean"
+              },
+              "hits": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "description": "The breakpoint the call added or changed, as the Breakpoints window lists it (eludite.debug.state's `breakpoints` row): `verified` and `hits` over the live sessions, `sessions` per live session."
+    },
+    "verified": {
+      "description": "A live session's adapter has bound the breakpoint to code. False after a delete, while no session runs (breakpoints bind when a session starts) and while `pending`.",
+      "type": "boolean"
+    },
+    "pending": {
+      "description": "A session runs and the change was sent to its adapter, whose answer (the binding) comes after this one: eludite.debug.state shows it, and a stop at the line shows it bound.",
+      "type": "boolean"
+    },
+    "session": {
+      "description": "The active debugging session's id (brief 0028), when a session runs.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "breakpoints_total": {
+      "description": "How many breakpoints there are after the call: line breakpoints, tracepoints and function breakpoints, temporary ones included.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
