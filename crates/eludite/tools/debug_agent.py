@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Brief 0030's recorded real run: Claude Code debugs a seeded-bug corpus program through the Agents window.
+"""Brief 0030's recorded real run (repeated by brief 0034): Claude Code debugs a seeded-bug corpus program through
+the Agents window.
 
 Three subcommands, run by tools/debug-agent-linux.sh:
 
@@ -10,9 +11,11 @@ Three subcommands, run by tools/debug-agent-linux.sh:
              turn's end, and take screenshots (`import -window root`). Prints one JSON object: the times (ms since the
              epoch) of the prompt and the turn's end, the permission decisions, the screenshots.
   summarize  One run's numbers from its transcript (the Agents window's rows, `--transcript-out`), the Claude Code
-             stream captured below the ACP adapter (`--stream`, each line `<ms> <json>`) and the drive JSON: every
-             tool call (name, input, answer bytes, time), the debug calls, whether a summary the agent received
-             stopped at the README's faulting line, whether the answer names that line, tokens and wall time.
+             stream captured below the ACP adapter (`--stream`, each line `<ms> <json>`; optional) and the drive JSON:
+             every tool call (name, input, answer bytes, time), the debug calls, whether a summary the agent received
+             stopped at the README's faulting line, whether the answer names that line, tokens and wall time. Tokens
+             and cost come from the transcript's usage line (brief 0034: eludite-claude-acp's ACP `usage_update`); the
+             stream, when given, supplies each call's time and the model, and its `result` is checked against them.
   report     All runs' summaries into numbers.md, calls.json and transcript.md (the full transcripts as the window
              showed them).
 
@@ -225,11 +228,13 @@ def summarize(a):
             "debug": tc.get("debug"), "debug_location": tc.get("debug_location"),
         })
     debug = [c for c in calls if "eludite-debug-" in c["name"]]
-    # Reached: a debug answer the agent received stopped at the faulting line of the program's Program.cs.
+    # Reached: a debug answer the agent received stopped at the faulting line of the program's Program.cs. (A
+    # breakpoint's row also has a location since brief 0034: only a stop counts.)
     reached_at = None
     for n, c in enumerate(debug, 1):
         loc = c.get("debug_location") or {}
-        if loc.get("line") == expected["line"] and str(loc.get("path", "")).endswith(f"{a.program}/Program.cs"):
+        if "stopped at" in (c.get("debug") or "") and loc.get("line") == expected["line"] and \
+                str(loc.get("path", "")).endswith(f"{a.program}/Program.cs"):
             reached_at = n
             break
         try:
@@ -248,15 +253,30 @@ def summarize(a):
     telling = {"OffByOne": "count - 1", "MissingCase": "return 0", "NullField": "parent != null"}.get(a.program, "")
     named = bool(re.search(rf"(line\s*{expected['line']}\b|:{expected['line']}\b)", answer, re.I)) and (
         squash(expected["statement"]) in squash(answer) or (telling and squash(telling) in squash(answer)))
+    # Tokens and cost: the turn's usage line in the transcript (eludite-claude-acp's `usage_update`, brief 0034).
+    lines = [r["usage"] for r in rows if "usage" in r]
+    line = lines[-1] if lines else None
     tokens = None
-    if usage:
+    if line and "input_total" in line:
         tokens = {
+            "input": line.get("input_tokens", 0),
+            "cache_creation_input": line.get("cached_write_tokens", 0),
+            "cache_read_input": line.get("cached_read_tokens", 0),
+            "output": line.get("output_tokens", 0),
+            "input_total": line.get("input_total", 0),
+        }
+    # The stream's own count, when captured, to check the adapter's against.
+    stream_tokens = None
+    if usage:
+        stream_tokens = {
             "input": usage.get("input_tokens", 0),
             "cache_creation_input": usage.get("cache_creation_input_tokens", 0),
             "cache_read_input": usage.get("cache_read_input_tokens", 0),
             "output": usage.get("output_tokens", 0),
         }
-        tokens["input_total"] = tokens["input"] + tokens["cache_creation_input"] + tokens["cache_read_input"]
+        stream_tokens["input_total"] = (stream_tokens["input"] + stream_tokens["cache_creation_input"]
+                                        + stream_tokens["cache_read_input"])
+    cost = (line or {}).get("cost", {}).get("amount")
     out = {
         "program": a.program, "run": a.run, "expected": expected,
         "calls": calls,
@@ -264,8 +284,12 @@ def summarize(a):
         "reached": reached_at is not None, "reached_at_debug_call": reached_at,
         "within_eight": reached_at is not None and reached_at <= 8,
         "named_in_answer": named,
-        "tokens": tokens, "acp_usage_events": 0, "model": model,
-        "cost_usd": result and result.get("total_cost_usd"),
+        "tokens": tokens, "tokens_from": "transcript usage line (ACP usage_update)" if tokens else None,
+        "usage_line": line and line.get("text"), "acp_usage_events": len(lines),
+        "stream_tokens": stream_tokens,
+        "tokens_match_stream": None if stream_tokens is None or tokens is None else stream_tokens == tokens,
+        "model": (line or {}).get("model") or model,
+        "cost_usd": cost if cost is not None else (result and result.get("total_cost_usd")),
         "num_turns": result and result.get("num_turns"),
         "claude_duration_ms": result and result.get("duration_ms"),
         "transcript_bytes": len(json.dumps(rows).encode()),
@@ -304,29 +328,34 @@ def transcript_md(rows):
             lines.append("**Error:** " + r["error"])
         elif "plan" in r:
             lines.append("Plan: " + "; ".join(e.get("content", "") for e in r["plan"]))
+        elif "usage" in r:
+            lines.append("*" + r["usage"].get("text", "") + "*")
     return "\n\n".join(lines)
 
 
 def report(a):
+    brief = a.brief
     runs = [json.load(open(p)) for p in sorted(glob.glob(os.path.join(a.runs, "*", "summary.json")))]
     order = {"OffByOne": 0, "MissingCase": 1, "NullField": 2}
     runs.sort(key=lambda r: (order.get(r["program"], 9), r["run"]))
     calls = [{"program": r["program"], "run": r["run"], "calls": r["calls"]} for r in runs]
     short = lambda text: text.replace(os.path.realpath(a.runs) + "/", "$OUT/")
     open(os.path.join(a.dest, "calls.json"), "w").write(short(json.dumps(calls, indent=1)))
-    md = ["# Brief 0030's recorded run: the numbers", "",
+    md = [f"# Brief {brief}'s recorded run: the numbers", "",
           f"Recorded {a.date} on {a.machine}. Adapter: {a.adapter}. Claude Code {a.claude}, model "
           f"{', '.join(sorted({str(r.get('model')) for r in runs}))}. "
-          "Tokens are Claude Code's own count for the turn (its stream's `result` message, captured below the ACP "
-          "adapter; `eludite-claude-acp` sends no ACP usage events). Wall time: from the window taking the prompt (the "
+          "Tokens and cost are Claude Code's own count for the turn, read from the Agents window's usage line under the "
+          "turn (`eludite-claude-acp`'s ACP `usage_update`, from the stream's `result` message), and checked against "
+          "the stream captured below the adapter: "
+          f"{sum(1 for r in runs if r.get('tokens_match_stream'))} of {len(runs)} runs match. Wall time: from the window taking the prompt (the "
           "agent's start, about 0.5 s of it) to the turn's end. Debug calls: every `eludite.debug.*` call of the turn, "
           "cleanup included. Reached: a stop summary the agent received (a start, wait, continue, step or trace answer) "
           "located at the README's faulting line, and the debug call that brought it. Named: the answer gives that "
           "line and the statement. Bytes: each debug answer's text as the agent received it. Paths under the run "
           "folder are written `$OUT/`.", "",
           "| Program | Run | Debug calls | Debug calls, in order | Reached (at debug call) | Named in the answer | "
-          "Input tokens (cache read, cache write) | Output tokens | Wall time | Debug answer bytes |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "Input tokens (cache read, cache write) | Output tokens | Cost | Wall time | Debug answer bytes |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in runs:
         t = r["tokens"] or {}
         sizes = ", ".join(str(c["output_bytes"]) for c in r["calls"] if "eludite-debug-" in c["name"])
@@ -335,7 +364,9 @@ def report(a):
             f"{'yes (' + str(r['reached_at_debug_call']) + ')' if r['reached'] else 'no'} | "
             f"{'yes' if r['named_in_answer'] else 'no'} | "
             f"{t.get('input_total', '?')} ({t.get('cache_read_input', '?')}, {t.get('cache_creation_input', '?')}) | "
-            f"{t.get('output', '?')} | {(r['wall_ms'] or 0) / 1000:.1f} s | {sizes} |")
+            f"{t.get('output', '?')} | "
+            f"{'$%.2f' % r['cost_usd'] if r.get('cost_usd') is not None else '?'} | "
+            f"{(r['wall_ms'] or 0) / 1000:.1f} s | {sizes} |")
     hit = sum(1 for r in runs if r["within_eight"])
     md += ["", f"Runs that reached the faulting statement within eight debug calls: **{hit} of {len(runs)}**.", ""]
     md += ["## Tool calls per run", ""]
@@ -351,7 +382,7 @@ def report(a):
         md.append("Answer: " + (r["answer"] or "").replace("\n", " ")[:2000])
         md.append("")
     open(os.path.join(a.dest, "numbers.md"), "w").write(short("\n".join(md) + "\n"))
-    tm = ["# Brief 0030's recorded run: the transcripts", "",
+    tm = [f"# Brief {brief}'s recorded run: the transcripts", "",
           "Each run's Agents window transcript (`--transcript-out`), as the window showed it: the prompt, Claude's "
           "messages, and each tool call with its arguments and the answer it received (folded).", ""]
     for r in runs:
@@ -379,6 +410,7 @@ def main():
     r = sub.add_parser("report")
     for k in ("runs", "dest", "date", "machine", "adapter", "claude"):
         r.add_argument("--" + k, required=True)
+    r.add_argument("--brief", default="0034")
     a = ap.parse_args()
     {"drive": drive, "summarize": summarize, "report": report}[a.cmd](a)
 
