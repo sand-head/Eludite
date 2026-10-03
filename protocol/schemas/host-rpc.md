@@ -339,7 +339,8 @@ starts a .NET test runner itself, and runs `cargo test` for Rust through its own
 - **The generation rule.** Every update carries the generation its discovery or run started under. A new generation
   (`eludite/solution/open` or `close`) cancels every discovery and run (each ends with a `finished` update `canceled`
   under its old generation) and forgets the discovered tests. The shell drops updates whose generation is not current
-  (CLAUDE.md invariant 12), and the host refuses a run naming containers of a previous generation's discovery (-32602).
+  (CLAUDE.md invariant 12) and starts a discovery that was going over under the new generation (the real host's
+  solution may still be loading when the Test Explorer first asks), and the host refuses a run naming containers of a previous generation's discovery (-32602).
   A run whose containers were not discovered under the current generation (the host restarted) is discovered first,
   silently, then run.
 - **Status: `eludite/test/status`** answers the discoveries and runs that are going, with their tests and their latest
