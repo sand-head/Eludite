@@ -8,7 +8,9 @@
 //!
 //! - **Target frameworks** ([`classify_framework`]): `netcoreapp*`, `netstandard*` (not runnable) and `netN.M` with
 //!   N >= 5 are CoreCLR; `net2*`, `net3*`, `net4*` (SDK-style) and a legacy project's `TargetFrameworkVersion` `v2.0` to
-//!   `v4.8.1` are .NET Framework.
+//!   `v4.8.1` are .NET Framework. A multi-targeted project runs its first target framework, or the one Visual Studio's
+//!   Debug toolbar selected: `ActiveDebugFramework` in the project's `.user` file (`App.csproj.user`), when the project
+//!   lists it (brief 0030, which debugs its `net10.0;net472` corpus under Mono where netcoredbg is missing).
 //! - **The built program** ([`output_program`]): CoreCLR's `<AssemblyName>.dll` under `bin/<Configuration>/<tfm>/`
 //!   (then `bin/<Configuration>/`); an SDK-style .NET Framework project's `<AssemblyName>.exe` there; a legacy
 //!   project's `<AssemblyName>.exe` in its `OutputPath` (default `bin\Debug\`, backslashes normalized).
@@ -186,6 +188,19 @@ pub fn read_project(path: &Path) -> Result<ProjectInfo, String> {
                 .collect()
         })
         .unwrap_or_default();
+    // Visual Studio's choice of the framework to debug (the Debug toolbar's framework list writes it to the `.user`
+    // file beside the project): that framework first.
+    let user = PathBuf::from(format!("{}.user", path.display()));
+    if let Some(active) = std::fs::read_to_string(user)
+        .ok()
+        .and_then(|xml| element(&xml, "ActiveDebugFramework"))
+        && let Some(ix) = target_frameworks
+            .iter()
+            .position(|t| t.eq_ignore_ascii_case(&active))
+    {
+        let tfm = target_frameworks.remove(ix);
+        target_frameworks.insert(0, tfm);
+    }
     if target_frameworks.is_empty() {
         let mut dir = path.parent();
         while let Some(d) = dir {
@@ -587,6 +602,28 @@ mod tests {
         let w = read_project(&web).unwrap();
         assert!(w.is_executable());
         assert_eq!(w.target_frameworks, ["net8.0", "net10.0"]);
+        // Visual Studio's ActiveDebugFramework (the .user file) puts its framework first; one the project does not
+        // list is ignored.
+        write(
+            &t.path().join("Web/Web.csproj.user"),
+            "<Project><PropertyGroup><ActiveDebugFramework>net10.0</ActiveDebugFramework></PropertyGroup></Project>",
+        );
+        assert_eq!(
+            read_project(&t.path().join("Web/Web.csproj"))
+                .unwrap()
+                .target_frameworks,
+            ["net10.0", "net8.0"]
+        );
+        write(
+            &t.path().join("Web/Web.csproj.user"),
+            "<Project><PropertyGroup><ActiveDebugFramework>net472</ActiveDebugFramework></PropertyGroup></Project>",
+        );
+        assert_eq!(
+            read_project(&t.path().join("Web/Web.csproj"))
+                .unwrap()
+                .target_frameworks,
+            ["net8.0", "net10.0"]
+        );
         assert_eq!(
             startup_project(&[lib.clone(), host.clone(), web]),
             Some(host.clone())
