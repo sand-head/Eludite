@@ -42,6 +42,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Brief 0030: the agent debugging proving scenario (crates/eludite/src/shell/agents/tests.rs) debugs the
+      # seeded-bug corpus (corpus/debugging) under netcoredbg on every platform. The .NET SDK builds the corpus;
+      # tools/netcoredbg/fetch.sh fetches the adapter, cached on the release and checksums the script pins (Git Bash
+      # runs it on Windows, where the path is converted for the tests).
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache netcoredbg
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/netcoredbg
+          key: netcoredbg-${{ runner.os }}-${{ hashFiles('tools/netcoredbg/fetch.sh') }}
+
+      - name: Fetch netcoredbg
+        shell: bash
+        run: |
+          netcoredbg="$(tools/netcoredbg/fetch.sh)"
+          if command -v cygpath >/dev/null 2>&1; then netcoredbg="$(cygpath -w "$netcoredbg")"; fi
+          echo "ELUDITE_NETCOREDBG=$netcoredbg" >> "$GITHUB_ENV"
+
+      - name: Build the debugging corpus
+        if: runner.os != 'Windows'
+        run: corpus/debugging/build.sh
+
+      - name: Build the debugging corpus (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: corpus/debugging/build.ps1
+
       - name: Format
         run: cargo fmt --check
 
@@ -96,6 +126,12 @@ jobs:
       - name: Test
         if: runner.os != 'Linux'
         run: cargo test --workspace
+
+      # The scenario ran in the step above; this runs it again alone and prints its call lists, sizes and times. Same
+      # features as the test step, so nothing is rebuilt.
+      - name: Debug proving scenario
+        shell: bash
+        run: cargo test --workspace ${{ env.CEF_FEATURES }} -- a_scripted_agent_finds the_corpus_programs --nocapture
 
   dotnet:
     name: dotnet (${{ matrix.os }})
