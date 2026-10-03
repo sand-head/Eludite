@@ -12,6 +12,12 @@ $src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $HOME '
 $config = if ($env:ROSLYN_CONFIGURATION) { $env:ROSLYN_CONFIGURATION } else { 'Release' }
 $project = 'src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj'
 
+# Roslyn's build refuses to run without Windows long path support (its eng\enable-long-paths.reg sets the same value).
+$longPaths = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -ErrorAction SilentlyContinue).LongPathsEnabled
+if ($longPaths -ne 1) {
+  throw "Roslyn needs long paths: from an elevated prompt run New-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force"
+}
+
 if (-not (Test-Path (Join-Path $src '.git'))) {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $src) | Out-Null
   git clone --filter=blob:none --no-checkout https://github.com/dotnet/roslyn.git $src
@@ -27,8 +33,10 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Push-Location $src
 try {
-  # Build.cmd adds -build itself; passing it again fails parameter binding.
-  & .\Build.cmd -restore -configuration $config -solution $project -nodeReuse:$false
+  # Build.cmd adds -build itself and re-parses its arguments in a nested PowerShell, so -nodeReuse takes the literal
+  # text '$false' (an expanded $false arrives as the string "False"). -msbuildEngine dotnet builds with the SDK, as
+  # on Linux, instead of requiring a Visual Studio MSBuild.
+  & .\Build.cmd -restore -configuration $config -solution $project -msbuildEngine dotnet '-nodeReuse:$false'
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
 } finally { Pop-Location }
 $sw.Stop()
