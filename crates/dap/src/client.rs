@@ -448,6 +448,7 @@ fn merge_capabilities(into: &mut Capabilities, update: &Capabilities) {
         supports_variable_paging,
         supports_delayed_stack_trace_loading,
         supports_set_variable,
+        supports_set_expression,
         supports_function_breakpoints,
         supports_log_points,
         supports_exception_filter_options,

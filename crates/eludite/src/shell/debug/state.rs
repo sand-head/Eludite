@@ -525,6 +525,7 @@ impl Breakpoints {
                 hit_condition: hit_conditions
                     .then(|| b.hit_condition.map(|h| h.to_string()))
                     .flatten(),
+                log_message: None,
             });
         }
         if let Some(l) = extra.filter(|l| !lines.contains(l)) {

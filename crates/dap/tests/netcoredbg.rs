@@ -63,6 +63,8 @@ fn netcoredbg_debugs_eludite_host() {
                 }],
             )],
             exception_filters: vec!["user-unhandled".into()],
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
         },
         T,
     )
@@ -198,6 +200,8 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
             arguments: args,
             breakpoints: Vec::new(),
             exception_filters: Vec::new(),
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
         },
         T,
     )
@@ -349,4 +353,197 @@ fn netcoredbg_pauses_pages_and_explains_exceptions() {
     client
         .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
         .unwrap();
+}
+
+/// Brief 0026's requests against the real netcoredbg (Linux), skipped like the tests above. On `eludite-host`:
+/// `setFunctionBreakpoints` on `HostRpcTarget.Ping` stops when a ping arrives, `setVariable` on its `timestamp` (20
+/// timed calls: the 150 ms p95 budget), and `filterOptions` naming `StreamJsonRpc.LocalRpcException` stop at the throw
+/// of `eludite/solution/close`. Then the emulated tracepoint's overhead (proposal 0001 risk 3): a console program with a
+/// 200-iteration loop is written to a temporary folder and built with `dotnet build`, and a breakpoint on its body is
+/// handled as the shell handles a tracepoint where the adapter has no log points (stack, `evaluate`, `continue`).
+#[cfg(target_os = "linux")]
+#[test]
+fn netcoredbg_runs_under_control() {
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use eludite_dap::discovery::AdapterSearch;
+    use eludite_dap::launch;
+    use eludite_dap::session::{self, StartKind, StartPlan};
+    use eludite_dap::types::{Event, ExceptionFilterOptions, FunctionBreakpoint, SourceBreakpoint};
+    use eludite_dap::{ClientEvent, DapClient, transport};
+    use serde_json::json;
+
+    use common::{Recorder, T};
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join("dotnet/src/Eludite.Host/Eludite.Host.csproj");
+    let found = match AdapterSearch::from_env().find_netcoredbg() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let config = match launch::launch_config(&project, None) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let rec = Recorder::default();
+    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let mut args = config.netcoredbg_arguments();
+    args["args"] = json!(["--stdio", "--no-roslyn"]);
+    let started = session::start(
+        &client,
+        &StartPlan {
+            adapter_id: "coreclr".into(),
+            kind: StartKind::Launch,
+            arguments: args,
+            breakpoints: Vec::new(),
+            exception_filters: Vec::new(),
+            exception_options: vec![ExceptionFilterOptions {
+                filter_id: "all".into(),
+                condition: Some("StreamJsonRpc.LocalRpcException".into()),
+            }],
+            function_breakpoints: vec![FunctionBreakpoint {
+                name: "Eludite.Host.Rpc.HostRpcTarget.Ping".into(),
+                ..Default::default()
+            }],
+        },
+        T,
+    )
+    .unwrap();
+    eprintln!(
+        "netcoredbg: function breakpoint answer {:?}; setExpression {}; log points {}",
+        started.function_breakpoints,
+        started.capabilities.supports_set_expression,
+        started.capabilities.supports_log_points
+    );
+    assert!(started.capabilities.supports_exception_filter_options);
+    let pid = match rec.wait_nth(1, "process", |e| {
+        matches!(e, ClientEvent::Event(Event::Process(_)))
+    }) {
+        ClientEvent::Event(Event::Process(p)) => p.system_process_id.unwrap(),
+        _ => unreachable!(),
+    };
+    let write = |body: &[u8]| {
+        let mut stdin = std::fs::OpenOptions::new()
+            .write(true)
+            .open(format!("/proc/{pid}/fd/0"))
+            .unwrap();
+        write!(stdin, "Content-Length: {}\r\n\r\n", body.len()).unwrap();
+        stdin.write_all(body).unwrap();
+    };
+    std::thread::sleep(Duration::from_millis(1500));
+    write(br#"{"jsonrpc":"2.0","id":1,"method":"eludite/ping"}"#);
+    let s = rec.stopped(1);
+    eprintln!("function breakpoint stop: reason {}", s.reason);
+    assert!(s.reason.contains("breakpoint"), "{s:?}");
+    let tid = s.thread_id.unwrap();
+    let st = client
+        .request_wait("stackTrace", json!({"threadId": tid, "levels": 1}), T)
+        .unwrap();
+    assert!(
+        st["stackFrames"][0]["name"]
+            .as_str()
+            .unwrap()
+            .contains("Ping"),
+        "{st}"
+    );
+    let scopes = client
+        .request_wait("scopes", json!({"frameId": st["stackFrames"][0]["id"]}), T)
+        .unwrap();
+    let locals = scopes["scopes"][0]["variablesReference"].clone();
+    let mut times = Vec::new();
+    for n in 0..20 {
+        let clock = Instant::now();
+        let r = client.request_wait(
+            "setVariable",
+            json!({"variablesReference": locals, "name": "timestamp", "value": format!("\"t{n}\"")}),
+            T,
+        );
+        times.push(clock.elapsed());
+        assert!(r.is_ok(), "{r:?}");
+    }
+    let (mean, p95) = common::mean_p95(&times);
+    eprintln!(
+        "timing: setVariable round trip against netcoredbg: mean {mean:.2} ms, p95 {p95:.2} ms (20 calls)"
+    );
+    assert!(p95 < 150.0, "{p95}");
+    client
+        .request_wait("continue", json!({"threadId": tid}), T)
+        .unwrap();
+    write(br#"{"jsonrpc":"2.0","id":2,"method":"eludite/solution/close"}"#);
+    let s = rec.stopped(2);
+    assert_eq!(s.reason, "exception");
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": true}), T)
+        .unwrap();
+
+    // The emulated tracepoint's overhead over 200 hits of a hot loop.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("Loop.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType>\
+         <TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+    )
+    .unwrap();
+    let program = "var sum = 0L;\nfor (var i = 0; i < 200; i++)\n{\n    sum += i;\n}\nSystem.Console.WriteLine(\"done \" + sum);\n";
+    std::fs::write(dir.path().join("Program.cs"), program).unwrap();
+    let built = std::process::Command::new("dotnet")
+        .arg("build")
+        .arg(dir.path().join("Loop.csproj"))
+        .output();
+    match built {
+        Ok(o) if o.status.success() => {}
+        other => {
+            eprintln!(
+                "skipped the overhead measurement: dotnet build of the loop failed: {other:?}"
+            );
+            return;
+        }
+    }
+    let config = launch::launch_config(&dir.path().join("Loop.csproj"), None).unwrap();
+    let rec = Recorder::default();
+    let client = DapClient::start(transport::connect(&found.transport()).unwrap(), rec.sink());
+    let source = std::fs::canonicalize(dir.path().join("Program.cs")).unwrap();
+    let clock = Instant::now();
+    session::start(
+        &client,
+        &StartPlan {
+            adapter_id: "coreclr".into(),
+            kind: StartKind::Launch,
+            arguments: config.netcoredbg_arguments(),
+            breakpoints: vec![(
+                source.to_string_lossy().into_owned(),
+                vec![SourceBreakpoint {
+                    line: 4,
+                    ..Default::default()
+                }],
+            )],
+            exception_filters: Vec::new(),
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
+        },
+        T,
+    )
+    .unwrap();
+    let hits = common::emulate_tracepoint(&client, &rec, 200, "i");
+    let total = clock.elapsed();
+    assert_eq!(hits[199].0, "199");
+    let (mean, p95) = common::mean_p95(&hits.iter().map(|(_, t)| *t).collect::<Vec<_>>());
+    eprintln!(
+        "timing: an emulated tracepoint against netcoredbg, stop to resume: mean {mean:.2} ms, p95 {p95:.2} ms over \
+         200 hits; launch to the last hit {:.0} ms",
+        total.as_secs_f64() * 1e3
+    );
+    assert!(mean < 15.0, "the budget is 15 ms per hit: {mean}");
+    rec.wait_nth(1, "terminated", |e| {
+        matches!(e, ClientEvent::Event(Event::Terminated))
+    });
+    let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
 }

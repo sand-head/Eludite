@@ -1,15 +1,19 @@
 //! The start of a debug session, in DAP's order: `initialize`, then `launch` (or `attach`) sent without waiting, then
 //! after the adapter's `initialized` event the breakpoints, the exception filters and `configurationDone`, then the
 //! `launch` answer. It waits on the adapter at every step, so it runs on a worker thread.
+//!
+//! The function breakpoints and the exception filters' options (exception types, brief 0026) go in the same step as
+//! the breakpoints, where the adapter supports them.
 
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::client::{DapClient, DapError};
 use crate::types::{
-    Breakpoint, Capabilities, InitializeArguments, SetBreakpointsArguments, SetBreakpointsResponse,
-    Source, SourceBreakpoint,
+    Breakpoint, Capabilities, ExceptionFilterOptions, FunctionBreakpoint, InitializeArguments,
+    SetBreakpointsArguments, SetBreakpointsResponse, SetExceptionBreakpointsArguments,
+    SetFunctionBreakpointsArguments, Source, SourceBreakpoint,
 };
 
 /// `launch` or `attach`.
@@ -40,6 +44,11 @@ pub struct StartPlan {
     pub breakpoints: Vec<(String, Vec<SourceBreakpoint>)>,
     /// Exception filters to enable; those the adapter does not offer are left out.
     pub exception_filters: Vec<String>,
+    /// Filters with a condition (exception types), sent as `filterOptions` when the adapter supports them; a filter
+    /// named here is not also named in `exception_filters`.
+    pub exception_options: Vec<ExceptionFilterOptions>,
+    /// Function breakpoints, sent when the adapter supports them.
+    pub function_breakpoints: Vec<FunctionBreakpoint>,
 }
 
 /// What the handshake learned.
@@ -49,6 +58,8 @@ pub struct Started {
     /// The adapter's answer for each path of [`StartPlan::breakpoints`], in order.
     pub breakpoints: Vec<(String, Vec<Breakpoint>)>,
     pub exception_filters: Vec<String>,
+    /// The adapter's answer for [`StartPlan::function_breakpoints`] (empty when they were not sent).
+    pub function_breakpoints: Vec<Breakpoint>,
 }
 
 /// Run the handshake for `plan` on `client`, each step within `timeout`. Blocks: call it on a worker thread.
@@ -82,6 +93,17 @@ pub fn start(client: &DapClient, plan: &StartPlan, timeout: Duration) -> Result<
         let answer = set_breakpoints(client, path, bps, left())?;
         breakpoints.push((path.clone(), answer));
     }
+    let mut function_breakpoints = Vec::new();
+    if !plan.function_breakpoints.is_empty() && capabilities.supports_function_breakpoints {
+        let body = client.request_wait(
+            "setFunctionBreakpoints",
+            set_function_breakpoints_arguments(&plan.function_breakpoints),
+            left(),
+        )?;
+        function_breakpoints = serde_json::from_value::<SetBreakpointsResponse>(body)
+            .unwrap_or_default()
+            .breakpoints;
+    }
     let offered: Vec<&str> = capabilities
         .exception_breakpoint_filters
         .iter()
@@ -93,10 +115,19 @@ pub fn start(client: &DapClient, plan: &StartPlan, timeout: Duration) -> Result<
         .filter(|f| offered.contains(&f.as_str()))
         .cloned()
         .collect();
+    let options: Vec<ExceptionFilterOptions> = if capabilities.supports_exception_filter_options {
+        plan.exception_options
+            .iter()
+            .filter(|o| offered.contains(&o.filter_id.as_str()))
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
     if !offered.is_empty() {
         client.request_wait(
             "setExceptionBreakpoints",
-            json!({ "filters": filters }),
+            set_exception_breakpoints_arguments(&filters, &options),
             left(),
         )?;
     }
@@ -113,6 +144,7 @@ pub fn start(client: &DapClient, plan: &StartPlan, timeout: Duration) -> Result<
         capabilities,
         breakpoints,
         exception_filters: filters,
+        function_breakpoints,
     })
 }
 
@@ -146,4 +178,25 @@ pub fn set_breakpoints_arguments(path: &str, breakpoints: &[SourceBreakpoint]) -
         breakpoints: breakpoints.to_vec(),
     })
     .expect("breakpoints serialize")
+}
+
+/// The arguments of `setFunctionBreakpoints`.
+pub fn set_function_breakpoints_arguments(breakpoints: &[FunctionBreakpoint]) -> Value {
+    serde_json::to_value(SetFunctionBreakpointsArguments {
+        breakpoints: breakpoints.to_vec(),
+    })
+    .expect("function breakpoints serialize")
+}
+
+/// The arguments of `setExceptionBreakpoints`: `filters` without conditions, `filterOptions` with them (left out
+/// when empty, for adapters without `supportsExceptionFilterOptions`).
+pub fn set_exception_breakpoints_arguments(
+    filters: &[String],
+    options: &[ExceptionFilterOptions],
+) -> Value {
+    serde_json::to_value(SetExceptionBreakpointsArguments {
+        filters: filters.to_vec(),
+        filter_options: options.to_vec(),
+    })
+    .expect("exception filters serialize")
 }

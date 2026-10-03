@@ -124,3 +124,57 @@ impl Recorder {
         self.wait_nth(1, "closed", |e| matches!(e, ClientEvent::Closed { .. }))
     }
 }
+
+/// A tracepoint emulated as the shell does where the adapter has no log points (brief 0026): at each of `hits` stops,
+/// `threads` and `stackTrace` (as the shell reads a stop), `evaluate` of `expression` in the top frame, then `continue`.
+/// Returns each hit's evaluated value and the time from the `stopped` event's arrival to the `continue` answer.
+pub fn emulate_tracepoint(
+    client: &eludite_dap::DapClient,
+    rec: &Recorder,
+    hits: usize,
+    expression: &str,
+) -> Vec<(String, Duration)> {
+    let mut out = Vec::new();
+    for n in 1..=hits {
+        let s = rec.stopped(n);
+        let seen = Instant::now();
+        let tid = s.thread_id.unwrap_or(0);
+        let threads = client
+            .request_channel("threads", serde_json::Value::Null)
+            .unwrap();
+        let st = client
+            .request_wait(
+                "stackTrace",
+                serde_json::json!({"threadId": tid, "startFrame": 0, "levels": 200}),
+                T,
+            )
+            .unwrap();
+        let _ = threads.recv_timeout(T);
+        let frame = st["stackFrames"][0]["id"].clone();
+        let value = client
+            .request_wait(
+                "evaluate",
+                serde_json::json!({"expression": expression, "frameId": frame, "context": "watch"}),
+                T,
+            )
+            .map(|e| e["result"].as_str().unwrap_or_default().to_owned())
+            .unwrap_or_else(|e| format!("{{{expression}: {e}}}"));
+        client
+            .request_wait("continue", serde_json::json!({"threadId": tid}), T)
+            .unwrap();
+        out.push((value, seen.elapsed()));
+    }
+    out
+}
+
+/// The mean and the p95 of `times`, in milliseconds.
+pub fn mean_p95(times: &[Duration]) -> (f64, f64) {
+    let mut v: Vec<f64> = times.iter().map(|d| d.as_secs_f64() * 1e3).collect();
+    v.sort_by(f64::total_cmp);
+    let mean = v.iter().sum::<f64>() / v.len().max(1) as f64;
+    let p95 = v
+        .get((v.len() * 95).div_ceil(100).saturating_sub(1))
+        .copied()
+        .unwrap_or_default();
+    (mean, p95)
+}
