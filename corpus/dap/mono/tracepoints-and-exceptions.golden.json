@@ -228,21 +228,21 @@
           },
           {
             "name": "big",
-            "value": "(null)",
+            "value": "null",
             "type": "int[]",
             "reference": 0,
             "evaluate_name": "big"
           },
           {
             "name": "order",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Order",
             "reference": 0,
             "evaluate_name": "order"
           },
           {
             "name": "calc",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Calculator",
             "reference": 0,
             "evaluate_name": "calc"
@@ -374,9 +374,9 @@
           "+ args = {string[0]} : string[]",
           "mode = \"run\" : string",
           "+ names = {string[25]} : string[]",
-          "big = (null) : int[]",
-          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
-          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "big = null : int[]",
+          "order = null : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = null : Eludite.Debugger.Mono.TestApp.Calculator",
           "result = 0 : int",
           "total = 0 : int",
           "n = 23 : int"
@@ -458,21 +458,21 @@
           },
           {
             "name": "big",
-            "value": "(null)",
+            "value": "null",
             "type": "int[]",
             "reference": 0,
             "evaluate_name": "big"
           },
           {
             "name": "order",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Order",
             "reference": 0,
             "evaluate_name": "order"
           },
           {
             "name": "calc",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Calculator",
             "reference": 0,
             "evaluate_name": "calc"
@@ -604,9 +604,9 @@
           "+ args = {string[0]} : string[]",
           "mode = \"run\" : string",
           "+ names = {string[25]} : string[]",
-          "big = (null) : int[]",
-          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
-          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "big = null : int[]",
+          "order = null : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = null : Eludite.Debugger.Mono.TestApp.Calculator",
           "result = 0 : int",
           "total = 0 : int",
           "n = 24 : int"
@@ -688,21 +688,21 @@
           },
           {
             "name": "big",
-            "value": "(null)",
+            "value": "null",
             "type": "int[]",
             "reference": 0,
             "evaluate_name": "big"
           },
           {
             "name": "order",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Order",
             "reference": 0,
             "evaluate_name": "order"
           },
           {
             "name": "calc",
-            "value": "(null)",
+            "value": "null",
             "type": "Eludite.Debugger.Mono.TestApp.Calculator",
             "reference": 0,
             "evaluate_name": "calc"
@@ -819,9 +819,9 @@
           "+ args = {string[0]} : string[]",
           "mode = \"run\" : string",
           "+ names = {string[25]} : string[]",
-          "big = (null) : int[]",
-          "order = (null) : Eludite.Debugger.Mono.TestApp.Order",
-          "calc = (null) : Eludite.Debugger.Mono.TestApp.Calculator",
+          "big = null : int[]",
+          "order = null : Eludite.Debugger.Mono.TestApp.Order",
+          "calc = null : Eludite.Debugger.Mono.TestApp.Calculator",
           "result = 0 : int",
           "total = 0 : int",
           "n = 24 : int"
