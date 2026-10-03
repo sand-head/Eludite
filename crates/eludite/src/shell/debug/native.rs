@@ -14,6 +14,8 @@
 //!   `exception` stop described `signal SIGSTOP` (reported as `pause`); standard library frames carry
 //!   `/rustc/<commit>/...` paths, mapped under `rust-src` when it is installed and otherwise shown as external code
 //!   (no path, `subtle`).
+//! - **Hit counts** ([`adapt_capabilities`]): lldb-dap's `hitCondition` is a bare number with LLDB's ignore-count
+//!   meaning, so the shell counts hits itself for `N`, `>=N` and `%N`.
 //! - **Rust panics** ([`function_breakpoints`]): the Exception Settings row is a function breakpoint on `rust_panic`,
 //!   sent before `configurationDone` and again when the row changes during a session.
 
@@ -25,7 +27,7 @@ use eludite_commands::project::{ProjectOutput, StartupProjectOutput};
 use eludite_dap::cargo::{self, CargoPackageInfo, CargoStart};
 use eludite_dap::discovery::LldbSearch;
 use eludite_dap::launch::{LaunchConfig, Platform};
-use eludite_dap::types::{Event, FunctionBreakpoint, OutputEvent};
+use eludite_dap::types::{Capabilities, Event, FunctionBreakpoint, OutputEvent};
 use eludite_dap::{ClientEvent, Connection, transport};
 use eludite_workspace::cargo::{CargoWorkspace, TargetKind};
 use gpui::Context;
@@ -292,6 +294,13 @@ pub fn function_breakpoints(rust_panics: bool) -> Vec<FunctionBreakpoint> {
     }
 }
 
+/// What the shell takes from lldb-dap's capabilities: its hit conditions are not Visual Studio's (lldb-dap 18 reads
+/// `hitCondition` as a number N and breaks on the Nth hit and every one after; `>=N` and `%N` do not parse, so it
+/// breaks on every hit), so the shell counts hits itself, as it does for netcoredbg (brief 0018).
+pub fn adapt_capabilities(caps: &mut Capabilities) {
+    caps.supports_hit_conditional_breakpoints = false;
+}
+
 /// A line for the Debug source from the launch thread (cargo's test build), as the adapter's console output.
 pub fn console_event(line: &str) -> ClientEvent {
     ClientEvent::Event(Event::Output(OutputEvent {
@@ -536,6 +545,13 @@ mod tests {
         );
         assert_eq!(f[1].get("presentationHint"), None);
         assert_eq!(function_breakpoints(true)[0].name, "rust_panic");
+        let mut caps = Capabilities {
+            supports_hit_conditional_breakpoints: true,
+            supports_log_points: true,
+            ..Default::default()
+        };
+        adapt_capabilities(&mut caps);
+        assert!(!caps.supports_hit_conditional_breakpoints && caps.supports_log_points);
         assert!(function_breakpoints(false).is_empty());
     }
 }

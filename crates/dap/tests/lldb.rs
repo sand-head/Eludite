@@ -625,8 +625,37 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
     );
     assert_eq!(s.reason, "breakpoint");
     let tid = s.thread_id.unwrap();
+    // A conditional breakpoint in the loop, then a hit count (lldb-dap: break on the Nth hit, counted from when the
+    // breakpoint was set), then none.
+    let i_at_stop = |n: usize| {
+        let s = stopped(&rec, n);
+        assert_eq!(s.reason, "breakpoint");
+        let (_, vars) = locals(&client, &frames(&client, tid, 1)[0]["id"]);
+        value_of(&vars, "i").1.clone()
+    };
+    let set_loop = |bp: Value| {
+        req(
+            &client,
+            "setBreakpoints",
+            json!({"source": {"path": p.source}, "breakpoints": [bp]}),
+        )
+    };
+    let answer = set_loop(json!({"line": line_of("loop"), "condition": "i == 7"}));
+    assert_eq!(answer["breakpoints"][0]["verified"], true);
     req(&client, "continue", json!({"threadId": tid}));
-    let s = stopped(&rec, 2);
+    assert_eq!(i_at_stop(2), "7");
+    set_loop(json!({"line": line_of("loop"), "hitCondition": "3"}));
+    req(&client, "continue", json!({"threadId": tid}));
+    let at = i_at_stop(3);
+    eprintln!("hit condition 3 set at i = 7 stopped at i = {at}");
+    assert_eq!(at, "10");
+    req(
+        &client,
+        "setBreakpoints",
+        json!({"source": {"path": p.source}, "breakpoints": []}),
+    );
+    req(&client, "continue", json!({"threadId": tid}));
+    let s = stopped(&rec, 4);
     let stack = frames(&client, tid, 40);
     let names: Vec<&str> = stack.iter().map(|f| f["name"].as_str().unwrap()).collect();
     eprintln!("panic stop ({}): {names:?}", s.reason);
