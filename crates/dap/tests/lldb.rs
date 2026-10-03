@@ -847,8 +847,27 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
         ms(clock.elapsed())
     );
     assert!(started.capabilities.supports_restart_request);
-    req(&client, "pause", json!({"threadId": 0}));
-    let s = stopped(&rec, 1);
+    // lldb-dap stops the process to attach and resumes it after `configurationDone`; a pause that arrives before the
+    // resume is lost, so pause until a stop is reported.
+    let deadline = Instant::now() + T;
+    let s = loop {
+        let _ = client.request_wait("pause", json!({"threadId": 0}), T);
+        let wait = Instant::now() + Duration::from_millis(1500);
+        let found = loop {
+            let s = rec.events().into_iter().find_map(|e| match e {
+                ClientEvent::Event(Event::Stopped(s)) => Some(s),
+                _ => None,
+            });
+            if s.is_some() || Instant::now() > wait {
+                break s;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        if let Some(s) = found {
+            break s;
+        }
+        assert!(Instant::now() < deadline, "no stop after pause");
+    };
     assert!(s.thread_id.is_some());
     client
         .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
