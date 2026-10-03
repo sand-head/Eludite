@@ -777,3 +777,88 @@ fn lldb_dap_debugs_the_package_test_executable_with_a_filter() {
     );
     let _ = client.request_wait("disconnect", json!({"terminateDebuggee": true}), T);
 }
+
+/// Brief 0027: lldb-dap attaches to a running native process by `pid` (the attach plan for runtime `native`), pauses it
+/// and detaches; the process keeps running. A copy of `sleep` stands in for the program (no build needed).
+#[cfg(unix)]
+#[test]
+fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
+    use eludite_dap::attach::{AttachAdapter, attach_plan};
+    use eludite_dap::processes::{self, Runtime};
+    let Ok(adapter) = (LldbSearch {
+        configured: std::env::var_os("ELUDITE_LLDB_DAP")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from),
+        ..LldbSearch::from_env()
+    })
+    .find(Platform::current()) else {
+        eprintln!("skipped: no lldb-dap");
+        return;
+    };
+    let mut child = std::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .expect("sleep");
+    let pid = child.id();
+    let listed = processes::list()
+        .unwrap()
+        .into_iter()
+        .find(|p| p.pid == pid)
+        .unwrap();
+    assert_eq!(listed.runtime, Runtime::Native);
+    let plan = attach_plan(
+        AttachAdapter::for_runtime(listed.runtime).unwrap(),
+        pid,
+        None,
+        Platform::current(),
+    )
+    .unwrap();
+    let rec = Recorder::default();
+    let clock = Instant::now();
+    let client = DapClient::start(
+        transport::connect(&adapter.transport()).unwrap(),
+        rec.sink(),
+    );
+    let started = session::start(
+        &client,
+        &StartPlan {
+            adapter_id: plan.adapter_id.into(),
+            kind: StartKind::Attach,
+            arguments: plan.arguments,
+            breakpoints: Vec::new(),
+            exception_filters: Vec::new(),
+            exception_options: Vec::new(),
+            function_breakpoints: Vec::new(),
+        },
+        T,
+    );
+    let started = match started {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            // Attaching needs ptrace; a container may forbid it.
+            eprintln!("skipped: lldb-dap could not attach to process {pid}: {e}");
+            return;
+        }
+    };
+    eprintln!(
+        "timing: lldb-dap attach to a running process: {:.0} ms",
+        ms(clock.elapsed())
+    );
+    assert!(started.capabilities.supports_restart_request);
+    req(&client, "pause", json!({"threadId": 0}));
+    let s = stopped(&rec, 1);
+    assert!(s.thread_id.is_some());
+    client
+        .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "the process keeps running after the debugger detached"
+    );
+    assert!(processes::alive(pid));
+    let _ = child.kill();
+    let _ = child.wait();
+}
