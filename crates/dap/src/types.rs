@@ -17,6 +17,21 @@ pub struct Capabilities {
     pub supports_evaluate_for_hovers: bool,
     pub supports_cancel_request: bool,
     pub support_terminate_debuggee: bool,
+    /// Not a DAP capability (DAP has it as a client capability); decoded for adapters that say so anyway. The shell
+    /// treats `eludite-dbg-mono` as paging (brief 0022 report, section 9).
+    pub supports_variable_paging: bool,
+    pub supports_delayed_stack_trace_loading: bool,
+    pub supports_set_variable: bool,
+    pub supports_function_breakpoints: bool,
+    pub supports_log_points: bool,
+    pub supports_exception_filter_options: bool,
+    pub supports_goto_targets_request: bool,
+    pub supports_data_breakpoints: bool,
+    pub supports_step_back: bool,
+    pub supports_restart_request: bool,
+    pub supports_modules_request: bool,
+    pub supports_read_memory_request: bool,
+    pub supports_disassemble_request: bool,
     pub exception_breakpoint_filters: Vec<ExceptionBreakpointsFilter>,
 }
 
@@ -140,6 +155,9 @@ pub struct StackFrame {
     pub end_line: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_column: Option<i64>,
+    /// `normal`, `label` or `subtle` (`eludite-dbg-mono` marks frames without source `subtle`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation_hint: Option<String>,
 }
 
 impl StackFrame {
@@ -163,7 +181,14 @@ pub struct StackTraceResponse {
 #[serde(rename_all = "camelCase", default)]
 pub struct Scope {
     pub name: String,
+    /// `arguments`, `locals`, `registers` or another kind the adapter names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation_hint: Option<String>,
     pub variables_reference: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub named_variables: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indexed_variables: Option<i64>,
     pub expensive: bool,
 }
 
@@ -183,6 +208,25 @@ pub struct Variable {
     pub variables_reference: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evaluate_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub named_variables: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indexed_variables: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation_hint: Option<VariablePresentationHint>,
+}
+
+/// How a client should show a variable: its kind (`property`, `method`, `class`, `data`, ...), attributes
+/// (`readOnly`, `rawString`, ...) and visibility.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct VariablePresentationHint {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub attributes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -207,6 +251,26 @@ pub struct ExceptionInfoResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub break_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<ExceptionDetails>,
+}
+
+/// `exceptionInfo`'s details: the exception and its inner exceptions.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExceptionDetails {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_type_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluate_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_trace: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub inner_exception: Vec<ExceptionDetails>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -341,6 +405,51 @@ mod tests {
         assert!(caps.supports_conditional_breakpoints);
         assert!(!caps.supports_hit_conditional_breakpoints);
         assert_eq!(caps.exception_breakpoint_filters[1].filter, "all");
+        // What brief 0025's `capabilities` reads (brief 0018 report, section 5): netcoredbg has function breakpoints,
+        // setVariable and exception filter options, and none of the others.
+        assert!(caps.supports_function_breakpoints);
+        assert!(caps.supports_set_variable);
+        assert!(caps.supports_exception_filter_options);
+        assert!(caps.supports_exception_info_request);
+        assert!(caps.supports_terminate_request);
+        for (name, v) in [
+            ("variable paging", caps.supports_variable_paging),
+            (
+                "delayed stack loading",
+                caps.supports_delayed_stack_trace_loading,
+            ),
+            ("log points", caps.supports_log_points),
+            ("goto targets", caps.supports_goto_targets_request),
+            ("data breakpoints", caps.supports_data_breakpoints),
+            ("step back", caps.supports_step_back),
+            ("restart", caps.supports_restart_request),
+            ("modules", caps.supports_modules_request),
+            ("read memory", caps.supports_read_memory_request),
+            ("disassemble", caps.supports_disassemble_request),
+        ] {
+            assert!(!v, "{name}");
+        }
+        // eludite-dbg-mono's answer (protocol/schemas/dap-mono.md): delayed stack loading, log points, set variable.
+        let mono: Capabilities = serde_json::from_value(json!({
+            "supportsConfigurationDoneRequest": true, "supportsConditionalBreakpoints": true,
+            "supportsHitConditionalBreakpoints": true, "supportsFunctionBreakpoints": true, "supportsLogPoints": true,
+            "supportsEvaluateForHovers": true, "supportsSetVariable": true, "supportsExceptionInfoRequest": true,
+            "supportsExceptionFilterOptions": true, "supportsTerminateRequest": true,
+            "supportTerminateDebuggee": true, "supportsDelayedStackTraceLoading": true
+        }))
+        .unwrap();
+        assert!(mono.supports_delayed_stack_trace_loading && mono.supports_log_points);
+        assert!(!mono.supports_variable_paging && !mono.supports_goto_targets_request);
+        let info: ExceptionInfoResponse = serde_json::from_value(json!({
+            "exceptionId": "System.InvalidOperationException", "description": "boom", "breakMode": "always",
+            "details": {"message": "boom", "typeName": "InvalidOperationException",
+                        "fullTypeName": "System.InvalidOperationException", "stackTrace": "   at Program.Fail()",
+                        "innerException": [{"message": "inner", "typeName": "FormatException"}]}
+        }))
+        .unwrap();
+        let details = info.details.unwrap();
+        assert_eq!(details.stack_trace.as_deref(), Some("   at Program.Fail()"));
+        assert_eq!(details.inner_exception[0].message.as_deref(), Some("inner"));
 
         let stopped = Event::decode(
             "stopped",

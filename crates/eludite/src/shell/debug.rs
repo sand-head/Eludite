@@ -2158,6 +2158,7 @@ impl Shell {
     fn on_client_event(&mut self, event: ClientEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             ClientEvent::Event(e) => self.on_dap_event(e, cx),
+            ClientEvent::Stderr(_) => {}
             ClientEvent::Response {
                 request_seq,
                 result,

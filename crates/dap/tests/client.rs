@@ -333,6 +333,7 @@ fn first_chance_exceptions_and_ignored_hit_conditions() {
         exception: "System.NullReferenceException".into(),
         message: "null".into(),
         handled: false,
+        ..Default::default()
     });
     p.steps.push(unhandled);
     let (conn, handle) = fake::connect(p);

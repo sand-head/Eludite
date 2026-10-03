@@ -709,6 +709,7 @@ fn conditions_hit_counts_run_to_cursor_and_exceptions(cx: &mut TestAppContext) {
             exception: "System.InvalidOperationException".into(),
             message: "boom".into(),
             handled: true,
+            ..Default::default()
         });
         p.steps.push(throws);
     });

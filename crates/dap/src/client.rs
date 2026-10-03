@@ -34,6 +34,8 @@ pub enum ClientEvent {
         command: String,
         result: Result<Value, String>,
     },
+    /// A line the adapter wrote to its stderr (a stdio or ssh adapter; the shell's `adapter` output source).
+    Stderr(String),
     /// The connection closed. `terminated`: the adapter sent `terminated` first (a normal end); otherwise it exited or
     /// hung up on its own (a crash).
     Closed {
@@ -143,9 +145,10 @@ impl DapClient {
             .spawn(move || writer_loop(writer, rx))
             .expect("spawn dap-writer");
         if let Some(stderr) = stderr {
+            let stderr_sink = sink.clone();
             std::thread::Builder::new()
                 .name("dap-stderr".into())
-                .spawn(move || stderr_loop(stderr, stderr_tail, trace))
+                .spawn(move || stderr_loop(stderr, stderr_tail, trace, stderr_sink))
                 .expect("spawn dap-stderr");
         }
         let reader_inner = inner.clone();
@@ -285,17 +288,25 @@ fn writer_loop(mut writer: Box<dyn Write + Send>, rx: mpsc::Receiver<Vec<u8>>) {
     }
 }
 
-fn stderr_loop(stderr: impl Read, tail: Arc<Mutex<VecDeque<String>>>, trace: bool) {
+fn stderr_loop(
+    stderr: impl Read,
+    tail: Arc<Mutex<VecDeque<String>>>,
+    trace: bool,
+    sink: EventSink,
+) {
     for line in BufReader::new(stderr).lines() {
         let Ok(line) = line else { break };
         if trace {
             eprintln!("[dap stderr] {line}");
         }
-        let mut t = lock(&tail);
-        if t.len() == STDERR_TAIL {
-            t.pop_front();
+        {
+            let mut t = lock(&tail);
+            if t.len() == STDERR_TAIL {
+                t.pop_front();
+            }
+            t.push_back(line.clone());
         }
-        t.push_back(line);
+        sink(ClientEvent::Stderr(line));
     }
 }
 
@@ -434,6 +445,19 @@ fn merge_capabilities(into: &mut Capabilities, update: &Capabilities) {
         supports_evaluate_for_hovers,
         supports_cancel_request,
         support_terminate_debuggee,
+        supports_variable_paging,
+        supports_delayed_stack_trace_loading,
+        supports_set_variable,
+        supports_function_breakpoints,
+        supports_log_points,
+        supports_exception_filter_options,
+        supports_goto_targets_request,
+        supports_data_breakpoints,
+        supports_step_back,
+        supports_restart_request,
+        supports_modules_request,
+        supports_read_memory_request,
+        supports_disassemble_request,
         exception_breakpoint_filters
     );
 }
