@@ -196,3 +196,19 @@ fn a_new_branch_pushes_with_its_upstream_and_pull_conflicts_stop() {
         .unwrap_err();
     assert_eq!(e.kind, ErrorKind::NotFound);
 }
+
+/// This build's libgit2 has no https or ssh transport (no `https` or `ssh` feature: they add dependencies): such a
+/// remote fails at once: https with "there is no TLS stream available", ssh as an unsupported protocol.
+#[test]
+fn https_and_ssh_remotes_need_transports_this_build_lacks() {
+    let (_tmp, a, _) = setup();
+    let r = a.repository().unwrap();
+    r.remote("web", "https://example.invalid/r.git").unwrap();
+    r.remote("ssh", "ssh://git@example.invalid/r.git").unwrap();
+    for (remote, says) in [("web", "TLS"), ("ssh", "unsupported")] {
+        let e = a
+            .fetch(Some(remote), false, &Cancel::new(), &mut |_| {})
+            .unwrap_err();
+        assert!(e.message.contains(says), "{remote}: {e}");
+    }
+}

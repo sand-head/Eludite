@@ -683,8 +683,10 @@ impl Render for GitChanges {
         match self.model.repository {
             Some(true) => {}
             Some(false) | None => {
-                let text = if self.model.loading || self.model.repository.is_none() {
+                let text = if self.model.loading {
                     "Looking for a Git repository\u{2026}"
+                } else if self.model.repository.is_none() {
+                    "Open a workspace to see its Git changes."
                 } else {
                     "The workspace is not in a Git repository."
                 };
