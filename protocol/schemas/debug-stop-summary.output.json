@@ -435,6 +435,22 @@
           }
         }
       }
+    },
+    "breakpoints_failed": {
+      "description": "Present while a breakpoint of this session failed: its adapter refused the line (no code there) or rejected the condition when it evaluated it (`Unknown identifier: Coin`). Such a breakpoint never stops, so a program that runs to its end past it says nothing else. Fix the line or the condition with eludite.debug.toggle_breakpoint (the message clears when it binds) and run again. The end-of-session summary carries the list the session ended with. A breakpoint waiting for its code to load is pending, not failed, and is not listed.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/failed"
+      }
+    },
+    "points_failed": {
+      "description": "eludite.debug.run_until only: its points that the session's adapter had not bound when it answered (failed, or still pending), with the adapter's reason. The stop, if any, is elsewhere.",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/failed"
+      }
     }
   },
   "$defs": {
@@ -580,6 +596,39 @@
         "variable_paging": {
           "description": "The adapter pages variables by `start` and `count`; otherwise the debugger reads them all and pages.",
           "type": "boolean"
+        }
+      }
+    },
+    "failed": {
+      "description": "A breakpoint (or a point of eludite.debug.run_until or eludite.debug.trace) that a session's adapter did not bind, or whose condition it rejected (brief 0036): it never stops there.",
+      "type": "object",
+      "required": [
+        "session",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "The source file (absent for a function breakpoint).",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line (absent for a function breakpoint).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "function": {
+          "description": "A function breakpoint's function.",
+          "type": "string"
+        },
+        "session": {
+          "description": "The session whose adapter said so.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "message": {
+          "description": "The adapter's reason, as it gave it: the line has no code (`The breakpoint location is invalid`), the condition does not compile (`Unknown identifier: Coin`), or, for a point that never bound, why it is not bound yet.",
+          "type": "string"
         }
       }
     }

@@ -34,6 +34,11 @@
 //! ([`ToggleBreakpointOutput`], `debug-toggle-breakpoint.output.json`) instead of the whole state, and a null reference
 //! reads `null` on every adapter ([`null_spelling`]).
 //!
+//! Brief 0036 makes a breakpoint that cannot stop say so: the adapter's reason is on its row, `toggle_breakpoint`
+//! answers it (`message`) once a live session's adapter answered, and the stop summary lists the session's failed
+//! breakpoints (`breakpoints_failed`) and `run_until`'s points that never bound (`points_failed`), as `trace` does
+//! ([`FailedBreakpointRow`]).
+//!
 //! The keys, the Debug menu, the margin, the debugger windows and agents all run these, against one state machine
 //! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `state`, `select_frame`, `watch` and
 //! `exception_settings` answer with the debugger's state ([`DebugState`], `debug-state.output.json`), which is what
@@ -1194,6 +1199,9 @@ pub struct ToggleBreakpointOutput {
     /// Sent to a live session's adapter, whose answer comes later.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending: bool,
+    /// Why a live session's adapter refused it, once it answered (brief 0036).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     /// The active session, while one runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<u32>,
@@ -1588,6 +1596,44 @@ pub struct StopSummary {
     /// A compound start that timed out before any session broke: every session's mode (brief 0028).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sessions: Vec<CompoundSessionRow>,
+    /// The session's breakpoints that its adapter refused or whose condition it rejected (brief 0036).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breakpoints_failed: Vec<FailedBreakpointRow>,
+    /// `run_until`: its points the adapter had not bound when it answered (brief 0036).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points_failed: Vec<FailedBreakpointRow>,
+}
+
+/// A breakpoint, or a `run_until` or `trace` point, that a session's adapter did not bind or whose condition it
+/// rejected (`debug-stop-summary.output.json`'s and `debug-trace.output.json`'s `failed`; brief 0036).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FailedBreakpointRow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    pub session: u32,
+    pub message: String,
+}
+
+/// Whether an adapter's message for a breakpoint it has not bound says it is still pending (its code has not loaded,
+/// the session has not started) rather than refused: netcoredbg's "pending", eludite-dbg-mono's "will not currently be
+/// hit", "could not yet be bound" and "will bind when its code loads" (brief 0036). Anything else is a refusal.
+pub fn pending_message(message: &str) -> bool {
+    let m = message.to_ascii_lowercase();
+    [
+        "pending",
+        "not currently be hit",
+        "not yet",
+        "will bind",
+        "will be resolved",
+        "when its code loads",
+    ]
+    .iter()
+    .any(|p| m.contains(p))
 }
 
 /// One thread's page of `debug-stack.output.json`.
@@ -1726,6 +1772,9 @@ pub struct TraceOutput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i64>,
     pub points: Vec<TracePointRow>,
+    /// The points that never bound, with why (brief 0036).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub points_failed: Vec<FailedBreakpointRow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overhead_ms_per_hit: Option<f64>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -3728,6 +3777,7 @@ mod tests {
             breakpoint: Some(row),
             verified: true,
             pending: true,
+            message: None,
             session: Some(1),
             breakpoints_total: 3,
         }))
@@ -3744,6 +3794,7 @@ mod tests {
             breakpoint: None,
             verified: false,
             pending: false,
+            message: None,
             session: None,
             breakpoints_total: 0,
         }))
@@ -3760,6 +3811,108 @@ mod tests {
             spec(TOGGLE_BREAKPOINT).output_schema["title"],
             spec(STATE).output_schema["title"]
         );
+    }
+
+    #[test]
+    fn a_breakpoint_that_cannot_stop_says_so_in_the_answers() {
+        // The toggle answer with a live session's refusal: under 600 B with the message (brief 0036's budget).
+        let message = "Unknown identifier: Coin";
+        let row = BreakpointRow {
+            kind: BreakpointKind::Line,
+            path: Some("/home/user/work/MissingCase/Program.cs".into()),
+            line: Some(28),
+            enabled: true,
+            verified: false,
+            condition: Some("coin == Coin.Quarter".into()),
+            message: Some(message.into()),
+            remove_after: true,
+            sessions: vec![BreakpointSessionRow {
+                session: 1,
+                verified: false,
+                hits: 0,
+                message: Some(message.into()),
+            }],
+            ..BreakpointRow::default()
+        };
+        let answer = DebugOutput::Breakpoint(Box::new(ToggleBreakpointOutput {
+            action: BreakpointEdit::Added,
+            breakpoint: Some(row),
+            verified: false,
+            pending: false,
+            message: Some(message.into()),
+            session: Some(1),
+            breakpoints_total: 1,
+        }))
+        .to_json();
+        conforms(TOGGLE_OUTPUT, &answer);
+        assert_eq!(answer["message"], message);
+        assert!(answer.to_string().len() < 600, "{answer}");
+        // The stop summary's lists, and trace's.
+        let failed = FailedBreakpointRow {
+            path: Some("/s/Program.cs".into()),
+            line: Some(28),
+            function: None,
+            session: 1,
+            message: message.into(),
+        };
+        let summary = DebugOutput::Summary(Box::new(StopSummary {
+            mode: "design".into(),
+            generation: 1,
+            exit_code: Some(1),
+            message: Some("The session ended: the program exited with code 1.".into()),
+            breakpoints_failed: vec![failed.clone()],
+            points_failed: vec![FailedBreakpointRow {
+                function: Some("App.Coins.Cents".into()),
+                path: None,
+                line: None,
+                ..failed.clone()
+            }],
+            ..StopSummary::default()
+        }))
+        .to_json();
+        conforms(SUMMARY_OUTPUT, &summary);
+        assert_eq!(summary["breakpoints_failed"][0]["line"], 28);
+        assert_eq!(summary["points_failed"][0]["function"], "App.Coins.Cents");
+        let empty = DebugOutput::Summary(Box::new(StopSummary {
+            mode: "running".into(),
+            ..StopSummary::default()
+        }))
+        .to_json();
+        assert!(empty.get("breakpoints_failed").is_none() && empty.get("points_failed").is_none());
+        let trace = DebugOutput::Trace(Box::new(TraceOutput {
+            stopped_by: "terminated".into(),
+            points: vec![TracePointRow {
+                path: "/s/Program.cs".into(),
+                line: 28,
+                hits: 0,
+                verified: false,
+                message: Some(message.into()),
+            }],
+            points_failed: vec![failed],
+            ..TraceOutput::default()
+        }))
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-trace.output.json"),
+            &trace,
+        );
+        // Pending is not failed.
+        for pending in [
+            "The breakpoint will not currently be hit",
+            "The breakpoint could not yet be bound to a valid location",
+            "The breakpoint will bind when its code loads.",
+            "The breakpoint is pending and will be resolved when debugging starts.",
+        ] {
+            assert!(pending_message(pending), "{pending}");
+        }
+        for failed in [
+            message,
+            "The breakpoint location is invalid. Perhaps the source line does not contain any statements",
+            "The breakpoint could not be bound",
+            "'Kind' is ambiguous between A.Kind and B.Kind: qualify it",
+        ] {
+            assert!(!pending_message(failed), "{failed}");
+        }
     }
 
     #[test]
@@ -3819,6 +3972,8 @@ mod tests {
         let summary = DebugOutput::Summary(Box::new(StopSummary {
             session: Some(1),
             sessions: Vec::new(),
+            breakpoints_failed: Vec::new(),
+            points_failed: Vec::new(),
             mode: "break".into(),
             generation: 1,
             stop: 3,
@@ -4294,6 +4449,7 @@ mod tests {
                 verified: true,
                 message: None,
             }],
+            points_failed: Vec::new(),
             overhead_ms_per_hit: Some(4.2),
             emulated: true,
             generation: Some(1),

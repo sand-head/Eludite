@@ -312,5 +312,275 @@ namespace Eludite.Debugger.Mono.TestApp
             var last = l000 + l199; // MARK: many
             return last;
         }
+
+        /// <summary>
+        /// Brief 0036's modes (<c>coins</c>, <c>load</c>) run here, before <c>Main</c>, so that the lines above keep the
+        /// numbers the DAP corpus (corpus/dap/mono) recorded.
+        /// </summary>
+#pragma warning disable CA1810 // The modes must run before Main.
+        static Program()
+#pragma warning restore CA1810
+        {
+            var args = System.Environment.GetCommandLineArgs();
+            var mode = args.Length > 1 ? args[1] : string.Empty;
+            if (mode == "coins")
+            {
+                System.Environment.Exit(Purse.Coins.Run());
+            }
+            else if (mode == "load")
+            {
+                System.Environment.Exit(Loading.Loader.Run());
+            }
+        }
+    }
+}
+
+namespace Eludite.Debugger.Mono.TestApp.Shapes
+{
+    public enum Shape
+    {
+        Circle,
+        Square,
+    }
+
+    /// <summary>Also in <c>Colors</c>: <c>Kind</c> is ambiguous where both are imported.</summary>
+    public enum Kind
+    {
+        Round,
+        Angular,
+    }
+}
+
+namespace Eludite.Debugger.Mono.TestApp.Colors
+{
+    public enum Hue
+    {
+        Red,
+        Blue,
+    }
+
+    public enum Kind
+    {
+        Warm,
+        Cold,
+    }
+}
+
+namespace Eludite.Debugger.Mono.TestApp.Hidden
+{
+    /// <summary>Not imported where the debugger stops: found by its unique simple name.</summary>
+    public static class Gadget
+    {
+        public static int Size => 3;
+    }
+}
+
+namespace Eludite.Debugger.Mono.TestApp.Purse
+{
+    using Eludite.Debugger.Mono.TestApp.Colors;
+    using Eludite.Debugger.Mono.TestApp.Shapes;
+
+    /// <summary>Brief 0036: an enum in a namespace, for conditions and evaluations that name it unqualified.</summary>
+    public enum Coin
+    {
+        Penny,
+        Nickel,
+        Dime,
+        Quarter,
+    }
+
+    public static class Coins
+    {
+        public static int Cents(Coin coin)
+        {
+            switch (coin)
+            {
+                case Coin.Penny:
+                    return 1;
+                case Coin.Nickel:
+                    return 5;
+                case Coin.Dime:
+                    return 10;
+                default:
+                    return 0; // MARK: coin-default
+            }
+        }
+
+        public static int Run()
+        {
+            var purse = new[] { Coin.Penny, Coin.Dime, Coin.Quarter, Coin.Nickel };
+            var shape = Shape.Circle;
+            var hue = Hue.Red;
+            var total = 0;
+            for (var i = 0; i < purse.Length; i++)
+            {
+                var coin = purse[i];
+                total += Cents(coin); // MARK: coin-loop
+            }
+
+            System.Console.WriteLine("coins " + total + " " + shape + " " + hue + " " + Hidden.Gadget.Size); // MARK: coin-done
+            return total;
+        }
+    }
+}
+
+namespace Eludite.Debugger.Mono.TestApp.Loading
+{
+    /// <summary>Brief 0036's race: types of this file and framework assemblies load while breakpoints are inserted.</summary>
+    public static class Loader
+    {
+        public static int Run()
+        {
+            System.Console.WriteLine("loading"); // MARK: load-start
+            var total = 0;
+            total += Part01.Value();
+            Thread.Sleep(15);
+            total += Part02.Value();
+            Thread.Sleep(15);
+            total += Part03.Value();
+            total += System.Xml.XmlConvert.ToInt32("1");
+            Thread.Sleep(15);
+            total += Part04.Value();
+            Thread.Sleep(15);
+            total += Part05.Value();
+            Thread.Sleep(15);
+            total += Part06.Value();
+            total += System.Numerics.BigInteger.One.IsOne ? 1 : 0;
+            Thread.Sleep(15);
+            total += Part07.Value();
+            Thread.Sleep(15);
+            total += Part08.Value();
+            Thread.Sleep(15);
+            total += Part09.Value();
+            total += new System.Data.DataTable("t").Columns.Count + 1;
+            Thread.Sleep(15);
+            total += Part10.Value();
+            Thread.Sleep(15);
+            total += Part11.Value();
+            Thread.Sleep(15);
+            total += Part12.Value();
+            total += System.Xml.Linq.XName.Get("x").LocalName.Length;
+            Thread.Sleep(15);
+            total += Part13.Value();
+            Thread.Sleep(15);
+            total += Part14.Value();
+            Thread.Sleep(15);
+            total += Part15.Value();
+            total += new[] { 1 }.Count();
+            Thread.Sleep(15);
+            total += Part16.Value();
+            Thread.Sleep(15);
+            total += Part17.Value();
+            Thread.Sleep(15);
+            total += Part18.Value();
+            total += typeof(System.Runtime.Serialization.DataContractSerializer).Name.Length;
+            Thread.Sleep(15);
+            total += Part19.Value();
+            Thread.Sleep(15);
+            total += Part20.Value();
+            Thread.Sleep(15);
+            System.Console.WriteLine("loaded " + total); // MARK: load-done
+            return 0;
+        }
+    }
+
+    public static class Part01
+    {
+        public static int Value() => 1; // MARK: part-01
+    }
+
+    public static class Part02
+    {
+        public static int Value() => 2; // MARK: part-02
+    }
+
+    public static class Part03
+    {
+        public static int Value() => 3; // MARK: part-03
+    }
+
+    public static class Part04
+    {
+        public static int Value() => 4; // MARK: part-04
+    }
+
+    public static class Part05
+    {
+        public static int Value() => 5; // MARK: part-05
+    }
+
+    public static class Part06
+    {
+        public static int Value() => 6; // MARK: part-06
+    }
+
+    public static class Part07
+    {
+        public static int Value() => 7; // MARK: part-07
+    }
+
+    public static class Part08
+    {
+        public static int Value() => 8; // MARK: part-08
+    }
+
+    public static class Part09
+    {
+        public static int Value() => 9; // MARK: part-09
+    }
+
+    public static class Part10
+    {
+        public static int Value() => 10; // MARK: part-10
+    }
+
+    public static class Part11
+    {
+        public static int Value() => 11; // MARK: part-11
+    }
+
+    public static class Part12
+    {
+        public static int Value() => 12; // MARK: part-12
+    }
+
+    public static class Part13
+    {
+        public static int Value() => 13; // MARK: part-13
+    }
+
+    public static class Part14
+    {
+        public static int Value() => 14; // MARK: part-14
+    }
+
+    public static class Part15
+    {
+        public static int Value() => 15; // MARK: part-15
+    }
+
+    public static class Part16
+    {
+        public static int Value() => 16; // MARK: part-16
+    }
+
+    public static class Part17
+    {
+        public static int Value() => 17; // MARK: part-17
+    }
+
+    public static class Part18
+    {
+        public static int Value() => 18; // MARK: part-18
+    }
+
+    public static class Part19
+    {
+        public static int Value() => 19; // MARK: part-19
+    }
+
+    public static class Part20
+    {
+        public static int Value() => 20; // MARK: part-20
     }
 }
