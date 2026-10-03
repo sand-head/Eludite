@@ -43,11 +43,12 @@ pub const STASH: &str = "eludite.git.stash";
 pub const FETCH: &str = "eludite.git.fetch";
 pub const PULL: &str = "eludite.git.pull";
 pub const PUSH: &str = "eludite.git.push";
+pub const SYNC: &str = "eludite.git.sync";
 pub const CANCEL: &str = "eludite.git.cancel";
 pub const WORKTREES: &str = "eludite.git.worktrees";
 pub const BLAME: &str = "eludite.git.blame";
 
-pub const ALL: [&str; 21] = [
+pub const ALL: [&str; 22] = [
     STATUS,
     INIT,
     STAGE,
@@ -66,6 +67,7 @@ pub const ALL: [&str; 21] = [
     FETCH,
     PULL,
     PUSH,
+    SYNC,
     CANCEL,
     WORKTREES,
     BLAME,
@@ -121,6 +123,7 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
         FETCH => ("Git: Fetch", s!("fetch"), Execute),
         PULL => ("Git: Pull", s!("pull"), Execute),
         PUSH => ("Git: Push", s!("push"), Execute),
+        SYNC => ("Git: Sync", s!("sync"), Execute),
         CANCEL => ("Git: Cancel", s!("cancel"), Execute),
         WORKTREES => ("Git: Worktrees", s!("worktrees"), Read),
         BLAME => ("Git: Blame", s!("blame"), Read),
@@ -260,6 +263,10 @@ pub enum GitRequest {
         set_upstream: bool,
         force: bool,
     },
+    /// Pull, then push.
+    Sync {
+        remote: Option<String>,
+    },
     Cancel,
     Worktrees {
         action: WorktreeAction,
@@ -295,6 +302,7 @@ impl GitRequest {
             GitRequest::Fetch { .. } => FETCH,
             GitRequest::Pull { .. } => PULL,
             GitRequest::Push { .. } => PUSH,
+            GitRequest::Sync { .. } => SYNC,
             GitRequest::Cancel => CANCEL,
             GitRequest::Worktrees { .. } => WORKTREES,
             GitRequest::Blame { .. } => BLAME,
@@ -596,6 +604,17 @@ pub struct PushOutput {
     pub generation: u64,
 }
 
+/// `git-sync.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncOutput {
+    pub pull: String,
+    pub pushed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    pub conflicts: Vec<String>,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CancelOutput {
     pub canceled: bool,
@@ -669,6 +688,7 @@ pub enum GitOutput {
     Stash(StashOutput),
     Fetch(FetchOutput),
     Push(PushOutput),
+    Sync(SyncOutput),
     Cancel(CancelOutput),
     Worktrees(WorktreesOutput),
     Blame(Box<BlameOutput>),
@@ -693,6 +713,7 @@ impl GitOutput {
             GitOutput::Stash(o) => serde_json::to_value(o),
             GitOutput::Fetch(o) => serde_json::to_value(o),
             GitOutput::Push(o) => serde_json::to_value(o),
+            GitOutput::Sync(o) => serde_json::to_value(o),
             GitOutput::Cancel(o) => serde_json::to_value(o),
             GitOutput::Worktrees(o) => serde_json::to_value(o),
             GitOutput::Blame(o) => serde_json::to_value(o),
@@ -717,6 +738,7 @@ impl GitOutput {
             GitOutput::Stash(o) => o.generation,
             GitOutput::Fetch(o) => o.generation,
             GitOutput::Push(o) => o.generation,
+            GitOutput::Sync(o) => o.generation,
             _ => return None,
         })
     }
@@ -856,6 +878,12 @@ struct PushIn {
     branch: Option<String>,
     set_upstream: Option<bool>,
     force: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct SyncIn {
+    remote: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1118,6 +1146,12 @@ pub fn parse(id: &str, value: Value) -> Result<GitRequest, CommandError> {
                 force: i.force.unwrap_or(false),
             }
         }
+        SYNC => {
+            let i: SyncIn = input(value)?;
+            GitRequest::Sync {
+                remote: non_empty("remote", i.remote)?,
+            }
+        }
         CANCEL => {
             let _: CancelIn = input(value)?;
             GitRequest::Cancel
@@ -1214,7 +1248,7 @@ pub fn classify_call(
                 call.commit = true;
             }
         }
-        PUSH => call.push = true,
+        PUSH | SYNC => call.push = true,
         RESET => {
             call.history = true;
             if input.get("mode").and_then(Value::as_str) == Some("hard") {
