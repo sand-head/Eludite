@@ -8,6 +8,10 @@ The shell is written in Rust on GPUI and draws its own UI. Roslyn, MSBuild, debu
 
 Eludite was called Niello until 2026-10-02.
 
+![An agent stopped in the debugger, explaining a null path in the Agents window beside Locals and the Call Stack](docs/screenshots/agent-debugging.png)
+
+![Completion and signature help in a C# file, with the Error List and Solution Explorer open](docs/screenshots/intellisense.png)
+
 ## Status
 
 Pre-alpha. It opens, edits, builds and debugs real solutions on Linux, but it is not yet anyone's daily editor.
