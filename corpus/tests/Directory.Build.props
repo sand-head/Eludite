@@ -1,0 +1,16 @@
+<Project>
+  <!-- The Test Explorer corpus (brief 0035). Stops MSBuild's search for a Directory.Build.props further up, so the corpus
+       builds the same wherever it is checked out. Each project file names its own TargetFramework(s). -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <!-- Debuggable as written: no optimization, and the real source paths in the PDB even in a CI build, since
+         breakpoints and the discovered source lines bind by path. -->
+    <Optimize>false</Optimize>
+    <DebugType>portable</DebugType>
+    <DeterministicSourcePaths>false</DeterministicSourcePaths>
+  </PropertyGroup>
+</Project>

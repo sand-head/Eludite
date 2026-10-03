@@ -245,6 +245,8 @@ pub struct Builds {
     pub timings: BuildTimings,
     /// The host restarted while its build ran: the build waits for `eludite/build/status`.
     pub awaiting_status: bool,
+    /// The next Cargo build builds the test executables (`cargo test --no-run`; the Test Explorer, brief 0035).
+    pub cargo_tests_next: bool,
 }
 
 impl Builds {
@@ -270,6 +272,7 @@ impl Builds {
             show_error_list_on_failure: true,
             timings: BuildTimings::default(),
             awaiting_status: false,
+            cargo_tests_next: false,
         }
     }
 
@@ -828,6 +831,7 @@ impl Shell {
                         })
                         .collect(),
                     program: self.builds.cargo_program.clone(),
+                    tests: std::mem::take(&mut self.builds.cargo_tests_next),
                 };
                 self.builds.cargo = Some(cargo_build::start(spec, self.build_events.clone()));
             }

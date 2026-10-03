@@ -75,6 +75,16 @@ jobs:
         shell: pwsh
         run: corpus/debugging/build.ps1
 
+      # Brief 0035: the Test Explorer corpus, for crates/lsp/tests/real_host.rs and the shell's Test Explorer tests.
+      - name: Build the test corpus
+        if: runner.os != 'Windows'
+        run: corpus/tests/build.sh
+
+      - name: Build the test corpus (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: corpus/tests/build.ps1
+
       - name: Format
         run: cargo fmt --check
 
@@ -194,6 +204,17 @@ jobs:
 
       - name: Build
         run: dotnet build dotnet/Eludite.slnx --configuration Release
+
+      # Brief 0035: the Test Explorer corpus's .NET projects (MTP and VSTest), which the bridge's and the host's tests
+      # also build in a temp folder of their own.
+      - name: Build the test corpus
+        if: runner.os != 'Windows'
+        run: corpus/tests/build.sh --no-cargo
+
+      - name: Build the test corpus (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: corpus/tests/build.ps1 -NoCargo
 
       - name: Test
         run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build

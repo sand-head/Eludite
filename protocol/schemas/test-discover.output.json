@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-discover.output.json",
+  "title": "eludite.test.discover output",
+  "description": "The Test Explorer's tree: its projects with their counts and a page of their tests.",
+  "type": "object",
+  "required": [
+    "state",
+    "generation",
+    "counts",
+    "projects",
+    "tests",
+    "total",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "building: the build before discovery runs. discovering: discovery runs (the lists hold what was found so far). ready: discovered. failed: the build failed or nothing could be discovered (`message`).",
+      "enum": [
+        "building",
+        "discovering",
+        "ready",
+        "failed"
+      ]
+    },
+    "generation": {
+      "description": "The solution generation the tree belongs to.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "projects",
+        "tests"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tests": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "protocol",
+          "tests",
+          "state"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "description": "The project file or Cargo.toml.",
+            "type": "string"
+          },
+          "protocol": {
+            "description": "mtp (Microsoft.Testing.Platform), vstest, or cargo (libtest through cargo test).",
+            "enum": [
+              "mtp",
+              "vstest",
+              "cargo"
+            ]
+          },
+          "target_framework": {
+            "type": "string"
+          },
+          "tests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "state": {
+            "enum": [
+              "discovering",
+              "ready",
+              "failed"
+            ]
+          },
+          "message": {
+            "description": "Why it failed (not built, Mono missing, the runner's error).",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "tests": {
+      "description": "A page of the tests, in tree order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "full_name",
+          "project",
+          "group",
+          "outcome"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The test's id, for eludite.test.run, debug and results.",
+            "type": "string"
+          },
+          "name": {
+            "description": "As the tree shows it (the method, or a data row's display name).",
+            "type": "string"
+          },
+          "full_name": {
+            "description": "`Namespace.Class.Method` (.NET) or `module::path::test` (Rust, with the target first for an integration test or a binary).",
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "group": {
+            "description": "The tree path between the project and the test: namespace then class (.NET), module path (Rust).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "traits": {
+            "description": "`Name=Value` each.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outcome": {
+            "description": "The test's state in the last run that covered it (not_run before any).",
+            "enum": [
+              "passed",
+              "failed",
+              "skipped",
+              "not_run",
+              "running"
+            ]
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "Tests matching the input in all.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "next_cursor": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

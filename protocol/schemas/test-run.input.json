@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-run.input.json",
+  "title": "eludite.test.run input",
+  "description": "Run tests (Test > Run All Tests, Ctrl+R, A; the Test Explorer's Run, Run All, Run Failed Tests and Repeat Last Run; Run Tests, Ctrl+R, T): .NET tests out of process through eludite-host (Microsoft.Testing.Platform's `testing/runTests`, or VSTest's `TestExecution.RunAllWithDefaultHost`), Rust tests with `cargo test -p <package> --<target> -- --exact <names> --nocapture` (one process per package and target; `--test-threads=1` unless the setting test.parallel is on). Discovers first when the tree is out of date (as eludite.test.discover). Results stream into the Test Explorer, a failed test becomes an Error List row at its first stack frame in the project, the status bar reads `Tests: 12 passed, 1 failed, 2 skipped (3.2 s)` and the runners' output goes to the Output window's Tests source. Without `ids`, `filter`, `failed_only`, `repeat_last` and `selection`, every test runs (Run All). Refused while another run is going.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ids": {
+      "description": "Test ids, as eludite.test.discover and eludite.test.results list them (`<project>|<runner id>`).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "filter": {
+      "description": "Which tests: a case-insensitive substring of the fully qualified name (`CalculatorTests.Adds`, `tests::adds`), or a trait `Name=Value` (`Category=Math`). The Test Explorer's search box takes the same text after `FullName:` or `Trait:`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "A test project or Cargo package: its name as the Test Explorer shows it (`Corpus.XunitV3`, `Corpus.XunitV3 (net472)` for one target framework of a multi-targeted project, a Cargo package such as `corpus-tests`), or the path of its project file or Cargo.toml (absolute, or relative to the solution or workspace folder). Omitted: every test project and package.",
+      "type": "string",
+      "minLength": 1
+    },
+    "failed_only": {
+      "description": "Run Failed Tests: the tests that failed in the last run.",
+      "type": "boolean"
+    },
+    "repeat_last": {
+      "description": "Repeat Last Run (Ctrl+R, L): the tests of the last run again.",
+      "type": "boolean"
+    },
+    "selection": {
+      "description": "Run Tests (Ctrl+R, T): the tests under the Test Explorer's selected node, else the test whose declaration is nearest above the active editor's caret.",
+      "type": "boolean"
+    },
+    "wait_ms": {
+      "description": "How long to wait for the run to finish before answering, in milliseconds. From the UI the command never waits (default 0); from another thread (an agent) the default is 30000. A run still going when the wait ends answers `running` with `timed_out`; eludite.test.results reads it later.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300000
+    }
+  }
+}
