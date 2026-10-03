@@ -920,6 +920,18 @@ impl Shell {
         let driver = driver_of(caller);
         match request {
             DebugRequest::State => {}
+            DebugRequest::Snapshot { .. }
+            | DebugRequest::Stack { .. }
+            | DebugRequest::Variables { .. }
+            | DebugRequest::Output { .. }
+            | DebugRequest::ExceptionInfo { .. }
+            | DebugRequest::Pause { .. }
+            | DebugRequest::Wait { .. } => {
+                return Err(CommandError::Failed(format!(
+                    "{} is not available yet",
+                    request.command()
+                )));
+            }
             DebugRequest::Start {
                 project,
                 debug,
