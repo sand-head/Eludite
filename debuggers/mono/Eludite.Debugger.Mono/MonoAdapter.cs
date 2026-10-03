@@ -130,11 +130,6 @@ internal sealed class MonoAdapter
             }
 
             Output("console", text);
-            // Pending breakpoints the library missed resolving bind at the next assembly load at the latest.
-            if (text.StartsWith("Loaded assembly:", StringComparison.Ordinal))
-            {
-                SweepPending();
-            }
         });
         s.DebugWriter = (level, category, message) => _d.Post(() => Output("console", message));
         s.ExceptionHandler = ex =>
@@ -550,15 +545,6 @@ internal sealed class MonoAdapter
         }
 
         _sourceBreakpoints[path!] = list;
-        if (_sweep.Count > 0 && !_stopped)
-        {
-            // Mono.Debugging may miss resolving them while the debuggee loads their types (see SweepPending).
-            foreach (var ms in SweepDelaysMs)
-            {
-                After(ms, SweepPending);
-            }
-        }
-
         return new JObject { ["breakpoints"] = answers };
     }
 
@@ -785,9 +771,6 @@ internal sealed class MonoAdapter
     /// <summary>Break events seen lost or stuck once: inserted again when seen so a second time.</summary>
     private readonly HashSet<BreakEvent> _suspects = new();
 
-    /// <summary>When a sweep runs after a source breakpoint is inserted while the debuggee runs.</summary>
-    private static readonly int[] SweepDelaysMs = { 50, 250, 1000 };
-
     /// <summary>Source breakpoints inserted while the debuggee ran and not bound yet: what <see cref="SweepPending"/> checks.</summary>
     private readonly HashSet<Breakpoint> _sweep = new();
 
@@ -804,14 +787,15 @@ internal sealed class MonoAdapter
     /// Insert again the pending breakpoints whose code has loaded (brief 0036). Mono.Debugging resolves a pending
     /// breakpoint when its type loads, on its event thread, from a snapshot of its pending list; a breakpoint the
     /// operation thread inserts meanwhile can miss both that snapshot and the type tables it read before the type was
-    /// added, and then stays pending though its code runs. A sweep finds each breakpoint inserted while the debuggee ran
-    /// that is still pending although a loaded type of its file has code on its line, and inserts it again, which binds
-    /// it. Sweeps run soon after such an insertion, at every assembly load and at every stop (where nothing loads).
+    /// added, and then stays pending though its code runs. At every stop (the debuggee suspended, so no type is being
+    /// loaded or resolved: inserting again while the event thread resolves the same breakpoint would leave it two
+    /// requests), each breakpoint inserted while the debuggee ran that is still pending although a loaded type of its
+    /// file has code on its line is inserted again, which binds it.
     /// </summary>
     private void SweepPending()
     {
         var s = _session;
-        if (s is null || _ended || !_started || !s.IsConnected || _sweep.Count == 0)
+        if (s is null || _ended || !_started || !_stopped || !s.IsConnected || _sweep.Count == 0)
         {
             return;
         }
@@ -838,19 +822,9 @@ internal sealed class MonoAdapter
             var line = _requestedLines.TryGetValue(bp, out var asked) ? asked : bp.Line;
             if (!HasLoadedCode(s, bp.FileName, line))
             {
-                _suspects.Remove(bp);
                 continue;
             }
 
-            // Seen stuck twice, 60 ms apart: a resolution in progress on the library's event thread is not stuck, and
-            // inserting such a breakpoint again could leave a hit of its first request in flight.
-            if (_suspects.Add(bp))
-            {
-                After(RecheckMs, SweepPending);
-                continue;
-            }
-
-            _suspects.Remove(bp);
             _reinserted.TryGetValue(bp, out var times);
             if (times >= 3)
             {
@@ -1225,11 +1199,11 @@ internal sealed class MonoAdapter
 
     private void Stopped(TargetEventArgs e, string reason, JArray? hitIds = null)
     {
-        // The debuggee is suspended: no type loads now, so a missed resolution is redone without racing one.
-        SweepPending();
         _stepInFrom = null;
         ClearStop();
         _stopped = true;
+        // The debuggee is suspended: no type loads now, so a missed resolution is redone without racing one.
+        SweepPending();
         _pausing = false;
         _stopThread = e.Thread ?? _session?.ActiveThread;
         if (_stopThread is not null && e.Backtrace is not null)
