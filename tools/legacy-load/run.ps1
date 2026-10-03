@@ -55,9 +55,19 @@ $compare = @(
   "umbraco7\src\Umbraco.Core\Umbraco.Core.csproj")
 foreach ($rel in $compare) {
   $proj = Join-Path $checkout $rel
-  $real = (& $msbuild $proj -nologo -getItem:Compile | ConvertFrom-Json).Items.Compile | ForEach-Object { $_.FullPath } | Sort-Object
+  # MSBuild prints errors, not JSON, when the project does not evaluate; record that and go on to the next.
+  $text = & $msbuild $proj -nologo -getItem:Compile 2>&1 | Out-String
+  try { $real = ($text | ConvertFrom-Json).Items.Compile | ForEach-Object { $_.FullPath } | Sort-Object }
+  catch {
+    "{0}: MSBuild -getItem failed: {1}" -f $rel, ($text.Trim() -split "`n" | Select-Object -Last 1) | Tee-Object -Append (Join-Path $results "getitem-compare.txt")
+    continue
+  }
   $evalFile = Get-ChildItem -Recurse (Join-Path $results "eval") -Filter ([IO.Path]::GetFileNameWithoutExtension($proj) + ".json") |
     Where-Object { $_.Directory.Name -eq "buildtools-msbuild" } | Select-Object -First 1
+  if (-not $evalFile) {
+    "{0}: no buildtools-msbuild evaluation to compare" -f $rel | Tee-Object -Append (Join-Path $results "getitem-compare.txt")
+    continue
+  }
   $ours = (Get-Content $evalFile.FullName | ConvertFrom-Json).results[0].compileItems | Sort-Object
   $diff = Compare-Object $real $ours
   "{0}: real {1}, evaluator {2}, differences {3}" -f $rel, $real.Count, $ours.Count, $diff.Count | Tee-Object -Append (Join-Path $results "getitem-compare.txt")
