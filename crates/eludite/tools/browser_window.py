@@ -10,7 +10,8 @@ with real X input through xdotool and takes screenshots with ImageMagick's `impo
   4. A page whose button asks confirm(): clicked; the shell's dialog (browser-window-dialog.png); Enter accepts.
   5. Ctrl+\\, Ctrl+C: the Agents window; the prompt sent to the fake agent "Form Filler", which opens the form in a
      new tab, reads it, fills it, submits it and waits for the result (the fixture answers after 4 s): the "Agent is
-     driving" strip while it waits (browser-window-agent-driving.png), then the agent's answer.
+     driving" strip while it waits (browser-window-agent-driving.png), then the agent's answer
+     (browser-window-agent-done.png). The calls the policy prompts for (class execute) are allowed by clicking Allow.
   6. The window's document tab closed and View > Other Windows > Web Browser again within the minute the engine
      lingers: window open to the first page pixel with the engine running.
 
@@ -224,13 +225,34 @@ def main():
         click(origin, box)
         type_text("Fill in the order form")
         key("Return")
-        driving = wait_line(a, lambda s: s.startswith("driving: "), n, 60)
-        out["steps"]["driving"] = driving and driving[1]
-        # The agent's calls before its wait (tab_open, screenshot, read_page, form_input, input) take about a second.
-        time.sleep(2.0)
-        out["shot_driving"] = shot(a, "browser-window-agent-driving")
-        done = wait_line(a, lambda s: s == "nobody is driving", (driving or (n, ""))[0], 30)
-        out["steps"]["agent_done"] = done and done[1]
+        # Allow each call the agent asks permission for (class execute; the Agents window's bounds of a closed
+        # prompt linger, so at most one click per 1.5 s between calls), and take the screenshot once a call has been
+        # in flight for a second: the agent's wait for the result (4 s).
+        end = time.time() + 90
+        allowed, shot_taken, driving_since, clicked, quiet_since = 0, False, None, 0.0, None
+        while time.time() < end:
+            ls = lines(a)[n:]
+            last = ls[-1][len("eludite: web browser: "):] if ls else ""
+            if last.startswith("driving: "):
+                quiet_since = None
+                driving_since = driving_since or time.time()
+                if not shot_taken and time.time() - driving_since > 1.0:
+                    out["steps"]["driving"] = last
+                    out["shot_driving"] = shot(a, "browser-window-agent-driving")
+                    shot_taken = True
+            else:
+                driving_since = None
+                quiet_since = quiet_since or time.time()
+                if shot_taken and time.time() - quiet_since > 3.0:
+                    break
+                allow = bounds(a.bounds).get("agents-permission-allow")
+                if allow and time.time() - clicked > 1.5:
+                    click(origin, allow)
+                    allowed += 1
+                    clicked = time.time()
+            time.sleep(0.1)
+        out["permissions_allowed"] = allowed
+        out["steps"]["agent_done"] = lines(a)[-1] if shot_taken else None
         time.sleep(1.5)
         out["shot_agent_done"] = shot(a, "browser-window-agent-done")
 
@@ -238,7 +260,7 @@ def main():
     tab = rect(a, "doc-tab-web_browser", timeout=5)
     out["doc_tab"] = tab
     if tab:
-        click_at(origin, tab[0] + tab[2] - 10, tab[1] + tab[3] / 2)
+        click_at(origin, tab[0] + tab[2] - 22, tab[1] + tab[3] / 2)  # its close button
         time.sleep(1.5)
         n = len(lines(a))
         open_window(a, origin)
