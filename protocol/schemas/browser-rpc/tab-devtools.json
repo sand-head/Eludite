@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-devtools.json",
+  "title": "tab/devtools",
+  "description": "Open Chromium's DevTools front end for a tab as a windowless tab of its own (CefBrowserHost::ShowDevTools with windowless rendering), bound to the page. Before answering, the engine sends tab/resized for the DevTools tab's first region; tab/frame and tab/state follow for it as for any tab, and input reaches it through tab/input. A second request for the same tab answers the open DevTools tab (with `inspectAt`, it also inspects that element). The DevTools tab closes with its page (tab/closed for both); tab/close on it closes DevTools only. It is not a page target: tab/cdp on it is refused (-32001).",
+  "x-eludite-method": "tab/devtools",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "description": "The DevTools view's width in CSS pixels.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384
+        },
+        "scale": {
+          "description": "Device scale factor. Default 1.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 8
+        },
+        "inspectAt": {
+          "description": "Inspect the element at this point of the page (CSS pixels of the page's view): the context menu's Inspect.",
+          "type": "object",
+          "required": [
+            "x",
+            "y"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "tab",
+        "devtools"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "devtools": {
+          "description": "The DevTools tab's id.",
+          "type": "string",
+          "minLength": 1
+        },
+        "created": {
+          "description": "False when DevTools was open already.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

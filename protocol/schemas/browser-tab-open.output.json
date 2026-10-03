@@ -46,6 +46,17 @@
       "description": "The HTTP status of the main document, when a url was loaded over HTTP.",
       "type": "integer",
       "minimum": 0
+    },
+    "favicon": {
+      "description": "The page's icon as a data url (embedded engine), when it has one.",
+      "type": "string"
+    },
+    "can_go_back": {
+      "description": "navigate with `action: back` has somewhere to go.",
+      "type": "boolean"
+    },
+    "can_go_forward": {
+      "type": "boolean"
     }
   }
 }

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-permission.json",
+  "title": "tab/permission",
+  "description": "Engine-to-shell notification: the page asks for permissions (CefPermissionHandler::OnShowPermissionPrompt for geolocation, notifications, clipboard read and the rest; OnRequestMediaAccessPermission for camera, microphone and screen capture). The shell asks the person in a Visual Studio-style dialog and answers with tab/permissionAnswer; until then the page waits. Nothing is remembered between prompts: the profile is the workspace's, and each prompt is answered on its own.",
+  "x-eludite-method": "tab/permission",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "id",
+        "origin",
+        "permissions"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "description": "The prompt's id, unique in the engine process (shared with tab/dialog's ids).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "origin": {
+          "description": "The origin asking.",
+          "type": "string"
+        },
+        "permissions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "geolocation",
+              "notifications",
+              "camera",
+              "microphone",
+              "screen",
+              "clipboard",
+              "midi",
+              "storage",
+              "sensors",
+              "windowManagement",
+              "localFonts",
+              "other"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

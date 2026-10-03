@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-dialog.json",
+  "title": "tab/dialog",
+  "description": "Engine-to-shell notification: the page needs an answer the shell shows as its own Visual Studio-style dialog (never Chromium's): JavaScript `alert`, `confirm` and `prompt` (CefJSDialogHandler::OnJSDialog), a page asking to confirm leaving (`beforeunload`, OnBeforeUnloadDialog), a file chooser (`<input type=file>`, CefDialogHandler::OnFileDialog) or an HTTP authentication challenge (CefRequestHandler::GetAuthCredentials). The page waits until tab/dialogAnswer answers it (the engine's callback is held, not run), or until the engine closes it on its own (the tab navigates or closes), which tab/dialogClosed reports. One dialog per tab at a time.",
+  "x-eludite-method": "tab/dialog",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "description": "The dialog's id, unique in the engine process (shared with tab/permission's ids); the answer names it.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "alert",
+            "confirm",
+            "prompt",
+            "beforeunload",
+            "file",
+            "auth"
+          ]
+        },
+        "message": {
+          "description": "`alert`, `confirm`, `prompt`, `beforeunload`: the page's text (for `beforeunload`, Chromium's own sentence: pages cannot set it). `file`: the chooser's title, when the page set one.",
+          "type": "string"
+        },
+        "defaultText": {
+          "description": "`prompt`: the default value of the text box.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The origin of the page (alert, confirm, prompt) or the url asking for credentials (auth).",
+          "type": "string"
+        },
+        "isReload": {
+          "description": "`beforeunload`: the page is being reloaded rather than left.",
+          "type": "boolean"
+        },
+        "mode": {
+          "description": "`file`: open one file, several, a folder, or save.",
+          "enum": [
+            "open",
+            "openMultiple",
+            "openFolder",
+            "save"
+          ]
+        },
+        "accept": {
+          "description": "`file`: the accept filters of the input (`image/*`, `.txt`, ...).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "defaultPath": {
+          "description": "`file`: the suggested file name or path.",
+          "type": "string"
+        },
+        "host": {
+          "description": "`auth`: the host and port asking.",
+          "type": "string"
+        },
+        "realm": {
+          "description": "`auth`: the realm the server named.",
+          "type": "string"
+        },
+        "scheme": {
+          "description": "`auth`: `basic`, `digest`, ...",
+          "type": "string"
+        },
+        "isProxy": {
+          "description": "`auth`: a proxy asks, not the site.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

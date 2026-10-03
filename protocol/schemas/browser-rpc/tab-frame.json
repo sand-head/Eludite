@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-frame.json",
   "title": "tab/frame",
-  "description": "Engine-to-shell notification: a frame is ready in a slot of the tab's region (its state is ready). The header holds the same fields; this message only wakes the shell. Frames may be skipped: when the shell has not read a ready slot before the next paint, the engine overwrites the older one.",
+  "description": "Engine-to-shell notification: a frame is ready in a slot of the tab's region (its state is ready). The header holds the same fields; this message only wakes the shell. Frames may be skipped: when the shell has not read a ready slot before the next paint, the engine overwrites the older one. While a `<select>` list or another popup widget is open, the engine draws it into the view's frame at `popup` (CEF paints it as PET_POPUP, separately) and that rectangle is among the dirty ones, so the shell draws it with the page and sends input there as for the page.",
   "x-eludite-method": "tab/frame",
   "x-eludite-kind": "notification",
   "x-eludite-direction": "engineToShell",
@@ -66,6 +66,10 @@
           "description": "Nanoseconds the engine spent copying the frame into the slot.",
           "type": "integer",
           "minimum": 0
+        },
+        "popup": {
+          "description": "The open popup widget's rectangle in device pixels of the frame (OnPopupShow, OnPopupSize), present while one is shown.",
+          "$ref": "#/$defs/rect"
         }
       }
     },
