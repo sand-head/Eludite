@@ -1,6 +1,6 @@
 # Brief 0027: Attach, restart and the debug policy for the agent debugging suite
 
-Status: open
+Status: in progress
 Phase: 2 (proposal 0001, brief C)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 5), 4.5 (attach to process, the Attach to Process dialog, the per-session agent-drive toggle), 5.2 (the IDE MCP server), 5.3 (the `debug` policy object), 5.5, 8 (dialogs), 9, 10 (Phase 2); proposal 0001 sections 4 (rules 5, 7, 8), 5.1 (`processes`), 5.3 (`attach`, `restart`), 5.5, 7, 8 (C), 9
 Related ADRs: ADR-0003, ADR-0007, ADR-0009 (per-call permission escalation, brief 0024)
