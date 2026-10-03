@@ -949,9 +949,16 @@ fn the_debugging_guide_is_a_resource() {
     let errors = validate(&schema["$defs"]["list_result"], &list);
     assert!(errors.is_empty(), "{errors:?}");
     let resources = list["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 1);
-    let errors = validate(&schema, &resources[0]);
-    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(
+        resources.len(),
+        2,
+        "the debugging and git guides (no git status without its command)"
+    );
+    for r in resources {
+        let errors = validate(&schema, r);
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+    assert_eq!(resources[1]["uri"], "eludite://guides/git");
     assert_eq!(resources[0]["uri"], "eludite://guides/debugging");
     assert_eq!(resources[0]["mimeType"], "text/markdown");
     assert!(list.get("nextCursor").is_none());
@@ -1055,4 +1062,109 @@ fn the_debugging_guide_is_short_and_names_real_commands() {
     assert!(at("## 4.") < at("## 5. When a call returns `interrupted_by: \"user\"`"));
     assert!(at("## 5.") < at("## 6. What the policy may refuse"));
     assert!(text.contains(eludite_commands::debug::AGENTS_NOT_ALLOWED));
+}
+
+// ----- Brief 0040: the git guide and the live status resource. -----
+
+struct FakeGit;
+
+impl eludite_commands::git::GitCommands for FakeGit {
+    fn apply(
+        &self,
+        request: eludite_commands::git::GitRequest,
+    ) -> Result<eludite_commands::git::GitOutput, eludite_commands::CommandError> {
+        use eludite_commands::git::{GitOutput, GitRequest, StatusOutput};
+        match request {
+            GitRequest::Status { .. } => Ok(GitOutput::Status(Box::new(StatusOutput {
+                state: "ready".into(),
+                repository: Some("/r".into()),
+                generation: 7,
+                branch: Some("main".into()),
+                untracked: vec!["new.cs".into()],
+                ..Default::default()
+            }))),
+            other => Err(eludite_commands::CommandError::Failed(format!("{other:?}"))),
+        }
+    }
+}
+
+#[test]
+fn the_git_status_is_a_live_resource_read_as_the_agent() {
+    let r = eludite_commands::CommandRegistry::new();
+    eludite_commands::git::register(&r, std::sync::Arc::new(FakeGit));
+    let s = McpServer::new(std::sync::Arc::new(r)).with_agent("claude");
+    let schema: Value = serde_json::from_str(RESOURCE_SCHEMA).unwrap();
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18"}),
+    ));
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("eludite://guides/git")
+    );
+    let list = result(call(&s, "resources/list", json!({})));
+    let resources = list["resources"].as_array().unwrap();
+    assert_eq!(resources.len(), 3);
+    assert_eq!(resources[2]["uri"], crate::resources::GIT_STATUS_URI);
+    assert_eq!(resources[2]["mimeType"], "application/json");
+    for r in resources {
+        let errors = validate(&schema, r);
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://git/status"}),
+    ));
+    let errors = validate(&schema["$defs"]["read_result"], &read);
+    assert!(errors.is_empty(), "{errors:?}");
+    let status: Value =
+        serde_json::from_str(read["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(status["generation"], 7);
+    assert_eq!(status["untracked"], json!(["new.cs"]));
+    // Read through the bus as the agent, so the audit log has it.
+    let last = s.registry().audit_log().entries().pop().unwrap();
+    assert_eq!(last.command, "eludite.git.status");
+    assert!(last.caller.is_agent());
+    // The guide.
+    let guide = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/git"}),
+    ));
+    assert_eq!(
+        guide["contents"][0]["text"].as_str().unwrap(),
+        include_str!("../../../docs/agents/git.md")
+    );
+}
+
+/// The git guide stays under 800 words (brief 0040) and names only commands that exist.
+#[test]
+fn the_git_guide_is_short_and_names_real_commands() {
+    let text = crate::resources::GIT.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 800, "{words} words");
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.git.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        if id == "eludite.git" {
+            continue;
+        }
+        assert!(
+            eludite_commands::git::ALL.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named > 12, "{named}");
+    assert!(
+        text.contains("git.push") && text.contains("git.history") && text.contains("git.commit")
+    );
 }

@@ -18,6 +18,11 @@
 //!   `deny` refuses it for an agent with the policy named. Tool rules are checked first ([`DebugPolicy::decide_for`]).
 //!   Whether a process is one Eludite started is the shell's knowledge, given to the hooks as
 //!   [`PolicySnapshot::launched`].
+//! - **`git`** (brief 0040): `commit` (an agent's commits without `amend`), `push` and `history` (amend, reset, rebase,
+//!   a pull that rebases, aborting a merge), applied by the git commands' escalation hooks through
+//!   [`GitPolicy::decide_for`]: `prompt` makes a call dangerous (Always Allow writes a tool rule), `deny` refuses it for
+//!   an agent with the policy named; tool rules are checked first. A `force` is refused for agents whatever the policy
+//!   and the rules say ([`GitCall::force`]).
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -218,6 +223,121 @@ impl DebugPolicy {
                 reason,
                 always_allow: AlwaysAllow::Rule,
             },
+        })
+    }
+}
+
+/// `git.commit`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitPolicy {
+    #[default]
+    Allow,
+    Prompt,
+    Deny,
+}
+
+/// `git.push` and `git.history`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GuardPolicy {
+    #[default]
+    Prompt,
+    Deny,
+}
+
+/// `agents-policy.json`'s `git` object (brief 0040).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<CommitPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push: Option<GuardPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history: Option<GuardPolicy>,
+}
+
+/// What a git command's call does, for the `git` policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GitCall {
+    /// A commit without `amend`.
+    pub commit: bool,
+    pub push: bool,
+    /// Rewrites or moves history: amend, reset, rebase, a pull that rebases, aborting a merge.
+    pub history: bool,
+    /// Overwrites without asking (checkout, push, branch delete, worktree remove): refused for agents outright.
+    pub force: bool,
+}
+
+/// The refusal of every `force` for agents.
+pub const GIT_FORCE_REFUSED: &str =
+    "agents may not use `force` with git commands (brief 0040): ask the user to do it in the IDE";
+
+impl GitPolicy {
+    /// What the policy makes of `call`: a refusal (`deny`, or any `force`), a raise to dangerous (`prompt`), or
+    /// `None` (the command's class).
+    pub fn decide(&self, call: GitCall) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        if call.force {
+            return Some(Escalation::Refuse(GIT_FORCE_REFUSED.into()));
+        }
+        let commit = self.commit.unwrap_or_default();
+        let push = self.push.unwrap_or_default();
+        let history = self.history.unwrap_or_default();
+        if call.commit && commit == CommitPolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets git.commit to deny".into(),
+            ));
+        }
+        if call.push && push == GuardPolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets git.push to deny".into(),
+            ));
+        }
+        if call.history && history == GuardPolicy::Deny {
+            return Some(Escalation::Refuse(
+                "the solution's policy sets git.history to deny".into(),
+            ));
+        }
+        let mut reasons = Vec::new();
+        if call.commit && commit == CommitPolicy::Prompt {
+            reasons.push("the solution's policy asks before an agent commits (git.commit: prompt)");
+        }
+        if call.push && push == GuardPolicy::Prompt {
+            reasons.push("the solution's policy asks before an agent pushes (git.push: prompt)");
+        }
+        if call.history && history == GuardPolicy::Prompt {
+            reasons.push(
+                "the solution's policy asks before an agent rewrites history (git.history: prompt)",
+            );
+        }
+        if reasons.is_empty() {
+            return None;
+        }
+        Some(Escalation::raise(
+            PermissionClass::Dangerous,
+            reasons.join("; "),
+        ))
+    }
+
+    /// [`GitPolicy::decide`] for a call of `tool` with `input` under `rules`: a matching tool rule turns a policy
+    /// refusal into a raise to dangerous that the rule decides; a `force` stays refused.
+    pub fn decide_for(
+        &self,
+        call: GitCall,
+        rules: &[PolicyRule],
+        tool: &str,
+        input: &Value,
+    ) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        let e = self.decide(call)?;
+        if call.force || !rules.iter().any(|r| r.matches(tool, input)) {
+            return Some(e);
+        }
+        Some(match e {
+            Escalation::Refuse(why) => Escalation::raise(PermissionClass::Dangerous, why),
+            raise => raise,
         })
     }
 }
@@ -659,6 +779,11 @@ impl PolicyView {
         self.policy().debug.clone().unwrap_or_default()
     }
 
+    /// The `git` object (its defaults when absent).
+    pub fn git(&self) -> GitPolicy {
+        self.policy().git.clone().unwrap_or_default()
+    }
+
     /// Which processes Eludite started.
     pub fn launched(&self) -> &LaunchedProcesses {
         &self.get().launched
@@ -751,6 +876,8 @@ pub struct AgentPolicy {
     pub browser: Option<BrowserPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub debug: Option<DebugPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -763,6 +890,7 @@ impl Default for AgentPolicy {
             rules: Vec::new(),
             browser: None,
             debug: None,
+            git: None,
         }
     }
 }
@@ -1079,6 +1207,62 @@ mod tests {
         assert!(AgentPolicy::load(&path).unwrap_err().contains("version 2"));
         std::fs::write(&path, r#"{"version": 1, "bogus": true}"#).unwrap();
         assert!(AgentPolicy::load(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_git_object_loads_and_follows_its_schema() {
+        let dir = std::env::temp_dir().join(format!("eludite-policy-git-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = AgentPolicy::path_for(&dir);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "git": {"commit": "prompt", "push": "deny", "history": "prompt"}}"#,
+        )
+        .unwrap();
+        let p = AgentPolicy::load(&path).unwrap();
+        let git = p.git.clone().unwrap();
+        assert_eq!(
+            (git.commit, git.push, git.history),
+            (
+                Some(CommitPolicy::Prompt),
+                Some(GuardPolicy::Deny),
+                Some(GuardPolicy::Prompt)
+            )
+        );
+        p.save(&path).unwrap();
+        assert_eq!(AgentPolicy::load(&path).unwrap(), p);
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let props = &schema["properties"]["git"]["properties"];
+        for (k, v) in serde_json::to_value(&git).unwrap().as_object().unwrap() {
+            assert!(props[k]["enum"].as_array().unwrap().contains(v), "{k}");
+        }
+        // Defaults: commit allow, push and history prompt.
+        let d = GitPolicy::default();
+        assert_eq!(
+            d.decide(GitCall {
+                commit: true,
+                ..Default::default()
+            }),
+            None
+        );
+        assert!(matches!(
+            d.decide(GitCall {
+                push: true,
+                ..Default::default()
+            }),
+            Some(crate::Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                ..
+            })
+        ));
+        assert!(matches!(
+            d.decide(GitCall { force: true, ..Default::default() }),
+            Some(crate::Escalation::Refuse(r)) if r == GIT_FORCE_REFUSED
+        ));
+        std::fs::write(&path, r#"{"version": 1, "git": {"push": "allow"}}"#).unwrap();
+        assert!(AgentPolicy::load(&path).is_err(), "push has no allow");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
