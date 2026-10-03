@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-discover.input.json",
+  "title": "eludite.test.discover input",
+  "description": "Discover the tests of the open workspace (the Test Explorer's tree): every .NET test project of the solution, out of process in eludite-host (Microsoft.Testing.Platform's server mode, or the VSTest translation-layer protocol for projects that have not migrated), one project node per target framework; and every package of the open folder's Cargo workspace (`cargo test --no-run` through the Cargo build path, then `cargo test -- --list` per test target; doc tests are not listed). The tree is project > namespace > class > test for .NET and package > module path > test for Rust. Discovery is kept per solution generation and per build: while nothing was built since, the answer comes from it without building or discovering again. The answer pages the tests (`max_items`, `cursor`).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "A test project or Cargo package: its name as the Test Explorer shows it (`Corpus.XunitV3`, `Corpus.XunitV3 (net472)` for one target framework of a multi-targeted project, a Cargo package such as `corpus-tests`), or the path of its project file or Cargo.toml (absolute, or relative to the solution or workspace folder). Omitted: every test project and package.",
+      "type": "string",
+      "minLength": 1
+    },
+    "rebuild": {
+      "description": "Build before discovering, as F5 does: .NET projects through eludite.build.project's build (the solution's, for every project), Cargo packages with `cargo test --no-run`; an up-to-date build costs MSBuild's or Cargo's check. Default: build when the kept discovery is out of date (never discovered under this generation, or a build ran since). true: always build and discover again. false: never build; discover the outputs as they are when the kept discovery is out of date.",
+      "type": "boolean"
+    },
+    "wait_ms": {
+      "description": "How long to wait for the build and the discovery to finish before answering, in milliseconds. From the UI the command never waits (default 0); from another thread (an agent) the default is 60000. A run still going when the wait ends answers `running` with `timed_out`; eludite.test.results reads it later.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 300000
+    },
+    "max_items": {
+      "description": "The most tests listed (default 500, at most 5000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "cursor": {
+      "description": "The `next_cursor` of the previous page.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

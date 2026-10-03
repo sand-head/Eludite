@@ -81,6 +81,7 @@ Rules:
 | -32801 | ContentModified (LSP) | Stale `eluditeGeneration`, or the generation changed while the request was in flight |
 | -32803 | RequestFailed (LSP) | The language server is unavailable (not configured, failed to start, or exited); `data.reason` is `"languageServerUnavailable"` |
 | -32010 | BuildInProgress (Eludite) | `eludite/build/start` while a build runs; `data.buildId` is the running build |
+| -32012 | TestRunInProgress (Eludite) | `eludite/test/run` naming a container that a run is running; `data` is `{ runId, container }` |
 
 Error `data` shapes: [`host/errors.json`](host/errors.json).
 
@@ -101,6 +102,11 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
+| `eludite/test/discover` | request | [test-discover.json](host/test-discover.json) | `{ projects?, configuration?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers: [{ id, name, project, targetFramework, protocol, runtime?, program?, error? }] }` |
+| `eludite/test/run` | request | [test-run.json](host/test-run.json) | `{ containers?: [{ id, tests? }], debug?, parallel?, configuration?, runSettings?, vstestConsolePath? }` | `{ runId, generation, containers, debug? }` |
+| `eludite/test/cancel` | request | [test-cancel.json](host/test-cancel.json) | `{ runId? }` | `{ canceled, runId? }` |
+| `eludite/test/attached` | request | [test-attached.json](host/test-attached.json) | `{ runId, processId, attached, message? }` | `{ accepted }` |
+| `eludite/test/status` | request | [test-status.json](host/test-status.json) | none | `{ running: [{ runId, kind, generation, debug?, containers, elapsedMs, nextSeq, tests, results }], last?: { runId, kind, generation, state, summary, elapsedMs } }` |
 
 #### `eludite/host/initialize`
 
@@ -250,6 +256,102 @@ generation changes before the tree is ready; -32800 when canceled.
   | `ELUDITE0110` | warning | `aspnet_compiler` (`MvcBuildViews`, `AspNetCompiler`) failing |
   | `ELUDITE0111` | warning | The solution has legacy projects and no Mono or Build Tools MSBuild was located |
 
+#### Tests (brief 0035)
+
+The Test Explorer's .NET half (PLAN.md 4.6, D2, D3). The host discovers and runs tests **out of process** (CLAUDE.md
+invariant 2): each test application, `vstest.console` and its testhosts are the host's child processes; the shell never
+starts a .NET test runner itself, and runs `cargo test` for Rust through its own Cargo path (below).
+
+- **Containers.** `eludite/test/discover` reads the open solution's projects (or the ones named) and keeps the test
+  projects (`TestProjectInspector`, from the project file alone: MTP when an MTP runner property is true, the project
+  uses `MSTest.Sdk`, or it references `Microsoft.Testing.Platform*` or `xunit.v3*`; VSTest when it references only
+  `Microsoft.NET.Test.Sdk` or sets `UseVSTest`). Each test project is one **container per target framework** (a
+  multi-targeted project is listed once per framework, `Name (net10.0)`, as Visual Studio's Test Explorer lists it), with
+  its build output in `bin/<configuration>/<tfm>/`: the apphost (or the DLL, run with `dotnet`) for a CoreCLR MTP test
+  application, the `.exe` run with the located `mono` for .NET Framework off Windows, the test DLL as VSTest's source.
+  A container whose output does not exist (`not built`) or that needs a missing Mono is listed with `error` and finishes
+  failed; the shell builds first when it wants a fresh build (the host discovers the outputs as they are).
+- **Reply at once, then stream.** Discover and run answer with a `runId` (one counter for both), the generation and the
+  containers, and stream `eludite/test/update` notifications, `seq` from 0 per run: `discovered` (a container's tests),
+  `results` (outcomes as tests start and end), `output` (the runners' log lines for the Output window's Tests source),
+  `launch` (a debug run's command line), `containerFinished` (each container, with its count, or `failed` with the
+  reason) and exactly one `finished` (`completed`, `failed` or `canceled`, with the summary). Tests and results are
+  batched: a burst is flushed as one update every 16 ms.
+- **The model.** Both protocols map to one test item (`id`, `displayName`, `fullyQualifiedName`, `namespace`,
+  `className`, `method`, `source`, `line`, `traits`) and one result (`outcome` running, passed, failed, skipped or
+  notRun; `durationMs`, `message`, `stackTrace`, `output`):
+
+  | Model | Microsoft.Testing.Platform node | VSTest |
+  |---|---|---|
+  | `id` | `uid` | TestCase `Id` |
+  | `displayName` | `display-name` | `DisplayName` |
+  | `fullyQualifiedName` | `location.type` + `.` + `location.method` without its parameter list | `TestCase.ManagedType` + `.` + `TestCase.ManagedMethod` (without parameters), else `FullyQualifiedName` |
+  | `source`, `line` | `location.file`, `location.line-start` | `CodeFilePath`, `LineNumber` |
+  | `traits` | `traits` (`[{ name: value }]`) | `TestObject.Traits` (`[{ Key, Value }]`) |
+  | `outcome` | `execution-state`: `in-progress` running; `passed`; `failed`, `timed-out`, `error` failed; `skipped`; `cancelled` notRun | `Outcome` 1 passed, 2 failed, 3 skipped, 0 or 4 notRun; a test in `ActiveTests` is running |
+  | `durationMs` | `time.duration-ms` | `Duration` (a TimeSpan) |
+  | `message`, `stackTrace` | `error.message`, `error.stacktrace` | `ErrorMessage`, `ErrorStackTrace` |
+  | `output` | `standardOutput`, `standardError` | `Messages` of category `StdOutMsgs`, `StdErrMsgs`, `AdditionalInfo` |
+
+- **Microsoft.Testing.Platform's server mode** (preferred). The host listens on a loopback TCP port and starts the test
+  application with `--server --client-port <port>` (plus `--settings <file>` for `runSettings`); the application connects
+  and they speak JSON-RPC 2.0 with `Content-Length` framing: the host sends `initialize` (`processId`, `clientInfo`,
+  `capabilities.testing.debuggerProvider: false`), then `testing/discoverTests` (`runId`) or `testing/runTests`
+  (`runId`, `tests`: the discovered nodes, `uid` and `display-name`); the application sends `testing/testUpdates/tests`
+  notifications (`changes: [{ node, parent }]`, and `changes: null` once the request's updates are done) and
+  `client/log`, then answers the request; the host ends with the `exit` notification. One application process serves
+  one request (a fresh build may have replaced it). Cancel is `$/cancelRequest` for the request (MTP has no
+  `testing/cancel`); frameworks stop between tests, so the host kills the application's process tree when it has not
+  answered within 2 s. `testing/runTests` with a tree-node `filter` is refused by xunit.v3, so runs always name nodes.
+- **VSTest's translation-layer protocol** (projects that have not migrated). The host listens on a loopback TCP port and
+  starts `dotnet <vstest.console.dll> --port:<port> --parentprocessid:<host pid>` (the SDK's, or `vstestConsolePath`);
+  vstest.console connects, sends `TestSession.Connected`, and messages are JSON `{ MessageType, Version, Payload }` with a
+  7-bit-encoded length prefix (BinaryWriter's string format), protocol version 7 after `ProtocolVersion`. Discovery is
+  `TestDiscovery.Start` (`Sources`, `RunSettings`) answered by `TestDiscovery.TestFound` batches and
+  `TestDiscovery.Completed`; a run is `TestExecution.RunAllWithDefaultHost` (`Sources`) or
+  `TestExecution.RunSelectedWithDefaultHost` (`TestCases`: the discovered TestCase objects as vstest.console sent them),
+  answered by `TestExecution.StatsChange` (new results and active tests) and `TestExecution.Completed`; logs arrive as
+  `TestSession.Message`. Cancel is `TestExecution.Cancel` (`TestDiscovery.Cancel` for a discovery), then the process tree
+  is killed after 2 s. One vstest.console serves one discovery or run and ends with `TestSession.Terminate`.
+- **Debugging a test.** `eludite/test/run` with `debug: true` names one container and starts no test application
+  itself.
+  - MTP: the host listens and sends a `launch` update with the test application's command line plus `--server
+    --client-port <port>` (`program` the DLL with `runtime: dotnet`, for netcoredbg, or the `.exe` with `runtime: mono`,
+    for eludite-dbg-mono), and the shell launches it under its adapter. When it connects the host sends `initialize` and
+    `testing/runTests` as for any run, so results flow while the person steps.
+  - VSTest: the host sends `TestExecution.GetTestRunnerProcessStartInfoForRunAll` (or `...ForRunSelected` with the
+    TestCases) with `DebuggingEnabled: true`. vstest.console 18 starts the testhost itself, paused, and asks for a
+    debugger (`TestExecution.EditorAttachDebugger2` with the `ProcessID`): the host sends an `attach` update with that
+    `processId`, the shell attaches its adapter to it (a brief 0027 attach) and answers `eludite/test/attached`, and the
+    host answers vstest.console with `TestExecution.EditorAttachDebuggerCallback` (`Attached`). The testhost then runs the
+    tests and results flow as for any run. vstest.console sends `TestExecution.CustomTestHostLaunch` (the start info to
+    launch under a debugger) only to a launcher that cannot attach; the host answers it with a `launch` update and
+    `TestExecution.CustomTestHostLaunchCallback`.
+  - A debug run that gets no connection (MTP) or no `eludite/test/attached` (VSTest) within 60 s finishes failed.
+- **One run at a time per container.** A run naming a container that a run is running fails with -32012
+  (TestRunInProgress, `data: { runId, container }`). Discoveries run beside runs. Errors also: -32002 before
+  `eludite/host/initialize`; -32602 when no solution is open, a project is not one of the solution's test projects, or a
+  container id is unknown.
+- **The generation rule.** Every update carries the generation its discovery or run started under. A new generation
+  (`eludite/solution/open` or `close`) cancels every discovery and run (each ends with a `finished` update `canceled`
+  under its old generation) and forgets the discovered tests. The shell drops updates whose generation is not current
+  (CLAUDE.md invariant 12), and the host refuses a run naming containers of a previous generation's discovery (-32602).
+  A run whose containers were not discovered under the current generation (the host restarted) is discovered first,
+  silently, then run.
+- **Status: `eludite/test/status`** answers the discoveries and runs that are going, with their tests and their latest
+  result per test so far and `nextSeq`, and the last finished one with its summary. It never fails, and before
+  `eludite/host/initialize` it reports nothing. A shell that (re)connects calls it after `eludite/host/initialize` with
+  the build status: it replaces what it shows for each running one with the answer and then applies only updates with
+  `seq >= nextSeq`. When the shell believed a run was going and it is not listed (the restarted host never had it), the
+  shell reports the run as ended. Today the host is the shell's child over stdio, so a restarted host never has the old
+  run; as for builds, the replay serves a host the shell reattaches to (D7) and is tested against the fake host.
+- **Cargo.** `cargo test` never crosses this connection. The shell discovers a Cargo workspace's tests itself: `cargo
+  test --no-run --message-format=json-diagnostic-rendered-ansi` through the Cargo build path (its output and errors are
+  the Build pane's and the Error List's), then `cargo test -p <package> --lib --bins --tests -- --list --format terse`
+  (doc tests are not listed), and runs them with `cargo test -p <package> --<target kind> [<name>] -- --exact <names>
+  --nocapture --test-threads=1`, parsing libtest's `test <name> ... ok|FAILED|ignored` lines and its failure sections
+  into the same model (protocol `cargo`).
+
 ### Forwarded LSP methods, typed
 
 Forwarded to the Roslyn language server and typed in `eludite-protocol` (`lsp.rs`). Params and results are LSP 3.17;
@@ -371,6 +473,7 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/build/output` | notification | [build-output.json](host/build-output.json) | `{ buildId, seq, text }` |
 | `eludite/build/progress` | notification | [build-progress.json](host/build-progress.json) | `{ buildId, elapsedMs, projectsTotal, projectsCompleted, errors, warnings, currentProject? }` |
 | `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
+| `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message? }` |
 
 `workspace/applyEdit` is the only request the host sends to the shell. Every other request from the host is answered
 -32601 by the shell.

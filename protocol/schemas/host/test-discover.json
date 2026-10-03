@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-discover.json",
+  "title": "eludite/test/discover",
+  "description": "Discover the tests of the open solution's test projects, or of the projects named, out of process (brief 0035; host-rpc.md, \"Tests\"). Each test project is found by reading its project file (TestProjectInspector: MTP or VSTest) and becomes one container per target framework. MTP containers run the test application with `--server --client-port <port>` and send `testing/discoverTests`; VSTest containers are discovered by one vstest.console (`TestDiscovery.Start`). The host answers at once with the discovery's id and its containers, then streams eludite/test/update notifications (`discovered`, `output`, `containerFinished`) and ends with exactly one `finished`. Discovery reads the build outputs as they are: the shell builds first when it wants a fresh build.",
+  "x-eludite-method": "eludite/test/discover",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Absolute paths of test projects of the open solution to discover. Omitted: every test project the solution lists (projects that are not test projects are left out)."
+        },
+        "configuration": {
+          "description": "The configuration whose build outputs hold the tests, for example Debug or Release. Omitted: Debug.",
+          "type": "string",
+          "minLength": 1
+        },
+        "runSettings": {
+          "description": "Absolute path of a .runsettings file (the setting test.runSettings): VSTest gets its contents as the RunSettings of every request; MTP gets it as `--settings <path>` on the test application's command line. Omitted: none.",
+          "type": "string",
+          "minLength": 1
+        },
+        "vstestConsolePath": {
+          "description": "The vstest.console.dll to run (the setting test.vstestConsolePath). Omitted: the one in the .NET SDK `dotnet --list-sdks` lists last (the SDK the host runs on when it has one).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "runId",
+        "generation",
+        "containers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "description": "The solution generation it runs under. A new generation (another solution opened, or this one closed) cancels it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "containers": {
+          "description": "The containers being discovered, in solution order (a multi-targeted project's frameworks in the project file's order).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/container"
+          }
+        }
+      }
+    },
+    "container": {
+      "description": "One test container: a test project built for one target framework (a multi-targeted project is one container per framework, as Visual Studio's Test Explorer lists it).",
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "project",
+        "targetFramework",
+        "protocol"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "description": "As the Test Explorer shows it: the project's name, with the target framework in parentheses when the project has several (`Corpus.XunitV3 (net10.0)`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "targetFramework": {
+          "description": "The target framework moniker (`net10.0`, `net472`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "protocol": {
+          "description": "mtp: Microsoft.Testing.Platform's server mode (JSON-RPC between the host and the test application). vstest: the VSTest translation-layer protocol to vstest.console, for projects that have not migrated.",
+          "enum": [
+            "mtp",
+            "vstest"
+          ]
+        },
+        "runtime": {
+          "description": "What runs the tests: dotnet (the apphost or `dotnet <dll>`), mono (`mono <exe>` for .NET Framework off Windows, the located Mono), netfx (the .exe on Windows).",
+          "enum": [
+            "dotnet",
+            "mono",
+            "netfx"
+          ]
+        },
+        "program": {
+          "description": "MTP: the test application (the apphost, the DLL or the .exe). VSTest: the test assembly vstest.console loads (its source).",
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "description": "Why the container cannot be discovered or run (`not built: ... does not exist; build the project first`, `.NET Framework tests need Mono off Windows`). Such a container has no tests; its containerFinished update says failed with this message.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

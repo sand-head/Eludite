@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/test-results.input.json",
+  "title": "eludite.test.results input",
+  "description": "Read a run's results, as the Test Explorer shows them: each test's outcome and duration and, as its detail pane shows for the selected test, the failure message, the stack trace and what the test wrote. Paged with `max_items` and `cursor`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "run": {
+      "description": "A run's id. Omitted: the last run.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "outcome": {
+      "description": "Only tests with this outcome.",
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "not_run",
+        "running"
+      ]
+    },
+    "ids": {
+      "description": "Test ids, as eludite.test.discover and eludite.test.results list them (`<project>|<runner id>`).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "max_output_chars": {
+      "description": "Each message, stack trace and output is cut at this many characters (default 4000, at most 100000).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000
+    },
+    "max_items": {
+      "description": "The most tests listed (default 100, at most 5000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "cursor": {
+      "description": "The `next_cursor` of the previous page.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
