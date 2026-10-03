@@ -230,6 +230,11 @@ impl BrowserSurface {
         }
     }
 
+    /// Where the surface was drawn in the last frame (window coordinates).
+    pub fn bounds(&self) -> Option<Bounds<Pixels>> {
+        self.bounds.get()
+    }
+
     /// The focus handle the window focuses when the page should take the keys.
     pub fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
@@ -248,13 +253,21 @@ impl BrowserSurface {
         let mut old = self.tiles.take();
         let mut freed: Vec<Arc<RenderImage>> = Vec::new();
         let mut made: Option<(u64, u64, u64, Vec<DirtyRect>, (u32, u32), usize)> = None;
+        let source = self.source.clone();
         self.source.read(true, &mut |f| {
             let size = (f.width, f.height);
             let tile = tile.min(size.0.max(size.1).max(1));
-            let partial = matches!(&old, Some(t) if t.size == size && t.tile == tile)
-                && last != 0
-                && f.sequence == last + 1
-                && !f.dirty.is_empty();
+            // The frame's own dirty rectangles when it follows the last one drawn; across frames the ring overwrote,
+            // theirs too, when the source still knows them (else every tile).
+            let dirty: Option<Vec<DirtyRect>> = if last == 0 || f.dirty.is_empty() {
+                None
+            } else if f.sequence == last + 1 {
+                Some(f.dirty.to_vec())
+            } else {
+                source.dirty_between(last, f.sequence)
+            };
+            let partial =
+                matches!(&old, Some(t) if t.size == size && t.tile == tile) && dirty.is_some();
             let mut tiles = match old.take() {
                 Some(t) if partial => t,
                 prev => {
@@ -270,7 +283,11 @@ impl BrowserSurface {
                 }
             };
             let mut redo: Vec<usize> = if partial {
-                f.dirty.iter().flat_map(|d| tiles.touched(d)).collect()
+                dirty
+                    .iter()
+                    .flatten()
+                    .flat_map(|d| tiles.touched(d))
+                    .collect()
             } else {
                 (0..(tiles.grid.0 * tiles.grid.1) as usize).collect()
             };
@@ -1056,6 +1073,8 @@ mod tests {
         size: (u32, u32),
         sequence: AtomicU64,
         dirty: Mutex<Vec<DirtyRect>>,
+        /// What `dirty_between` answers (the frames the ring overwrote).
+        between: Mutex<Option<Vec<DirtyRect>>>,
     }
 
     impl FrameSource for Sized {
@@ -1085,6 +1104,10 @@ mod tests {
         }
 
         fn set_listener(&self, _f: Option<Box<dyn Fn() + Send + Sync>>) {}
+
+        fn dirty_between(&self, _after: u64, _upto: u64) -> Option<Vec<DirtyRect>> {
+            self.between.lock().unwrap().clone()
+        }
     }
 
     #[gpui::test]
@@ -1093,6 +1116,7 @@ mod tests {
             size: (600, 300),
             sequence: AtomicU64::new(0),
             dirty: Mutex::default(),
+            between: Mutex::default(),
         });
         let source: Arc<dyn FrameSource> = fake.clone();
         let surface = cx.new(|cx| BrowserSurface::new(source, None, None, cx));
@@ -1131,8 +1155,19 @@ mod tests {
         );
         // A skipped sequence: the dirty rectangles of the frames in between are unknown, so every tile.
         frame(5, vec![small]);
+        // Skipped frames the source still knows (the engine paints faster than the shell draws): theirs and its own.
+        *fake.between.lock().unwrap() = Some(vec![
+            DirtyRect {
+                x: 10,
+                y: 10,
+                width: 20,
+                height: 20,
+            },
+            small,
+        ]);
+        frame(7, vec![small]);
         let s = stats.borrow();
-        assert_eq!(s.tiles_uploaded, vec![6, 1, 4, 6]);
+        assert_eq!(s.tiles_uploaded, vec![6, 1, 4, 6, 2]);
         assert_eq!(s.tiles_total, 6);
         assert_eq!(s.frame_size, (600, 300));
     }

@@ -377,7 +377,17 @@ pub trait FrameSource: Send + Sync {
     fn is_closed(&self) -> bool {
         false
     }
+
+    /// The dirty rectangles of every frame after sequence `after` up to `upto`, when the source still knows each of
+    /// them: the frames the ring overwrote before the view read them changed only there, so a view that drew `after`
+    /// re-draws only those (brief 0032's partial uploads). `None` when any is unknown.
+    fn dirty_between(&self, _after: u64, _upto: u64) -> Option<Vec<DirtyRect>> {
+        None
+    }
 }
+
+/// How many announced frames' dirty rectangles a [`TabFrames`] keeps for [`FrameSource::dirty_between`].
+pub const DIRTY_HISTORY: usize = 64;
 
 /// `CLOCK_MONOTONIC` in nanoseconds: the engine's `paintNs` clock.
 #[cfg(unix)]
@@ -586,6 +596,8 @@ pub struct TabFrames {
     frames: AtomicU64,
     info: Mutex<TabInfo>,
     closed: AtomicBool,
+    /// The dirty rectangles of the last [`DIRTY_HISTORY`] announced frames, by sequence (`tab/frame`'s `dirty`).
+    recent: Mutex<VecDeque<(u64, Vec<DirtyRect>)>>,
 }
 
 impl std::fmt::Debug for TabFrames {
@@ -619,7 +631,14 @@ impl TabFrames {
         lock(&self.info).clone()
     }
 
-    fn announce(&self, sequence: u64) {
+    fn announce(&self, sequence: u64, dirty: Option<Vec<DirtyRect>>) {
+        if let Some(d) = dirty {
+            let mut r = lock(&self.recent);
+            if r.len() == DIRTY_HISTORY {
+                r.pop_front();
+            }
+            r.push_back((sequence, d));
+        }
         self.sequence.fetch_max(sequence, Ordering::AcqRel);
         self.frames.fetch_add(1, Ordering::Relaxed);
         lock(&self.first_frame).get_or_insert_with(Instant::now);
@@ -652,6 +671,19 @@ impl FrameSource for TabFrames {
 
     fn is_closed(&self) -> bool {
         TabFrames::is_closed(self)
+    }
+
+    fn dirty_between(&self, after: u64, upto: u64) -> Option<Vec<DirtyRect>> {
+        if upto <= after || upto - after > DIRTY_HISTORY as u64 {
+            return None;
+        }
+        let r = lock(&self.recent);
+        let mut out = Vec::new();
+        for seq in after + 1..=upto {
+            let (_, d) = r.iter().find(|(s, _)| *s == seq)?;
+            out.extend_from_slice(d);
+        }
+        Some(out)
     }
 }
 
@@ -785,7 +817,19 @@ impl Control {
             "tab/resized" => self.resized(&tab, p, sock),
             "tab/frame" => {
                 if let Some(f) = self.tab(&tab) {
-                    f.announce(p["sequence"].as_u64().unwrap_or(0));
+                    let rect = |r: &Value| {
+                        let n = |k: &str| r[k].as_i64().and_then(|v| i32::try_from(v).ok());
+                        Some(DirtyRect {
+                            x: n("x")?,
+                            y: n("y")?,
+                            width: n("width")?,
+                            height: n("height")?,
+                        })
+                    };
+                    let dirty = p["dirty"]
+                        .as_array()
+                        .and_then(|a| a.iter().map(rect).collect::<Option<Vec<_>>>());
+                    f.announce(p["sequence"].as_u64().unwrap_or(0), dirty);
                 }
             }
             "tab/cdpEvent" => self.cdp_event(&tab, &p["message"]),
@@ -2172,6 +2216,28 @@ mod tests {
         );
         assert_eq!(frames.sequence(), 3);
         assert_eq!(woke.load(Ordering::Relaxed), 1);
+        // The frames' dirty rectangles, for a view that skipped some: known only when every one was announced.
+        for (seq, x) in [(4, 10), (5, 300)] {
+            c.dispatch(
+                json!({"method": "tab/frame", "params": {"tab": "1", "sequence": seq,
+                    "dirty": [{"x": x, "y": 0, "width": 20, "height": 20}]}}),
+                None,
+            );
+        }
+        let r = |x| DirtyRect {
+            x,
+            y: 0,
+            width: 20,
+            height: 20,
+        };
+        assert_eq!(frames.dirty_between(3, 5), Some(vec![r(10), r(300)]));
+        assert_eq!(frames.dirty_between(4, 5), Some(vec![r(300)]));
+        assert_eq!(
+            frames.dirty_between(2, 5),
+            None,
+            "3 came without its rectangles"
+        );
+        assert_eq!(frames.dirty_between(5, 5), None);
         c.dispatch(
             json!({"method": "tab/state", "params": {"tab": "1", "title": "T"}}),
             None,
