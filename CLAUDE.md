@@ -19,7 +19,7 @@ dotnet build dotnet/Eludite.slnx
 dotnet test dotnet/Eludite.slnx
 ```
 
-Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`. On Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`. Optional: Mono (`mono-devel` on Debian/Ubuntu, `mono` on Arch) to debug .NET Framework programs with `eludite-dbg-mono`; without it that adapter's tests skip. Optional: lldb-dap (`lldb-18` on Debian/Ubuntu, `lldb` on Arch) to debug Rust (Cargo packages); without it `crates/dap/tests/lldb.rs` skips.
+Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-dev libfontconfig1-dev libssl-dev libgit2-dev pkg-config cmake clang`. On Arch: `wayland libxkbcommon vulkan-icd-loader fontconfig openssl libgit2 pkgconf cmake clang`. Optional: Mono (`mono-devel` on Debian/Ubuntu, `mono` on Arch) to debug .NET Framework programs with `eludite-dbg-mono`; without it that adapter's tests skip. Optional: lldb-dap (`lldb-18` on Debian/Ubuntu, `lldb` on Arch) to debug Rust (Cargo packages); without it `crates/dap/tests/lldb.rs` skips. Optional: CEF for the embedded browser engine: `export CEF_PATH="$(tools/cef/fetch.sh)"`, then add `--features eludite-chromium/cef` to the cargo commands; without it the engine tests skip.
 
 ## Crate and project map
 
@@ -35,7 +35,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/dap` | DAP client and transports | 3 (D7), 4.5 |
 | `crates/acp` | ACP client | 5.2 |
 | `crates/mcp` | MCP server over the command bus | 5.1, 5.2 |
-| `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023) | 4.9, 5.8 |
+| `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023); `EmbeddedChromium`, the engine over `eludite-chromium` with frames from shared memory (brief 0031) | 4.9, 5.8 |
 | `crates/git` | libgit2 wrapper | 4.8 |
 | `crates/terminal` | Integrated terminal | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
@@ -44,10 +44,11 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `extension-sdk/` | MIT WASM extension API (crate `eludite-extension-sdk`) | 3 (D6) |
 | `agents/claude-acp/` | `eludite-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
 | `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
+| `browsers/chromium` | `eludite-chromium`: CEF's browser process (GPL), windowless tabs rendered into a shared-memory frame ring, JSON-RPC control on stdio (`protocol/schemas/browser-rpc/`); the real engine needs the `cef` feature and `CEF_PATH` from `tools/cef/fetch.sh`, else it is a stub and its tests skip; Linux only so far (brief 0031) | 4.9, 12 |
 | `debuggers/mono` | `eludite-dbg-mono`, Mono soft-debugger DAP server (C#, net472 on Mono.Debugging.Soft, runs under the located Mono): .NET Framework debugging on Linux and macOS; built by `dotnet build dotnet/Eludite.slnx` (brief 0022) | 4.5 |
 | `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
-| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `lldb-dap/` (install notes only: distributions carry it; brief 0029), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
+| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `cef/` (CEF minimal distribution fetch, brief 0031), `lldb-dap/` (install notes only: distributions carry it; brief 0029), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
 
 GPUI is a git dependency on zed-industries/zed at rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`, as the `gpui` and `gpui_platform` crates (both Apache-2.0; `gpui_platform` holds the window backends at this rev). Do not bump it without an ADR note.
 

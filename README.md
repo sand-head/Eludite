@@ -49,6 +49,13 @@ Optional, to debug .NET Framework programs under Mono with `eludite-dbg-mono` (a
 
 Optional, to debug Rust (Cargo packages) with lldb-dap (and to run `crates/dap/tests/lldb.rs`, which skips without it): `lldb-18` on Debian/Ubuntu, `lldb` on Fedora and Arch, Xcode on macOS, LLVM's installer on Windows ([tools/lldb-dap/README.md](tools/lldb-dap/README.md)).
 
+Optional, the embedded browser engine `eludite-chromium` (brief 0031; Linux so far): fetch CEF (326 MB, unpacked to 558 MB in `~/.cache/eludite/cef/`) and build the engine with its `cef` feature; without it a workspace build downloads nothing and the engine's tests skip ([tools/cef/README.md](tools/cef/README.md)):
+
+```
+export CEF_PATH="$(tools/cef/fetch.sh)"
+cargo build --workspace --features eludite-chromium/cef
+```
+
 Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows; `debuggers/mono` builds everywhere and runs under Mono on Linux and macOS.
 
 ## Repository layout
@@ -62,12 +69,14 @@ vendor/            pinned Zed text crates (sum_tree, rope, text, clock, fuzzy), 
 dotnet/            .NET solution (hosts)
 debuggers/netfx/   eludite-dbg-netfx (Rust, Windows)
 debuggers/mono/    eludite-dbg-mono (C# on Mono.Debugging.Soft, runs under Mono: .NET Framework on Linux and macOS)
+browsers/chromium/ eludite-chromium: CEF's browser process, tabs rendered off screen into shared memory (brief 0031)
 protocol/          MIT: schemas, generated bindings
   cdp/             the pinned Chrome DevTools Protocol and the generator of its Rust types
+  schemas/browser-rpc/  the shell-to-engine control protocol and frame ring of eludite-chromium
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
 corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
-tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer, Chrome for Testing); lldb-dap's install notes
+tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer, Chrome for Testing, CEF); lldb-dap's install notes
 docs/              PLAN.md, adr/, briefs/
 ```
 
