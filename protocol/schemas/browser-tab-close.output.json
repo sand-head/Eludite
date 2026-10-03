@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-close.output.json",
+  "title": "eludite.browser.tab_close output",
+  "description": "The tab closed and what is left.",
+  "type": "object",
+  "required": [
+    "closed",
+    "tabs"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "closed": {
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "active": {
+      "description": "The active tab now; absent when no tab is left.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "tabs": {
+      "description": "How many tabs are left.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

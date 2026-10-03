@@ -11,10 +11,11 @@
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
+//! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
-//! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`; brief 0022's `ELUDITE_MONO_PREFIX` and
-//! `ELUDITE_DBG_MONO`) still override the files: the store resolves them, so nothing here reads the environment.
+//! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`, `ELUDITE_CHROME`; brief 0022's `ELUDITE_MONO_PREFIX`
+//! and `ELUDITE_DBG_MONO`) still override the files: the store resolves them, so nothing here reads the environment.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -106,6 +107,7 @@ pub struct Applied {
     pub rust_analyzer: Option<PathBuf>,
     pub agents: super::agents::RegistryConfig,
     pub keyboard_preset: String,
+    pub browser: super::browser::BrowserSettings,
 }
 
 impl Shell {
@@ -131,6 +133,14 @@ impl Shell {
                 rust_analyzer: s.path("languageServers.rustAnalyzerPath"),
                 agents: super::agents::RegistryConfig::from_store(&s),
                 keyboard_preset: s.string("keyboard.preset"),
+                browser: super::browser::BrowserSettings {
+                    chrome_path: s.path("browser.chromePath"),
+                    headless: s.bool("browser.headless"),
+                    viewport: eludite_browser::engine::parse_viewport(
+                        &s.string("browser.viewport"),
+                    )
+                    .unwrap_or(eludite_browser::EngineConfig::VIEWPORT),
+                },
             }
         };
         let b = &mut self.builds;
@@ -147,6 +157,7 @@ impl Shell {
         self.debug
             .set_mono_adapter_path(applied.mono_adapter.clone());
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
+        self.browser.set_settings(applied.browser.clone());
         let agents_changed = self
             .applied_settings
             .as_ref()
@@ -174,6 +185,8 @@ impl Shell {
     pub(super) fn update_settings_dir(&mut self) {
         let dir = self.workspace_root();
         self.settings.set_solution_dir(dir.as_deref());
+        // The browser's profile is the workspace's: a running browser closes with the workspace (brief 0023).
+        self.browser.set_workspace(dir.as_deref());
     }
 
     /// What the last [`Shell::apply_settings`] applied.

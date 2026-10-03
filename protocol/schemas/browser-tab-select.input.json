@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-select.input.json",
+  "title": "eludite.browser.tab_select input",
+  "description": "Make a tab the active tab, the one the other eludite.browser.* tools act on when they are given no `tab`, and bring it to the front. Get ids from eludite.browser.tabs.",
+  "type": "object",
+  "required": [
+    "tab"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

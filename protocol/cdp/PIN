@@ -1,0 +1,8 @@
+# The Chrome DevTools Protocol pinned for Eludite's generated CDP types (brief 0023). The npm package
+# devtools-protocol carries Chromium's protocol JSON; SPDX-License-Identifier: BSD-3-Clause (LICENSE.chromium).
+# Pinned 2026-10-02. fetch.sh and fetch.ps1 download the tarball, check its SHA-256 and copy json/browser_protocol.json,
+# json/js_protocol.json and LICENSE (as LICENSE.chromium) here.
+package devtools-protocol
+version 0.0.1709723
+url https://registry.npmjs.org/devtools-protocol/-/devtools-protocol-0.0.1709723.tgz
+sha256 a79778d75cd637039878460a996c3bd9b81e6adda5f0d5a914c5b37d65ef8c14

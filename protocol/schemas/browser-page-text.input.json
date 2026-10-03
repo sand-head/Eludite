@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-page-text.input.json",
+  "title": "eludite.browser.page_text input",
+  "description": "Read the rendered text of a tab's page (innerText of the body, or of `root`), as a person sees it, without markup, in pages of at most `max_chars` characters (default 20000). When `next` is in the answer there is more: call again with `cursor: next`. Cheaper than a screenshot for reading content, error messages and tables. Fails with \"no tab\" when the browser has no tab: call eludite.browser.tab_open first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "root": {
+      "description": "A ref (`e1`, `e2`, ...) from eludite.browser.read_page or eludite.browser.find in the current page generation.",
+      "type": "string",
+      "pattern": "^e[0-9]+$"
+    },
+    "max_chars": {
+      "description": "The most characters to answer (default 20000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200000
+    },
+    "cursor": {
+      "description": "Where to start, in characters: 0 (default) or the `next` of the previous answer.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

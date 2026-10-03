@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sign up</title>
+<style>body { font: 14px sans-serif; margin: 16px; } label { display: block; margin: 8px 0; }</style>
+</head>
+<body>
+<h1>Sign up</h1>
+<form aria-label="Sign up" onsubmit="return false">
+  <label>Name <input id="name" name="name" type="text" value="Ada"></label>
+  <label>Email <input id="email" name="email" type="email" required placeholder="you@example.com"></label>
+  <label><input id="subscribe" type="checkbox" checked> Subscribe</label>
+  <label>Plan
+    <select id="plan" name="plan">
+      <option>Free</option>
+      <option selected>Pro</option>
+    </select>
+  </label>
+  <button type="button" disabled>Disabled</button>
+  <button id="submit" type="submit">Submit</button>
+</form>
+<p>Read the <a href="#terms">Terms</a> first.</p>
+<div id="slot"></div>
+<script>
+  // An element that appears after a timeout the page sets, for eludite.browser.wait.
+  setTimeout(() => {
+    const p = document.createElement('p');
+    p.id = 'late';
+    p.textContent = 'Late paragraph';
+    document.getElementById('slot').append(p);
+    window.lateReady = true;
+  }, 400);
+</script>
+</body>
+</html>

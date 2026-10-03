@@ -671,3 +671,80 @@ fn the_invoker_runs_allowed_calls_with_the_agents_tool_call_id() {
     assert_eq!(seen[0].tool_call.as_deref(), Some("toolu_42"));
     assert_eq!(seen[0].agent, "Claude Code");
 }
+
+/// A 1x1 PNG, base64.
+const PNG_1X1: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+#[test]
+fn an_output_marked_as_image_is_sent_as_image_content_once() {
+    let r = Arc::new(builtins::default_registry());
+    let output_schema = json!({
+        "type": "object",
+        "required": ["image", "width"],
+        "additionalProperties": false,
+        "properties": {
+            "image": {"type": "string", "contentEncoding": "base64", "contentMediaType": "image/*", "x-eludite-mcp-content": "image"},
+            "thumb": {"type": "string", "contentEncoding": "base64", "contentMediaType": "image/jpeg", "x-eludite-mcp-content": "image"},
+            "note": {"type": "string"},
+            "width": {"type": "integer", "minimum": 0}
+        }
+    });
+    r.register(
+        CommandSpec {
+            id: CommandId::new("eludite.test.picture").unwrap(),
+            title: "Test: Picture".into(),
+            input_schema: json!({"type": "object", "description": "A picture.", "properties": {}}),
+            output_schema: output_schema.clone(),
+            permission: PermissionClass::Read,
+            agent_visible: true,
+        },
+        |_| Ok(json!({"image": PNG_1X1, "thumb": "/9j/AAAA", "note": PNG_1X1, "width": 1})),
+    )
+    .unwrap();
+    let s = McpServer::new(r);
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-test-picture", "arguments": {}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let content = out["content"].as_array().unwrap();
+    assert_eq!(
+        content.len(),
+        3,
+        "text, then one image per marked property: {out}"
+    );
+    assert_eq!(content[0]["type"], "text");
+    let text: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(text["image"], crate::IMAGE_PLACEHOLDER);
+    assert_eq!(text["thumb"], crate::IMAGE_PLACEHOLDER);
+    // Only marked properties move; an unmarked string stays, base64 or not.
+    assert_eq!(text["note"], PNG_1X1);
+    assert_eq!(text["width"], 1);
+    assert_eq!(out["structuredContent"], text);
+    assert!(validate(&output_schema, &out["structuredContent"]).is_empty());
+    // `image/*` is sniffed from the data; a declared type is kept.
+    let images: Vec<(&str, &str)> = content[1..]
+        .iter()
+        .map(|c| {
+            assert_eq!(c["type"], "image");
+            (c["data"].as_str().unwrap(), c["mimeType"].as_str().unwrap())
+        })
+        .collect();
+    assert!(images.contains(&(PNG_1X1, "image/png")), "{images:?}");
+    assert!(images.contains(&("/9j/AAAA", "image/jpeg")), "{images:?}");
+    // The marked image is sent once; the unmarked `note` (the same text) stays in the text part and the structured
+    // content.
+    assert_eq!(out.to_string().matches(PNG_1X1).count(), 3);
+}
+
+#[test]
+fn image_types_are_sniffed() {
+    use crate::sniff_image_type;
+    assert_eq!(sniff_image_type(PNG_1X1), Some("image/png"));
+    assert_eq!(sniff_image_type("/9j/4AAQSkZJRg=="), Some("image/jpeg"));
+    assert_eq!(sniff_image_type("R0lGODlhAQABAA=="), Some("image/gif"));
+    // "RIFF" + 4 bytes + "WEBP".
+    assert_eq!(sniff_image_type("UklGRiQAAABXRUJQVlA4"), Some("image/webp"));
+    assert_eq!(sniff_image_type("aGVsbG8="), None);
+}

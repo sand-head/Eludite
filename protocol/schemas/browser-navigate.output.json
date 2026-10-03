@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-navigate.output.json",
+  "title": "eludite.browser.navigate output",
+  "description": "Where the tab ended up.",
+  "type": "object",
+  "required": [
+    "tab",
+    "url",
+    "title",
+    "page_generation",
+    "console_errors",
+    "timed_out",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "url": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "status": {
+      "description": "The HTTP status of the main document; absent for same-document navigations, history entries served from cache without a response, `file:` and `about:` urls, and `wait_until: none`.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "page_generation": {
+      "description": "The tab's page generation: it grows when the main frame navigates or the document is replaced (DOM.documentUpdated). Refs are valid only in the generation that issued them.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "console_errors": {
+      "description": "Console errors (console.error, uncaught exceptions, failed loads the browser logged) during the navigation.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "timed_out": {
+      "description": "`wait_until` was not reached in `wait_ms`; the page may still be loading.",
+      "type": "boolean"
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}

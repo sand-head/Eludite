@@ -7,7 +7,8 @@
 //! newline-delimited as in MCP's stdio transport.
 //!
 //! Public API: the tool mapping in this module ([`tool_from_command`],
-//! [`tool_name`], [`mcp_output_schema`]), [`McpServer`] (the protocol, with the
+//! [`tool_name`], [`mcp_output_schema`], [`take_image_content`] for outputs
+//! that carry an image, brief 0023), [`McpServer`] (the protocol, with the
 //! permission gate and the invoker hook the shell supplies), and [`transport`]
 //! (stdio serving, the IDE's local TCP endpoint and the stdio relay an agent
 //! launches). Hand-written rather than built on `rmcp`: four methods over the
@@ -136,6 +137,94 @@ pub fn mcp_structured_output(spec: &CommandSpec, output: Value) -> Value {
     } else {
         serde_json::json!({"result": output})
     }
+}
+
+/// The output schema's marker for a top-level base64 string sent as MCP image content (brief 0023).
+pub const IMAGE_CONTENT_MARKER: &str = "x-eludite-mcp-content";
+/// What the text part and `structuredContent` carry in place of an image sent as image content.
+pub const IMAGE_PLACEHOLDER: &str = "(image content)";
+
+/// Move every top-level string property the output schema marks with
+/// `"x-eludite-mcp-content": "image"` out of `output` into MCP image content
+/// (`{"type": "image", "data", "mimeType"}`), leaving [`IMAGE_PLACEHOLDER`] in
+/// its place, so the base64 is sent once. The media type is the property's
+/// `contentMediaType`; `image/*` (or none) is read from the data's first bytes.
+pub fn take_image_content(spec: &CommandSpec, output: &mut Value) -> Vec<Value> {
+    let Some(props) = spec
+        .output_schema
+        .get("properties")
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    let Some(out) = output.as_object_mut() else {
+        return Vec::new();
+    };
+    let mut images = Vec::new();
+    for (name, schema) in props {
+        if schema.get(IMAGE_CONTENT_MARKER).and_then(Value::as_str) != Some("image") {
+            continue;
+        }
+        let Some(Value::String(data)) = out.get(name) else {
+            continue;
+        };
+        let declared = schema.get("contentMediaType").and_then(Value::as_str);
+        let mime = match declared {
+            Some(m) if m != "image/*" => m.to_owned(),
+            _ => sniff_image_type(data)
+                .unwrap_or("application/octet-stream")
+                .to_owned(),
+        };
+        let data = std::mem::replace(
+            out.get_mut(name).expect("present"),
+            Value::String(IMAGE_PLACEHOLDER.to_owned()),
+        );
+        images.push(serde_json::json!({"type": "image", "data": data, "mimeType": mime}));
+    }
+    images
+}
+
+/// The media type of base64 image data from its first bytes: PNG, JPEG, GIF or WebP.
+pub fn sniff_image_type(base64: &str) -> Option<&'static str> {
+    let head = decode_base64_prefix(base64, 12);
+    if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if head.starts_with(b"GIF8") {
+        Some("image/gif")
+    } else if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// The first `n` bytes of standard base64 (whitespace and padding ignored).
+fn decode_base64_prefix(s: &str, n: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(n);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => continue,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+            if out.len() == n {
+                break;
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

@@ -35,17 +35,19 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/dap` | DAP client and transports | 3 (D7), 4.5 |
 | `crates/acp` | ACP client | 5.2 |
 | `crates/mcp` | MCP server over the command bus | 5.1, 5.2 |
+| `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023) | 4.9, 5.8 |
 | `crates/git` | libgit2 wrapper | 4.8 |
 | `crates/terminal` | Integrated terminal | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
 | `protocol/` | MIT schemas and generated bindings (crate `eludite-protocol`) | 3 (D3), 11 |
+| `protocol/cdp/` | The pinned Chrome DevTools Protocol JSON and `eludite-cdp-generator` (MIT), which writes `protocol/rust/src/cdp/` | 4.9, 11 |
 | `extension-sdk/` | MIT WASM extension API (crate `eludite-extension-sdk`) | 3 (D6) |
 | `agents/claude-acp/` | `eludite-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
 | `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
 | `debuggers/mono` | `eludite-dbg-mono`, Mono soft-debugger DAP server (C#, net472 on Mono.Debugging.Soft, runs under the located Mono): .NET Framework debugging on Linux and macOS; built by `dotnet build dotnet/Eludite.slnx` (brief 0022) | 4.5 |
 | `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
-| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
+| `tools/` | Pinned external tools located at run time, never vendored: `roslyn-pin/` (language server build), `netcoredbg/` (debugger fetch), `rust-analyzer/` (fetch), `chrome/` (Chrome for Testing fetch), `legacy-load/` (brief 0003 runner) | 3 (D3), 4.3, 4.5, 7 |
 
 GPUI is a git dependency on zed-industries/zed at rev `20d29fc6bc2fc2b58d1fff8d8e0503b9ba7f41d8`, as the `gpui` and `gpui_platform` crates (both Apache-2.0; `gpui_platform` holds the window backends at this rev). Do not bump it without an ADR note.
 

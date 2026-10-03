@@ -1,0 +1,9 @@
+# Chrome for Testing pinned for Eludite's browser tools (brief 0023): the stable channel on 2026-10-02.
+# Chrome for Testing is Google's build for automation; Chromium's code is BSD-3-Clause. Fetched at run time by
+# fetch.sh and fetch.ps1, never vendored. All four checksums were computed from the downloads on 2026-10-02.
+version 154.0.8037.92
+base https://storage.googleapis.com/chrome-for-testing-public
+sha256 linux64 ff43322f335e436b2f4dcdfeeec5db032299e335a7e8c1c618b326e100ce8732
+sha256 win64 b897ef3601c947ac0620c784556dec719ac602b0159ce105927acf645ee0f598
+sha256 mac-arm64 b62e904b6571c5ff5108ed7812cf93ac6d1c4027f10ae47ac34d8e229ed88001
+sha256 mac-x64 9ddd0959603a3cdb90926427b2942279d81414c9aad856c97d405bb406d50e8b

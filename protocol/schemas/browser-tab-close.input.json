@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tab-close.input.json",
+  "title": "eludite.browser.tab_close input",
+  "description": "Close a browser tab (default: the active tab). The most recently selected remaining tab becomes active. The browser keeps running with no tabs; it is closed with the workspace. Fails when the tab does not exist.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

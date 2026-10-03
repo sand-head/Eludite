@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use crate::{
     ErrorObject, Id, Message, Request, Response, command_id_from_tool_name, mcp_structured_output,
-    tool_from_command,
+    take_image_content, tool_from_command,
 };
 
 /// MCP revisions this server speaks, newest first. `outputSchema`, `structuredContent` and tool `title` exist from
@@ -321,11 +321,19 @@ impl McpServer {
         // Tool failures are results with `isError`, so the model can see them; only unknown tools and malformed
         // requests are JSON-RPC errors.
         Ok(match outcome {
-            Ok(output) => json!({
-                "content": [{"type": "text", "text": serde_json::to_string(&output).expect("serializes")}],
-                "structuredContent": mcp_structured_output(&spec, output),
-                "isError": false
-            }),
+            Ok(mut output) => {
+                // An image the output carries goes once, as image content after the text (brief 0023).
+                let images = take_image_content(&spec, &mut output);
+                let mut content = vec![
+                    json!({"type": "text", "text": serde_json::to_string(&output).expect("serializes")}),
+                ];
+                content.extend(images);
+                json!({
+                    "content": content,
+                    "structuredContent": mcp_structured_output(&spec, output),
+                    "isError": false
+                })
+            }
             Err(e) => json!({
                 "content": [{"type": "text", "text": e.to_string()}],
                 "isError": true

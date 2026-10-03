@@ -1,0 +1,39 @@
+//! Eludite's browser automation (brief 0023, proposal 0002, ADR-0008): the `eludite.browser.*` commands against a
+//! browser engine, over the Chrome DevTools Protocol.
+//!
+//! Public API:
+//!
+//! - [`Browser`]: runs a parsed [`eludite_commands::browser::BrowserRequest`] and answers its output. It owns the
+//!   engine and the tabs; one thread owns it (the shell's `browser` worker) and every call may wait on the engine.
+//! - [`Engine`]: the engine trait (open, close, select and attach tabs, send a CDP command on a tab's session,
+//!   subscribe to its events, screenshot pixels, shutdown), with [`EngineConfig`] for the next launch. The embedded
+//!   CEF engine (brief B) and a later Servo implement it; tests implement fakes.
+//! - [`ExternalChrome`]: the implementation of this brief, a Chrome or Chromium process launched with the
+//!   workspace's own profile ([`chrome`]), found by [`ChromeSearch`] ([`discovery`]).
+//! - [`connection`]: the websocket CDP client (`tungstenite` over `std::net::TcpStream`, one reader thread per
+//!   connection, requests correlated by id with timeouts, events fanned out per session through channels).
+//! - [`ring`], [`tab`] and [`page`]: the console and network rings, a tab's state (page generations and refs), and
+//!   reading pages from CDP answers.
+//!
+//! No GPUI and no async runtime: everything here is threads and channels, and `Send`. The CDP domain types are
+//! generated (`eludite-protocol`'s `cdp` module, from `protocol/cdp/`); the message envelope is typed in
+//! [`connection`].
+
+pub mod browser;
+pub mod chrome;
+pub mod connection;
+pub mod discovery;
+pub mod engine;
+pub mod page;
+pub mod ring;
+pub mod tab;
+
+pub use browser::Browser;
+pub use chrome::ExternalChrome;
+pub use connection::{CdpError, CdpEvent, Connection};
+pub use discovery::ChromeSearch;
+pub use engine::{Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
+
+/// Where the browser's lifecycle lines go (the shell's Output window, Browser source). Called from any thread;
+/// it must not block.
+pub type LogSink = std::sync::Arc<dyn Fn(&str) + Send + Sync>;

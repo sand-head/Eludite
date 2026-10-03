@@ -527,6 +527,9 @@ mod tests {
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
                 "agents.custom",
+                "browser.chromePath",
+                "browser.headless",
+                "browser.viewport",
             ]
         );
         assert_eq!(s.get("build.onSave").unwrap().default, json!(false));

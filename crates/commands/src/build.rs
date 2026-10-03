@@ -141,6 +141,9 @@ pub enum OutputSource {
     /// The program's output under the debugger or without it, and the debugger's messages (brief 0020; it replaced
     /// the Debug Console window).
     Debug,
+    /// The browser of `eludite.browser.*` (brief 0023): its launch, tabs, navigation failures, console errors and
+    /// exit.
+    Browser,
 }
 
 impl OutputSource {
@@ -150,6 +153,7 @@ impl OutputSource {
             OutputSource::Host => "host",
             OutputSource::LanguageServers => "language_servers",
             OutputSource::Debug => "debug",
+            OutputSource::Browser => "browser",
         }
     }
 }
@@ -553,6 +557,14 @@ mod tests {
             BuildRequest::OutputShow {
                 source: Some(OutputSource::Debug),
                 tail: 0
+            }
+        );
+        // The Browser source (brief 0023).
+        assert_eq!(
+            parse(OUTPUT_SHOW, json!({"source": "browser"})).unwrap(),
+            BuildRequest::OutputShow {
+                source: Some(OutputSource::Browser),
+                tail: 50
             }
         );
         assert!(parse(OUTPUT_SHOW, json!({"source": "immediate"})).is_err());

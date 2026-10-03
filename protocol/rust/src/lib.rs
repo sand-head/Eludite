@@ -3,9 +3,12 @@
 //! `jsonrpc`: minimal JSON-RPC 2.0 messages shared by the LSP, ACP and MCP crates.
 //! `framing`: `Content-Length` framing used by LSP and DAP. `host`: the Eludite messages between the shell and
 //! `eludite-host` (see `protocol/schemas/host-rpc.md`). `lsp`: the typed subset of LSP 3.17 the host forwards.
-//! `typed`: method-to-type traits a client uses to send typed requests.
+//! `typed`: method-to-type traits a client uses to send typed requests. `cdp` (feature `cdp`): the Chrome DevTools
+//! Protocol domain types, generated from `protocol/cdp/` by `eludite-cdp-generator` (brief 0023).
 //! MIT-licensed so alternative hosts and clients can use it under any license.
 
+#[cfg(feature = "cdp")]
+pub mod cdp;
 pub mod framing;
 pub mod host;
 pub mod jsonrpc;

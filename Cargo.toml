@@ -11,10 +11,12 @@ members = [
     "crates/dap",
     "crates/acp",
     "crates/mcp",
+    "crates/browser",
     "crates/git",
     "crates/terminal",
     "crates/extensions",
     "protocol/rust",
+    "protocol/cdp/generator",
     "extension-sdk",
     "debuggers/netfx",
 ]
@@ -33,6 +35,7 @@ publish = false
 [workspace.dependencies]
 # Internal crates
 eludite-acp = { path = "crates/acp" }
+eludite-browser = { path = "crates/browser" }
 eludite-commands = { path = "crates/commands" }
 eludite-dap = { path = "crates/dap" }
 eludite-docking = { path = "crates/docking" }

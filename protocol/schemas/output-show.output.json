@@ -17,7 +17,8 @@
         "build",
         "host",
         "language_servers",
-        "debug"
+        "debug",
+        "browser"
       ]
     },
     "line_count": {
