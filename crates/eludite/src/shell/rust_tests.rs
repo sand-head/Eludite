@@ -7,7 +7,9 @@
 //! documents; a Cargo build's recorded JSON becomes Error List rows deduplicated against the live ones, with
 //! click-through; a real `cargo build` streams into Output; cancel kills cargo.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -29,6 +31,7 @@ use tempfile::TempDir;
 use super::Shell;
 use super::build::BUILD_SLOT;
 use super::documents::{DIAGNOSTICS_LAYER, normalize_path, path_to_uri};
+#[cfg(unix)]
 use super::error_list::row_selector;
 use super::session::HostLaunch;
 use super::tests::T;

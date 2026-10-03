@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 
 namespace Eludite.Host.Legacy;
@@ -48,8 +49,8 @@ public sealed class ReferenceAssemblies
 
     /// <summary>
     /// One <c>TargetFrameworkRootPath</c> covering every installed version, for processes that load many projects
-    /// (the Roslyn language server's build host). Built as symlinks under <paramref name="cacheDirectory"/>.
-    /// Returns null when no package is installed or symlinks cannot be created.
+    /// (the Roslyn language server's build host). Built as symlinks (junctions on Windows without symlink rights)
+    /// under <paramref name="cacheDirectory"/>. Returns null when no package is installed or no link can be made.
     /// </summary>
     public string? MergedRoot(string cacheDirectory)
     {
@@ -87,17 +88,54 @@ public sealed class ReferenceAssemblies
                     Directory.Delete(link);
                 }
 
-                Directory.CreateSymbolicLink(link, target);
+                CreateDirectoryLink(link, target);
                 any = true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Windows without symlink rights: callers fall back to per-project roots.
+                // Neither a symlink nor a junction could be made: callers fall back to per-project roots.
                 return null;
             }
         }
 
         return any ? root + Path.DirectorySeparatorChar : null;
+    }
+
+    /// <summary>
+    /// A directory symlink, or on Windows without symlink rights (no Developer Mode, not elevated) a junction, which
+    /// needs none. .NET has no junction API, so <c>mklink /J</c> makes it.
+    /// </summary>
+    private static void CreateDirectoryLink(string link, string target)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return;
+        }
+        catch (Exception ex) when (OperatingSystem.IsWindows() && ex is IOException or UnauthorizedAccessException)
+        {
+        }
+
+        var psi = new ProcessStartInfo("cmd.exe")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var arg in new[] { "/d", "/c", "mklink", "/J", link, target })
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
+        using var process = Process.Start(psi) ?? throw new IOException("cmd.exe did not start.");
+        var stderr = process.StandardError.ReadToEndAsync();
+        process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0 || !Directory.Exists(link))
+        {
+            throw new IOException($"mklink /J failed ({process.ExitCode}): {stderr.Result.Trim()}");
+        }
     }
 
     private static string NormalizeVersion(string tfv) => tfv.StartsWith('v') ? tfv : "v" + tfv;

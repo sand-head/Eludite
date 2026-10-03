@@ -1,10 +1,10 @@
 //! The processes a debugger could attach to (brief 0027): this machine's process table with each process's command
-//! line and runtime, read from `/proc` on Linux, `ps` on macOS and `tasklist` on Windows. Reading it blocks on the file
-//! system or a child process, so callers run it on a worker thread, never the UI thread.
+//! line and runtime, read from `/proc` on Linux, `ps` on macOS and a Toolhelp32 snapshot on Windows. Reading it blocks on the
+//! file system or a child process, so callers run it on a worker thread, never the UI thread.
 //!
 //! - **Runtime** ([`runtime_of`]): `dotnet` running a `.dll` is [`Runtime::Dotnet`]; a program run by `mono` (or
 //!   `mono-sgen`) is [`Runtime::Mono`]; anything else whose command line could be read is [`Runtime::Native`]. A
-//!   process whose command line cannot be read is [`Runtime::Unknown`]. `tasklist` gives no command lines, so on Windows
+//!   process whose command line cannot be read is [`Runtime::Unknown`]. The snapshot gives no command lines, so on Windows
 //!   the runtime is judged by the image name alone (`dotnet.exe`, `mono.exe`; [`Runtime::Netfx`] is not detected yet).
 //! - **Launched by Eludite** ([`launched_set`], [`is_launched`]): a process whose id is one of the roots (the programs
 //!   the shell started) or whose parent chain reaches one.
@@ -150,7 +150,7 @@ pub fn mono_agent(argv: &[String]) -> Option<(String, u16)> {
     Some((host.to_owned(), port.parse().ok()?))
 }
 
-/// Every process visible to this user. Blocks (reads `/proc`, or runs `ps` or `tasklist`).
+/// Every process visible to this user. Blocks (reads `/proc`, runs `ps`, or takes a Toolhelp32 snapshot).
 pub fn list() -> Result<Vec<ProcessInfo>, String> {
     #[cfg(target_os = "linux")]
     {
@@ -162,7 +162,7 @@ pub fn list() -> Result<Vec<ProcessInfo>, String> {
     }
     #[cfg(windows)]
     {
-        list_tasklist()
+        list_toolhelp()
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -278,39 +278,46 @@ pub fn parse_ps(text: &str) -> Vec<ProcessInfo> {
         .collect()
 }
 
-/// The processes `tasklist /FO CSV /NH` lists (Windows): image names and ids, no parents or command lines.
+/// The processes in a Toolhelp32 snapshot (Windows): image names, ids and parents, no command lines. The snapshot
+/// takes milliseconds; `tasklist` took about a second for 500 processes.
 #[cfg(windows)]
-fn list_tasklist() -> Result<Vec<ProcessInfo>, String> {
-    let out = std::process::Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .output()
-        .map_err(|e| format!("tasklist: {e}"))?;
-    if !out.status.success() {
-        return Err(format!("tasklist exited with {}", out.status));
+#[allow(unsafe_code)]
+fn list_toolhelp() -> Result<Vec<ProcessInfo>, String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    // SAFETY: a snapshot of every process; the handle is closed below.
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }
+        .map_err(|e| format!("process snapshot: {e}"))?;
+    let mut entry = PROCESSENTRY32W {
+        dwSize: size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut out = Vec::new();
+    // SAFETY: `entry` is a PROCESSENTRY32W with `dwSize` set, as the walk requires, and lives across it.
+    let mut more = unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok();
+    while more {
+        let len = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        let image = String::from_utf16_lossy(&entry.szExeFile[..len]);
+        out.push(ProcessInfo {
+            pid: entry.th32ProcessID,
+            parent: (entry.th32ParentProcessID != 0).then_some(entry.th32ParentProcessID),
+            name: base_name(&image).to_owned(),
+            argv: Vec::new(),
+            runtime: runtime_of(&image, &[]),
+        });
+        // SAFETY: as for Process32FirstW.
+        more = unsafe { Process32NextW(snapshot, &mut entry) }.is_ok();
     }
-    Ok(parse_tasklist(&String::from_utf8_lossy(&out.stdout)))
-}
-
-/// `tasklist /FO CSV /NH` output: `"Image Name","PID",...` per line.
-pub fn parse_tasklist(text: &str) -> Vec<ProcessInfo> {
-    text.lines()
-        .filter_map(|line| {
-            let fields: Vec<&str> = line
-                .split("\",\"")
-                .map(|f| f.trim_matches(|c| c == '"' || c == '\r'))
-                .collect();
-            let image = fields.first()?.to_string();
-            let pid: u32 = fields.get(1)?.parse().ok()?;
-            let runtime = runtime_of(&image, &[]);
-            Some(ProcessInfo {
-                pid,
-                parent: None,
-                name: base_name(&image).to_owned(),
-                argv: Vec::new(),
-                runtime,
-            })
-        })
-        .collect()
+    // SAFETY: the snapshot handle from above, closed once.
+    let _ = unsafe { CloseHandle(snapshot) };
+    Ok(out)
 }
 
 /// The ids of `roots` and of every process whose parent chain in `all` reaches one of them.
@@ -333,7 +340,8 @@ pub fn launched_set(roots: &[u32], all: &[ProcessInfo]) -> HashSet<u32> {
     out
 }
 
-/// The parent of process `pid`, read from the process table (`/proc/<pid>/stat` on Linux, `ps` on macOS).
+/// The parent of process `pid`, read from the process table (`/proc/<pid>/stat` on Linux, `ps` on macOS, a
+/// Toolhelp32 snapshot on Windows).
 pub fn parent_of(pid: u32) -> Option<u32> {
     #[cfg(target_os = "linux")]
     {
@@ -352,7 +360,15 @@ pub fn parent_of(pid: u32) -> Option<u32> {
             .ok()
             .filter(|p| *p != 0)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    {
+        list_toolhelp()
+            .ok()?
+            .into_iter()
+            .find(|p| p.pid == pid)?
+            .parent
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = pid;
         None
@@ -489,7 +505,7 @@ mod tests {
     }
 
     #[test]
-    fn stat_ps_and_tasklist_parse() {
+    fn stat_and_ps_parse() {
         assert_eq!(
             parse_stat("42 (my (odd) name) S 7 42 42 0 -1"),
             Some(("my (odd) name".into(), Some(7)))
@@ -500,13 +516,33 @@ mod tests {
         assert_eq!(ps[0].name, "dotnet");
         assert_eq!(ps[0].runtime, Runtime::Dotnet);
         assert_eq!(ps[1].parent, Some(10));
-        let tl = parse_tasklist(
-            "\"System Idle Process\",\"0\",\"Services\",\"0\",\"8 K\"\r\n\"dotnet.exe\",\"4242\",\"Console\",\"1\",\"40,000 K\"\r\n",
-        );
-        assert_eq!(tl.len(), 2);
-        assert_eq!(tl[1].pid, 4242);
-        assert_eq!(tl[1].name, "dotnet");
-        assert_eq!(tl[1].runtime, Runtime::Dotnet);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_snapshot_lists_this_process_and_a_child_with_its_parent() {
+        let mut child = std::process::Command::new("cmd")
+            .args(["/c", "ping -n 5 127.0.0.1 >nul"])
+            .spawn()
+            .unwrap();
+        let me = std::process::id();
+        let clock = std::time::Instant::now();
+        let all = list().unwrap();
+        let took = clock.elapsed();
+        let parent = parent_of(child.id());
+        let launched = is_launched(child.id(), &[me]);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(all.iter().any(|p| p.pid == me));
+        let c = all
+            .iter()
+            .find(|p| p.pid == child.id())
+            .expect("the child is listed");
+        assert_eq!(c.name, "cmd");
+        assert_eq!(c.parent, Some(me));
+        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+        assert_eq!(parent, Some(me));
+        assert!(launched, "a child of a root is launched");
     }
 
     #[test]

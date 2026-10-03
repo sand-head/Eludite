@@ -31,12 +31,21 @@ fn str_field<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
 
 /// `path` relative to `cwd` when it is inside it, for titles.
 pub fn display_path(path: &str, cwd: &Path) -> String {
-    Path::new(path)
-        .strip_prefix(cwd)
+    without_verbatim(Path::new(path))
+        .strip_prefix(without_verbatim(cwd))
         .ok()
         .filter(|p| !p.as_os_str().is_empty())
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_owned())
+}
+
+/// `p` without Windows' verbatim `\\?\` disk prefix, which `canonicalize` adds and `claude` never reports, so that
+/// `\\?\C:\w` and `C:\w` compare equal.
+fn without_verbatim(p: &Path) -> PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with(r"UNC\") => PathBuf::from(rest),
+        _ => p.to_path_buf(),
+    }
 }
 
 fn location(path: &str, line: Option<u32>) -> ToolCallLocation {
@@ -373,6 +382,22 @@ pub fn prompt_content(blocks: &[ContentBlock]) -> Vec<Value> {
 mod tests {
     use super::*;
     use agent_client_protocol::schema::v1::{EnvVariable, McpServerHttp, McpServerStdio};
+
+    #[test]
+    fn display_path_ignores_the_verbatim_prefix() {
+        assert_eq!(
+            display_path(r"C:\w\notes.txt", Path::new(r"\\?\C:\w")),
+            if cfg!(windows) {
+                "notes.txt"
+            } else {
+                r"C:\w\notes.txt"
+            }
+        );
+        assert_eq!(
+            display_path(r"\\?\UNC\s\w\a.txt", Path::new(r"C:\w")),
+            r"\\?\UNC\s\w\a.txt"
+        );
+    }
 
     #[test]
     fn write_maps_to_edit_with_diff_and_location() {

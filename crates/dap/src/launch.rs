@@ -673,7 +673,10 @@ mod tests {
         assert_eq!(v["type"], "coreclr");
         let (cmd, args) = c.without_debugging();
         assert_eq!(cmd, "dotnet");
-        assert_eq!(args[0], dll.to_string_lossy());
+        assert_eq!(
+            std::path::PathBuf::from(&args[0]),
+            dll.components().collect::<std::path::PathBuf>()
+        );
         assert_eq!(args[1], "--stdio");
         let other = launch_config(&host, Some("Other")).unwrap();
         assert_eq!(other.cwd, t.path().join("Host").join("data"));

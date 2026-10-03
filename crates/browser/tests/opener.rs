@@ -72,13 +72,10 @@ impl Engine for OneTab {
     }
 }
 
-#[test]
+/// Writes an opener script that records its argument, then lingers: open_external must not wait for it.
 #[cfg(unix)]
-fn open_external_runs_the_opener_and_never_waits() {
-    let dir = tempfile::tempdir().unwrap();
-    let record = dir.path().join("opened.txt");
-    let script = dir.path().join("opener.sh");
-    // Records its argument, then lingers: open_external must not wait for it.
+fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::PathBuf {
+    let script = dir.join("opener.sh");
     std::fs::write(
         &script,
         format!(
@@ -91,6 +88,30 @@ fn open_external_runs_the_opener_and_never_waits() {
         .args(["+x", &script.to_string_lossy()])
         .status()
         .unwrap();
+    script
+}
+
+/// Windows: a batch file; `ping` is the wait that needs no console input. Two openers run at once, and cmd's `>>`
+/// fails outright while the other holds the file, so the append retries until it gets in.
+#[cfg(windows)]
+fn fake_opener(dir: &std::path::Path, record: &std::path::Path) -> std::path::PathBuf {
+    let script = dir.join("opener.cmd");
+    std::fs::write(
+        &script,
+        format!(
+            "@echo off\r\n:append\r\n2>nul (>>\"{}\" echo %~1) || (ping -n 1 127.0.0.1 >nul & goto append)\r\nping -n 3 127.0.0.1 >nul\r\n",
+            record.display()
+        ),
+    )
+    .unwrap();
+    script
+}
+
+#[test]
+fn open_external_runs_the_opener_and_never_waits() {
+    let dir = tempfile::tempdir().unwrap();
+    let record = dir.path().join("opened.txt");
+    let script = fake_opener(dir.path(), &record);
     // SAFETY: this test binary runs this one test; no other thread reads the environment meanwhile.
     #[allow(unsafe_code)]
     unsafe {
@@ -125,9 +146,17 @@ fn open_external_runs_the_opener_and_never_waits() {
     assert_eq!(o.url, PAGE);
     let until = Instant::now() + Duration::from_secs(5);
     loop {
-        let text = std::fs::read_to_string(&record).unwrap_or_default();
+        let text = std::fs::read_to_string(&record)
+            .unwrap_or_default()
+            .replace("\r\n", "\n");
         if text.lines().count() == 2 {
-            assert_eq!(text, format!("https://example.com/a?b=1\n{PAGE}\n"));
+            // Neither opener is waited for, so they may record in either order.
+            let mut opened: Vec<&str> = text.lines().collect();
+            opened.sort_unstable();
+            assert_eq!(
+                opened,
+                ["http://127.0.0.1:1/page", "https://example.com/a?b=1"]
+            );
             break;
         }
         assert!(Instant::now() < until, "the opener recorded {text:?}");

@@ -43,7 +43,7 @@ public sealed class LegacyWebFormsCompletionTests
         {
             try
             {
-                work.Delete(recursive: true);
+                TestDirectory.Delete(work.FullName);
             }
             catch (IOException)
             {
@@ -127,7 +127,9 @@ public sealed class LegacyWebFormsCompletionTests
             // The status says which MSBuild evaluated the legacy project and which corrections were applied.
             Assert.Equal("loaded", status.GetProperty("state").GetString());
             Assert.Equal(1, status.GetProperty("counts").GetProperty("legacyProjects").GetInt32());
-            Assert.Equal(msbuild, status.GetProperty("msbuild").GetProperty("kind").GetString());
+            // Without Mono the host prefers a located Build Tools MSBuild (Windows) to the .NET SDK's.
+            var expected = msbuild == "sdk" && BuildToolsInstallation.Locate() is not null ? "buildTools" : msbuild;
+            Assert.Equal(expected, status.GetProperty("msbuild").GetProperty("kind").GetString());
             Assert.Contains(
                 status.GetProperty("corrections").EnumerateArray(),
                 c => c.GetProperty("kind").GetString() == "designerPartials" && c.GetProperty("count").GetInt32() > 0);

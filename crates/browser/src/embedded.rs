@@ -21,6 +21,9 @@
 
 // Shared memory, descriptor passing and descriptor 3 in the child are system calls; each use is commented.
 #![allow(unsafe_code)]
+// Off Unix the engine cannot launch yet, so the frame ring and the control channel are unused there until the
+// Windows and macOS transports of browser-rpc.md land.
+#![cfg_attr(not(unix), allow(dead_code, unused_imports))]
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};

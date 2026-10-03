@@ -27,6 +27,15 @@ fn host_dll() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
+/// The temp directory in the long form the host reports: Windows' `TEMP` is often an 8.3 short path.
+fn temp_dir() -> PathBuf {
+    let t = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    match t.to_string_lossy().strip_prefix(r"\\?\") {
+        Some(plain) => PathBuf::from(plain),
+        None => t,
+    }
+}
+
 fn next<T>(rx: &Receiver<Event>, pick: impl Fn(Event) -> Option<T>) -> T {
     let deadline = Instant::now() + T;
     loop {
@@ -85,7 +94,7 @@ fn real_host_without_language_server() {
         .unwrap();
     assert!(!info.runtime.is_empty());
 
-    let dir = std::env::temp_dir().join(format!("eludite-lsp-real-host-{}", std::process::id()));
+    let dir = temp_dir().join(format!("eludite-lsp-real-host-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let sln = dir.join("App.slnx");
     std::fs::write(&sln, "<Solution />").unwrap();
@@ -166,7 +175,7 @@ fn real_host_builds_a_project() {
         },
     )
     .expect("start eludite-host");
-    let dir = std::env::temp_dir().join(format!("eludite-lsp-real-build-{}", std::process::id()));
+    let dir = temp_dir().join(format!("eludite-lsp-real-build-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("App")).unwrap();
     let sln = dir.join("App.slnx");
     std::fs::write(

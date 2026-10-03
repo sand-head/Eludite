@@ -11,8 +11,11 @@ $repo = Resolve-Path (Join-Path $here "..\..")
 $src = if ($env:ROSLYN_SRC_DIR) { $env:ROSLYN_SRC_DIR } else { Join-Path $env:USERPROFILE ".cache\eludite\roslyn" }
 $lsDll = if ($env:ELUDITE_ROSLYN_LS) { $env:ELUDITE_ROSLYN_LS } else { Join-Path $src "artifacts\bin\Microsoft.CodeAnalysis.LanguageServer\Release\net10.0\Microsoft.CodeAnalysis.LanguageServer.dll" }
 
-# corpus/legacy/fetch.sh needs bash (Git for Windows ships one).
-& bash (Join-Path $repo "corpus/legacy/fetch.sh")
+# corpus/legacy/fetch.sh needs bash: Git for Windows' own, found beside git.exe, since the `bash` on PATH is usually
+# System32's WSL launcher, which cannot take a Windows path.
+$gitBash = Join-Path (Split-Path (Split-Path (Get-Command git).Source)) "bin\bash.exe"
+if (-not (Test-Path $gitBash)) { throw "Git for Windows' bash not found at $gitBash" }
+& $gitBash (Join-Path $repo "corpus/legacy/fetch.sh").Replace('\', '/')
 if ($LASTEXITCODE -ne 0) { throw "fetch failed" }
 
 $refdl = Join-Path $here "runner\obj\refdl"
@@ -52,9 +55,19 @@ $compare = @(
   "umbraco7\src\Umbraco.Core\Umbraco.Core.csproj")
 foreach ($rel in $compare) {
   $proj = Join-Path $checkout $rel
-  $real = (& $msbuild $proj -nologo -getItem:Compile | ConvertFrom-Json).Items.Compile | ForEach-Object { $_.FullPath } | Sort-Object
+  # MSBuild prints errors, not JSON, when the project does not evaluate; record that and go on to the next.
+  $text = & $msbuild $proj -nologo -getItem:Compile 2>&1 | Out-String
+  try { $real = ($text | ConvertFrom-Json).Items.Compile | ForEach-Object { $_.FullPath } | Sort-Object }
+  catch {
+    "{0}: MSBuild -getItem failed: {1}" -f $rel, ($text.Trim() -split "`n" | Select-Object -Last 1) | Tee-Object -Append (Join-Path $results "getitem-compare.txt")
+    continue
+  }
   $evalFile = Get-ChildItem -Recurse (Join-Path $results "eval") -Filter ([IO.Path]::GetFileNameWithoutExtension($proj) + ".json") |
     Where-Object { $_.Directory.Name -eq "buildtools-msbuild" } | Select-Object -First 1
+  if (-not $evalFile) {
+    "{0}: no buildtools-msbuild evaluation to compare" -f $rel | Tee-Object -Append (Join-Path $results "getitem-compare.txt")
+    continue
+  }
   $ours = (Get-Content $evalFile.FullName | ConvertFrom-Json).results[0].compileItems | Sort-Object
   $diff = Compare-Object $real $ours
   "{0}: real {1}, evaluator {2}, differences {3}" -f $rel, $real.Count, $ours.Count, $diff.Count | Tee-Object -Append (Join-Path $results "getitem-compare.txt")

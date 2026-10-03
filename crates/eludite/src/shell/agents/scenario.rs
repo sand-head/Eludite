@@ -531,6 +531,11 @@ mod tests {
 
     #[test]
     fn a_check_failure_breaks_in_the_function_it_names() {
+        // The project's folder joined with Program.cs, in this platform's separators.
+        let program = Path::new("/c/OffByOne")
+            .join("Program.cs")
+            .to_string_lossy()
+            .into_owned();
         let mut a = DebugAgent::new(1);
         let mut s = seen();
         let (tool, args) = call(a.next(&s));
@@ -550,7 +555,7 @@ mod tests {
         let (tool, args) = call(a.next(&s));
         assert_eq!(
             (tool.as_str(), &args["path"]),
-            ("eludite-file-open", &json!("/c/OffByOne/Program.cs"))
+            ("eludite-file-open", &json!(program))
         );
         s.steps.push(step(&tool, json!({})));
         let (tool, args) = call(a.next(&s));
@@ -560,7 +565,7 @@ mod tests {
         );
         s.steps.push(step(
             &tool,
-            json!({"path": "/c/OffByOne/Program.cs", "found": true, "line": 10}),
+            json!({"path": program, "found": true, "line": 10}),
         ));
         let (tool, args) = call(a.next(&s));
         assert_eq!(tool, "eludite-debug-toggle_breakpoint");
@@ -571,7 +576,7 @@ mod tests {
         s.steps.push(step(
             &tool,
             json!({"action": "added", "verified": false, "breakpoints_total": 1,
-                   "breakpoint": {"kind": "line", "path": "/c/OffByOne/Program.cs", "line": 12, "enabled": true, "verified": false, "hits": 0}}),
+                   "breakpoint": {"kind": "line", "path": program, "line": 12, "enabled": true, "verified": false, "hits": 0}}),
         ));
         let (tool, _) = call(a.next(&s));
         assert_eq!(tool, "eludite-debug-start");
@@ -592,7 +597,7 @@ mod tests {
         );
         s.steps.push(step(
             &tool,
-            json!({"mode": "break", "stop": 2, "stopped": {"location": {"path": "/c/OffByOne/Program.cs", "line": 13, "function": "Total"}},
+            json!({"mode": "break", "stop": 2, "stopped": {"location": {"path": program, "line": 13, "function": "Total"}},
                    "locals": {"rows": [{"name": "prices", "value": "Count = 5", "children": [{"name": "Count", "value": "5"}]}]}}),
         ));
         let Next::Answer(text) = a.next(&s) else {

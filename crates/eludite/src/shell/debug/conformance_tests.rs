@@ -1345,6 +1345,11 @@ fn replace_text(v: &mut Value, from: &str, to: &str) {
 /// scrubbed by the recorder's rules.
 fn normalize(mut snapshot: Value, scrubber: &Scrubber, process: Option<&str>) -> Value {
     strip_timing(&mut snapshot);
+    // The goldens are recorded on Linux: the Rust program's name without Windows' `.exe`.
+    if !std::env::consts::EXE_SUFFIX.is_empty() {
+        let exe = format!("{RS_PACKAGE}{}", std::env::consts::EXE_SUFFIX);
+        replace_text(&mut snapshot, &exe, RS_PACKAGE);
+    }
     for at in ["/state/session", "/answer/session"] {
         let Some(session) = snapshot.pointer(at).cloned() else {
             continue;

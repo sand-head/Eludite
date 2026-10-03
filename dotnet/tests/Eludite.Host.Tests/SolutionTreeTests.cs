@@ -23,7 +23,7 @@ public sealed class SolutionTreeTests : IDisposable
     {
         try
         {
-            _dir.Delete(recursive: true);
+            TestDirectory.Delete(_dir.FullName);
         }
         catch (IOException)
         {
