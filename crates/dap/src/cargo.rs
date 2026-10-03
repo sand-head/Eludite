@@ -291,12 +291,23 @@ pub fn rust_init_commands(etc: &Path) -> Vec<String> {
         return Vec::new();
     }
     let mut c: Vec<String> = LLDB18_COMPAT.iter().map(|s| (*s).to_owned()).collect();
-    c.push(format!("command script import \"{}\"", lookup.display()));
+    c.push(format!("command script import \"{}\"", lldb_path(&lookup)));
     let commands = etc.join("lldb_commands");
     if commands.is_file() {
-        c.push(format!("command source \"{}\"", commands.display()));
+        c.push(format!("command source \"{}\"", lldb_path(&commands)));
     }
     c
+}
+
+/// A path for a double-quoted LLDB command argument, where a backslash escapes: Windows paths get forward slashes,
+/// which LLDB accepts there.
+fn lldb_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    if cfg!(windows) {
+        s.replace('\\', "/")
+    } else {
+        s
+    }
 }
 
 /// `<sysroot>/lib/rustlib/src/rust` when the `rust-src` component is installed (it holds `library/`).
@@ -680,15 +691,20 @@ env = { RUST_LOG = "debug", MODE = "test" }
             c[2],
             format!(
                 "command script import \"{}\"",
-                etc.join("lldb_lookup.py").display()
+                lldb_path(&etc.join("lldb_lookup.py"))
             )
         );
+        // A backslash escapes inside LLDB's quotes, so none reaches it.
+        assert!(!c[2].contains('\\'), "{}", c[2]);
         // An older toolchain's lldb_commands is sourced after the import, as rust-lldb did.
         write(&etc.join("lldb_commands"), "");
         let c = rust_init_commands(&etc);
         assert_eq!(
             c[3],
-            format!("command source \"{}\"", etc.join("lldb_commands").display())
+            format!(
+                "command source \"{}\"",
+                lldb_path(&etc.join("lldb_commands"))
+            )
         );
 
         let mut init = vec![STEP_AVOID.to_owned()];

@@ -196,6 +196,7 @@ impl Nt {
         exe
     }
 
+    #[cfg(unix)]
     fn debug_output(&self) -> Vec<String> {
         self.w.shell.read_with(&self.w.vcx, |s, cx| {
             s.output()

@@ -810,13 +810,15 @@ mod tests {
                 args: vec!["/a/eludite-dbg-mono.exe".into()]
             }
         );
-        // /usr needs only PATH.
-        let usr = mono_env(
-            Path::new("/usr"),
-            Some(&OsString::from("/usr/bin:/bin")),
-            None,
-        );
-        assert_eq!(usr, vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())]);
+        // /usr needs only PATH (a Unix layout: Mono debugging is for Linux and macOS).
+        if cfg!(unix) {
+            let usr = mono_env(
+                Path::new("/usr"),
+                Some(&OsString::from("/usr/bin:/bin")),
+                None,
+            );
+            assert_eq!(usr, vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())]);
+        }
 
         let none = MonoSearch::default();
         let err = none.find_mono().unwrap_err();

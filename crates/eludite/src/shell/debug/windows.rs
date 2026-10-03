@@ -1479,7 +1479,8 @@ impl AttachDialog {
             .collect()
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    // Read only by a Linux-only test.
+    #[cfg_attr(any(not(test), not(target_os = "linux")), allow(dead_code))]
     pub fn selected(&self) -> Option<u32> {
         self.selected
     }

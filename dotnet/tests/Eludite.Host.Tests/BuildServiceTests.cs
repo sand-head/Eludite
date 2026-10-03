@@ -608,7 +608,7 @@ public sealed class BuildServiceTests
         {
             try
             {
-                Directory.Delete(Path, recursive: true);
+                TestDirectory.Delete(Path);
             }
             catch (IOException)
             {

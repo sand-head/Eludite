@@ -25,7 +25,7 @@ Brief: [0006-native-claude-acp-adapter.md](0006-native-claude-acp-adapter.md). C
   - adapter: 18, all passing (8 unit, 8 conformance against the fake `claude`, 2 golden mapping);
   - `eludite-acp`: 11 (4 unit, 7 integration);
   - the root workspace gate is clean.
-- **Not done:** Windows and macOS runs (out of scope; the discovery code is written), and reject-always against the real CLI (section 6).
+- **Windows (2026-10-03):** the adapter builds and its tests pass after two fixes, and it finds `claude.exe` with no Node on `PATH` (see "Windows"). **Not done:** macOS, the brief 0005 panel on Windows (the spike no longer compiles against `crates/mcp`), and reject-always against the real CLI (section 6).
 
 ## 2. Machine and method
 
@@ -421,3 +421,26 @@ Each chunk costs one line parse and one notification serialization, a few alloca
   - **Not run.** macOS is also not run.
 - **Shared target dir:** a symlink to the adapter was placed in `target/release/` for the panel run and removed afterwards. The spike was rebuilt there from this worktree's crates.
 - **Recording leftovers:** the recorded `claude` session exists in the owner's `~/.claude/projects` (a temporary-directory project), as any `claude` session would.
+
+## Windows
+
+Run on 2026-10-03 from the `windows-run` branch on Windows 11 Pro 10.0.26200 (Intel Core Ultra 9 185H), with `claude` 2.1.288 from the native installer (`%USERPROFILE%\.local\bin\claude.exe`). Node is installed on this machine (through Volta), so the no-Node check narrows `PATH` instead.
+
+**Build and tests.** `cargo build --release` (in `agents/claude-acp/`) and clippy pass. Two conformance tests failed at first; both are fixed:
+
+- `recorded_session_full_mapping_permissions_and_cancel`: the Write tool's title came out as the full path instead of `Write notes.txt`. The session cwd had the verbatim `\\?\` prefix that `canonicalize` adds on Windows, while `claude` reports plain `C:\...` paths, and `Path::strip_prefix` treats the two prefixes as different. `display_path` now compares both without a verbatim disk prefix (a unit test covers it), and the test's temp directory drops the prefix and compares the diff's path as a path, since the recorded path joins with `/`.
+- `missing_claude_is_a_clear_error`: the test hid `claude` by emptying `PATH` and `HOME`, but on Windows the `~/.local/bin` fallback reads `USERPROFILE`, so the real `claude.exe` was found. The test now empties `USERPROFILE` too.
+
+After the fixes: 9 unit tests, 7 conformance tests and 2 golden tests pass.
+
+**No Node, real `claude.exe`.** With `PATH` set to only `%USERPROFILE%\.local\bin` (`node` and `npx` not found), `examples/bench ready` ran three times against the release adapter:
+
+| Run | spawn to `initialize` | `initialize` to session ready |
+|---|---|---|
+| 1 | 33 ms | 820 ms |
+| 2 | 104 ms | 935 ms |
+| 3 | 28 ms | 1,018 ms |
+
+The adapter log shows the discovery each time: `claude 2.1.288 at C:\Users\<user>\.local\bin\claude.exe (Path)`. No prompt was sent, so no model call was made. Session ready is about twice Linux's 451 ms median; as on Linux, nearly all of it is `claude`'s own startup. The bench's adapter RSS columns are null on Windows (they read `/proc`).
+
+**Not run on Windows:** the brief 0005 panel. `spikes/0005-acp-panel` no longer compiles against the current `crates/mcp` (`McpServer::new` lost its second argument since brief 0006), which is unrelated to Windows; the agents window in the production shell (brief 0016) is the place to repeat the end-to-end prompt run.

@@ -1,6 +1,6 @@
 # Brief 0004: ICorDebug proof over a TCP DAP transport
 
-Status: open
+Status: done on Windows; the second-machine run (exit criterion 2) is owed
 Plan reference: PLAN.md sections 3 (D3, D7), 4.5, 10 (Phase 0 item 4), 13 (risk 2)
 Related ADRs: ADR-0003, ADR-0007
 

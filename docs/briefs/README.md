@@ -31,12 +31,12 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 
 | Brief | Title | Phase | Result |
 |---|---|---|---|
-| [0001](0001-gpui-shell-and-docking-spike.md) | GPUI shell and docking prototype, Zed vendoring audit | 0 | [report](0001-report.md): Linux GO (provisional), Windows/macOS pending |
-| [0002](0002-eludite-host-roslyn-spike.md) | `eludite-host` with Roslyn, time-to-IntelliSense | 0 | [report](0002-report.md): Linux done, D2 stands, Windows pending |
-| [0003](0003-legacy-project-load-spike.md) | Legacy project load, WebForms code-behind IntelliSense | 0 | [report](0003-report.md): Linux done with user-space Mono, 27/29 load, completion passes; Windows pending |
-| [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 | open |
+| [0001](0001-gpui-shell-and-docking-spike.md) | GPUI shell and docking prototype, Zed vendoring audit | 0 | [report](0001-report.md): Linux GO (provisional), Windows GO (provisional; cold start 360 ms over budget), macOS pending |
+| [0002](0002-eludite-host-roslyn-spike.md) | `eludite-host` with Roslyn, time-to-IntelliSense | 0 | [report](0002-report.md): Linux and Windows done, D2 stands; Windows loads the solution about 2x slower |
+| [0003](0003-legacy-project-load-spike.md) | Legacy project load, WebForms code-behind IntelliSense | 0 | [report](0003-report.md): Linux done with user-space Mono, 27/29 load, completion passes; Windows done, 0 getItem differences, 23/29 (web targets missing), completion passes |
+| [0004](0004-icordebug-dap-spike.md) | ICorDebug proof over TCP DAP | 0 | [report](0004-report.md): done on Windows; attach 34 to 41 ms, hit to stopped about 1 ms, 12 MB; Rust plus `windows` is workable; second-machine run owed |
 | [0005](0005-acp-claude-code-spike.md) | Claude Code via ACP in a GPUI panel, one MCP tool | 0 | [report](0005-report.md): Linux pass end to end; adapter is @agentclientprotocol/claude-agent-acp |
-| [0006](0006-native-claude-acp-adapter.md) | Native Rust ACP adapter for Claude Code (no Node) | 0/1 | [report](0006-report.md): done on Linux; no Node, 0005 panel unchanged, 2.3 MB binary |
+| [0006](0006-native-claude-acp-adapter.md) | Native Rust ACP adapter for Claude Code (no Node) | 0/1 | [report](0006-report.md): done on Linux; no Node, 0005 panel unchanged, 2.3 MB binary; Windows: finds `claude.exe` with no Node |
 | [0007](0007-host-lsp-bridge.md) | Production LSP bridge between the shell and eludite-host | 1 | [report](0007-report.md): done on Linux; lifecycle under eludite/host/*, warming fixes referenced-project completion |
 | [0008](0008-docking-production.md) | Docking and tool windows in the production shell | 1 | [report](0008-report.md): done on Linux; cold start ~100 ms, 19/19 real-input steps |
 | [0009](0009-editor-core.md) | Vendor Zed's text crates and build the editor core | 1 | [report](0009-report.md): done on Linux; speed budgets pass, memory on a 100k-line file 249 MB vs 150 MB budget (follow-up) |
@@ -79,6 +79,6 @@ debugger, also served to hosted agents as the MCP resource `eludite://guides/deb
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
-Phase 0 is complete on Linux (2026-10-01). The Windows runs are listed in [windows-checklist.md](windows-checklist.md).
+Phase 0 is complete on Linux (2026-10-01). The Windows runs are listed in [windows-checklist.md](windows-checklist.md); they ran on 2026-10-03.
 
 A machine with no display can still run the shell: `crates/eludite/tools/xvfb-linux.sh OUT_DIR` draws it on an Xvfb screen with Mesa's software Vulkan and writes a screenshot, and the XTest drivers under `crates/eludite/tools/` run against that display. Timings there are not the reference machine's; use it to prove flows and take screenshots.

@@ -8,9 +8,34 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lib]
+name = "eludite_dbg_netfx"
+path = "src/lib.rs"
+
 [[bin]]
 name = "eludite-dbg-netfx"
 path = "src/main.rs"
+
+[features]
+# The end-to-end test against a real .NET Framework 4.8 process (Windows only, `#[ignore]`d; brief 0004).
+e2e = []
+
+[dependencies]
+serde_json.workspace = true
+
+# ICorDebug through COM (brief 0004). Both MIT OR Apache-2.0. `windows-core` is a direct dependency because the
+# `interface` and `implement` macros that declare the ICorDebug vtables expand to `::windows_core` paths.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_ClrHosting",
+    "Win32_System_Com",
+    "Win32_System_Performance",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_System_WinRT_Metadata",
+] }
+windows-core = "0.62"
 
 [lints]
 workspace = true
