@@ -179,6 +179,7 @@ fn the_commands_against_a_headless_chrome() {
     );
 
     // tab_open with a url launches, opens, selects, loads.
+    let rss_before = resident_kb();
     let started = Instant::now();
     let form_url = run.url("form.html");
     let opened = run.ok(cmds::TAB_OPEN, json!({"url": form_url}));
@@ -208,6 +209,15 @@ fn the_commands_against_a_headless_chrome() {
     println!("engine: {version}");
     assert!(version.contains("Chrome"));
     assert_eq!(tabs["tabs"][0]["title"], "Sign up");
+    // This process's memory with the browser running and idle (Chrome's own processes are separate).
+    std::thread::sleep(Duration::from_millis(500));
+    if let (Some(before), Some(after)) = (rss_before, resident_kb()) {
+        let grew = after.saturating_sub(before) as f64 / 1024.;
+        println!(
+            "resident memory with the browser running and idle: +{grew:.1} MB (budget +20 MB)"
+        );
+        assert!(grew < 20., "+{grew:.1} MB");
+    }
 
     // navigate to each fixture with load and network_idle.
     for page in ["list.html", "errors.html", "rewrite.html", "form.html"] {
@@ -713,6 +723,13 @@ fn the_commands_against_a_headless_chrome() {
             .any(|l| l == "Closed the browser.")
     );
     assert!(profile.path().join(".eludite/browser/.gitignore").is_file());
+}
+
+/// This process's resident set (Linux `VmRSS`), in KB.
+fn resident_kb() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
+    line.split_whitespace().nth(1)?.parse().ok()
 }
 
 fn find_ref(run: &mut Run, role: &str, name: &str) -> String {
