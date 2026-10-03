@@ -30,11 +30,15 @@
 //! `sessions` in the state, `session` and `sessions` on the stop summary, and each breakpoint's binding per session
 //! ([`BreakpointSessionRow`]).
 //!
+//! Brief 0034 tunes the answers from the proving run: `toggle_breakpoint` answers with the changed breakpoint only
+//! ([`ToggleBreakpointOutput`], `debug-toggle-breakpoint.output.json`) instead of the whole state, and a null reference
+//! reads `null` on every adapter ([`null_spelling`]).
+//!
 //! The keys, the Debug menu, the margin, the debugger windows and agents all run these, against one state machine
-//! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `toggle_breakpoint`, `state`, `select_frame`, `watch` and
+//! in the shell (PLAN.md 5.5): see [`DebugTarget`]. `stop`, `state`, `select_frame`, `watch` and
 //! `exception_settings` answer with the debugger's state ([`DebugState`], `debug-state.output.json`), which is what
-//! the windows show; `evaluate`, `stack`, `variables`, `output` and `exception_info` with their own outputs; the rest
-//! with the stop summary.
+//! the windows show; `toggle_breakpoint`, `evaluate`, `stack`, `variables`, `output` and `exception_info` with their
+//! own outputs; the rest with the stop summary.
 //!
 //! The schemas are the files in `protocol/schemas/debug-*.json` (checked in first, CLAUDE.md invariant 4).
 
@@ -178,6 +182,8 @@ pub const AGENTS_NOT_ALLOWED: &str =
 const STATE_OUTPUT: &str = include_str!("../../../protocol/schemas/debug-state.output.json");
 const SUMMARY_OUTPUT: &str =
     include_str!("../../../protocol/schemas/debug-stop-summary.output.json");
+const TOGGLE_OUTPUT: &str =
+    include_str!("../../../protocol/schemas/debug-toggle-breakpoint.output.json");
 
 /// (title, input schema, output schema, permission)
 fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionClass) {
@@ -311,7 +317,7 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
         TOGGLE_BREAKPOINT => (
             "Debug: Toggle Breakpoint",
             input!("debug-toggle-breakpoint.input.json"),
-            STATE_OUTPUT,
+            TOGGLE_OUTPUT,
             Execute,
         ),
         // Attach and restart start sessions (brief 0027); attaching to a process Eludite did not start is dangerous,
@@ -513,6 +519,16 @@ impl Default for Budget {
 }
 
 /// `value` cut at `max` characters, ending with `… (N chars)`, and whether it was cut.
+/// The one spelling of a null reference in a value (brief 0034): eludite-dbg-mono's `(null)` reads `null`, as
+/// netcoredbg, lldb-dap's C# formatters and Visual Studio's C# Locals window show it. Every other value is unchanged.
+pub fn null_spelling(value: String) -> String {
+    if value == "(null)" {
+        "null".to_owned()
+    } else {
+        value
+    }
+}
+
 pub fn cut_value(value: &str, max: usize) -> (String, bool) {
     let n = value.chars().count();
     if n <= max {
@@ -1154,6 +1170,36 @@ pub struct BreakpointRow {
     pub sessions: Vec<BreakpointSessionRow>,
 }
 
+/// What `toggle_breakpoint` did (`debug-toggle-breakpoint.output.json`'s `action`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BreakpointEdit {
+    Added,
+    Changed,
+    Deleted,
+    DeletedAll,
+}
+
+/// `debug-toggle-breakpoint.output.json` (brief 0034): the compact answer of `toggle_breakpoint`, the changed
+/// breakpoint's row instead of the whole state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToggleBreakpointOutput {
+    pub action: BreakpointEdit,
+    /// Absent after a delete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub breakpoint: Option<BreakpointRow>,
+    /// Bound by a live session's adapter now.
+    pub verified: bool,
+    /// Sent to a live session's adapter, whose answer comes later.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending: bool,
+    /// The active session, while one runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<u32>,
+    pub breakpoints_total: usize,
+}
+
 /// A breakpoint's binding in one session (`debug-state.output.json`'s `breakpoints[].sessions`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1742,6 +1788,7 @@ pub struct AllowAgentsOutput {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugOutput {
     State(Box<DebugState>),
+    Breakpoint(Box<ToggleBreakpointOutput>),
     Evaluate(EvaluateOutput),
     Summary(Box<StopSummary>),
     Stack(StackOutput),
@@ -1759,6 +1806,7 @@ impl DebugOutput {
     pub fn to_json(&self) -> Value {
         match self {
             DebugOutput::State(s) => serde_json::to_value(s),
+            DebugOutput::Breakpoint(b) => serde_json::to_value(b),
             DebugOutput::Evaluate(e) => serde_json::to_value(e),
             DebugOutput::Summary(s) => serde_json::to_value(s),
             DebugOutput::Stack(s) => serde_json::to_value(s),
@@ -3640,6 +3688,78 @@ mod tests {
         assert_eq!(v, format!("{}\u{2026} (1000 chars)", "x".repeat(200)));
         let (v, _) = cut_value("\u{e9}\u{e9}\u{e9}", 2);
         assert_eq!(v, "\u{e9}\u{e9}\u{2026} (3 chars)");
+    }
+
+    #[test]
+    fn a_null_reads_null_on_every_adapter() {
+        // eludite-dbg-mono's spelling is rewritten; netcoredbg's and every other value are unchanged.
+        assert_eq!(null_spelling("(null)".into()), "null");
+        assert_eq!(null_spelling("null".into()), "null");
+        for kept in ["\"(null)\"", "(null) ", "{(null)}", "0", "", "Count = 5"] {
+            assert_eq!(null_spelling(kept.into()), kept);
+        }
+    }
+
+    #[test]
+    fn the_toggle_breakpoint_answer_is_compact_and_follows_its_schema() {
+        assert_eq!(
+            spec(TOGGLE_BREAKPOINT).output_schema["title"],
+            "eludite.debug.toggle_breakpoint output"
+        );
+        let row = BreakpointRow {
+            kind: BreakpointKind::Line,
+            path: Some("/s/OffByOne/Program.cs".into()),
+            line: Some(13),
+            enabled: true,
+            verified: true,
+            condition: Some("i == count - 1".into()),
+            hits: 0,
+            remove_after: true,
+            sessions: vec![BreakpointSessionRow {
+                session: 1,
+                verified: true,
+                hits: 0,
+                message: None,
+            }],
+            ..BreakpointRow::default()
+        };
+        let added = DebugOutput::Breakpoint(Box::new(ToggleBreakpointOutput {
+            action: BreakpointEdit::Added,
+            breakpoint: Some(row),
+            verified: true,
+            pending: true,
+            session: Some(1),
+            breakpoints_total: 3,
+        }))
+        .to_json();
+        conforms(TOGGLE_OUTPUT, &added);
+        assert_eq!(added["action"], "added");
+        assert_eq!(added["breakpoint"]["line"], 13);
+        assert_eq!(added["breakpoint"]["remove_after"], true);
+        assert_eq!(added["breakpoints_total"], 3);
+        assert!(added.to_string().len() < 500, "{added}");
+        // Before any session, and after a delete: no row, nothing bound, nothing pending.
+        let deleted = DebugOutput::Breakpoint(Box::new(ToggleBreakpointOutput {
+            action: BreakpointEdit::Deleted,
+            breakpoint: None,
+            verified: false,
+            pending: false,
+            session: None,
+            breakpoints_total: 0,
+        }))
+        .to_json();
+        conforms(TOGGLE_OUTPUT, &deleted);
+        assert_eq!(
+            deleted,
+            json!({"action": "deleted", "verified": false, "breakpoints_total": 0})
+        );
+        let all = serde_json::to_value(BreakpointEdit::DeletedAll).unwrap();
+        assert_eq!(all, "deleted_all");
+        // The state is no longer its answer.
+        assert_ne!(
+            spec(TOGGLE_BREAKPOINT).output_schema["title"],
+            spec(STATE).output_schema["title"]
+        );
     }
 
     #[test]
