@@ -1812,6 +1812,7 @@ dependencies = [
  "libc",
  "serde_json",
  "tempfile",
+ "tungstenite",
 ]
 
 [[package]]
