@@ -66,6 +66,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0033](0033-dap-conformance-corpus.md) | The DAP conformance corpus: recorded adapter sessions replayed through the shell on every platform (proposal 0001 G) | 2 | open |
 | [0034](0034-debug-suite-tuning.md) | Tuning the agent debugging suite from the proving run: guide, tool descriptions, compact answers, ACP usage events (proposal 0001 follow-up) | 2/4 | [report](0034-report.md): done on Linux under eludite-dbg-mono; Claude Code stopped on the faulting statement within eight debug calls in 6 of 9 runs (brief 0030: 3 of 9) and on it at all in 9 of 9 (was 3); the misses were conditional breakpoints that never stopped and did not say so; the scripted agent needs 6 debug calls (was 7), `toggle_breakpoint` answers 59 to 401 B; turn usage from `eludite-claude-acp`'s ACP `usage_update` in the Agents window; [recorded run](0034-run/); netcoredbg not run |
 | [0035](0035-test-explorer.md) | Test Explorer over MTP, VSTest and cargo test, with Debug Test through the suite (Phase 1 close-out) | 1/2 | open |
+| [0036](0036-debug-breakpoint-failures.md) | Breakpoints that cannot stop say so, Mono name resolution and the pending-breakpoint race, third recorded run (proposal 0001 follow-up) | 2/4 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
