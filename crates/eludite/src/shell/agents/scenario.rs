@@ -24,6 +24,11 @@
 //!
 //! The debug calls this makes with one step: six (start, wait, toggle, start or restart, wait, step); the proving
 //! threshold is eight. A start or restart that answers settled (a break or the end) is not followed by a `wait`.
+//!
+//! Brief 0036: [`DebugAgent::with_condition`] sets the breakpoint with a `condition`, and a replacement for it. When the
+//! run ends without stopping and the answer's `breakpoints_failed` names the breakpoint (the adapter rejected the
+//! condition), the planner reads the reason ([`DebugAgent::failures_read`]), sets the breakpoint again with the
+//! replacement and runs again: three more debug calls, as a model that reads the answer would make.
 
 use std::path::Path;
 
@@ -100,6 +105,11 @@ pub struct DebugAgent {
     pub calls: Vec<Step>,
     /// Why the planner gave up, when it did.
     pub gave_up: Option<String>,
+    /// The breakpoint's condition, and the one to set instead when the adapter rejects it (brief 0036).
+    condition: Option<String>,
+    replacement: Option<String>,
+    /// The reasons read in `breakpoints_failed` (brief 0036).
+    pub failures_read: Vec<String>,
 }
 
 impl DebugAgent {
@@ -116,7 +126,25 @@ impl DebugAgent {
             last: None,
             calls: Vec::new(),
             gave_up: None,
+            condition: None,
+            replacement: None,
+            failures_read: Vec::new(),
         }
+    }
+
+    /// Set the breakpoint with `condition`, and with `replacement` (empty: none) if the adapter rejects it.
+    pub fn with_condition(mut self, condition: &str, replacement: &str) -> Self {
+        self.condition = Some(condition.to_owned());
+        self.replacement = Some(replacement.to_owned());
+        self
+    }
+
+    fn toggle(&mut self) -> Next {
+        let mut args = json!({"path": self.source, "line": self.breakpoint, "action": "set", "remove_after": true});
+        if let Some(c) = &self.condition {
+            args["condition"] = json!(c);
+        }
+        self.call(Phase::Toggled, "eludite-debug-toggle_breakpoint", args)
     }
 
     fn call(&mut self, phase: Phase, tool: &str, arguments: Value) -> Next {
@@ -330,11 +358,7 @@ impl DebugAgent {
             return self.give_up(format!("the declaration was not found: {r}"));
         };
         self.breakpoint = line + 2;
-        self.call(
-            Phase::Toggled,
-            "eludite-debug-toggle_breakpoint",
-            json!({"path": self.source, "line": self.breakpoint, "action": "set", "remove_after": true}),
-        )
+        self.toggle()
     }
 
     fn toggled(&mut self, r: &Value) -> Next {
@@ -373,6 +397,29 @@ impl DebugAgent {
 
     fn rerun_waited(&mut self, r: &Value) -> Next {
         self.last = Some(r.clone());
+        // The breakpoint never stopped: the answer says why when the adapter rejected it (brief 0036).
+        let failed = r["breakpoints_failed"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|f| f["line"].as_u64() == Some(self.breakpoint))
+            .and_then(|f| f["message"].as_str())
+            .map(str::to_owned);
+        if r["mode"] != "break"
+            && let Some(message) = failed
+        {
+            self.failures_read.push(message.clone());
+            return match self.replacement.take() {
+                Some(c) => {
+                    self.condition = Some(c);
+                    self.toggle()
+                }
+                None => self.give_up(format!(
+                    "the breakpoint on line {} never stopped: {message}",
+                    self.breakpoint
+                )),
+            };
+        }
         if r["mode"] != "break" {
             return self.give_up(format!(
                 "the breakpoint on line {} was not reached: {}",
@@ -630,6 +677,68 @@ mod tests {
         assert!(
             text.starts_with("I could not finish: the breakpoint on line 12 was not set"),
             "{text}"
+        );
+    }
+
+    #[test]
+    fn a_rejected_condition_is_read_and_replaced() {
+        let mut a =
+            DebugAgent::new(1).with_condition("coin == Money.Quarter", "coin == Coin.Quarter");
+        a.phase = Phase::FoundDeclaration;
+        a.source = "/c/P.cs".into();
+        a.project = "/c/P.csproj".into();
+        a.failure = Some(Failure::Check {
+            function: "Coins.Cents".into(),
+        });
+        let mut s = seen();
+        s.steps.push(step(
+            "eludite-editor-find",
+            json!({"found": true, "line": 17}),
+        ));
+        let (tool, args) = call(a.next(&s));
+        assert_eq!(
+            (tool.as_str(), &args["condition"]),
+            (
+                "eludite-debug-toggle_breakpoint",
+                &json!("coin == Money.Quarter")
+            )
+        );
+        s.steps.push(step(
+            &tool,
+            json!({"action": "added", "verified": false, "breakpoints_total": 1,
+                   "breakpoint": {"kind": "line", "path": "/c/P.cs", "line": 19, "enabled": true, "verified": false, "hits": 0}}),
+        ));
+        let (tool, _) = call(a.next(&s));
+        s.steps
+            .push(step(&tool, json!({"mode": "running", "stop": 0})));
+        let (tool, _) = call(a.next(&s));
+        assert_eq!(tool, "eludite-debug-wait");
+        s.steps.push(step(
+            &tool,
+            json!({"mode": "design", "exit_code": 1,
+                   "breakpoints_failed": [{"path": "/c/P.cs", "line": 19, "session": 2, "message": "Unknown identifier: Money"}]}),
+        ));
+        let (tool, args) = call(a.next(&s));
+        assert_eq!(
+            (tool.as_str(), &args["condition"]),
+            (
+                "eludite-debug-toggle_breakpoint",
+                &json!("coin == Coin.Quarter")
+            )
+        );
+        assert_eq!(a.failures_read, ["Unknown identifier: Money"]);
+        // Rejected again, it gives up with the reason.
+        a.phase = Phase::RerunWaited;
+        s.steps.push(step(
+            "eludite-debug-wait",
+            json!({"mode": "design", "breakpoints_failed": [{"line": 19, "session": 3, "message": "Unknown identifier: Coin"}]}),
+        ));
+        let Next::Answer(text) = a.next(&s) else {
+            panic!("no answer")
+        };
+        assert_eq!(
+            text,
+            "I could not finish: the breakpoint on line 19 never stopped: Unknown identifier: Coin"
         );
     }
 

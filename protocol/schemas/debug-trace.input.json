@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-trace.input.json",
   "title": "eludite.debug.trace input",
-  "description": "Instrument and run in one call: install tracepoints at `points` (each prints its `message` and continues; Visual Studio's \"When Hit... Print a message and Continue\"), resume the debuggee (or start it, `run: start`), collect the lines they print in order until `until` holds, then remove the points (a line's existing breakpoint is restored). Prefer it to breakpoints and single steps when the question is \"what values pass through here\": no stop is shown and nothing waits for a call per hit. Where the debug adapter has no log points (netcoredbg) each hit costs a stop and a resume in the debugger (`overhead_ms_per_hit` says how much); `max_hits` caps the cost. `message` takes `{expression}` (evaluated in the hit frame: it runs debuggee code), `$FUNCTION`, `$CALLER`, `$TID` and `$TNAME`. Needs break mode (`run: continue`) or no session (`run: start`). The lines also go to the Output window's Debug source and the `debug` output (eludite.debug.output). Next: read `lines`; `stopped_by: stopped` comes with the stop summary.",
+  "description": "Instrument and run in one call: install tracepoints at `points` (each prints its `message` and continues; Visual Studio's \"When Hit... Print a message and Continue\"), resume the debuggee (or start it, `run: start`), collect the lines they print in order until `until` holds, then remove the points (a line's existing breakpoint is restored). Prefer it to breakpoints and single steps when the question is \"what values pass through here\": no stop is shown and nothing waits for a call per hit. Where the debug adapter has no log points (netcoredbg) each hit costs a stop and a resume in the debugger (`overhead_ms_per_hit` says how much); `max_hits` caps the cost. `message` takes `{expression}` (evaluated in the hit frame: it runs debuggee code), `$FUNCTION`, `$CALLER`, `$TID` and `$TNAME`. Needs break mode (`run: continue`) or no session (`run: start`). The lines also go to the Output window's Debug source and the `debug` output (eludite.debug.output). A point on a `for` header binds to its initializer and prints once: put it on the first statement of the body. Points that never bound are in `points_failed`. Next: read `lines`; `stopped_by: stopped` comes with the stop summary.",
   "x-eludite-escalates": "Dangerous when the solution's policy sets `debug.drive` to `prompt`, or `debug.evaluate` to `prompt` and a point's message has an `{expression}`; refused for agents when `debug.drive` is `deny`, or `debug.evaluate` is `deny` and a message has an expression.",
   "type": "object",
   "required": [
@@ -45,7 +45,7 @@
             "minLength": 1
           },
           "condition": {
-            "description": "Print only when this C# expression is true.",
+            "description": "Print only when this C# expression is true (type names qualified, `MissingCase.Coin.Quarter`, are safe on every adapter).",
             "type": "string"
           }
         }

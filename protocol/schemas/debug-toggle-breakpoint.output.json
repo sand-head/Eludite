@@ -110,6 +110,7 @@
                 "minimum": 0
               },
               "message": {
+                "description": "Why that session's adapter has not bound it: still pending (its code has not loaded) or failed (no code on the line, the condition rejected).",
                 "type": "string"
               }
             }
@@ -123,8 +124,12 @@
       "type": "boolean"
     },
     "pending": {
-      "description": "A session runs and the change was sent to its adapter, whose answer (the binding) comes after this one: eludite.debug.state shows it, and a stop at the line shows it bound.",
+      "description": "A session runs and its adapter has not answered the change yet. An agent's call waits up to 500 ms for every live session's answer, the person's never; eludite.debug.state shows the binding later, and a stop at the line shows it bound.",
       "type": "boolean"
+    },
+    "message": {
+      "description": "Why a live session's adapter refused the breakpoint, once it answered (brief 0036): the line has no code, or the condition was rejected. The breakpoint never stops there until it is changed. Each session's binding is in `breakpoint.sessions`; a binding that waits for its code to load is not a refusal and has no message here.",
+      "type": "string"
     },
     "session": {
       "description": "The active debugging session's id (brief 0028), when a session runs.",

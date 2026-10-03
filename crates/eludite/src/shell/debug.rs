@@ -127,6 +127,10 @@ pub const DEBUG_AGENTS_TOGGLE: &str = "debug-allow-agents";
 /// How long an agent's resuming command waits for the debuggee to settle, and its evaluate for the answer, by
 /// default.
 pub const AGENT_WAIT: Duration = Duration::from_secs(5);
+/// How long an agent's `toggle_breakpoint` waits for the live sessions' adapters to answer the change (brief 0036).
+pub const BREAKPOINT_ANSWER_WAIT: Duration = Duration::from_millis(500);
+/// A point's reason when the adapter gave none (brief 0036).
+const NOT_BOUND: &str = "the debug adapter did not bind it";
 /// How long the launch handshake may take.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long Stop waits for the adapter to end the session before killing it.
@@ -549,6 +553,13 @@ pub struct Follow {
 pub enum Followup {
     /// `evaluate`'s answer.
     Eval(oneshot::Receiver<EvaluateOutput>),
+    /// `toggle_breakpoint`: the live sessions' adapters' answers to the change, then the breakpoint's row again
+    /// (brief 0036).
+    Breakpoint {
+        edit: cmds::BreakpointEdit,
+        target: BreakpointTarget,
+        wait: Duration,
+    },
     /// A command that runs the debuggee: wait until it settles (a start: until it runs), then answer the summary.
     /// `pause`: Break All of that generation, which fails when the adapter refuses it.
     Settle {
@@ -558,6 +569,8 @@ pub enum Followup {
         after: Option<(u64, u64)>,
         /// Restart by stopping and starting: settled only in a session newer than this generation (brief 0027).
         fresh: Option<u64>,
+        /// `run_until`'s points: those that never bound go in the answer's `points_failed` (brief 0036).
+        points: Vec<(String, u32)>,
         wait: Duration,
         budget: Budget,
     },
@@ -1427,17 +1440,18 @@ impl Debugger {
 
     /// `eludite.debug.toggle_breakpoint`'s compact answer (brief 0034): what the call did, the row of the breakpoint at
     /// `target` while it exists (its binding over the live sessions), whether a live session bound it, and how many
-    /// breakpoints there are. The change was just sent to every live session's adapter, whose answer comes later.
+    /// breakpoints there are. The change was just sent to every live session's adapter: `pending` while one has not
+    /// answered it, and once they have, `message` is the first refusal among them (brief 0036).
     fn breakpoint_answer(
         &self,
         action: cmds::BreakpointEdit,
-        target: Option<BreakpointTarget>,
+        target: Option<&BreakpointTarget>,
     ) -> DebugOutput {
         let live = self.live_ids();
         let rows = self.model.breakpoints.rows_for(&live);
         let breakpoints_total = rows.len();
         let breakpoint = target.and_then(|t| {
-            rows.into_iter().find(|r| match &t {
+            rows.into_iter().find(|r| match t {
                 BreakpointTarget::Line(path, line) => {
                     r.function.is_none() && r.path.as_deref() == Some(path) && r.line == Some(*line)
                 }
@@ -1445,14 +1459,115 @@ impl Debugger {
             })
         });
         let running = !live.is_empty();
+        let message = breakpoint.as_ref().and_then(|r| {
+            r.sessions
+                .iter()
+                .filter(|s| !s.verified)
+                .filter_map(|s| s.message.clone())
+                .find(|m| !cmds::pending_message(m))
+        });
         DebugOutput::Breakpoint(Box::new(cmds::ToggleBreakpointOutput {
             action,
             verified: running && breakpoint.as_ref().is_some_and(|r| r.verified),
-            pending: running && breakpoint.is_some(),
+            pending: running && breakpoint.is_some() && target.is_some_and(|t| self.awaiting(t)),
+            message,
             session: live.contains(&self.active).then_some(self.active),
             breakpoint,
             breakpoints_total,
         }))
+    }
+
+    /// The bindings of `run_until`'s temporary points (those not `trace`'s `job_points`) as they are now, before the
+    /// stop or the session's end removes them (brief 0036).
+    fn temporary_bindings(
+        &self,
+        job_points: &[(String, u32)],
+    ) -> Vec<(String, u32, bool, Option<String>)> {
+        self.model
+            .breakpoints
+            .all()
+            .iter()
+            .filter(|b| b.temporary && !job_points.contains(&(b.path.clone(), b.line)))
+            .map(|b| (b.path.clone(), b.line, b.verified, b.message.clone()))
+            .collect()
+    }
+
+    /// `run_until`'s points that its session's adapter had not bound by `summary` (brief 0036): a point the summary
+    /// stopped on is bound; the others are read on their breakpoint while it exists (it timed out, or the line had a
+    /// breakpoint of its own), else as they were when the stop or the session's end removed them.
+    fn points_failed(
+        &self,
+        points: &[(String, u32)],
+        summary: &StopSummary,
+    ) -> Vec<cmds::FailedBreakpointRow> {
+        let at = summary
+            .stopped
+            .as_ref()
+            .and_then(|s| s.location.as_ref())
+            .and_then(|l| {
+                let path = normalize_path(Path::new(l.path.as_deref()?))
+                    .to_string_lossy()
+                    .into_owned();
+                Some((path, l.line?))
+            });
+        points
+            .iter()
+            .filter(|(p, l)| at.as_ref().is_none_or(|(ap, al)| (ap, al) != (p, l)))
+            .filter_map(|(p, l)| {
+                let (verified, message) = self
+                    .model
+                    .breakpoints
+                    .binding(p, *l)
+                    .or_else(|| {
+                        self.model
+                            .removed_points
+                            .iter()
+                            .find(|r| (&r.0, r.1) == (p, *l))
+                            .map(|r| (r.2, r.3.clone()))
+                    })
+                    .unwrap_or((false, None));
+                (!verified).then(|| cmds::FailedBreakpointRow {
+                    path: Some(p.clone()),
+                    line: Some(*l),
+                    function: None,
+                    session: self.session_id,
+                    message: message.unwrap_or_else(|| NOT_BOUND.into()),
+                })
+            })
+            .collect()
+    }
+
+    /// `toggle_breakpoint`'s answer, and for an agent while a live session's adapter has not answered the change, the
+    /// wait for that answer (at most [`BREAKPOINT_ANSWER_WAIT`]; the person's call never waits).
+    fn breakpoint_reply(
+        &self,
+        edit: cmds::BreakpointEdit,
+        target: Option<BreakpointTarget>,
+        agent: bool,
+    ) -> (DebugOutput, Option<Followup>) {
+        let out = self.breakpoint_answer(edit, target.as_ref());
+        let follow = match target {
+            Some(t) if agent && self.awaiting(&t) => Some(Followup::Breakpoint {
+                edit,
+                target: t,
+                wait: BREAKPOINT_ANSWER_WAIT,
+            }),
+            _ => None,
+        };
+        (out, follow)
+    }
+
+    /// Whether a live session's adapter has not answered the last change of `target` yet: a `setBreakpoints` of its
+    /// file, or a `setFunctionBreakpoints`, still outstanding (brief 0036).
+    fn awaiting(&self, target: &BreakpointTarget) -> bool {
+        let outstanding = |pending: &HashMap<i64, Pending>| {
+            pending.values().any(|p| match (p, target) {
+                (Pending::SetBreakpoints { path, .. }, BreakpointTarget::Line(t, _)) => path == t,
+                (Pending::SetFunctionBreakpoints { .. }, BreakpointTarget::Function(_)) => true,
+                _ => false,
+            })
+        };
+        outstanding(&self.pending) || self.others.iter().any(|s| outstanding(&s.pending))
     }
 
     /// The stop summary of the current session, with its id.
@@ -1937,9 +2052,22 @@ impl Debugger {
                 text: cmds::cut_value(&r.text, cmds::MAX_TRACE_TEXT).0,
             })
             .collect();
+        // The points that never bound, with the adapter's reason (brief 0036).
+        let points_failed = points
+            .iter()
+            .filter(|p| !p.verified)
+            .map(|p| cmds::FailedBreakpointRow {
+                path: Some(p.path.clone()),
+                line: Some(p.line),
+                function: None,
+                session: self.session_id,
+                message: p.message.clone().unwrap_or_else(|| NOT_BOUND.into()),
+            })
+            .collect();
         let out = TraceOutput {
             hits: lines.len() as u64,
             lines,
+            points_failed,
             truncated: job.truncated,
             stopped_by: stopped_by.into(),
             summary: None,
@@ -2270,7 +2398,7 @@ pub(super) fn resolve_project(
 }
 
 /// The breakpoint a `toggle_breakpoint` call edited (brief 0034).
-enum BreakpointTarget {
+pub enum BreakpointTarget {
     Line(String, u32),
     Function(String),
 }
@@ -3099,6 +3227,7 @@ impl Shell {
                 pause,
                 after: None,
                 fresh: None,
+                points: Vec::new(),
                 wait,
                 budget,
             })
@@ -3202,7 +3331,7 @@ impl Shell {
                         Some(BreakpointTarget::Function(name)),
                     ),
                 };
-                return Ok((self.debug.breakpoint_answer(edit, target), None));
+                return Ok(self.debug.breakpoint_reply(edit, target, agent));
             }
             DebugRequest::Breakpoint {
                 path,
@@ -3244,7 +3373,7 @@ impl Shell {
                         }
                     }
                 };
-                return Ok((self.debug.breakpoint_answer(edit, target), None));
+                return Ok(self.debug.breakpoint_reply(edit, target, agent));
             }
             DebugRequest::RunUntil {
                 points,
@@ -3257,6 +3386,7 @@ impl Shell {
                 }
                 let mut files: Vec<String> = Vec::new();
                 let sid = self.debug.session_id;
+                let run_points = resolved.clone();
                 let b = &mut self.debug.model.breakpoints;
                 for ((path, line), p) in resolved.into_iter().zip(points) {
                     // A line that has a breakpoint keeps it (it stops there anyway).
@@ -3280,7 +3410,11 @@ impl Shell {
                     self.debug_persist(cx);
                 }
                 self.debug_resume("continue", None, &driver)?;
-                settle(false, None)
+                let mut follow = settle(false, None);
+                if let Some(Followup::Settle { points, .. }) = follow.as_mut() {
+                    *points = run_points;
+                }
+                follow
             }
             DebugRequest::Trace {
                 points,
@@ -3511,6 +3645,7 @@ impl Shell {
                     pause: None,
                     after: Some((generation, stop)),
                     fresh: None,
+                    points: Vec::new(),
                     wait,
                     budget,
                 })
@@ -3772,6 +3907,7 @@ impl Shell {
                     pause: None,
                     after: None,
                     fresh: fresh.then_some(generation),
+                    points: Vec::new(),
                     wait,
                     budget,
                 })
@@ -5505,6 +5641,7 @@ impl Shell {
             .as_ref()
             .map(|j| j.points.clone())
             .unwrap_or_default();
+        d.model.removed_points = d.temporary_bindings(&job_points);
         d.model
             .breakpoints
             .remove_temporary(|b| !job_points.contains(&(b.path.clone(), b.line)));
@@ -6429,6 +6566,7 @@ impl Shell {
             .as_ref()
             .map(|j| j.points.clone())
             .unwrap_or_default();
+        d.model.removed_points = d.temporary_bindings(&job_points);
         let mut changed = d
             .model
             .breakpoints
@@ -7555,6 +7693,24 @@ async fn follow_up(
                 Err(_) => Err(CommandError::Failed("the process listing failed".into())),
             }
         }
+        Followup::Breakpoint { edit, target, wait } => {
+            let deadline = Instant::now() + wait;
+            loop {
+                let waiter = this
+                    .update(cx, |s, _| {
+                        s.debug.awaiting(&target).then(|| s.debug_waiter())
+                    })
+                    .map_err(|_| closed())?;
+                let left = deadline.saturating_duration_since(Instant::now());
+                let Some(waiter) = waiter.filter(|_| !left.is_zero()) else {
+                    break;
+                };
+                let timer = real_timer(left);
+                let _ = futures::future::select(waiter, timer).await;
+            }
+            this.update(cx, |s, _| s.debug.breakpoint_answer(edit, Some(&target)))
+                .map_err(|_| closed())
+        }
         Followup::Eval(rx) => {
             let timer = real_timer(AGENT_WAIT);
             Ok(match futures::future::select(rx, timer).await {
@@ -7575,6 +7731,7 @@ async fn follow_up(
             pause,
             after,
             fresh,
+            points,
             wait,
             budget,
         } => {
@@ -7639,6 +7796,13 @@ async fn follow_up(
             let mut summary = summarize(&this, cx, sid, None, None, &budget).await?;
             if !settled {
                 summary.timed_out = Some(true);
+            }
+            if !points.is_empty() {
+                summary.points_failed = this
+                    .update(cx, |s, _| {
+                        s.in_session(sid, |s| s.debug.points_failed(&points, &summary))
+                    })
+                    .map_err(|_| closed())?;
             }
             Ok(DebugOutput::Summary(Box::new(summary)))
         }

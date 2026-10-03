@@ -13,7 +13,7 @@ namespace Eludite.Debugger.Mono.Tests;
 /// <c>mono eludite-dbg-mono.exe</c> debugging the built TestApp over stdio and TCP (brief 0022's proving test). Skipped
 /// with a message when no Mono is found. Timings go to the test output for the report.
 /// </summary>
-public sealed class MonoAdapterTests
+public sealed partial class MonoAdapterTests
 {
     private static readonly (string Mono, IReadOnlyDictionary<string, string> Env)? Located = MonoLocator.Locate();
     private static readonly List<double> LaunchToStop = new();

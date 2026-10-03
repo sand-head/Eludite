@@ -1255,6 +1255,21 @@ impl CorpusAdapter {
     }
 }
 
+/// One scenario at a time per corpus program: its project's `.user` file (below) and its build output are shared
+/// (brief 0036 runs a second MissingCase scenario).
+fn corpus_program_lock(program: &str) -> Arc<std::sync::Mutex<()>> {
+    static LOCKS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<std::sync::Mutex<()>>>>,
+    > = std::sync::OnceLock::new();
+    LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(program.to_owned())
+        .or_default()
+        .clone()
+}
+
 /// Visual Studio's `ActiveDebugFramework` for a corpus project while the scenario runs (net472 under Mono; none, the
 /// project's first framework, under netcoredbg); removed at the end.
 struct ActiveDebugFramework(std::path::PathBuf);
@@ -1345,24 +1360,42 @@ const TOGGLE_BUDGET: usize = 500;
 /// `toggle_breakpoint` answer under 500 bytes, all under 30 KB, no `(null)`) and the time (under 15 s, adapter launches
 /// included).
 fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
+    debug_scenario_with(cx, program, scenario::DebugAgent::new(steps), 7);
+}
+
+/// [`debug_scenario`] with a planner of the test's (brief 0036: a breakpoint condition and its replacement) and at most
+/// `max_debug_calls` debug calls; the reasons the planner read in `breakpoints_failed` and every debug answer, or
+/// `None` when the scenario was skipped.
+fn debug_scenario_with(
+    cx: &mut TestAppContext,
+    program: &str,
+    agent: scenario::DebugAgent,
+    max_debug_calls: usize,
+) -> Option<(Vec<String>, Vec<Value>)> {
     let dir = corpus().join(program);
     let project = dir.join(format!("{program}.csproj"));
     let adapter = match CorpusAdapter::find() {
         Ok(a) => a,
-        Err(why) => return println!("SKIPPED: the {program} scenario: {why}"),
+        Err(why) => {
+            println!("SKIPPED: the {program} scenario: {why}");
+            return None;
+        }
     };
     if !adapter.program(&dir, program).is_file() {
-        return println!(
+        println!(
             "SKIPPED: the {program} scenario: {} is not built (corpus/debugging/build.sh)",
             adapter.program(&dir, program).display()
         );
+        return None;
     }
+    let lock = corpus_program_lock(program);
+    let _one_at_a_time = lock.lock().unwrap_or_else(|e| e.into_inner());
     let _framework = ActiveDebugFramework::set(
         &project,
         matches!(adapter, CorpusAdapter::Mono { .. }).then_some("net472"),
     );
     let e = expected(program);
-    let planner = Arc::new(std::sync::Mutex::new(scenario::DebugAgent::new(steps)));
+    let planner = Arc::new(std::sync::Mutex::new(agent));
     let store = tempfile::tempdir().unwrap();
     let debug = crate::shell::debug::DebugSetup {
         connect: None,
@@ -1464,7 +1497,7 @@ fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
     }
     println!("  answers: {total} bytes in all\n  the agent's answer: {text}");
     assert_eq!(audited.len(), p.calls.len(), "{audited:?}");
-    assert!(debug_calls.len() <= 7, "{debug_calls:?}");
+    assert!(debug_calls.len() <= max_debug_calls, "{debug_calls:?}");
 
     // The stop: the README's statement, with the locals that show the bug.
     let last = p.last.clone().expect("a stop summary");
@@ -1515,6 +1548,14 @@ fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
     }
     assert!(total < SCENARIO_BUDGET, "{total} bytes");
     assert!(took < Duration::from_secs(15), "{took:?}");
+    let read = (
+        p.failures_read.clone(),
+        p.calls
+            .iter()
+            .filter(|c| c.tool.starts_with("eludite-debug-"))
+            .filter_map(|c| c.result.clone().ok())
+            .collect(),
+    );
     drop(p);
 
     // End the session the scenario left at its break.
@@ -1528,6 +1569,7 @@ fn debug_scenario(cx: &mut TestAppContext, program: &str, steps: usize) {
             s.debugger().model.mode == crate::shell::debug::state::Mode::Design
         })
     });
+    Some(read)
 }
 
 #[gpui::test]
@@ -1543,4 +1585,30 @@ fn a_scripted_agent_finds_the_missing_case_in_the_corpus(cx: &mut TestAppContext
 #[gpui::test]
 fn a_scripted_agent_finds_the_null_field_in_the_corpus(cx: &mut TestAppContext) {
     debug_scenario(cx, "NullField", 1);
+}
+
+/// Brief 0036: a condition the adapter rejects never stops, and the answer the agent reads next says why. The scripted
+/// agent breaks in `Coins.Cents` on `coin == Money.Quarter` (no such type): the run ends, the `wait` answer's
+/// `breakpoints_failed` carries the adapter's reason, the agent sets the unqualified `coin == Coin.Quarter` instead
+/// (which `eludite-dbg-mono` resolves from the method's namespace) and reaches the faulting statement.
+#[gpui::test]
+fn a_scripted_agent_reads_why_a_wrong_condition_never_stopped(cx: &mut TestAppContext) {
+    let agent = scenario::DebugAgent::new(1)
+        .with_condition("coin == Money.Quarter", "coin == Coin.Quarter");
+    let Some((read, answers)) = debug_scenario_with(cx, "MissingCase", agent, 10) else {
+        return;
+    };
+    assert_eq!(read.len(), 1, "{read:?}");
+    assert!(read[0].contains("Money"), "{read:?}");
+    // The reason is in an answer the agent received: the end-of-session summary of the run that never stopped.
+    let carried: Vec<&Value> = answers
+        .iter()
+        .filter(|a| {
+            a["breakpoints_failed"]
+                .as_array()
+                .is_some_and(|f| f.iter().any(|r| r["message"] == read[0].as_str()))
+        })
+        .collect();
+    assert!(!carried.is_empty(), "{answers:#?}");
+    assert_eq!(carried[0]["mode"], "design");
 }
