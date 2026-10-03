@@ -21,13 +21,14 @@
       "type": "string"
     },
     "files": {
-      "description": "`file` with `accept`: absolute paths, or paths relative to the workspace folder.",
+      "description": "`file` with `accept`: absolute paths, as eludite.browser.upload takes.",
       "type": "array",
       "items": {
         "type": "string",
         "minLength": 1
       },
-      "maxItems": 50
+      "maxItems": 50,
+      "minItems": 1
     },
     "username": {
       "description": "`auth` with `accept`.",
