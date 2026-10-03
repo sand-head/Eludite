@@ -33,6 +33,9 @@ use crate::tab::{RefError, Shared, TabState};
 /// A `find` match: its backend node id, and its role and name when the search already knows them.
 type FoundNode = (i64, Option<(String, String)>);
 
+/// `read_page`'s rows read element by element, each with its box, and the total.
+type CandidateRows = (Vec<(Row, Option<BoxRow>)>, usize);
+
 /// How often waits poll what CDP has no event for.
 const POLL: Duration = Duration::from_millis(100);
 /// `network_idle`: no request in flight for this long.
@@ -58,6 +61,15 @@ const COLLECT_JS: &str = r#"function(sel, limit) {
   };
   visit(root);
   return out;
+}"#;
+/// On a slice of the candidate list: each element's border box (`getBoundingClientRect`, CSS pixels of the
+/// viewport, as `DOM.getBoxModel` answers), or `null` when it is not rendered.
+const RECTS_JS: &str = r#"function() {
+  return this.map((e) => {
+    if (e.getClientRects().length === 0) return null;
+    const r = e.getBoundingClientRect();
+    return [r.x, r.y, r.width, r.height];
+  });
 }"#;
 /// On the candidate list: each one's nearest candidate ancestor (its index, or -1), across shadow roots.
 const PARENTS_JS: &str = r#"function() {
@@ -952,12 +964,16 @@ impl Browser {
         let root_backend = root.map(|r| self.backend_of(&tab, r)).transpose()?;
         let generation = tab.state().page_generation;
         let mut counted = None;
+        let mut known_boxes = None;
         let rows: Vec<Row> = match mode {
             ReadMode::Accessibility => match filter {
                 ReadFilter::Interactive => {
                     match self.read_candidates(&tab, root_backend, max_nodes)? {
                         Some((rows, total)) => {
                             counted = Some(total);
+                            let (rows, boxes): (Vec<Row>, Vec<Option<BoxRow>>) =
+                                rows.into_iter().unzip();
+                            known_boxes = Some(boxes);
                             rows
                         }
                         None => self.full_tree_rows(&tab, filter, root_backend)?,
@@ -982,10 +998,13 @@ impl Browser {
         };
         let total = counted.unwrap_or(rows.len());
         let rows: Vec<Row> = rows.into_iter().take(max_nodes).collect();
-        let boxes = self.boxes(
-            &tab,
-            &rows.iter().map(|r| r.backend_node_id).collect::<Vec<_>>(),
-        );
+        let boxes = match known_boxes {
+            Some(b) => b,
+            None => self.boxes(
+                &tab,
+                &rows.iter().map(|r| r.backend_node_id).collect::<Vec<_>>(),
+            ),
+        };
         let mut s = tab.state();
         if s.page_generation != generation {
             return Err(failed(format!(
@@ -1043,7 +1062,7 @@ impl Browser {
         tab: &Tab,
         root_backend: Option<i64>,
         max_nodes: usize,
-    ) -> Result<Option<(Vec<Row>, usize)>, CommandError> {
+    ) -> Result<Option<CandidateRows>, CommandError> {
         const GROUP: &str = "eludite-read";
         let root = match root_backend {
             Some(b) => self.send(
@@ -1087,7 +1106,7 @@ impl Browser {
                 .unwrap_or_default();
             let count = parents.len();
             let mut kept: Vec<bool> = Vec::new();
-            let mut rows: Vec<(usize, Row)> = Vec::new();
+            let mut rows: Vec<(usize, Row, Option<BoxRow>)> = Vec::new();
             let mut overflow = 0;
             while kept.len() < count && rows.len() < max_nodes {
                 let from = kept.len();
@@ -1103,6 +1122,17 @@ impl Browser {
                     .pointer("/result/objectId")
                     .and_then(Value::as_str)
                     .ok_or_else(|| failed("the page's candidate list went away"))?;
+                // Boxes in the same CSS pixels as DOM.getBoxModel's border quads, one call for the batch.
+                let rects = self.send(
+                    tab,
+                    "Runtime.callFunctionOn",
+                    json!({"objectId": slice, "functionDeclaration": RECTS_JS, "returnByValue": true}),
+                )?;
+                let rects: Vec<Option<BoxRow>> = rects
+                    .pointer("/result/value")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().map(rect_box).collect())
+                    .unwrap_or_default();
                 let props = self.send(
                     tab,
                     "Runtime.getProperties",
@@ -1128,7 +1158,7 @@ impl Browser {
                     })
                     .collect();
                 let answers = self.engine.send_many(&tab.session, calls, DEFAULT_TIMEOUT);
-                let mut batch = vec![None; to - from];
+                let mut batch: Vec<Option<Row>> = vec![None; to - from];
                 for ((ix, _), a) in objects.iter().zip(answers) {
                     let a = a.map_err(engine_err)?;
                     let tree: accessibility::GetPartialAXTreeReturns = serde_json::from_value(a)
@@ -1141,10 +1171,10 @@ impl Browser {
                         *slot = tree.nodes.first().and_then(crate::page::interactive_row);
                     }
                 }
-                for row in batch {
+                for (i, row) in batch.into_iter().enumerate() {
                     match row {
                         Some(row) if rows.len() < max_nodes => {
-                            rows.push((kept.len(), row));
+                            rows.push((kept.len(), row, rects.get(i).cloned().flatten()));
                             kept.push(true);
                         }
                         Some(_) => {
@@ -1160,9 +1190,9 @@ impl Browser {
             let total = rows.len() + overflow + unexamined;
             Ok(Some((
                 rows.into_iter()
-                    .map(|(i, mut r)| {
+                    .map(|(i, mut r, b)| {
                         r.depth = depths[i];
-                        r
+                        (r, b)
                     })
                     .collect(),
                 total,
@@ -1683,6 +1713,14 @@ impl Browser {
             page_generation: tab.state().page_generation,
         })
     }
+}
+
+/// `[x, y, width, height]` from the page as a box, rounded to tenths of a CSS pixel as [`quad_box`] rounds.
+fn rect_box(v: &Value) -> Option<BoxRow> {
+    let a = v.as_array()?;
+    let n = |i: usize| a.get(i).and_then(Value::as_f64);
+    let (x, y, w, h) = (n(0)?, n(1)?, n(2)?, n(3)?);
+    quad_box(&[x, y, x + w, y, x + w, y + h, x, y + h])
 }
 
 /// An exception's message and stack, from `exceptionDetails`.
