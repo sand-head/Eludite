@@ -59,6 +59,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | open |
 | [0027](0027-debug-attach-and-policy.md) | Attach, restart and the debug policy for the agent debugging suite (proposal 0001 C) | 2 | open |
 | [0028](0028-debug-multi-session.md) | Multiple debugging sessions: `session` on every command, compound launch, session selectors (proposal 0001 D) | 2 | open |
+| [0029](0029-rust-debug-adapter.md) | Debug Rust with lldb-dap: Cargo launch configuration, Rust formatters, Set as Startup Project on packages (proposal 0001 E2) | 2 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
