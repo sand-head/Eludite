@@ -19,7 +19,7 @@ each starting with a "generated, do not edit" header. The domains are the ones t
 domain they reference through a `$ref`, transitively:
 
 - Roots: `Target`, `Page`, `DOM`, `Accessibility`, `Runtime`, `Log`, `Network`, `Input`, `Emulation`, `Browser`,
-  `Security`.
+  `Security`, and from brief 0024 `Storage` and `DOMStorage` (`eludite.browser.storage`).
 - Referenced: `Debugger` (`Page.searchInResource` and `Network.searchInResponseBody` answer `Debugger.SearchMatch`)
   and `IO` (`IO.StreamHandle` from `Page.printToPDF` and `Network.takeResponseBodyAsStream`).
 
@@ -40,8 +40,8 @@ Optional members are `Option<T>` with `skip_serializing_if`; `any` is `serde_jso
 required members all have defaults derive `Default`, so parameters read `..Default::default()`. The message envelope
 (`id`, `method`, `params`, `sessionId`, `result`, `error`) is not in the JSON and is typed in `crates/browser`.
 
-Size at this pin: 13 domains, 960 structs, 140 enums, 32 aliases, 337 commands, 121 events; 14 files, about 24,400
-lines and 800 KB. The generator is about 840 lines, with 180 lines of tests.
+Size at this pin: 15 domains, 1,044 structs, 142 enums, 35 aliases, 370 commands, 132 events; 16 files, about 25,600
+lines and 840 KB. The generator is about 840 lines, with 180 lines of tests.
 
 ## How `crates/browser` uses them
 
