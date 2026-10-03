@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-context-menu.json",
+  "title": "tab/contextMenu",
+  "description": "Engine-to-shell notification: the person asked for the page's context menu (a right click, the menu key). The engine cancels Chromium's own menu (CefContextMenuHandler::RunContextMenu) and sends what was under the pointer; the shell shows its Visual Studio-style menu (Back, Forward, Reload, Copy, Paste, Select All, Save Image As..., Copy Link, Open in External Browser, Inspect) and runs the item through the commands and tab/action.",
+  "x-eludite-method": "tab/contextMenu",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "x",
+        "y",
+        "pageUrl",
+        "editable",
+        "edit"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "x": {
+          "description": "Where, in CSS pixels of the view.",
+          "type": "integer"
+        },
+        "y": {
+          "type": "integer"
+        },
+        "pageUrl": {
+          "type": "string"
+        },
+        "linkUrl": {
+          "description": "The link under the pointer.",
+          "type": "string"
+        },
+        "imageUrl": {
+          "description": "The image under the pointer (its source url).",
+          "type": "string"
+        },
+        "selectionText": {
+          "description": "The selected text, if any.",
+          "type": "string"
+        },
+        "editable": {
+          "description": "The pointer is over an editable field.",
+          "type": "boolean"
+        },
+        "edit": {
+          "description": "Which edit commands apply (CEF's edit state flags).",
+          "type": "object",
+          "properties": {
+            "undo": {
+              "type": "boolean"
+            },
+            "redo": {
+              "type": "boolean"
+            },
+            "cut": {
+              "type": "boolean"
+            },
+            "copy": {
+              "type": "boolean"
+            },
+            "paste": {
+              "type": "boolean"
+            },
+            "delete": {
+              "type": "boolean"
+            },
+            "selectAll": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

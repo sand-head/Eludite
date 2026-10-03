@@ -24,6 +24,15 @@
         "protocolVersion": {
           "description": "The version of this protocol and of the shared-memory layout the shell speaks (browser-rpc.md).",
           "const": 1
+        },
+        "downloadDir": {
+          "description": "Where downloads are saved (the workspace's `.eludite/browser/downloads/`). Default: `downloads` beside the profile folder.",
+          "type": "string"
+        },
+        "maxDownloadBytes": {
+          "description": "Downloads larger than this are refused (tab/download `refused`). Default 104857600 (100 MB).",
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

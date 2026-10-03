@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-wait.output.json",
   "title": "eludite.browser.wait output",
-  "description": "What was satisfied, or `timeout: true`.",
+  "description": "What was satisfied, `timeout: true`, or `interrupted_by: \"user\"`.",
   "type": "object",
   "required": [
     "tab",
@@ -69,6 +69,10 @@
     "elapsed_ms": {
       "type": "number",
       "minimum": 0
+    },
+    "interrupted_by": {
+      "description": "The person took over while this call waited (clicked or typed in the page, used the Web Browser window's toolbar, or pressed Stop on the \"Agent is driving\" strip): the wait ends at once with `timeout: false` and no `satisfied`. Read eludite.browser.tabs before acting again: until then this agent's next action on the browser is refused (the page may have changed under it).",
+      "const": "user"
     }
   }
 }

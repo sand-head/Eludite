@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-state.json",
   "title": "tab/state",
-  "description": "Engine-to-shell notification: the tab's address, title or loading state changed (CEF's display and load handlers). Members not present did not change.",
+  "description": "Engine-to-shell notification: the tab's address, title, favicon, loading state, history or status text changed (CEF's display and load handlers). Members not present did not change. The Web Browser window's tab strip, address bar and Back and Forward buttons follow these.",
   "x-eludite-method": "tab/state",
   "x-eludite-kind": "notification",
   "x-eludite-direction": "engineToShell",
@@ -19,13 +19,31 @@
           "minLength": 1
         },
         "url": {
-          "type": "string"
+          "type": "string",
+          "description": "The main frame's address (CefDisplayHandler::OnAddressChange)."
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "The page's title (OnTitleChange); the url while it has none."
         },
         "loading": {
+          "type": "boolean",
+          "description": "The tab is loading (CefLoadHandler::OnLoadingStateChange)."
+        },
+        "favicon": {
+          "description": "The page's icon as a `data:image/png;base64,...` url, at most 32 by 32 pixels (OnFaviconURLChange, then CefBrowserHost::DownloadImage of the first icon); empty when the page has none.",
+          "type": "string"
+        },
+        "canGoBack": {
+          "description": "The tab's history has an entry before the current one (OnLoadingStateChange).",
           "type": "boolean"
+        },
+        "canGoForward": {
+          "type": "boolean"
+        },
+        "statusText": {
+          "description": "The status text (a link's url under the pointer; OnStatusMessage); empty to clear.",
+          "type": "string"
         }
       }
     }

@@ -180,6 +180,35 @@
         }
       }
     },
+    "browser.engine": {
+      "description": "Which browser the Web Browser window and the browser tools (eludite.browser.*) use. `embedded`: Eludite's own Chromium, drawn inside the Web Browser window: the `eludite-chromium` engine with CEF, which tools/cef/fetch.sh downloads (then build the engine with `cargo build -p eludite-chromium --features eludite-chromium/cef`); while either is missing, the tools use the external Chrome and the window says what to run. `external`: a Chrome or Chromium process with its own window (browser.chromePath). Applies to the next launch: a running browser of the other kind is closed.",
+      "enum": [
+        "embedded",
+        "external"
+      ],
+      "default": "embedded",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Browser engine",
+      "x-eludite-enum-labels": [
+        "Embedded Chromium (Web Browser window)",
+        "External Chrome"
+      ]
+    },
+    "browser.homePage": {
+      "description": "The page a new tab of the Web Browser window opens (Ctrl+T, the + button) and the Home button goes to. A url (`http://localhost:5000/`) or `about:blank`.",
+      "type": "string",
+      "default": "about:blank",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Home page"
+    },
+    "browser.showDevToolsTab": {
+      "description": "Open DevTools as a second tab beside every page tab the Web Browser window opens. Off: DevTools opens only on F12, the toolbar's DevTools button, the context menu's Inspect or eludite.browser.devtools.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Open DevTools with each tab"
+    },
     "browser.chromePath": {
       "description": "The Chrome or Chromium executable the browser tools (eludite.browser.*) launch. Empty: Chrome for Testing from tools/chrome/fetch.sh in Eludite's cache, then google-chrome, google-chrome-stable, chromium, chromium-browser or chrome on PATH, then the platform's usual install locations. Applies to the next launch.",
       "type": "string",
