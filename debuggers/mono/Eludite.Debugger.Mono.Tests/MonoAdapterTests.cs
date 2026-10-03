@@ -216,6 +216,10 @@ public sealed class MonoAdapterTests
         Assert.Equal("3", Eval(c, top, "System.Math.Max(a, b)"));
         Assert.Equal("true", Eval(c, top, "Environment.NewLine.Length > 0"));
         Assert.Equal("10", Eval(c, top, "Eludite.Debugger.Mono.TestApp.Calculator.Twice(5)"));
+        // An interpolated string is refused, not answered as its literal text (NRefactory 5.5 predates C# 6).
+        var interpolated = c.Request("evaluate", new JObject { ["expression"] = "$\"{a}\"", ["frameId"] = top, ["context"] = "watch" });
+        Assert.False((bool)interpolated["success"]!);
+        Assert.Contains("string.Format", (string)interpolated["message"]!, StringComparison.Ordinal);
         Assert.Equal("\"name4\"", Eval(c, mainId, "names[4]"));
         // A failed hover is an error answer and writes nothing.
         var outputs = c.Events("output").Count;

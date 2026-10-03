@@ -125,6 +125,12 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
     {
         public override ValueReference Evaluate(EvaluationContext ctx, string expression, object expectedType)
         {
+            // NRefactory 5.5 predates C# 6: it reads $"{x}" as the plain string "{x}", a wrong answer, not an error.
+            if (InterpolatedString.IsMatch(expression))
+            {
+                throw new EvaluatorException("interpolated strings are not supported by Mono's evaluator; use string.Format");
+            }
+
             try
             {
                 return base.Evaluate(ctx, expression, expectedType);
@@ -140,6 +146,8 @@ internal sealed class MonoEvaluator : IExpressionEvaluator
                 return base.Evaluate(ctx, rewritten, expectedType);
             }
         }
+
+        private static readonly System.Text.RegularExpressions.Regex InterpolatedString = new(@"(\$@?|@\$)""");
 
         private static bool IsNumericCastBug(EvaluatorException e) =>
             e.Message is { } m && m.Contains("cannot be casted to System.") &&
