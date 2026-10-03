@@ -6,7 +6,7 @@
 //! then wakes every subscriber (the GPUI view), which re-renders and schedules
 //! a save. Nothing here does I/O.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use eludite_commands::CommandError;
@@ -50,6 +50,9 @@ pub struct Snapshot {
     pub flyout: Option<String>,
     /// Document tabs with unsaved changes (drawn with `*`). Not persisted.
     pub dirty: BTreeSet<String>,
+    /// A glyph and its color (`0xRRGGBB`) drawn before a document tab's title: the file's source control status
+    /// (brief 0040). Not persisted.
+    pub badges: BTreeMap<String, (String, u32)>,
     /// Bumped on every change.
     pub revision: u64,
 }
@@ -84,6 +87,7 @@ impl DockController {
                     active_tool: None,
                     flyout: None,
                     dirty: BTreeSet::new(),
+                    badges: BTreeMap::new(),
                     revision: 0,
                 },
                 subscribers: Vec::new(),
@@ -146,6 +150,7 @@ impl DockController {
         let mut s = self.lock();
         let closed = s.snapshot.layout.documents.close(id);
         s.snapshot.dirty.remove(id);
+        s.snapshot.badges.remove(id);
         if closed {
             Self::changed(&mut s);
         }
@@ -179,6 +184,18 @@ impl DockController {
             s.snapshot.dirty.insert(id.to_owned())
         } else {
             s.snapshot.dirty.remove(id)
+        };
+        if changed {
+            Self::changed(&mut s);
+        }
+    }
+
+    /// Draw `badge` (a glyph and its `0xRRGGBB` color) before a document tab's title, or none.
+    pub fn set_document_badge(&self, id: &str, badge: Option<(String, u32)>) {
+        let mut s = self.lock();
+        let changed = match badge {
+            Some(b) => s.snapshot.badges.insert(id.to_owned(), b.clone()) != Some(b),
+            None => s.snapshot.badges.remove(id).is_some(),
         };
         if changed {
             Self::changed(&mut s);
@@ -472,12 +489,31 @@ mod tests {
         assert_eq!(out["group"], json!(["output", "toolbox", "error_list"]));
 
         let out = r.invoke(view::RESET_LAYOUT, json!({})).unwrap();
-        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 15);
+        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 16);
         assert_eq!(
             c.layout(),
             DockLayout::default_vs(&ToolWindowRegistry::vs_default())
         );
         assert!(c.snapshot().active_tool.is_none());
+    }
+
+    #[test]
+    fn document_badges_change_once_and_go_with_their_tab() {
+        let (c, _) = setup();
+        c.open_document("/w/a.cs", "a.cs");
+        let rev = c.revision();
+        c.set_document_badge("/w/a.cs", Some(("\u{2713}".into(), 0xC5_86_86)));
+        assert_eq!(c.revision(), rev + 1);
+        c.set_document_badge("/w/a.cs", Some(("\u{2713}".into(), 0xC5_86_86)));
+        assert_eq!(c.revision(), rev + 1, "the same badge changes nothing");
+        assert_eq!(
+            c.snapshot().badges.get("/w/a.cs"),
+            Some(&("\u{2713}".to_owned(), 0xC5_86_86))
+        );
+        c.close_document("/w/a.cs");
+        assert!(c.snapshot().badges.is_empty());
+        c.set_document_badge("/w/b.cs", None);
+        assert_eq!(c.revision(), rev + 2);
     }
 
     #[test]

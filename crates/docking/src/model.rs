@@ -66,6 +66,9 @@ pub mod ids {
     pub const EXCEPTION_SETTINGS: &str = "exception_settings";
     /// Test > Test Explorer (brief 0035): closed until shown, docked left as Visual Studio docks it.
     pub const TEST_EXPLORER: &str = "test_explorer";
+    /// Git > Manage Branches, Ctrl+0, Ctrl+R (brief 0040): the Git Repository window, closed until shown, docked at
+    /// the bottom where its history has room.
+    pub const GIT_REPOSITORY: &str = "git_repository";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -133,6 +136,7 @@ impl ToolWindowRegistry {
                 DockSide::Bottom,
             ),
             (ids::TEST_EXPLORER, "Test Explorer", DockSide::Left),
+            (ids::GIT_REPOSITORY, "Git Repository", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -1247,7 +1251,8 @@ mod tests {
                 ids::THREADS,
                 ids::BREAKPOINTS,
                 ids::EXCEPTION_SETTINGS,
-                ids::TEST_EXPLORER
+                ids::TEST_EXPLORER,
+                ids::GIT_REPOSITORY
             ]
         );
         // The Test Explorer (brief 0035) opens docked left; the others at the bottom.

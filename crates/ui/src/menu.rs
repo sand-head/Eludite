@@ -92,6 +92,17 @@ fn show(label: &'static str, id: &str) -> MenuEntry {
     }
 }
 
+/// The Workspace window's context menu items on a file in a Git repository (brief 0040), in Visual Studio's order:
+/// (selector suffix, label, command). Each runs its command with the file (`path`, or `paths` for the index
+/// commands).
+pub const WORKSPACE_GIT_ITEMS: [(&str, &str, &str); 5] = [
+    ("compare", "Compare with Unmodified...", "eludite.git.diff"),
+    ("undo", "Undo Changes...", "eludite.git.discard"),
+    ("stage", "Stage", "eludite.git.stage"),
+    ("unstage", "Unstage", "eludite.git.unstage"),
+    ("blame", "Blame (Annotate)", "eludite.git.blame"),
+];
+
 /// The menu titles, in Visual Studio's order (PLAN.md 8).
 pub const MENU_TITLES: [&str; 13] = [
     "File",
@@ -165,6 +176,7 @@ pub fn vs_menus() -> Vec<Menu> {
             vec![
                 show("Workspace", "workspace"),
                 show("Git Changes", "git_changes"),
+                show("Git Repository", "git_repository"),
                 show("Agents", "agents"),
                 Separator,
                 show("Error List", "error_list"),
@@ -180,15 +192,26 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Command Palette", "eludite.view.command_palette"),
             ],
         ),
+        // Visual Studio's Git menu (brief 0040): Commit or Stash... shows Git Changes, Manage Branches the Git
+        // Repository window, New Branch... (checkout without a name) its New Branch box, Open in File Explorer (without
+        // a path) the repository's folder.
         menu(
             "Git",
             vec![
-                item("Commit or Stash...", "eludite.git.commit"),
+                show("Commit or Stash...", "git_changes"),
+                Separator,
                 item("Fetch", "eludite.git.fetch"),
                 item("Pull", "eludite.git.pull"),
                 item("Push", "eludite.git.push"),
+                item("Sync", "eludite.git.sync"),
                 Separator,
-                item("Manage Branches", "eludite.git.branches"),
+                item("New Branch...", "eludite.git.checkout"),
+                show("Manage Branches", "git_repository"),
+                Separator,
+                item(
+                    "Open in File Explorer",
+                    "eludite.workspace.open_containing_folder",
+                ),
             ],
         ),
         menu(

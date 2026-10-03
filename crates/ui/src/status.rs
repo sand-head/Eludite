@@ -4,9 +4,11 @@
 
 use gpui::{
     AnyElement, Div, InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
-    Styled, div,
+    StatefulInteractiveElement, Styled, div,
 };
+use serde_json::Value;
 
+use crate::keymap::RunCommand;
 use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +34,13 @@ pub struct StatusSlot {
     pub id: SharedString,
     pub align: SlotAlign,
     pub text: SharedString,
+    /// The command a click runs (brief 0040: the branch, the pending changes, the sync arrows), if any.
+    pub action: Option<(SharedString, Value)>,
+}
+
+/// Debug selector of slot `id` when it has an action.
+pub fn slot_selector(id: &str) -> String {
+    format!("status-{id}")
 }
 
 /// Status bar contents. Empty slots are not drawn.
@@ -47,6 +56,7 @@ impl StatusBar {
             id: id.into(),
             align,
             text: SharedString::default(),
+            action: None,
         };
         let mut bar = Self {
             slots: vec![
@@ -82,7 +92,19 @@ impl StatusBar {
                 id,
                 align,
                 text: SharedString::default(),
+                action: None,
             });
+        }
+    }
+
+    /// Make slot `id` run `command` with `args` when clicked (a [`RunCommand`]). Returns false for an unknown slot.
+    pub fn set_action(&mut self, id: &str, command: &str, args: Value) -> bool {
+        match self.slots.iter_mut().find(|s| s.id.as_ref() == id) {
+            Some(s) => {
+                s.action = Some((SharedString::from(command.to_owned()), args));
+                true
+            }
+            None => false,
         }
     }
 
@@ -112,7 +134,27 @@ impl StatusBar {
     /// [`StatusBar::render`] with controls after the left slots (the debugger's Allow Agents to Drive toggle).
     pub fn render_with(&self, theme: &Theme, left_controls: Vec<AnyElement>) -> Div {
         let ty = theme.typography;
-        let slot = |s: &StatusSlot| div().px_2().child(s.text.clone()).into_any_element();
+        let slot = |s: &StatusSlot| match &s.action {
+            None => div().px_2().child(s.text.clone()).into_any_element(),
+            Some((command, args)) => {
+                let (command, args) = (command.clone(), args.clone());
+                let sel = slot_selector(&s.id);
+                div()
+                    .id(SharedString::from(sel.clone()))
+                    .debug_selector(move || sel.clone())
+                    .px_2()
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme.menu_hover))
+                    .on_click(move |_, window, cx| {
+                        window.dispatch_action(
+                            Box::new(RunCommand::new(command.clone(), args.clone())),
+                            cx,
+                        )
+                    })
+                    .child(s.text.clone())
+                    .into_any_element()
+            }
+        };
         div()
             .flex()
             .flex_row()
@@ -203,5 +245,24 @@ mod tests {
             .map(|s| s.text.to_string())
             .collect();
         assert_eq!(left, ["Ready", "Running"]);
+        // A slot with an action (brief 0040).
+        assert!(bar.set_action(
+            slots::BRANCH,
+            "eludite.view.show",
+            serde_json::json!({"id": "git_repository"})
+        ));
+        assert!(!bar.set_action("nope", "x", Value::Null));
+        assert_eq!(
+            bar.visible(SlotAlign::Right)
+                .next()
+                .unwrap()
+                .action
+                .as_ref()
+                .unwrap()
+                .0
+                .as_ref(),
+            "eludite.view.show"
+        );
+        assert_eq!(slot_selector("branch"), "status-branch");
     }
 }

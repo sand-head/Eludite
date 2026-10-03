@@ -403,7 +403,17 @@ impl DockHost {
                     cx,
                 );
             }));
+            // The file's source control glyph, after the title (brief 0040).
+            let badge = self.snap.badges.get(&d.id).map(|(glyph, color)| {
+                div()
+                    .flex_none()
+                    .pr_1()
+                    .text_color(gpui::rgb(*color))
+                    .child(glyph.clone())
+            });
+            let sel_badge = format!("doc-badge-{}", d.id);
             tab(&t, title, style)
+                .children(badge.map(|b| b.debug_selector(move || sel_badge)))
                 .child(close)
                 .id(SharedString::from(sel.clone()))
                 .debug_selector({

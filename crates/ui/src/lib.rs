@@ -55,11 +55,13 @@ pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
     vs_keymap,
 };
-pub use menu::{MENU_TITLES, Menu, MenuBar, MenuEntry, menu_bar_with, vs_menus};
+pub use menu::{
+    MENU_TITLES, Menu, MenuBar, MenuEntry, WORKSPACE_GIT_ITEMS, menu_bar_with, vs_menus,
+};
 pub use popup::CompletionKind;
-pub use status::{SlotAlign, StatusBar, slots, status_toggle};
+pub use status::{SlotAlign, StatusBar, slot_selector, slots, status_toggle};
 pub use test_explorer::{TestGlyph, test_row, toolbar_button};
 pub use theme::{Theme, Typography};
 pub use title_bar::TitleBar;
-pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};
+pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge};
 pub use vertical_text::{VerticalLabel, vertical_label};

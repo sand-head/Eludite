@@ -57,6 +57,8 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         show("ctrl-\\ ctrl-e", "Ctrl+\\, Ctrl+E", "error_list"),
         show("f4", "F4", "properties"),
         show("ctrl-0 ctrl-g", "Ctrl+0, Ctrl+G", "git_changes"),
+        // View.GitRepositoryWindow (brief 0040).
+        show("ctrl-0 ctrl-r", "Ctrl+0, Ctrl+R", "git_repository"),
         // The Agents window (brief 0016), on Visual Studio's chat window chord (View.GitHub.Copilot.Chat).
         show("ctrl-\\ ctrl-c", "Ctrl+\\, Ctrl+C", "agents"),
         KeyBindingSpec {
