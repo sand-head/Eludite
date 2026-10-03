@@ -762,14 +762,13 @@
           ]
         },
         "console": {
-          "lines": 6,
+          "lines": 5,
           "tail": [
             "Starting debugging the startup project…",
             "Debugging Eludite.Debugger.Mono.TestApp.exe ",
             "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
             "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
-            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
-            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0]."
+            "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0]."
           ],
           "next": 0
         },
@@ -927,14 +926,13 @@
           ]
         },
         "console": {
-          "lines": 12,
+          "lines": 11,
           "tail": [
             "Starting debugging the startup project…",
             "Debugging Eludite.Debugger.Mono.TestApp.exe ",
             "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
             "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
             "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
-            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
             "result 10",
             "i=0 total=0",
             "i=25 total=300",
@@ -1089,14 +1087,13 @@
           ]
         },
         "console": {
-          "lines": 12,
+          "lines": 11,
           "tail": [
             "Starting debugging the startup project…",
             "Debugging Eludite.Debugger.Mono.TestApp.exe ",
             "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
             "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
             "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
-            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
             "result 10",
             "i=0 total=0",
             "i=25 total=300",
@@ -1264,14 +1261,13 @@
           ]
         },
         "console": {
-          "lines": 12,
+          "lines": 11,
           "tail": [
             "Starting debugging the startup project…",
             "Debugging Eludite.Debugger.Mono.TestApp.exe ",
             "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
             "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
             "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
-            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
             "result 10",
             "i=0 total=0",
             "i=25 total=300",
@@ -1418,14 +1414,13 @@
           ]
         },
         "console": {
-          "lines": 15,
+          "lines": 14,
           "tail": [
             "Starting debugging the startup project…",
             "Debugging Eludite.Debugger.Mono.TestApp.exe ",
             "Loaded assembly: ${TMP}/src/App/bin/Debug/net472/Eludite.Debugger.Mono.TestApp.exe",
             "Resolved pending breakpoint at 'Program.cs:67,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x0004e].",
             "Resolved pending breakpoint at 'Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
-            "Resolved pending breakpoint at '${ROOT}/debuggers/mono/Eludite.Debugger.Mono.TestApp/Program.cs:78,1' to int Eludite.Debugger.Mono.TestApp.Program.Main (string[] args) [0x000c0].",
             "result 10",
             "i=0 total=0",
             "i=25 total=300",
