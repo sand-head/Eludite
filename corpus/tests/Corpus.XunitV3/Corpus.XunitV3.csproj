@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- xunit.v3 on Microsoft.Testing.Platform: the test project is an executable that speaks MTP's server mode. .NET 10
+       runs it under netcoredbg; .NET Framework 4.7.2 under eludite-dbg-mono (Mono). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0;net472</TargetFrameworks>
+    <RootNamespace>Corpus.XunitV3</RootNamespace>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+</Project>
