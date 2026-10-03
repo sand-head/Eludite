@@ -164,7 +164,7 @@ fn initialize_negotiates_version() {
     ));
     assert_eq!(r["protocolVersion"], crate::SUPPORTED_PROTOCOL_VERSIONS[0]);
     assert_eq!(result(call(&s, "ping", json!({}))), json!({}));
-    assert_eq!(error_code(call(&s, "resources/list", json!({}))), -32601);
+    assert_eq!(error_code(call(&s, "prompts/list", json!({}))), -32601);
 }
 
 #[test]
@@ -923,4 +923,136 @@ fn the_gate_sees_the_effective_class() {
     ));
     let text = out["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("is class dangerous (going far)"), "{text}");
+}
+
+// ----- Brief 0027: the guides as MCP resources. -----
+
+const RESOURCE_SCHEMA: &str = include_str!("../../../protocol/schemas/mcp-resource.json");
+
+#[test]
+fn the_debugging_guide_is_a_resource() {
+    let s = server();
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18", "capabilities": {}}),
+    ));
+    assert_eq!(init["capabilities"]["resources"], json!({}));
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("eludite://guides/debugging")
+    );
+    let schema: Value = serde_json::from_str(RESOURCE_SCHEMA).unwrap();
+    let list = result(call(&s, "resources/list", json!({})));
+    let errors = validate(&schema["$defs"]["list_result"], &list);
+    assert!(errors.is_empty(), "{errors:?}");
+    let resources = list["resources"].as_array().unwrap();
+    assert_eq!(resources.len(), 1);
+    let errors = validate(&schema, &resources[0]);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(resources[0]["uri"], "eludite://guides/debugging");
+    assert_eq!(resources[0]["mimeType"], "text/markdown");
+    assert!(list.get("nextCursor").is_none());
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/debugging"}),
+    ));
+    let errors = validate(&schema["$defs"]["read_result"], &read);
+    assert!(errors.is_empty(), "{errors:?}");
+    let text = read["contents"][0]["text"].as_str().unwrap();
+    assert_eq!(
+        text,
+        include_str!("../../../docs/agents/debugging.md"),
+        "the file compiled in"
+    );
+    assert_eq!(resources[0]["size"], text.len());
+    assert_eq!(
+        error_code(call(
+            &s,
+            "resources/read",
+            json!({"uri": "eludite://guides/nope"})
+        )),
+        crate::resources::RESOURCE_NOT_FOUND
+    );
+    assert_eq!(
+        error_code(call(&s, "resources/read", json!({}))),
+        crate::ErrorObject::INVALID_PARAMS
+    );
+    let templates = result(call(&s, "resources/templates/list", json!({})));
+    let errors = validate(&schema["$defs"]["templates_list_result"], &templates);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert_eq!(templates["resourceTemplates"], json!([]));
+}
+
+/// The guide stays short and names only commands that exist (brief 0027 Contract).
+#[test]
+fn the_debugging_guide_is_short_and_names_real_commands() {
+    let text = crate::resources::DEBUGGING.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 2_000, "{words} words");
+    // Every `eludite.debug.<name>` it names is a debug command; the bare `<name>`s after a full id too.
+    let ids: Vec<&str> = eludite_commands::debug::ALL.to_vec();
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.debug.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        // `eludite.debug.*` and `eludite.debug.<name>` name the family.
+        if id == "eludite.debug" {
+            continue;
+        }
+        assert!(
+            ids.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named > 15, "{named}");
+    for bare in [
+        "snapshot",
+        "stack",
+        "variables",
+        "output",
+        "exception_info",
+        "wait",
+        "run_until",
+        "trace",
+        "continue",
+        "step_over",
+        "step_into",
+        "step_out",
+        "run_to_cursor",
+        "pause",
+        "set_variable",
+        "set_next_statement",
+        "toggle_breakpoint",
+        "exception_settings",
+        "start",
+        "attach",
+        "processes",
+        "restart",
+        "stop",
+        "allow_agents",
+        "evaluate",
+        "select_frame",
+        "state",
+    ] {
+        assert!(
+            ids.contains(&format!("eludite.debug.{bare}").as_str()),
+            "{bare}"
+        );
+    }
+    // In the order of proposal 0001 section 9.
+    let at = |s: &str| text.find(s).unwrap_or_else(|| panic!("{s}"));
+    assert!(at("## 1. Read `snapshot`") < at("## 2. Prefer `run_until` and `trace`"));
+    assert!(at("## 2.") < at("## 3. Pass `stop`"));
+    assert!(at("## 3.") < at("## 4. Read `output` by cursor"));
+    assert!(at("## 4.") < at("## 5. When a call returns `interrupted_by: \"user\"`"));
+    assert!(at("## 5.") < at("## 6. What the policy may refuse"));
+    assert!(text.contains(eludite_commands::debug::AGENTS_NOT_ALLOWED));
 }
