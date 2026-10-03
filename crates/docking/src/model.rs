@@ -64,6 +64,8 @@ pub mod ids {
     pub const THREADS: &str = "threads";
     pub const BREAKPOINTS: &str = "breakpoints";
     pub const EXCEPTION_SETTINGS: &str = "exception_settings";
+    /// Test > Test Explorer (brief 0035): closed until shown, docked left as Visual Studio docks it.
+    pub const TEST_EXPLORER: &str = "test_explorer";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -130,6 +132,7 @@ impl ToolWindowRegistry {
                 "Exception Settings",
                 DockSide::Bottom,
             ),
+            (ids::TEST_EXPLORER, "Test Explorer", DockSide::Left),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -1243,10 +1246,16 @@ mod tests {
                 ids::CALL_STACK,
                 ids::THREADS,
                 ids::BREAKPOINTS,
-                ids::EXCEPTION_SETTINGS
+                ids::EXCEPTION_SETTINGS,
+                ids::TEST_EXPLORER
             ]
         );
-        assert!(l.hidden.iter().all(|h| h.side == DockSide::Bottom));
+        // The Test Explorer (brief 0035) opens docked left; the others at the bottom.
+        assert!(
+            l.hidden
+                .iter()
+                .all(|h| h.side == DockSide::Bottom || h.id == ids::TEST_EXPLORER)
+        );
         assert!(l.floating.is_empty());
         let mut shown = l.clone();
         shown.show(ids::FIND_ALL_REFERENCES).unwrap();

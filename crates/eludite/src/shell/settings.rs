@@ -14,6 +14,7 @@
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
+//! | `test.parallel`, `test.runSettings`, `test.vstestConsolePath` | the next test discovery and run (`test_runs`, brief 0035) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
 //! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`, `ELUDITE_CHROME`; brief 0022's `ELUDITE_MONO_PREFIX`
@@ -176,6 +177,7 @@ impl Shell {
         self.debug.set_agents_default(applied.agents_drive);
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
+        self.apply_test_settings();
         let agents_changed = self
             .applied_settings
             .as_ref()

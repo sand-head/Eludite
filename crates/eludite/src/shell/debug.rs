@@ -924,6 +924,9 @@ struct Slot {
 pub struct Debugger {
     /// Per session: the session's model (with the shared breakpoints, exception settings and watch expressions).
     pub model: DebugModel,
+    /// The next launch's configuration as the Test Explorer computed it (brief 0035: a test application with
+    /// `--server --client-port`), instead of the project's own; taken by that launch.
+    pub test_launch: Option<launch::LaunchConfig>,
     pub windows: DebugWindows,
     setup: DebugSetup,
     tx: UnboundedSender<DebugMsg>,
@@ -1081,6 +1084,7 @@ impl Debugger {
                 started: None,
                 restarting: false,
                 start_cargo: cmds::CargoOptions::default(),
+                test_launch: None,
             },
             rx,
         )
@@ -2418,6 +2422,8 @@ struct LaunchJob {
     setup: DebugSetup,
     /// A Cargo package's start (brief 0029).
     native: native::NativeJob,
+    /// The Test Explorer's launch configuration instead of the project's (brief 0035).
+    config: Option<launch::LaunchConfig>,
     tx: UnboundedSender<DebugMsg>,
 }
 
@@ -2435,6 +2441,7 @@ fn launch_thread(job: LaunchJob) {
         exceptions,
         setup,
         native,
+        config: test_config,
         tx,
     } = job;
     let fail = |message: String| {
@@ -2452,8 +2459,10 @@ fn launch_thread(job: LaunchJob) {
         native.cargo.as_ref(),
     );
     let mut native_launch = None;
-    let config = match &package {
-        Some(p) => {
+    let package = if test_config.is_some() { None } else { package };
+    let config = match (&package, test_config) {
+        (_, Some(c)) => c,
+        (Some(p), None) => {
             let console = |line: &str| {
                 let _ = tx.unbounded_send(DebugMsg::Client {
                     generation,
@@ -2465,14 +2474,14 @@ fn launch_thread(job: LaunchJob) {
                 Err(e) => return fail(e),
             }
         }
-        None if native.options.is_set() => {
+        (None, None) if native.options.is_set() => {
             return fail(
                 "`target`, `test` and `args` apply to Cargo packages; a .NET project's arguments come from its \
                  launchSettings.json profile"
                     .into(),
             );
         }
-        None => match resolve_launch(
+        (None, None) => match resolve_launch(
             hint.as_deref(),
             profile.as_deref(),
             &projects,
@@ -4596,6 +4605,8 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The Test Explorer's builds end here too (brief 0035).
+        self.test_build_done(ticket, &outcome, window, cx);
         let mut waiting: Vec<u32> = self
             .debug
             .others
@@ -4765,6 +4776,7 @@ impl Shell {
                 options: d.cargo_options.clone(),
                 rust_panics: d.model.exceptions.break_on_rust_panic,
             },
+            config: d.test_launch.take(),
             tx: d.tx.clone(),
         };
         std::thread::Builder::new()

@@ -28,7 +28,8 @@
 //! arrives line by line as [`SessionEvent::HostLog`] (the Output window's Host source) as well as on the shell's
 //! stderr. After the host restarts, the worker asks `eludite/build/status` before reopening the solution and reports it
 //! as [`SessionEvent::BuildStatus`], so the shell can replay a build that is still running or end the one that died
-//! with the old host (brief 0020).
+//! with the old host (brief 0020). Tests (brief 0035) go through [`ServerSession::request`]; their updates arrive as
+//! [`SessionEvent::TestUpdate`], and after a restart `eludite/test/status` as [`SessionEvent::TestStatus`].
 //!
 //! Generic servers (brief 0019, [`ServerSession::spawn_generic`]): the server starts with the first document opened
 //! for it, rooted at the workspace root the shell computed (the Cargo workspace root from `cargo metadata`). The
@@ -225,6 +226,10 @@ pub enum SessionEvent {
     ServerGeneration(Generation),
     /// `eludite/build/status` after the host restarted (brief 0020): the running build to replay, if any.
     BuildStatus(host::BuildStatusResult),
+    /// `eludite/test/update` (brief 0035), any generation: the Test Explorer drops a stale one.
+    TestUpdate(Box<host::TestUpdate>),
+    /// `eludite/test/status` after the host restarted (brief 0035): the discoveries and runs to replay.
+    TestStatus(host::TestStatusResult),
 }
 
 enum Cmd {
@@ -649,6 +654,7 @@ impl Worker {
                     // A build the old host ran is either still running (a host the shell reattached to) or gone:
                     // ask before reopening the solution, which would cancel it.
                     self.build_status();
+                    self.test_status();
                     let solution = lock(&self.shared).solution.clone();
                     if let Some(path) = solution
                         && !self.is_generic()
@@ -763,6 +769,26 @@ impl Worker {
                     }
                 },
             );
+    }
+
+    /// `eludite/test/status` (brief 0035), answered as [`SessionEvent::TestStatus`] from a waiter thread.
+    fn test_status(&self) {
+        let Some(client) = self.host() else { return };
+        let Ok(pending) = client.request::<host::TestStatus>(()) else {
+            return;
+        };
+        let events = self.events.clone();
+        let _ = thread::Builder::new()
+            .name("eludite-test-status".into())
+            .spawn(move || {
+                let status = pending
+                    .wait_timeout(Duration::from_secs(10))
+                    .unwrap_or_else(|e| {
+                        eprintln!("eludite: eludite/test/status: {e}");
+                        host::TestStatusResult::default()
+                    });
+                let _ = events.unbounded_send(SessionEvent::TestStatus(status));
+            });
     }
 
     fn send_open(&self, uri: &str, language_id: &str, version: i32, text: &str) {
@@ -1095,6 +1121,7 @@ impl Pump {
                 Event::ServerStatus(s) => SessionEvent::ServerStatus(s),
                 Event::BuildOutput(o) => SessionEvent::BuildOutput(o),
                 Event::BuildProgress(p) => SessionEvent::BuildProgress(p),
+                Event::TestUpdate(u) => SessionEvent::TestUpdate(u),
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
                     finished: Box::new(f),
                     received: Instant::now(),
