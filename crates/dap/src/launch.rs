@@ -18,9 +18,17 @@
 //!   Framework on Linux and macOS; on Windows .NET Framework needs `eludite-dbg-netfx` (brief 0004), not built yet;
 //!   lldb-dap for a Cargo package's native executable ([`FrameworkKind::Native`], brief 0029; its launch configuration
 //!   is [`crate::cargo`]'s, made into a [`LaunchConfig`] by [`LaunchConfig::from_cargo`]).
+//! - **The browser** (brief 0037, [`browser_launch`]): a web project's profile with `launchBrowser` opens its
+//!   `launchUrl` joined to the first application url (`ASPNETCORE_URLS` it sets, else `applicationUrl`), http before
+//!   https unless the profile is named `https` ([`browser_launch_from`], [`join_url`]); an https page needs the
+//!   ASP.NET Core development certificate (`dotnet dev-certs https --check`, [`https_choice`]) or opens over http
+//!   with Visual Studio's message. [`ServerWatch`] reads the program's output for Kestrel's `Now listening on:` line
+//!   and probes the url ([`probe`]) until the server is up, on the shell's launch thread.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -345,6 +353,10 @@ pub struct LaunchProfile {
     pub environment_variables: BTreeMap<String, String>,
     pub working_directory: Option<String>,
     pub application_url: Option<String>,
+    /// Open a browser on the site when the project starts (brief 0037).
+    pub launch_browser: bool,
+    /// The page to open: relative to the application url (`swagger`, `""`), or absolute.
+    pub launch_url: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -556,6 +568,410 @@ impl LaunchConfig {
             }
         })
     }
+}
+
+// ---- the browser a web project's launch opens (brief 0037) ----
+
+/// What a web project's start opens, from its launch profile (brief 0037).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserLaunch {
+    /// The profile's `launchBrowser`: the page opens unless the start or the settings say otherwise.
+    pub requested: bool,
+    /// The page: the profile's `launchUrl` joined to the chosen application url. `None` when no url is configured:
+    /// the page is then `launch_url` joined to the url Kestrel reports listening on ([`listening_url`]).
+    pub url: Option<String>,
+    /// The http page beside an https [`BrowserLaunch::url`] (the same `launchUrl` on the first http application
+    /// url), opened instead when the ASP.NET Core development certificate is missing ([`https_choice`]).
+    pub http_url: Option<String>,
+    /// The profile's `launchUrl` as written (`""` when it has none).
+    pub launch_url: String,
+}
+
+/// The line Kestrel writes for each address it listens on (`Microsoft.Hosting.Lifetime`).
+pub const LISTENING: &str = "Now listening on:";
+
+/// The url of Kestrel's `Now listening on: <url>` in `line` (any prefix: a log category, colors), with a wildcard
+/// host (`*`, `+`, `0.0.0.0`, `[::]`) made browsable as `localhost`.
+pub fn listening_url(line: &str) -> Option<String> {
+    let rest = &line[line.find(LISTENING)? + LISTENING.len()..];
+    let url = rest
+        .split_whitespace()
+        .next()?
+        .trim_end_matches(['.', ',', '\u{1b}']);
+    url.contains("://").then(|| browsable(url))
+}
+
+/// `url` with a wildcard host (`*`, `+`, `0.0.0.0`, `[::]`) replaced by `localhost`, as Visual Studio browses it.
+pub fn browsable(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(i) => rest.split_at(i),
+        None => (rest, ""),
+    };
+    let (host, port) = split_host_port(authority);
+    let host = match host {
+        "*" | "+" | "0.0.0.0" | "[::]" => "localhost",
+        h => h,
+    };
+    match port {
+        Some(p) => format!("{scheme}://{host}:{p}{path}"),
+        None => format!("{scheme}://{host}{path}"),
+    }
+}
+
+/// `host[:port]` (an IPv6 host in brackets keeps them).
+fn split_host_port(authority: &str) -> (&str, Option<&str>) {
+    if authority.starts_with('[') {
+        return match authority.find("]:") {
+            Some(i) => (&authority[..=i], Some(&authority[i + 2..])),
+            None => (authority, None),
+        };
+    }
+    match authority.rsplit_once(':') {
+        Some((h, p)) => (h, Some(p)),
+        None => (authority, None),
+    }
+}
+
+/// The page: `launch_url` when it is absolute, else joined to `base` with one `/` between (an empty `launchUrl` is
+/// the site's root, `http://localhost:5000/`).
+pub fn join_url(base: &str, launch_url: &str) -> String {
+    let launch_url = launch_url.trim();
+    if launch_url.contains("://") {
+        return launch_url.to_owned();
+    }
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        launch_url.trim_start_matches('/')
+    )
+}
+
+/// What `profile` opens (brief 0037): the page is its `launchUrl` joined to the first of its application urls
+/// (`ASPNETCORE_URLS` from its environment, which Kestrel listens on, else `applicationUrl`), http before https
+/// unless the profile is named `https`. `web`: the project's SDK is `Microsoft.NET.Sdk.Web`. `None` when there is
+/// nothing to browse: no profile url, no `launchBrowser` and not a web project (a console program).
+pub fn browser_launch_from(profile: Option<&LaunchProfile>, web: bool) -> Option<BrowserLaunch> {
+    let requested = profile.is_some_and(|p| p.launch_browser);
+    let urls: Vec<String> = profile
+        .and_then(|p| {
+            p.environment_variables
+                .get("ASPNETCORE_URLS")
+                .or(p.application_url.as_ref())
+        })
+        .map(|v| {
+            v.split(';')
+                .map(str::trim)
+                .filter(|u| u.contains("://"))
+                .map(browsable)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !requested && urls.is_empty() && !web {
+        return None;
+    }
+    let launch_url = profile
+        .and_then(|p| p.launch_url.clone())
+        .unwrap_or_default();
+    let https_profile = profile.is_some_and(|p| p.name.eq_ignore_ascii_case("https"));
+    let first = |scheme: &str| {
+        urls.iter()
+            .find(|u| u.starts_with(&format!("{scheme}://")))
+            .cloned()
+    };
+    let base = if https_profile {
+        first("https")
+    } else {
+        first("http")
+    }
+    .or_else(|| urls.first().cloned());
+    let url = if launch_url.contains("://") {
+        Some(launch_url.trim().to_owned())
+    } else {
+        base.as_deref().map(|b| join_url(b, &launch_url))
+    };
+    let http_url = url
+        .as_deref()
+        .filter(|u| u.starts_with("https://"))
+        .and(first("http"))
+        .map(|b| join_url(&b, &launch_url))
+        .filter(|_| !launch_url.contains("://"));
+    Some(BrowserLaunch {
+        requested,
+        url,
+        http_url,
+        launch_url,
+    })
+}
+
+/// What `config`'s start opens: [`browser_launch_from`] on its launch profile (read again from the project's
+/// `launchSettings.json`) and its SDK. `None` for a Cargo package, a project that cannot be read, and anything with
+/// nothing to browse. Reads files: off the UI thread.
+pub fn browser_launch(config: &LaunchConfig) -> Option<BrowserLaunch> {
+    if config.kind == FrameworkKind::Native {
+        return None;
+    }
+    let info = read_project(&config.project).ok()?;
+    let web = info
+        .sdk
+        .as_deref()
+        .is_some_and(|s| s.eq_ignore_ascii_case("Microsoft.NET.Sdk.Web"));
+    let dir = config.project.parent().unwrap_or(Path::new("."));
+    let profiles = read_launch_settings(dir).unwrap_or_default();
+    let profile = config
+        .profile
+        .as_deref()
+        .and_then(|name| profiles.iter().find(|p| p.name == name));
+    browser_launch_from(profile, web)
+}
+
+/// What Visual Studio says when an https profile starts without a trusted ASP.NET Core development certificate; the
+/// page then opens over http when the profile has an http url.
+pub const DEV_CERT_MESSAGE: &str = "This project is configured to use SSL. To avoid SSL warnings in the browser you \
+    can choose to trust the self-signed certificate that ASP.NET Core has generated: run `dotnet dev-certs https \
+    --trust`.";
+
+/// Whether the ASP.NET Core development certificate is there: `dotnet dev-certs https --check` (exit code 0).
+/// Runs a process: off the UI thread, once per session.
+pub fn dev_cert_found(dotnet: &str) -> bool {
+    std::process::Command::new(dotnet)
+        .args(["dev-certs", "https", "--check"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// The page to open and a note for the Output window: an https page needs the development certificate
+/// (`cert_found`, asked only for an https page); without it the http page opens when the profile has one, with
+/// Visual Studio's message.
+pub fn https_choice(
+    launch: &BrowserLaunch,
+    cert_found: impl FnOnce() -> bool,
+) -> (Option<String>, Option<String>) {
+    let Some(url) = launch.url.clone() else {
+        return (None, None);
+    };
+    if !url.starts_with("https://") || cert_found() {
+        return (Some(url), None);
+    }
+    match &launch.http_url {
+        Some(http) => (
+            Some(http.clone()),
+            Some(format!(
+                "{DEV_CERT_MESSAGE} No ASP.NET Core development certificate was found (dotnet dev-certs https \
+                 --check), so the page opens over http: {http}"
+            )),
+        ),
+        None => (
+            Some(url),
+            Some(format!(
+                "{DEV_CERT_MESSAGE} No ASP.NET Core development certificate was found (dotnet dev-certs https \
+                 --check); the browser may warn about the page's certificate."
+            )),
+        ),
+    }
+}
+
+/// How a readiness wait ended ([`ServerWatch::wait_up`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Readiness {
+    /// The program's output showed Kestrel's listening line: the url it named, and when it was seen.
+    Listening {
+        url: String,
+        at: Instant,
+    },
+    /// The url answered (an HTTP status; `None` for https, where an accepted connection is the answer: no TLS
+    /// client here).
+    Answered {
+        status: Option<u16>,
+    },
+    TimedOut,
+    Cancelled,
+}
+
+#[derive(Debug, Default)]
+struct WatchState {
+    /// The output's unfinished last line.
+    partial: String,
+    /// The urls Kestrel named since the last [`ServerWatch::rearm`], and when the first was seen.
+    heard: Vec<String>,
+    heard_at: Option<Instant>,
+    cancelled: bool,
+}
+
+/// Watches a program's output for Kestrel's `Now listening on:` line and waits for its server (brief 0037). The
+/// output's readers [`ServerWatch::feed`] it from any thread; [`ServerWatch::wait_up`] blocks the launch thread,
+/// never the UI thread.
+#[derive(Debug, Default)]
+pub struct ServerWatch {
+    state: Mutex<WatchState>,
+    wake: Condvar,
+}
+
+/// How long [`ServerWatch::wait_up`] sleeps between probes of a url that refused (a listening line wakes it at once).
+const PROBE_INTERVAL: Duration = Duration::from_millis(100);
+
+impl ServerWatch {
+    pub fn new() -> Arc<Self> {
+        Arc::default()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, WatchState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Some of the program's output (any chunking).
+    pub fn feed(&self, text: &str) {
+        let mut s = self.lock();
+        s.partial.push_str(text);
+        let mut heard = false;
+        while let Some(i) = s.partial.find('\n') {
+            let line: String = s.partial.drain(..=i).collect();
+            if let Some(url) = listening_url(&line) {
+                s.heard.push(url);
+                s.heard_at.get_or_insert_with(Instant::now);
+                heard = true;
+            }
+        }
+        // A program that never ends a line does not grow this without bound.
+        if s.partial.len() > 64 * 1024 {
+            let cut = s.partial.len() - 4096;
+            let cut = (cut..s.partial.len())
+                .find(|i| s.partial.is_char_boundary(*i))
+                .unwrap_or(s.partial.len());
+            s.partial.drain(..cut);
+        }
+        drop(s);
+        if heard {
+            self.wake.notify_all();
+        }
+    }
+
+    /// The session ended: a wait in progress ends with [`Readiness::Cancelled`].
+    pub fn cancel(&self) {
+        self.lock().cancelled = true;
+        self.wake.notify_all();
+    }
+
+    /// The program starts over (a restart in the same session): forget the urls heard.
+    pub fn rearm(&self) {
+        let mut s = self.lock();
+        s.heard.clear();
+        s.heard_at = None;
+        s.partial.clear();
+        s.cancelled = false;
+    }
+
+    /// The urls Kestrel named since the last [`ServerWatch::rearm`].
+    pub fn heard(&self) -> Vec<String> {
+        self.lock().heard.clone()
+    }
+
+    /// Wait until the server is up: Kestrel's listening line in the output, or `url` answering (each probe capped at
+    /// `probe_cap`), for at most `timeout`. Without a `url` only the line counts.
+    pub fn wait_up(&self, url: Option<&str>, timeout: Duration, probe_cap: Duration) -> Readiness {
+        let deadline = Instant::now() + timeout;
+        loop {
+            {
+                let s = self.lock();
+                if s.cancelled {
+                    return Readiness::Cancelled;
+                }
+                if let (Some(first), Some(at)) = (s.heard.first(), s.heard_at) {
+                    // Prefer the http address Kestrel named (as the page rule does).
+                    let url = s
+                        .heard
+                        .iter()
+                        .find(|u| u.starts_with("http://"))
+                        .unwrap_or(first)
+                        .clone();
+                    return Readiness::Listening { url, at };
+                }
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Readiness::TimedOut;
+            }
+            if let Some(u) = url
+                && let Some(status) = probe(u, probe_cap.min(left))
+            {
+                return Readiness::Answered { status };
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            let s = self.lock();
+            if s.cancelled || !s.heard.is_empty() {
+                continue;
+            }
+            let _ = self
+                .wake
+                .wait_timeout(s, PROBE_INTERVAL.min(left))
+                .unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+/// Whether `url` answers within `cap`: `Some(Some(status))` for an HTTP answer (any status), `Some(None)` for an
+/// https url whose port accepted the connection (no TLS client here), `None` when nothing answered.
+pub fn probe(url: &str, cap: Duration) -> Option<Option<u16>> {
+    use std::io::{Read as _, Write as _};
+    use std::net::ToSocketAddrs as _;
+    let start = Instant::now();
+    let (scheme, rest) = url.split_once("://")?;
+    let https = scheme.eq_ignore_ascii_case("https");
+    if !https && !scheme.eq_ignore_ascii_case("http") {
+        return None;
+    }
+    let (authority, path) = match rest.find(['/', '?', '#']) {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    let path = if path.starts_with('/') { path } else { "/" };
+    let (host, port) = split_host_port(authority);
+    let port: u16 = match port {
+        Some(p) => p.parse().ok()?,
+        None if https => 443,
+        None => 80,
+    };
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    let addrs: Vec<std::net::SocketAddr> = (bare, port).to_socket_addrs().ok()?.collect();
+    let left = |cap: Duration| cap.saturating_sub(start.elapsed());
+    let mut stream = addrs.iter().find_map(|a| {
+        let t = left(cap);
+        (!t.is_zero())
+            .then(|| std::net::TcpStream::connect_timeout(a, t).ok())
+            .flatten()
+    })?;
+    if https {
+        return Some(None);
+    }
+    let t = left(cap).max(Duration::from_millis(1));
+    stream.set_read_timeout(Some(t)).ok()?;
+    stream.set_write_timeout(Some(t)).ok()?;
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: Eludite\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).ok()?;
+    let mut head = Vec::new();
+    let mut buf = [0u8; 256];
+    while !head.windows(2).any(|w| w == b"\r\n") && head.len() < 4096 {
+        let n = stream.read(&mut buf).ok()?;
+        if n == 0 {
+            break;
+        }
+        head.extend_from_slice(&buf[..n]);
+    }
+    let line = String::from_utf8_lossy(&head);
+    let status = line
+        .strip_prefix("HTTP/")?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()?;
+    Some(Some(status))
 }
 
 /// The startup project among `projects` (in solution order): the first executable one.
@@ -852,5 +1268,373 @@ mod tests {
         assert_eq!(split_command_line(r#"a "b c" d"#), ["a", "b c", "d"]);
         assert_eq!(split_command_line(r#"x\"y "#), ["x\"y"]);
         assert_eq!(split_command_line(r#""""#), [""]);
+    }
+
+    fn profile(name: &str, json: &str) -> LaunchProfile {
+        let mut p: LaunchProfile = serde_json::from_str(json).unwrap();
+        p.name = name.into();
+        p
+    }
+
+    #[test]
+    fn browser_launches_follow_the_profile_as_visual_studio_does() {
+        // Visual Studio's template: `http` and `https` profiles, `launchBrowser`, an empty `launchUrl`.
+        let http = profile(
+            "http",
+            r#"{"commandName": "Project", "launchBrowser": true, "launchUrl": "",
+                "applicationUrl": "http://localhost:5180"}"#,
+        );
+        let b = browser_launch_from(Some(&http), true).unwrap();
+        assert!(b.requested);
+        assert_eq!(b.url.as_deref(), Some("http://localhost:5180/"));
+        assert_eq!(b.http_url, None);
+        // Without launchUrl: the site's root; with one, joined with one slash (leading slash or not).
+        let none = profile(
+            "x",
+            r#"{"launchBrowser": true, "applicationUrl": "http://localhost:5000/"}"#,
+        );
+        assert_eq!(
+            browser_launch_from(Some(&none), false)
+                .unwrap()
+                .url
+                .as_deref(),
+            Some("http://localhost:5000/")
+        );
+        for launch in ["swagger", "/swagger"] {
+            let p = profile(
+                "x",
+                &format!(
+                    r#"{{"launchBrowser": true, "launchUrl": "{launch}", "applicationUrl": "http://localhost:5000"}}"#
+                ),
+            );
+            assert_eq!(
+                browser_launch_from(Some(&p), true).unwrap().url.as_deref(),
+                Some("http://localhost:5000/swagger")
+            );
+        }
+        // An application url list: http first, unless the profile is `https`.
+        let list = r#"{"launchBrowser": true, "launchUrl": "api/time",
+                       "applicationUrl": "https://localhost:7180;http://localhost:5180"}"#;
+        let b = browser_launch_from(Some(&profile("Web", list)), true).unwrap();
+        assert_eq!(b.url.as_deref(), Some("http://localhost:5180/api/time"));
+        assert_eq!(b.http_url, None);
+        let b = browser_launch_from(Some(&profile("https", list)), true).unwrap();
+        assert_eq!(b.url.as_deref(), Some("https://localhost:7180/api/time"));
+        assert_eq!(
+            b.http_url.as_deref(),
+            Some("http://localhost:5180/api/time")
+        );
+        // Only https in the list: https whatever the profile's name.
+        let only = profile(
+            "Web",
+            r#"{"launchBrowser": true, "applicationUrl": "https://localhost:7001"}"#,
+        );
+        let b = browser_launch_from(Some(&only), true).unwrap();
+        assert_eq!(
+            (b.url.as_deref(), b.http_url.as_deref()),
+            (Some("https://localhost:7001/"), None)
+        );
+        // ASPNETCORE_URLS set by the profile is what Kestrel listens on: it wins, wildcards made browsable.
+        let env = profile(
+            "Web",
+            r#"{"launchBrowser": true, "applicationUrl": "http://localhost:5000",
+                "environmentVariables": {"ASPNETCORE_URLS": "http://+:8080;https://*:8443"}}"#,
+        );
+        assert_eq!(
+            browser_launch_from(Some(&env), true)
+                .unwrap()
+                .url
+                .as_deref(),
+            Some("http://localhost:8080/")
+        );
+        // An absolute launchUrl is the page.
+        let abs = profile(
+            "Web",
+            r#"{"launchBrowser": true, "launchUrl": "http://127.0.0.1:9000/x", "applicationUrl": "http://localhost:5000"}"#,
+        );
+        assert_eq!(
+            browser_launch_from(Some(&abs), true)
+                .unwrap()
+                .url
+                .as_deref(),
+            Some("http://127.0.0.1:9000/x")
+        );
+        // launchBrowser false: a plan the start may still ask for, not requested.
+        let off = profile(
+            "Web",
+            r#"{"launchBrowser": false, "applicationUrl": "http://localhost:5000"}"#,
+        );
+        assert!(!browser_launch_from(Some(&off), true).unwrap().requested);
+        // A web project without a url: the page comes from Kestrel's line.
+        let bare =
+            browser_launch_from(Some(&profile("Web", r#"{"launchBrowser": true}"#)), true).unwrap();
+        assert_eq!((bare.url, bare.requested), (None, true));
+        // A console program (no profile url, no launchBrowser, not a web project): nothing to browse.
+        assert_eq!(browser_launch_from(None, false), None);
+        assert_eq!(
+            browser_launch_from(
+                Some(&profile("App", r#"{"commandName": "Project"}"#)),
+                false
+            ),
+            None
+        );
+        // A web project without launchSettings.json: Kestrel's default address, from its line.
+        assert_eq!(
+            browser_launch_from(None, true),
+            Some(BrowserLaunch {
+                requested: false,
+                url: None,
+                http_url: None,
+                launch_url: String::new()
+            })
+        );
+    }
+
+    #[test]
+    fn urls_join_and_kestrels_line_names_its_address() {
+        assert_eq!(
+            join_url("http://localhost:5000", ""),
+            "http://localhost:5000/"
+        );
+        assert_eq!(
+            join_url("http://localhost:5000/", "/a/b?c=1"),
+            "http://localhost:5000/a/b?c=1"
+        );
+        assert_eq!(
+            join_url("http://localhost:5000", "https://x.test/"),
+            "https://x.test/"
+        );
+        assert_eq!(browsable("http://0.0.0.0:80"), "http://localhost:80");
+        assert_eq!(browsable("http://[::]:5000/"), "http://localhost:5000/");
+        assert_eq!(browsable("https://*:7001"), "https://localhost:7001");
+        assert_eq!(browsable("http://[::1]:5000"), "http://[::1]:5000");
+        assert_eq!(browsable("http://example.test"), "http://example.test");
+        assert_eq!(
+            listening_url("      Now listening on: http://localhost:5180"),
+            Some("http://localhost:5180".into())
+        );
+        assert_eq!(
+            listening_url(
+                "info: Microsoft.Hosting.Lifetime[14] Now listening on: https://[::]:7180\r"
+            ),
+            Some("https://localhost:7180".into())
+        );
+        assert_eq!(listening_url("Now listening on: nothing"), None);
+        assert_eq!(listening_url("Application started."), None);
+    }
+
+    #[test]
+    fn the_https_profile_needs_the_development_certificate() {
+        let both = BrowserLaunch {
+            requested: true,
+            url: Some("https://localhost:7180/".into()),
+            http_url: Some("http://localhost:5180/".into()),
+            launch_url: String::new(),
+        };
+        assert_eq!(
+            https_choice(&both, || true),
+            (Some("https://localhost:7180/".into()), None)
+        );
+        let (url, note) = https_choice(&both, || false);
+        assert_eq!(url.as_deref(), Some("http://localhost:5180/"));
+        let note = note.unwrap();
+        assert!(note.starts_with(DEV_CERT_MESSAGE), "{note}");
+        assert!(note.contains("http://localhost:5180/"), "{note}");
+        // No http url: https anyway, with the message.
+        let only = BrowserLaunch {
+            http_url: None,
+            ..both.clone()
+        };
+        let (url, note) = https_choice(&only, || false);
+        assert_eq!(url.as_deref(), Some("https://localhost:7180/"));
+        assert!(note.unwrap().contains("may warn"));
+        // An http page never asks for the certificate.
+        let http = BrowserLaunch {
+            url: Some("http://localhost:5180/".into()),
+            ..both
+        };
+        assert_eq!(
+            https_choice(&http, || panic!("not asked")),
+            (Some("http://localhost:5180/".into()), None)
+        );
+        // A dotnet that is not there has no certificate.
+        assert!(!dev_cert_found("/nonexistent/dotnet"));
+    }
+
+    #[test]
+    fn browser_launch_reads_the_projects_sdk_and_profile() {
+        let t = tempfile::tempdir().unwrap();
+        let web = t.path().join("Web/Web.csproj");
+        write(
+            &web,
+            "<Project Sdk=\"Microsoft.NET.Sdk.Web\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+        );
+        write(&t.path().join("Web/bin/Debug/net10.0/Web.dll"), "");
+        write(
+            &t.path().join("Web/Properties/launchSettings.json"),
+            r#"{"profiles": {
+                 "http": {"commandName": "Project", "launchBrowser": true, "launchUrl": "",
+                          "applicationUrl": "http://localhost:5180",
+                          "environmentVariables": {"ASPNETCORE_ENVIRONMENT": "Development"}},
+                 "https": {"commandName": "Project", "launchBrowser": true, "launchUrl": "",
+                           "applicationUrl": "https://localhost:7180;http://localhost:5180"}
+               }}"#,
+        );
+        let c = launch_config(&web, None).unwrap();
+        assert_eq!(c.profile.as_deref(), Some("http"));
+        let b = browser_launch(&c).unwrap();
+        assert_eq!(b.url.as_deref(), Some("http://localhost:5180/"));
+        let c = launch_config(&web, Some("https")).unwrap();
+        let b = browser_launch(&c).unwrap();
+        assert_eq!(b.url.as_deref(), Some("https://localhost:7180/"));
+        assert_eq!(b.http_url.as_deref(), Some("http://localhost:5180/"));
+        // A console project: nothing.
+        let app = t.path().join("App/App.csproj");
+        write(
+            &app,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>",
+        );
+        write(&t.path().join("App/bin/Debug/net10.0/App.dll"), "");
+        assert_eq!(browser_launch(&launch_config(&app, None).unwrap()), None);
+        // A Cargo package: nothing.
+        let cargo = crate::cargo::CargoLaunch {
+            manifest: t.path().join("Cargo.toml"),
+            package: "app".into(),
+            target: "app".into(),
+            test: false,
+            program: "/w/target/debug/app".into(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: "/w".into(),
+        };
+        assert_eq!(browser_launch(&LaunchConfig::from_cargo(&cargo)), None);
+    }
+
+    /// A one-request-at-a-time HTTP server answering `status`, counting requests.
+    fn http_server(status: u16) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{BufRead as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let c = count.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 2 {
+                    line.clear();
+                }
+                let mut s = stream;
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 {status} Whatever\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+            }
+        });
+        (format!("http://127.0.0.1:{port}"), count)
+    }
+
+    /// A port nothing listens on.
+    fn closed_port() -> u16 {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn the_server_is_up_on_its_listening_line_or_any_http_answer() {
+        // Any status counts, a 404 or a 500 included.
+        let (url, _) = http_server(404);
+        assert_eq!(
+            probe(&format!("{url}/x"), Duration::from_secs(1)),
+            Some(Some(404))
+        );
+        let (url500, _) = http_server(500);
+        let w = ServerWatch::new();
+        assert_eq!(
+            w.wait_up(
+                Some(&url500),
+                Duration::from_secs(5),
+                Duration::from_secs(1)
+            ),
+            Readiness::Answered { status: Some(500) }
+        );
+        // An https url: the accepted connection is the answer.
+        let (https, _) = http_server(200);
+        let https = https.replace("http://", "https://");
+        assert_eq!(probe(&https, Duration::from_secs(1)), Some(None));
+        // Nothing listening: no answer, within the cap.
+        let closed = format!("http://127.0.0.1:{}/", closed_port());
+        let t = Instant::now();
+        assert_eq!(probe(&closed, Duration::from_millis(300)), None);
+        assert!(t.elapsed() < Duration::from_secs(2));
+        assert_eq!(probe("ftp://x/", Duration::from_millis(10)), None);
+
+        // The listening line, fed in pieces from another thread, ends the wait at once.
+        let w = ServerWatch::new();
+        let feeder = w.clone();
+        let fed = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            feeder.feed("info: Microsoft.Hosting.Lifetime[14]\n      Now listening on: http://loc");
+            feeder.feed("alhost:5180\ninfo: Now listening on: https://localhost:7180\n");
+            Instant::now()
+        });
+        let r = w.wait_up(
+            Some(&closed),
+            Duration::from_secs(10),
+            Duration::from_secs(1),
+        );
+        let woke = Instant::now();
+        let fed = fed.join().unwrap();
+        match r {
+            Readiness::Listening { url, at } => {
+                assert_eq!(url, "http://localhost:5180");
+                assert!(at <= woke);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(woke.duration_since(fed) < Duration::from_millis(500));
+        assert_eq!(
+            w.heard(),
+            ["http://localhost:5180", "https://localhost:7180"]
+        );
+        // Restarted: the old line no longer counts; without a url only a line does, and the wait times out.
+        w.rearm();
+        let t = Instant::now();
+        assert_eq!(
+            w.wait_up(None, Duration::from_millis(300), Duration::from_secs(1)),
+            Readiness::TimedOut
+        );
+        assert!(t.elapsed() >= Duration::from_millis(300));
+        // A refused url is probed again until the timeout.
+        assert_eq!(
+            w.wait_up(
+                Some(&closed),
+                Duration::from_millis(400),
+                Duration::from_secs(1)
+            ),
+            Readiness::TimedOut
+        );
+        // Cancelled from another thread (the session ended).
+        let c = w.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            c.cancel();
+        });
+        let t = Instant::now();
+        assert_eq!(
+            w.wait_up(
+                Some(&closed),
+                Duration::from_secs(10),
+                Duration::from_secs(1)
+            ),
+            Readiness::Cancelled
+        );
+        assert!(t.elapsed() < Duration::from_secs(2));
+        // A program that never ends a line keeps a bounded tail.
+        let w = ServerWatch::new();
+        w.feed(&"x".repeat(200 * 1024));
+        w.feed("\n  Now listening on: http://localhost:1\n");
+        assert_eq!(w.heard(), ["http://localhost:1"]);
     }
 }
