@@ -37,6 +37,13 @@
 //! (the program starts over in the same session: a new `process` event, and a run at once when
 //! [`FakeProgram::run_at_start`] is set); without the flag `restart` is refused as any unknown request.
 //!
+//! For brief 0036 it refuses and rejects breakpoints as eludite-dbg-mono does: a line without a statement is answered
+//! `verified: false` with `The breakpoint location is invalid: line N has no code.` once the program runs (at
+//! `configurationDone` as a `breakpoint` `changed` event for one set before), and a condition comparing to a dotted name
+//! (`coin == Coin.Quarter`: the fake's evaluator knows no type names, as Mono's did before brief 0036) is rejected with
+//! `Unknown identifier: Coin`: in the `setBreakpoints` answer (`verified: false`) once the program runs, and for one set
+//! before, at its first hit with a `breakpoint` `changed` event; a rejected breakpoint does not stop.
+//!
 //! [`connect`] serves it in-process over pipes, [`listen_tcp`] over a loopback TCP socket, and [`serve_stdio`] on
 //! this process's stdin and stdout (a child process). Every request is recorded ([`FakeHandle::requests`]).
 
@@ -463,6 +470,8 @@ struct Machine {
     pc: Option<usize>,
     /// Breakpoints by path: (id, breakpoint).
     breakpoints: HashMap<String, Vec<(i64, SourceBreakpoint)>>,
+    /// Breakpoints whose condition failed to evaluate (brief 0036): they no longer stop.
+    rejected: Vec<i64>,
     /// Function breakpoints: (id, name, condition).
     functions: Vec<(i64, String, Option<String>)>,
     next_id: i64,
@@ -504,6 +513,7 @@ impl Machine {
             configured: false,
             pc: None,
             breakpoints: HashMap::new(),
+            rejected: Vec::new(),
             functions: Vec::new(),
             next_id: 1,
             filters: Vec::new(),
@@ -696,13 +706,30 @@ impl Machine {
                     let id = self.next_id;
                     self.next_id += 1;
                     let verified = self.configured && self.has_line(&path, bp.line);
+                    // Once the program runs, a condition is checked when it is set.
+                    let rejected = self
+                        .configured
+                        .then(|| {
+                            let locals = self.locals_at(&path, bp.line);
+                            condition_error(bp.condition.as_deref(), &locals)
+                        })
+                        .flatten();
                     answer.push(if self.configured {
-                        json!({"id": id, "line": bp.line, "verified": verified,
-                               "source": {"path": path}})
+                        let mut a = json!({"id": id, "line": bp.line, "verified": verified && rejected.is_none(),
+                               "source": {"path": path}});
+                        if !verified {
+                            a["message"] = json!(no_code(bp.line));
+                        } else if let Some(m) = &rejected {
+                            a["message"] = json!(m);
+                        }
+                        a
                     } else {
                         json!({"id": id, "line": bp.line, "verified": false,
                                "message": "The breakpoint is pending and will be resolved when debugging starts."})
                     });
+                    if rejected.is_some() {
+                        self.rejected.push(id);
+                    }
                     set.push((id, bp));
                 }
                 self.breakpoints.insert(path, set);
@@ -813,18 +840,19 @@ impl Machine {
                            "isLocalProcess": true, "startMethod": method}),
                 );
                 self.respond(seq, command, Ok(json!({})));
-                let bound: Vec<(String, i64, i64)> = self
+                let set: Vec<(String, i64, i64)> = self
                     .breakpoints
                     .iter()
                     .flat_map(|(p, v)| v.iter().map(move |(id, b)| (p.clone(), *id, b.line)))
-                    .filter(|(p, _, line)| self.has_line(p, *line))
                     .collect();
-                for (path, id, line) in bound {
-                    self.event(
-                        "breakpoint",
-                        json!({"reason": "changed", "breakpoint": {"id": id, "line": line, "verified": true,
-                               "source": {"path": path}}}),
-                    );
+                for (path, id, line) in set {
+                    let mut bp =
+                        json!({"id": id, "line": line, "verified": true, "source": {"path": path}});
+                    if !self.has_line(&path, line) {
+                        bp["verified"] = json!(false);
+                        bp["message"] = json!(no_code(line));
+                    }
+                    self.event("breakpoint", json!({"reason": "changed", "breakpoint": bp}));
                 }
                 let (tid, _) = self.program.thread.clone();
                 self.event("thread", json!({"reason": "started", "threadId": tid}));
@@ -973,6 +1001,16 @@ impl Machine {
         true
     }
 
+    /// The locals of the first statement on a line (none when it has no statement).
+    fn locals_at(&self, path: &str, line: i64) -> Vec<FakeVar> {
+        self.program
+            .steps
+            .iter()
+            .find(|s| s.path == path && s.line == line)
+            .map(|s| s.locals.clone())
+            .unwrap_or_default()
+    }
+
     fn has_line(&self, path: &str, line: i64) -> bool {
         self.program
             .steps
@@ -1065,10 +1103,35 @@ impl Machine {
                 self.stop_with(k, "function breakpoint", None, vec![id]);
                 return;
             }
+            // A condition the fake cannot evaluate fails at its first hit (brief 0036).
+            let failing: Vec<(i64, i64, String)> = self
+                .breakpoints
+                .get(&step.path)
+                .map(|bps| {
+                    bps.iter()
+                        .filter(|(id, b)| b.line == step.line && !self.rejected.contains(id))
+                        .filter_map(|(id, b)| {
+                            condition_error(b.condition.as_deref(), &step.locals)
+                                .map(|m| (*id, b.line, m))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for (id, line, message) in failing {
+                self.rejected.push(id);
+                self.event(
+                    "breakpoint",
+                    json!({"reason": "changed", "breakpoint": {"id": id, "line": line, "verified": false,
+                           "message": message, "source": {"path": step.path}}}),
+                );
+            }
+            let rejected = &self.rejected;
             let hit = self.breakpoints.get(&step.path).and_then(|bps| {
                 bps.iter()
-                    .find(|(_, b)| {
-                        b.line == step.line && condition_holds(b.condition.as_deref(), &step.locals)
+                    .find(|(id, b)| {
+                        b.line == step.line
+                            && !rejected.contains(id)
+                            && condition_holds(b.condition.as_deref(), &step.locals)
                     })
                     .map(|(_, b)| b.log_message.clone())
             });
@@ -1374,6 +1437,26 @@ fn interpolate(message: &str, locals: &[FakeVar]) -> String {
 }
 
 /// `name == value`, `name != value` (value compared as shown, quotes optional), `true`, `false`; anything else holds.
+/// What the fake answers for a breakpoint on a line without a statement (brief 0036).
+fn no_code(line: i64) -> String {
+    format!("The breakpoint location is invalid: line {line} has no code.")
+}
+
+/// Why the fake cannot evaluate `condition` (brief 0036): a comparison to a dotted name whose first part is no local
+/// (`coin == Coin.Quarter`), as Mono's evaluator once failed on an unqualified type name.
+fn condition_error(condition: Option<&str>, locals: &[FakeVar]) -> Option<String> {
+    let c = condition?.trim();
+    let op = c.find("==").or_else(|| c.find("!="))?;
+    let value = c[op + 2..].trim();
+    let (first, rest) = value.split_once('.')?;
+    let identifier = |t: &str| {
+        t.chars().next().is_some_and(|ch| ch.is_ascii_uppercase())
+            && t.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    };
+    (identifier(first) && !rest.is_empty() && !locals.iter().any(|v| v.name == first))
+        .then(|| format!("Unknown identifier: {first}"))
+}
+
 fn condition_holds(condition: Option<&str>, locals: &[FakeVar]) -> bool {
     let Some(c) = condition.map(str::trim).filter(|c| !c.is_empty()) else {
         return true;

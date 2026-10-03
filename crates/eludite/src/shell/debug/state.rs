@@ -63,9 +63,10 @@ use eludite_commands::CommandError;
 use eludite_commands::debug::{
     BreakpointBrief, BreakpointKind, BreakpointRow, BreakpointSessionRow, Budget, CapabilitiesRow,
     ConsoleRow, DebugRequest, DebugState, ExceptionBrief, ExceptionSettingsRow, ExceptionTypeRow,
-    FrameRow, FramesBlock, HitCondition, LocalsBlock, LocationRow, OutputBlock, OutputKind,
-    OutputLine, OutputPattern, SessionRow, StackFrameRow, StopSummary, StoppedRow, SummaryStopped,
-    SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow, cut_value, null_spelling,
+    FailedBreakpointRow, FrameRow, FramesBlock, HitCondition, LocalsBlock, LocationRow,
+    OutputBlock, OutputKind, OutputLine, OutputPattern, SessionRow, StackFrameRow, StopSummary,
+    StoppedRow, SummaryStopped, SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow,
+    cut_value, null_spelling, pending_message,
 };
 use eludite_commands::project::StartupAction;
 use eludite_dap::types::{
@@ -1016,6 +1017,42 @@ impl Breakpoints {
         }
     }
 
+    /// The current session's breakpoints its adapter refused or whose condition it rejected (brief 0036): not bound,
+    /// with a message that is not a pending one. `run_until`'s and `trace`'s temporary points are reported by those
+    /// commands (`points_failed`), not here.
+    pub fn failed(&self) -> Vec<FailedBreakpointRow> {
+        let refused = |verified: bool, enabled: bool, message: &Option<String>| {
+            message
+                .as_deref()
+                .filter(|m| enabled && !verified && !m.trim().is_empty() && !pending_message(m))
+                .map(str::to_owned)
+        };
+        let lines = self.list.iter().filter(|b| !b.temporary).filter_map(|b| {
+            Some(FailedBreakpointRow {
+                path: Some(b.path.clone()),
+                line: Some(b.line),
+                function: None,
+                session: self.current,
+                message: refused(b.verified, b.enabled, &b.message)?,
+            })
+        });
+        let functions = self.functions.iter().filter_map(|f| {
+            Some(FailedBreakpointRow {
+                path: None,
+                line: None,
+                function: Some(f.name.clone()),
+                session: self.current,
+                message: refused(f.verified, f.enabled, &f.message)?,
+            })
+        });
+        lines.chain(functions).collect()
+    }
+
+    /// The binding of the breakpoint on a line in the current session: (bound, the adapter's message).
+    pub fn binding(&self, path: &str, line: u32) -> Option<(bool, Option<String>)> {
+        self.at(path, line).map(|b| (b.verified, b.message.clone()))
+    }
+
     /// Forget the session's state (a new session starts).
     pub fn reset_session(&mut self) {
         for b in &mut self.list {
@@ -1344,6 +1381,11 @@ pub struct DebugModel {
     pub agents_default: bool,
     /// Chosen while no session ran: the next session starts with it.
     pub agents_next: Option<bool>,
+    /// The session's failed breakpoints when it ended, for the end-of-session summary (brief 0036).
+    pub ended_failed: Vec<FailedBreakpointRow>,
+    /// `run_until`'s points removed at the last stop or at the end, with their binding then: (path, line, bound, the
+    /// adapter's message), for its `points_failed` (brief 0036).
+    pub removed_points: Vec<(String, u32, bool, Option<String>)>,
 }
 
 impl Default for DebugModel {
@@ -1380,6 +1422,8 @@ impl Default for DebugModel {
             agents_allowed: true,
             agents_default: true,
             agents_next: None,
+            ended_failed: Vec::new(),
+            removed_points: Vec::new(),
         }
     }
 }
@@ -1573,6 +1617,8 @@ impl DebugModel {
         }
         self.exit_code = None;
         self.capabilities = None;
+        self.ended_failed.clear();
+        self.removed_points.clear();
         self.agents_allowed = self.agents_next.take().unwrap_or(self.agents_default);
     }
 
@@ -1590,6 +1636,8 @@ impl DebugModel {
         self.threads.clear();
         self.thread = None;
         self.clear_break();
+        // What failed stays in the end-of-session summary (brief 0036); the bindings go.
+        self.ended_failed = self.breakpoints.failed();
         self.breakpoints.unbind();
     }
 
@@ -1761,6 +1809,14 @@ impl DebugModel {
             satisfied: None,
             timed_out: None,
             interrupted_by: None,
+            breakpoints_failed: if ended {
+                self.ended_failed.clone()
+            } else if self.generation > 0 && self.mode != Mode::Design {
+                self.breakpoints.failed()
+            } else {
+                Vec::new()
+            },
+            points_failed: Vec::new(),
         }
     }
 
