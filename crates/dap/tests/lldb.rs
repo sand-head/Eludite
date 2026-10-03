@@ -878,6 +878,7 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
         "the process keeps running after the debugger detached"
     );
     assert!(processes::alive(pid));
+    client.kill();
     let _ = child.kill();
     let _ = child.wait();
 }
