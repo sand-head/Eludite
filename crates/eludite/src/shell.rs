@@ -4,7 +4,8 @@
 //! and the workspace-edit applier (brief 0015), the Agents window (brief 0016), builds with the Output window and
 //! the build's rows in the Error List (brief 0017), run and debug (brief 0018), and File > Open Folder
 //! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`), and
-//! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`).
+//! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`), and the Web Browser window
+//! (brief 0032, `browser_window`), a document tab View > Other Windows > Web Browser opens.
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -15,6 +16,9 @@ pub mod browser;
 #[cfg(test)]
 mod browser_tests;
 pub mod browser_view;
+pub mod browser_window;
+#[cfg(test)]
+mod browser_window_tests;
 pub mod build;
 #[cfg(test)]
 mod build_tests;
@@ -358,8 +362,10 @@ pub struct Shell {
     options: Option<Entity<options::OptionsDialog>>,
     /// The browser of `eludite.browser.*` (brief 0023).
     browser: browser::BrowserBus,
-    /// Embedded browser tabs in the document area (brief 0031's spike tab).
+    /// Embedded browser tabs in the document area (brief 0031's spike tab, brief 0032's Web Browser window).
     browser_views: browser_view::Views,
+    /// The Web Browser window (brief 0032): made at startup (no engine), shown as the `web_browser` document.
+    browser_window: Entity<browser_window::BrowserWindow>,
     /// Open Containing Folder's file manager, and the solution's first executable project (brief 0020).
     folder_opener: startup::FolderOpener,
     default_startup: Option<PathBuf>,
@@ -710,6 +716,15 @@ impl Shell {
         });
         let debug_task = Self::debug_tasks(debug_msgs, debug_jobs, window, cx);
         let browser_task = Self::browser_output_task(browser_log, window, cx);
+        // The Web Browser window: nothing runs until View > Other Windows > Web Browser shows its document tab.
+        let browser_window = cx.new(|cx| {
+            browser_window::BrowserWindow::new(browser.clone(), commands.clone(), theme, cx)
+        });
+        browser_views
+            .borrow_mut()
+            .insert(ids::WEB_BROWSER.to_owned(), browser_window.clone().into());
+        let browser_window_task =
+            Self::browser_window_tasks(&browser, &controller, &browser_window, window, cx);
         // Settings changes (a file edited on disk, or eludite.settings.set): applied in one update per burst.
         let settings_task = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = settings_changed.next().await {
@@ -798,6 +813,7 @@ impl Shell {
             options: None,
             browser,
             browser_views,
+            browser_window,
             folder_opener,
             default_startup: None,
             ui_bounds: None,
@@ -815,6 +831,8 @@ impl Shell {
                 options_task,
                 project_task,
                 browser_task,
+                browser_window_task.0,
+                browser_window_task.1,
             ],
         };
         this.apply_settings(None, cx);

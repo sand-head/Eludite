@@ -1,8 +1,9 @@
 # eludite-chromium control protocol and frame ring
 
 Contract between the Eludite shell (client) and `eludite-chromium` (`browsers/chromium`, the CEF browser process;
-brief 0031, proposal 0002 section 3, ADR-0008). Every method either side sends is listed here, each with a JSON schema
-in this folder (`$defs.params`, and `$defs.result` for requests). Version 1.
+brief 0031, proposal 0002 section 3, ADR-0008; the Web Browser window's methods, brief 0032). Every method either side
+sends is listed here, each with a JSON schema in this folder (`$defs.params`, and `$defs.result` for requests).
+Version 1: brief 0032's methods and members are additions a version 1 peer ignores.
 
 Rust: the shell side is `crates/browser/src/embedded.rs` (`EmbeddedChromium`), the engine side
 `browsers/chromium/src/`. Both follow this file; the engine's tests read frames with the layout below.
@@ -34,7 +35,7 @@ CEF's renderer, GPU and utility subprocesses are the same executable started by 
 
 | Method | Kind | Direction | Schema | Params | Result |
 |---|---|---|---|---|---|
-| `initialize` | request | shell to engine | [initialize.json](initialize.json) | `{ clientName, clientVersion, protocolVersion: 1 }` | `{ engineName, engineVersion, protocolVersion, cefVersion, chromiumVersion, pid, sandbox, frameTransport }` |
+| `initialize` | request | shell to engine | [initialize.json](initialize.json) | `{ clientName, clientVersion, protocolVersion: 1, downloadDir?, maxDownloadBytes? }` | `{ engineName, engineVersion, protocolVersion, cefVersion, chromiumVersion, pid, sandbox, frameTransport }` |
 | `shutdown` | request | shell to engine | [shutdown.json](shutdown.json) | `{}` | `{}` |
 | `tab/create` | request | shell to engine | [tab-create.json](tab-create.json) | `{ url, width, height, scale?, frameRate? }` | `{ tab }` |
 | `tab/close` | request | shell to engine | [tab-close.json](tab-close.json) | `{ tab }` | `{}` |
@@ -43,10 +44,21 @@ CEF's renderer, GPU and utility subprocesses are the same executable started by 
 | `tab/input` | notification | shell to engine | [tab-input.json](tab-input.json) | `{ tab, event }` | |
 | `tab/cdp` | notification | shell to engine | [tab-cdp.json](tab-cdp.json) | `{ tab, message: { id, method, params? } }` | |
 | `tab/resized` | notification | engine to shell | [tab-resized.json](tab-resized.json) | `{ tab, region: { id, size, headerSize, slotSize, slotCount, name? }, width, height }` | |
-| `tab/frame` | notification | engine to shell | [tab-frame.json](tab-frame.json) | `{ tab, region, slot, sequence, width, height, dirty: [{ x, y, width, height }], paintNs, copyNs }` | |
-| `tab/state` | notification | engine to shell | [tab-state.json](tab-state.json) | `{ tab, url?, title?, loading? }` | |
+| `tab/frame` | notification | engine to shell | [tab-frame.json](tab-frame.json) | `{ tab, region, slot, sequence, width, height, dirty: [{ x, y, width, height }], paintNs, copyNs, popup? }` | |
+| `tab/state` | notification | engine to shell | [tab-state.json](tab-state.json) | `{ tab, url?, title?, loading?, favicon?, canGoBack?, canGoForward?, statusText? }` | |
 | `tab/cdpEvent` | notification | engine to shell | [tab-cdp-event.json](tab-cdp-event.json) | `{ tab, message }` | |
 | `tab/closed` | notification | engine to shell | [tab-closed.json](tab-closed.json) | `{ tab, reason: "closed" \| "crashed" }` | |
+| `tab/devtools` | request | shell to engine | [tab-devtools.json](tab-devtools.json) | `{ tab, width, height, scale?, inspectAt? }` | `{ tab, devtools, created }` |
+| `tab/action` | notification | shell to engine | [tab-action.json](tab-action.json) | `{ tab, action, url? }` | |
+| `tab/dialogAnswer` | notification | shell to engine | [tab-dialog-answer.json](tab-dialog-answer.json) | `{ tab, id, accept, text?, files?, username?, password? }` | |
+| `tab/permissionAnswer` | notification | shell to engine | [tab-permission-answer.json](tab-permission-answer.json) | `{ tab, id, allow }` | |
+| `tab/popup` | notification | engine to shell | [tab-popup.json](tab-popup.json) | `{ tab, opener, url, disposition?, userGesture? }` | |
+| `tab/cursor` | notification | engine to shell | [tab-cursor.json](tab-cursor.json) | `{ tab, cursor }` | |
+| `tab/dialog` | notification | engine to shell | [tab-dialog.json](tab-dialog.json) | `{ tab, id, kind, message?, defaultText?, url?, ... }` | |
+| `tab/permission` | notification | engine to shell | [tab-permission.json](tab-permission.json) | `{ tab, id, origin, permissions }` | |
+| `tab/dialogClosed` | notification | engine to shell | [tab-dialog-closed.json](tab-dialog-closed.json) | `{ tab, id, accepted? }` | |
+| `tab/download` | notification | engine to shell | [tab-download.json](tab-download.json) | `{ tab, id, url, file, path?, state, receivedBytes?, totalBytes?, mime?, message? }` | |
+| `tab/contextMenu` | notification | engine to shell | [tab-context-menu.json](tab-context-menu.json) | `{ tab, x, y, pageUrl, linkUrl?, imageUrl?, selectionText?, editable, edit }` | |
 
 Errors: JSON-RPC's codes (-32700, -32600, -32601 for every method not listed, -32602, -32603), and -32001
 (`NoSuchTab`) for a `tab` the engine does not know.
@@ -64,8 +76,48 @@ Notes:
 - **Input** is fire-and-forget. Mouse buttons, wheel and keys map to `SendMouseClickEvent`, `SendMouseMoveEvent`,
   `SendMouseWheelEvent` and `SendKeyEvent` (`KEYEVENT_RAWKEYDOWN`, `KEYEVENT_KEYUP`, `KEYEVENT_CHAR`, with Windows
   virtual-key codes on every platform, as CEF requires); IME composition maps to `ImeSetComposition`,
-  `ImeCommitText`, `ImeFinishComposingText` and `ImeCancelComposition`. The spike's shell forwards mouse and
-  keyboard; IME is specified here and forwarded by brief B.
+  `ImeCommitText`, `ImeFinishComposingText` and `ImeCancelComposition`. The Web Browser window (brief 0032) forwards
+  mouse, wheel, keys and IME composition from GPUI's input handler.
+
+## The Web Browser window's methods (brief 0032)
+
+- **Tabs the page opens.** `window.open`, `target=_blank` and the like become windowless tabs of the engine's own
+  (`OnBeforePopup` fills in windowless `WindowInfo` and the tab's client), announced by `tab/resized` and then
+  `tab/popup` naming the opener. They are tabs like any other: `tab/cdp`, `tab/input`, `tab/close` work on them, and
+  `window.opener` is the page that opened them.
+- **`<select>` lists** (and other popup widgets) are painted by CEF separately (`PET_POPUP`). The engine keeps the
+  popup's pixels and draws them over the view's next frame (it invalidates the view when the popup repaints), flags
+  the frame with `popup` and adds its rectangle to the dirty ones; when the popup closes the view repaints without
+  it. The shell needs nothing special: clicks and keys reach the popup through the view's `tab/input`.
+- **Title, favicon, history.** `tab/state` carries the address, title, loading state, `canGoBack` and
+  `canGoForward`, the status text and the favicon (downloaded by the engine with `DownloadImage`, at most 32 pixels,
+  as a PNG data url), each when it changes.
+- **Cursor.** `tab/cursor` names the CSS cursor for CEF's cursor type; the shell shows it over the tab.
+- **Dialogs and permissions are the shell's.** JavaScript `alert`, `confirm`, `prompt`, `beforeunload`, file choosers
+  and authentication challenges are `tab/dialog`; permission requests (geolocation, notifications, camera, microphone,
+  clipboard read, ...) are `tab/permission`. The engine holds CEF's callback and the page waits until
+  `tab/dialogAnswer` or `tab/permissionAnswer` names the id; `tab/dialogClosed` says the prompt is gone (answered,
+  or closed by a navigation or the tab's close). No Chromium dialog or prompt is ever shown. Dialog and permission
+  ids share one counter in the engine process.
+- **Downloads** never prompt: they go to `downloadDir` (from `initialize`; the workspace's
+  `.eludite/browser/downloads/`) under the suggested name made unique, and `tab/download` reports `started`,
+  `progress` (at most every 250 ms), `complete`, `canceled`, `interrupted` or `refused`. A download over
+  `maxDownloadBytes` (100 MB by default) is refused when its size is known before it starts, and canceled when it
+  passes the limit otherwise.
+- **The context menu is the shell's.** The engine cancels Chromium's menu (`RunContextMenu` answers handled and
+  cancels its callback) and sends `tab/contextMenu` with what is under the pointer; the shell's items run as
+  commands (`eludite.browser.navigate` for Back, Forward and Reload, `eludite.browser.devtools` for Inspect,
+  `eludite.browser.open_external`) or as `tab/action` (Copy, Paste, Select All, Save Image As...).
+- **DevTools** is a windowless tab of its own (`ShowDevTools` with windowless `WindowInfo`), created by
+  `tab/devtools`, rendered into its own ring and driven by `tab/input` like a page. It closes with its page, and
+  `tab/close` on it closes DevTools only. It is not a page target for `tab/cdp`.
+
+## Privacy: no request the person did not ask for
+
+The engine runs with a fresh per-workspace profile and makes no network request other than the pages it is told to
+load (and what those pages load). Chromium's background services are off by switches, feature flags and
+preferences, each listed with what it silences in `browsers/chromium/README.md`; the engine's tests run it with
+`--log-net-log` on `about:blank` for 10 s and assert that the net log has no request at all.
 
 ## The frame ring
 

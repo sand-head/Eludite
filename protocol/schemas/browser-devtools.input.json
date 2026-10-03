@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-devtools.input.json",
+  "title": "eludite.browser.devtools input",
+  "description": "Open Chromium's DevTools for a tab (default: the active tab) as a second tab of the Web Browser window, bound to the page: the person's view of the elements, console, network and sources, as F12 and the window's DevTools button open it. With `inspect`, DevTools selects the element at that point (the context menu's Inspect). It closes with its page. Needs the embedded engine (browser.engine: embedded); with the external Chrome the command fails and says so. An agent reads the page itself with eludite.browser.read_page, console and network; this is for showing the person. Permission class execute.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "inspect": {
+      "description": "Inspect the element at this point, in CSS pixels of the viewport.",
+      "type": "object",
+      "required": [
+        "x",
+        "y"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      }
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

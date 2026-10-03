@@ -1,6 +1,6 @@
 # Brief 0032: The Web Browser window
 
-Status: open
+Status: done on Linux (Xvfb, software rendering); [report](0032-report.md)
 Phase: 2 (proposal 0002, brief B)
 Plan reference: PLAN.md sections 1 (the browser carve-out), 2 (principles 1, 2, 3, 4, 5), 4.9 (the Web Browser window), 5.8, 8 (Visual Studio names and layout), 9, 10 (Phase 2), 12; proposal 0002 sections 3, 4, 5, 7, 8 (B), 11; ADR-0008
 Related ADRs: ADR-0002, ADR-0008, ADR-0009

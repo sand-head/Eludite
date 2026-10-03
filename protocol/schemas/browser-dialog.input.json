@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-dialog.input.json",
+  "title": "eludite.browser.dialog input",
+  "x-eludite-escalates": "Dangerous when a file is outside the workspace folder.",
+  "description": "Answer the dialog a tab's page is waiting on (default: the active tab): a JavaScript `alert`, `confirm` or `prompt`, a `beforeunload` confirmation, a file chooser, an authentication challenge, or a permission prompt. While one is open the page is paused, so an eludite.browser.input that opened one answers it as `dialog: {kind, message}` instead of waiting. `accept` is OK (confirm, prompt with `text`, leave the page, choose `files`, sign in with `username` and `password`, allow the permission); `dismiss` is Cancel (stay, no files, deny). The person sees the same dialog in the Web Browser window and may answer first; then this call fails with \"no dialog is open\". Files outside the workspace make the call dangerous, which prompts (as eludite.browser.upload). Permission class execute. Next: eludite.browser.read_page or screenshot to see what the page did.",
+  "type": "object",
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "accept",
+        "dismiss"
+      ]
+    },
+    "text": {
+      "description": "`prompt` with `accept`: the text to answer (default: the prompt's default text).",
+      "type": "string"
+    },
+    "files": {
+      "description": "`file` with `accept`: absolute paths, as eludite.browser.upload takes.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "maxItems": 50,
+      "minItems": 1
+    },
+    "username": {
+      "description": "`auth` with `accept`.",
+      "type": "string"
+    },
+    "password": {
+      "description": "`auth` with `accept`. Like every argument of an agent's call, it is kept in the audit log.",
+      "type": "string"
+    },
+    "tab": {
+      "description": "The tab: its id from eludite.browser.tabs (`t1`, `t2`, ...). Default: the active tab (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    }
+  }
+}

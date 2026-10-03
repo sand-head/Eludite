@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-record.output.json",
+  "title": "eludite.browser.record output",
+  "description": "`start`: the recording in progress. `stop`: the GIF written. Over MCP, `thumbnail` is sent as image content (protocol/schemas/mcp-tool.json), so the Agents window shows it in the call's transcript row.",
+  "type": "object",
+  "required": [
+    "tab",
+    "recording",
+    "path",
+    "fps",
+    "max_seconds"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "tab": {
+      "description": "The tab the command acted on.",
+      "type": "string",
+      "pattern": "^t[0-9]+$"
+    },
+    "recording": {
+      "description": "True after `start`; false after `stop`.",
+      "type": "boolean"
+    },
+    "path": {
+      "description": "The GIF's absolute path (written on `stop`).",
+      "type": "string"
+    },
+    "fps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "frames": {
+      "description": "`stop`: frames in the GIF.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "description": "`stop`: the GIF's length.",
+      "type": "number",
+      "minimum": 0
+    },
+    "width": {
+      "description": "`stop`: the GIF's size in pixels.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "bytes": {
+      "description": "`stop`: the file's size.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stopped_by": {
+      "description": "`stop`: `request` (this call), `max_seconds`, or `tab_closed` (the recording ended earlier for that reason).",
+      "enum": [
+        "request",
+        "max_seconds",
+        "tab_closed"
+      ]
+    },
+    "thumbnail": {
+      "description": "`stop`: the first frame as a PNG at most 320 pixels wide, base64.",
+      "type": "string",
+      "contentEncoding": "base64",
+      "contentMediaType": "image/png",
+      "x-eludite-mcp-content": "image"
+    }
+  }
+}

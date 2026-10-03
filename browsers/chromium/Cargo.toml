@@ -16,7 +16,7 @@ path = "src/main.rs"
 # The real engine, linked against CEF. Needs CEF_PATH from tools/cef/fetch.sh (without it the `cef` crate's build
 # script downloads CEF by itself, unchecked); `cargo build --features eludite-chromium/cef`. Off by default so a
 # workspace build never fetches 326 MB: the executable then only says how to get CEF, and the engine tests skip.
-cef = ["dep:cef"]
+cef = ["dep:cef", "dep:tungstenite"]
 
 [dependencies]
 # CEF's C API, generated (tauri-apps/cef-rs). Apache-2.0 OR MIT. Pinned to the CEF version in tools/cef/PIN.
@@ -24,6 +24,10 @@ cef = { version = "=154.3.0", default-features = false, optional = true }
 # The Content-Length framing of the control channel (MIT).
 eludite-protocol.workspace = true
 serde_json.workspace = true
+# The DevTools tab's websocket to its page (brief 0032): CEF 154 cannot show DevTools windowless, so the front end
+# loads in a windowless tab and talks to the page through the engine. MIT OR Apache-2.0; already in the build
+# (crates/browser), with the same features.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # memfd_create, mmap, sendmsg with SCM_RIGHTS, clock_gettime. MIT OR Apache-2.0; already in the build.

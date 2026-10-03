@@ -79,3 +79,24 @@ Eludite.app/Contents/
 - A development run from `cargo run` needs a bundling step (`bundle-cef-app` or a script doing the same), and a
   notarized release needs every helper signed with the hardened runtime and CEF's entitlements. Brief E owns that;
   brief 0031 had no macOS machine and ran none of it.
+
+## The switches that keep it off the network (brief 0032)
+
+CEF 154 runs Chrome's browser process with Chrome's background services, which call Google with a fresh profile and
+no page open. `eludite-chromium` turns each one off before CEF starts (`browsers/chromium/src/privacy.rs`; the table
+of what each request was and what stops it is in [`browsers/chromium/README.md`](../../browsers/chromium/README.md)):
+
+| Switch, feature or preference | Why |
+|---|---|
+| `--disable-features=NetworkTimeServiceQuerying` | network time (`clients2.google.com/time`) |
+| `--disable-features=AimEnabled,AimServerEligibilityEnabled,AimServerRequestOnStartupEnabled` | AI Mode's eligibility check (`www.google.com/async/folae`) |
+| `--disable-features=PreconnectToSearch`, `net.network_prediction_options: 2` | the preconnect to the search engine (`www.google.com`) |
+| `--disable-features=DnsOverHttpsUpgrade`, `dns_over_https.mode: "off"` | the DNS-over-HTTPS probe (`dns.google`) |
+| `--gaia-config-contents={"urls":{"list_accounts_url":{"url":"data:,"}}}` | the accounts check (`accounts.google.com/ListAccounts`), which no switch or policy stops in 154: account consistency is off (`signin.allowed_on_next_startup: false`, read at startup), yet the account service still lists the cookie jar's accounts, so its one url points off the network |
+| `--disable-component-update`, `--component-updater=url-source=data:,` | the component updater (`update.googleapis.com`), which still checks on demand with the first switch alone |
+| `--disable-background-networking`, `--disable-sync`, `--disable-default-apps`, `--no-pings`, `--disable-domain-reliability`, `--disable-client-side-phishing-detection`, `--disable-breakpad`, `--disable-field-trial-config`, `--metrics-recording-only` | defense in depth: Chrome's other background fetches, sync, reporting and field trials |
+| `safebrowsing.enabled: false`, `signin.allowed: false`, managed policies (`BrowserSignin: 0`, `SyncDisabled`, `ComponentUpdatesEnabled: false`, `SafeBrowsingProtectionLevel: 0`, ...) | Safe Browsing's list updates, sign-in and sync, written to the profile and to `<profile>/Policies/managed/eludite.json` |
+
+`--disable-chrome-login-prompt` keeps Chrome's own authentication dialog away (the shell asks instead). The proof is
+`browsers/chromium/tests/engine.rs`'s `the_engine_makes_no_request_on_about_blank`: 10 s on `about:blank` with
+`--log-net-log`, no request, host resolution or connection in the log.

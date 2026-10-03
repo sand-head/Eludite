@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-action.json",
+  "title": "tab/action",
+  "description": "Shell-to-engine notification: an edit command on the tab's focused frame (CefFrame::Undo, Redo, Cut, Copy, Paste, Delete, SelectAll), Stop (CefBrowser::StopLoad), or a download of `url` into the download folder (CefBrowserHost::StartDownload; the context menu's Save Image As...). The clipboard is the system's, through Chromium (X11 and Wayland; the headless platform has none). Fire-and-forget, as input is.",
+  "x-eludite-method": "tab/action",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "shellToEngine",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "action"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "enum": [
+            "undo",
+            "redo",
+            "cut",
+            "copy",
+            "paste",
+            "delete",
+            "selectAll",
+            "stop",
+            "download"
+          ]
+        },
+        "url": {
+          "description": "`download`: what to save.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

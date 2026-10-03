@@ -264,6 +264,14 @@ impl DockController {
                 if !reg.contains(&id) && snap.layout.documents.activate(&id) {
                     return Ok(Some(id));
                 }
+                // A window of the document well (the Web Browser): opened as a document tab.
+                if let Some((_, title)) = crate::model::ids::DOCUMENT_WINDOWS
+                    .iter()
+                    .find(|(w, _)| *w == id)
+                {
+                    snap.layout.documents.open(&id, title);
+                    return Ok(Some(id));
+                }
                 check(&id)?;
                 snap.layout.show(&id).map_err(layout_err)?;
                 let auto_hidden = matches!(snap.layout.find(&id), Some(Place::AutoHidden { .. }));
@@ -495,6 +503,24 @@ mod tests {
         assert_eq!(out["state"], "document");
         assert_eq!(out["active"], true);
         assert_eq!(c.layout().documents.active.as_deref(), Some("welcome"));
+    }
+
+    #[test]
+    fn show_opens_the_web_browser_as_a_document_tab() {
+        let (c, r) = setup();
+        let out = r.invoke(view::SHOW, json!({"id": "web_browser"})).unwrap();
+        assert_eq!(out["state"], "document");
+        assert_eq!(out["title"], "Web Browser");
+        assert_eq!(out["active"], true);
+        assert_eq!(c.layout().documents.active.as_deref(), Some("web_browser"));
+        // Shown again: the same tab, activated.
+        r.invoke(view::SHOW, json!({"id": "welcome"})).unwrap();
+        r.invoke(view::SHOW, json!({"id": "web_browser"})).unwrap();
+        let tabs = c.layout().documents.tabs;
+        assert_eq!(tabs.iter().filter(|t| t.id == "web_browser").count(), 1);
+        assert_eq!(c.layout().documents.active.as_deref(), Some("web_browser"));
+        // It is not a side tool window.
+        assert!(c.all_states().iter().all(|s| s.id != "web_browser"));
     }
 
     #[test]

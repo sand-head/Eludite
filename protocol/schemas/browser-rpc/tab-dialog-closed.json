@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-dialog-closed.json",
+  "title": "tab/dialogClosed",
+  "description": "Engine-to-shell notification: a dialog or permission prompt is no longer waiting: it was answered (by tab/dialogAnswer), or the engine closed it because the tab navigated, closed or reset its dialogs (CefJSDialogHandler::OnResetDialogState, CefPermissionHandler::OnDismissPermissionPrompt). The shell closes its dialog if it still shows it.",
+  "x-eludite-method": "tab/dialogClosed",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "id"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "accepted": {
+          "description": "How it ended, when it was answered.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

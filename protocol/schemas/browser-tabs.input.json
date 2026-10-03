@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-tabs.input.json",
   "title": "eludite.browser.tabs input",
-  "description": "List the tabs of Eludite's browser: an external Chrome or Chromium that Eludite launches with this workspace's own profile (never the user's personal browser profile) and drives over the Chrome DevTools Protocol. Answers each tab's id, url, title, whether it is loading, its page_generation, which tab is active, and whether the browser is running at all. Cheap and safe: it never launches the browser. Next: eludite.browser.tab_open to start browsing (it launches the browser when needed), or pass a tab's id as `tab` to the other eludite.browser.* tools, which default to the active tab.",
+  "description": "List the tabs of Eludite's browser: the embedded Chromium the Web Browser window shows (or an external Chrome or Chromium, as the setting browser.engine says), launched with this workspace's own profile (never the user's personal browser profile) and driven over the Chrome DevTools Protocol. Answers each tab's id, url, title, whether it is loading, its page_generation, which tab is active, and whether the browser is running at all. Cheap and safe: it never launches the browser. After the person took over (a wait answered `interrupted_by: \"user\"`), call this before acting again. Next: eludite.browser.tab_open to start browsing (it launches the browser when needed), or pass a tab's id as `tab` to the other eludite.browser.* tools, which default to the active tab.",
   "type": "object",
   "additionalProperties": false,
   "properties": {}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/tab-download.json",
+  "title": "tab/download",
+  "description": "Engine-to-shell notification: a download of the tab started, progressed, finished or was refused (CefDownloadHandler). Downloads never prompt: the engine saves each into the download folder `initialize` named (the workspace's `.eludite/browser/downloads/`), under the suggested name made unique (`name (1).ext`). One larger than the limit (100 MB by default) is refused before it starts when its size is known, else canceled when it passes the limit. Progress is sent at most every 250 ms per download.",
+  "x-eludite-method": "tab/download",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "tab",
+        "id",
+        "url",
+        "file",
+        "state"
+      ],
+      "properties": {
+        "tab": {
+          "description": "The tab's id, as tab/create answered it (\"1\", \"2\", ...; never reused in one engine process).",
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "description": "CEF's download id.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "url": {
+          "type": "string"
+        },
+        "file": {
+          "description": "The file name it is saved as.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The absolute path it is saved to (absent when it was refused).",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "started",
+            "progress",
+            "complete",
+            "canceled",
+            "interrupted",
+            "refused"
+          ]
+        },
+        "receivedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "totalBytes": {
+          "description": "-1 when the server did not say.",
+          "type": "integer",
+          "minimum": -1
+        },
+        "mime": {
+          "type": "string"
+        },
+        "message": {
+          "description": "`refused`, `interrupted`, `canceled`: why, as one sentence.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,939 @@
+{
+ "brief": "0032",
+ "machine": "container, 4 cores shared with another agent's builds, no GPU: Xvfb with Mesa lavapipe (software Vulkan); debug builds (dependencies at opt-level 2). Every frame cost is software rasterization and an upper bound, not the reference machine's.",
+ "date": "2026-10-03",
+ "window_run": {
+  "command": "DISPLAY=:99 ELUDITE_CHROME_NO_SANDBOX=1 crates/eludite/tools/browser-window-linux.sh OUT",
+  "result": {
+   "steps": {
+    "open_cold": "eludite: web browser: first page pixel 456.2 ms after the window opened (engine cold)",
+    "devtools": "eludite: web browser: devtools opened for 1",
+    "dialog": "eludite: web browser: dialog confirm shown",
+    "driving": "driving: Form Filler",
+    "agent_done": "eludite: web browser: nobody is driving",
+    "open_running": "eludite: web browser: first page pixel 109.9 ms after the window opened (engine running)"
+   },
+   "window_origin": [
+    162,
+    100
+   ],
+   "shell_rss_before_mib": 189.7,
+   "open_to_first_pixel_cold_ms": 456.2,
+   "page_rect": [
+    22.0,
+    102.0,
+    954.0,
+    452.0
+   ],
+   "shell_rss_with_window_mib": 218.0,
+   "shot_page": "crates/eludite/screenshots/linux-browser-window-page.png",
+   "shot_devtools": "crates/eludite/screenshots/linux-browser-window-devtools.png",
+   "shot_dialog": "crates/eludite/screenshots/linux-browser-window-dialog.png",
+   "agents_prompt": [
+    996.0,
+    325.0,
+    207.0,
+    38.0
+   ],
+   "shot_driving": "crates/eludite/screenshots/linux-browser-window-agent-driving.png",
+   "permissions_allowed": 5,
+   "shot_agent_done": "crates/eludite/screenshots/linux-browser-window-agent-done.png",
+   "doc_tab": [
+    123.0,
+    24.0,
+    125.0,
+    22.0
+   ],
+   "open_to_first_pixel_running_ms": 109.9,
+   "log": [
+    "eludite: web browser: first page pixel 456.2 ms after the window opened (engine cold)",
+    "eludite: web browser: devtools opened for 1",
+    "eludite: web browser: dialog confirm shown",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: driving: Form Filler",
+    "eludite: web browser: nobody is driving",
+    "eludite: web browser: first page pixel 109.9 ms after the window opened (engine running)"
+   ],
+   "loadavg_before": "1.13 1.98 2.57",
+   "loadavg_after": "1.30 1.93 2.52"
+  }
+ },
+ "bench": {
+  "command": "ELUDITE_BENCH_BROWSER_PAGE=animation|box ELUDITE_BROWSER_TILES=1|0 crates/eludite/tools/browser-spike-linux.sh OUT 12",
+  "animation_tiles": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "animation: a canvas covering the view, redrawn every animation frame",
+   "seconds": 12.042,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": true,
+    "tiles_total": 28,
+    "tiles_per_upload": {
+     "n": 112,
+     "p50_ms": 28.0,
+     "p95_ms": 28.0,
+     "p99_ms": 28.0,
+     "max_ms": 28.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 59.9,
+   "frames_announced": 721,
+   "frames_uploaded": 112,
+   "uploads_per_s": 9.3,
+   "empty_reads": 0,
+   "shell_frames": 112,
+   "frame_cost": {
+    "n": 112,
+    "p50_ms": 95.021,
+    "p95_ms": 130.087,
+    "p99_ms": 142.562,
+    "max_ms": 145.19
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 112,
+     "p50_ms": 29.772,
+     "p95_ms": 39.33,
+     "p99_ms": 46.865,
+     "max_ms": 50.355
+    },
+    "img_painted_to_present": {
+     "n": 112,
+     "p50_ms": 63.093,
+     "p95_ms": 98.437,
+     "p99_ms": 108.577,
+     "max_ms": 110.382
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 66,
+    "frame_cost": {
+     "n": 66,
+     "p50_ms": 79.777,
+     "p95_ms": 103.165,
+     "p99_ms": 106.969,
+     "max_ms": 106.969
+    },
+    "render_to_img_painted": {
+     "n": 66,
+     "p50_ms": 22.821,
+     "p95_ms": 34.203,
+     "p99_ms": 38.848,
+     "max_ms": 38.848
+    },
+    "img_painted_to_present": {
+     "n": 66,
+     "p50_ms": 56.845,
+     "p95_ms": 71.457,
+     "p99_ms": 81.046,
+     "max_ms": 81.046
+    }
+   },
+   "upload": {
+    "n": 112,
+    "p50_ms": 2.789,
+    "p95_ms": 4.82,
+    "p99_ms": 6.006,
+    "max_ms": 7.89
+   },
+   "img_paint": {
+    "n": 112,
+    "p50_ms": 1.679,
+    "p95_ms": 2.38,
+    "p99_ms": 3.099,
+    "max_ms": 17.908
+   },
+   "engine_copy": {
+    "n": 112,
+    "p50_ms": 0.907,
+    "p95_ms": 1.031,
+    "p99_ms": 1.244,
+    "max_ms": 1.595
+   },
+   "paint_to_present": {
+    "n": 112,
+    "p50_ms": 104.423,
+    "p95_ms": 143.299,
+    "p99_ms": 151.863,
+    "max_ms": 155.629
+   },
+   "last_dirty": [
+    [
+     0,
+     0,
+     1600,
+     1000
+    ]
+   ],
+   "engine_launch_ms": 215.731,
+   "engine_cold_start_to_first_frame_ms": 310.767,
+   "tab_open_to_first_frame_ms": 70.292,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.6,
+    "peak_rss_mib": 188.6
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 273.6,
+    "peak_rss_mib": 273.6
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 929.0,
+    "pss_sum_mib": 361.8,
+    "browser_process_rss_mib": 221.1
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "2.64 1.69 2.58 3/275 24456"
+  },
+  "animation_whole_frames": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "animation: a canvas covering the view, redrawn every animation frame",
+   "seconds": 12.042,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": false,
+    "tiles_total": 1,
+    "tiles_per_upload": {
+     "n": 114,
+     "p50_ms": 1.0,
+     "p95_ms": 1.0,
+     "p99_ms": 1.0,
+     "max_ms": 1.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 59.7,
+   "frames_announced": 719,
+   "frames_uploaded": 114,
+   "uploads_per_s": 9.5,
+   "empty_reads": 0,
+   "shell_frames": 114,
+   "frame_cost": {
+    "n": 114,
+    "p50_ms": 93.39,
+    "p95_ms": 119.556,
+    "p99_ms": 152.789,
+    "max_ms": 210.727
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 114,
+     "p50_ms": 28.369,
+     "p95_ms": 41.199,
+     "p99_ms": 47.377,
+     "max_ms": 48.592
+    },
+    "img_painted_to_present": {
+     "n": 114,
+     "p50_ms": 63.883,
+     "p95_ms": 84.99,
+     "p99_ms": 111.29,
+     "max_ms": 162.135
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 72,
+    "frame_cost": {
+     "n": 72,
+     "p50_ms": 75.38,
+     "p95_ms": 91.538,
+     "p99_ms": 99.453,
+     "max_ms": 99.453
+    },
+    "render_to_img_painted": {
+     "n": 72,
+     "p50_ms": 21.98,
+     "p95_ms": 32.295,
+     "p99_ms": 44.082,
+     "max_ms": 44.082
+    },
+    "img_painted_to_present": {
+     "n": 72,
+     "p50_ms": 53.018,
+     "p95_ms": 63.285,
+     "p99_ms": 67.437,
+     "max_ms": 67.437
+    }
+   },
+   "upload": {
+    "n": 114,
+    "p50_ms": 1.568,
+    "p95_ms": 2.062,
+    "p99_ms": 3.325,
+    "max_ms": 9.481
+   },
+   "img_paint": {
+    "n": 114,
+    "p50_ms": 1.388,
+    "p95_ms": 1.845,
+    "p99_ms": 2.276,
+    "max_ms": 14.585
+   },
+   "engine_copy": {
+    "n": 114,
+    "p50_ms": 0.927,
+    "p95_ms": 1.142,
+    "p99_ms": 1.789,
+    "max_ms": 1.832
+   },
+   "paint_to_present": {
+    "n": 114,
+    "p50_ms": 102.095,
+    "p95_ms": 126.5,
+    "p99_ms": 161.555,
+    "max_ms": 222.043
+   },
+   "last_dirty": [
+    [
+     0,
+     0,
+     1600,
+     1000
+    ]
+   ],
+   "engine_launch_ms": 207.76,
+   "engine_cold_start_to_first_frame_ms": 292.298,
+   "tab_open_to_first_frame_ms": 52.344,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.1,
+    "peak_rss_mib": 188.1
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 272.7,
+    "peak_rss_mib": 272.7
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 941.1,
+    "pss_sum_mib": 367.7,
+    "browser_process_rss_mib": 220.8
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "2.56 1.75 2.58 3/276 24655"
+  },
+  "box_tiles_a": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "box: a 200x200 canvas redrawn every animation frame, the rest of the page still (ELUDITE_BENCH_BROWSER_PAGE=box)",
+   "seconds": 12.019,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": true,
+    "tiles_total": 28,
+    "tiles_per_upload": {
+     "n": 99,
+     "p50_ms": 2.0,
+     "p95_ms": 2.0,
+     "p99_ms": 28.0,
+     "max_ms": 28.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 59.6,
+   "frames_announced": 716,
+   "frames_uploaded": 99,
+   "uploads_per_s": 8.2,
+   "empty_reads": 0,
+   "shell_frames": 99,
+   "frame_cost": {
+    "n": 99,
+    "p50_ms": 104.788,
+    "p95_ms": 164.804,
+    "p99_ms": 191.999,
+    "max_ms": 191.999
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 99,
+     "p50_ms": 27.844,
+     "p95_ms": 42.262,
+     "p99_ms": 52.415,
+     "max_ms": 52.415
+    },
+    "img_painted_to_present": {
+     "n": 99,
+     "p50_ms": 76.681,
+     "p95_ms": 132.88,
+     "p99_ms": 152.348,
+     "max_ms": 152.348
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 42,
+    "frame_cost": {
+     "n": 42,
+     "p50_ms": 126.414,
+     "p95_ms": 195.169,
+     "p99_ms": 236.08,
+     "max_ms": 236.08
+    },
+    "render_to_img_painted": {
+     "n": 42,
+     "p50_ms": 28.658,
+     "p95_ms": 52.221,
+     "p99_ms": 57.123,
+     "max_ms": 57.123
+    },
+    "img_painted_to_present": {
+     "n": 42,
+     "p50_ms": 91.772,
+     "p95_ms": 168.65,
+     "p99_ms": 184.645,
+     "max_ms": 184.645
+    }
+   },
+   "upload": {
+    "n": 99,
+    "p50_ms": 0.339,
+    "p95_ms": 0.679,
+    "p99_ms": 5.979,
+    "max_ms": 5.979
+   },
+   "img_paint": {
+    "n": 99,
+    "p50_ms": 0.149,
+    "p95_ms": 0.231,
+    "p99_ms": 1.821,
+    "max_ms": 1.821
+   },
+   "engine_copy": {
+    "n": 99,
+    "p50_ms": 1.126,
+    "p95_ms": 1.78,
+    "p99_ms": 3.284,
+    "max_ms": 3.284
+   },
+   "paint_to_present": {
+    "n": 99,
+    "p50_ms": 115.411,
+    "p95_ms": 171.142,
+    "p99_ms": 208.649,
+    "max_ms": 208.649
+   },
+   "last_dirty": [
+    [
+     600,
+     300,
+     200,
+     200
+    ]
+   ],
+   "engine_launch_ms": 201.801,
+   "engine_cold_start_to_first_frame_ms": 293.063,
+   "tab_open_to_first_frame_ms": 42.095,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.4,
+    "peak_rss_mib": 188.4
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 259.1,
+    "peak_rss_mib": 259.1
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 880.6,
+    "pss_sum_mib": 331.3,
+    "browser_process_rss_mib": 221.6
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "4.53 2.47 2.71 4/342 25903"
+  },
+  "box_whole_frames_a": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "box: a 200x200 canvas redrawn every animation frame, the rest of the page still (ELUDITE_BENCH_BROWSER_PAGE=box)",
+   "seconds": 12.069,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": false,
+    "tiles_total": 1,
+    "tiles_per_upload": {
+     "n": 116,
+     "p50_ms": 1.0,
+     "p95_ms": 1.0,
+     "p99_ms": 1.0,
+     "max_ms": 1.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 59.9,
+   "frames_announced": 723,
+   "frames_uploaded": 116,
+   "uploads_per_s": 9.6,
+   "empty_reads": 0,
+   "shell_frames": 116,
+   "frame_cost": {
+    "n": 116,
+    "p50_ms": 93.935,
+    "p95_ms": 113.575,
+    "p99_ms": 128.846,
+    "max_ms": 138.228
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 116,
+     "p50_ms": 26.635,
+     "p95_ms": 36.644,
+     "p99_ms": 39.761,
+     "max_ms": 43.623
+    },
+    "img_painted_to_present": {
+     "n": 116,
+     "p50_ms": 65.819,
+     "p95_ms": 86.335,
+     "p99_ms": 100.99,
+     "max_ms": 103.785
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 65,
+    "frame_cost": {
+     "n": 65,
+     "p50_ms": 85.333,
+     "p95_ms": 100.405,
+     "p99_ms": 107.717,
+     "max_ms": 107.717
+    },
+    "render_to_img_painted": {
+     "n": 65,
+     "p50_ms": 29.447,
+     "p95_ms": 35.536,
+     "p99_ms": 36.71,
+     "max_ms": 36.71
+    },
+    "img_painted_to_present": {
+     "n": 65,
+     "p50_ms": 54.872,
+     "p95_ms": 70.837,
+     "p99_ms": 73.888,
+     "max_ms": 73.888
+    }
+   },
+   "upload": {
+    "n": 116,
+    "p50_ms": 1.541,
+    "p95_ms": 2.157,
+    "p99_ms": 2.894,
+    "max_ms": 4.91
+   },
+   "img_paint": {
+    "n": 116,
+    "p50_ms": 1.358,
+    "p95_ms": 1.763,
+    "p99_ms": 2.382,
+    "max_ms": 4.807
+   },
+   "engine_copy": {
+    "n": 116,
+    "p50_ms": 1.059,
+    "p95_ms": 1.431,
+    "p99_ms": 1.899,
+    "max_ms": 2.023
+   },
+   "paint_to_present": {
+    "n": 116,
+    "p50_ms": 103.053,
+    "p95_ms": 126.396,
+    "p99_ms": 142.125,
+    "max_ms": 151.677
+   },
+   "last_dirty": [
+    [
+     600,
+     300,
+     200,
+     200
+    ]
+   ],
+   "engine_launch_ms": 219.969,
+   "engine_cold_start_to_first_frame_ms": 300.375,
+   "tab_open_to_first_frame_ms": 68.161,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.2,
+    "peak_rss_mib": 188.2
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 272.7,
+    "peak_rss_mib": 272.7
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 880.4,
+    "pss_sum_mib": 328.9,
+    "browser_process_rss_mib": 221.6
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "4.04 2.53 2.73 3/282 26380"
+  },
+  "box_tiles_b": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "box: a 200x200 canvas redrawn every animation frame, the rest of the page still (ELUDITE_BENCH_BROWSER_PAGE=box)",
+   "seconds": 12.063,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": true,
+    "tiles_total": 28,
+    "tiles_per_upload": {
+     "n": 129,
+     "p50_ms": 2.0,
+     "p95_ms": 2.0,
+     "p99_ms": 2.0,
+     "max_ms": 28.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 60.0,
+   "frames_announced": 724,
+   "frames_uploaded": 129,
+   "uploads_per_s": 10.7,
+   "empty_reads": 0,
+   "shell_frames": 129,
+   "frame_cost": {
+    "n": 129,
+    "p50_ms": 80.83,
+    "p95_ms": 111.777,
+    "p99_ms": 119.109,
+    "max_ms": 119.479
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 129,
+     "p50_ms": 24.935,
+     "p95_ms": 34.976,
+     "p99_ms": 38.454,
+     "max_ms": 39.546
+    },
+    "img_painted_to_present": {
+     "n": 129,
+     "p50_ms": 54.615,
+     "p95_ms": 78.041,
+     "p99_ms": 83.493,
+     "max_ms": 94.409
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 65,
+    "frame_cost": {
+     "n": 65,
+     "p50_ms": 81.895,
+     "p95_ms": 104.56,
+     "p99_ms": 116.396,
+     "max_ms": 116.396
+    },
+    "render_to_img_painted": {
+     "n": 65,
+     "p50_ms": 25.1,
+     "p95_ms": 45.569,
+     "p99_ms": 46.872,
+     "max_ms": 46.872
+    },
+    "img_painted_to_present": {
+     "n": 65,
+     "p50_ms": 54.816,
+     "p95_ms": 64.377,
+     "p99_ms": 70.396,
+     "max_ms": 70.396
+    }
+   },
+   "upload": {
+    "n": 129,
+    "p50_ms": 0.354,
+    "p95_ms": 0.491,
+    "p99_ms": 1.069,
+    "max_ms": 3.334
+   },
+   "img_paint": {
+    "n": 129,
+    "p50_ms": 0.151,
+    "p95_ms": 0.241,
+    "p99_ms": 1.666,
+    "max_ms": 4.402
+   },
+   "engine_copy": {
+    "n": 129,
+    "p50_ms": 1.062,
+    "p95_ms": 1.304,
+    "p99_ms": 3.634,
+    "max_ms": 4.984
+   },
+   "paint_to_present": {
+    "n": 129,
+    "p50_ms": 91.013,
+    "p95_ms": 118.578,
+    "p99_ms": 129.697,
+    "max_ms": 131.777
+   },
+   "last_dirty": [
+    [
+     600,
+     300,
+     200,
+     200
+    ]
+   ],
+   "engine_launch_ms": 224.405,
+   "engine_cold_start_to_first_frame_ms": 306.36,
+   "tab_open_to_first_frame_ms": 68.14,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.3,
+    "peak_rss_mib": 188.3
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 259.2,
+    "peak_rss_mib": 259.2
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 879.6,
+    "pss_sum_mib": 331.0,
+    "browser_process_rss_mib": 221.6
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "3.77 2.56 2.73 3/277 26601"
+  },
+  "box_whole_frames_b": {
+   "bench": "browser",
+   "method": "--bench-browser: the animation page (a canvas covering the view, redrawn every animation frame) in a 1600x1000 tab of eludite-chromium (CEF 154, windowless, software OnPaint, --disable-gpu); frames through the memfd ring; the shell draws each with img from a new RenderImage. frame_cost = DockHost render to the end of its present for every shell frame in the window; upload = RenderImage creation (copy out of shared memory); img_paint = the img element's paint in frames with a new image (GPUI's atlas insert, its staging copy); latency = engine OnPaint to the end of the present that showed the frame (CLOCK_MONOTONIC)",
+   "page": "box: a 200x200 canvas redrawn every animation frame, the rest of the page still (ELUDITE_BENCH_BROWSER_PAGE=box)",
+   "seconds": 12.162,
+   "frame_size": [
+    1600,
+    1000
+   ],
+   "tiles": {
+    "method": "brief 0032's partial uploads: the frame as 256x256 tiles, each its own RenderImage; a frame following the last uploaded one re-creates only the tiles its dirty rectangles touch (ELUDITE_BROWSER_TILES=0: one image per frame)",
+    "tiled": false,
+    "tiles_total": 1,
+    "tiles_per_upload": {
+     "n": 114,
+     "p50_ms": 1.0,
+     "p95_ms": 1.0,
+     "p99_ms": 1.0,
+     "max_ms": 1.0
+    }
+   },
+   "bytes_per_frame": 6400000,
+   "engine_paint_rate_fps": 59.9,
+   "frames_announced": 729,
+   "frames_uploaded": 114,
+   "uploads_per_s": 9.4,
+   "empty_reads": 0,
+   "shell_frames": 114,
+   "frame_cost": {
+    "n": 114,
+    "p50_ms": 88.65,
+    "p95_ms": 145.885,
+    "p99_ms": 192.044,
+    "max_ms": 211.85
+   },
+   "frame_split": {
+    "method": "each frame with a new image split at the end of the img element's paint: render to the image painted (layout, prepaint, the upload, the paint so far: CPU) and the image painted to the end of the present (the rest of the paint and the present: here Mesa's software rasterizer and the texture copy)",
+    "render_to_img_painted": {
+     "n": 114,
+     "p50_ms": 27.118,
+     "p95_ms": 42.417,
+     "p99_ms": 54.887,
+     "max_ms": 64.879
+    },
+    "img_painted_to_present": {
+     "n": 114,
+     "p50_ms": 58.859,
+     "p95_ms": 111.569,
+     "p99_ms": 154.345,
+     "max_ms": 180.133
+    }
+   },
+   "baseline_no_upload": {
+    "method": "the same window redrawn every 16 ms with the last image, nothing uploaded",
+    "seconds": 6,
+    "shell_frames": 46,
+    "frame_cost": {
+     "n": 46,
+     "p50_ms": 111.173,
+     "p95_ms": 209.022,
+     "p99_ms": 274.635,
+     "max_ms": 274.635
+    },
+    "render_to_img_painted": {
+     "n": 46,
+     "p50_ms": 25.245,
+     "p95_ms": 49.165,
+     "p99_ms": 101.032,
+     "max_ms": 101.032
+    },
+    "img_painted_to_present": {
+     "n": 46,
+     "p50_ms": 77.096,
+     "p95_ms": 173.603,
+     "p99_ms": 196.161,
+     "max_ms": 196.161
+    }
+   },
+   "upload": {
+    "n": 114,
+    "p50_ms": 1.57,
+    "p95_ms": 1.875,
+    "p99_ms": 2.302,
+    "max_ms": 3.231
+   },
+   "img_paint": {
+    "n": 114,
+    "p50_ms": 1.433,
+    "p95_ms": 1.862,
+    "p99_ms": 3.052,
+    "max_ms": 13.595
+   },
+   "engine_copy": {
+    "n": 114,
+    "p50_ms": 1.073,
+    "p95_ms": 1.597,
+    "p99_ms": 2.597,
+    "max_ms": 4.509
+   },
+   "paint_to_present": {
+    "n": 114,
+    "p50_ms": 97.234,
+    "p95_ms": 160.274,
+    "p99_ms": 193.156,
+    "max_ms": 215.699
+   },
+   "last_dirty": [
+    [
+     600,
+     300,
+     200,
+     200
+    ]
+   ],
+   "engine_launch_ms": 167.959,
+   "engine_cold_start_to_first_frame_ms": 245.266,
+   "tab_open_to_first_frame_ms": 60.283,
+   "shell_rss_before_engine": {
+    "rss_mib": 188.3,
+    "peak_rss_mib": 188.3
+   },
+   "shell_rss_with_tab": {
+    "rss_mib": 272.9,
+    "peak_rss_mib": 272.9
+   },
+   "engine_memory": {
+    "processes": 8,
+    "rss_sum_mib": 880.0,
+    "pss_sum_mib": 328.4,
+    "browser_process_rss_mib": 221.4
+   },
+   "shell_maps_libcef": false,
+   "platform": {
+    "os": "linux",
+    "wayland_display": "",
+    "display": ":98",
+    "scale_factor": 1.0,
+    "viewport": [
+     2200.0,
+     1500.0
+    ]
+   },
+   "loadavg": "3.68 2.62 2.75 4/347 27080"
+  }
+ }
+}

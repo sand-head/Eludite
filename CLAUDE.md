@@ -35,7 +35,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/dap` | DAP client and transports | 3 (D7), 4.5 |
 | `crates/acp` | ACP client | 5.2 |
 | `crates/mcp` | MCP server over the command bus | 5.1, 5.2 |
-| `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023); `EmbeddedChromium`, the engine over `eludite-chromium` with frames from shared memory (brief 0031) | 4.9, 5.8 |
+| `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023); `EmbeddedChromium`, the engine over `eludite-chromium` with frames from shared memory (brief 0031); `record`, `devtools`, `dialog`, the engine selection (`browser.engine`) and the key table of the Web Browser window (brief 0032) | 4.9, 5.8 |
 | `crates/git` | libgit2 wrapper | 4.8 |
 | `crates/terminal` | Integrated terminal | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
@@ -44,7 +44,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `extension-sdk/` | MIT WASM extension API (crate `eludite-extension-sdk`) | 3 (D6) |
 | `agents/claude-acp/` | `eludite-claude-acp`: MIT, standalone ACP adapter driving the `claude` binary, no Node (brief 0006) | 5.2 |
 | `debuggers/netfx` | `eludite-dbg-netfx`, ICorDebug DAP server; Windows at runtime, compiles everywhere | 4.5, 13 |
-| `browsers/chromium` | `eludite-chromium`: CEF's browser process (GPL), windowless tabs rendered into a shared-memory frame ring, JSON-RPC control on stdio (`protocol/schemas/browser-rpc/`); the real engine needs the `cef` feature and `CEF_PATH` from `tools/cef/fetch.sh`, else it is a stub and its tests skip; Linux only so far (brief 0031) | 4.9, 12 |
+| `browsers/chromium` | `eludite-chromium`: CEF's browser process (GPL), windowless tabs rendered into a shared-memory frame ring, JSON-RPC control on stdio (`protocol/schemas/browser-rpc/`); the real engine needs the `cef` feature and `CEF_PATH` from `tools/cef/fetch.sh`, else it is a stub and its tests skip; Linux only so far (brief 0031); popups, dialogs, permissions, downloads, DevTools as a tab and the privacy switches (brief 0032) | 4.9, 12 |
 | `debuggers/mono` | `eludite-dbg-mono`, Mono soft-debugger DAP server (C#, net472 on Mono.Debugging.Soft, runs under the located Mono): .NET Framework debugging on Linux and macOS; built by `dotnet build dotnet/Eludite.slnx` (brief 0022) | 4.5 |
 | `dotnet/` | `eludite-host`: Roslyn LSP embedding, project system, NuGet, EnC | 3 (D2, D4), 4.3 |
 | `vendor/` | Pinned Zed crates, each with `WHY.md` | 3 (D1) |
