@@ -163,6 +163,8 @@ pub struct TabState {
     pub last_network_activity: Instant,
     /// The tab's target went away (closed or crashed).
     pub gone: bool,
+    /// A JavaScript dialog the page waits on, as CDP reported it (`Page.javascriptDialogOpening`; brief 0032).
+    pub dialog: Option<crate::engine::PendingDialog>,
 }
 
 impl TabState {
@@ -185,6 +187,7 @@ impl TabState {
             flight_loader: HashMap::new(),
             last_network_activity: Instant::now(),
             gone: false,
+            dialog: None,
         }
     }
 
@@ -294,6 +297,15 @@ impl TabState {
                     }
                 }
             }
+            "Page.javascriptDialogOpening" => {
+                self.dialog = Some(crate::engine::PendingDialog {
+                    id: 0,
+                    kind: p["type"].as_str().unwrap_or("alert").to_owned(),
+                    message: p["message"].as_str().unwrap_or_default().to_owned(),
+                    default_text: p["defaultPrompt"].as_str().map(str::to_owned),
+                });
+            }
+            "Page.javascriptDialogClosed" => self.dialog = None,
             "Page.frameStartedLoading" => {
                 if self.is_main(p["frameId"].as_str()) {
                     self.loading = true;

@@ -6,7 +6,8 @@
 //! ([`crate::tab`]) from its events, so console messages and requests are recorded between commands.
 //!
 //! Acting on the page (`input`, `form_input`, `upload`) is in `act`, and `storage`, `network_body` and
-//! `open_external` in `data` (brief 0024).
+//! `open_external` in `data` (brief 0024). `record`, `devtools`, `dialog` and the person's [`Interrupt`] are in
+//! `window`, the GIF encoder in `record` (brief 0032).
 //!
 //! Waiting (`navigate`'s `wait_until`, `wait`) is event-driven where CDP has the event (lifecycle events per loader,
 //! requests in flight, console messages, main-frame navigations) and polls every 100 ms where it has not (a
@@ -15,9 +16,12 @@
 
 mod act;
 mod data;
+pub mod record;
+mod window;
 
 pub use self::act::SET_JS;
 pub use self::data::{OPENER_ENV, base64_decode, base64_encode, opener};
+pub use self::window::{Interrupt, Marks, stopped_error};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -47,6 +51,8 @@ type CandidateRows = (Vec<(Row, Option<BoxRow>)>, usize);
 
 /// How often waits poll what CDP has no event for.
 const POLL: Duration = Duration::from_millis(100);
+/// How often a waiting call looks for the person's hand ([`Interrupt`]).
+const INTERRUPT_POLL: Duration = Duration::from_millis(20);
 /// `network_idle`: no request in flight for this long.
 pub const NETWORK_QUIET: Duration = Duration::from_millis(500);
 /// How long one `evaluate` may run.
@@ -123,6 +129,11 @@ pub struct Browser {
     closed: std::collections::HashSet<String>,
     /// The program `open_external` runs instead of the system's opener (tests).
     opener: Option<String>,
+    /// The person's hand (brief 0032), and its counters when the current call began.
+    interrupt: Arc<Interrupt>,
+    marks: Marks,
+    /// `record` in progress.
+    recording: Option<record::Recording>,
 }
 
 impl std::fmt::Debug for Browser {
@@ -209,7 +220,33 @@ impl Browser {
             next_tab: 1,
             closed: std::collections::HashSet::new(),
             opener: None,
+            interrupt: Arc::default(),
+            marks: Marks::default(),
+            recording: None,
         }
+    }
+
+    /// The person's hand on this browser: the shell ends an agent's wait through it.
+    pub fn interrupt(&self) -> Arc<Interrupt> {
+        self.interrupt.clone()
+    }
+
+    /// Share `interrupt` (the shell's, which outlives engines).
+    pub fn set_interrupt(&mut self, interrupt: Arc<Interrupt>) {
+        self.interrupt = interrupt;
+    }
+
+    /// The engine's tab ids by command tab id (`t1`): the Web Browser window draws the engine's tabs.
+    pub fn targets_of_tabs(&self) -> Vec<(String, String)> {
+        self.tabs
+            .iter()
+            .map(|t| (t.id.clone(), t.target.clone()))
+            .collect()
+    }
+
+    /// Whether the person stopped the current call.
+    fn stopped(&self) -> bool {
+        self.interrupt.stopped_since(self.marks)
     }
 
     /// Run `program url` for `open_external` instead of the system's opener (`None`: the system's, or
@@ -229,6 +266,9 @@ impl Browser {
 
     /// Close the browser and forget its tabs (the workspace closed, or the shell exits).
     pub fn shutdown(&mut self) {
+        if let Some(r) = self.recording.take() {
+            let _ = r.finish();
+        }
         self.engine.shutdown();
         self.forget_tabs();
     }
@@ -242,6 +282,7 @@ impl Browser {
 
     /// Run one command.
     pub fn apply(&mut self, request: BrowserRequest) -> Result<BrowserOutput, CommandError> {
+        self.marks = self.interrupt.marks();
         // A browser that went away (crashed, killed) takes its tabs with it.
         if !self.tabs.is_empty() && !self.engine.is_running() {
             self.forget_tabs();
@@ -437,6 +478,29 @@ impl Browser {
             BrowserRequest::OpenExternal { url } => {
                 BrowserOutput::OpenExternal(self.open_external(url.as_deref())?)
             }
+            BrowserRequest::Record { tab, action } => {
+                BrowserOutput::Record(self.record(tab.as_deref(), &action)?)
+            }
+            BrowserRequest::Devtools { tab, inspect } => {
+                BrowserOutput::Devtools(self.devtools(tab.as_deref(), inspect)?)
+            }
+            BrowserRequest::Dialog {
+                tab,
+                accept,
+                text,
+                files,
+                username,
+                password,
+            } => BrowserOutput::Dialog(self.dialog(
+                tab.as_deref(),
+                crate::engine::DialogAnswer {
+                    accept,
+                    text,
+                    files,
+                    username,
+                    password,
+                },
+            )?),
         };
         Ok(out)
     }
@@ -582,6 +646,7 @@ impl Browser {
 
     fn row(&self, tab: &Tab, targets: &[TargetInfo]) -> TabRow {
         let info = targets.iter().find(|t| t.target_id == tab.target);
+        let history = self.engine.history(&tab.target);
         let s = tab.state();
         TabRow {
             id: tab.id.clone(),
@@ -590,6 +655,13 @@ impl Browser {
             active: self.active.as_deref() == Some(tab.id.as_str()),
             loading: s.loading,
             page_generation: s.page_generation,
+            favicon: history
+                .as_ref()
+                .map(|h| h.favicon.clone())
+                .filter(|f| !f.is_empty()),
+            can_go_back: history.as_ref().map(|h| h.can_go_back),
+            can_go_forward: history.as_ref().map(|h| h.can_go_forward),
+            target: tab.target.clone(),
         }
     }
 
@@ -612,11 +684,21 @@ impl Browser {
             engine.version = Some(info.version);
             engine.executable = Some(info.executable);
         }
+        let mut rows: Vec<TabRow> = self.tabs.iter().map(|t| self.row(t, &targets)).collect();
+        // An engine that does not track history: ask each page (one call per tab, pipelined per tab).
+        for (row, tab) in rows.iter_mut().zip(&self.tabs) {
+            if row.can_go_back.is_none()
+                && let Ok(h) = self.call(tab, page::GetNavigationHistoryParams {})
+            {
+                row.can_go_back = Some(h.current_index > 0);
+                row.can_go_forward = Some((h.current_index + 1) < h.entries.len() as i64);
+            }
+        }
         Ok(TabsOutput {
             running: true,
             engine,
             active: self.active.clone(),
-            tabs: self.tabs.iter().map(|t| self.row(t, &targets)).collect(),
+            tabs: rows,
         })
     }
 
@@ -779,6 +861,20 @@ impl Browser {
                 self.call(tab, page::ReloadParams::default())?;
                 None
             }
+            NavigateTo::Stop => {
+                self.send(tab, "Page.stopLoading", json!({}))?;
+                let s = tab.state();
+                return Ok(NavigateOutput {
+                    tab: tab.id.clone(),
+                    url: s.url.clone(),
+                    title: String::new(),
+                    status: None,
+                    page_generation: s.page_generation,
+                    console_errors: 0,
+                    timed_out: false,
+                    elapsed_ms: ms(started.elapsed()),
+                });
+            }
         };
         let reached = same_document
             || self.wait_loaded(tab, wait_until, loader.as_deref(), nav0, deadline)?;
@@ -861,6 +957,9 @@ impl Browser {
             if done {
                 break;
             }
+            if self.stopped() {
+                return Err(stopped_error());
+            }
             if Instant::now() >= deadline {
                 return Ok(false);
             }
@@ -873,9 +972,12 @@ impl Browser {
         Ok(true)
     }
 
-    /// Wait for the tab's next event, at most one poll interval and never past `deadline`.
+    /// Wait for the tab's next event, at most [`INTERRUPT_POLL`] (so the person's Stop is seen at once) and never
+    /// past `deadline`.
     fn wait_change(&self, tab: &Tab, deadline: Instant) {
-        let left = deadline.saturating_duration_since(Instant::now()).min(POLL);
+        let left = deadline
+            .saturating_duration_since(Instant::now())
+            .min(INTERRUPT_POLL);
         let s = tab.state();
         let _ = tab.shared.changed.wait_timeout(s, left);
     }
@@ -888,7 +990,7 @@ impl Browser {
                     return true;
                 }
             }
-            if Instant::now() >= deadline {
+            if Instant::now() >= deadline || self.stopped() {
                 return false;
             }
             self.wait_change(tab, deadline);
@@ -1621,7 +1723,13 @@ impl Browser {
             _ => None,
         };
         let mut satisfied: Option<WaitSatisfied> = None;
+        let mut interrupted = false;
         loop {
+            // The person took over (brief 0032): the agent's wait ends at once.
+            if self.interrupt.interrupted_since(self.marks) {
+                interrupted = true;
+                break;
+            }
             let found = match condition {
                 WaitFor::Selector(css) => {
                     let present = self
@@ -1721,19 +1829,26 @@ impl Browser {
                 break;
             }
             match condition {
-                // Polled: sleep the interval (events do not tell us when the condition holds).
+                // Polled: sleep the interval (events do not tell us when the condition holds), looking for the
+                // person's hand meanwhile.
                 WaitFor::Selector(_) | WaitFor::Text(_) | WaitFor::Function(_) => {
-                    std::thread::sleep(POLL.min(deadline.saturating_duration_since(Instant::now())))
+                    let until = (Instant::now() + POLL).min(deadline);
+                    while Instant::now() < until && !self.interrupt.interrupted_since(self.marks) {
+                        std::thread::sleep(
+                            INTERRUPT_POLL.min(until.saturating_duration_since(Instant::now())),
+                        );
+                    }
                 }
                 _ => self.wait_change(&tab, deadline),
             }
         }
         Ok(WaitOutput {
             tab: tab.id.clone(),
-            timeout: satisfied.is_none(),
+            timeout: satisfied.is_none() && !interrupted,
             satisfied,
             page_generation: tab.state().page_generation,
             elapsed_ms: ms(started.elapsed()),
+            interrupted_by: interrupted.then(|| "user".to_owned()),
         })
     }
 
@@ -1824,6 +1939,9 @@ fn exception_text(e: &Value) -> String {
 
 impl Drop for Browser {
     fn drop(&mut self) {
+        if let Some(r) = self.recording.take() {
+            let _ = r.finish();
+        }
         self.engine.shutdown();
     }
 }

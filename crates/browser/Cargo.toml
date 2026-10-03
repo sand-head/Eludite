@@ -16,9 +16,9 @@ eludite-protocol = { workspace = true, features = ["cdp"] }
 regex = "1"
 serde.workspace = true
 serde_json.workspace = true
-# Encoding screenshots taken from the embedded engine's frame ring (brief 0031). MIT OR Apache-2.0; already in the
-# build through GPUI, with these features.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Encoding screenshots taken from the embedded engine's frame ring (brief 0031) and `record`'s GIF (brief 0032).
+# MIT OR Apache-2.0; already in the build through GPUI, with these features (`gif` included: no new crate).
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 # The CDP websocket over std::net::TcpStream: no TLS, no async runtime. MIT OR Apache-2.0.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
