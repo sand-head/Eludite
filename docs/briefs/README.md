@@ -56,7 +56,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0023](0023-browser-automation-read.md) | Browser automation over CDP against an external Chrome: tabs, navigation, reading the page (proposal 0002 A, first half) | 2 | [report](0023-report.md): done on Linux; screenshot 52 to 67 ms p95, read_page on 5,000 items 241 to 299 ms p95 |
 | [0024](0024-browser-automation-act.md) | Browser automation over CDP: acting on the page, the browser policy, transcript thumbnails and the fake-agent proof (proposal 0002 A, second half) | 2 | open |
 | [0025](0025-debug-inspection-depth.md) | Inspection depth for the agent debugging suite (proposal 0001 A) | 2 | [report](0025-report.md): done on Linux; snapshot 3 to 9 ms p95 (fake), summary 7.6 KB at the corpus stop, wait wakes in 2.5 to 11 ms; netcoredbg not run |
-| [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | open |
+| [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | [report](0026-report.md): done on Linux; emulated tracepoint 6.3 to 7.0 ms per hit (eludite-dbg-mono, emulation forced), run_until +1 to 5 ms over continue; netcoredbg not run |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
