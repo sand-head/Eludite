@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-stage.output.json",
+  "title": "eludite.git.stage output",
+  "description": "What was staged.",
+  "type": "object",
+  "required": [
+    "staged",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "staged": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resolved": {
+      "description": "Conflicted files this marked resolved.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

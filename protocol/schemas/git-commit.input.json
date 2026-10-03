@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-commit.input.json",
+  "title": "eludite.git.commit input",
+  "description": "Commit (Git Changes: Commit Staged, Commit All, Commit All and Push via eludite.git.push after it; Amend): the index becomes a commit on the current branch with `message`. The identity is `user.name` and `user.email` from the repository's config, then the global config (`~/.gitconfig`, `$XDG_CONFIG_HOME/git/config`), then the settings git.userName and git.userEmail; with none the command is refused naming `git config user.name` and the settings. During a merge the commit gets the merged commit as its second parent; during a cherry-pick it completes the pick. Commits are not signed (git.gpgSign). Refused with nothing to commit (unless `amend`) and while files are conflicted. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "With `amend`: dangerous for an agent when the solution's policy sets `git.history` to `prompt` (the default), refused when `deny`. Otherwise dangerous when `git.commit` is `prompt`, refused when `deny`.",
+  "type": "object",
+  "required": [
+    "message"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "description": "The commit message (its first line is the summary).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "all": {
+      "description": "Commit All: stage every change of tracked and untracked files first. Default false.",
+      "type": "boolean"
+    },
+    "amend": {
+      "description": "Replace the branch's last commit (Amend): history class for agents.",
+      "type": "boolean"
+    },
+    "author": {
+      "description": "The author, when it is not the committer identity.",
+      "type": "object",
+      "required": [
+        "name",
+        "email"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "email": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

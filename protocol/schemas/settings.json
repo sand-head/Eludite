@@ -11,6 +11,7 @@
     "Debugging > General",
     "Text Editor > Rust",
     "Test > General",
+    "Source Control > Git Global Settings",
     "Agents",
     "Web Browser"
   ],
@@ -154,6 +155,50 @@
       "x-eludite-section": "Test > General",
       "x-eludite-label": "vstest.console.dll",
       "x-eludite-env": "ELUDITE_VSTEST_CONSOLE"
+    },
+    "git.enabled": {
+      "description": "Git integration (brief 0040): the Git Changes and Git Repository windows, the status glyphs in the Workspace window and on document tabs, the status bar's branch and sync arrows, and the editor's change margin. Off: Eludite reads no repository and eludite.git.* fails saying so.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Source Control > Git Global Settings",
+      "x-eludite-label": "Enable Git integration"
+    },
+    "git.autoFetchMinutes": {
+      "description": "Fetch the current branch's remote every this many minutes, so the status bar's incoming count stays current. 0 (the default) never fetches on its own: Eludite makes no network call unless asked (PLAN.md section 2).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1440,
+      "default": 0,
+      "x-eludite-section": "Source Control > Git Global Settings",
+      "x-eludite-label": "Fetch automatically every (minutes; 0 is never)"
+    },
+    "git.userName": {
+      "description": "The commit identity's name when neither the repository's config nor the global git config (`~/.gitconfig`) has `user.name`. The repository's and the global config win.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Source Control > Git Global Settings",
+      "x-eludite-label": "User name"
+    },
+    "git.userEmail": {
+      "description": "The commit identity's email when neither the repository's config nor the global git config has `user.email`.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Source Control > Git Global Settings",
+      "x-eludite-label": "Email"
+    },
+    "git.gpgSign": {
+      "description": "Commit signing. Only `never` exists: signing (GPG or SSH, `commit.gpgSign`) needs a signing program or key access outside libgit2 and a passphrase prompt, which a later brief adds; until then Eludite's commits are unsigned whatever `commit.gpgSign` says.",
+      "enum": [
+        "never"
+      ],
+      "default": "never",
+      "x-eludite-section": "Source Control > Git Global Settings",
+      "x-eludite-label": "Sign commits",
+      "x-eludite-enum-labels": [
+        "Never (signing is not supported yet)"
+      ]
     },
     "agents.default": {
       "description": "The name of the agent the Agents window selects at start. Empty: the first one (the native Claude Code adapter when found).",

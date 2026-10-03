@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-blame.output.json",
+  "title": "eludite.git.blame output",
+  "description": "Each line's commit, by reference to `commits`.",
+  "type": "object",
+  "required": [
+    "path",
+    "lines",
+    "commits",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "lines": {
+      "description": "One per line, in order: the 1-based line and its commit's index in `commits`.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "line",
+          "commit"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "commit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "commits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "short",
+          "author",
+          "time",
+          "summary"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "description": "A full commit id (40 hexadecimal digits).",
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "short": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "time": {
+            "type": "integer"
+          },
+          "date": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  }
+}

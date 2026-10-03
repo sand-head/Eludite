@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-diff.input.json",
+  "title": "eludite.git.diff input",
+  "description": "The diff of one file (Compare with Unmodified, Ctrl+D in the Workspace window; a double-click in Git Changes): its working-tree text against the index (the default), HEAD or a revision; with `staged`, the index's text against HEAD (or the revision). Lines are compared as the editor's own diff compares them (Myers' algorithm, bounded, so a wholesale rewrite reads as all removed then all added). The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Relative to the repository root, or absolute inside its working tree.",
+      "type": "string",
+      "minLength": 1
+    },
+    "against": {
+      "description": "`index` (default), `head`, or a revision (`HEAD~2`, a branch, a commit id).",
+      "type": "string",
+      "minLength": 1
+    },
+    "staged": {
+      "description": "Diff the index's text (not the working tree's). Default false.",
+      "type": "boolean"
+    },
+    "context": {
+      "description": "Lines of context around each change. Default 3.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "max_lines": {
+      "description": "Changed lines listed at most (the rest are counted in `omitted`). Default and maximum 2000.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2000
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-branches.output.json",
+  "title": "eludite.git.branches output",
+  "description": "The branches and tags (after a delete).",
+  "type": "object",
+  "required": [
+    "branches",
+    "tags",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "current": {
+      "description": "The checked-out branch (absent when HEAD is detached).",
+      "type": "string"
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "remote",
+          "head",
+          "commit",
+          "summary"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "`main`, or `origin/main` for a remote branch.",
+            "type": "string"
+          },
+          "remote": {
+            "type": "boolean"
+          },
+          "head": {
+            "description": "The checked-out branch.",
+            "type": "boolean"
+          },
+          "commit": {
+            "description": "A full commit id (40 hexadecimal digits).",
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "upstream": {
+            "type": "string"
+          },
+          "ahead": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "behind": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "commit"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "commit": {
+            "description": "A full commit id (40 hexadecimal digits).",
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      }
+    },
+    "deleted": {
+      "type": "string"
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-checkout.input.json",
+  "title": "eludite.git.checkout input",
+  "description": "Check out a branch, remote branch or revision (the Git Repository window's Checkout, the status bar's branch list), or create one and switch to it (New Branch: `create`, from `start_point`, default HEAD). A remote branch with no local branch of its name gets a local tracking branch. Local changes that the switch would overwrite refuse the checkout naming them (libgit2's safe checkout); other local changes come along. `force` overwrites them and is refused for agents. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "`force` is refused for agents outright.",
+  "type": "object",
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "A branch (`feature`, `origin/feature`), tag or commit; with `create`, the new branch's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "create": {
+      "description": "Create the branch `name` first. Default false.",
+      "type": "boolean"
+    },
+    "start_point": {
+      "description": "Where a created branch starts. Default HEAD.",
+      "type": "string",
+      "minLength": 1
+    },
+    "force": {
+      "description": "Overwrite local changes. Refused for agents.",
+      "type": "boolean"
+    }
+  }
+}

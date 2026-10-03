@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-cancel.output.json",
+  "title": "eludite.git.cancel output",
+  "description": "What was canceled.",
+  "type": "object",
+  "required": [
+    "canceled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "canceled": {
+      "type": "boolean"
+    },
+    "operation": {
+      "enum": [
+        "fetch",
+        "pull",
+        "push",
+        "log"
+      ]
+    }
+  }
+}

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/mcp-resource.json",
   "title": "Eludite MCP resource",
-  "description": "How Eludite's MCP server exposes a guide for agents as an MCP resource (MCP Resources, revision 2025-06-18 and later): `initialize` advertises the `resources` capability; `resources/list` answers `{\"resources\": [<this object>]}` in one page (no `nextCursor`); `resources/read` with `{\"uri\"}` answers `{\"contents\": [{\"uri\", \"mimeType\", \"text\"}]}` and an unknown uri is the JSON-RPC error -32002 (resource not found) naming it; `resources/templates/list` answers `{\"resourceTemplates\": []}`. The guides are compiled into Eludite from `docs/agents/`, so they match the commands of the build. The first is `eludite://guides/debugging` (`docs/agents/debugging.md`, `text/markdown`): how an agent should drive the debugger (eludite.debug.*).",
+  "description": "How Eludite's MCP server exposes a guide for agents as an MCP resource (MCP Resources, revision 2025-06-18 and later): `initialize` advertises the `resources` capability; `resources/list` answers `{\"resources\": [<this object>]}` in one page (no `nextCursor`); `resources/read` with `{\"uri\"}` answers `{\"contents\": [{\"uri\", \"mimeType\", \"text\"}]}` and an unknown uri is the JSON-RPC error -32002 (resource not found) naming it; `resources/templates/list` answers `{\"resourceTemplates\": []}`. The guides are compiled into Eludite from `docs/agents/`, so they match the commands of the build. The first is `eludite://guides/debugging` (`docs/agents/debugging.md`, `text/markdown`): how an agent should drive the debugger (eludite.debug.*). Besides the guides, `eludite://git/status` (`application/json`, brief 0040) is the repository's status as eludite.git.status answers it, read afresh on each `resources/read`; the guide `eludite://guides/git` (`docs/agents/git.md`) says how an agent uses eludite.git.*.",
   "type": "object",
   "required": [
     "uri",
@@ -12,9 +12,9 @@
   "additionalProperties": false,
   "properties": {
     "uri": {
-      "description": "`eludite://guides/<name>`.",
+      "description": "`eludite://guides/<name>`, or `eludite://git/status`.",
       "type": "string",
-      "pattern": "^eludite://guides/[a-z][a-z0-9-]*$"
+      "pattern": "^eludite://(guides/[a-z][a-z0-9-]*|git/status)$"
     },
     "name": {
       "type": "string",
@@ -29,7 +29,10 @@
       "type": "string"
     },
     "mimeType": {
-      "const": "text/markdown"
+      "enum": [
+        "text/markdown",
+        "application/json"
+      ]
     },
     "size": {
       "description": "The text's size in bytes.",
@@ -63,7 +66,10 @@
                 "type": "string"
               },
               "mimeType": {
-                "const": "text/markdown"
+                "enum": [
+                  "text/markdown",
+                  "application/json"
+                ]
               },
               "text": {
                 "type": "string"

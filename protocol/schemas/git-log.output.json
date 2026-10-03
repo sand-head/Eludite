@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-log.output.json",
+  "title": "eludite.git.log output",
+  "description": "The commits.",
+  "type": "object",
+  "required": [
+    "entries",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "commit",
+          "short",
+          "parents",
+          "author",
+          "email",
+          "time",
+          "summary",
+          "refs",
+          "graph"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "description": "A full commit id (40 hexadecimal digits).",
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "short": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "description": "A full commit id (40 hexadecimal digits).",
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            }
+          },
+          "author": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "time": {
+            "description": "The author time, seconds since 1970-01-01 UTC.",
+            "type": "integer"
+          },
+          "date": {
+            "description": "The author time as RFC 3339 with its offset.",
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "refs": {
+            "description": "Branches, remote branches and tags at this commit (`HEAD -> main`, `origin/main`, `tag: v1`).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "graph": {
+            "description": "The graph row (Git Repository window): the commit's lane and the edges from this row down to the next, each `[from lane, to lane]`; a lane that passes through is `[n, n]`. Lanes are computed by Eludite, at most 32 wide (`overflow` past that).",
+            "type": "object",
+            "required": [
+              "lane",
+              "edges"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "lane": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "edges": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "overflow": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "truncated": {
+      "description": "More commits follow (page with `skip`).",
+      "type": "boolean"
+    }
+  }
+}

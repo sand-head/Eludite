@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-discard.input.json",
+  "title": "eludite.git.discard input",
+  "description": "Undo Changes (Git Changes and the Workspace window's context menu; the UI asks first, as Visual Studio does): the working-tree files go back to the index's content, and untracked files are deleted. With `staged`, the index entries go back to HEAD's first, so the files return to HEAD. The changes are lost: class dangerous. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "paths": {
+      "description": "Paths relative to the repository root, or absolute paths inside its working tree.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "all": {
+      "description": "Every changed file instead of `paths`.",
+      "type": "boolean"
+    },
+    "staged": {
+      "description": "Discard staged changes too (back to HEAD). Default false.",
+      "type": "boolean"
+    }
+  }
+}

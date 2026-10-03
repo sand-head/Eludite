@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-stash.input.json",
+  "title": "eludite.git.stash input",
+  "description": "Stashes (Git Changes: Stash All, the Stashes list's Apply, Pop and Drop): `list` (default), `push` the local changes with a `message` (untracked files too with `include_untracked`), `apply` or `pop` stash `index` (default 0, the newest; a conflict stops as a merge does, with the conflicted paths, and `pop` keeps the stash), or `drop` it (class dangerous). The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "`push`, `apply` and `pop` are class execute; `drop` is dangerous.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "list",
+        "push",
+        "apply",
+        "pop",
+        "drop"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "include_untracked": {
+      "type": "boolean"
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

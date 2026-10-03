@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-rebase.output.json",
+  "title": "eludite.git.rebase output",
+  "description": "How the rebase went.",
+  "type": "object",
+  "required": [
+    "result",
+    "conflicts",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "description": "`up_to_date`, `rebased`, `conflicts` (stopped; continue or abort) or `aborted`.",
+      "enum": [
+        "up_to_date",
+        "rebased",
+        "conflicts",
+        "aborted"
+      ]
+    },
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "step": {
+      "description": "The commit being replayed (1-based) when it stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "steps": {
+      "description": "Commits to replay.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "conflicts": {
+      "description": "The paths left with conflict markers (relative to the repository root). The files are open to edit; eludite.git.stage on a file marks it resolved.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

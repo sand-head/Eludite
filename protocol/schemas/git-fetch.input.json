@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-fetch.input.json",
+  "title": "eludite.git.fetch input",
+  "description": "Fetch (Git > Fetch; the status bar's incoming arrow): download the remote's branches and tags, updating the incoming count. No network unless asked: git.autoFetchMinutes is 0 (never) by default. Credentials go through libgit2's callback: for ssh urls the ssh agent (`SSH_AUTH_SOCK`), for https the configured `git-credential` helper (`credential.helper`), else nothing; a credential failure names what was tried and how to set a helper up. Runs off the UI thread with its progress in the status bar, and stops at eludite.git.cancel. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "description": "Default: the branch's upstream remote, else `origin`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "prune": {
+      "description": "Remove remote branches the remote no longer has. Default false.",
+      "type": "boolean"
+    }
+  }
+}

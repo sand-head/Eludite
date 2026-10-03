@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-init.output.json",
+  "title": "eludite.git.init output",
+  "description": "The new repository.",
+  "type": "object",
+  "required": [
+    "repository",
+    "branch",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "repository": {
+      "type": "string"
+    },
+    "branch": {
+      "type": "string"
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

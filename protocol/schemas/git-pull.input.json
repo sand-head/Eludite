@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-pull.input.json",
+  "title": "eludite.git.pull input",
+  "description": "Pull (Git > Pull; the status bar's Pull): fetch, then bring the upstream into the branch by a fast-forward or, when both moved, a merge commit (stopping on a conflict as eludite.git.merge does). Never a rebase unless `rebase` (history class for agents). Credentials go through libgit2's callback: for ssh urls the ssh agent (`SSH_AUTH_SOCK`), for https the configured `git-credential` helper (`credential.helper`), else nothing; a credential failure names what was tried and how to set a helper up. Runs off the UI thread with its progress in the status bar, and stops at eludite.git.cancel. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "x-eludite-escalates": "With `rebase`: dangerous for an agent when the solution's policy sets `git.history` to `prompt` (the default), refused when `deny`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rebase": {
+      "description": "Rebase the branch's commits onto the upstream instead of merging. Default false.",
+      "type": "boolean"
+    }
+  }
+}

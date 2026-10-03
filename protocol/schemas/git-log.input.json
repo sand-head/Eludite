@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-log.input.json",
+  "title": "eludite.git.log input",
+  "description": "The history (Git Repository window, View History): commits from `revision` (default HEAD; `all` for every branch, remote branch and tag), newest first in topological order, with the graph's lanes, author, date, summary and refs. Bounded by `max` and cancelable; `skip` pages. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one the command fails naming eludite.git.init.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "revision": {
+      "description": "Where to start: a branch, `HEAD~3`, a commit id. Default HEAD.",
+      "type": "string",
+      "minLength": 1
+    },
+    "all": {
+      "description": "Every local branch, remote branch and tag (the Git Repository window's graph). Default false.",
+      "type": "boolean"
+    },
+    "path": {
+      "description": "Only commits that change this file (relative to the repository root).",
+      "type": "string",
+      "minLength": 1
+    },
+    "max": {
+      "description": "Commits at most. Default 100.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    },
+    "skip": {
+      "description": "Commits to skip first (paging). Default 0.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

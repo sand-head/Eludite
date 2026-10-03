@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-status.output.json",
+  "title": "eludite.git.status output",
+  "description": "The repository's status as of `generation`.",
+  "type": "object",
+  "required": [
+    "state",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "`none`: the workspace is in no repository (Create Git Repository); `loading`: the first status is being read; `ready`.",
+      "enum": [
+        "none",
+        "loading",
+        "ready"
+      ]
+    },
+    "repository": {
+      "description": "The working tree's root (absolute).",
+      "type": "string"
+    },
+    "generation": {
+      "description": "The status generation after the call: it grows whenever the repository's status changes (the watcher saw `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, or a command changed them). eludite.git.status answers with the same number; an answer with an older generation is stale.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "branch": {
+      "description": "The checked-out branch's short name (an unborn branch's too); absent when HEAD is detached.",
+      "type": "string"
+    },
+    "detached": {
+      "type": "boolean"
+    },
+    "head": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "upstream": {
+      "description": "The branch's upstream (`origin/main`).",
+      "type": "string"
+    },
+    "ahead": {
+      "description": "Outgoing commits: on the branch, not on its upstream.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "behind": {
+      "description": "Incoming commits: on the upstream, not on the branch (as of the last fetch).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "operation": {
+      "description": "An operation in progress that stopped (a conflict): finish it by staging the resolved files and committing (merge, cherry-pick) or eludite.git.rebase with `continue`, or abort it.",
+      "enum": [
+        "merge",
+        "rebase",
+        "cherry_pick",
+        "revert",
+        "apply_mailbox",
+        "bisect"
+      ]
+    },
+    "staged": {
+      "description": "Staged Changes: the index against HEAD.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Relative to the repository root, `/`-separated.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What changed: Visual Studio's glyphs in Git Changes, the Workspace window and the document tabs follow it.",
+            "enum": [
+              "added",
+              "modified",
+              "deleted",
+              "renamed",
+              "typechange"
+            ]
+          },
+          "old_path": {
+            "description": "A rename's or copy's old path.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "unstaged": {
+      "description": "Changes: the working tree against the index (tracked files).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Relative to the repository root, `/`-separated.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What changed: Visual Studio's glyphs in Git Changes, the Workspace window and the document tabs follow it.",
+            "enum": [
+              "added",
+              "modified",
+              "deleted",
+              "renamed",
+              "typechange"
+            ]
+          },
+          "old_path": {
+            "description": "A rename's or copy's old path.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "untracked": {
+      "description": "New files not in the index (Changes, with an untracked glyph).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conflicted": {
+      "description": "Files with conflicts (Merge Changes).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ignored": {
+      "description": "With `include_ignored`: ignored files and folders (a folder ends with `/`).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stashes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "totals": {
+      "description": "How many files each group has, listed or not.",
+      "type": "object",
+      "required": [
+        "staged",
+        "unstaged",
+        "untracked",
+        "conflicted"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "staged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unstaged": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "untracked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "conflicted": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "truncated": {
+      "description": "A group listed fewer files than it has (`max_items`).",
+      "type": "boolean"
+    },
+    "message": {
+      "description": "Why the status could not be read, when it could not.",
+      "type": "string"
+    }
+  }
+}

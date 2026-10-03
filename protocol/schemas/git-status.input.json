@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/git-status.input.json",
+  "title": "eludite.git.status input",
+  "description": "The repository's status (Visual Studio's Git Changes window): the branch, its upstream with the incoming and outgoing counts, the staged and unstaged changes with rename detection, untracked and conflicted files and the stash count. It answers from the status Eludite keeps (recomputed off the UI thread by libgit2 when the watcher sees `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change, debounced 200 ms), so it never waits on the repository; `generation` identifies the answer. The same status draws the Git Changes window, the Workspace window's and the document tabs' glyphs and the status bar. Also the MCP resource `eludite://git/status`. The repository is the one discovered from the open workspace (solution folder or opened folder) upward, as `git` discovers it; without one it answers `state: none` (Visual Studio's Create Git Repository, eludite.git.init).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "max_items": {
+      "description": "Files listed at most per group (staged, unstaged, untracked, conflicted); the rest are counted in `totals`. Default 1000.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000
+    },
+    "include_ignored": {
+      "description": "Also list ignored files and folders (a folder is listed once, not its contents). Default false.",
+      "type": "boolean"
+    }
+  }
+}
