@@ -14,11 +14,13 @@
 //! Events are read field by field rather than through the generated event types: a Chrome older or newer than the
 //! pinned protocol may omit a member the pin marks required, and a dropped event would corrupt the state.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Condvar, Mutex};
 use std::time::Instant;
 
-use eludite_commands::browser::{ConsoleLevel, ConsoleMessage, InitiatorRow, NetworkRequestRow};
+use eludite_commands::browser::{
+    ConsoleError, ConsoleLevel, ConsoleMessage, InitiatorRow, NetworkRequestRow,
+};
 use serde_json::Value;
 
 use crate::connection::CdpEvent;
@@ -111,13 +113,19 @@ impl Refs {
 /// A console entry in the ring.
 pub type ConsoleEntry = ConsoleMessage;
 
-/// A network entry in the ring, with the monotonic start time for its duration.
+/// A network entry in the ring, with the monotonic start time for its duration and the response headers
+/// (`eludite.browser.network_body`, brief 0024).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NetworkEntry {
     pub row: NetworkRequestRow,
     /// `Network.MonotonicTime` of the request, in seconds.
     pub started: f64,
+    /// The response headers, once the response arrived (at most [`HEADERS`] of them).
+    pub headers: BTreeMap<String, String>,
 }
+
+/// Response headers kept per request.
+pub const HEADERS: usize = 64;
 
 /// Lifecycle events seen for one loader of the main frame.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -224,6 +232,21 @@ impl TabState {
             .count() as u64
     }
 
+    /// The errors logged since `seq`, oldest first (an action's `console_errors`).
+    pub fn console_error_list_since(&self, seq: u64) -> Vec<ConsoleError> {
+        self.console
+            .since(seq)
+            .filter(|(_, m)| m.level == ConsoleLevel::Error)
+            .map(|(_, m)| ConsoleError::from(m))
+            .collect()
+    }
+
+    /// The ring entry of request `request_id` (its latest hop).
+    pub fn request(&self, request_id: &str) -> Option<&NetworkEntry> {
+        let seq = *self.request_seq.get(request_id)?;
+        self.network.get(seq)
+    }
+
     /// Apply one event. Answers a line for the Output window when the event is a console error.
     pub fn apply(&mut self, e: &CdpEvent) -> Option<String> {
         let p = &e.params;
@@ -300,6 +323,18 @@ impl TabState {
                 if let Some(entry) = self.entry(&id) {
                     entry.row.status = status;
                     entry.row.mime_type = r["mimeType"].as_str().map(str::to_owned);
+                    entry.headers = r["headers"]
+                        .as_object()
+                        .into_iter()
+                        .flatten()
+                        .take(HEADERS)
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                v.as_str().map_or_else(|| v.to_string(), str::to_owned),
+                            )
+                        })
+                        .collect();
                     if let Some(t) = p["type"].as_str() {
                         entry.row.resource_type = t.to_owned();
                     }
@@ -390,7 +425,11 @@ impl TabState {
                 url: initiator_url,
             },
         };
-        let seq = self.network.push(NetworkEntry { row, started: ts });
+        let seq = self.network.push(NetworkEntry {
+            row,
+            started: ts,
+            headers: BTreeMap::new(),
+        });
         if let Some(e) = self.network.get_mut(seq) {
             e.row.seq = seq;
         }
@@ -720,6 +759,15 @@ mod tests {
         assert_eq!(msgs[3].source, "network");
         assert_eq!(t.console_errors_since(0), 3);
         assert_eq!(t.console_errors_since(2), 2);
+        // An action's console_errors: the errors since it began, with their locations.
+        let errors = t.console_error_list_since(2);
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0].text, "Uncaught TypeError: x is not a function");
+        assert_eq!(errors[0].source, "exception");
+        assert_eq!(
+            (errors[0].url.as_deref(), errors[0].line),
+            (Some("http://127.0.0.1/a.js"), Some(4))
+        );
     }
 
     #[test]
@@ -755,8 +803,15 @@ mod tests {
         ));
         t.apply(&ev(
             "Network.responseReceived",
-            json!({"requestId": "7.2", "type": "Fetch", "timestamp": 11.003, "response": {"status": 404, "mimeType": "text/plain"}}),
+            json!({"requestId": "7.2", "type": "Fetch", "timestamp": 11.003, "response": {"status": 404, "mimeType": "text/plain",
+                "headers": {"Content-Type": "text/plain", "Content-Length": 9}}}),
         ));
+        // network_body reads the request's entry and its response headers (brief 0024).
+        let e = t.request("7.2").unwrap();
+        assert_eq!(e.row.url, "http://127.0.0.1/missing.json");
+        assert_eq!(e.headers["Content-Type"], "text/plain");
+        assert_eq!(e.headers["Content-Length"], "9");
+        assert!(t.request("nope").is_none());
         t.apply(&ev(
             "Network.requestWillBeSent",
             json!({"requestId": "7.3", "type": "Image", "timestamp": 12.0, "wallTime": 1759446002.0, "request": {"url": "http://127.0.0.1/x.png", "method": "GET"}, "initiator": {"type": "parser", "url": "http://127.0.0.1/"}}),
