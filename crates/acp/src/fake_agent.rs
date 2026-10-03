@@ -27,6 +27,9 @@
 //! a breakpoint's line comes from a find, a step from the stop it quotes.
 //! [`McpClient`] gained `tools/list` and `resources/read`.
 //!
+//! Brief 0034: the `stream` scenario ends its turn with a `usage_update` in
+//! eludite-claude-acp's shape ([`stream_usage`]).
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
 //! `--script JSON`, `--url URL`). `planned` needs a [`Planner`] in [`Options`],
@@ -55,6 +58,19 @@ pub const EDIT_HEADER: &str = "// Edited by the agent\n";
 /// The file the write scenario creates, relative to the session's cwd, and its content.
 pub const WRITE_FILE: &str = "notes.txt";
 pub const WRITE_TEXT: &str = "hello\n";
+
+/// The `usage_update` the `stream` scenario ends its turn with (brief 0034), in eludite-claude-acp's shape: brief
+/// 0030's first OffByOne run's counts.
+pub fn stream_usage() -> Value {
+    json!({
+        "sessionUpdate": "usage_update", "used": 61_204, "size": 1_000_000,
+        "cost": {"amount": 0.9512, "currency": "USD"},
+        "_meta": {"claudeCode": {"usage": {
+            "inputTokens": 162, "cachedReadTokens": 207_671, "cachedWriteTokens": 51_993, "outputTokens": 2_897,
+            "totalTokens": 262_723, "model": "claude-fable-5-1"
+        }}}
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scenario {
@@ -413,6 +429,8 @@ impl<R: BufRead, W: Write> Agent<R, W> {
             };
             self.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text, "_meta": {SENT_AT_META: wall_ns().to_string()}}}))?;
         }
+        // The turn's usage, as eludite-claude-acp reports Claude Code's (brief 0034).
+        self.update(stream_usage())?;
         Ok("end_turn")
     }
 

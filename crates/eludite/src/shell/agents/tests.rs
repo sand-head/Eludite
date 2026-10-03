@@ -586,6 +586,20 @@ fn streaming_fills_the_transcript_without_blocking_the_ui(cx: &mut TestAppContex
     assert_eq!(lines, 51, "{lines}");
     // The prompt box and the audit: the prompt went through the bus.
     assert!(w.audit().contains(&"eludite.agents.prompt".to_owned()));
+    // The agent's `usage_update` is the line under the turn (brief 0034), in the record too.
+    let rows = w.transcript();
+    let usage = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|r| r.get("usage"))
+        .expect("a usage line");
+    assert_eq!(
+        usage["text"],
+        "tokens: 260k in (208k cache read, 52k cache write), 2.9k out, $0.95"
+    );
+    assert_eq!(usage["input_total"], 259_826);
+    assert_eq!(usage["output_tokens"], 2_897);
 }
 
 #[gpui::test]
