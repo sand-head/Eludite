@@ -7,7 +7,7 @@
 //!   one GPUI action keys and menus dispatch; the shell turns it into a
 //!   command-bus invocation.
 //! - [`menu`]: Visual Studio's menus ([`vs_menus`]) and the [`MenuBar`] view.
-//! - [`status`]: the [`StatusBar`] with named slots.
+//! - [`status`]: the [`StatusBar`] with named slots, and [`status_toggle`] (a two-state control beside them).
 //! - [`elements`]: small stateless elements (tab strips, panels, buttons, text and check boxes).
 //! - [`tree`]: tree rows for Workspace and other tree views (indent,
 //!   disclosure triangle, label), drawn by the caller's list.
@@ -48,7 +48,7 @@ pub use keymap::{
 };
 pub use menu::{MENU_TITLES, Menu, MenuBar, MenuEntry, menu_bar_with, vs_menus};
 pub use popup::CompletionKind;
-pub use status::{SlotAlign, StatusBar, slots};
+pub use status::{SlotAlign, StatusBar, slots, status_toggle};
 pub use theme::{Theme, Typography};
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};
 pub use vertical_text::{VerticalLabel, vertical_label};
