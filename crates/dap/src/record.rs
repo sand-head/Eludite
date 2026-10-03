@@ -763,12 +763,13 @@ struct RecordingWriter {
 }
 
 impl Write for RecordingWriter {
+    /// Log first, then send all of it: the adapter's answer can never be logged before the request it answers.
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let n = self.inner.write(bytes)?;
         let shared = &self.shared;
         self.frames
-            .push(&bytes[..n], |body| shared.push(Dir::Client, body));
-        Ok(n)
+            .push(bytes, |body| shared.push(Dir::Client, body));
+        self.inner.write_all(bytes)?;
+        Ok(bytes.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -828,14 +829,69 @@ pub fn record(connection: Connection, options: RecordOptions) -> (Connection, Re
     (conn, RecordHandle { shared })
 }
 
-/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving).
+/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving) and
+/// lldb-dap's `statistics` (its own memory figures).
 fn comparable(m: &Value) -> Value {
     let mut m = m.clone();
     if let Some(o) = m.as_object_mut() {
         o.remove("seq");
         o.remove("request_seq");
+        o.remove("statistics");
     }
     m
+}
+
+/// The messages the re-record check compares, in groups that each keep their order: the client's requests; the
+/// adapter's responses; its events other than `output` and `continued`; and the text of its `output` events, per
+/// category, joined (how the debuggee's writes are cut into events is timing). `continued` events are left out
+/// (whether lldb-dap reports one depends on how fast the debuggee stops again).
+///
+/// The end of the session (from the client's first `disconnect` or `terminate`, or the adapter's `terminated` event,
+/// whichever comes first) is its own group, `adapter at the end`, compared as a set: lldb-dap 18 sends `exited` and
+/// `terminated` and answers `disconnect` in either order when the client ends the session. Its `output` there is left
+/// out: lldb-dap 18 aborts as it exits and prints a crash report with this run's addresses, in pieces.
+fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
+    let mut out: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    let mut text: BTreeMap<String, String> = BTreeMap::new();
+    let mut ending = false;
+    for m in &r.messages {
+        let msg = &m.message;
+        let is_event = msg["type"] == "event";
+        if (m.dir == Dir::Client
+            && matches!(msg["command"].as_str(), Some("disconnect" | "terminate")))
+            || (m.dir == Dir::Adapter && is_event && msg["event"] == "terminated")
+        {
+            ending = true;
+        }
+        let group = match m.dir {
+            Dir::Client => "client",
+            Dir::Adapter if is_event && msg["event"] == "continued" => continue,
+            Dir::Adapter if ending && is_event && msg["event"] == "output" => continue,
+            Dir::Adapter if ending => "adapter at the end",
+            Dir::Adapter if is_event && msg["event"] == "output" => {
+                let category = msg["body"]["category"].as_str().unwrap_or("console");
+                text.entry(format!("adapter output ({category})"))
+                    .or_default()
+                    .push_str(msg["body"]["output"].as_str().unwrap_or_default());
+                continue;
+            }
+            Dir::Adapter if is_event => "adapter events",
+            Dir::Adapter => "adapter responses",
+        };
+        out.entry(group.to_owned())
+            .or_default()
+            .push(comparable(msg));
+    }
+    if let Some(end) = out.get_mut("adapter at the end") {
+        end.sort_by_cached_key(Value::to_string);
+    }
+    for (k, t) in text {
+        out.insert(
+            k,
+            vec![json!({"type": "event", "event": "output", "text": t})],
+        );
+    }
+    out
 }
 
 /// The first difference between two JSON values, as `path: expected X, got Y`.
@@ -901,9 +957,11 @@ pub fn differences(expected: &Value, actual: &Value, max: usize) -> Vec<String> 
     out
 }
 
-/// The re-record check: `rerecorded` reproduces `checked_in` when, side by side, the client's messages agree in
-/// order and the adapter's messages agree in order, ignoring `t_ms`, `recorded_at`, `seq` and `request_seq` (how
-/// the two directions interleave is timing). `Err` names the first difference of each side that differs.
+/// The re-record check: `rerecorded` reproduces `checked_in` when each group of messages (see `groups`: the
+/// client's requests, the adapter's responses, its events, its output text by category, the session's end) agrees,
+/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq` and lldb-dap's `statistics`: how the directions, the
+/// adapter's events and the debuggee's streams interleave is timing. `Err` names the first difference of each group
+/// that differs.
 pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), String> {
     let mut problems = Vec::new();
     if checked_in.adapter != rerecorded.adapter {
@@ -918,20 +976,15 @@ pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), Str
             checked_in.version, rerecorded.version
         ));
     }
-    for dir in [Dir::Client, Dir::Adapter] {
-        let side = |r: &Recording| -> Vec<Value> {
-            r.messages
-                .iter()
-                .filter(|m| m.dir == dir)
-                .map(|m| comparable(&m.message))
-                .collect()
-        };
-        let (a, b) = (side(checked_in), side(rerecorded));
-        let name = match dir {
-            Dir::Client => "client",
-            Dir::Adapter => "adapter",
-        };
-        for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+    let (a_groups, b_groups) = (groups(checked_in), groups(rerecorded));
+    let names: std::collections::BTreeSet<&String> =
+        a_groups.keys().chain(b_groups.keys()).collect();
+    let empty = Vec::new();
+    for name in names {
+        let a = a_groups.get(name).unwrap_or(&empty);
+        let b = b_groups.get(name).unwrap_or(&empty);
+        let mut differed = false;
+        for (i, (x, y)) in a.iter().zip(b).enumerate() {
             if x != y {
                 problems.push(format!(
                     "{name} message {} ({}): {}",
@@ -939,10 +992,11 @@ pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), Str
                     label(x),
                     first_difference(x, y).unwrap_or_default()
                 ));
+                differed = true;
                 break;
             }
         }
-        if a.len() != b.len() && problems.iter().all(|p| !p.starts_with(name)) {
+        if a.len() != b.len() && !differed {
             let n = a.len().min(b.len());
             problems.push(format!(
                 "{name} messages: {} checked in, {} re-recorded; the first extra is {}",
@@ -1107,9 +1161,82 @@ mod tests {
         let e = compare(&r, &other).unwrap_err();
         assert!(
             e.contains(
-                "adapter message 1 (response initialize): .success: expected true, got false"
+                "adapter responses message 1 (response initialize): .success: expected true, got false"
             ),
             "{e}"
         );
+    }
+
+    #[test]
+    fn the_re_record_check_ignores_timing_and_catches_drift() {
+        let m = |t: u64, dir: Dir, message: Value| RecordedMessage {
+            t_ms: t,
+            dir,
+            message,
+        };
+        let out = |text: &str| json!({"type": "event", "event": "output", "body": {"category": "stdout", "output": text}});
+        let base = |outputs: Vec<Value>, end: Vec<Value>| {
+            let mut messages = vec![
+                m(
+                    0,
+                    Dir::Client,
+                    json!({"seq": 1, "type": "request", "command": "continue"}),
+                ),
+                m(
+                    1,
+                    Dir::Adapter,
+                    json!({"seq": 1, "type": "response", "request_seq": 1, "command": "continue", "success": true}),
+                ),
+            ];
+            messages.extend(outputs.into_iter().map(|o| m(2, Dir::Adapter, o)));
+            messages.push(m(
+                3,
+                Dir::Client,
+                json!({"seq": 2, "type": "request", "command": "disconnect"}),
+            ));
+            messages.extend(end.into_iter().map(|e| m(4, Dir::Adapter, e)));
+            Recording {
+                adapter: "lldb".into(),
+                version: "18".into(),
+                recorded_at: utc_now(),
+                platform: platform(),
+                description: String::new(),
+                ended: Some(Ended::Adapter),
+                messages,
+            }
+        };
+        let exited = json!({"type": "event", "event": "exited", "body": {"exitCode": 9}});
+        let terminated = json!({"type": "event", "event": "terminated"});
+        let answered = json!({"type": "response", "command": "disconnect", "success": true});
+        let a = base(
+            vec![out("hello "), out("world\n")],
+            vec![terminated.clone(), answered.clone(), exited.clone()],
+        );
+        let b = base(
+            vec![
+                out("hello world\n"),
+                json!({"type": "event", "event": "continued"}),
+            ],
+            vec![
+                exited.clone(),
+                terminated.clone(),
+                answered.clone(),
+                out("free(): invalid pointer at 0x7f00\n"),
+            ],
+        );
+        assert_eq!(
+            compare(&a, &b),
+            Ok(()),
+            "how output is cut, the end's order and the crash are timing"
+        );
+        let c = base(
+            vec![out("hello there\n")],
+            vec![terminated.clone(), answered.clone(), exited.clone()],
+        );
+        let e = compare(&a, &c).unwrap_err();
+        assert!(e.contains("adapter output (stdout)"), "{e}");
+        let d = base(vec![out("hello world\n")], vec![terminated, answered]);
+        let e = compare(&a, &d).unwrap_err();
+        assert!(e.contains("adapter at the end"), "{e}");
     }
 }
