@@ -1423,6 +1423,36 @@ impl Debugger {
         s
     }
 
+    /// `eludite.debug.toggle_breakpoint`'s compact answer (brief 0034): what the call did, the row of the breakpoint at
+    /// `target` while it exists (its binding over the live sessions), whether a live session bound it, and how many
+    /// breakpoints there are. The change was just sent to every live session's adapter, whose answer comes later.
+    fn breakpoint_answer(
+        &self,
+        action: cmds::BreakpointEdit,
+        target: Option<BreakpointTarget>,
+    ) -> DebugOutput {
+        let live = self.live_ids();
+        let rows = self.model.breakpoints.rows_for(&live);
+        let breakpoints_total = rows.len();
+        let breakpoint = target.and_then(|t| {
+            rows.into_iter().find(|r| match &t {
+                BreakpointTarget::Line(path, line) => {
+                    r.function.is_none() && r.path.as_deref() == Some(path) && r.line == Some(*line)
+                }
+                BreakpointTarget::Function(name) => r.function.as_deref() == Some(name),
+            })
+        });
+        let running = !live.is_empty();
+        DebugOutput::Breakpoint(Box::new(cmds::ToggleBreakpointOutput {
+            action,
+            verified: running && breakpoint.as_ref().is_some_and(|r| r.verified),
+            pending: running && breakpoint.is_some(),
+            session: live.contains(&self.active).then_some(self.active),
+            breakpoint,
+            breakpoints_total,
+        }))
+    }
+
     /// The stop summary of the current session, with its id.
     fn summary(&self, budget: &Budget) -> StopSummary {
         let mut out = self.model.summary(budget);
@@ -1767,7 +1797,7 @@ impl Debugger {
         let text = match result
             .and_then(|b| serde_json::from_value::<EvaluateResponse>(b).map_err(|e| e.to_string()))
         {
-            Ok(e) => e.result,
+            Ok(e) => cmds::null_spelling(e.result),
             Err(m) => format!("{{{expression}: {m}}}"),
         };
         h.values[ix] = Some(text);
@@ -2235,6 +2265,12 @@ pub(super) fn resolve_project(
             }
         })?,
     })
+}
+
+/// The breakpoint a `toggle_breakpoint` call edited (brief 0034).
+enum BreakpointTarget {
+    Line(String, u32),
+    Function(String),
 }
 
 /// What the launch thread needs.
@@ -3135,6 +3171,14 @@ impl Shell {
                 remove_after,
                 ..
             } => {
+                let existed = self
+                    .debug
+                    .model
+                    .breakpoints
+                    .functions()
+                    .iter()
+                    .any(|f| f.name == function);
+                let name = function.clone();
                 self.debug_function_breakpoint(
                     function,
                     action,
@@ -3145,7 +3189,18 @@ impl Shell {
                     cx,
                 )?;
                 self.refresh_debug(cx);
-                return Ok((self.debug_state(), None));
+                let (edit, target) = match action {
+                    BreakpointAction::Delete => (cmds::BreakpointEdit::Deleted, None),
+                    _ if existed => (
+                        cmds::BreakpointEdit::Changed,
+                        Some(BreakpointTarget::Function(name)),
+                    ),
+                    _ => (
+                        cmds::BreakpointEdit::Added,
+                        Some(BreakpointTarget::Function(name)),
+                    ),
+                };
+                return Ok((self.debug.breakpoint_answer(edit, target), None));
             }
             DebugRequest::Breakpoint {
                 path,
@@ -3158,7 +3213,7 @@ impl Shell {
                 remove_after,
                 ..
             } => {
-                self.debug_breakpoint(
+                let edited = self.debug_breakpoint(
                     path,
                     line,
                     action,
@@ -3170,7 +3225,24 @@ impl Shell {
                     cx,
                 )?;
                 self.refresh_debug(cx);
-                return Ok((self.debug_state(), None));
+                // The compact answer (brief 0034): what happened to the breakpoint, and its row while it exists.
+                let (edit, target) = match edited {
+                    None => (cmds::BreakpointEdit::DeletedAll, None),
+                    Some((path, line, existed)) => {
+                        let target = Some(BreakpointTarget::Line(path, line));
+                        match action {
+                            BreakpointAction::Delete => (cmds::BreakpointEdit::Deleted, None),
+                            BreakpointAction::Toggle if existed => {
+                                (cmds::BreakpointEdit::Deleted, None)
+                            }
+                            BreakpointAction::Set if existed => {
+                                (cmds::BreakpointEdit::Changed, target)
+                            }
+                            _ => (cmds::BreakpointEdit::Added, target),
+                        }
+                    }
+                };
+                return Ok((self.debug.breakpoint_answer(edit, target), None));
             }
             DebugRequest::RunUntil {
                 points,
@@ -4740,7 +4812,8 @@ impl Shell {
         log_message: Option<String>,
         remove_after: Option<bool>,
         cx: &mut Context<Self>,
-    ) -> Result<(), CommandError> {
+    ) -> Result<Option<(String, u32, bool)>, CommandError> {
+        let mut edited = None;
         let files = if action == BreakpointAction::DeleteAll {
             let had_functions = !self.debug.model.breakpoints.functions().is_empty();
             let files = self.debug.model.breakpoints.delete_all();
@@ -4751,6 +4824,7 @@ impl Shell {
         } else {
             let (path, line) = self.debug_location(path.as_deref(), line, cx)?;
             let b = &mut self.debug.model.breakpoints;
+            edited = Some((path.clone(), line, b.at(&path, line).is_some()));
             match action {
                 BreakpointAction::Toggle => {
                     b.toggle(&path, line);
@@ -4792,7 +4866,7 @@ impl Shell {
         }
         self.refresh_glyphs(cx);
         self.debug_persist(cx);
-        Ok(())
+        Ok(edited)
     }
 
     /// A function breakpoint by name: set (or change) or delete it, through `setFunctionBreakpoints`.
@@ -6477,7 +6551,7 @@ impl Shell {
                 if let Some(w) = self.debug.model.watches.get_mut(ix) {
                     match r {
                         Ok(e) => {
-                            w.value = e.result;
+                            w.value = cmds::null_spelling(e.result);
                             w.type_name = e.type_name.filter(|t| !t.is_empty());
                             w.reference = e.variables_reference;
                             w.error = false;
@@ -6495,7 +6569,7 @@ impl Shell {
             }
             EvalTarget::Console => {
                 let line = match r {
-                    Ok(e) => e.result,
+                    Ok(e) => cmds::null_spelling(e.result),
                     Err(m) => m,
                 };
                 self.debug.console_line(line);
@@ -6509,7 +6583,7 @@ impl Shell {
                     let text = match r {
                         Ok(e) => format!(
                             "{expression} = {}{}",
-                            e.result,
+                            cmds::null_spelling(e.result),
                             e.type_name
                                 .filter(|t| !t.is_empty())
                                 .map(|t| format!("  ({t})"))
@@ -6530,7 +6604,7 @@ impl Shell {
                     let out = EvaluateOutput {
                         expression: expression.clone(),
                         state: "done".into(),
-                        result: Some(e.result),
+                        result: Some(cmds::null_spelling(e.result)),
                         type_name: e.type_name.filter(|t| !t.is_empty()),
                         reference: Some(e.variables_reference),
                         children: None,
@@ -7994,7 +8068,7 @@ impl Debugger {
     ) -> SetVariableOutput {
         let m = &mut self.model;
         let update = |n: &mut VarNode| {
-            n.value = r.value.clone();
+            n.value = cmds::null_spelling(r.value.clone());
             if let Some(t) = r.type_name.clone().filter(|t| !t.is_empty()) {
                 n.type_name = Some(t);
             }
@@ -8020,7 +8094,7 @@ impl Debugger {
         }
         SetVariableOutput {
             name: name.to_owned(),
-            value: r.value.clone(),
+            value: cmds::null_spelling(r.value.clone()),
             type_name: r.type_name.clone().filter(|t| !t.is_empty()),
             reference: r.variables_reference,
             request: Some(request.to_owned()),

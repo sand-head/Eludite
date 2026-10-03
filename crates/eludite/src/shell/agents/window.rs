@@ -371,6 +371,7 @@ impl AgentsWindow {
                 &t,
             )
             .into_any_element(),
+            Row::Usage(u) => notice(u.text(), false, &t).into_any_element(),
             Row::Notice(text) => notice(text.clone(), false, &t).into_any_element(),
             Row::Error(text) => notice(text.clone(), true, &t).into_any_element(),
             Row::Tool(tool) => {

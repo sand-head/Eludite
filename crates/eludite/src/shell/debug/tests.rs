@@ -5006,7 +5006,8 @@ fn agent_debug_commands_read_in_the_transcript_as_the_debug_toolbar_would(cx: &m
             .unwrap_or_default()
             .to_owned()
     };
-    assert_eq!(line(&d, 1), "Toggle Breakpoint \u{2192} done");
+    // The compact answer reads as what happened where (brief 0034).
+    assert_eq!(line(&d, 1), "Toggle Breakpoint \u{2192} added at Calc.cs:5");
     assert!(
         line(&d, 2).starts_with("Start Debugging \u{2192} "),
         "{}",
@@ -6421,4 +6422,145 @@ fn allow_agents_and_interruptions_are_per_session(cx: &mut TestAppContext) {
     d.wait_break_in(2, stop2 + 1);
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_sessions("ended", |s| s.is_empty());
+}
+
+/// Brief 0034: `toggle_breakpoint` answers with the breakpoint it changed (its row, whether a live session bound it,
+/// the count), well under 500 bytes, instead of the whole state; and a null reads `null` whatever the adapter wrote.
+#[gpui::test]
+fn toggle_breakpoint_answers_compactly_and_a_null_reads_null(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        let v = FakeVar::new;
+        for s in &mut p.steps {
+            // eludite-dbg-mono's spelling of a null reference.
+            s.locals.push(
+                v("owner", "{Order}", "Order").with_children(vec![v("Parent", "(null)", "Order")]),
+            );
+            s.locals.push(v("name", "(null)", "string"));
+        }
+    });
+    d.w.open_solution();
+    let compact = |v: &Value| {
+        let n = v.to_string().len();
+        assert!(n < 500, "{n} bytes: {v}");
+        assert!(v.get("frames").is_none() && v.get("mode").is_none(), "{v}");
+    };
+    // No session: added, not bound, nothing pending.
+    let a = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Program.cs", "line": 6}),
+        )
+        .unwrap();
+    compact(&a);
+    assert_eq!(a["action"], "added");
+    assert_eq!(a["breakpoint"]["line"], 6);
+    assert!(
+        a["breakpoint"]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("Program.cs")
+    );
+    assert_eq!((&a["verified"], a.get("pending")), (&json!(false), None));
+    assert_eq!(
+        (a.get("session"), &a["breakpoints_total"]),
+        (None, &json!(1))
+    );
+    // `set` on the same line changes it.
+    let c = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Program.cs", "line": 6, "action": "set", "condition": "x > 0", "remove_after": true}),
+        )
+        .unwrap();
+    compact(&c);
+    assert_eq!(c["action"], "changed");
+    assert_eq!(c["breakpoint"]["condition"], "x > 0");
+    assert_eq!(c["breakpoint"]["remove_after"], true);
+    // With a session at a break: sent to its adapter, bound once it answers.
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6, "action": "delete"}),
+    )
+    .unwrap();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    let s = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Calc.cs", "line": 5, "action": "set"}),
+        )
+        .unwrap();
+    compact(&s);
+    assert_eq!(
+        (&s["action"], &s["pending"]),
+        (&json!("added"), &json!(true))
+    );
+    assert_eq!(s["session"], 1);
+    assert_eq!(s["breakpoints_total"], 2);
+    assert_eq!(s["breakpoint"]["sessions"][0]["session"], 1);
+    let state = d.state();
+    assert_eq!(state["breakpoints"][1]["verified"], true, "{state}");
+    // The state is still a command away, and much larger.
+    assert!(state.to_string().len() > 3 * s.to_string().len());
+    let again = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Calc.cs", "line": 5, "action": "set", "enabled": false}),
+        )
+        .unwrap();
+    assert_eq!(
+        (&again["action"], &again["verified"]),
+        (&json!("changed"), &json!(true))
+    );
+    // A toggle on a line that has one deletes it: no row.
+    let t = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Calc.cs", "line": 5}),
+        )
+        .unwrap();
+    assert_eq!(
+        t,
+        json!({"action": "deleted", "verified": false, "session": 1, "breakpoints_total": 1})
+    );
+    // A function breakpoint answers the same way.
+    let f = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"action": "set", "function": "App.Calc.Add"}),
+        )
+        .unwrap();
+    compact(&f);
+    assert_eq!(
+        (&f["action"], &f["breakpoint"]["function"]),
+        (&json!("added"), &json!("App.Calc.Add"))
+    );
+    let all = d
+        .cmd(cmds::TOGGLE_BREAKPOINT, json!({"action": "delete_all"}))
+        .unwrap();
+    assert_eq!(all["action"], "deleted_all");
+    assert_eq!(all["breakpoints_total"], 0);
+
+    // Null, one spelling: the summary's locals two deep, the variables page and the Locals window.
+    // An agent's read, which waits for the members it expands.
+    let snap = agent_call(&mut d, cmds::SNAPSHOT, json!({"depth": 2}));
+    let rows = snap["locals"]["rows"].as_array().unwrap();
+    let name = rows.iter().find(|r| r["name"] == "name").unwrap();
+    assert_eq!(name["value"], "null", "{snap}");
+    let owner = rows.iter().find(|r| r["name"] == "owner").unwrap();
+    assert_eq!(owner["children"][0]["value"], "null", "{owner}");
+    assert!(!snap.to_string().contains("(null)"), "{snap}");
+    let page = agent_call(&mut d, cmds::VARIABLES, json!({"filter": "name"}));
+    assert_eq!(page["rows"][0]["value"], "null", "{page}");
+    assert!(
+        d.locals().iter().any(|(n, v)| n == "name" && v == "null"),
+        "{:?}",
+        d.locals()
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
 }

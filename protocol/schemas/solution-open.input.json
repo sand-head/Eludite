@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-open.input.json",
   "title": "eludite.solution.open input",
-  "description": "Open a solution (File > Open > Project/Solution, Ctrl+Shift+O). Starts eludite-host if it is not running and loads the solution in it. Returns once the request is handed to the host; loading, the Workspace tree and diagnostics stream in afterwards (see eludite/solution/status in host-rpc.md). Opening a solution closes the one that is open. The UI shows a file dialog first and passes the chosen path.",
+  "description": "Open a solution (File > Open > Project/Solution, Ctrl+Shift+O). Starts eludite-host if it is not running and loads the solution in it. Returns once the request is handed to the host; loading, the Workspace tree and diagnostics stream in afterwards (see eludite/solution/status in host-rpc.md). Opening a solution replaces the workspace: it closes the solution and folder that are open. Do not call it when the solution is already open (eludite.solution.tree and eludite.workspace.tree list what is open) or to debug a project: eludite.debug.start takes a project file's path, whether or not the open solution contains it. The UI shows a file dialog first and passes the chosen path.",
   "type": "object",
   "required": [
     "path"

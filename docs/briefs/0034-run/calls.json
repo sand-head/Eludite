@@ -1,0 +1,1729 @@
+[
+ {
+  "program": "OffByOne",
+  "run": 1,
+  "calls": [
+   {
+    "id": "toolu_01X5gBQ6y3QGsp6yHdszyEC8",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-state"
+    },
+    "output_bytes": 490,
+    "ms": 20,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_017nCiRFTVTN8SvpsT1CKwWr",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 16,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01CPydVGawZXFzxqpynasmxo",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "cd $OUT/OffByOne-1/work/OffByOne && find . -type f -not -path '*/bin/*' -not -path '*/obj/*' | head -50 && echo ---- && cat *.cs",
+     "description": "List project files and print the C# sources"
+    },
+    "output_bytes": 1221,
+    "ms": 884,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_015KJHTSP6BNZbFPctvtuGz2",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 13,
+     "condition": "i == count - 1",
+     "remove_after": true
+    },
+    "output_bytes": 321,
+    "ms": 39,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:13",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_016Hw7wENeQFRa2aJYa1hJK9",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-1/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2762,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01AXWigWzL4qa8AWw46tPrZZ",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 748,
+    "ms": 280,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_016U5vsFnXDc9pK2cviUD2dZ",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 13,
+     "condition": "i == count - 2",
+     "remove_after": true
+    },
+    "output_bytes": 323,
+    "ms": 127,
+    "debug": "Toggle Breakpoint \u2192 changed at Program.cs:13",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01LrimuxoKnzwvbAUs2AgZr5",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 17,
+     "remove_after": true
+    },
+    "output_bytes": 292,
+    "ms": 20,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:17",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 17
+    }
+   },
+   {
+    "id": "toolu_01NZztYexx8e7oQtX7i6RkCc",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-1/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2504,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_013zCwkCsnVC3VXjKKfxTLZb",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2325,
+    "ms": 359,
+    "debug": "Wait \u2192 stopped at Program.cs:17 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 17
+    }
+   },
+   {
+    "id": "toolu_017WqyG6jFvFEysbdjxFo96u",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 15,
+     "condition": "i == count - 2",
+     "remove_after": true
+    },
+    "output_bytes": 401,
+    "ms": 80,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:15",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 15
+    }
+   },
+   {
+    "id": "toolu_011g3pkd9rXNnZCofcpdFegD",
+    "name": "mcp__eludite__eludite-debug-stop",
+    "status": "completed",
+    "input": {},
+    "output_bytes": 3416,
+    "ms": 403,
+    "debug": "Stop Debugging \u2192 ended",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_0191Gz7b1JhNvNXQR9NokAUx",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-1/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2735,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01TH3T6Q4WiAvAfdfGzbAj9R",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2325,
+    "ms": 445,
+    "debug": "Wait \u2192 stopped at Program.cs:15 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 15
+    }
+   },
+   {
+    "id": "toolu_012BrX41nfpvZBbQP3B1Hduf",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 2,
+     "depth": 2
+    },
+    "output_bytes": 2297,
+    "ms": 305,
+    "debug": "Step Over \u2192 stopped at Program.cs:16 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01E4SebcSehx1zXPVmEuzYhe",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 3,
+     "depth": 2
+    },
+    "output_bytes": 2297,
+    "ms": 77,
+    "debug": "Step Over \u2192 stopped at Program.cs:13 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01XshkurEuuVs9Yuqj7m3oyD",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 4,
+     "depth": 2
+    },
+    "output_bytes": 2299,
+    "ms": 234,
+    "debug": "Step Over \u2192 stopped at Program.cs:17 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-1/work/OffByOne/Program.cs",
+     "line": 17
+    }
+   }
+  ]
+ },
+ {
+  "program": "OffByOne",
+  "run": 2,
+  "calls": [
+   {
+    "id": "toolu_01MwryaDNznittyPEV37dZ5a",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/OffByOne-2/work/OffByOne -type f -not -path '*/bin/*' -not -path '*/obj/*'",
+     "description": "List project source files"
+    },
+    "output_bytes": 538,
+    "ms": 397,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_013AVcSbFYEnEEGv1qBo7YkP",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-run_until,mcp__eludite__eludite-debug-trace,mcp__eludite__eludite-workspace-open_folder,mcp__eludite__eludite-solution-open"
+    },
+    "output_bytes": 666,
+    "ms": 14,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_0177vMgSC5CpayJLFBz2kDsz",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/OffByOne-2/work/OffByOne/Program.cs"
+    },
+    "output_bytes": 1238,
+    "ms": 42,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GUZRCEJb4ifG93Kb9Q6KHP",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 20,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Ke7z5FusdbNjkswtvjHYtD",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 13,
+     "condition": "i == count - 1",
+     "remove_after": true
+    },
+    "output_bytes": 321,
+    "ms": 134,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:13",
+    "debug_location": {
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01Ub4uk8WrY3wCJRniG8NFXD",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-2/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2736,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Az5GMQhfacLKYL2EueSoxT",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 748,
+    "ms": 127,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Ef24D1kSnx4xGEYKYAb5PV",
+    "name": "mcp__eludite__eludite-debug-output",
+    "status": "completed",
+    "input": {
+     "source": "debug",
+     "max_lines": 50
+    },
+    "output_bytes": 554,
+    "ms": 120,
+    "debug": "Output \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01R6b5QD8nG3rtFU2GdUrhz7",
+    "name": "mcp__eludite__eludite-debug-state",
+    "status": "completed",
+    "input": {},
+    "output_bytes": 2315,
+    "ms": 126,
+    "debug": "Debugger State \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GSJ2jusQnv4bEpKvKvqHLq",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 13,
+     "condition": "",
+     "remove_after": true
+    },
+    "output_bytes": 294,
+    "ms": 103,
+    "debug": "Toggle Breakpoint \u2192 changed at Program.cs:13",
+    "debug_location": {
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01Pe1c8e6avbBPzNK5MuZzyk",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-2/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2730,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_0196zwfa3GFbTpdvYDQDuHgK",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2324,
+    "ms": 421,
+    "debug": "Wait \u2192 stopped at Program.cs:13 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_015Zv48GvRPoTfAnyHdpiro3",
+    "name": "mcp__eludite__eludite-debug-run_until",
+    "status": "completed",
+    "input": {
+     "points": [
+      {
+       "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+       "line": 15,
+       "condition": "i == count - 2"
+      }
+     ],
+     "stop": 1,
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2303,
+    "ms": 649,
+    "debug": "Run Until \u2192 stopped at Program.cs:15 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 15
+    }
+   },
+   {
+    "id": "toolu_01BuRkg5VYTrxV2Tvmnx325p",
+    "name": "mcp__eludite__eludite-debug-run_until",
+    "status": "completed",
+    "input": {
+     "points": [
+      {
+       "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+       "line": 17
+      }
+     ],
+     "stop": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 1832,
+    "ms": 319,
+    "debug": "Run Until \u2192 stopped at Program.cs:17 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-2/work/OffByOne/Program.cs",
+     "line": 17
+    }
+   }
+  ]
+ },
+ {
+  "program": "OffByOne",
+  "run": 3,
+  "calls": [
+   {
+    "id": "toolu_01RBFzuEkLSZhPL6pQgUuECH",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-solution-open,mcp__eludite__eludite-debug-trace"
+    },
+    "output_bytes": 572,
+    "ms": 18,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Q4wrHgnbpQbgitZFnYBD2N",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 12,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01MrPsFMrfv8RSxWHenLsGrG",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/OffByOne-3/work -type f -not -path '*/bin/*' -not -path '*/obj/*' | head -50",
+     "description": "List project source files"
+    },
+    "output_bytes": 920,
+    "ms": 376,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Eu6owBQdZddcdQVgmUkVuh",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/OffByOne-3/work/OffByOne/Program.cs"
+    },
+    "output_bytes": 1238,
+    "ms": 29,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01HFV5bx2D3uM7fZuypddigL",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 13,
+     "condition": "i == count - 1",
+     "remove_after": true
+    },
+    "output_bytes": 321,
+    "ms": 233,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:13",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01GaUby6L3QrWVvMQ4rmCyeE",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-3/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2556,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01JKHreoiZPmUC8NpnACDBWr",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 748,
+    "ms": 41,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01FaNqSscsoXQdgRFwPs96Zn",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "delete",
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 13
+    },
+    "output_bytes": 59,
+    "ms": 71,
+    "debug": "Toggle Breakpoint \u2192 deleted",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01BZtRRc59VdG5Y6A4t5gtMY",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 15,
+     "condition": "i == count - 2",
+     "remove_after": true
+    },
+    "output_bytes": 321,
+    "ms": 180,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:15",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 15
+    }
+   },
+   {
+    "id": "toolu_01McDe6Ri6c5t1Q6SaGQrk8d",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/OffByOne-3/work/OffByOne/OffByOne.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2457,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01PeipsdugAahLf8NSA5bfc3",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2325,
+    "ms": 292,
+    "debug": "Wait \u2192 stopped at Program.cs:15 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 15
+    }
+   },
+   {
+    "id": "toolu_013iRXngcBh1jUMU1sj36rxN",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 1,
+     "wait_ms": 10000
+    },
+    "output_bytes": 1826,
+    "ms": 162,
+    "debug": "Step Over \u2192 stopped at Program.cs:16 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01CthEPWmNLVaTupdZJ1JeBA",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 2,
+     "wait_ms": 10000
+    },
+    "output_bytes": 1826,
+    "ms": 284,
+    "debug": "Step Over \u2192 stopped at Program.cs:13 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 13
+    }
+   },
+   {
+    "id": "toolu_01UHwdkPZLCZFUrfFpXq7LMG",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 3,
+     "wait_ms": 10000
+    },
+    "output_bytes": 1826,
+    "ms": 56,
+    "debug": "Step Over \u2192 stopped at Program.cs:17 (step)",
+    "debug_location": {
+     "path": "$OUT/OffByOne-3/work/OffByOne/Program.cs",
+     "line": 17
+    }
+   }
+  ]
+ },
+ {
+  "program": "MissingCase",
+  "run": 1,
+  "calls": [
+   {
+    "id": "toolu_01TM6LjZ8rQfDUUe488FHmJn",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-workspace-open_folder,mcp__eludite__eludite-debug-trace,mcp__eludite__eludite-debug-step_into,mcp__eludite__eludite-debug-run_until,mcp__eludite__eludite-debug-snapshot"
+    },
+    "output_bytes": 711,
+    "ms": 19,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01XqRYuPWNEdunyS1EQ4YXwj",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find . -type f | grep -v -E '/(bin|obj)/' | head -50",
+     "description": "List project files"
+    },
+    "output_bytes": 213,
+    "ms": 375,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_016pDP2KjHKMyh2DAq64fSh4",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 16,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01RXeQwXDaffyVBv9d6KkXBq",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-1/work/MissingCase/Program.cs"
+    },
+    "output_bytes": 1589,
+    "ms": 24,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01EgYLcvJfLQP8yNmbwjiKKJ",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-1/work/MissingCase/Properties/launchSettings.json"
+    },
+    "output_bytes": 98,
+    "ms": 28,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01CDsUSkB2qGYVjkgKRHXarM",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-1/work/MissingCase/MissingCase.csproj"
+    },
+    "output_bytes": 358,
+    "ms": 21,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_012nNbN32pKjUY58H9dMQD2q",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-1/work/.eludite/agents-policy.json"
+    },
+    "output_bytes": 158,
+    "ms": 23,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01FzEAGgx3AWBXdeodbzAi4v",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/MissingCase-1/work/MissingCase/Program.cs",
+     "line": 28,
+     "condition": "coin == Coin.Quarter",
+     "remove_after": true
+    },
+    "output_bytes": 333,
+    "ms": 163,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:28",
+    "debug_location": {
+     "path": "$OUT/MissingCase-1/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_016v6teA3AewhCYgvzUSbaiR",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-1/work/MissingCase/MissingCase.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 3382,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01VnByNP29CtJn5D973DdD9H",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 755,
+    "ms": 99,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01ARiaBtT9MCCdtRuSFeRxJV",
+    "name": "mcp__eludite__eludite-debug-state",
+    "status": "completed",
+    "input": {},
+    "output_bytes": 2594,
+    "ms": 85,
+    "debug": "Debugger State \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01895FnXA1mARroZZrEEfd4i",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-1/work/MissingCase/MissingCase.csproj.user"
+    },
+    "output_bytes": 126,
+    "ms": 16,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_011p5Tp1W5NDAgFwjTJT2tyb",
+    "name": "mcp__eludite__eludite-debug-output",
+    "status": "completed",
+    "input": {
+     "source": "debug",
+     "max_lines": 50
+    },
+    "output_bytes": 578,
+    "ms": 110,
+    "debug": "Output \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_014DbuBPv9JACw9ch8SYMxj3",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/MissingCase-1/work/MissingCase/Program.cs",
+     "line": 28,
+     "condition": "",
+     "remove_after": true
+    },
+    "output_bytes": 300,
+    "ms": 160,
+    "debug": "Toggle Breakpoint \u2192 changed at Program.cs:28",
+    "debug_location": {
+     "path": "$OUT/MissingCase-1/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_01U7ctLcJdyLGsHv6eUDU7AU",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-1/work/MissingCase/MissingCase.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2710,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Ya9DofxsuQH1LwUDViSLbG",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 1646,
+    "ms": 193,
+    "debug": "Wait \u2192 stopped at Program.cs:28 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/MissingCase-1/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_014g7DQAznoTJG6j3GcAhyJW",
+    "name": "mcp__eludite__eludite-debug-variables",
+    "status": "completed",
+    "input": {
+     "thread": 1,
+     "frame": 1,
+     "depth": 2,
+     "stop": 1
+    },
+    "output_bytes": 1097,
+    "ms": 199,
+    "debug": "Variables \u2192 done",
+    "debug_location": null
+   }
+  ]
+ },
+ {
+  "program": "MissingCase",
+  "run": 2,
+  "calls": [
+   {
+    "id": "toolu_01Lbxov44Ph6K32vQ4xqGfRq",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-solution-open,mcp__eludite__eludite-debug-trace"
+    },
+    "output_bytes": 572,
+    "ms": 21,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_019t6dqoM2DSvsJnjn9qvDoY",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 29,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GC4BY517XW9CUC37g399wh",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/MissingCase-2/work/MissingCase -type f -not -path '*/bin/*' -not -path '*/obj/*' | head -50",
+     "description": "List project source files"
+    },
+    "output_bytes": 568,
+    "ms": 602,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GfbKGHQGjTKF6Z2Ms6Cwrc",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-2/work/MissingCase/Program.cs"
+    },
+    "output_bytes": 1589,
+    "ms": 28,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GxNGvD2ZgjFpXECykSUC3g",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 28,
+     "condition": "coin == Coin.Quarter",
+     "remove_after": true
+    },
+    "output_bytes": 333,
+    "ms": 119,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:28",
+    "debug_location": {
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_01XTW5pQBZYyTg6uLZBqx52j",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-2/work/MissingCase/MissingCase.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2895,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01GHV5jwbPzqb5Xq7RhprYsn",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 755,
+    "ms": 69,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_011oNKTpiR6HGRFqMDygWriC",
+    "name": "mcp__eludite__eludite-debug-state",
+    "status": "completed",
+    "input": {},
+    "output_bytes": 2499,
+    "ms": 95,
+    "debug": "Debugger State \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_015nuXzK642KwEkunEsRiTW7",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-2/work/MissingCase/MissingCase.csproj",
+     "build": false,
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 256,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_0157FMpHSPzQuPZ7vyT2xRMn",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 755,
+    "ms": 30,
+    "debug": "Wait \u2192 exited (1)",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01MmDLdtSTvCyipXfhNx51Fn",
+    "name": "mcp__eludite__eludite-debug-output",
+    "status": "completed",
+    "input": {
+     "source": "debug",
+     "max_lines": 30
+    },
+    "output_bytes": 391,
+    "ms": 35,
+    "debug": "Output \u2192 done",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01CY55ZJk5JrwL7MMuTxmLgn",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 28,
+     "condition": "",
+     "remove_after": true
+    },
+    "output_bytes": 300,
+    "ms": 17,
+    "debug": "Toggle Breakpoint \u2192 changed at Program.cs:28",
+    "debug_location": {
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_013kotqQBVjxMwJJG7iEeQ1h",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "function": "MissingCase.Coins.Cents"
+    },
+    "output_bytes": 168,
+    "ms": 106,
+    "debug": "Toggle Breakpoint \u2192 added on MissingCase.Coins.Cents",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Wy6w194dz1nQ1MDRBr1wkd",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-2/work/MissingCase/MissingCase.csproj",
+     "build": false,
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 221,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01UGP2G8iWEmpuUr8QU8eQ9P",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 1653,
+    "ms": 135,
+    "debug": "Wait \u2192 stopped at Program.cs:18 (function breakpoint)",
+    "debug_location": {
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 18
+    }
+   },
+   {
+    "id": "toolu_01CVkq5fMX2uErYB7Hgb4JHX",
+    "name": "mcp__eludite__eludite-debug-continue",
+    "status": "completed",
+    "input": {
+     "stop": 1,
+     "depth": 2,
+     "wait_ms": 15000
+    },
+    "output_bytes": 1624,
+    "ms": 251,
+    "debug": "Continue \u2192 stopped at Program.cs:28 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/MissingCase-2/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_01Y6o1U3Suq7Q833UP4UrHYn",
+    "name": "mcp__eludite__eludite-debug-variables",
+    "status": "completed",
+    "input": {
+     "thread": 1,
+     "frame": 1,
+     "depth": 2,
+     "stop": 2
+    },
+    "output_bytes": 1097,
+    "ms": 342,
+    "debug": "Variables \u2192 done",
+    "debug_location": null
+   }
+  ]
+ },
+ {
+  "program": "MissingCase",
+  "run": 3,
+  "calls": [
+   {
+    "id": "toolu_018tW2iHWbBHkZA9qqmA1pdy",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/MissingCase-3/work/MissingCase -type f | head -50",
+     "description": "List project files"
+    },
+    "output_bytes": 6533,
+    "ms": 391,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01R3oCrDZUyUqdg2Qar95fWJ",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/MissingCase-3/work/MissingCase/Program.cs"
+    },
+    "output_bytes": 1589,
+    "ms": 41,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01FpfZga4zBT2sYXKavuC8WA",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-solution-open,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-step_into,mcp__eludite__eludite-debug-trace,mcp__eludite__eludite-debug-run_until"
+    },
+    "output_bytes": 660,
+    "ms": 22,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01AegifT5iZz84LmA86dTf3M",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 14,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_019sY1hm9UXKW78EQBfsXv8W",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/MissingCase-3/work/MissingCase/Program.cs",
+     "line": 28,
+     "remove_after": true
+    },
+    "output_bytes": 298,
+    "ms": 91,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:28",
+    "debug_location": {
+     "path": "$OUT/MissingCase-3/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_015vX8NGhDWp3vUh1cmzpFLN",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/MissingCase-3/work/MissingCase/MissingCase.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 2424,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01JR8sugwRgw34yAqwwzWGjh",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 1646,
+    "ms": 44,
+    "debug": "Wait \u2192 stopped at Program.cs:28 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/MissingCase-3/work/MissingCase/Program.cs",
+     "line": 28
+    }
+   },
+   {
+    "id": "toolu_019cX42QmiKjA9bKnDooJfKr",
+    "name": "mcp__eludite__eludite-debug-variables",
+    "status": "completed",
+    "input": {
+     "thread": 1,
+     "frame": 1,
+     "depth": 2,
+     "stop": 1
+    },
+    "output_bytes": 1097,
+    "ms": 413,
+    "debug": "Variables \u2192 done",
+    "debug_location": null
+   }
+  ]
+ },
+ {
+  "program": "NullField",
+  "run": 1,
+  "calls": [
+   {
+    "id": "toolu_01CM3yxVvvGVQCbMmWzYxSWa",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-state"
+    },
+    "output_bytes": 490,
+    "ms": 38,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Gs67WSex8kyhWmTfdeYzEu",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/NullField-1/work/NullField -type f -not -path '*/obj/*' -not -path '*/bin/*' | head -50",
+     "description": "List project source files"
+    },
+    "output_bytes": 548,
+    "ms": 331,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01BHP7DP66d34bP1e2og7zjr",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 15,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_016wWQvhxADmyEC7bpNWdStR",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/NullField-1/work/NullField/Program.cs"
+    },
+    "output_bytes": 2470,
+    "ms": 24,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01LFuzinMhPHaDXtDdepTARz",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/NullField-1/work/NullField/NullField.csproj"
+    },
+    "output_bytes": 356,
+    "ms": 20,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01M52KxTWreuww5UQFySrZE1",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/NullField-1/work/NullField/Properties/launchSettings.json"
+    },
+    "output_bytes": 96,
+    "ms": 25,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01MZAhZCQPLnZsbfUr8veNYT",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/NullField-1/work/NullField/Program.cs",
+     "line": 16,
+     "condition": "parent == null",
+     "remove_after": true
+    },
+    "output_bytes": 323,
+    "ms": 100,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:16",
+    "debug_location": {
+     "path": "$OUT/NullField-1/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01EXuFHons46q97EiSasD5mK",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/NullField-1/work/NullField/NullField.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 3621,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01JfUQt7L2AG3ccmuoLc9Vxj",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2097,
+    "ms": 137,
+    "debug": "Wait \u2192 stopped at Program.cs:16 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/NullField-1/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_015RkhGQWB84onh5rPnjQzo4",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 1,
+     "depth": 2
+    },
+    "output_bytes": 2067,
+    "ms": 453,
+    "debug": "Step Over \u2192 stopped at Program.cs:21 (step)",
+    "debug_location": {
+     "path": "$OUT/NullField-1/work/NullField/Program.cs",
+     "line": 21
+    }
+   }
+  ]
+ },
+ {
+  "program": "NullField",
+  "run": 2,
+  "calls": [
+   {
+    "id": "toolu_011BULBsg5G4nTbEBx5sfPPr",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-step_into,mcp__eludite__eludite-debug-sessions"
+    },
+    "output_bytes": 577,
+    "ms": 23,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01HLQky1LJ8iWcPfs8F1gRNy",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 30,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01EcBni7Tft6AdWJ1hjSxHR6",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/NullField-2/work/NullField -type f -not -path '*/bin/*' -not -path '*/obj/*' | head -50",
+     "description": "List project source files"
+    },
+    "output_bytes": 548,
+    "ms": 745,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01S1BYawQonXcgjV8aefyaQC",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/NullField-2/work/NullField/Program.cs"
+    },
+    "output_bytes": 2470,
+    "ms": 40,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_0126ogXaU9UeaydG9jPSbGzy",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/NullField-2/work/NullField/Program.cs",
+     "line": 16,
+     "condition": "parent == null",
+     "remove_after": true
+    },
+    "output_bytes": 323,
+    "ms": 63,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:16",
+    "debug_location": {
+     "path": "$OUT/NullField-2/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_016SHQUX9fwkGiPFoQMn1rZt",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/NullField-2/work/NullField/NullField.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 3157,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_016yg5pBHXPYhAKikUNEGEMy",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2097,
+    "ms": 350,
+    "debug": "Wait \u2192 stopped at Program.cs:16 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/NullField-2/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01HSTxTL8neTL2denPgmLeDz",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 1,
+     "depth": 2
+    },
+    "output_bytes": 2067,
+    "ms": 316,
+    "debug": "Step Over \u2192 stopped at Program.cs:21 (step)",
+    "debug_location": {
+     "path": "$OUT/NullField-2/work/NullField/Program.cs",
+     "line": 21
+    }
+   }
+  ]
+ },
+ {
+  "program": "NullField",
+  "run": 3,
+  "calls": [
+   {
+    "id": "toolu_01JBq2vrkZeQCXn2P8KADzEu",
+    "name": "ToolSearch",
+    "status": "completed",
+    "input": {
+     "query": "select:ReadMcpResourceTool,mcp__eludite__eludite-debug-start,mcp__eludite__eludite-debug-toggle_breakpoint,mcp__eludite__eludite-debug-continue,mcp__eludite__eludite-debug-variables,mcp__eludite__eludite-debug-stack,mcp__eludite__eludite-debug-step_over,mcp__eludite__eludite-debug-evaluate,mcp__eludite__eludite-debug-state,mcp__eludite__eludite-debug-stop,mcp__eludite__eludite-debug-output,mcp__eludite__eludite-debug-wait,mcp__eludite__eludite-debug-step_into,mcp__eludite__eludite-debug-run_until,mcp__eludite__eludite-debug-trace,mcp__eludite__eludite-debug-watch"
+    },
+    "output_bytes": 658,
+    "ms": 30,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_015CEc5vxXAKjVeQzWTBma2Y",
+    "name": "ReadMcpResourceTool",
+    "status": "completed",
+    "input": {
+     "server": "eludite",
+     "uri": "eludite://guides/debugging"
+    },
+    "output_bytes": 13007,
+    "ms": 22,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_019vj2NocT41BBs9AcZTZZX4",
+    "name": "Bash",
+    "status": "completed",
+    "input": {
+     "command": "find $OUT/NullField-3/work/NullField -type f -not -path '*/bin/*' -not -path '*/obj/*' | head -50",
+     "description": "List project source files"
+    },
+    "output_bytes": 548,
+    "ms": 724,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01P88rLQkfbYHeUTr7vvagub",
+    "name": "Read",
+    "status": "completed",
+    "input": {
+     "file_path": "$OUT/NullField-3/work/NullField/Program.cs"
+    },
+    "output_bytes": 2470,
+    "ms": 37,
+    "debug": null,
+    "debug_location": null
+   },
+   {
+    "id": "toolu_01Dd66pfy1ZxJLJM1P81tNAM",
+    "name": "mcp__eludite__eludite-debug-toggle_breakpoint",
+    "status": "completed",
+    "input": {
+     "action": "set",
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 16,
+     "condition": "parent == null",
+     "remove_after": true
+    },
+    "output_bytes": 323,
+    "ms": 338,
+    "debug": "Toggle Breakpoint \u2192 added at Program.cs:16",
+    "debug_location": {
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01324tid8LWjQKZApfYXpn4T",
+    "name": "mcp__eludite__eludite-debug-start",
+    "status": "completed",
+    "input": {
+     "project": "$OUT/NullField-3/work/NullField/NullField.csproj",
+     "wait_ms": 30000
+    },
+    "output_bytes": 569,
+    "ms": 3665,
+    "debug": "Start Debugging \u2192 running",
+    "debug_location": null
+   },
+   {
+    "id": "toolu_013yVbYkK9b34j9AwkzyhfFT",
+    "name": "mcp__eludite__eludite-debug-wait",
+    "status": "completed",
+    "input": {
+     "until": "stopped",
+     "depth": 2,
+     "wait_ms": 30000
+    },
+    "output_bytes": 2097,
+    "ms": 270,
+    "debug": "Wait \u2192 stopped at Program.cs:16 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 16
+    }
+   },
+   {
+    "id": "toolu_01DBH8pX7th1oTz8VEiW6Y48",
+    "name": "mcp__eludite__eludite-debug-step_over",
+    "status": "completed",
+    "input": {
+     "stop": 1,
+     "depth": 2
+    },
+    "output_bytes": 2067,
+    "ms": 232,
+    "debug": "Step Over \u2192 stopped at Program.cs:21 (step)",
+    "debug_location": {
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 21
+    }
+   },
+   {
+    "id": "toolu_014oVk6npEkaVNezQumYCpen",
+    "name": "mcp__eludite__eludite-debug-run_until",
+    "status": "completed",
+    "input": {
+     "stop": 2,
+     "depth": 2,
+     "points": [
+      {
+       "path": "$OUT/NullField-3/work/NullField/Program.cs",
+       "line": 33,
+       "condition": "f.Parent == null"
+      }
+     ]
+    },
+    "output_bytes": 2670,
+    "ms": 574,
+    "debug": "Run Until \u2192 stopped at Program.cs:33 (breakpoint)",
+    "debug_location": {
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 33
+    }
+   },
+   {
+    "id": "toolu_01DZGeB5jM4VNUVEMKSWzPPb",
+    "name": "mcp__eludite__eludite-debug-continue",
+    "status": "completed",
+    "input": {
+     "stop": 3,
+     "wait_ms": 15000
+    },
+    "output_bytes": 1953,
+    "ms": 629,
+    "debug": "Continue \u2192 stopped at Program.cs:33 (exception)",
+    "debug_location": {
+     "path": "$OUT/NullField-3/work/NullField/Program.cs",
+     "line": 33
+    }
+   }
+  ]
+ }
+]

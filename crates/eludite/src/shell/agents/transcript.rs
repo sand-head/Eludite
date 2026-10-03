@@ -8,6 +8,11 @@
 //! `Run Until → interrupted by you`, a refusal as `Continue → refused: …`; the stop's location opens the file at the
 //! line, and the summary the agent received is folded under it until expanded.
 //!
+//! Brief 0034: an agent's `usage_update` shows as one line under its turn ([`TurnUsage`]), the turn's totals as
+//! `tokens: 260k in (208k cache read, 52k cache write), 2.9k out, $0.95` when the agent gives its tokens (eludite-claude-acp
+//! forwards Claude Code's), else the context `53k of 200k tokens in context`; a later update of the same turn replaces it.
+//! `toggle_breakpoint`'s compact answer reads `Toggle Breakpoint → added at Program.cs:13`.
+//!
 //! Brief 0024: a tool call whose result carries images (an `eludite.browser.screenshot` the agent took, or image
 //! content in the agent's own tool results) shows them as thumbnails in its row ([`Thumb`], at most
 //! [`THUMB_WIDTH`] pixels wide, decoded and scaled off the UI thread by [`decode_thumb`]).
@@ -17,6 +22,7 @@ use std::sync::Arc;
 
 use eludite_acp::protocol::{
     PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate, ToolCall, ToolCallStatus,
+    Usage,
 };
 use eludite_commands::PermissionClass;
 use eludite_ui::transcript::ToolStatus;
@@ -214,12 +220,30 @@ pub fn debug_line(
                 },
                 None,
             ),
+            // The compact answer (brief 0034): what happened to which breakpoint, which the row opens.
+            d::TOGGLE_BREAKPOINT => {
+                let action = v["action"].as_str().unwrap_or("done").replace('_', " ");
+                let b = &v["breakpoint"];
+                match (
+                    b["path"].as_str(),
+                    b["line"].as_u64(),
+                    b["function"].as_str(),
+                ) {
+                    (Some(path), Some(line), _) => {
+                        let name = std::path::Path::new(path)
+                            .file_name()
+                            .map_or(path.to_owned(), |n| n.to_string_lossy().into_owned());
+                        (
+                            format!("{action} at {name}:{line}"),
+                            Some((path.to_owned(), line as u32)),
+                        )
+                    }
+                    (_, _, Some(function)) => (format!("{action} on {function}"), None),
+                    _ => (action, None),
+                }
+            }
             // The commands that answer the whole state change what the debugger shows, not where it is.
-            d::TOGGLE_BREAKPOINT
-            | d::WATCH
-            | d::SELECT_FRAME
-            | d::EXCEPTION_SETTINGS
-            | d::STATE => ("done".into(), None),
+            d::WATCH | d::SELECT_FRAME | d::EXCEPTION_SETTINGS | d::STATE => ("done".into(), None),
             d::STOP => (
                 match v["session"]["attached"].as_bool() {
                     _ if v["mode"] == "design" => "ended".into(),
@@ -428,8 +452,90 @@ pub enum Row {
     },
     Tool(Box<ToolRow>),
     Plan(Vec<PlanEntry>),
+    /// The turn's usage (brief 0034).
+    Usage(TurnUsage),
     Notice(String),
     Error(String),
+}
+
+/// A turn's usage as its line shows it (brief 0034).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TurnUsage {
+    pub usage: Usage,
+    /// The turn's own cost: the agent's running total less the previous turn's.
+    pub cost: Option<(f64, String)>,
+}
+
+/// `1234` as `1.2k`, `259826` as `260k`, `1500000` as `1.5M`.
+fn tokens(n: u64) -> String {
+    let n = n as f64;
+    if n < 1e3 {
+        format!("{n}")
+    } else if n < 1e4 {
+        format!("{:.1}k", n / 1e3)
+    } else if n < 1e6 {
+        format!("{:.0}k", n / 1e3)
+    } else {
+        format!("{:.1}M", n / 1e6)
+    }
+}
+
+impl TurnUsage {
+    /// The line under the turn.
+    pub fn text(&self) -> String {
+        let u = &self.usage;
+        let mut s = match &u.turn {
+            Some(t) => {
+                let cache = match (t.cached_read_tokens, t.cached_write_tokens) {
+                    (0, 0) => String::new(),
+                    (r, w) => format!(" ({} cache read, {} cache write)", tokens(r), tokens(w)),
+                };
+                format!(
+                    "tokens: {} in{cache}, {} out",
+                    tokens(t.input_total()),
+                    tokens(t.output_tokens)
+                )
+            }
+            None if u.size > 0 => {
+                format!("context: {} of {} tokens", tokens(u.used), tokens(u.size))
+            }
+            None => format!("context: {} tokens", tokens(u.used)),
+        };
+        if let Some((amount, currency)) = &self.cost {
+            if currency == "USD" {
+                s.push_str(&format!(", ${amount:.2}"));
+            } else {
+                s.push_str(&format!(", {amount:.2} {currency}"));
+            }
+        }
+        s
+    }
+
+    /// The record's form (`--transcript-out`).
+    pub fn to_json(&self) -> Value {
+        let u = &self.usage;
+        let mut v = json!({"text": self.text(), "used": u.used, "size": u.size});
+        if let Some(t) = &u.turn {
+            v["input_tokens"] = json!(t.input_tokens);
+            v["cached_read_tokens"] = json!(t.cached_read_tokens);
+            v["cached_write_tokens"] = json!(t.cached_write_tokens);
+            v["input_total"] = json!(t.input_total());
+            v["output_tokens"] = json!(t.output_tokens);
+            if let Some(n) = t.thought_tokens {
+                v["thought_tokens"] = json!(n);
+            }
+            if let Some(m) = &t.model {
+                v["model"] = json!(m);
+            }
+        }
+        if let Some((amount, currency)) = &u.cost {
+            v["session_cost"] = json!({"amount": amount, "currency": currency});
+        }
+        if let Some((amount, currency)) = &self.cost {
+            v["cost"] = json!({"amount": amount, "currency": currency});
+        }
+        v
+    }
 }
 
 /// An agent's own tool call that ended, to audit.
@@ -459,6 +565,10 @@ pub struct Transcript {
     thought_open: bool,
     dirty_from: Option<usize>,
     synced_len: usize,
+    /// This turn's usage row (brief 0034), replaced by the turn's later updates.
+    usage_row: Option<usize>,
+    /// The agent's running cost at the end of the previous turn.
+    cost_before: Option<f64>,
 }
 
 impl Transcript {
@@ -486,7 +596,36 @@ impl Transcript {
     }
 
     pub fn user(&mut self, text: &str) {
+        self.end_turn_usage();
         self.push(Row::User(text.to_owned()));
+    }
+
+    /// A new turn: the last one's running cost is the base of the next one's.
+    fn end_turn_usage(&mut self) {
+        if let Some(Row::Usage(u)) = self.usage_row.and_then(|ix| self.rows.get(ix))
+            && let Some((amount, _)) = &u.usage.cost
+        {
+            self.cost_before = Some(*amount);
+        }
+        self.usage_row = None;
+    }
+
+    /// A `usage_update`: the turn's line, made at the first and replaced by the next.
+    fn usage(&mut self, usage: Usage) {
+        let cost = usage.cost.clone().map(|(amount, currency)| {
+            ((amount - self.cost_before.unwrap_or(0.)).max(0.), currency)
+        });
+        let row = Row::Usage(TurnUsage { usage, cost });
+        match self.usage_row.filter(|ix| *ix < self.rows.len()) {
+            Some(ix) => {
+                self.rows[ix] = row;
+                self.mark(ix);
+            }
+            None => {
+                self.usage_row = Some(self.rows.len());
+                self.push(row);
+            }
+        }
     }
 
     pub fn notice(&mut self, text: impl Into<String>) {
@@ -605,7 +744,9 @@ impl Transcript {
                 }
             }
             other => {
-                if let Some(entries) = other.plan_entries() {
+                if let Some(usage) = other.usage() {
+                    self.usage(usage);
+                } else if let Some(entries) = other.plan_entries() {
                     // A plan replaces the previous one when it is the last row.
                     if let Some(Row::Plan(last)) = self.rows.last_mut() {
                         *last = entries;
@@ -864,6 +1005,7 @@ impl Transcript {
                     json!({ "tool_call": call })
                 }
                 Row::Plan(entries) => json!({"plan": entries}),
+                Row::Usage(u) => json!({"usage": u.to_json()}),
                 Row::Notice(t) => json!({"notice": t}),
                 Row::Error(t) => json!({"error": t}),
                 Row::Agent(_) => unreachable!(),
@@ -1191,5 +1333,72 @@ pub(crate) mod tests {
             "Processes \u{2192} 7 processes"
         );
         assert!(debug_line("eludite.browser.navigate", &json!({}), &Ok(json!({}))).is_none());
+        // The compact toggle_breakpoint answer (brief 0034).
+        let l = debug_line(
+            "eludite.debug.toggle_breakpoint",
+            &json!({}),
+            &Ok(json!({"action": "added", "verified": false, "breakpoints_total": 1,
+                "breakpoint": {"kind": "line", "path": "/s/OffByOne/Program.cs", "line": 13, "enabled": true, "verified": false, "hits": 0}})),
+        )
+        .unwrap();
+        assert_eq!(l.text, "Toggle Breakpoint \u{2192} added at Program.cs:13");
+        assert_eq!(l.location, Some(("/s/OffByOne/Program.cs".into(), 13)));
+        assert_eq!(
+            debug_line(
+                "eludite.debug.toggle_breakpoint",
+                &json!({}),
+                &Ok(json!({"action": "deleted_all", "verified": false, "breakpoints_total": 0}))
+            )
+            .unwrap()
+            .text,
+            "Toggle Breakpoint \u{2192} deleted all"
+        );
+    }
+
+    fn usage_update(v: Value) -> SessionUpdate {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn a_usage_update_is_one_line_under_its_turn() {
+        let mut t = Transcript::default();
+        t.user("debug it");
+        t.apply(&SessionUpdate::AgentMessageChunk(ContentBlock::text(
+            "Done.",
+        )));
+        t.apply(&usage_update(eludite_acp::fake_agent::stream_usage()));
+        let text = |t: &Transcript| match t.rows.last() {
+            Some(Row::Usage(u)) => u.text(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            text(&t),
+            "tokens: 260k in (208k cache read, 52k cache write), 2.9k out, $0.95"
+        );
+        let rows = t.rows.len();
+        // A later update of the same turn replaces the line.
+        let mut later = eludite_acp::fake_agent::stream_usage();
+        later["_meta"]["claudeCode"]["usage"]["outputTokens"] = json!(3_100);
+        t.apply(&usage_update(later));
+        assert_eq!(t.rows.len(), rows);
+        assert!(text(&t).contains("3.1k out"), "{}", text(&t));
+        let record = t.to_json();
+        let usage = &record.as_array().unwrap().last().unwrap()["usage"];
+        assert_eq!(usage["input_total"], 162 + 207_671 + 51_993);
+        assert_eq!(usage["cached_read_tokens"], 207_671);
+        assert_eq!(usage["output_tokens"], 3_100);
+        assert_eq!(usage["model"], "claude-fable-5-1");
+        assert_eq!(usage["cost"]["amount"], 0.9512);
+        // The next turn's cost is the running total's growth; an agent without token counts shows its context.
+        t.user("again");
+        t.apply(&usage_update(
+            json!({"sessionUpdate": "usage_update", "used": 53_000, "size": 200_000,
+            "cost": {"amount": 1.2012, "currency": "USD"}}),
+        ));
+        assert_eq!(text(&t), "context: 53k of 200k tokens, $0.25");
+        assert_eq!(
+            t.rows.iter().filter(|r| matches!(r, Row::Usage(_))).count(),
+            2
+        );
     }
 }

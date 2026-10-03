@@ -1,6 +1,6 @@
 # Brief 0034: Tuning the agent debugging suite from the proving run
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0034-report.md)
 Phase: 2 and 4 (proposal 0001, follow-up to brief F)
 Plan reference: PLAN.md sections 5.5, 5.7, 10 (Phase 4 exit), 11; proposal 0001 sections 9 and 11; brief 0030's report (section "recommended changes")
 Related ADRs: ADR-0003
