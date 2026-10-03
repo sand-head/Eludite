@@ -59,7 +59,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0026](0026-debug-run-control.md) | Run control for the agent debugging suite: tracepoints, run_until, trace, function breakpoints, exception types, set_variable (proposal 0001 B) | 2 | open |
 | [0027](0027-debug-attach-and-policy.md) | Attach, restart and the debug policy for the agent debugging suite (proposal 0001 C) | 2 | open |
 | [0028](0028-debug-multi-session.md) | Multiple debugging sessions: `session` on every command, compound launch, session selectors (proposal 0001 D) | 2 | open |
-| [0029](0029-rust-debug-adapter.md) | Debug Rust with lldb-dap: Cargo launch configuration, Rust formatters, Set as Startup Project on packages (proposal 0001 E2) | 2 | open |
+| [0029](0029-rust-debug-adapter.md) | Debug Rust with lldb-dap: Cargo launch configuration, Rust formatters, Set as Startup Project on packages (proposal 0001 E2) | 2 | [report](0029-report.md): done on Linux; lldb-dap 18.1.3, launch to first stop 0.57 to 0.78 s, `next` 7 to 8 ms p95, a page of a 10,000-element `Vec` 10 to 18 ms p95; Rust formatters need two LLDB 18 compatibility lines |
 | [0030](0030-debug-proving-scenario.md) | The agent debugging proving scenario: a seeded-bug corpus, the scripted fake agent on every platform, the recorded Claude Code run (proposal 0001 F) | 2/4 | open |
 
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.

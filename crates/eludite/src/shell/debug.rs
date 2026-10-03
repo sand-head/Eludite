@@ -1,5 +1,6 @@
 //! Run and debug (brief 0018): F5 runs the startup project under its debug adapter through `eludite-dap` (netcoredbg
-//! for .NET, `eludite-dbg-mono` under the located Mono for .NET Framework on Linux and macOS: brief 0022), Ctrl+F5
+//! for .NET, `eludite-dbg-mono` under the located Mono for .NET Framework on Linux and macOS: brief 0022; lldb-dap for
+//! a Cargo package: brief 0029, [`native`]), Ctrl+F5
 //! without the debugger, with Visual Studio's debugger windows, breakpoints in the margin, the execution point, data tips,
 //! the Debug menu and keys and a status bar slot. Every action is an `eludite.debug.*` command, and agents drive a
 //! session through the same commands and read the same state the windows render ([`state`], whose module docs give
@@ -32,6 +33,9 @@
 //!   (stderr, console) go to three rings of 10,000 lines per session, read by cursor (`eludite.debug.output`); the
 //!   Output window's Debug source still shows the program's output and the debugger's messages together.
 
+pub mod native;
+#[cfg(test)]
+mod native_tests;
 pub mod state;
 #[cfg(test)]
 mod tests;
@@ -465,6 +469,10 @@ pub struct Debugger {
     /// How many members each variables reference of the current stop has, as the adapter said (`indexedVariables`,
     /// `namedVariables`): the `total` of `eludite.debug.variables` by reference.
     counts: HashMap<i64, usize>,
+    /// How Cargo packages are debugged (brief 0029): the lldb-dap search and the Rust formatters.
+    native: native::NativeSetup,
+    /// The last start's Cargo options (target, test, arguments), for its launch after the build.
+    cargo_options: cmds::CargoOptions,
 }
 
 impl Debugger {
@@ -497,6 +505,8 @@ impl Debugger {
                 pending_launch: None,
                 pause_error: None,
                 counts: HashMap::new(),
+                native: native::NativeSetup::from_env(),
+                cargo_options: cmds::CargoOptions::default(),
             },
             rx,
         )
@@ -603,6 +613,17 @@ impl Debugger {
     /// `eludite-dbg-mono.exe` after the executable's folder.
     pub fn set_mono_adapter_path(&mut self, path: Option<PathBuf>) {
         self.setup.mono_adapter.configured = path;
+    }
+
+    /// The setting `debugger.lldbDapPath` (or `ELUDITE_LLDB_DAP`): where the next native session looks for lldb-dap
+    /// first (brief 0029).
+    pub fn set_lldb_dap_path(&mut self, path: Option<PathBuf>) {
+        self.native.lldb.configured = path;
+    }
+
+    /// The setting `debugger.rustFormatters`: whether the next native session loads the Rust formatters.
+    pub fn set_rust_formatters(&mut self, on: bool) {
+        self.native.formatters = on;
     }
 
     /// The searches the next session uses (tests).
@@ -720,6 +741,8 @@ struct LaunchJob {
     breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
     filters: Vec<String>,
     setup: DebugSetup,
+    /// A Cargo package's start (brief 0029).
+    native: native::NativeJob,
     tx: UnboundedSender<DebugMsg>,
 }
 
@@ -735,6 +758,7 @@ fn launch_thread(job: LaunchJob) {
         breakpoints,
         filters,
         setup,
+        native,
         tx,
     } = job;
     let fail = |message: String| {
@@ -743,15 +767,45 @@ fn launch_thread(job: LaunchJob) {
             message,
         });
     };
-    let config = match resolve_launch(
+    // A Cargo package (brief 0029), else a .NET project.
+    let dotnet_default = native::dotnet_default(hint.as_deref(), startup.as_deref(), &projects);
+    let package = native::resolve_cargo(
         hint.as_deref(),
-        profile.as_deref(),
-        &projects,
-        solution_dir.as_deref(),
         startup.as_deref(),
-    ) {
-        Ok(c) => c,
-        Err(e) => return fail(e),
+        dotnet_default,
+        native.cargo.as_ref(),
+    );
+    let mut native_launch = None;
+    let config = match &package {
+        Some(p) => {
+            let console = |line: &str| {
+                let _ = tx.unbounded_send(DebugMsg::Client {
+                    generation,
+                    event: native::console_event(line),
+                });
+            };
+            match native::prepare(&native, p, debug, console) {
+                Ok(n) => native_launch.insert(n).config.clone(),
+                Err(e) => return fail(e),
+            }
+        }
+        None if native.options.is_set() => {
+            return fail(
+                "`target`, `test` and `args` apply to Cargo packages; a .NET project's arguments come from its \
+                 launchSettings.json profile"
+                    .into(),
+            );
+        }
+        None => match resolve_launch(
+            hint.as_deref(),
+            profile.as_deref(),
+            &projects,
+            solution_dir.as_deref(),
+            startup.as_deref(),
+        ) {
+            Ok(c) => c,
+            Err(e) => return fail(e),
+        },
     };
     let platform = setup.platform;
     let mut session = SessionRow {
@@ -851,16 +905,23 @@ fn launch_thread(job: LaunchJob) {
         Ok(k) => k,
         Err(e) => return fail(e),
     };
-    let (adapter_id, arguments) = match (kind, &mono) {
-        (AdapterKind::Mono, Some(m)) => ("mono", config.mono_arguments(&m.mono)),
+    let (adapter_id, arguments) = match (kind, &mono, &native_launch) {
+        (AdapterKind::Mono, Some(m), _) => ("mono", config.mono_arguments(&m.mono)),
+        (AdapterKind::Lldb, _, Some(n)) => ("lldb", n.arguments()),
         _ => ("coreclr", config.netcoredbg_arguments()),
     };
     // `mono --version`, read once here: the adapter's description names the Mono that runs it.
     let mono_version = mono
         .as_ref()
         .map(|m| m.version().unwrap_or_else(|| "(unknown version)".into()));
-    let (connection, adapter) = match &setup.connect {
-        Some(connect) => match connect() {
+    let reached = match kind {
+        AdapterKind::Lldb => Some(native::connect(&native, platform, setup.connect.as_ref())),
+        _ => None,
+    };
+    let (connection, adapter) = match (reached, &setup.connect) {
+        (Some(Ok(c)), _) => c,
+        (Some(Err(e)), _) => return fail(e),
+        (None, Some(connect)) => match connect() {
             Ok(c) => {
                 let d = match &mono_version {
                     Some(v) => format!("eludite-dbg-mono under mono {v} ({})", c.description),
@@ -870,7 +931,7 @@ fn launch_thread(job: LaunchJob) {
             }
             Err(e) => return fail(format!("cannot reach the debug adapter: {e}")),
         },
-        None => match (kind, &mono) {
+        (None, None) => match (kind, &mono) {
             (AdapterKind::Mono, Some(m)) => {
                 let exe = match setup.mono_adapter.find() {
                     Ok(p) => p,
@@ -908,9 +969,15 @@ fn launch_thread(job: LaunchJob) {
         run: None,
     });
     let sink_tx = tx.clone();
+    // lldb-dap's pause stops and standard library frames, as the shell expects them (brief 0029).
+    let rust_src = native_launch.as_ref().map(|n| n.rust_src.clone());
     let client = DapClient::start(
         connection,
         Arc::new(move |event| {
+            let event = match &rust_src {
+                Some(src) => native::adapt(event, src.as_deref()),
+                None => event,
+            };
             let _ = sink_tx.unbounded_send(DebugMsg::Client { generation, event });
         }),
     );
@@ -923,9 +990,17 @@ fn launch_thread(job: LaunchJob) {
         kind: StartKind::Launch,
         arguments,
         breakpoints,
+        function_breakpoints: match kind {
+            AdapterKind::Lldb => native::function_breakpoints(native.rust_panics),
+            _ => Vec::new(),
+        },
         exception_filters: filters,
     };
-    let result = dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    let mut result =
+        dap_session::start(&client, &plan, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    if let (AdapterKind::Lldb, Ok(started)) = (kind, &mut result) {
+        native::adapt_capabilities(&mut started.capabilities);
+    }
     // The tests' fake adapter says so in its connection's description.
     let adapter_id = if client.description().starts_with("fake adapter") {
         "fake".to_owned()
@@ -1067,8 +1142,10 @@ impl Shell {
                 debug,
                 profile,
                 build,
+                cargo,
                 ..
             } => {
+                self.debug.cargo_options = cargo;
                 self.debug_start(project, debug, profile, build, &driver, window, cx);
                 settle(true, None)
             }
@@ -1161,6 +1238,7 @@ impl Shell {
             DebugRequest::ExceptionSettings {
                 break_when_thrown,
                 break_when_user_unhandled,
+                break_on_rust_panic,
             } => {
                 let e = &mut self.debug.model.exceptions;
                 if let Some(v) = break_when_thrown {
@@ -1168,6 +1246,27 @@ impl Shell {
                 }
                 if let Some(v) = break_when_user_unhandled {
                     e.break_when_user_unhandled = v;
+                }
+                if let Some(v) = break_on_rust_panic {
+                    e.break_on_rust_panic = v;
+                    // A native session's Rust panics row is its function breakpoint (brief 0029).
+                    let native_session = self
+                        .debug
+                        .model
+                        .session
+                        .as_ref()
+                        .and_then(|s| s.runtime.as_deref())
+                        == Some("native");
+                    if native_session
+                        && self.debug.client.is_some()
+                        && self.debug.caps.supports_function_breakpoints
+                    {
+                        let _ = self.debug.send(
+                            "setFunctionBreakpoints",
+                            json!({ "breakpoints": native::function_breakpoints(v) }),
+                            Pending::Other,
+                        );
+                    }
                 }
                 if self.debug.client.is_some() {
                     let filters = exception_filters(&self.debug.model.exceptions);
@@ -1318,8 +1417,9 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Build first (brief 0020): only a .NET solution's projects are built and run here.
-        let build = build.unwrap_or(self.builds.build_before_run) && self.solution.is_some();
+        // Build first (brief 0020): a .NET solution's projects, or the open folder's Cargo packages (brief 0029).
+        let build = build.unwrap_or(self.builds.build_before_run)
+            && (self.solution.is_some() || self.cargo_workspace().is_some());
         if !build {
             self.debug_launch(project, debug, profile, driver, false, cx);
             return;
@@ -1352,7 +1452,18 @@ impl Shell {
         let projects = self.solution_projects();
         let solution_dir = self.solution_dir();
         let startup = self.debug.model.startup_project.clone().map(PathBuf::from);
+        let cargo = self.cargo_context();
         let resolve = cx.background_spawn(async move {
+            let dotnet_default =
+                native::dotnet_default(project.as_deref(), startup.as_deref(), &projects);
+            if let Some(p) = native::resolve_cargo(
+                project.as_deref(),
+                startup.as_deref(),
+                dotnet_default,
+                cargo.as_ref(),
+            ) {
+                return Ok(p.manifest);
+            }
             resolve_project(
                 project.as_deref(),
                 &projects,
@@ -1491,6 +1602,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let solution_dir = self.solution_dir();
+        let cargo = self.cargo_context();
         let d = &mut self.debug;
         if after_build {
             // The session began with the build: same generation, its console lines kept.
@@ -1565,6 +1677,12 @@ impl Shell {
             breakpoints,
             filters: exception_filters(&d.model.exceptions),
             setup: d.setup.clone(),
+            native: native::NativeJob {
+                setup: d.native.clone(),
+                cargo,
+                options: d.cargo_options.clone(),
+                rust_panics: d.model.exceptions.break_on_rust_panic,
+            },
             tx: d.tx.clone(),
         };
         std::thread::Builder::new()
@@ -4081,7 +4199,8 @@ fn capabilities_row(c: &Capabilities, adapter: &str) -> CapabilitiesRow {
         memory: c.supports_read_memory_request,
         disassembly: c.supports_disassemble_request,
         delayed_stack_loading: c.supports_delayed_stack_trace_loading,
-        variable_paging: c.supports_variable_paging || adapter == "mono",
+        // lldb-dap honors `start` and `count` too (brief 0029).
+        variable_paging: c.supports_variable_paging || adapter == "mono" || adapter == "lldb",
     }
 }
 

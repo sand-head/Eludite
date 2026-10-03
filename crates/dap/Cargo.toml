@@ -12,6 +12,8 @@ publish.workspace = true
 eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# [package.metadata.eludite.run] in Cargo.toml (brief 0029).
+toml.workspace = true
 
 [features]
 # fake: a scripted fake debug adapter for the client's and the shell's tests.

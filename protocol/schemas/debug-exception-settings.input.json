@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-exception-settings.input.json",
   "title": "eludite.debug.exception_settings input",
-  "description": "The Exception Settings window's Common Language Runtime Exceptions: break when an exception is thrown (first chance), or only when user code does not handle it (Visual Studio's default). Persisted per solution and applied to a running session at once.",
+  "description": "The Exception Settings window: Common Language Runtime Exceptions (break when an exception is thrown, first chance, or only when user code does not handle it, Visual Studio's default) and Rust panics (break when a native session's program panics, through a function breakpoint on `rust_panic`). Persisted per solution and applied to a running session at once.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -10,6 +10,10 @@
       "type": "boolean"
     },
     "break_when_user_unhandled": {
+      "type": "boolean"
+    },
+    "break_on_rust_panic": {
+      "description": "Break when a Rust program (a Cargo package debugged with lldb-dap) panics: a function breakpoint on `rust_panic`. Default true.",
       "type": "boolean"
     }
   }

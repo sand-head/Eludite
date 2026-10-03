@@ -47,6 +47,8 @@ Linux system packages for the GPUI build:
 
 Optional, to debug .NET Framework programs under Mono with `eludite-dbg-mono` (and to run its tests, which skip without it): `mono-devel` on Debian/Ubuntu, `mono` on Arch, the Mono framework package on macOS.
 
+Optional, to debug Rust (Cargo packages) with lldb-dap (and to run `crates/dap/tests/lldb.rs`, which skips without it): `lldb-18` on Debian/Ubuntu, `lldb` on Fedora and Arch, Xcode on macOS, LLVM's installer on Windows ([tools/lldb-dap/README.md](tools/lldb-dap/README.md)).
+
 Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows; `debuggers/mono` builds everywhere and runs under Mono on Linux and macOS.
 
 ## Repository layout
@@ -65,7 +67,7 @@ protocol/          MIT: schemas, generated bindings
 extension-sdk/     MIT: WASM extension API
 agents/claude-acp/ MIT: native ACP adapter for Claude Code (no Node)
 corpus/  bench/    golden-test solutions, performance suite (READMEs only until Phase 0 reports)
-tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer, Chrome for Testing)
+tools/             scripts that build or fetch pinned external tools (Roslyn LS, netcoredbg, rust-analyzer, Chrome for Testing); lldb-dap's install notes
 docs/              PLAN.md, adr/, briefs/
 ```
 

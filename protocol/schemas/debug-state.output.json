@@ -52,11 +52,11 @@
       "additionalProperties": false,
       "properties": {
         "project": {
-          "description": "The project file.",
+          "description": "The project file (a Cargo package's Cargo.toml).",
           "type": "string"
         },
         "program": {
-          "description": "The program run: the built DLL of a .NET (Core) project, the built .exe of a .NET Framework project.",
+          "description": "The program run: the built DLL of a .NET (Core) project, the built .exe of a .NET Framework project, the executable of a Cargo package's binary target or test executable (from cargo's compiler-artifact message).",
           "type": "string"
         },
         "args": {
@@ -76,15 +76,16 @@
           "type": "boolean"
         },
         "adapter": {
-          "description": "The debug adapter's executable and transport: `netcoredbg --interpreter=vscode (stdio)`, or `eludite-dbg-mono under mono 6.8.0.105 (stdio)` (the version from `mono --version`).",
+          "description": "The debug adapter's executable and transport: `netcoredbg --interpreter=vscode (stdio)`, `eludite-dbg-mono under mono 6.8.0.105 (stdio)` (the version from `mono --version`), or `lldb-dap 18.1.3 (stdio)` (the version from `lldb-dap --version`, else from the `lldb --version` beside it; CodeLLDB reads `codelldb (stdio)`).",
           "type": "string"
         },
         "runtime": {
-          "description": "What runs the program: `coreclr` (.NET 5 and later, .NET Core: `dotnet`, debugged with netcoredbg), `mono` (a .NET Framework program run by the located Mono off Windows, debugged with eludite-dbg-mono), `netfx` (a .NET Framework program run directly on Windows, debugged with eludite-dbg-netfx once brief 0004 builds it).",
+          "description": "What runs the program: `coreclr` (.NET 5 and later, .NET Core: `dotnet`, debugged with netcoredbg), `mono` (a .NET Framework program run by the located Mono off Windows, debugged with eludite-dbg-mono), `netfx` (a .NET Framework program run directly on Windows, debugged with eludite-dbg-netfx once brief 0004 builds it), `native` (a Cargo package's executable, run directly and debugged with lldb-dap).",
           "enum": [
             "coreclr",
             "mono",
-            "netfx"
+            "netfx",
+            "native"
           ]
         },
         "process_id": {
@@ -333,6 +334,10 @@
         },
         "break_when_user_unhandled": {
           "type": "boolean"
+        },
+        "break_on_rust_panic": {
+          "description": "The Exception Settings window's Rust panics row: a native (Cargo) session breaks when a Rust panic starts, through a function breakpoint on `rust_panic` (what rust-lldb users set). Default true; persisted with the other exception settings.",
+          "type": "boolean"
         }
       }
     },
@@ -391,7 +396,7 @@
       "additionalProperties": false,
       "properties": {
         "adapter": {
-          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `fake` (tests).",
+          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `lldb` (lldb-dap or CodeLLDB), `fake` (tests).",
           "type": "string"
         },
         "pause": {

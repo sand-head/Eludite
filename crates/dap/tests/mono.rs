@@ -75,6 +75,7 @@ impl Found {
                         })
                         .collect(),
                 )],
+                function_breakpoints: Vec::new(),
                 exception_filters: filters.iter().map(|f| (*f).to_owned()).collect(),
             },
             T,
@@ -181,6 +182,7 @@ fn eludite_dbg_mono_debugs_the_test_app() {
                     ..Default::default()
                 }],
             )],
+            function_breakpoints: Vec::new(),
             exception_filters: vec!["user-unhandled".into()],
         },
         T,

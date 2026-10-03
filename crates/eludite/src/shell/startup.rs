@@ -5,7 +5,8 @@
 //!   solution and per user, as Visual Studio keeps it in the `.suo`: in the solution's file under
 //!   `<config dir>/eludite/breakpoints/solutions/`, beside its breakpoints and watches (`debug::state::Persisted`).
 //!   Without one, the startup project is the solution's first executable project, found off the UI thread when the
-//!   tree arrives. Workspace draws the startup project bold, and `eludite.workspace.tree` marks it `startup`.
+//!   tree arrives. A member package of the open folder's Cargo workspace can be the startup project too (brief 0029,
+//!   `debug::native`), kept as its `Cargo.toml`. Workspace draws the startup project bold, and `eludite.workspace.tree` marks it `startup`.
 //! - **Open Containing Folder** hands the folder to the system's file manager (`xdg-open`, Explorer, Finder) on a
 //!   thread of its own; tests replace the opener.
 
@@ -108,6 +109,10 @@ impl Shell {
     ) -> Outcome {
         match request {
             ProjectRequest::SetStartupProject { project } => {
+                // A member package of the open folder's Cargo workspace (brief 0029).
+                if let Some(out) = self.set_cargo_startup(&project, cx) {
+                    return out;
+                }
                 let solution = self.solution.clone().ok_or_else(|| {
                     CommandError::Failed(
                         "no .NET solution is open: there is no startup project to set".into(),
