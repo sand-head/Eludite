@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-set-next-statement.input.json",
+  "title": "eludite.debug.set_next_statement input",
+  "description": "Debug > Set Next Statement (Ctrl+Shift+F10): move the execution point of the stopped thread to another line of the same method without running the code in between, through DAP gotoTargets and goto. Only where the debug adapter has them (`capabilities.set_next_statement`; netcoredbg and eludite-dbg-mono do not): refused naming the adapter otherwise. Only in break mode. The answer is the stop summary at the new point (the adapter stops with reason `goto`); the Call Stack and Locals windows refresh as after a step.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The source file. Default: the active document.",
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "description": "1-based line. Default: the caret's line in the active document.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "thread": {
+      "description": "The thread to move. Default: the thread that stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "wait_ms": {
+      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    },
+    "depth": {
+      "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "max_variables": {
+      "description": "The most variable rows listed, counting every level (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "max_frames": {
+      "description": "The most stack frames listed (default 10, at most 200); page further with eludite.debug.stack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "max_output_lines": {
+      "description": "The most program output lines listed (default 20, at most 1000; 0 lists none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "output_since": {
+      "description": "An output cursor (`output.next` of an earlier answer, or eludite.debug.output's `next`): list the program's lines from it on. Default: the last `max_output_lines` lines.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

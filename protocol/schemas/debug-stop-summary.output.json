@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stop-summary.output.json",
   "title": "eludite.debug stop summary",
-  "description": "The compact answer of eludite.debug.snapshot, wait and pause and of start, continue, step_over, step_into, step_out and run_to_cursor (proposal 0001 rule 2): why and where the debuggee stopped, the top frames, the frame's locals and the watches within the budget parameters, the program's output since a cursor, the adapter's capabilities and who drives. Breakpoints, exception settings and threads are in eludite.debug.state.",
+  "description": "The compact answer of eludite.debug.snapshot, wait and pause and of start, continue, step_over, step_into, step_out, run_to_cursor, run_until and set_next_statement (and of trace's `stopped_by: stopped`; proposal 0001 rule 2): why and where the debuggee stopped, the top frames, the frame's locals and the watches within the budget parameters, the program's output since a cursor, the adapter's capabilities and who drives. Breakpoints, exception settings and threads are in eludite.debug.state.",
   "type": "object",
   "required": [
     "mode",
@@ -467,7 +467,7 @@
           "type": "boolean"
         },
         "set_variable": {
-          "description": "Values can be changed (DAP setVariable).",
+          "description": "Values can be changed (eludite.debug.set_variable: DAP setVariable, or setExpression when the adapter has only that).",
           "type": "boolean"
         },
         "exception_info": {
@@ -475,11 +475,11 @@
           "type": "boolean"
         },
         "function_breakpoints": {
-          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints).",
+          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints); eludite.debug.toggle_breakpoint with `function` is refused where false.",
           "type": "boolean"
         },
         "log_points": {
-          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them).",
+          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them with a stop, the message's evaluation and a resume per hit).",
           "enum": [
             "adapter",
             "shell"
@@ -493,11 +493,11 @@
           ]
         },
         "exception_filter_options": {
-          "description": "Exception settings can name exception types (DAP exceptionFilterOptions).",
+          "description": "Exception settings can name exception types (DAP exceptionFilterOptions); eludite.debug.exception_settings with `types` is refused where false.",
           "type": "boolean"
         },
         "set_next_statement": {
-          "description": "Set Next Statement (DAP gotoTargets and goto).",
+          "description": "Set Next Statement (eludite.debug.set_next_statement: DAP gotoTargets and goto); refused where false.",
           "type": "boolean"
         },
         "data_breakpoints": {

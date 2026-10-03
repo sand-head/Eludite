@@ -289,6 +289,7 @@ impl Program {
                     })
                     .collect(),
                 exception_filters: Vec::new(),
+                exception_options: Vec::new(),
             },
             T,
         )

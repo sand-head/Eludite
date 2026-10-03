@@ -22,6 +22,8 @@ pub struct Capabilities {
     pub supports_variable_paging: bool,
     pub supports_delayed_stack_trace_loading: bool,
     pub supports_set_variable: bool,
+    /// `setExpression` (netcoredbg has it; the shell's `set_variable` falls back to it).
+    pub supports_set_expression: bool,
     pub supports_function_breakpoints: bool,
     pub supports_log_points: bool,
     pub supports_exception_filter_options: bool,
@@ -96,9 +98,13 @@ pub struct SourceBreakpoint {
     pub condition: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hit_condition: Option<String>,
+    /// A log point (`supportsLogPoints`): print this message instead of breaking; `{expression}` is interpolated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_message: Option<String>,
 }
 
-/// One breakpoint asked for in `setFunctionBreakpoints`: a function by name (`rust_panic`).
+/// One breakpoint asked for in `setFunctionBreakpoints`: a function by name (a user's function breakpoint, or the
+/// Rust panics row's `rust_panic`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct FunctionBreakpoint {
@@ -107,6 +113,93 @@ pub struct FunctionBreakpoint {
     pub condition: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hit_condition: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetFunctionBreakpointsArguments {
+    pub breakpoints: Vec<FunctionBreakpoint>,
+}
+
+/// An exception filter with options (`supportsExceptionFilterOptions`): netcoredbg and `eludite-dbg-mono` read
+/// `condition` as comma-separated exception type names.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExceptionFilterOptions {
+    pub filter_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SetExceptionBreakpointsArguments {
+    pub filters: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub filter_options: Vec<ExceptionFilterOptions>,
+}
+
+/// `setVariable`: assign `value` (an expression) to member `name` of `variables_reference`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetVariableArguments {
+    pub variables_reference: i64,
+    pub name: String,
+    pub value: String,
+}
+
+/// `setExpression`: assign `value` to the l-value `expression` in frame `frame_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetExpressionArguments {
+    pub expression: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_id: Option<i64>,
+}
+
+/// The answer of `setVariable` and of `setExpression`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SetVariableResponse {
+    pub value: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_name: Option<String>,
+    pub variables_reference: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub named_variables: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub indexed_variables: Option<i64>,
+}
+
+/// `gotoTargets`: where execution can jump to on `line` of `source` (Set Next Statement).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GotoTargetsArguments {
+    pub source: Source,
+    pub line: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GotoTarget {
+    pub id: i64,
+    pub label: String,
+    pub line: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GotoTargetsResponse {
+    pub targets: Vec<GotoTarget>,
+}
+
+/// `goto`: move `thread_id` to `target_id`; the adapter then sends `stopped` with reason `goto`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GotoArguments {
+    pub thread_id: i64,
+    pub target_id: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -420,6 +513,7 @@ mod tests {
         // setVariable and exception filter options, and none of the others.
         assert!(caps.supports_function_breakpoints);
         assert!(caps.supports_set_variable);
+        assert!(caps.supports_set_expression);
         assert!(caps.supports_exception_filter_options);
         assert!(caps.supports_exception_info_request);
         assert!(caps.supports_terminate_request);

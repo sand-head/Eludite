@@ -1,5 +1,5 @@
 //! The debugger's marks in the editor (brief 0018): breakpoint glyphs in the margin at the far left (Visual Studio's
-//! glyph margin), the execution point (the yellow arrow and the highlighted statement; green for a caller's frame
+//! glyph margin; a tracepoint is a diamond, brief 0026), the execution point (the yellow arrow and the highlighted statement; green for a caller's frame
 //! selected in the Call Stack), and the expression under the mouse for data tips. The owner decides what is shown;
 //! the view only draws it and reports margin clicks ([`crate::EditorEvent::BreakpointMarginClicked`]).
 
@@ -23,12 +23,18 @@ pub enum BreakpointGlyph {
     Conditional,
     /// A hollow circle: the debugger could not bind it to code.
     Unbound,
+    /// A filled red diamond: a tracepoint (When Hit, print a message and continue; brief 0026).
+    Tracepoint,
+    /// A hollow red diamond: a disabled tracepoint.
+    TracepointDisabled,
+    /// A hollow gray diamond: a tracepoint the debugger could not bind.
+    TracepointUnbound,
 }
 
 impl BreakpointGlyph {
     pub(crate) fn color(self) -> Rgba {
         match self {
-            BreakpointGlyph::Unbound => rgb(0x9C9C9C),
+            BreakpointGlyph::Unbound | BreakpointGlyph::TracepointUnbound => rgb(0x9C9C9C),
             _ => rgb(0xE51400),
         }
     }
@@ -36,7 +42,17 @@ impl BreakpointGlyph {
     pub(crate) fn filled(self) -> bool {
         matches!(
             self,
-            BreakpointGlyph::Enabled | BreakpointGlyph::Conditional
+            BreakpointGlyph::Enabled | BreakpointGlyph::Conditional | BreakpointGlyph::Tracepoint
+        )
+    }
+
+    /// Drawn as Visual Studio's diamond rather than a circle.
+    pub fn is_tracepoint(self) -> bool {
+        matches!(
+            self,
+            BreakpointGlyph::Tracepoint
+                | BreakpointGlyph::TracepointDisabled
+                | BreakpointGlyph::TracepointUnbound
         )
     }
 }
@@ -183,5 +199,24 @@ impl EditorView {
             line_start + start..line_start + end,
             line[start..end].to_owned(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracepoints_are_diamonds_filled_when_enabled() {
+        use BreakpointGlyph::*;
+        for g in [Tracepoint, TracepointDisabled, TracepointUnbound] {
+            assert!(g.is_tracepoint(), "{g:?}");
+        }
+        for g in [Enabled, Disabled, Conditional, Unbound] {
+            assert!(!g.is_tracepoint(), "{g:?}");
+        }
+        assert!(Tracepoint.filled() && !TracepointDisabled.filled() && !TracepointUnbound.filled());
+        assert_eq!(TracepointUnbound.color(), Unbound.color());
+        assert_eq!(Tracepoint.color(), Enabled.color());
     }
 }

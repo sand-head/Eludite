@@ -1,6 +1,6 @@
 # Brief 0026: Run control for the agent debugging suite
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0026-report.md)
 Phase: 2 (proposal 0001, brief B)
 Plan reference: PLAN.md sections 2 (principles 1, 3), 4.5 (tracepoints, `run_until`, `trace` as shell-side features on every adapter), 5.1, 5.5, 9, 10 (Phase 2); proposal 0001 sections 4 (rules 1, 2, 4, 6, 7), 5.2, 5.3, 6, 8 (B), 11
 Related ADRs: ADR-0003, ADR-0007

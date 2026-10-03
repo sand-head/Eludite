@@ -20,6 +20,17 @@
 //! object graphs ([`FakeVar::deep`]), output per category ([`FakeStep::prints`]), and other threads' stacks (one
 //! frame without source).
 //!
+//! For brief 0026 it also answers `setFunctionBreakpoints` (a stop with reason `function breakpoint` where a run enters
+//! a statement of the named method, `Namespace.Type.Method` matched against the statement's function without its
+//! parameters), `setExceptionBreakpoints` with `filterOptions` (a filter's `condition` is the comma-separated exception
+//! types it stops for), `setVariable` and `setExpression` (the new value is kept in the statement's locals; an `int`
+//! takes integers only), and behind flags in [`FakeProgram::extra_capabilities`]: log points (`supportsLogPoints`: a
+//! breakpoint with `logMessage` writes the interpolated message as a `console` output event and does not stop) and Set
+//! Next Statement (`supportsGotoTargetsRequest`: `gotoTargets` lists the statements of the stopped method on a line, and
+//! `goto` moves there with a `stopped` event of reason `goto`). Function breakpoints, filter options, `setVariable` and
+//! `setExpression` are advertised by default and refused when turned off. [`hot_loop`] builds a loop's statements for
+//! the tracepoint overhead measurements.
+//!
 //! [`connect`] serves it in-process over pipes, [`listen_tcp`] over a loopback TCP socket, and [`serve_stdio`] on
 //! this process's stdin and stdout (a child process). Every request is recorded ([`FakeHandle::requests`]).
 
@@ -167,6 +178,31 @@ impl FakeStep {
         self.prints.push(("stdout".into(), text.into()));
         self
     }
+}
+
+/// `iterations` statements of a loop body on `line` of `path` in `function` at `depth`, each with the locals `i` (the
+/// iteration, from 0) and `sum` (0 + 1 + ... + i), for the tracepoint overhead measurements.
+pub fn hot_loop(
+    path: &str,
+    line: i64,
+    function: &str,
+    depth: usize,
+    iterations: usize,
+) -> Vec<FakeStep> {
+    (0..iterations)
+        .map(|i| {
+            FakeStep::new(
+                path,
+                line,
+                function,
+                depth,
+                vec![
+                    FakeVar::new("i", &i.to_string(), "int"),
+                    FakeVar::new("sum", &(i * (i + 1) / 2).to_string(), "int"),
+                ],
+            )
+        })
+        .collect()
 }
 
 /// The program the fake debugs.
@@ -421,13 +457,19 @@ struct Machine {
     pc: Option<usize>,
     /// Breakpoints by path: (id, breakpoint).
     breakpoints: HashMap<String, Vec<(i64, SourceBreakpoint)>>,
+    /// Function breakpoints: (id, name, condition).
+    functions: Vec<(i64, String, Option<String>)>,
     next_id: i64,
-    filters: Vec<String>,
+    /// Exception filters, each with the types its condition names (`None`: every exception).
+    filters: Vec<(String, Option<Vec<String>>)>,
     stops: i64,
     /// Frame id -> statement index of that frame.
     frames: HashMap<i64, usize>,
     /// Variables reference -> its members.
     refs: HashMap<i64, Vec<FakeVar>>,
+    /// Variables reference -> the statement whose locals hold its members and the names leading to them from there
+    /// (empty for the locals themselves): where `setVariable` writes.
+    origins: HashMap<i64, (usize, Vec<String>)>,
     next_ref: i64,
     exception: Option<FakeThrow>,
     /// The stop was an exception: resuming does not throw it again.
@@ -454,11 +496,13 @@ impl Machine {
             configured: false,
             pc: None,
             breakpoints: HashMap::new(),
+            functions: Vec::new(),
             next_id: 1,
             filters: Vec::new(),
             stops: 0,
             frames: HashMap::new(),
             refs: HashMap::new(),
+            origins: HashMap::new(),
             next_ref: 1,
             exception: None,
             stopped_on_exception: false,
@@ -585,6 +629,10 @@ impl Machine {
                     "supportTerminateDebuggee": true,
                     "supportsDelayedStackTraceLoading": true,
                     "supportsVariablePaging": true,
+                    "supportsFunctionBreakpoints": true,
+                    "supportsExceptionFilterOptions": true,
+                    "supportsSetVariable": true,
+                    "supportsSetExpression": true,
                     "exceptionBreakpointFilters": [
                         {"filter": "user-unhandled", "label": "user-unhandled"},
                         {"filter": "all", "label": "all"}
@@ -627,8 +675,97 @@ impl Machine {
                 self.respond(seq, command, Ok(json!({ "breakpoints": answer })));
             }
             "setExceptionBreakpoints" => {
-                self.filters = serde_json::from_value(args["filters"].clone()).unwrap_or_default();
+                let plain: Vec<String> =
+                    serde_json::from_value(args["filters"].clone()).unwrap_or_default();
+                let mut filters: Vec<(String, Option<Vec<String>>)> =
+                    plain.into_iter().map(|f| (f, None)).collect();
+                let options = args["filterOptions"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                if !options.is_empty() && !self.supports("supportsExceptionFilterOptions") {
+                    self.respond(
+                        seq,
+                        command,
+                        Err("Failed command 'setExceptionBreakpoints' : filterOptions are not supported".into()),
+                    );
+                    return true;
+                }
+                for o in options {
+                    let types = o["condition"].as_str().map(|c| {
+                        c.split(',')
+                            .map(|t| t.trim().to_owned())
+                            .filter(|t| !t.is_empty())
+                            .collect::<Vec<_>>()
+                    });
+                    filters.push((
+                        o["filterId"].as_str().unwrap_or_default().to_owned(),
+                        types.filter(|t| !t.is_empty()),
+                    ));
+                }
+                self.filters = filters;
                 self.respond(seq, command, Ok(json!({})));
+            }
+            "setFunctionBreakpoints" => {
+                if !self.supports("supportsFunctionBreakpoints") {
+                    self.respond(
+                        seq,
+                        command,
+                        Err("Failed command 'setFunctionBreakpoints' : not supported".into()),
+                    );
+                    return true;
+                }
+                let mut answer = Vec::new();
+                self.functions.clear();
+                for b in args["breakpoints"].as_array().cloned().unwrap_or_default() {
+                    let id = self.next_id;
+                    self.next_id += 1;
+                    let name = b["name"].as_str().unwrap_or_default().to_owned();
+                    let verified = self
+                        .program
+                        .steps
+                        .iter()
+                        .any(|s| function_matches(&s.function, &name));
+                    let mut a = json!({"id": id, "verified": verified});
+                    if !verified {
+                        a["message"] = json!(format!("No method {name} was found."));
+                    }
+                    answer.push(a);
+                    self.functions
+                        .push((id, name, b["condition"].as_str().map(str::to_owned)));
+                }
+                self.respond(seq, command, Ok(json!({ "breakpoints": answer })));
+            }
+            "setVariable" | "setExpression" => {
+                let r = self.set_value(command, args);
+                self.respond(seq, command, r);
+            }
+            "gotoTargets" => {
+                let r = self.goto_targets(args);
+                self.respond(seq, command, r);
+            }
+            "goto" => {
+                let target = args["targetId"].as_i64().unwrap_or(-1);
+                let k = usize::try_from(target - GOTO_BASE).ok();
+                match (self.pc, k) {
+                    (Some(_), Some(k))
+                        if self.supports("supportsGotoTargetsRequest")
+                            && k < self.program.steps.len() =>
+                    {
+                        let tid = self.thread_id();
+                        self.respond(seq, command, Ok(json!({})));
+                        self.event(
+                            "continued",
+                            json!({"threadId": tid, "allThreadsContinued": true}),
+                        );
+                        self.stop(k, "goto", None);
+                    }
+                    _ => self.respond(
+                        seq,
+                        command,
+                        Err(format!("Failed command 'goto' : no target {target}")),
+                    ),
+                }
             }
             "configurationDone" => {
                 self.configured = true;
@@ -682,7 +819,7 @@ impl Machine {
                     Some(step) => {
                         let locals = self.program.steps[step].locals.clone();
                         let n = locals.len();
-                        let r = self.alloc(locals);
+                        let r = self.alloc(locals, Some((step, Vec::new())));
                         Ok(
                             json!({"scopes": [{"name": "Locals", "variablesReference": r,
                                               "namedVariables": n, "expensive": false}]}),
@@ -703,7 +840,11 @@ impl Machine {
                         vars.truncate(count);
                     }
                 }
-                let rows: Vec<Value> = vars.into_iter().map(|v| self.variable_json(v)).collect();
+                let origin = self.origins.get(&r).cloned();
+                let rows: Vec<Value> = vars
+                    .into_iter()
+                    .map(|v| self.variable_json(v, origin.as_ref()))
+                    .collect();
                 self.respond(seq, command, Ok(json!({ "variables": rows })));
             }
             "evaluate" => {
@@ -802,19 +943,28 @@ impl Machine {
         }
     }
 
-    fn alloc(&mut self, vars: Vec<FakeVar>) -> i64 {
+    fn alloc(&mut self, vars: Vec<FakeVar>, origin: Option<(usize, Vec<String>)>) -> i64 {
         let r = self.next_ref;
         self.next_ref += 1;
         self.refs.insert(r, vars);
+        if let Some(o) = origin {
+            self.origins.insert(r, o);
+        }
         r
     }
 
-    fn variable_json(&mut self, v: FakeVar) -> Value {
+    /// A variable's row; `parent` is where the variable itself lives (its members live under its name).
+    fn variable_json(&mut self, v: FakeVar, parent: Option<&(usize, Vec<String>)>) -> Value {
         let n = v.children.len();
         let reference = if v.children.is_empty() {
             0
         } else {
-            self.alloc(v.children)
+            let origin = parent.map(|(step, path)| {
+                let mut p = path.clone();
+                p.push(v.name.clone());
+                (*step, p)
+            });
+            self.alloc(v.children, origin)
         };
         let mut row = json!({"name": v.name, "value": v.value, "type": v.type_name,
                              "variablesReference": reference, "evaluateName": v.name});
@@ -838,8 +988,13 @@ impl Machine {
         for k in start..self.program.steps.len() {
             let step = self.program.steps[k].clone();
             if let Some(t) = &step.throws {
-                let first_chance = self.filters.iter().any(|f| f == "all");
-                let unhandled = !t.handled && self.filters.iter().any(|f| f == "user-unhandled");
+                let wants = |filter: &str| {
+                    self.filters.iter().any(|(f, types)| {
+                        f == filter && types.as_ref().is_none_or(|ts| ts.contains(&t.exception))
+                    })
+                };
+                let first_chance = wants("all");
+                let unhandled = !t.handled && wants("user-unhandled");
                 if first_chance || unhandled {
                     self.exception = Some(t.clone());
                     self.stop(k, "exception", Some(t.message.clone()));
@@ -847,14 +1002,41 @@ impl Machine {
                     return;
                 }
             }
-            let hit = self.breakpoints.get(&step.path).is_some_and(|bps| {
-                bps.iter().any(|(_, b)| {
-                    b.line == step.line && condition_holds(b.condition.as_deref(), &step.locals)
+            let entering = k == 0 || {
+                let prev = &self.program.steps[k - 1];
+                prev.depth < step.depth
+                    || (prev.depth == step.depth && prev.function != step.function)
+            };
+            if entering
+                && let Some((id, _, _)) = self.functions.iter().find(|(_, name, condition)| {
+                    function_matches(&step.function, name)
+                        && condition_holds(condition.as_deref(), &step.locals)
                 })
-            });
-            if hit {
-                self.stop(k, "breakpoint", None);
+            {
+                let id = *id;
+                self.stop_with(k, "function breakpoint", None, vec![id]);
                 return;
+            }
+            let hit = self.breakpoints.get(&step.path).and_then(|bps| {
+                bps.iter()
+                    .find(|(_, b)| {
+                        b.line == step.line && condition_holds(b.condition.as_deref(), &step.locals)
+                    })
+                    .map(|(_, b)| b.log_message.clone())
+            });
+            match hit {
+                Some(Some(message)) if self.supports("supportsLogPoints") => {
+                    let text = interpolate(&message, &step.locals);
+                    self.event(
+                        "output",
+                        json!({"category": "console", "output": format!("{text}\n")}),
+                    );
+                }
+                Some(_) => {
+                    self.stop(k, "breakpoint", None);
+                    return;
+                }
+                None => {}
             }
             let step_done = match mode {
                 Mode::Continue => false,
@@ -890,16 +1072,112 @@ impl Machine {
     }
 
     fn stop(&mut self, k: usize, reason: &str, text: Option<String>) {
+        self.stop_with(k, reason, text, Vec::new());
+    }
+
+    fn stop_with(&mut self, k: usize, reason: &str, text: Option<String>, hit_ids: Vec<i64>) {
         self.pc = Some(k);
         self.stops += 1;
         self.frames.clear();
         self.refs.clear();
+        self.origins.clear();
         let mut body =
             json!({"reason": reason, "threadId": self.thread_id(), "allThreadsStopped": true});
         if let Some(t) = text {
             body["text"] = json!(t);
         }
+        if !hit_ids.is_empty() {
+            body["hitBreakpointIds"] = json!(hit_ids);
+        }
         self.event("stopped", body);
+    }
+
+    /// `setVariable` (member `name` of `variablesReference`) or `setExpression` (`expression` in `frameId`): the new
+    /// value is kept in the statement's locals.
+    fn set_value(&mut self, command: &str, args: &Value) -> Result<Value, String> {
+        let capability = if command == "setVariable" {
+            "supportsSetVariable"
+        } else {
+            "supportsSetExpression"
+        };
+        if !self.supports(capability) {
+            return Err(format!("Failed command '{command}' : not supported"));
+        }
+        let value = args["value"].as_str().unwrap_or_default().trim().to_owned();
+        let (step, mut path) = if command == "setVariable" {
+            let r = args["variablesReference"].as_i64().unwrap_or(0);
+            let (step, mut path) = self
+                .origins
+                .get(&r)
+                .cloned()
+                .ok_or_else(|| format!("Failed command '{command}' : unknown reference {r}"))?;
+            path.push(args["name"].as_str().unwrap_or_default().to_owned());
+            (step, path)
+        } else {
+            let step = args["frameId"]
+                .as_i64()
+                .and_then(|f| self.frames.get(&f).copied())
+                .or(self.pc)
+                .ok_or_else(|| format!("Failed command '{command}' : 0x80131301"))?;
+            let path = args["expression"]
+                .as_str()
+                .unwrap_or_default()
+                .split('.')
+                .map(|p| p.trim().to_owned())
+                .collect::<Vec<_>>();
+            (step, path)
+        };
+        let name = path.pop().unwrap_or_default();
+        let mut scope = &mut self.program.steps[step].locals;
+        for part in &path {
+            scope = &mut scope
+                .iter_mut()
+                .find(|v| &v.name == part)
+                .ok_or_else(|| format!("error: '{part}' is not a member"))?
+                .children;
+        }
+        let var = scope.iter_mut().find(|v| v.name == name).ok_or_else(|| {
+            format!("error: The name '{name}' does not exist in the current context")
+        })?;
+        if var.type_name == "int" && value.parse::<i64>().is_err() {
+            return Err(format!(
+                "error CS0029: Cannot implicitly convert type '{value}' to 'int'"
+            ));
+        }
+        var.value = value.clone();
+        let type_name = var.type_name.clone();
+        // What the client read at this stop shows the new value too.
+        for vars in self.refs.values_mut() {
+            for v in vars.iter_mut().filter(|v| v.name == name) {
+                v.value = value.clone();
+            }
+        }
+        Ok(json!({"value": value, "type": type_name, "variablesReference": 0}))
+    }
+
+    /// `gotoTargets`: the statements of the stopped method on `line` of `source`.
+    fn goto_targets(&mut self, args: &Value) -> Result<Value, String> {
+        if !self.supports("supportsGotoTargetsRequest") {
+            return Err("Failed command 'gotoTargets' : 0x80004001".into());
+        }
+        let pc = self
+            .pc
+            .ok_or_else(|| "Failed command 'gotoTargets' : 0x80131301".to_owned())?;
+        let path = args["source"]["path"].as_str().unwrap_or_default();
+        let line = args["line"].as_i64().unwrap_or(0);
+        let here = &self.program.steps[pc];
+        let targets: Vec<Value> = self
+            .program
+            .steps
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                s.path == path && s.line == line && s.function == here.function && s.depth == here.depth
+            })
+            .map(|(k, s)| json!({"id": GOTO_BASE + k as i64, "label": format!("{}:{}", s.function, s.line), "line": s.line}))
+            .take(1)
+            .collect();
+        Ok(json!({ "targets": targets }))
     }
 
     fn stack_trace(&mut self, args: &Value) -> Result<Value, String> {
@@ -987,10 +1265,64 @@ impl Machine {
         let reference = if v.children.is_empty() {
             0
         } else {
-            self.alloc(v.children.clone())
+            let path = expr.split('.').map(str::to_owned).collect();
+            self.alloc(v.children.clone(), Some((step, path)))
         };
         Ok(json!({"result": v.value, "type": v.type_name, "variablesReference": reference}))
     }
+}
+
+/// `goto` target ids: this plus the statement's index.
+const GOTO_BASE: i64 = 5_000;
+
+/// Whether a statement of `function` (`App.Calc.Add(int, int)`) is in the method `name` (`App.Calc.Add`, or a suffix
+/// of it at a dot: `Calc.Add`).
+fn function_matches(function: &str, name: &str) -> bool {
+    let base = function.split('(').next().unwrap_or_default().trim();
+    let name = name.split('(').next().unwrap_or_default().trim();
+    !name.is_empty() && (base == name || base.ends_with(&format!(".{name}")))
+}
+
+/// A log message with its `{expression}` segments evaluated against `locals` (an unknown name is written as
+/// `{name: error}`); `{{` and `}}` are literal braces.
+fn interpolate(message: &str, locals: &[FakeVar]) -> String {
+    let mut out = String::new();
+    let mut chars = message.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+                out.push('{');
+            }
+            '}' if chars.peek() == Some(&'}') => {
+                chars.next();
+                out.push('}');
+            }
+            '{' => {
+                let expr: String = chars.by_ref().take_while(|c| *c != '}').collect();
+                let mut scope = locals;
+                let mut value = None;
+                for part in expr.trim().split('.') {
+                    match scope.iter().find(|v| v.name == part) {
+                        Some(v) => {
+                            scope = &v.children;
+                            value = Some(v.value.clone());
+                        }
+                        None => {
+                            value = None;
+                            break;
+                        }
+                    }
+                }
+                match value {
+                    Some(v) => out.push_str(&v),
+                    None => out.push_str(&format!("{{{expr}: error}}")),
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// `name == value`, `name != value` (value compared as shown, quotes optional), `true`, `false`; anything else holds.

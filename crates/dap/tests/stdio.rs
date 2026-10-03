@@ -56,8 +56,9 @@ fn plan() -> StartPlan {
                 ..Default::default()
             }],
         )],
-        function_breakpoints: Vec::new(),
         exception_filters: vec![],
+        exception_options: Vec::new(),
+        function_breakpoints: Vec::new(),
     }
 }
 

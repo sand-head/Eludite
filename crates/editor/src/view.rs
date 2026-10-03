@@ -1525,6 +1525,24 @@ impl Element for EditorElement {
         }
         for (b, glyph) in &state.glyphs {
             let color = hsla(glyph.color());
+            if glyph.is_tracepoint() {
+                // Visual Studio's tracepoint: a diamond, hollow when disabled or unbound.
+                let (x0, y0, w, h) = (b.origin.x, b.origin.y, b.size.width, b.size.height);
+                let mut path = if glyph.filled() {
+                    gpui::PathBuilder::fill()
+                } else {
+                    gpui::PathBuilder::stroke(px(1.5))
+                };
+                path.move_to(point(x0 + w * 0.5, y0));
+                path.line_to(point(x0 + w, y0 + h * 0.5));
+                path.line_to(point(x0 + w * 0.5, y0 + h));
+                path.line_to(point(x0, y0 + h * 0.5));
+                path.close();
+                if let Ok(p) = path.build() {
+                    window.paint_path(p, color);
+                }
+                continue;
+            }
             let round = b.size.width / 2.;
             let q = if glyph.filled() {
                 fill(*b, color).corner_radii(round)
