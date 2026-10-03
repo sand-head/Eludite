@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Errors</title>
+</head>
+<body>
+<p>This page logs an error and fetches a missing resource.</p>
+<script>
+  console.log('errors.html loaded');
+  console.error('boom from errors.html');
+  fetch('/missing.json').then(r => console.warn('missing.json answered ' + r.status));
+</script>
+</body>
+</html>
