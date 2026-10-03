@@ -37,6 +37,17 @@
 //! session. [`DebugModel::agents_allowed`] is the session's Allow Agents to Drive switch: each session starts with the
 //! setting's default, or with what the person chose while no session ran.
 //!
+//! # Several sessions (brief 0028)
+//!
+//! The shell debugs several processes at once; this model is one session's (the shell keeps the others aside and
+//! swaps the one it works on in, `Debugger::enter`). What every session shares stays in place when they are swapped:
+//! the breakpoints' definitions, the exception settings, the watch expressions, the startup projects and the Allow
+//! Agents to Drive default. A breakpoint's binding (bound, hits, message, the adapter's id) is per session: the
+//! current session's in its fields, the others' in [`Breakpoint::bindings`] ([`Breakpoints::switch_session`] moves
+//! them). `run_until`'s and `trace`'s temporary points belong to the session that set them ([`Breakpoint::owner`]) and
+//! are sent to that session's adapter only. The two-driver rules hold per session: each has its own generation (unique
+//! across sessions), stop counter and mode.
+//!
 //! # Inspection (brief 0025)
 //!
 //! Reads never move what the windows show: `snapshot`, `stack`, `variables` and `exception_info` take the thread and
@@ -50,12 +61,13 @@ use std::collections::VecDeque;
 
 use eludite_commands::CommandError;
 use eludite_commands::debug::{
-    BreakpointBrief, BreakpointKind, BreakpointRow, Budget, CapabilitiesRow, ConsoleRow,
-    DebugRequest, DebugState, ExceptionBrief, ExceptionSettingsRow, ExceptionTypeRow, FrameRow,
-    FramesBlock, HitCondition, LocalsBlock, LocationRow, OutputBlock, OutputKind, OutputLine,
-    OutputPattern, SessionRow, StackFrameRow, StopSummary, StoppedRow, SummaryStopped,
+    BreakpointBrief, BreakpointKind, BreakpointRow, BreakpointSessionRow, Budget, CapabilitiesRow,
+    ConsoleRow, DebugRequest, DebugState, ExceptionBrief, ExceptionSettingsRow, ExceptionTypeRow,
+    FrameRow, FramesBlock, HitCondition, LocalsBlock, LocationRow, OutputBlock, OutputKind,
+    OutputLine, OutputPattern, SessionRow, StackFrameRow, StopSummary, StoppedRow, SummaryStopped,
     SummaryWatch, ThreadRow, TraceRun, VarRow, VariableRow, WatchRow, cut_value,
 };
+use eludite_commands::project::StartupAction;
 use eludite_dap::types::{
     ExceptionFilterOptions, FunctionBreakpoint as DapFunction, SourceBreakpoint,
 };
@@ -325,6 +337,46 @@ pub struct Breakpoint {
     pub hits: u32,
     pub message: Option<String>,
     pub adapter_id: Option<i64>,
+    /// The other sessions' bindings, by session id (brief 0028).
+    pub bindings: Vec<(u32, Binding)>,
+    /// A temporary point's session: only its adapter gets it (brief 0028).
+    pub owner: Option<u32>,
+}
+
+/// A breakpoint's state in one session (brief 0028).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Binding {
+    pub verified: bool,
+    pub hits: u32,
+    pub message: Option<String>,
+    pub adapter_id: Option<i64>,
+}
+
+/// Move the current session's binding of a breakpoint aside under `old` and take `new`'s (brief 0028).
+fn switch_binding(
+    fields: (&mut bool, &mut u32, &mut Option<String>, &mut Option<i64>),
+    bindings: &mut Vec<(u32, Binding)>,
+    old: u32,
+    new: u32,
+) {
+    let (verified, hits, message, adapter_id) = fields;
+    let mine = Binding {
+        verified: std::mem::take(verified),
+        hits: std::mem::take(hits),
+        message: message.take(),
+        adapter_id: adapter_id.take(),
+    };
+    bindings.retain(|(id, _)| *id != old);
+    if mine != Binding::default() {
+        bindings.push((old, mine));
+    }
+    if let Some(i) = bindings.iter().position(|(id, _)| *id == new) {
+        let (_, b) = bindings.remove(i);
+        *verified = b.verified;
+        *hits = b.hits;
+        *message = b.message;
+        *adapter_id = b.adapter_id;
+    }
 }
 
 impl Breakpoint {
@@ -342,7 +394,14 @@ impl Breakpoint {
             hits: 0,
             message: None,
             adapter_id: None,
+            bindings: Vec::new(),
+            owner: None,
         }
+    }
+
+    /// Bound in any session (brief 0028): the margin draws it bound.
+    pub fn bound(&self) -> bool {
+        self.verified || self.bindings.iter().any(|(_, b)| b.verified)
     }
 
     /// Whether the adapter prints this tracepoint's message (`log_points`: it has log points) rather than the debugger.
@@ -359,7 +418,7 @@ impl Breakpoint {
         if self.log_message.is_some() {
             return if !self.enabled {
                 BreakpointGlyph::TracepointDisabled
-            } else if in_session && !self.verified {
+            } else if in_session && !self.bound() {
                 BreakpointGlyph::TracepointUnbound
             } else {
                 BreakpointGlyph::Tracepoint
@@ -367,7 +426,7 @@ impl Breakpoint {
         }
         if !self.enabled {
             BreakpointGlyph::Disabled
-        } else if in_session && !self.verified {
+        } else if in_session && !self.bound() {
             BreakpointGlyph::Unbound
         } else if self.condition.is_some() || self.hit_condition.is_some() {
             BreakpointGlyph::Conditional
@@ -390,6 +449,8 @@ pub struct FunctionBreakpoint {
     pub hits: u32,
     pub message: Option<String>,
     pub adapter_id: Option<i64>,
+    /// The other sessions' bindings (brief 0028).
+    pub bindings: Vec<(u32, Binding)>,
 }
 
 impl FunctionBreakpoint {
@@ -404,6 +465,7 @@ impl FunctionBreakpoint {
             hits: 0,
             message: None,
             adapter_id: None,
+            bindings: Vec::new(),
         }
     }
 
@@ -416,8 +478,16 @@ impl FunctionBreakpoint {
 }
 
 /// The persisted file's version: 2 adds tracepoints, function breakpoints, Delete when hit and exception types (brief
-/// 0026); a version 1 file has none of them and loads as is.
-pub const PERSISTED_VERSION: u32 = 2;
+/// 0026); 3 adds the multiple startup projects (brief 0028). Older files have none of them and load as is (a version 2
+/// file's `startup_project` is the one startup project).
+pub const PERSISTED_VERSION: u32 = 3;
+
+/// One of the multiple startup projects as it persists (version 3): the project file's absolute path and its action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedStartup {
+    pub path: String,
+    pub action: StartupAction,
+}
 
 /// What persists per solution and per user (Visual Studio's .suo): breakpoints (without session state), exception
 /// settings, watch expressions and the startup project (brief 0020).
@@ -429,8 +499,12 @@ pub struct Persisted {
     pub exceptions: Option<ExceptionSettingsRow>,
     pub watches: Vec<String>,
     /// The absolute path of the startup project's file (Set as Startup Project); absent: the first executable one.
+    /// With multiple startup projects, the first one with action `start` (what older versions read).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_project: Option<String>,
+    /// Version 3: the multiple startup projects with their actions (brief 0028); empty: `startup_project` alone.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub startup_projects: Vec<PersistedStartup>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -658,6 +732,8 @@ impl Frame {
 pub struct Breakpoints {
     list: Vec<Breakpoint>,
     functions: Vec<FunctionBreakpoint>,
+    /// The session whose binding the fields hold (brief 0028; 0 before any).
+    current: u32,
 }
 
 impl Breakpoints {
@@ -695,6 +771,53 @@ impl Breakpoints {
         self.delete(&b.path, b.line);
         self.list.push(b);
         self.sort();
+    }
+
+    /// Make `session` the one whose binding the fields hold: the current one's moves to `bindings` (brief 0028).
+    pub fn switch_session(&mut self, session: u32) {
+        let old = self.current;
+        if old == session {
+            return;
+        }
+        for b in &mut self.list {
+            switch_binding(
+                (
+                    &mut b.verified,
+                    &mut b.hits,
+                    &mut b.message,
+                    &mut b.adapter_id,
+                ),
+                &mut b.bindings,
+                old,
+                session,
+            );
+        }
+        for f in &mut self.functions {
+            switch_binding(
+                (
+                    &mut f.verified,
+                    &mut f.hits,
+                    &mut f.message,
+                    &mut f.adapter_id,
+                ),
+                &mut f.bindings,
+                old,
+                session,
+            );
+        }
+        self.current = session;
+    }
+
+    /// A session is gone: its bindings with it (and its temporary points).
+    pub fn forget_session(&mut self, session: u32) {
+        for b in &mut self.list {
+            b.bindings.retain(|(id, _)| *id != session);
+        }
+        for f in &mut self.functions {
+            f.bindings.retain(|(id, _)| *id != session);
+        }
+        self.list
+            .retain(|b| !(b.temporary && b.owner == Some(session)));
     }
 
     /// Every line breakpoint, mutably.
@@ -825,7 +948,14 @@ impl Breakpoints {
     ) -> (Vec<u32>, Vec<SourceBreakpoint>) {
         let mut lines = Vec::new();
         let mut out = Vec::new();
-        for b in self.list.iter().filter(|b| b.path == path && b.enabled) {
+        // Another session's temporary points are not this one's (brief 0028).
+        let mine = |b: &&Breakpoint| !b.temporary || b.owner.is_none_or(|o| o == self.current);
+        for b in self
+            .list
+            .iter()
+            .filter(|b| b.path == path && b.enabled)
+            .filter(mine)
+        {
             lines.push(b.line);
             out.push(SourceBreakpoint {
                 line: i64::from(b.line),
@@ -985,6 +1115,7 @@ impl Breakpoints {
                 })
                 .collect(),
             functions: Vec::new(),
+            current: 0,
         };
         for r in rows {
             if let Some(name) = r.function.as_deref().filter(|n| !n.trim().is_empty())
@@ -1005,6 +1136,74 @@ impl Breakpoints {
     }
 
     pub fn rows(&self) -> Vec<BreakpointRow> {
+        self.rows_for(&[])
+    }
+
+    /// The rows with each breakpoint's binding in the live sessions `live` (brief 0028): `sessions` per session, the
+    /// row's `verified` bound in any, its `hits` summed; with no live session, as the current one left them.
+    pub fn rows_for(&self, live: &[u32]) -> Vec<BreakpointRow> {
+        let current = self.current;
+        let per = |verified: bool,
+                   hits: u32,
+                   message: &Option<String>,
+                   bindings: &[(u32, Binding)]|
+         -> (bool, u32, Vec<BreakpointSessionRow>) {
+            if live.is_empty() {
+                return (verified, hits, Vec::new());
+            }
+            let rows: Vec<BreakpointSessionRow> = live
+                .iter()
+                .map(|id| {
+                    if *id == current {
+                        BreakpointSessionRow {
+                            session: *id,
+                            verified,
+                            hits,
+                            message: message.clone().filter(|_| !verified),
+                        }
+                    } else {
+                        let b = bindings
+                            .iter()
+                            .find(|(s, _)| s == id)
+                            .map(|(_, b)| b.clone())
+                            .unwrap_or_default();
+                        BreakpointSessionRow {
+                            session: *id,
+                            verified: b.verified,
+                            hits: b.hits,
+                            message: b.message.filter(|_| !b.verified),
+                        }
+                    }
+                })
+                .collect();
+            (
+                rows.iter().any(|r| r.verified),
+                rows.iter().map(|r| r.hits).sum(),
+                rows,
+            )
+        };
+        let rows: Vec<BreakpointRow> = self.rows_one();
+        rows.into_iter()
+            .zip(
+                self.list
+                    .iter()
+                    .map(|b| per(b.verified, b.hits, &b.message, &b.bindings))
+                    .chain(
+                        self.functions
+                            .iter()
+                            .map(|f| per(f.verified, f.hits, &f.message, &f.bindings)),
+                    ),
+            )
+            .map(|(mut row, (verified, hits, sessions))| {
+                row.verified = verified;
+                row.hits = hits;
+                row.sessions = sessions;
+                row
+            })
+            .collect()
+    }
+
+    fn rows_one(&self) -> Vec<BreakpointRow> {
         let lines = self.list.iter().map(|b| BreakpointRow {
             kind: if b.log_message.is_some() {
                 BreakpointKind::Tracepoint
@@ -1023,6 +1222,7 @@ impl Breakpoints {
             log_message: b.log_message.clone(),
             remove_after: b.remove_after,
             temporary: b.temporary,
+            sessions: Vec::new(),
         });
         let functions = self.functions.iter().map(|f| BreakpointRow {
             kind: BreakpointKind::Function,
@@ -1038,6 +1238,7 @@ impl Breakpoints {
             log_message: None,
             remove_after: f.remove_after,
             temporary: false,
+            sessions: Vec::new(),
         });
         lines.chain(functions).collect()
     }
@@ -1119,6 +1320,9 @@ pub struct DebugModel {
     pub message: Option<String>,
     /// The project Set as Startup Project chose (brief 0020): an absolute project file path.
     pub startup_project: Option<String>,
+    /// The multiple startup projects (brief 0028): absolute project file paths with their actions; empty when one
+    /// startup project (or none) is set.
+    pub startup_projects: Vec<(String, StartupAction)>,
     /// How many frames the selected thread's stack has (the adapter's `totalFrames`, or the frames read).
     pub frames_total: usize,
     /// The selected frame's locals: the scope's variables reference and how many top-level rows it has.
@@ -1163,6 +1367,7 @@ impl Default for DebugModel {
             last_driver: None,
             message: None,
             startup_project: None,
+            startup_projects: Vec::new(),
             frames_total: 0,
             locals_reference: 0,
             locals_total: 0,
@@ -1442,6 +1647,7 @@ impl DebugModel {
             capabilities: self.capabilities.clone(),
             agent_driving: self.agent_driving(),
             agents_allowed: self.agents_allowed,
+            sessions: Vec::new(),
         }
     }
 
@@ -1521,6 +1727,8 @@ impl DebugModel {
             .block(budget.output_since, budget.max_output_lines);
         let ended = self.mode == Mode::Design && self.generation > 0;
         StopSummary {
+            session: None,
+            sessions: Vec::new(),
             mode: self.mode.as_str().into(),
             generation: self.generation,
             stop: self.stop,
@@ -1615,15 +1823,48 @@ impl DebugModel {
             exceptions: Some(self.exceptions.clone()),
             watches: self.watches.iter().map(|w| w.name.clone()).collect(),
             startup_project: self.startup_project.clone(),
+            startup_projects: self
+                .startup_projects
+                .iter()
+                .map(|(path, action)| PersistedStartup {
+                    path: path.clone(),
+                    action: *action,
+                })
+                .collect(),
         }
     }
 
     /// Load what persisted for a solution (replacing the breakpoints, settings and watches).
     pub fn restore(&mut self, p: &Persisted) {
+        let current = self.breakpoints.current;
         self.breakpoints = Breakpoints::from_persisted(&p.breakpoints);
+        self.breakpoints.current = current;
         self.exceptions = p.exceptions.clone().unwrap_or_default();
         self.watches = p.watches.iter().map(|w| VarNode::watch(w)).collect();
         self.startup_project = p.startup_project.clone();
+        self.startup_projects = p
+            .startup_projects
+            .iter()
+            .filter(|s| !s.path.is_empty())
+            .map(|s| (s.path.clone(), s.action))
+            .collect();
+    }
+
+    /// The projects F5 starts, with their actions (brief 0028): the multiple startup projects that start, else the
+    /// one startup project (`None`: the default one).
+    pub fn startup_set(&self) -> Vec<(String, StartupAction)> {
+        if self.startup_projects.is_empty() {
+            return self
+                .startup_project
+                .iter()
+                .map(|p| (p.clone(), StartupAction::Start))
+                .collect();
+        }
+        self.startup_projects
+            .iter()
+            .filter(|(_, a)| *a != StartupAction::None)
+            .cloned()
+            .collect()
     }
 }
 
@@ -1711,6 +1952,7 @@ mod tests {
         assert!(m.check(&DebugRequest::Stop).is_err());
         assert!(
             m.check(&DebugRequest::Start {
+                compound: None,
                 project: None,
                 debug: true,
                 profile: None,
@@ -1725,6 +1967,7 @@ mod tests {
         assert_eq!(m.generation, 1);
         assert!(
             m.check(&DebugRequest::Start {
+                compound: None,
                 project: None,
                 debug: true,
                 profile: None,
@@ -2151,5 +2394,121 @@ mod tests {
         assert_eq!(b.all()[0].condition.as_deref(), Some("x"));
         assert!(b.all()[0].log_message.is_none() && b.functions().is_empty());
         assert!(v1.exceptions.unwrap().types.is_empty());
+    }
+
+    /// Brief 0028: a breakpoint's binding per session moves aside when another session is current and back when it
+    /// returns; the rows list each live session's binding, `verified` bound in any and `hits` summed; another
+    /// session's temporary points are not sent; a session that is gone takes its bindings and points with it.
+    #[test]
+    fn breakpoint_bindings_are_per_session() {
+        let mut b = Breakpoints::default();
+        b.switch_session(1);
+        b.toggle("/s/a.cs", 6);
+        b.toggle("/s/a.cs", 9);
+        let bound = |verified: bool| eludite_dap::types::Breakpoint {
+            id: Some(10),
+            verified,
+            line: Some(6),
+            ..Default::default()
+        };
+        b.apply_answer("/s/a.cs", &[6, 9], &[bound(true), bound(false)]);
+        b.at_mut("/s/a.cs", 6).unwrap().hits = 2;
+        // Session 2 is current: nothing bound there yet.
+        b.switch_session(2);
+        assert!(!b.at("/s/a.cs", 6).unwrap().verified);
+        assert_eq!(b.at("/s/a.cs", 6).unwrap().hits, 0);
+        assert!(b.at("/s/a.cs", 6).unwrap().bound(), "bound in session 1");
+        b.apply_answer("/s/a.cs", &[6], &[bound(false)]);
+        b.at_mut("/s/a.cs", 6).unwrap().hits = 1;
+        let rows = b.rows_for(&[1, 2]);
+        assert!(rows[0].verified);
+        assert_eq!(rows[0].hits, 3);
+        assert_eq!(
+            rows[0]
+                .sessions
+                .iter()
+                .map(|r| (r.session, r.verified, r.hits))
+                .collect::<Vec<_>>(),
+            [(1, true, 2), (2, false, 1)]
+        );
+        assert!(!rows[1].verified);
+        // Without a live session the rows are as the current one left them.
+        assert!(b.rows_for(&[])[0].sessions.is_empty());
+        // Back to session 1: its binding again.
+        b.switch_session(1);
+        assert!(b.at("/s/a.cs", 6).unwrap().verified);
+        assert_eq!(b.at("/s/a.cs", 6).unwrap().hits, 2);
+        // A temporary point of session 2 is not session 1's to send.
+        b.put(Breakpoint {
+            temporary: true,
+            owner: Some(2),
+            ..Breakpoint::new("/s/a.cs", 12)
+        });
+        let (lines, _) = b.source_breakpoints("/s/a.cs", false, false, None);
+        assert_eq!(lines, [6, 9]);
+        b.switch_session(2);
+        let (lines, _) = b.source_breakpoints("/s/a.cs", false, false, None);
+        assert_eq!(lines, [6, 9, 12]);
+        b.switch_session(1);
+        b.forget_session(2);
+        assert!(
+            b.at("/s/a.cs", 12).is_none(),
+            "its temporary point went with it"
+        );
+        assert!(b.at("/s/a.cs", 6).unwrap().bindings.is_empty());
+    }
+
+    /// Brief 0028: the persisted file's version 3 keeps the multiple startup projects with their actions; a version 2
+    /// file (one `startup_project`) loads as that one startup project and saves as version 3.
+    #[test]
+    fn multiple_startup_projects_persist_and_a_version_2_file_migrates() {
+        let v2: Persisted = serde_json::from_value(serde_json::json!({
+            "version": 2,
+            "breakpoints": [{"path": "/s/a.cs", "line": 3}],
+            "watches": ["x"],
+            "startup_project": "/s/Tool/Tool.csproj"
+        }))
+        .unwrap();
+        let mut m = DebugModel::default();
+        m.restore(&v2);
+        assert_eq!(
+            m.startup_set(),
+            [("/s/Tool/Tool.csproj".to_owned(), StartupAction::Start)]
+        );
+        let saved = m.persisted();
+        assert_eq!(saved.version, 3);
+        assert!(saved.startup_projects.is_empty());
+        let text = serde_json::to_string(&saved).unwrap();
+        assert!(!text.contains("startup_projects"), "{text}");
+        assert!(text.contains("\"startup_project\":\"/s/Tool/Tool.csproj\""));
+        // Version 3: the actions round-trip; F5's set leaves out `none`.
+        m.startup_projects = vec![
+            ("/s/App/App.csproj".into(), StartupAction::Start),
+            (
+                "/s/Web/Web.csproj".into(),
+                StartupAction::StartWithoutDebugging,
+            ),
+            ("/s/Tool/Tool.csproj".into(), StartupAction::None),
+        ];
+        m.startup_project = Some("/s/App/App.csproj".into());
+        let text = serde_json::to_string(&m.persisted()).unwrap();
+        assert!(
+            text.contains("\"action\":\"start_without_debugging\""),
+            "{text}"
+        );
+        let back: Persisted = serde_json::from_str(&text).unwrap();
+        let mut n = DebugModel::default();
+        n.restore(&back);
+        assert_eq!(n.startup_projects, m.startup_projects);
+        assert_eq!(
+            n.startup_set(),
+            [
+                ("/s/App/App.csproj".to_owned(), StartupAction::Start),
+                (
+                    "/s/Web/Web.csproj".to_owned(),
+                    StartupAction::StartWithoutDebugging
+                )
+            ]
+        );
     }
 }

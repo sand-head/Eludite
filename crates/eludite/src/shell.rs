@@ -981,10 +981,18 @@ impl Shell {
             build::stage(outcome);
         }
         if eludite_commands::debug::ALL.contains(&command)
-            && let Ok(request) = eludite_commands::debug::parse(command, args.clone())
+            && let Ok((session, request)) =
+                eludite_commands::debug::parse_with_session(command, args.clone())
         {
             let outcome = self
-                .apply_debug(request, &eludite_commands::Caller::User, false, window, cx)
+                .apply_debug(
+                    session,
+                    request,
+                    &eludite_commands::Caller::User,
+                    false,
+                    window,
+                    cx,
+                )
                 .map(|(out, _)| out);
             debug::stage(outcome);
         }
@@ -1770,6 +1778,7 @@ impl Render for Shell {
             .children(self.rename.dialog.clone())
             .children(self.options.clone())
             .children(self.debug.attach_dialog.clone())
+            .children(self.debug.startup_dialog.clone())
             .children(self.code_actions.menu.clone())
     }
 }

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-sessions.input.json",
+  "title": "eludite.debug.sessions input",
+  "description": "List the debugging sessions (brief 0028): Eludite debugs several processes at once, as Visual Studio does with multiple startup projects (eludite.debug.start with `compound`) or an attach beside a launch. Every eludite.debug.* command that acts on a session takes `session` (an id from this list) and defaults to the active one. Runs no debuggee code.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

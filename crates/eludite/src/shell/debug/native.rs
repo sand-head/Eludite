@@ -397,7 +397,7 @@ fn adapt_frame(frame: &mut Value, rust_src: Option<&Path>) {
 impl Shell {
     /// The open folder's Cargo workspace for the launch thread, with the toolbar's configuration and the cargo builds
     /// use.
-    pub(super) fn cargo_context(&self) -> Option<CargoContext> {
+    pub(in crate::shell) fn cargo_context(&self) -> Option<CargoContext> {
         let ws = self.cargo_workspace()?;
         Some(CargoContext::from_workspace(
             ws,
@@ -408,7 +408,7 @@ impl Shell {
 
     /// Where a folder with a Cargo workspace and no solution keeps what a solution keeps beside its breakpoints (the
     /// breakpoints, watches, exception settings and startup project): keyed by the folder's `Cargo.toml`.
-    fn native_store_key(&self) -> Option<PathBuf> {
+    pub(in crate::shell) fn native_store_key(&self) -> Option<PathBuf> {
         let f = self.folder()?;
         f.solution
             .is_none()
@@ -448,6 +448,7 @@ impl Shell {
             .or_else(|| self.native_store_key())
             .unwrap_or_else(|| ctx.manifest.clone());
         Some(Ok(ProjectOutput::StartupProject(StartupProjectOutput {
+            projects: Vec::new(),
             project: member.name,
             path: member.manifest.to_string_lossy().into_owned(),
             solution: solution.to_string_lossy().into_owned(),

@@ -10,6 +10,11 @@
   ],
   "additionalProperties": false,
   "properties": {
+    "session": {
+      "description": "The debugging session to act on (brief 0028): its `id`, from eludite.debug.sessions or `sessions` in eludite.debug.state. Default: the active session, the one the Locals, Watch, Call Stack and Threads windows show and the execution point follows. An unknown or ended id is refused with the ids of the live sessions.",
+      "type": "integer",
+      "minimum": 1
+    },
     "expression": {
       "description": "The expression.",
       "type": "string",

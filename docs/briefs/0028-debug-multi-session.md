@@ -1,6 +1,6 @@
 # Brief 0028: Multiple debugging sessions
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0028-report.md)
 Phase: 2 (proposal 0001, brief D)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 12), 4.5, 5.5, 7 (compound launch configurations), 8 (Visual Studio names and layout), 9, 10 (Phase 2); proposal 0001 sections 4, 5.4, 8 (D); proposal 0002 section 4.4 (what this brief exists for)
 Related ADRs: ADR-0003, ADR-0007

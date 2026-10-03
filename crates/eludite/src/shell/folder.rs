@@ -530,19 +530,19 @@ impl Shell {
                 .into();
             }
         }
-        // The startup project (brief 0020).
-        if let Some(startup) = self
-            .startup_project()
-            .map(|p| super::documents::normalize_path(&p))
+        // The startup projects (brief 0020; several since brief 0028).
+        let startups: Vec<PathBuf> = self
+            .startup_projects()
+            .iter()
+            .map(|p| super::documents::normalize_path(p))
+            .collect();
+        for p in out
+            .projects
+            .iter_mut()
+            .filter(|p| p.kind == "csproj" || p.kind == "cargo")
         {
-            for p in out
-                .projects
-                .iter_mut()
-                .filter(|p| p.kind == "csproj" || p.kind == "cargo")
-            {
-                if super::documents::normalize_path(Path::new(&p.path)) == startup {
-                    p.startup = Some(true);
-                }
+            if startups.contains(&super::documents::normalize_path(Path::new(&p.path))) {
+                p.startup = Some(true);
             }
         }
         *self

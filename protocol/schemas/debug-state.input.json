@@ -5,5 +5,11 @@
   "description": "Read the debugger's whole state as the debugger windows show it: the mode (design, running, break), why and where the debuggee stopped, threads, the selected thread's call stack, locals of the selected frame, watch values, breakpoints with their hit counts, exception settings, the Output window's last lines, the adapter's capabilities and who drives. The human sees the same state in the windows. At a break, eludite.debug.snapshot is the smaller answer sized for a model's context.",
   "type": "object",
   "additionalProperties": false,
-  "properties": {}
+  "properties": {
+    "session": {
+      "description": "The debugging session to act on (brief 0028): its `id`, from eludite.debug.sessions or `sessions` in eludite.debug.state. Default: the active session, and `sessions` lists every session; with an id, the state describes that session. An unknown or ended id is refused with the ids of the live sessions.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
 }
