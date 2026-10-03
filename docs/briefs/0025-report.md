@@ -226,9 +226,10 @@ cargo test --workspace`. Both Mono tests in `crates/dap/tests/mono.rs` and the s
    running). A release build on a display should be measured with `--bench-debug` when one is available.
 10. **The summary's `truncated` counts the output only when it was read from a cursor** (`output_since`); the default
     tail of 20 lines is not "cut" (older lines are read with `output`).
-11. **`/regex/` patterns** use a small backtracking matcher (no dependency): literals, `.`, classes and ranges,
-    `\d \w \s` and negations, `* + ? {n,m}`, groups, `|`, `^`, `$`; a line is matched on its first 4,096 characters,
-    and a match recursing deeper than 2,000 levels (a repeated group over a long line) counts as no match.
+11. **`/regex/` patterns** use the `regex` crate (MIT OR Apache-2.0, already in the build through GPUI and
+    `eludite-browser`), so the syntax is Rust's `regex` syntax; a line is matched on its first 4,096 characters. (The
+    brief's agent first wrote a small backtracking matcher to add no dependency; the merge replaced it, since the
+    crate was already in the build and is linear-time.)
 12. **`capabilities.adapter` is `fake`** when the connection's description is the fake adapter's (tests only); real
     sessions give the `initialize` `adapterID` (`coreclr`, `mono`).
 13. **The fake adapter advertises delayed stack loading and variable paging by default** (netcoredbg does neither);

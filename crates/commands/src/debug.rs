@@ -1671,366 +1671,28 @@ pub fn register(registry: &CommandRegistry, target: Arc<dyn DebugTarget>) {
     }
 }
 
-/// A small backtracking regular-expression engine for `eludite.debug.output`'s `/regex/` patterns (no new dependency:
-/// brief 0025). It answers whether a pattern matches anywhere in a line; laziness markers are accepted and ignored
-/// (they do not change whether a line matches). A line is matched on its first [`pattern::MAX_CHARS`] characters, and
-/// a match that would recurse deeper than [`pattern::MAX_DEPTH`] (a repeated group over a long line) counts as no
-/// match rather than exhausting the stack.
+/// `eludite.debug.output`'s `/regex/` patterns, over the `regex` crate (MIT OR Apache-2.0, already in the build):
+/// whether a pattern matches anywhere in a line. A line is matched on its first [`pattern::MAX_CHARS`] characters.
 mod pattern {
     /// Characters of a line a regular expression looks at.
     pub const MAX_CHARS: usize = 4_096;
-    /// How deep the backtracking may recurse.
-    pub const MAX_DEPTH: usize = 2_000;
 
     #[derive(Debug, Clone)]
-    enum Node {
-        Char(char),
-        Any,
-        Class {
-            ranges: Vec<(char, char)>,
-            negated: bool,
-        },
-        Start,
-        End,
-        Group(Vec<Vec<Node>>),
-        Repeat {
-            node: Box<Node>,
-            min: usize,
-            max: Option<usize>,
-        },
-    }
-
-    #[derive(Debug, Clone)]
-    pub struct Regex {
-        alts: Vec<Vec<Node>>,
-    }
-
-    struct Parser {
-        c: Vec<char>,
-        i: usize,
-    }
-
-    /// An escape: one character, or a class (its ranges and whether it is negated).
-    type Escape = Result<char, (Vec<(char, char)>, bool)>;
-
-    const DIGIT: &[(char, char)] = &[('0', '9')];
-    const WORD: &[(char, char)] = &[('0', '9'), ('A', 'Z'), ('a', 'z'), ('_', '_')];
-    const SPACE: &[(char, char)] = &[('\t', '\r'), (' ', ' ')];
-
-    impl Parser {
-        fn peek(&self) -> Option<char> {
-            self.c.get(self.i).copied()
-        }
-
-        fn next(&mut self) -> Option<char> {
-            let c = self.peek();
-            self.i += 1;
-            c
-        }
-
-        fn alt(&mut self) -> Result<Vec<Vec<Node>>, String> {
-            let mut alts = vec![self.seq()?];
-            while self.peek() == Some('|') {
-                self.i += 1;
-                alts.push(self.seq()?);
-            }
-            Ok(alts)
-        }
-
-        fn seq(&mut self) -> Result<Vec<Node>, String> {
-            let mut nodes = Vec::new();
-            while let Some(c) = self.peek() {
-                if c == '|' || c == ')' {
-                    break;
-                }
-                let atom = self.atom()?;
-                nodes.push(self.quantified(atom)?);
-            }
-            Ok(nodes)
-        }
-
-        fn number(&mut self) -> Option<usize> {
-            let start = self.i;
-            while self.peek().is_some_and(|c| c.is_ascii_digit()) {
-                self.i += 1;
-            }
-            self.c[start..self.i]
-                .iter()
-                .collect::<String>()
-                .parse()
-                .ok()
-        }
-
-        fn quantified(&mut self, atom: Node) -> Result<Node, String> {
-            let (min, max) = match self.peek() {
-                Some('*') => (0, None),
-                Some('+') => (1, None),
-                Some('?') => (0, Some(1)),
-                Some('{') => {
-                    let save = self.i;
-                    self.i += 1;
-                    let Some(min) = self.number() else {
-                        // Not a repetition: a literal `{`.
-                        self.i = save;
-                        return Ok(atom);
-                    };
-                    let max = if self.peek() == Some(',') {
-                        self.i += 1;
-                        self.number()
-                    } else {
-                        Some(min)
-                    };
-                    if self.peek() != Some('}') {
-                        return Err("unclosed `{`".into());
-                    }
-                    if max.is_some_and(|m| m < min) {
-                        return Err("`{n,m}` needs n <= m".into());
-                    }
-                    (min, max)
-                }
-                _ => return Ok(atom),
-            };
-            self.i += 1;
-            if self.peek() == Some('?') {
-                self.i += 1;
-            }
-            if matches!(atom, Node::Start | Node::End) {
-                return Err("nothing to repeat".into());
-            }
-            Ok(Node::Repeat {
-                node: Box::new(atom),
-                min,
-                max,
-            })
-        }
-
-        fn escape(&mut self, in_class: bool) -> Result<Escape, String> {
-            let c = self.next().ok_or("a trailing `\\`")?;
-            Ok(match c {
-                'd' => Err((DIGIT.to_vec(), false)),
-                'w' => Err((WORD.to_vec(), false)),
-                's' => Err((SPACE.to_vec(), false)),
-                'D' | 'W' | 'S' if in_class => {
-                    return Err(format!("`\\{c}` inside a class is not supported"));
-                }
-                'D' => Err((DIGIT.to_vec(), true)),
-                'W' => Err((WORD.to_vec(), true)),
-                'S' => Err((SPACE.to_vec(), true)),
-                'n' => Ok('\n'),
-                't' => Ok('\t'),
-                'r' => Ok('\r'),
-                other => Ok(other),
-            })
-        }
-
-        fn atom(&mut self) -> Result<Node, String> {
-            let c = self.next().expect("peeked");
-            Ok(match c {
-                '(' => {
-                    if self.c[self.i..].starts_with(&['?', ':']) {
-                        self.i += 2;
-                    }
-                    let alts = self.alt()?;
-                    if self.next() != Some(')') {
-                        return Err("unclosed `(`".into());
-                    }
-                    Node::Group(alts)
-                }
-                '[' => self.class()?,
-                '.' => Node::Any,
-                '^' => Node::Start,
-                '$' => Node::End,
-                '*' | '+' | '?' => return Err(format!("nothing to repeat before `{c}`")),
-                '\\' => match self.escape(false)? {
-                    Ok(ch) => Node::Char(ch),
-                    Err((ranges, negated)) => Node::Class { ranges, negated },
-                },
-                other => Node::Char(other),
-            })
-        }
-
-        fn class(&mut self) -> Result<Node, String> {
-            let negated = self.peek() == Some('^');
-            if negated {
-                self.i += 1;
-            }
-            let mut ranges = Vec::new();
-            let mut first = true;
-            loop {
-                let c = self.next().ok_or("unclosed `[`")?;
-                if c == ']' && !first {
-                    break;
-                }
-                first = false;
-                let lo = if c == '\\' {
-                    match self.escape(true)? {
-                        Ok(ch) => ch,
-                        Err((r, _)) => {
-                            ranges.extend(r);
-                            continue;
-                        }
-                    }
-                } else {
-                    c
-                };
-                if self.peek() == Some('-') && self.c.get(self.i + 1).is_some_and(|c| *c != ']') {
-                    self.i += 1;
-                    let mut hi = self.next().expect("checked");
-                    if hi == '\\' {
-                        hi = self.escape(true)?.map_err(|_| "a class in a range")?;
-                    }
-                    if hi < lo {
-                        return Err(format!("the range `{lo}-{hi}` is backwards"));
-                    }
-                    ranges.push((lo, hi));
-                } else {
-                    ranges.push((lo, lo));
-                }
-            }
-            Ok(Node::Class { ranges, negated })
-        }
-    }
-
-    #[derive(Clone, Copy)]
-    enum Item<'a> {
-        Seq(&'a [Node]),
-        /// `node` between `min` and `max` more times; `start` is where the last iteration began (`None`: none yet).
-        Rep {
-            node: &'a Node,
-            min: usize,
-            max: Option<usize>,
-            start: Option<usize>,
-        },
-    }
-
-    struct K<'a> {
-        item: Item<'a>,
-        next: Option<&'a K<'a>>,
-    }
+    pub struct Regex(regex::Regex);
 
     impl Regex {
         pub fn new(source: &str) -> Result<Self, String> {
-            let mut p = Parser {
-                c: source.chars().collect(),
-                i: 0,
-            };
-            let alts = p.alt()?;
-            if p.i < p.c.len() {
-                return Err("unmatched `)`".into());
-            }
-            Ok(Self { alts })
+            regex::Regex::new(source)
+                .map(Self)
+                .map_err(|e| format!("invalid regular expression `{source}`: {e}"))
         }
 
         pub fn is_match(&self, line: &str) -> bool {
-            let t: Vec<char> = line.chars().take(MAX_CHARS).collect();
-            (0..=t.len()).any(|pos| {
-                self.alts.iter().any(|seq| {
-                    let k = K {
-                        item: Item::Seq(seq),
-                        next: None,
-                    };
-                    run(Some(&k), pos, &t, 0)
-                })
-            })
-        }
-    }
-
-    /// Whether `node` (one character's worth) matches `c`.
-    fn single(node: &Node, c: Option<&char>) -> Option<bool> {
-        Some(match node {
-            Node::Char(x) => c == Some(x),
-            Node::Any => c.is_some_and(|c| *c != '\n'),
-            Node::Class { ranges, negated } => {
-                c.is_some_and(|c| ranges.iter().any(|(lo, hi)| (lo..=hi).contains(&c)) != *negated)
-            }
-            _ => return None,
-        })
-    }
-
-    fn run(k: Option<&K<'_>>, pos: usize, t: &[char], depth: usize) -> bool {
-        let Some(k) = k else { return true };
-        if depth > MAX_DEPTH {
-            return false;
-        }
-        let depth = depth + 1;
-        match k.item {
-            Item::Seq([]) => run(k.next, pos, t, depth),
-            Item::Seq([first, rest @ ..]) => {
-                let after = K {
-                    item: Item::Seq(rest),
-                    next: k.next,
-                };
-                one(first, &after, pos, t, depth)
-            }
-            // A repeated single character: count how far it reaches, then back off one at a time without recursing
-            // per character.
-            Item::Rep {
-                node,
-                min,
-                max,
-                start: None,
-            } if single(node, None).is_some() => {
-                let limit = max.unwrap_or(usize::MAX);
-                let mut n = 0;
-                while n < limit && single(node, t.get(pos + n)) == Some(true) {
-                    n += 1;
-                }
-                (min..=n).rev().any(|j| run(k.next, pos + j, t, depth))
-            }
-            Item::Rep {
-                node,
-                min,
-                max,
-                start,
-            } => {
-                // An iteration that matched nothing would repeat forever: stop iterating.
-                let stalled = start == Some(pos) && min == 0;
-                if max != Some(0) && !stalled {
-                    let again = K {
-                        item: Item::Rep {
-                            node,
-                            min: min.saturating_sub(1),
-                            max: max.map(|m| m - 1),
-                            start: Some(pos),
-                        },
-                        next: k.next,
-                    };
-                    if one(node, &again, pos, t, depth) {
-                        return true;
-                    }
-                }
-                min == 0 && run(k.next, pos, t, depth)
-            }
-        }
-    }
-
-    fn one(node: &Node, after: &K<'_>, pos: usize, t: &[char], depth: usize) -> bool {
-        if let Some(ok) = single(node, t.get(pos)) {
-            return ok && run(Some(after), pos + 1, t, depth);
-        }
-        match node {
-            Node::Start => pos == 0 && run(Some(after), pos, t, depth),
-            Node::End => pos == t.len() && run(Some(after), pos, t, depth),
-            Node::Group(alts) => alts.iter().any(|seq| {
-                let k = K {
-                    item: Item::Seq(seq),
-                    next: Some(after),
-                };
-                run(Some(&k), pos, t, depth)
-            }),
-            Node::Repeat { node, min, max } => {
-                let k = K {
-                    item: Item::Rep {
-                        node,
-                        min: *min,
-                        max: *max,
-                        start: None,
-                    },
-                    next: Some(after),
-                };
-                run(Some(&k), pos, t, depth)
-            }
-            Node::Char(_) | Node::Any | Node::Class { .. } => unreachable!("single characters"),
+            let end = line
+                .char_indices()
+                .nth(MAX_CHARS)
+                .map_or(line.len(), |(i, _)| i);
+            self.0.is_match(&line[..end])
         }
     }
 }
@@ -2719,17 +2381,19 @@ mod tests {
         assert!(m("^a{1,2}$", "aa") && !m("^a{1,2}$", "aaa"));
         assert!(m("\\.cs$", "Program.cs") && !m("\\.cs$", "Programcs"));
         assert!(m("(a*)*b", "aaab") && !m("^(a*)*$", "aaac"));
-        assert!(m("x{", "x{") && m("(?:ab)+", "abab"));
+        assert!(m("(?:ab)+", "abab") && m("(?i)error", "An ERROR here"));
         assert!(m("", "anything"));
         for bad in ["(a", "a)", "[a", "*a", "a{3,1}", "[z-a]", "\\"] {
             assert!(pattern::Regex::new(bad).is_err(), "{bad}");
         }
-        // Long lines are matched on their first 4,096 characters, without overflowing the stack.
+        // Long lines are matched on their first 4,096 characters.
         let long = "a".repeat(100_000);
         assert!(m("^a*$", &long[..pattern::MAX_CHARS]));
         assert!(m("a+", &long) && m("^.*a$", &long[..4000]));
-        assert!(!m("^(ab)+$", &"ab".repeat(2000)), "too deep: no match");
-        assert!(m("^(ab)+$", &"ab".repeat(100)));
+        // A `b` after the 4,096th character is never seen; one before it is.
+        assert!(m("^a*$", &format!("{}b", &long[..4096])));
+        assert!(!m("^a*$", &format!("{}b", &long[..4000])));
+        assert!(m("^(ab)+$", &"ab".repeat(2000)));
     }
 
     #[test]
