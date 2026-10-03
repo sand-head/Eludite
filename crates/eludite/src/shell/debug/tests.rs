@@ -945,8 +945,9 @@ fn an_agent_drives_a_session_from_the_bus_and_reads_the_same_state(cx: &mut Test
             c.invoke(cmds::START, json!({})).unwrap()
         }),
     );
+    // The answer is the stop summary (brief 0025): running, driven by the agent.
     assert_eq!(out["mode"], "running");
-    assert_eq!(out["last_driver"], "agent:Test Agent");
+    assert_eq!(out["agent_driving"], true);
     // The program is triggered (as a test run would); the agent reads the break.
     d.fake().trigger();
     d.wait_break(1);
@@ -990,11 +991,12 @@ fn an_agent_drives_a_session_from_the_bus_and_reads_the_same_state(cx: &mut Test
     assert_eq!(out["sum"]["result"], "0");
     assert_eq!(out["sum"]["state"], "done");
     assert_eq!(out["stepped"]["mode"], "break");
-    assert_eq!(out["stepped"]["frames"][0]["line"], 6);
-    assert_eq!(out["stepped"]["locals"][2]["value"], "3");
+    assert_eq!(out["stepped"]["frames"]["rows"][0]["line"], 6);
+    assert_eq!(out["stepped"]["stopped"]["location"]["line"], 6);
+    assert_eq!(out["stepped"]["locals"]["rows"][2]["value"], "3");
     assert_eq!(out["stepped"]["stopped"]["driver"], "agent:Test Agent");
-    assert_eq!(out["back"]["frames"][0]["line"], 7);
-    assert_eq!(out["order"]["frames"][0]["line"], 8);
+    assert_eq!(out["back"]["frames"]["rows"][0]["line"], 7);
+    assert_eq!(out["order"]["frames"]["rows"][0]["line"], 8);
     assert_eq!(
         out["expanded"]["children"][1],
         json!({"name": "Name", "value": "\"A\"", "type": "string",
@@ -1635,4 +1637,1166 @@ fn the_mono_settings_reach_the_searches(cx: &mut TestAppContext) {
         message.contains(&missing.display().to_string()) && message.contains("ELUDITE_DBG_MONO"),
         "{message}"
     );
+}
+
+// ----- Brief 0025: inspection depth for agents. -----
+
+fn test_agent() -> Caller {
+    Caller::Agent {
+        agent: "Test Agent".into(),
+        call: eludite_commands::next_call_id(),
+        tool_call: None,
+    }
+}
+
+/// Run `f` as an agent on another thread (the bus answers it off the UI thread), running the UI meanwhile.
+fn agent<F>(d: &mut Dbg, f: F) -> Value
+where
+    F: FnOnce(&eludite_commands::CommandRegistry) -> Value + Send + 'static,
+{
+    let commands = d.w.commands.clone();
+    let a = test_agent();
+    let handle = std::thread::spawn(move || with_caller(a, || f(&commands)));
+    let deadline = Instant::now() + T;
+    while !handle.is_finished() {
+        assert!(
+            Instant::now() < deadline,
+            "the agent's command did not finish"
+        );
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    handle.join().unwrap()
+}
+
+/// An agent's one command.
+fn agent_call(d: &mut Dbg, command: &'static str, args: Value) -> Value {
+    agent(d, move |c| {
+        c.invoke(command, args)
+            .unwrap_or_else(|e| json!({ "error": e.to_string() }))
+    })
+}
+
+/// A program 29 calls deep over the test solution's files: `Main` (Program.cs line 5, printing `starting` when it
+/// runs) calls `Level01` to `Level28` (Calc.cs line 3; `Level27` prints `deep`), and `Level28`'s Calc.cs line 5 has 120
+/// locals (a 1,000-character string, a 10,000-element array and a five-level object graph first) and prints `line one`
+/// and, to stderr, `warning: two`; line 6 throws a handled `InvalidOperationException` with an inner exception; back
+/// in `Main`, line 7 loops until paused and line 8 prints `after pause`. With the `[Native Frames]` frame, the deep
+/// stop's stack has 30 frames.
+fn deep(p: &mut FakeProgram) {
+    let main = p.steps[0].path.clone();
+    let calc = p.steps[2].path.clone();
+    let v = FakeVar::new;
+    let mut steps = vec![
+        FakeStep::new(&main, 5, "App.Program.Main()", 0, vec![v("x", "1", "int")])
+            .printing("starting\n"),
+    ];
+    for d in 1..28 {
+        let mut step = FakeStep::new(
+            &calc,
+            3,
+            &format!("App.Calc.Level{d:02}(int depth)"),
+            d,
+            vec![
+                v("depth", &d.to_string(), "int").with_hint("parameter"),
+                v("level", &format!("\"L{d}\""), "string"),
+            ],
+        );
+        if d == 27 {
+            step = step.printing("deep\n");
+        }
+        steps.push(step);
+    }
+    let mut locals = vec![
+        v("text", &format!("\"{}\"", "x".repeat(998)), "string"),
+        FakeVar::array("big", 10_000),
+        FakeVar::deep("graph", 5, 3),
+    ];
+    locals.extend((3..120).map(|i| v(&format!("v{i:03}"), &i.to_string(), "int")));
+    let mut deepest = FakeStep::new(&calc, 5, "App.Calc.Level28(int depth)", 28, locals.clone());
+    deepest.prints = vec![
+        ("stdout".into(), "line one\n".into()),
+        ("stderr".into(), "warning: two\n".into()),
+    ];
+    steps.push(deepest);
+    let mut throws = FakeStep::new(&calc, 6, "App.Calc.Level28(int depth)", 28, locals);
+    let mut inner = eludite_dap::fake::FakeThrow::new("System.FormatException", "bad digits", true);
+    inner.stack_trace = Some("   at App.Parse(String s)".into());
+    let mut thrown =
+        eludite_dap::fake::FakeThrow::new("System.InvalidOperationException", "boom", true);
+    thrown.stack_trace = Some("   at App.Calc.Level28(Int32 depth) in Calc.cs:line 6".into());
+    thrown.inner = Some(Box::new(inner));
+    throws.throws = Some(thrown);
+    steps.push(throws);
+    let mut spin = FakeStep::new(&main, 7, "App.Program.Main()", 0, vec![v("x", "2", "int")]);
+    spin.runs_until_paused = true;
+    steps.push(spin);
+    steps.push(
+        FakeStep::new(&main, 8, "App.Program.Main()", 0, vec![v("x", "3", "int")])
+            .printing("after pause\n"),
+    );
+    p.steps = steps;
+    p.output_at_start = Vec::new();
+}
+
+/// The deep program, F5 and a break at `Main`'s first line (stop 1), with a breakpoint on the deep line too.
+fn deep_break(
+    cx: &mut TestAppContext,
+    tweak: impl Fn(&mut FakeProgram) + Send + Sync + 'static,
+) -> Dbg {
+    let mut d = setup_with(cx, move |p| {
+        deep(p);
+        tweak(p);
+    });
+    d.w.open_solution();
+    for (path, line) in [("src/App/Program.cs", 5), ("src/App/Calc.cs", 5)] {
+        d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": path, "line": line}))
+            .unwrap();
+    }
+    d.start_and_break();
+    d
+}
+
+fn json_size(v: &Value) -> usize {
+    serde_json::to_string(v).unwrap().len()
+}
+
+fn p95(mut v: Vec<Duration>) -> Duration {
+    v.sort();
+    v[(v.len() * 95).div_ceil(100) - 1]
+}
+
+#[gpui::test]
+fn an_agent_reads_a_deep_stop_within_the_budgets(cx: &mut TestAppContext) {
+    let mut d = deep_break(cx, |_| {});
+    // `continue` waits for the next break and answers the stop summary within the default budgets.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"stop": 1, "wait_ms": 5000}));
+    assert_eq!(s["mode"], "break", "{s}");
+    assert_eq!(s["stop"], 2);
+    let loc = &s["stopped"]["location"];
+    assert_eq!(loc["function"], "App.Calc.Level28(int depth)");
+    assert_eq!(loc["line"], 5);
+    assert!(loc["path"].as_str().unwrap().ends_with("Calc.cs"));
+    assert_eq!(s["stopped"]["reason"], "breakpoint");
+    assert_eq!(s["stopped"]["breakpoint"]["line"], 5);
+    assert_eq!(s["stopped"]["breakpoint"]["hits"], 1);
+    assert_eq!(s["stopped"]["driver"], "agent:Test Agent");
+    assert_eq!(s["frames"]["rows"].as_array().unwrap().len(), 10);
+    assert_eq!(s["frames"]["total"], 30);
+    assert_eq!(s["frames"]["truncated"], true);
+    assert_eq!(s["locals"]["rows"].as_array().unwrap().len(), 50);
+    assert_eq!(s["locals"]["total"], 120);
+    assert_eq!(s["locals"]["truncated"], true);
+    assert_eq!(s["locals"]["next"], 50);
+    let text = &s["locals"]["rows"][0];
+    assert_eq!(text["value_truncated"], true);
+    assert_eq!(
+        text["value"].as_str().unwrap(),
+        format!("\"{}\u{2026} (1000 chars)", "x".repeat(199))
+    );
+    assert_eq!(s["locals"]["rows"][1]["indexed"], 10_000);
+    assert!(s["locals"]["rows"][1].get("children").is_none(), "depth 1");
+    assert_eq!(s["output"]["lines"][0]["text"], "starting");
+    assert_eq!(s["output"]["lines"][1]["text"], "deep");
+    assert_eq!(s["output"]["lines"][1]["stream"], "stdout");
+    assert_eq!(s["truncated"], true);
+    assert_eq!(s["agent_driving"], true);
+    // Nothing else: no breakpoint list, exception settings or threads (those are the state's).
+    for k in ["breakpoints", "exceptions", "threads", "console", "session"] {
+        assert!(s.get(k).is_none(), "{k}");
+    }
+    eprintln!(
+        "size: continue's summary at the deep stop: {} bytes",
+        json_size(&s)
+    );
+    // The capabilities reflect the fake's `initialize`.
+    let caps = &s["capabilities"];
+    assert_eq!(caps["adapter"], "fake");
+    assert_eq!(caps["pause"], true);
+    assert_eq!(caps["exception_info"], true);
+    assert_eq!(caps["delayed_stack_loading"], true);
+    assert_eq!(caps["variable_paging"], true);
+    assert_eq!(caps["hit_conditions"], "shell");
+    assert_eq!(caps["log_points"], "shell");
+    assert_eq!(caps["set_variable"], false);
+    assert_eq!(caps["set_next_statement"], false);
+    assert_eq!(d.state()["capabilities"], *caps);
+
+    // snapshot with depth 3: members nested within the budget.
+    let s = agent_call(
+        &mut d,
+        cmds::SNAPSHOT,
+        json!({"depth": 3, "max_variables": 20}),
+    );
+    let rows = s["locals"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 20, "top-level rows first");
+    assert_eq!(rows[2]["name"], "graph");
+    assert!(
+        rows[2].get("children").is_none(),
+        "the budget was spent on the top level"
+    );
+    assert_eq!(rows[2]["truncated"], true);
+    let count = |rows: &Value| -> usize {
+        fn walk(rows: &Value) -> usize {
+            rows.as_array()
+                .map(|a| a.iter().map(|r| 1 + walk(&r["children"])).sum())
+                .unwrap_or(0)
+        }
+        walk(rows)
+    };
+    // Five rows of budget left after the top level: they go to the first value with members (breadth-first).
+    let s = agent_call(
+        &mut d,
+        cmds::SNAPSHOT,
+        json!({"depth": 3, "max_variables": 125}),
+    );
+    assert_eq!(count(&s["locals"]["rows"]), 125);
+    let rows = s["locals"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 120);
+    let big = &rows[1];
+    assert_eq!(big["children"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        big["children"][4],
+        json!({"name": "[4]", "value": "4", "type": "int", "reference": 0})
+    );
+    assert_eq!(big["truncated"], true);
+    assert!(rows[2].get("children").is_none() && rows[2]["truncated"] == true);
+    assert_eq!(s["locals"]["truncated"], true);
+    assert_eq!(s["truncated"], true);
+    // The object graph nests to the depth asked (through variables, whose budget it has to itself).
+    let graph = rows[2]["reference"].as_i64().unwrap();
+    for depth in [3, 5] {
+        let g = agent_call(
+            &mut d,
+            cmds::VARIABLES,
+            json!({"reference": graph, "depth": depth}),
+        );
+        // `graph`'s members are four levels deep (the last `next` is a leaf).
+        let levels = depth.min(4);
+        let mut node = &g["rows"][2];
+        for _ in 1..levels {
+            assert_eq!(node["children"].as_array().unwrap().len(), 3, "{node}");
+            node = &node["children"][2];
+        }
+        assert_eq!(node["name"], "next");
+        assert!(node.get("children").is_none(), "depth {depth}: {g}");
+        assert_eq!(node["reference"].as_i64().unwrap() > 0, depth < 4, "{node}");
+        assert_eq!(count(&g["rows"]), 3 * levels);
+    }
+
+    // snapshot of frame 2: that frame's locals; the windows keep frame 0 and the execution point.
+    let calc = d.w.editor(&d.w.path("src/App/Calc.cs"));
+    let before = (d.exec(&calc), d.state()["frame"].clone(), d.locals());
+    let s = agent_call(&mut d, cmds::SNAPSHOT, json!({"frame": 2}));
+    assert_eq!(s["locals"]["frame"], 2);
+    assert_eq!(
+        s["locals"]["rows"],
+        json!([{"name": "depth", "value": "26", "type": "int", "reference": 0},
+               {"name": "level", "value": "\"L26\"", "type": "string", "reference": 0}])
+    );
+    assert!(
+        s.get("watches").is_none(),
+        "watch values are the selected frame's"
+    );
+    assert_eq!(
+        s["stopped"]["location"]["line"], 5,
+        "the stop's location is unchanged"
+    );
+    let selected = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.debugger()
+            .windows
+            .call_stack
+            .read(cx)
+            .rows()
+            .iter()
+            .position(|r| r.selected)
+    });
+    assert_eq!(selected, Some(0));
+    assert_eq!(
+        (d.exec(&calc), d.state()["frame"].clone(), d.locals()),
+        before
+    );
+    assert_eq!(before.0, Some((4, ExecutionKind::Current)));
+
+    // stack: pages, every thread, external frames.
+    let s = agent_call(&mut d, cmds::STACK, json!({"start": 10, "count": 5}));
+    let t = &s["threads"][0];
+    assert_eq!(t["total"], 30);
+    assert_eq!(t["truncated"], true);
+    assert_eq!(t["next"], 15);
+    let names: Vec<&str> = t["frames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names[0], "App.Calc.Level18(int depth)");
+    assert_eq!(t["frames"][0]["index"], 10);
+    let s = agent_call(&mut d, cmds::STACK, json!({"start": 25}));
+    let last = &s["threads"][0]["frames"][4];
+    assert_eq!(last["name"], "[Native Frames]");
+    assert_eq!(last["external"], true);
+    assert_eq!(s["threads"][0]["truncated"], false);
+    let s = agent_call(
+        &mut d,
+        cmds::STACK,
+        json!({"all_threads": true, "count": 3}),
+    );
+    let threads = s["threads"].as_array().unwrap();
+    assert_eq!(threads.len(), 2);
+    assert_eq!(threads[0]["id"], 1, "the thread that stopped first");
+    assert_eq!(threads[1]["name"], ".NET TP Worker");
+    assert_eq!(
+        threads[1]["frames"][0]["name"],
+        "System.Threading.Monitor.Wait()"
+    );
+    assert_eq!(threads[1]["frames"][0]["external"], true);
+    assert_eq!(threads[1]["total"], 2);
+    eprintln!(
+        "size: stack (all threads, 3 frames each): {} bytes",
+        json_size(&s)
+    );
+
+    // variables: a 10,000-element array in pages of 50, a name filter, depth 2, and a stale stop.
+    let snap = agent_call(&mut d, cmds::SNAPSHOT, json!({}));
+    let big = snap["locals"]["rows"][1]["reference"].as_i64().unwrap();
+    let stop = snap["stop"].as_u64().unwrap();
+    let mut start = 0;
+    let mut pages = 0;
+    let mut seen = 0;
+    loop {
+        let p = agent_call(
+            &mut d,
+            cmds::VARIABLES,
+            json!({"reference": big, "start": start, "stop": stop}),
+        );
+        assert_eq!(p["total"], 10_000, "{p}");
+        let rows = p["rows"].as_array().unwrap();
+        assert_eq!(rows[0]["name"], format!("[{start}]"));
+        seen += rows.len();
+        pages += 1;
+        if pages == 3 {
+            // Jump to the end: the last page says nothing follows.
+            start = 9_950;
+            continue;
+        }
+        match p["next"].as_u64() {
+            Some(n) => {
+                assert_eq!(p["truncated"], true);
+                assert_eq!(n as usize, start + 50);
+                start = n as usize;
+            }
+            None => {
+                assert_eq!(p["truncated"], false);
+                assert_eq!(rows.last().unwrap()["value"], "9999");
+                break;
+            }
+        }
+    }
+    assert_eq!((pages, seen), (4, 200));
+    let f = agent_call(
+        &mut d,
+        cmds::VARIABLES,
+        json!({"filter": "V11", "max_value_chars": 1}),
+    );
+    let names: Vec<&str> = f["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "v110", "v111", "v112", "v113", "v114", "v115", "v116", "v117", "v118", "v119"
+        ]
+    );
+    assert_eq!(f["total"], 10);
+    assert_eq!(f["rows"][0]["value"], "1\u{2026} (3 chars)");
+    let graph = snap["locals"]["rows"][2]["reference"].as_i64().unwrap();
+    let g = agent_call(
+        &mut d,
+        cmds::VARIABLES,
+        json!({"reference": graph, "depth": 2}),
+    );
+    assert_eq!(g["rows"].as_array().unwrap().len(), 3);
+    assert_eq!(g["rows"][2]["name"], "next");
+    assert_eq!(g["rows"][2]["children"].as_array().unwrap().len(), 3);
+    assert_eq!(g["rows"][2]["named"], 3);
+    let a = agent_call(
+        &mut d,
+        cmds::VARIABLES,
+        json!({"frame": 1, "scope": "arguments"}),
+    );
+    assert_eq!(a["rows"][0]["name"], "depth", "{a}");
+    assert_eq!(a["total"], 1);
+    let p = agent_call(
+        &mut d,
+        cmds::VARIABLES,
+        json!({"reference": big, "stop": 1}),
+    );
+    assert!(p["error"].as_str().unwrap().contains("stale"), "{p}");
+    // Without the adapter's paging the shell pages the same way.
+    let caps_off = agent_call(&mut d, cmds::STATE, json!({}));
+    assert_eq!(caps_off["capabilities"]["variable_paging"], true);
+
+    // Budgets: snapshot under 50 ms p95 (20 calls), and the sizes of the default answers.
+    let times = agent(&mut d, |c| {
+        let mut t = Vec::new();
+        for _ in 0..20 {
+            let s = Instant::now();
+            c.invoke(cmds::SNAPSHOT, json!({})).unwrap();
+            t.push(s.elapsed().as_secs_f64());
+        }
+        json!(t)
+    });
+    let times: Vec<Duration> = times
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| Duration::from_secs_f64(t.as_f64().unwrap()))
+        .collect();
+    let p = p95(times.clone());
+    eprintln!(
+        "timing: snapshot against the fake p95 {:.2} ms (max {:.2} ms, 20 calls)",
+        p.as_secs_f64() * 1e3,
+        times.iter().max().unwrap().as_secs_f64() * 1e3
+    );
+    assert!(p < Duration::from_millis(50), "{p:?}");
+    for (what, command, args) in [
+        ("snapshot", cmds::SNAPSHOT, json!({})),
+        ("stack", cmds::STACK, json!({})),
+        ("variables", cmds::VARIABLES, json!({})),
+        ("output", cmds::OUTPUT, json!({})),
+        ("state", cmds::STATE, json!({})),
+    ] {
+        let v = agent_call(&mut d, command, args);
+        eprintln!(
+            "size: {what} default at the deep stop: {} bytes",
+            json_size(&v)
+        );
+    }
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn without_the_adapters_paging_the_shell_pages(cx: &mut TestAppContext) {
+    let mut d = deep_break(cx, |p| {
+        p.extra_capabilities =
+            json!({"supportsDelayedStackTraceLoading": false, "supportsVariablePaging": false});
+    });
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({}));
+    assert_eq!(s["capabilities"]["variable_paging"], false);
+    assert_eq!(s["capabilities"]["delayed_stack_loading"], false);
+    assert_eq!(s["locals"]["total"], 120);
+    let big = s["locals"]["rows"][1]["reference"].as_i64().unwrap();
+    let p = agent_call(
+        &mut d,
+        cmds::VARIABLES,
+        json!({"reference": big, "start": 100, "count": 50}),
+    );
+    assert_eq!(p["rows"][0]["name"], "[100]");
+    assert_eq!(p["rows"].as_array().unwrap().len(), 50);
+    assert_eq!(p["total"], 10_000);
+    assert_eq!(p["next"], 150);
+    // The whole array was read once and paged here.
+    let asked = d.fake().last("variables").unwrap();
+    assert!(asked.get("start").is_none(), "{asked}");
+    let st = agent_call(
+        &mut d,
+        cmds::STACK,
+        json!({"thread": 2, "start": 1, "count": 1}),
+    );
+    assert_eq!(st["threads"][0]["frames"][0]["name"], "[Native Frames]");
+    assert_eq!(st["threads"][0]["total"], 2);
+    assert!(
+        d.fake()
+            .last("stackTrace")
+            .unwrap()
+            .get("startFrame")
+            .is_none()
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn output_by_cursor_exception_info_and_wait(cx: &mut TestAppContext) {
+    let mut d = deep_break(cx, |p| {
+        // 10,050 lines in one event at the end: the ring keeps 10,000.
+        let flood: String = (0..10_050).map(|i| format!("flood {i}\n")).collect();
+        p.steps
+            .last_mut()
+            .unwrap()
+            .prints
+            .push(("stdout".into(), flood));
+        p.steps
+            .last_mut()
+            .unwrap()
+            .prints
+            .push(("console".into(), "adapter says hi\n".into()));
+    });
+    // Nothing printed before the first stop; a cursor read says where to go on.
+    let o = agent_call(&mut d, cmds::OUTPUT, json!({}));
+    assert_eq!(o["lines"], json!([]));
+    assert_eq!(
+        (
+            o["next"].as_u64(),
+            o["total"].as_u64(),
+            o["dropped"].as_u64()
+        ),
+        (Some(0), Some(0), Some(0))
+    );
+    // A continue later (the deep breakpoint), the summary lists what was printed since the cursor.
+    d.cmd(cmds::EXCEPTION_SETTINGS, json!({"break_when_thrown": true}))
+        .unwrap();
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({"output_since": 0}));
+    assert_eq!(
+        s["output"]["lines"],
+        json!([{"seq": 0, "text": "starting", "stream": "stdout"}, {"seq": 1, "text": "deep", "stream": "stdout"}])
+    );
+    let cursor = s["output"]["next"].as_u64().unwrap();
+    assert_eq!(cursor, 2);
+    // exception_info is refused at a breakpoint stop, naming the reason.
+    let e = agent_call(&mut d, cmds::EXCEPTION_INFO, json!({}));
+    assert!(e["error"].as_str().unwrap().contains("`breakpoint`"), "{e}");
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({}));
+    assert_eq!(s["stopped"]["reason"], "exception", "{s}");
+    assert_eq!(
+        s["stopped"]["exception"]["type"],
+        "System.InvalidOperationException"
+    );
+    assert_eq!(s["stopped"]["exception"]["message"], "boom");
+    assert_eq!(s["stopped"]["exception"]["break_mode"], "always");
+    // The second continue's lines, read by the cursor without repeating the first ones.
+    let o = agent_call(&mut d, cmds::OUTPUT, json!({"since": cursor}));
+    let texts: Vec<&str> = o["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["line one", "warning: two"]);
+    assert_eq!(o["lines"][1]["stream"], "stderr");
+    assert_eq!(o["next"], 4);
+    assert_eq!(o["truncated"], false);
+    let e = agent_call(&mut d, cmds::EXCEPTION_INFO, json!({}));
+    assert_eq!(e["supported"], true);
+    assert_eq!(e["type"], "System.InvalidOperationException");
+    assert_eq!(e["message"], "boom");
+    assert_eq!(e["break_mode"], "always");
+    assert_eq!(
+        e["details"]["full_type_name"],
+        "System.InvalidOperationException"
+    );
+    assert!(
+        e["details"]["stack_trace"]
+            .as_str()
+            .unwrap()
+            .contains("line 6")
+    );
+    assert_eq!(e["details"]["inner_exceptions"][0]["message"], "bad digits");
+    assert_eq!(
+        e["details"]["inner_exceptions"][0]["type_name"],
+        "FormatException"
+    );
+    eprintln!("size: exception_info default: {} bytes", json_size(&e));
+    // The debugger's own messages are their own source.
+    let dbg = agent_call(
+        &mut d,
+        cmds::OUTPUT,
+        json!({"source": "debug", "max_lines": 1000}),
+    );
+    let texts: Vec<&str> = dbg["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["text"].as_str().unwrap())
+        .collect();
+    assert!(texts[0].starts_with("Starting debugging"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.starts_with("Exception thrown: 'System.InvalidOperationException'")),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.contains(&"deep"),
+        "the program's lines are not the debugger's"
+    );
+    eprintln!(
+        "size: output default (debug source, all lines): {} bytes",
+        json_size(&dbg)
+    );
+
+    // wait: times out with `running`, returns on a printed line, and on the next stop within 20 ms of it.
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 50, "stop": 3}),
+    );
+    assert_eq!(w["timed_out"], true, "{w}");
+    assert_eq!(w["mode"], "break");
+    // Resume into the loop; `wait` for output returns once the program prints (it prints nothing until paused).
+    d.cmd(cmds::CONTINUE, json!({})).unwrap();
+    d.wait_mode(Mode::Running);
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 100}),
+    );
+    assert_eq!(w["mode"], "running");
+    assert_eq!(w["timed_out"], true);
+    assert!(w.get("stopped").is_none());
+    // Break All from the agent: the summary of the pause.
+    let p = agent_call(&mut d, cmds::PAUSE, json!({}));
+    assert_eq!(p["stopped"]["reason"], "pause", "{p}");
+    assert_eq!(p["stopped"]["location"]["line"], 7);
+    assert_eq!(p["agent_driving"], true);
+    let next = p["output"]["next"].as_u64().unwrap();
+    // A pattern over the program's lines: none of the flood yet.
+    let o = agent_call(&mut d, cmds::OUTPUT, json!({"pattern": "/^flood \\d+$/"}));
+    assert_eq!(o["lines"].as_array().unwrap().len(), 0);
+    // `wait until output` from another thread while the person continues: it returns on the printed lines.
+    let commands = d.w.commands.clone();
+    let a = test_agent();
+    let waiting = std::thread::spawn(move || {
+        with_caller(a, || {
+            let w = commands
+                .invoke(cmds::WAIT, json!({"until": "output", "wait_ms": 5000}))
+                .unwrap();
+            (w, Instant::now())
+        })
+    });
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.wait("the wait's answer", |_| waiting.is_finished());
+    let (w, _) = waiting.join().unwrap();
+    assert_eq!(w["satisfied"], "output", "{w}");
+    // The summary's output is the tail (no `output_since`): it ends with the new line.
+    let lines = w["output"]["lines"].as_array().unwrap();
+    assert!(
+        lines.last().unwrap()["seq"].as_u64().unwrap() >= next,
+        "{w}"
+    );
+    d.wait_mode(Mode::Running);
+    // The flood overflowed the ring: an old cursor hears how many lines it lost.
+    d.w.wait("the flood", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.output(cmds::OutputKind::Program).next() > 10_000
+        })
+    });
+    let o = agent_call(
+        &mut d,
+        cmds::OUTPUT,
+        json!({"since": cursor, "max_lines": 5}),
+    );
+    assert!(o["dropped"].as_u64().unwrap() > 0, "{o}");
+    assert_eq!(
+        o["lines"][0]["seq"].as_u64().unwrap(),
+        cursor + o["dropped"].as_u64().unwrap()
+    );
+    let o = agent_call(
+        &mut d,
+        cmds::OUTPUT,
+        json!({"pattern": "/^flood 1004[0-9]$/", "max_lines": 1000}),
+    );
+    let texts: Vec<&str> = o["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        texts,
+        [
+            "flood 10040",
+            "flood 10041",
+            "flood 10042",
+            "flood 10043",
+            "flood 10044",
+            "flood 10045",
+            "flood 10046",
+            "flood 10047",
+            "flood 10048",
+            "flood 10049"
+        ]
+    );
+    let o = agent_call(&mut d, cmds::OUTPUT, json!({"source": "adapter"}));
+    assert_eq!(o["lines"][0]["text"], "adapter says hi");
+    assert!(o["lines"][0].get("stream").is_none());
+    // `wait until stopped` returns on the next stop, within 20 ms of it being shown.
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    let commands = d.w.commands.clone();
+    let a = test_agent();
+    let waiting = std::thread::spawn(move || {
+        with_caller(a, || {
+            let w = commands
+                .invoke(cmds::WAIT, json!({"until": "stopped", "wait_ms": 5000}))
+                .unwrap();
+            (w, Instant::now())
+        })
+    });
+    d.w.wait("the agent waiting", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.debugger().waiters.is_empty())
+    });
+    d.fake().trigger();
+    d.w.wait("the wait's answer", |_| waiting.is_finished());
+    let (w, answered) = waiting.join().unwrap();
+    assert_eq!(w["satisfied"], "stopped");
+    assert_eq!(w["stopped"]["location"]["line"], 5);
+    let shown =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().timings.locals_shown.unwrap());
+    let woke = answered - shown;
+    eprintln!(
+        "timing: wait answered {:.2} ms after the stop was shown",
+        woke.as_secs_f64() * 1e3
+    );
+    assert!(woke < Duration::from_millis(20), "{woke:?}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+#[gpui::test]
+fn break_all_from_the_menu_and_an_agent_and_who_drives(cx: &mut TestAppContext) {
+    let mut d = deep_break(cx, |p| p.exit_at_end = Some(3));
+    // Refused in break mode.
+    let e = d.cmd(cmds::PAUSE, json!({})).unwrap_err().to_string();
+    assert!(e.contains("cannot break all") && e.contains("break"), "{e}");
+    // The person continues: not an agent driving.
+    d.cmd(cmds::CONTINUE, json!({})).unwrap();
+    d.wait_break(2);
+    let status = debug_status(&d);
+    assert_eq!(status, "Debugging: App (break: breakpoint, Calc.cs line 5)");
+    assert_eq!(d.state()["agent_driving"], false);
+    // An agent steps: the status bar says an agent drives.
+    let s = agent_call(&mut d, cmds::STEP_OVER, json!({}));
+    assert_eq!(s["agent_driving"], true);
+    assert_eq!(d.state()["agent_driving"], true);
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: App (break: step, Calc.cs line 6, agent driving)"
+    );
+    // The person resumes into the loop: driving goes back to the person.
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    assert_eq!(debug_status(&d), "Debugging: App (running)");
+    // Debug > Break All from the menu: the stop with reason `pause`, shown as any break.
+    d.w.click("menu-Debug");
+    assert_eq!(
+        d.w.shell.read_with(&d.w.vcx, |s, cx| s
+            .menu()
+            .read(cx)
+            .is_item_enabled("Debug", "Break All")),
+        Some(true)
+    );
+    d.w.click("menu-item-Debug-Break All");
+    assert!(d.w.audit().contains(&cmds::PAUSE.to_owned()));
+    assert!(d.fake().commands().contains(&"pause".to_owned()));
+    d.wait_break(4);
+    let s = d.state();
+    assert_eq!(s["stopped"]["reason"], "pause");
+    assert_eq!(s["frames"][0]["line"], 7);
+    assert_eq!(
+        debug_status(&d),
+        "Debugging: App (break: pause, Program.cs line 7)"
+    );
+    let program = d.w.editor(&d.w.path("src/App/Program.cs"));
+    assert_eq!(d.exec(&program), Some((6, ExecutionKind::Current)));
+    // An agent continues: the program prints and exits with 3; the summary at the end has the exit code.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+    assert_eq!(s["exit_code"], 3);
+    assert!(s["message"].as_str().unwrap().contains("code 3"), "{s}");
+    assert!(s.get("stopped").is_none());
+    assert_eq!(
+        s["output"]["lines"].as_array().unwrap().last().unwrap()["text"],
+        "after pause"
+    );
+    eprintln!(
+        "size: the summary at the end of the session: {} bytes",
+        json_size(&s)
+    );
+    // Ctrl+Alt+Break in a new session.
+    let stop = d.state()["stop"].as_u64().unwrap();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.wait_mode(Mode::Running);
+    d.fake().trigger();
+    d.wait_break(stop + 1);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 5}),
+    )
+    .unwrap();
+    d.cmd(cmds::CONTINUE, json!({})).unwrap();
+    d.wait_mode(Mode::Running);
+    d.w.wait("the loop", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger().model.output(cmds::OutputKind::Program).next() >= 2
+        })
+    });
+    d.w.vcx.simulate_keystrokes("ctrl-alt-pause");
+    d.wait_break(stop + 2);
+    assert_eq!(d.state()["stopped"]["reason"], "pause");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Proposal 0001 risk 1: the stop summary's size at a realistic stop (30 locals, 10 frames shown, 20 output lines),
+/// and the frame cost while an agent polls `snapshot` ten times a second.
+#[gpui::test]
+fn the_summary_fits_in_8_kb_and_polling_costs_the_ui_little(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        let main = p.steps[0].path.clone();
+        let calc = p.steps[2].path.clone();
+        let v = FakeVar::new;
+        let names = [
+            "Contoso.Orders.Program.Main(string[] args)",
+            "Contoso.Orders.Hosting.Startup.Run(Contoso.Orders.Hosting.Options options)",
+            "Contoso.Orders.Api.OrdersController.Post(Contoso.Orders.Api.CreateOrderRequest request)",
+            "Contoso.Orders.Services.OrderService.CreateAsync(Contoso.Orders.Domain.Customer customer, System.Collections.Generic.IReadOnlyList<Contoso.Orders.Domain.Line> lines)",
+            "Contoso.Orders.Services.PricingService.Price(Contoso.Orders.Domain.Order order)",
+            "Contoso.Orders.Services.DiscountPolicy.Apply(Contoso.Orders.Domain.Order order, decimal rate)",
+            "Contoso.Orders.Domain.Order.Recalculate()",
+            "Contoso.Orders.Domain.Order.get_Subtotal()",
+            "Contoso.Orders.Domain.Line.get_Total()",
+            "Contoso.Orders.Domain.Money.Multiply(decimal factor)",
+            "Contoso.Orders.Domain.Money.Round(int decimals)",
+            "Contoso.Orders.Domain.Money.Normalize()",
+        ];
+        let mut steps = Vec::new();
+        for (depth, name) in names.iter().enumerate() {
+            steps.push(FakeStep::new(
+                if depth % 2 == 0 { &main } else { &calc },
+                3 + (depth as i64 % 4),
+                name,
+                depth,
+                vec![v("depth", &depth.to_string(), "int")],
+            ));
+        }
+        let mut locals = vec![
+            v(
+                "this",
+                "{Contoso.Orders.Domain.Money}",
+                "Contoso.Orders.Domain.Money",
+            )
+            .with_children(vec![
+                v("Amount", "129.95", "decimal"),
+                v("Currency", "\"EUR\"", "string"),
+            ]),
+            v("decimals", "2", "int").with_hint("parameter"),
+            v("factor", "1.0825", "decimal"),
+            v(
+                "order",
+                "{Contoso.Orders.Domain.Order}",
+                "Contoso.Orders.Domain.Order",
+            )
+            .with_children(vec![v("Id", "42", "int")]),
+            v(
+                "customer",
+                "{Contoso.Orders.Domain.Customer}",
+                "Contoso.Orders.Domain.Customer",
+            )
+            .with_children(vec![v("Name", "\"Ada Lovelace\"", "string")]),
+            v(
+                "lines",
+                "Count = 3",
+                "System.Collections.Generic.List<Contoso.Orders.Domain.Line>",
+            )
+            .with_children(vec![v("[0]", "{Line}", "Contoso.Orders.Domain.Line")]),
+            v("createdAt", "{10/3/2026 9:41:07 AM}", "System.DateTime"),
+            v(
+                "note",
+                "\"Customer asked for gift wrapping and delivery before the weekend, call ahead\"",
+                "string",
+            ),
+            v("isPreferred", "true", "bool"),
+            v("rounding", "AwayFromZero", "System.MidpointRounding"),
+        ];
+        for i in 0..20 {
+            locals.push(v(
+                &format!("subtotal{i:02}"),
+                &format!("{}.{:02}", 100 + i * 7, i * 3 % 100),
+                "decimal",
+            ));
+        }
+        assert_eq!(locals.len(), 30);
+        let last = steps.len() - 1;
+        steps[last].locals = locals;
+        steps[last].line = 9;
+        steps[last].path = main.clone();
+        steps[0].prints = (0..20)
+            .map(|i| {
+                (
+                    "stdout".to_owned(),
+                    format!("info: Contoso.Orders.Api.OrdersController[{i}] Order {} priced at {}.{:02} EUR\n", 4000 + i, 100 + i, i),
+                )
+            })
+            .collect();
+        p.steps = steps;
+        p.output_at_start = Vec::new();
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 9}),
+    )
+    .unwrap();
+    d.cmd(cmds::WATCH, json!({"add": "factor"})).unwrap();
+    d.start_and_break();
+    let s = agent_call(&mut d, cmds::SNAPSHOT, json!({}));
+    assert_eq!(s["frames"]["rows"].as_array().unwrap().len(), 10);
+    assert_eq!(s["frames"]["total"], 13);
+    assert_eq!(s["locals"]["rows"].as_array().unwrap().len(), 30);
+    assert_eq!(s["output"]["lines"].as_array().unwrap().len(), 20);
+    assert_eq!(s["watches"][0]["value"], "1.0825");
+    let size = json_size(&s);
+    if std::env::var_os("ELUDITE_PRINT_SUMMARY").is_some() {
+        eprintln!("{}", serde_json::to_string_pretty(&s).unwrap());
+    }
+    eprintln!(
+        "size: the stop summary at the corpus stop (30 locals, 10 of 13 frames, 20 output lines, 1 watch): {size} bytes"
+    );
+    assert!(size < 8 * 1024, "{size}");
+    let deeper = agent_call(&mut d, cmds::SNAPSHOT, json!({"depth": 2}));
+    eprintln!("size: the same with depth 2: {} bytes", json_size(&deeper));
+    for (what, command, args) in [
+        ("stack", cmds::STACK, json!({})),
+        ("variables", cmds::VARIABLES, json!({})),
+        ("output", cmds::OUTPUT, json!({})),
+        ("state", cmds::STATE, json!({})),
+    ] {
+        let v = agent_call(&mut d, command, args);
+        eprintln!(
+            "size: {what} default at the corpus stop: {} bytes",
+            json_size(&v)
+        );
+    }
+
+    // The frame cost while an agent polls snapshot ten times a second for two seconds: each frame drawn (render,
+    // layout, paint) plus the UI thread's share of the agent's reads since the previous frame.
+    let commands = d.w.commands.clone();
+    let a = test_agent();
+    let poller = std::thread::spawn(move || {
+        with_caller(a, || {
+            for _ in 0..20 {
+                commands.invoke(cmds::SNAPSHOT, json!({})).unwrap();
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        })
+    });
+    let mut frames = Vec::new();
+    let mut agent_slices = 0usize;
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.timings.agent_ui.clear());
+    let mut last = Instant::now();
+    while !poller.is_finished() {
+        d.w.vcx.run_until_parked();
+        let draw = d.w.vcx.update(|window, cx| {
+            window.refresh();
+            let t = Instant::now();
+            let _ = window.draw(cx);
+            t.elapsed()
+        });
+        let ui: Duration = d.w.shell.read_with(&d.w.vcx, |s, _| {
+            s.debugger()
+                .timings
+                .agent_ui
+                .iter()
+                .filter(|(at, _)| *at >= last)
+                .map(|(_, took)| *took)
+                .sum()
+        });
+        agent_slices =
+            d.w.shell
+                .read_with(&d.w.vcx, |s, _| s.debugger().timings.agent_ui.len());
+        last = Instant::now();
+        frames.push((draw, ui));
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    poller.join().unwrap();
+    let mut cost: Vec<Duration> = frames.iter().map(|(a, b)| *a + *b).collect();
+    cost.sort();
+    let mut agent: Vec<Duration> = frames.iter().map(|(_, b)| *b).collect();
+    agent.sort();
+    let p99 = |v: &[Duration]| v[(v.len() * 99).div_ceil(100) - 1];
+    eprintln!(
+        "timing: frame cost while an agent polls snapshot at 10/s: p99 {:.2} ms, max {:.2} ms over {} frames; the agent's share p99 {:.3} ms ({} UI slices)",
+        p99(&cost).as_secs_f64() * 1e3,
+        cost.last().unwrap().as_secs_f64() * 1e3,
+        cost.len(),
+        p99(&agent).as_secs_f64() * 1e3,
+        agent_slices
+    );
+    assert!(p99(&agent) < Duration::from_millis(8));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// The same reads through the shell against the real `eludite-dbg-mono` debugging brief 0022's TestApp (copied into the
+/// test solution as a net472 project's build output): `snapshot` 20 times at a break (timed), every thread's stack,
+/// the 201 locals of `Many` paged, and Break All of the TestApp sleeping. Skipped with a message unless Mono, the
+/// adapter (`ELUDITE_DBG_MONO` or the repository's build output) and the TestApp are found.
+#[gpui::test]
+fn the_reads_work_against_eludite_dbg_mono(cx: &mut TestAppContext) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mono_dir = root.join("debuggers/mono");
+    let built = |p: &str| mono_dir.join(p).join("bin/Debug/net472");
+    let mono = match eludite_dap::discovery::MonoSearch::from_env().find_mono() {
+        Ok(m) if !cfg!(windows) => m,
+        Ok(_) => return eprintln!("skipped: Windows"),
+        Err(e) => return eprintln!("skipped: {e}"),
+    };
+    let adapter = std::env::var_os("ELUDITE_DBG_MONO")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| built("Eludite.Debugger.Mono").join("eludite-dbg-mono.exe"));
+    let app = built("Eludite.Debugger.Mono.TestApp");
+    if !adapter.is_file() || !app.join("Eludite.Debugger.Mono.TestApp.exe").is_file() {
+        return eprintln!(
+            "skipped: eludite-dbg-mono or the TestApp is not built (dotnet build dotnet/Eludite.slnx)"
+        );
+    }
+    let source =
+        std::fs::canonicalize(mono_dir.join("Eludite.Debugger.Mono.TestApp/Program.cs")).unwrap();
+    let text = std::fs::read_to_string(&source).unwrap();
+    let line_of = |mark: &str| {
+        text.lines()
+            .position(|l| l.ends_with(&format!("// MARK: {mark}")))
+            .unwrap() as u32
+            + 1
+    };
+    let (mut d, _) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, false);
+    d.set_debugger_path("debugger.monoPrefix", &mono.prefix);
+    d.set_debugger_path("debugger.monoAdapterPath", &adapter);
+    // The TestApp as this solution's project's build output, with a launch profile that makes it sleep.
+    std::fs::write(
+        d.w.path("src/App/App.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net472</TargetFramework><AssemblyName>Eludite.Debugger.Mono.TestApp</AssemblyName></PropertyGroup></Project>",
+    )
+    .unwrap();
+    for f in [
+        "Eludite.Debugger.Mono.TestApp.exe",
+        "Eludite.Debugger.Mono.TestApp.pdb",
+        "Eludite.Debugger.Mono.TestApp.exe.config",
+    ] {
+        std::fs::copy(app.join(f), d.w.path("src/App/bin/Debug/net472").join(f)).unwrap();
+    }
+    std::fs::create_dir_all(d.w.path("src/App/Properties")).unwrap();
+    std::fs::write(
+        d.w.path("src/App/Properties/launchSettings.json"),
+        r#"{"profiles": {"App": {"commandName": "Project"}, "Sleep": {"commandName": "Project", "commandLineArgs": "sleep"}}}"#,
+    )
+    .unwrap();
+    d.w.open_solution();
+    for mark in ["add-sum", "many"] {
+        d.cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": source.to_string_lossy(), "line": line_of(mark)}),
+        )
+        .unwrap();
+    }
+    let s = agent_call(&mut d, cmds::START, json!({"profile": "App"}));
+    assert!(s.get("error").is_none(), "{s}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 20000}),
+    );
+    assert_eq!(s["satisfied"], "stopped", "{s}");
+    assert_eq!(s["stopped"]["location"]["line"], line_of("add-sum"));
+    assert_eq!(s["capabilities"]["adapter"], "mono");
+    assert_eq!(s["capabilities"]["variable_paging"], true);
+    assert_eq!(s["capabilities"]["delayed_stack_loading"], true);
+    assert_eq!(s["capabilities"]["log_points"], "adapter");
+    let names: Vec<&str> = s["locals"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["this", "a", "b", "sum", "doubled"]);
+    let times = agent(&mut d, |c| {
+        let mut t = Vec::new();
+        for _ in 0..20 {
+            let s = Instant::now();
+            c.invoke(cmds::SNAPSHOT, json!({"depth": 2})).unwrap();
+            t.push(s.elapsed().as_secs_f64());
+        }
+        json!(t)
+    });
+    let times: Vec<Duration> = times
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| Duration::from_secs_f64(t.as_f64().unwrap()))
+        .collect();
+    eprintln!(
+        "timing: snapshot (depth 2) against eludite-dbg-mono p95 {:.2} ms (max {:.2} ms, 20 calls)",
+        p95(times.clone()).as_secs_f64() * 1e3,
+        times.iter().max().unwrap().as_secs_f64() * 1e3
+    );
+    let st = agent_call(&mut d, cmds::STACK, json!({"all_threads": true}));
+    let main = &st["threads"][0];
+    assert_eq!(main["frames"][0]["line"], line_of("add-sum"), "{st}");
+    assert!(main["total"].as_u64().unwrap() >= 2);
+    let p = agent_call(&mut d, cmds::STACK, json!({"start": 1, "count": 1}));
+    assert_eq!(
+        p["threads"][0]["frames"][0]["line"],
+        line_of("main-add"),
+        "{p}"
+    );
+    // On to Many: 201 locals, 50 in the summary, paged by the adapter.
+    let s = agent_call(&mut d, cmds::CONTINUE, json!({}));
+    assert_eq!(s["stopped"]["location"]["line"], line_of("many"), "{s}");
+    assert_eq!(s["locals"]["rows"].as_array().unwrap().len(), 50);
+    assert_eq!(s["locals"]["truncated"], true);
+    let v = agent_call(&mut d, cmds::VARIABLES, json!({"start": 190, "count": 50}));
+    let names: Vec<&str> = v["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names[0], "l190", "{v}");
+    assert_eq!(names.len(), 11);
+    assert_eq!(v["truncated"], false);
+    assert!(d.fake.lock().unwrap().is_none(), "the real adapter");
+    let s = agent_call(&mut d, cmds::STOP, json!({}));
+    assert_eq!(s["mode"], "design", "{s}");
+    // Break All of the TestApp sleeping.
+    let s = agent_call(&mut d, cmds::START, json!({"profile": "Sleep"}));
+    assert!(s.get("error").is_none(), "{s}");
+    let s = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "output", "wait_ms": 20000}),
+    );
+    assert_eq!(s["satisfied"], "output", "{s}");
+    let s = agent_call(&mut d, cmds::PAUSE, json!({"wait_ms": 10000}));
+    assert_eq!(s["stopped"]["reason"], "pause", "{s}");
+    let frames: Vec<&str> = s["frames"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        frames.iter().any(|f| f.contains("Program.Main")),
+        "{frames:?}"
+    );
+    assert!(
+        s["frames"]["rows"][0]["external"] == true,
+        "Thread.Sleep is external code: {s}"
+    );
+    agent_call(&mut d, cmds::STOP, json!({}));
 }
