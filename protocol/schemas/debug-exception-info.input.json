@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-exception-info.input.json",
+  "title": "eludite.debug.exception_info input",
+  "description": "What was thrown: at a stop whose reason is `exception`, the exception's type, message, break mode, stack trace and inner exceptions (5 levels at most). The stop summary carries only the type and message; call this when you need the stack trace or the inner exceptions. Costs at most one adapter round trip and runs no debuggee code. Refused at any other stop, naming its reason. Without the adapter's exceptionInfo request the answer says `supported: false` and repeats the stop's brief.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "description": "A thread id (from `threads` in eludite.debug.state). Default: the thread that stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state or a stop summary). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

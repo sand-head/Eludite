@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-step-over.input.json",
   "title": "eludite.debug.step_over input",
-  "description": "Debug > Step Over (F10): run the current statement, stepping over calls, and break at the next statement of the same method. Refused unless the debuggee is in break mode: a step issued while it runs is never queued.",
+  "description": "Debug > Step Over (F10): run the current statement, stepping over calls, and break at the next statement of the same method. Refused unless the debuggee is in break mode: a step issued while it runs is never queued. The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -21,6 +21,41 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 30000
+    },
+    "depth": {
+      "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "max_variables": {
+      "description": "The most variable rows listed, counting every level (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "max_frames": {
+      "description": "The most stack frames listed (default 10, at most 200); page further with eludite.debug.stack.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "max_output_lines": {
+      "description": "The most program output lines listed (default 20, at most 1000; 0 lists none).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "output_since": {
+      "description": "An output cursor (`output.next` of an earlier answer, or eludite.debug.output's `next`): list the program's lines from it on. Default: the last `max_output_lines` lines.",
+      "type": "integer",
+      "minimum": 0
     }
   }
 }

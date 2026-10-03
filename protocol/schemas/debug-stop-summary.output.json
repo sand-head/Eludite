@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-stop-summary.output.json",
+  "title": "eludite.debug stop summary",
+  "description": "The compact answer of eludite.debug.snapshot, wait and pause and of start, continue, step_over, step_into, step_out and run_to_cursor (proposal 0001 rule 2): why and where the debuggee stopped, the top frames, the frame's locals and the watches within the budget parameters, the program's output since a cursor, the adapter's capabilities and who drives. Breakpoints, exception settings and threads are in eludite.debug.state.",
+  "type": "object",
+  "required": [
+    "mode",
+    "generation",
+    "stop",
+    "output",
+    "agent_driving",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "description": "`design`: no session. `building`: F5 or Ctrl+F5 is building the startup project first (the setting build.beforeRun); the launch follows when the build succeeds, and the session goes back to `design` with `message` saying why when it fails or is canceled. `launching`: the adapter and the debuggee are starting. `running`: the debuggee runs (also while a step is in flight). `break`: stopped; the call stack, locals and watches are filled. `stopping`: the session is ending. `running_without_debugging`: started with Ctrl+F5.",
+      "enum": [
+        "design",
+        "building",
+        "launching",
+        "running",
+        "break",
+        "stopping",
+        "running_without_debugging"
+      ]
+    },
+    "generation": {
+      "description": "The session generation: it grows with every start. Events and answers of an older session are dropped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "Grows every time the debuggee breaks. Quote it as `stop` in a command to have the command refused if the debuggee moved on since (another driver stepped).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stopped": {
+      "description": "In break mode: why and where it stopped.",
+      "type": "object",
+      "required": [
+        "reason",
+        "thread"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "The adapter's reason: `breakpoint`, `step`, `exception`, `pause`, `entry` and others.",
+          "type": "string"
+        },
+        "thread": {
+          "description": "The thread that stopped.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "location": {
+          "description": "The statement it stopped at (the top frame of `thread`).",
+          "type": "object",
+          "required": [
+            "function"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "description": "Absent for a frame without source (external code).",
+              "type": "string"
+            },
+            "line": {
+              "description": "1-based.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "description": "1-based.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "description": "The statement's end, when known.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_column": {
+              "description": "The statement's end column, when known.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "function": {
+              "description": "The method, as the Call Stack window shows it.",
+              "type": "string"
+            }
+          }
+        },
+        "exception": {
+          "description": "When the reason is `exception`: what was thrown (eludite.debug.exception_info has the details).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "description": "The exception type, when the adapter says.",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "break_mode": {
+              "type": "string"
+            }
+          }
+        },
+        "breakpoint": {
+          "description": "When the reason is `breakpoint`: the breakpoint it stopped at.",
+          "type": "object",
+          "required": [
+            "path",
+            "line",
+            "hits"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "line": {
+              "description": "1-based.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "hits": {
+              "description": "Times it was reached in this session.",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "driver": {
+          "description": "Who resumed the debuggee before this stop: `user` or `agent:<name>`.",
+          "type": "string"
+        }
+      }
+    },
+    "frames": {
+      "description": "The top `max_frames` frames of the thread that stopped (or of `thread`), as eludite.debug.stack lists them; page further with eludite.debug.stack.",
+      "type": "object",
+      "required": [
+        "thread",
+        "rows",
+        "total",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "thread": {
+          "description": "The thread.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "description": "The frame's index in its thread's stack (0 is the top).",
+                "type": "integer",
+                "minimum": 0
+              },
+              "name": {
+                "description": "The method, as the Call Stack window shows it.",
+                "type": "string"
+              },
+              "path": {
+                "description": "The source file, when the frame has one.",
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "description": "1-based.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "end_line": {
+                "description": "The statement's end, when the adapter gives it.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "end_column": {
+                "description": "The statement's end column.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "external": {
+                "description": "True for a frame without source (Visual Studio's [External Code]); absent otherwise.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "total": {
+          "description": "How many frames the stack has.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "locals": {
+      "description": "The frame's variables, expanded to `depth` within `max_variables` rows, each row as eludite.debug.variables lists it; page further with eludite.debug.variables (`thread`, `frame`, `start: next`).",
+      "type": "object",
+      "required": [
+        "thread",
+        "frame",
+        "rows",
+        "total",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "thread": {
+          "description": "The thread.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "frame": {
+          "description": "The frame's index (0 is the top).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "total": {
+          "description": "How many top-level variables the frame has.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "description": "Some rows or members were left out by the budget.",
+          "type": "boolean"
+        },
+        "next": {
+          "description": "When top-level rows were left out: the `start` of the next page.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "watches": {
+      "description": "The Watch window's expressions evaluated in the frame (in break mode).",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "expression",
+          "reference"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "reference": {
+            "description": "Non-zero when the value has members.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "error": {
+            "description": "Why it could not be evaluated.",
+            "type": "string"
+          },
+          "value_truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "output": {
+      "description": "The program's output lines (source `program` of eludite.debug.output) from `output_since`, or the last `max_output_lines` lines.",
+      "type": "object",
+      "required": [
+        "lines",
+        "next",
+        "dropped",
+        "total",
+        "truncated"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "required": [
+              "seq",
+              "text"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "seq": {
+                "description": "The line's sequence number in this session and source.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "text": {
+                "type": "string"
+              },
+              "stream": {
+                "description": "Where the line came from, when known.",
+                "enum": [
+                  "stdout",
+                  "stderr"
+                ]
+              }
+            }
+          }
+        },
+        "next": {
+          "description": "The cursor to pass as `output_since` (or eludite.debug.output's `since`) next time.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "dropped": {
+          "description": "Lines after `output_since` the ring overwrote before they were read.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "description": "How many lines the program has written in this session.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "description": "More lines follow `next`.",
+          "type": "boolean"
+        }
+      }
+    },
+    "exit_code": {
+      "description": "After the session ended: the program's exit code, when known.",
+      "type": "integer"
+    },
+    "message": {
+      "description": "After the session ended, or when a command failed: why.",
+      "type": "string"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/capabilities"
+    },
+    "agent_driving": {
+      "description": "The last command that resumed, paused or started the debuggee came from an agent.",
+      "type": "boolean"
+    },
+    "truncated": {
+      "description": "A list above was cut by the budget (frames, locals, members or output).",
+      "type": "boolean"
+    },
+    "satisfied": {
+      "description": "eludite.debug.wait only: which condition held.",
+      "enum": [
+        "stopped",
+        "terminated",
+        "output"
+      ]
+    },
+    "timed_out": {
+      "description": "eludite.debug.wait, or a resuming command waiting with `wait_ms`: nothing settled in time (`mode` says what the debuggee is doing).",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "required": [
+        "name",
+        "value",
+        "reference"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "description": "As the Locals window shows it; cut at `max_value_chars` with `… (N chars)` at the end.",
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "reference": {
+          "description": "Non-zero when the value has members: pass it to eludite.debug.variables (`reference`) with this stop.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "evaluate_name": {
+          "description": "An expression that evaluates to this value.",
+          "type": "string"
+        },
+        "indexed": {
+          "description": "How many indexed members (elements) it has, when the adapter says.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "named": {
+          "description": "How many named members (fields, properties) it has, when the adapter says.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "value_truncated": {
+          "description": "The value was cut at `max_value_chars`.",
+          "type": "boolean"
+        },
+        "children": {
+          "description": "With `depth` above 1: the members, each a row of this shape.",
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "truncated": {
+          "description": "Not every member is listed in `children` (the row budget ran out); read them with `reference`.",
+          "type": "boolean"
+        }
+      }
+    },
+    "capabilities": {
+      "description": "What the session's debug adapter supports, so a caller does not try what it lacks. Booleans unless noted; `adapter` or `shell` where the shell provides what the adapter lacks.",
+      "type": "object",
+      "required": [
+        "adapter",
+        "pause"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `fake` (tests).",
+          "type": "string"
+        },
+        "pause": {
+          "description": "Debug > Break All (eludite.debug.pause); every adapter has it.",
+          "type": "boolean"
+        },
+        "set_variable": {
+          "description": "Values can be changed (DAP setVariable).",
+          "type": "boolean"
+        },
+        "exception_info": {
+          "description": "eludite.debug.exception_info has the details (DAP exceptionInfo).",
+          "type": "boolean"
+        },
+        "function_breakpoints": {
+          "description": "Breakpoints on a function by name (DAP setFunctionBreakpoints).",
+          "type": "boolean"
+        },
+        "log_points": {
+          "description": "Tracepoints: `adapter` (DAP logMessage) or `shell` (the debugger emulates them).",
+          "enum": [
+            "adapter",
+            "shell"
+          ]
+        },
+        "hit_conditions": {
+          "description": "Hit counts on breakpoints: `adapter` or `shell` (the debugger counts hits itself).",
+          "enum": [
+            "adapter",
+            "shell"
+          ]
+        },
+        "exception_filter_options": {
+          "description": "Exception settings can name exception types (DAP exceptionFilterOptions).",
+          "type": "boolean"
+        },
+        "set_next_statement": {
+          "description": "Set Next Statement (DAP gotoTargets and goto).",
+          "type": "boolean"
+        },
+        "data_breakpoints": {
+          "description": "Break when a value changes (DAP data breakpoints).",
+          "type": "boolean"
+        },
+        "step_back": {
+          "description": "Stepping backwards (DAP stepBack).",
+          "type": "boolean"
+        },
+        "restart": {
+          "description": "The adapter restarts a session itself (DAP restart).",
+          "type": "boolean"
+        },
+        "terminate": {
+          "description": "The debuggee can be asked to end gracefully (DAP terminate).",
+          "type": "boolean"
+        },
+        "modules": {
+          "description": "Loaded modules can be listed (DAP modules).",
+          "type": "boolean"
+        },
+        "memory": {
+          "description": "Memory can be read (DAP readMemory).",
+          "type": "boolean"
+        },
+        "disassembly": {
+          "description": "Code can be disassembled (DAP disassemble).",
+          "type": "boolean"
+        },
+        "delayed_stack_loading": {
+          "description": "The adapter pages call stacks itself (DAP supportsDelayedStackTraceLoading); otherwise the debugger reads the stack once and pages it.",
+          "type": "boolean"
+        },
+        "variable_paging": {
+          "description": "The adapter pages variables by `start` and `count`; otherwise the debugger reads them all and pages.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

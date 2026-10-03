@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-variables.input.json",
+  "title": "eludite.debug.variables input",
+  "description": "What is inside a variable: list a value's members by its `reference`, or a frame's variables (`thread`, `frame`, `scope`), a page at a time (`start`, `count`, default 50 rows), optionally expanded to `depth` and filtered by a name prefix. Prefer it to eludite.debug.evaluate for plain reads: it runs no debuggee code (no property getters beyond what the debugger shows) and costs one adapter round trip per value expanded. References are valid only at the stop they came from; pass that `stop` so an older one is refused as stale. Only in break mode; never moves the windows' selection. Next: page with `start: next`, expand a row with its `reference`, or step.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reference": {
+      "description": "A `reference` from an earlier row (of eludite.debug.variables, eludite.debug.snapshot or eludite.debug.state) at the same stop: list that value's members. Not with `thread`, `frame` or `scope`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "thread": {
+      "description": "A thread id (from `threads` in eludite.debug.state). Default: the thread that stopped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "frame": {
+      "description": "Index in that thread's call stack (0 is the top). Default: 0. Reading another frame never moves the windows' selection (eludite.debug.select_frame does).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "scope": {
+      "description": "Without `reference`: `locals` (default: every variable of the frame), `arguments` (the parameters) or `this`. Adapters that keep one scope for the frame give `arguments` and `this` from the rows' presentation hints and names; one that marks nothing refuses `arguments`.",
+      "enum": [
+        "locals",
+        "arguments",
+        "this"
+      ]
+    },
+    "start": {
+      "description": "The first row to list. Default 0 (`next` of an answer pages on).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "count": {
+      "description": "How many rows to list (default 50, at most 500).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "depth": {
+      "description": "Levels to expand: 1 (default) lists the rows only, 2 their members too, up to 5; breadth-first within `count` rows in all.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "filter": {
+      "description": "Only rows whose name starts with this, matched case-insensitively (top level only).",
+      "type": "string",
+      "minLength": 1
+    },
+    "max_value_chars": {
+      "description": "Values longer than this are cut and end with `… (N chars)`, the row saying `value_truncated` (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "stop": {
+      "description": "The stop the caller saw (`stop` in eludite.debug.state or a stop summary). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

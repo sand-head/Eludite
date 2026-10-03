@@ -1,21 +1,20 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-continue.input.json",
-  "title": "eludite.debug.continue input",
-  "description": "Debug > Continue (F5 in break mode): resume every thread of the debuggee until the next breakpoint, exception or exit. Refused unless the debuggee is in break mode. The answer is the stop summary (debug-stop-summary.output.json): where and why it stopped, the top frames, the top frame's locals and the watches within the budget parameters, and the program's output since `output_since`; on a timeout `mode` is `running` (or `launching`, `building`), and after the session ends `design` with `exit_code` and `message`.",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-snapshot.input.json",
+  "title": "eludite.debug.snapshot input",
+  "description": "Where the debuggee is and why: read this first at every break, before stepping or evaluating. It answers the stop summary (debug-stop-summary.output.json) in one call: the stop reason and location, the exception or breakpoint behind it, the top frames, the frame's locals expanded to `depth`, the watches, the program's output since `output_since`, the adapter's `capabilities` and whether an agent is driving. It is sized for a model's context (by default 10 frames, 50 variables, 200 characters per value, 20 output lines; every list says `total` and `truncated`), runs no debuggee code and costs a few adapter round trips. Pass `thread` and `frame` to look at another frame without moving the windows' selection. While the program runs it answers `mode` `running` and the latest output, so it is a cheap poll; in any other mode it is refused. Next: eludite.debug.variables to page or expand a value, eludite.debug.stack for deeper frames, eludite.debug.exception_info at an exception, or a resuming command (continue, step_over, step_into, step_out, run_to_cursor) quoting `stop`.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "stop": {
-      "description": "The stop the caller saw (`stop` in eludite.debug.state). When given and the debuggee has stopped or resumed since, the command is refused as stale instead of acting on a state the caller did not see (two drivers, PLAN.md 5.5).",
+    "thread": {
+      "description": "A thread id (from `threads` in eludite.debug.state). Default: the thread that stopped.",
       "type": "integer",
-      "minimum": 1
+      "minimum": 0
     },
-    "wait_ms": {
-      "description": "How long to wait for the debuggee to break, exit or settle before answering, in milliseconds. From the UI the command never waits; from another thread (an agent) the default is 5000.",
+    "frame": {
+      "description": "Index in that thread's call stack (0 is the top). Default: 0. Reading another frame never moves the windows' selection (eludite.debug.select_frame does).",
       "type": "integer",
-      "minimum": 0,
-      "maximum": 30000
+      "minimum": 0
     },
     "depth": {
       "description": "How many levels of the locals to expand: 1 (default) lists the top level only; up to 5. Expansion is breadth-first and stops when `max_variables` rows are listed.",
