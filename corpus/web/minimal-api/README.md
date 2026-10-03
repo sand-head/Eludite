@@ -15,6 +15,6 @@ Eludite runs it with its launch profile and opens its page in the Web Browser wi
 
 Build it with `build.sh` (the Debug configuration, no NuGet package: the SDK's ASP.NET Core shared framework).
 
-Used by `crates/dap/src/launch.rs`'s tests (the profile rules, on copies of its launch settings),
-`crates/eludite/src/shell/debug/tests.rs` (`ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine`,
-which copies and builds it, and its netcoredbg twin) and the Xvfb run `crates/eludite/tools/web-launch-linux.sh`.
+Used by `crates/eludite/src/shell/debug/tests.rs`
+(`ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine`, which copies it into a temporary solution
+and builds it, and its netcoredbg twin) and the Xvfb run `crates/eludite/tools/web-launch-linux.sh` (also a copy).
