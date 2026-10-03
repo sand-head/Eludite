@@ -68,6 +68,8 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0035](0035-test-explorer.md) | Test Explorer over MTP, VSTest and cargo test, with Debug Test through the suite (Phase 1 close-out) | 1/2 | open |
 | [0036](0036-debug-breakpoint-failures.md) | Breakpoints that cannot stop say so, Mono name resolution and the pending-breakpoint race, third recorded run (proposal 0001 follow-up) | 2/4 | open |
 | [0037](0037-browser-launch-integration.md) | Launch integration: F5 on a web project opens it in the Web Browser window (proposal 0002 C) | 2 | open |
+| [0038](0038-javascript-debugging.md) | JavaScript debugging in the Web Browser window with vscode-js-debug: attach to a tab, compound with the server, source maps, child sessions (proposal 0002 D, proposal 0001 E3) | 2/4 | open |
+| [0039](0039-browser-packaging-linux.md) | Packaging the browser engine on Linux: the layout beside `eludite`, discovery, the sandbox rule and the no-sandbox opt-in (proposal 0002 E, Linux half) | 2 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`.
