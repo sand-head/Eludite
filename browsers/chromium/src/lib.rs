@@ -11,6 +11,8 @@
 //! - [`rpc`]: the control channel's messages and framing.
 //! - [`privacy`]: the switches, feature flags and profile preferences that keep Chrome's background services from
 //!   making requests nobody asked for (brief 0032).
+//! - [`window`]: the Web Browser window's helpers that need no CEF (popup compositing, cursor and permission names,
+//!   download paths).
 //! - [`sandbox`]: whether the engine may start sandboxed, refuses, or runs with `--no-sandbox` because
 //!   `ELUDITE_CHROME_NO_SANDBOX=1` asked for it.
 //! - `engine` (feature `cef`): CEF itself: the app, the tabs, the render handler, the DevTools pass-through.
@@ -23,6 +25,7 @@ pub mod rpc;
 pub mod sandbox;
 #[cfg(unix)]
 pub mod shm;
+pub mod window;
 
 #[cfg(all(feature = "cef", target_os = "linux"))]
 pub mod engine;

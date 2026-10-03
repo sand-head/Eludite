@@ -46,19 +46,46 @@ pub const SWITCHES: &[&str] = &[
 
 /// `--disable-features=`, each with what it silences.
 pub const DISABLED_FEATURES: &[(&str, &str)] = &[
-    ("NetworkTimeServiceQuerying", "clients2.google.com/time (network time)"),
+    (
+        "NetworkTimeServiceQuerying",
+        "clients2.google.com/time (network time)",
+    ),
     ("OptimizationHints", "the optimization guide's hint fetches"),
     ("MediaRouter", "Cast discovery"),
-    ("DialMediaRouteProvider", "DIAL discovery on the local network"),
-    ("Translate", "the translate script and language model downloads"),
-    ("CertificateTransparencyComponentUpdater", "the CT log list component"),
+    (
+        "DialMediaRouteProvider",
+        "DIAL discovery on the local network",
+    ),
+    (
+        "Translate",
+        "the translate script and language model downloads",
+    ),
+    (
+        "CertificateTransparencyComponentUpdater",
+        "the CT log list component",
+    ),
     ("LensOverlay", "Lens"),
-    ("AutofillServerCommunication", "autofill's field-type queries"),
+    (
+        "AutofillServerCommunication",
+        "autofill's field-type queries",
+    ),
     ("AimEnabled", "AI Mode (www.google.com/async/folae)"),
-    ("AimServerEligibilityEnabled", "AI Mode's eligibility request (www.google.com/async/folae)"),
-    ("AimServerRequestOnStartupEnabled", "the same request at profile load"),
-    ("PreconnectToSearch", "the preconnect to the default search engine (www.google.com)"),
-    ("DnsOverHttpsUpgrade", "the DNS-over-HTTPS upgrade probes (dns.google)"),
+    (
+        "AimServerEligibilityEnabled",
+        "AI Mode's eligibility request (www.google.com/async/folae)",
+    ),
+    (
+        "AimServerRequestOnStartupEnabled",
+        "the same request at profile load",
+    ),
+    (
+        "PreconnectToSearch",
+        "the preconnect to the default search engine (www.google.com)",
+    ),
+    (
+        "DnsOverHttpsUpgrade",
+        "the DNS-over-HTTPS upgrade probes (dns.google)",
+    ),
 ];
 
 /// The `--disable-features=` switch.
@@ -200,7 +227,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let prefs = dir.path().join("Default").join("Preferences");
         std::fs::create_dir_all(prefs.parent().unwrap()).unwrap();
-        std::fs::write(&prefs, r#"{"signin": {"allowed": true, "other": 1}, "kept": "yes"}"#).unwrap();
+        std::fs::write(
+            &prefs,
+            r#"{"signin": {"allowed": true, "other": 1}, "kept": "yes"}"#,
+        )
+        .unwrap();
         seed_profile(dir.path()).unwrap();
         seed_profile(dir.path()).unwrap();
         let p: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
@@ -211,7 +242,8 @@ mod tests {
         assert_eq!(p["net"]["network_prediction_options"], 2);
         assert_eq!(p["safebrowsing"]["enabled"], false);
         let l: Value =
-            serde_json::from_slice(&std::fs::read(dir.path().join("Local State")).unwrap()).unwrap();
+            serde_json::from_slice(&std::fs::read(dir.path().join("Local State")).unwrap())
+                .unwrap();
         assert_eq!(l["dns_over_https"]["mode"], "off");
         // A file that is not JSON is replaced.
         std::fs::write(&prefs, "garbage").unwrap();
@@ -243,7 +275,11 @@ mod tests {
         let s = disable_features_switch();
         assert!(s.starts_with("disable-features=NetworkTimeServiceQuerying,"));
         let mut names: Vec<_> = DISABLED_FEATURES.iter().map(|(n, _)| *n).collect();
-        assert!(DISABLED_FEATURES.iter().all(|(n, why)| !n.contains(',') && !why.is_empty()));
+        assert!(
+            DISABLED_FEATURES
+                .iter()
+                .all(|(n, why)| !n.contains(',') && !why.is_empty())
+        );
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), DISABLED_FEATURES.len());
