@@ -72,6 +72,24 @@
       "x-eludite-label": "netcoredbg executable",
       "x-eludite-env": "ELUDITE_NETCOREDBG"
     },
+    "debugger.monoPrefix": {
+      "description": "The prefix of the Mono that runs and debugs .NET Framework programs on Linux and macOS (the folder holding `bin/mono`). Empty: `mono` on PATH (its prefix is two folders up from the resolved executable), then `~/.local/opt/mono-root/usr`, `/usr`, `/usr/local` and `/Library/Frameworks/Mono.framework/Versions/Current`. Mono is located, never bundled: `mono-devel` on Debian and Ubuntu, `mono` on Arch, the Mono framework on macOS. Applies to the next session.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Mono prefix (.NET Framework on Linux and macOS)",
+      "x-eludite-env": "ELUDITE_MONO_PREFIX"
+    },
+    "debugger.monoAdapterPath": {
+      "description": "The Mono soft-debugger adapter `eludite-dbg-mono.exe` (or the folder holding it), run by the located Mono to debug .NET Framework programs on Linux and macOS. Empty: beside the eludite executable (`eludite-dbg-mono/eludite-dbg-mono.exe`, then `eludite-dbg-mono.exe`). `dotnet build dotnet/Eludite.slnx` builds it to `debuggers/mono/Eludite.Debugger.Mono/bin/Debug/net472/`. Applies to the next session.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "eludite-dbg-mono adapter",
+      "x-eludite-env": "ELUDITE_DBG_MONO"
+    },
     "languageServers.rustAnalyzerPath": {
       "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
       "type": "string",

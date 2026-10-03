@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- eludite-dbg-mono's tests (brief 0022): the protocol library without Mono, and the adapter under the located Mono
+       debugging the TestApp (skipped with a message when no Mono is found, as on Windows). The settings of
+       dotnet/tests/Directory.Build.props, which does not apply here. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Eludite.Debugger.Mono.Protocol/Eludite.Debugger.Mono.Protocol.csproj" />
+    <!-- Built first, not referenced: the tests run them under Mono. -->
+    <ProjectReference Include="../Eludite.Debugger.Mono/Eludite.Debugger.Mono.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
+    <ProjectReference Include="../Eludite.Debugger.Mono.TestApp/Eludite.Debugger.Mono.TestApp.csproj" ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="AdapterPath" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono/bin/$(Configuration)/net472/eludite-dbg-mono.exe" />
+    <AssemblyMetadata Include="TestAppPath" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono.TestApp/bin/$(Configuration)/net472/Eludite.Debugger.Mono.TestApp.exe" />
+    <AssemblyMetadata Include="TestAppSource" Value="$(MSBuildThisFileDirectory)../Eludite.Debugger.Mono.TestApp/Program.cs" />
+  </ItemGroup>
+
+</Project>

@@ -15,5 +15,11 @@
     <PackageVersion Include="Microsoft.Build.Locator" Version="1.10.2" />
     <!-- Brief 0003: tools/legacy-load runner compiles the evaluator's output directly (MIT). -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+    <!-- Brief 0022: eludite-dbg-mono, the Mono soft-debugger DAP server. Mono.Debugging.Soft (MIT; mono/debugger-libs,
+         the 2017 build, the last published) brings Mono.Debugging (MIT), Mono.Debugger.Soft (MIT), Mono.Cecil 0.9.6
+         (MIT) and ICSharpCode.NRefactory 5.5.1 (MIT). Newtonsoft.Json (MIT) carries DAP's JSON in the adapter's
+         netstandard2.0 protocol library, which runs under Mono 6.8 and on .NET 10 (its tests). -->
+    <PackageVersion Include="Mono.Debugging.Soft" Version="1.0.20170212.42" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 </Project>

@@ -369,6 +369,9 @@ pub struct SessionRow {
     pub debug: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+    /// What runs the program (brief 0022): `coreclr`, `mono` or `netfx`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_id: Option<i64>,
 }
@@ -1024,6 +1027,7 @@ mod tests {
                 profile: None,
                 debug: true,
                 adapter: Some("netcoredbg".into()),
+                runtime: Some("coreclr".into()),
                 process_id: Some(7),
             }),
             stopped: Some(StoppedRow {

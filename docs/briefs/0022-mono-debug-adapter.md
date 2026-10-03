@@ -1,6 +1,6 @@
 # Brief 0022: The Mono soft-debugger adapter, so .NET Framework programs debug on Linux and macOS
 
-Status: open
+Status: done on Linux (Windows and macOS not run); [report](0022-report.md)
 Phase: 2 (proposal 0001, brief E1)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 5), 3 (D3, D7), 4.5 (cross-platform .NET Framework debugging, option 2), 5.5, 6, 9, 10 (Phase 2); proposal 0001 sections 6 and 8 (E1)
 Related ADRs: ADR-0002, ADR-0003, ADR-0007
