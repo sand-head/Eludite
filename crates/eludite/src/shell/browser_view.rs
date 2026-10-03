@@ -99,6 +99,17 @@ pub type FitSink = Rc<dyn Fn(u32, u32, f32)>;
 /// The side of a tile, device pixels.
 pub const TILE: u32 = 256;
 
+/// What one upload took from the ring: the frame's sequence, paint and copy times, dirty rectangles and size, and how
+/// many tiles it re-created.
+struct Uploaded {
+    sequence: u64,
+    paint_ns: u64,
+    copy_ns: u64,
+    dirty: Vec<DirtyRect>,
+    size: (u32, u32),
+    redone: usize,
+}
+
 /// A frame as tiles of [`TILE`] pixels (row-major), or one image (`ELUDITE_BROWSER_TILES=0`).
 struct Tiles {
     size: (u32, u32),
@@ -252,7 +263,7 @@ impl BrowserSurface {
         let tile = if self.tiled { TILE } else { u32::MAX };
         let mut old = self.tiles.take();
         let mut freed: Vec<Arc<RenderImage>> = Vec::new();
-        let mut made: Option<(u64, u64, u64, Vec<DirtyRect>, (u32, u32), usize)> = None;
+        let mut made: Option<Uploaded> = None;
         let source = self.source.clone();
         self.source.read(true, &mut |f| {
             let size = (f.width, f.height);
@@ -313,21 +324,29 @@ impl BrowserSurface {
             } else {
                 tiles.images = fresh.into_iter().map(|(_, img)| img).collect();
             }
-            made = Some((
-                f.sequence,
-                f.paint_ns,
-                f.copy_ns,
-                f.dirty.to_vec(),
+            made = Some(Uploaded {
+                sequence: f.sequence,
+                paint_ns: f.paint_ns,
+                copy_ns: f.copy_ns,
+                dirty: f.dirty.to_vec(),
                 size,
-                redo.len(),
-            ));
+                redone: redo.len(),
+            });
             old = Some(tiles);
         });
         self.tiles = old;
         for img in freed {
             let _ = window.drop_image(img);
         }
-        let Some((sequence, paint_ns, copy_ns, dirty, size, redone)) = made else {
+        let Some(Uploaded {
+            sequence,
+            paint_ns,
+            copy_ns,
+            dirty,
+            size,
+            redone,
+        }) = made
+        else {
             self.stats.borrow_mut().empty_reads += 1;
             self.uploaded = seq;
             return;
