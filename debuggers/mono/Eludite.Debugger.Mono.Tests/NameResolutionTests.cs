@@ -148,12 +148,24 @@ public sealed partial class MonoAdapterTests
             Assert.Equal(Built.Line("load-done"), (int)Top(c, (long)s["body"]!["threadId"]!)["line"]!);
             var final = ((JArray)answer["breakpoints"]!).Cast<JObject>().ToList();
             Assert.Equal(21, final.Count);
-            var bound = c.Events("breakpoint")
-                .Select(e => (JObject)e["body"]!["breakpoint"]!)
-                .Where(b => (bool?)b["verified"] == true)
-                .Select(b => (int)b["id"]!)
-                .ToHashSet();
-            var unbound = final.Where(b => (bool?)b["verified"] != true && !bound.Contains((int)b["id"]!)).Select(b => (int)b["line"]!).ToList();
+            // Bound in the answer, or by a `breakpoint` event since (one the library missed is inserted again at the stop).
+            List<int> Unbound()
+            {
+                var bound = c.Events("breakpoint")
+                    .Select(e => (JObject)e["body"]!["breakpoint"]!)
+                    .Where(b => (bool?)b["verified"] == true)
+                    .Select(b => (int)b["id"]!)
+                    .ToHashSet();
+                return final.Where(b => (bool?)b["verified"] != true && !bound.Contains((int)b["id"]!)).Select(b => (int)b["line"]!).ToList();
+            }
+
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+            while (Unbound().Count > 0 && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(20);
+            }
+
+            var unbound = Unbound();
             var console = string.Concat(c.Events("output").Where(e => (string?)e["body"]!["category"] == "console").Select(e => (string?)e["body"]!["output"]));
             Assert.True(unbound.Count == 0, "run " + run + ": breakpoints never bound on lines " + string.Join(", ", unbound) + "\n" + console);
             Assert.DoesNotContain("Could not set breakpoint", console, StringComparison.Ordinal);
