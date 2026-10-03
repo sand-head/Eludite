@@ -2,9 +2,11 @@
 //! the test) the window opens with the tree, Run All streams results into its rows, the Error List and the status
 //! bar, Run Failed Tests and Repeat Last Run rerun the right tests, the search box filters, Cancel ends a run, an
 //! agent discovers, runs with `wait_ms` and reads the same results, stale updates are dropped and a restarted host's
-//! status is replayed, and Debug Test starts a session that breaks at the test's first line (the fake adapter); with
-//! the real `cargo` on the corpus package, Rust tests are listed and run with libtest's output parsed, and Debug Test
-//! breaks in one under the real lldb-dap when it is installed.
+//! status is replayed, a discovery that outlives its solution generation starts over, and Debug Test starts a
+//! session that breaks at the test's first line (the fake adapter); with the real `cargo` on the corpus package, Rust
+//! tests are listed and run with libtest's output parsed, and Debug Test breaks in one under the real lldb-dap when it
+//! is installed; with the real `eludite-host` and `eludite-dbg-mono`, Debug Test breaks in the corpus's xunit.v3 test
+//! built for net472 under Mono. Stopping a debugged test before it finished cancels its run.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -479,6 +481,36 @@ fn an_agent_discovers_runs_with_wait_and_reads_the_results_the_window_shows(
 }
 
 #[gpui::test]
+fn a_discovery_that_outlives_its_generation_starts_over_under_the_new_one(cx: &mut TestAppContext) {
+    let mut t = setup(cx);
+    t.w.open_solution();
+    // A discovery the host holds (as the real host's while the solution still loads).
+    t.w.fake.set_hold_test_runs(true);
+    let out = t.cmd(cmds::DISCOVER, json!({"rebuild": false})).unwrap();
+    assert_eq!(out["state"], "discovering");
+    t.w.wait("the held discovery", |w| {
+        w.fake.running_test_run().is_some()
+    });
+    // The solution opens again: a new generation. The old discovery's end is never taken for the new tree's.
+    let sln = t.w.path("App.slnx");
+    t.w.commands
+        .invoke(
+            workspace::SOLUTION_OPEN,
+            json!({"path": sln.to_string_lossy()}),
+        )
+        .unwrap();
+    t.w.wait("the second discovery", |w| w.fake.test_discoveries() == 2);
+    let state = t.w.shell.read_with(&t.w.vcx, |s, _| s.test_runs().phase);
+    assert_eq!(state, Phase::Discovering);
+    t.w.fake.finish_test_run("completed");
+    t.wait_phase(Phase::Ready);
+    let out = t.cmd(cmds::DISCOVER, json!({})).unwrap();
+    assert_eq!(out["state"], "ready");
+    assert_eq!(out["total"], 4, "{out}");
+    assert_eq!(out["generation"], t.w.fake.generation(), "{out}");
+}
+
+#[gpui::test]
 fn cancel_ends_a_held_run_and_stale_updates_are_dropped_and_a_restarted_host_is_replayed(
     cx: &mut TestAppContext,
 ) {
@@ -491,6 +523,8 @@ fn cancel_ends_a_held_run_and_stale_updates_are_dropped_and_a_restarted_host_is_
     assert_eq!(out["state"], "running");
     let run = out["run"].as_u64().unwrap();
     t.w.wait("the host run", |w| w.fake.running_test_run().is_some());
+    // The status bar says what goes on.
+    assert_eq!(t.status(), "Tests: running 4 tests\u{2026}");
     // A second run is refused while one goes.
     assert!(t.cmd(cmds::RUN, json!({})).is_err());
     t.w.fake
@@ -573,6 +607,7 @@ fn debug_test_starts_a_session_that_breaks_at_the_first_line_and_results_still_f
     assert_eq!(out["summary"]["mode"], "break", "{out}");
     assert_eq!(out["summary"]["frames"]["rows"][0]["line"], 8, "{out}");
     assert_eq!(out["summary"]["stopped"]["reason"], "function breakpoint");
+    assert_eq!(t.status(), "Tests: debugging 1 test\u{2026}");
     // The host was asked for a debug run of the one test; the launch carried `--server --client-port`.
     let params = t.run_params().pop().unwrap();
     assert_eq!(params["debug"], true);
@@ -877,6 +912,11 @@ fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut Te
                 s.test_runs().run(run).is_some_and(|r| r.state.done())
             })
         });
+        // Stopped at the breakpoint, the test never finished: the run was canceled.
+        let state = w
+            .shell
+            .read_with(&w.vcx, |s, _| s.test_runs().run(run).unwrap().state);
+        assert_eq!(state, RunState::Canceled);
     }
     eprintln!(
         "timing: Debug Test (Rust, lldb-dap) to the first stop: {}",
@@ -887,4 +927,240 @@ fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut Te
     );
     assert!(took[1] < Duration::from_secs(10), "{took:?}");
     let _ = RowKind::Group;
+}
+
+/// The shell over the real `eludite-host` (`dotnet eludite-host.dll --stdio --no-roslyn`) with the user settings
+/// `settings`, or `None` (with the reason printed) when the host is not built or `dotnet` is not on PATH.
+fn setup_real_host(cx: &mut TestAppContext, settings: Value) -> Option<Ws> {
+    use eludite_commands::{builtins, view};
+    use eludite_docking::{DockController, DockLayout, ToolWindowRegistry};
+    use eludite_ui::{Theme, bind_keymap, vs_keymap};
+    use gpui::{AppContext as _, Focusable as _, VisualTestContext, px, size};
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let Some(dll) = ["Release", "Debug"]
+        .iter()
+        .map(|c| {
+            root.join(format!(
+                "dotnet/src/Eludite.Host/bin/{c}/net10.0/eludite-host.dll"
+            ))
+        })
+        .find(|p| p.is_file())
+    else {
+        eprintln!("skipped: eludite-host.dll is not built (dotnet build dotnet/Eludite.slnx)");
+        return None;
+    };
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet is not on PATH");
+        return None;
+    }
+    cx.executor().allow_parking();
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join(super::tests::USER_SETTINGS);
+    std::fs::create_dir_all(user.parent().unwrap()).unwrap();
+    std::fs::write(&user, settings.to_string()).unwrap();
+    let tools = ToolWindowRegistry::vs_default();
+    let controller = DockController::new(DockLayout::default_vs(&tools), tools);
+    let mut commands = builtins::default_registry();
+    view::register(&mut commands, Arc::new(controller.clone())).unwrap();
+    let launch = super::session::HostLaunch::Process(
+        eludite_lsp::HostCommand::dotnet_host(&dll)
+            .arg("--no-roslyn")
+            .stderr(eludite_lsp::StderrMode::Capture),
+    );
+    let mut services = Some(super::register_workspace(
+        &mut commands,
+        launch,
+        crate::settings::SettingsSetup::isolated(Some(user)),
+    ));
+    if let Some(s) = services.as_mut() {
+        s.agents = super::agents::AgentsSetup {
+            registry: Some(Vec::new()),
+            ..super::agents::AgentsSetup::from_env()
+        };
+        s.debug = DebugSetup {
+            connect: None,
+            search: eludite_dap::discovery::AdapterSearch::default(),
+            mono: eludite_dap::discovery::MonoSearch::default(),
+            mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+            platform: eludite_dap::launch::Platform::current(),
+            store_dir: Some(dir.path().join("store")),
+            dotnet: "dotnet".into(),
+        };
+    }
+    let commands = Arc::new(commands);
+    let window = cx.update(|cx| {
+        bind_keymap(cx, &vs_keymap());
+        crate::app::bind_editor_keys(cx);
+        cx.open_window(Default::default(), |window, cx| {
+            let shell = cx.new(|cx| {
+                super::Shell::new(
+                    commands.clone(),
+                    controller.clone(),
+                    Theme::vs_dark(),
+                    None,
+                    services.take().unwrap(),
+                    window,
+                    cx,
+                )
+            });
+            shell.focus_handle(cx).focus(window, cx);
+            shell
+        })
+        .unwrap()
+    });
+    let mut vcx = VisualTestContext::from_window(window.into(), cx);
+    vcx.simulate_resize(size(px(1280.), px(800.)));
+    vcx.run_until_parked();
+    let shell = window.root(&mut vcx).unwrap();
+    Some(Ws {
+        shell,
+        vcx,
+        commands,
+        controller,
+        fake: eludite_lsp::fake::FakeHost::new(),
+        dir,
+        opened: Arc::default(),
+    })
+}
+
+/// Debug Test on an MTP project built for net472, end to end with real processes: the real `eludite-host` discovers
+/// the corpus's xunit.v3 project (built in place by `corpus/tests/build.sh`), the shell debugs `Adds` of its net472
+/// build, the host hands over the launch (`--server --client-port`), and the real `eludite-dbg-mono` under the located
+/// Mono stops at the test's first line. Skipped on Windows (net472 runs natively there, under eludite-dbg-netfx) and
+/// when the host, the corpus, Mono or the adapter is missing.
+#[gpui::test]
+fn debug_test_of_an_mtp_net472_test_breaks_under_eludite_dbg_mono_with_the_real_host(
+    cx: &mut TestAppContext,
+) {
+    if cfg!(windows) {
+        eprintln!("skipped: Windows");
+        return;
+    }
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = root.join("corpus/tests/Corpus.XunitV3/Corpus.XunitV3.csproj");
+    let built = project.with_file_name("bin/Debug/net472/Corpus.XunitV3.exe");
+    if !built.is_file() {
+        eprintln!("skipped: the test corpus is not built (corpus/tests/build.sh)");
+        return;
+    }
+    let mono = match eludite_dap::discovery::MonoSearch::from_env().find_mono() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let adapter = std::env::var_os("ELUDITE_DBG_MONO")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            root.join("debuggers/mono/Eludite.Debugger.Mono/bin/Debug/net472/eludite-dbg-mono.exe")
+        });
+    if !adapter.is_file() {
+        eprintln!("skipped: eludite-dbg-mono is not built (dotnet build dotnet/Eludite.slnx)");
+        return;
+    }
+    // The corpus is built: Debug Test launches what is there.
+    let Some(mut w) = setup_real_host(
+        cx,
+        json!({
+            "build.beforeRun": false,
+            "debugger.monoPrefix": mono.prefix,
+            "debugger.monoAdapterPath": adapter,
+        }),
+    ) else {
+        return;
+    };
+    let out = w
+        .commands
+        .invoke(
+            workspace::SOLUTION_OPEN,
+            json!({"path": project.to_string_lossy()}),
+        )
+        .unwrap();
+    assert_eq!(out["state"], "loading");
+    wait_long(&mut w, "the Workspace tree", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_some())
+    });
+    let c = w.commands.clone();
+    let h = std::thread::spawn(move || {
+        c.invoke(cmds::DISCOVER, json!({"rebuild": false, "wait_ms": 120000}))
+    });
+    wait_long(&mut w, "the discovery", |_| h.is_finished());
+    let found = h.join().unwrap().unwrap();
+    assert_eq!(found["state"], "ready", "{found}");
+    let id = w.shell.read_with(&w.vcx, |s, _| {
+        s.test_runs()
+            .tests
+            .iter()
+            .find(|t| t.project.ends_with("|net472") && t.full_name.ends_with(".Adds"))
+            .map(|t| t.id.clone())
+    });
+    let id = id.unwrap_or_else(|| panic!("the net472 build's Adds was not discovered: {found}"));
+    let started = Instant::now();
+    let c = w.commands.clone();
+    let debugged = id.clone();
+    let h = std::thread::spawn(move || {
+        c.invoke(
+            cmds::DEBUG,
+            json!({"ids": [debugged], "wait_ms": 120000, "depth": 1}),
+        )
+    });
+    wait_long(&mut w, "the debugged test", |_| h.is_finished());
+    let out = h.join().unwrap().unwrap();
+    let took = started.elapsed();
+    eprintln!(
+        "timing: Debug Test (.NET Framework, MTP xunit.v3 net472, eludite-dbg-mono) to the first stop {:.0} ms",
+        took.as_secs_f64() * 1e3
+    );
+    assert_eq!(out["tests"], json!([id]), "{out}");
+    assert_eq!(
+        out["breakpoint"], "Corpus.XunitV3.CalculatorTests.Adds",
+        "{out}"
+    );
+    assert_eq!(out["summary"]["mode"], "break", "{out}");
+    let frame = &out["summary"]["frames"]["rows"][0];
+    assert!(
+        frame["path"]
+            .as_str()
+            .unwrap_or_default()
+            .ends_with("CalculatorTests.cs"),
+        "{out}"
+    );
+    // Mono stops a function breakpoint on the method's opening brace (line 16), the first statement is line 17.
+    let line = frame["line"].as_u64().unwrap_or_default();
+    assert!((16..=17).contains(&line), "{out}");
+    let state = w
+        .shell
+        .update_in(&mut w.vcx, |s, window, cx| {
+            s.invoke(eludite_commands::debug::STATE, json!({}), window, cx)
+        })
+        .unwrap();
+    assert!(
+        state["session"]["args"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|x| x == "--client-port")),
+        "{state}"
+    );
+    // Stopping the session ends the run.
+    let stop = w.shell.update_in(&mut w.vcx, |s, window, cx| {
+        s.invoke(eludite_commands::debug::STOP, json!({}), window, cx)
+    });
+    stop.unwrap();
+    let run = out["run"].as_u64().unwrap();
+    wait_long(&mut w, "the debugged run ended", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.test_runs().run(run).is_some_and(|r| r.state.done())
+        })
+    });
+    let state = w
+        .shell
+        .read_with(&w.vcx, |s, _| s.test_runs().run(run).unwrap().state);
+    assert_eq!(state, RunState::Canceled);
 }
