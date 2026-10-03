@@ -1489,8 +1489,11 @@ fn setup_netfx(
         "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"Mono JIT compiler version 6.8.0.105 (fake)\"\n  exit 0\nfi\necho \"mono ran $*\"\nexit 4\n",
     )
     .unwrap();
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(&mono, std::fs::Permissions::from_mode(0o755)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&mono, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let store = tempfile::tempdir().unwrap().keep();
     let fake: Arc<Mutex<Option<FakeHandle>>> = Arc::default();
     let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
@@ -1565,6 +1568,8 @@ impl Dbg {
     }
 }
 
+// The fake Mono is a shell script, and Mono debugging is for Linux and macOS (Windows uses eludite-dbg-netfx).
+#[cfg(unix)]
 #[gpui::test]
 fn a_net_framework_project_debugs_under_mono_with_eludite_dbg_mono(cx: &mut TestAppContext) {
     let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, true);
@@ -1602,6 +1607,7 @@ fn a_net_framework_project_debugs_under_mono_with_eludite_dbg_mono(cx: &mut Test
     d.wait_mode(Mode::Design);
 }
 
+#[cfg(unix)]
 #[gpui::test]
 fn ctrl_f5_on_a_net_framework_project_runs_it_under_mono(cx: &mut TestAppContext) {
     let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, true);
@@ -1664,6 +1670,7 @@ fn on_windows_a_net_framework_project_is_refused_until_eludite_dbg_netfx_exists(
     assert!(!d.message().contains("mono"), "{}", d.message());
 }
 
+#[cfg(unix)]
 #[gpui::test]
 fn the_mono_settings_reach_the_searches(cx: &mut TestAppContext) {
     let (mut d, prefix) = setup_netfx(cx, eludite_dap::launch::Platform::Linux, false);
