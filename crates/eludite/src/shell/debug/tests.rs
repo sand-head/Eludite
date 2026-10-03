@@ -6567,3 +6567,259 @@ fn toggle_breakpoint_answers_compactly_and_a_null_reads_null(cx: &mut TestAppCon
     d.cmd(cmds::STOP, json!({})).unwrap();
     d.wait_mode(Mode::Design);
 }
+
+// ----- Brief 0036: a breakpoint that cannot stop says so. -----
+
+/// The rows of `breakpoints_failed` (or `points_failed`) as (file name, line, message).
+fn failed_rows(v: &Value, key: &str) -> Vec<(String, u64, String)> {
+    v[key]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|r| {
+            let path = r["path"].as_str().unwrap_or_default();
+            (
+                Path::new(path)
+                    .file_name()
+                    .map(|f| f.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                r["line"].as_u64().unwrap_or_default(),
+                r["message"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
+}
+
+#[gpui::test]
+fn a_rejected_condition_is_reported_on_the_row_the_answers_and_the_summaries(
+    cx: &mut TestAppContext,
+) {
+    // The program runs once at start and stays alive; the fake knows no type names in conditions.
+    let mut d = setup_with(cx, |p| p.run_at_start = true);
+    d.w.open_solution();
+    let rejected = "Unknown identifier: Coin";
+    let set = agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6, "action": "set", "condition": "x == Coin.Quarter"}),
+    );
+    // No session yet: nothing to say.
+    assert!(set.get("message").is_none(), "{set}");
+    let started = agent_call(&mut d, cmds::START, json!({}));
+    assert!(started.get("error").is_none(), "{started}");
+    // The condition fails at its first hit: the program runs past it, and the next wait says why.
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 300}),
+    );
+    assert_eq!(w["mode"], "running", "{w}");
+    assert_eq!(
+        failed_rows(&w, "breakpoints_failed"),
+        [("Program.cs".to_owned(), 6, rejected.to_owned())],
+        "{w}"
+    );
+    assert_eq!(w["breakpoints_failed"][0]["session"], 1);
+    // The row, per session.
+    let s = d.state();
+    let row = &s["breakpoints"][0];
+    assert_eq!(
+        (&row["verified"], &row["sessions"][0]["message"]),
+        (&json!(false), &json!(rejected)),
+        "{s}"
+    );
+    // Set while the session runs, an agent's toggle_breakpoint waits for the adapter's answer and carries it.
+    let live = agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 7, "action": "set", "condition": "y == Coin.Dime"}),
+    );
+    assert_eq!(live["message"], rejected, "{live}");
+    assert_eq!(
+        (&live["verified"], live.get("pending")),
+        (&json!(false), None),
+        "{live}"
+    );
+    assert_eq!(live["breakpoint"]["sessions"][0]["message"], rejected);
+    assert!(live.to_string().len() < 600, "{live}");
+    // The person's toggle never waits: sent, and pending.
+    let ui = d
+        .cmd(
+            cmds::TOGGLE_BREAKPOINT,
+            json!({"path": "src/App/Program.cs", "line": 8, "action": "set", "condition": "y == Coin.Penny"}),
+        )
+        .unwrap();
+    assert_eq!(ui["pending"], true, "{ui}");
+    assert!(ui.get("message").is_none(), "{ui}");
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 8, "action": "delete"}),
+    )
+    .unwrap();
+    // Edited so that it binds, the message clears from the row, the answer and the summaries.
+    let fixed = agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6, "action": "set", "condition": "x == 1"}),
+    );
+    assert_eq!(fixed["verified"], true, "{fixed}");
+    assert!(fixed.get("message").is_none(), "{fixed}");
+    assert!(
+        fixed["breakpoint"]["sessions"][0].get("message").is_none(),
+        "{fixed}"
+    );
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 100}),
+    );
+    assert_eq!(
+        failed_rows(&w, "breakpoints_failed"),
+        [("Program.cs".to_owned(), 7, rejected.to_owned())],
+        "{w}"
+    );
+}
+
+#[gpui::test]
+fn the_end_of_session_summary_lists_what_failed_in_the_session(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        p.run_at_start = true;
+        p.exit_at_end = Some(1);
+    });
+    d.w.open_solution();
+    agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 5, "action": "set", "condition": "a == Coin.Quarter", "remove_after": true}),
+    );
+    agent_call(&mut d, cmds::START, json!({}));
+    let end = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 5000}),
+    );
+    assert_eq!(
+        (&end["mode"], &end["exit_code"]),
+        (&json!("design"), &json!(1)),
+        "{end}"
+    );
+    assert_eq!(
+        failed_rows(&end, "breakpoints_failed"),
+        [(
+            "Calc.cs".to_owned(),
+            5,
+            "Unknown identifier: Coin".to_owned()
+        )],
+        "{end}"
+    );
+    // The session is over: the row is unbound and says nothing; a new session starts clean.
+    let s = d.state();
+    assert!(s["breakpoints"][0].get("message").is_none(), "{s}");
+}
+
+#[gpui::test]
+fn a_line_the_adapter_refuses_is_reported_like_a_rejected_condition(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| p.run_at_start = true);
+    d.w.open_solution();
+    // Line 3 of Program.cs (`static void Main()`) has no statement of the program.
+    agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 3, "action": "set"}),
+    );
+    agent_call(&mut d, cmds::START, json!({}));
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 300}),
+    );
+    let refused = "The breakpoint location is invalid: line 3 has no code.";
+    assert_eq!(
+        failed_rows(&w, "breakpoints_failed"),
+        [("Program.cs".to_owned(), 3, refused.to_owned())],
+        "{w}"
+    );
+    assert_eq!(
+        d.state()["breakpoints"][0]["sessions"][0]["message"],
+        refused
+    );
+    let live = agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Calc.cs", "line": 2, "action": "set"}),
+    );
+    assert_eq!(
+        live["message"], "The breakpoint location is invalid: line 2 has no code.",
+        "{live}"
+    );
+    // Deleted, it is no longer listed.
+    agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 3, "action": "delete"}),
+    );
+    let w = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 50}),
+    );
+    assert_eq!(
+        failed_rows(&w, "breakpoints_failed"),
+        [(
+            "Calc.cs".to_owned(),
+            2,
+            "The breakpoint location is invalid: line 2 has no code.".to_owned()
+        )],
+        "{w}"
+    );
+}
+
+#[gpui::test]
+fn run_until_and_trace_report_points_that_never_bound(cx: &mut TestAppContext) {
+    let mut d = setup(cx);
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 5}),
+    )
+    .unwrap();
+    d.start_and_break();
+    // A point without code never binds; the run stops at the other one.
+    let r = agent_call(
+        &mut d,
+        cmds::RUN_UNTIL,
+        json!({"points": [{"path": "src/App/Program.cs", "line": 3}, {"path": "src/App/Calc.cs", "line": 5}],
+               "stop": 1}),
+    );
+    assert_eq!(r["stopped"]["location"]["line"], 5, "{r}");
+    assert_eq!(
+        failed_rows(&r, "points_failed"),
+        [(
+            "Program.cs".to_owned(),
+            3,
+            "The breakpoint location is invalid: line 3 has no code.".to_owned()
+        )],
+        "{r}"
+    );
+    assert_eq!(r["points_failed"][0]["session"], 1);
+    // The temporary points are gone, so the stop summary's own list stays empty.
+    assert!(r.get("breakpoints_failed").is_none(), "{r}");
+    // trace: the same for its points.
+    let t = agent_call(
+        &mut d,
+        cmds::TRACE,
+        json!({"points": [{"path": "src/App/Calc.cs", "line": 2, "message": "never"},
+                          {"path": "src/App/Calc.cs", "line": 6, "message": "sum={sum}"}],
+               "until": "stopped", "wait_ms": 500, "stop": 2}),
+    );
+    assert_eq!(
+        failed_rows(&t, "points_failed"),
+        [(
+            "Calc.cs".to_owned(),
+            2,
+            "The breakpoint location is invalid: line 2 has no code.".to_owned()
+        )],
+        "{t}"
+    );
+}
