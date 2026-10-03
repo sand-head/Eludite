@@ -17,6 +17,8 @@ if (-not (Test-Path (Join-Path $src '.git'))) {
   git clone --filter=blob:none --no-checkout https://github.com/dotnet/roslyn.git $src
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }
+# Roslyn's Razor test files pass MAX_PATH under the default clone directory.
+git -C $src config core.longpaths true
 git -C $src cat-file -e "$commit^{commit}" 2>$null
 if ($LASTEXITCODE) { git -C $src fetch origin $commit; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
 git -C $src checkout -q --detach $commit
@@ -25,7 +27,8 @@ if ($LASTEXITCODE) { exit $LASTEXITCODE }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 Push-Location $src
 try {
-  & .\Build.cmd -restore -build -configuration $config -solution $project -nodeReuse:$false
+  # Build.cmd adds -build itself; passing it again fails parameter binding.
+  & .\Build.cmd -restore -configuration $config -solution $project -nodeReuse:$false
   if ($LASTEXITCODE) { exit $LASTEXITCODE }
 } finally { Pop-Location }
 $sw.Stop()
