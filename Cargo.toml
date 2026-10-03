@@ -19,6 +19,7 @@ members = [
     "protocol/cdp/generator",
     "extension-sdk",
     "debuggers/netfx",
+    "browsers/chromium",
 ]
 # Vendored Zed crates form their own workspace (vendor/Cargo.toml) so they keep
 # upstream's manifests and lint rules unchanged. They are used by path below.
