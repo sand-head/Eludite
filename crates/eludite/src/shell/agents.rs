@@ -24,6 +24,8 @@
 
 pub mod endpoint;
 pub mod review;
+#[cfg(test)]
+pub(in crate::shell) mod scenario;
 pub mod transcript;
 pub mod window;
 
