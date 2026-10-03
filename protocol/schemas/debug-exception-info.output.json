@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-exception-info.output.json",
+  "title": "eludite.debug.exception_info output",
+  "description": "The exception the debuggee stopped at.",
+  "type": "object",
+  "required": [
+    "supported",
+    "thread",
+    "stop"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "supported": {
+      "description": "The adapter answers DAP exceptionInfo; false: only the stop's brief (`type`, `message`) is known.",
+      "type": "boolean"
+    },
+    "type": {
+      "description": "The exception type (DAP `exceptionId`).",
+      "type": "string"
+    },
+    "message": {
+      "description": "The exception's message (DAP `description`).",
+      "type": "string"
+    },
+    "break_mode": {
+      "description": "`never`, `always`, `unhandled` or `userUnhandled`, as the adapter says.",
+      "type": "string"
+    },
+    "details": {
+      "$ref": "#/$defs/details"
+    },
+    "thread": {
+      "description": "The thread asked about.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "stop": {
+      "description": "The stop it belongs to.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "type_name": {
+          "description": "The short type name.",
+          "type": "string"
+        },
+        "full_type_name": {
+          "type": "string"
+        },
+        "stack_trace": {
+          "description": "The exception's stack trace as text.",
+          "type": "string"
+        },
+        "inner_exceptions": {
+          "description": "Inner exceptions, each of this shape (5 levels at most).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/details"
+          }
+        }
+      }
+    }
+  }
+}

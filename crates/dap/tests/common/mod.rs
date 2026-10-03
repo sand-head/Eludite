@@ -25,6 +25,7 @@ pub fn program() -> FakeProgram {
         exception: "System.InvalidOperationException".into(),
         message: "boom".into(),
         handled: true,
+        ..Default::default()
     });
     FakeProgram {
         steps: vec![

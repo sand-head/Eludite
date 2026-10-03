@@ -12,6 +12,14 @@
 //! until a `breakpoint` `changed` event, no `hitCondition` support (it is ignored), no `hitBreakpointIds` in
 //! `stopped`, a sourceless `[Native Frames]` frame under the managed ones, and new frame ids at every stop.
 //!
+//! For brief 0025 it also answers `pause` (a stop with reason `pause` while the program "runs" a statement marked
+//! [`FakeStep::runs_until_paused`]), `exceptionInfo` with details (stack trace, inner exceptions), `stackTrace` with
+//! `startFrame` and `levels` (it advertises `supportsDelayedStackTraceLoading`) and `variables` with `start` and
+//! `count` (it advertises `supportsVariablePaging`; [`FakeProgram::extra_capabilities`] can turn either off, and the
+//! fake then ignores the paging arguments as such an adapter would), large variable sets ([`FakeVar::array`]) and deep
+//! object graphs ([`FakeVar::deep`]), output per category ([`FakeStep::prints`]), and other threads' stacks (one
+//! frame without source).
+//!
 //! [`connect`] serves it in-process over pipes, [`listen_tcp`] over a loopback TCP socket, and [`serve_stdio`] on
 //! this process's stdin and stdout (a child process). Every request is recorded ([`FakeHandle::requests`]).
 
@@ -34,6 +42,10 @@ pub struct FakeVar {
     pub value: String,
     pub type_name: String,
     pub children: Vec<FakeVar>,
+    /// The members are elements (`indexedVariables`), not fields (`namedVariables`).
+    pub indexed: bool,
+    /// The DAP `presentationHint.kind` of the row, if any.
+    pub hint: Option<String>,
 }
 
 impl FakeVar {
@@ -42,7 +54,7 @@ impl FakeVar {
             name: name.into(),
             value: value.into(),
             type_name: type_name.into(),
-            children: Vec::new(),
+            ..Self::default()
         }
     }
 
@@ -50,15 +62,72 @@ impl FakeVar {
         self.children = children;
         self
     }
+
+    pub fn with_hint(mut self, kind: &str) -> Self {
+        self.hint = Some(kind.into());
+        self
+    }
+
+    /// An `int[n]` whose element `[i]` is `i`.
+    pub fn array(name: &str, n: usize) -> Self {
+        let mut a = Self::new(name, &format!("{{int[{n}]}}"), "int[]").with_children(
+            (0..n)
+                .map(|i| Self::new(&format!("[{i}]"), &i.to_string(), "int"))
+                .collect(),
+        );
+        a.indexed = true;
+        a
+    }
+
+    /// An object graph `depth` levels deep (1 is a leaf), each object with `breadth` members: `breadth - 1` leaves
+    /// (`f0`, `f1`, ...) and one more object, `next`.
+    pub fn deep(name: &str, depth: usize, breadth: usize) -> Self {
+        if depth <= 1 {
+            return Self::new(name, "7", "int");
+        }
+        let mut children: Vec<FakeVar> = (0..breadth.saturating_sub(1))
+            .map(|i| Self::new(&format!("f{i}"), &i.to_string(), "int"))
+            .collect();
+        children.push(Self::deep("next", depth - 1, breadth));
+        Self::new(name, "{App.Node}", "App.Node").with_children(children)
+    }
 }
 
 /// An exception thrown at a statement.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FakeThrow {
     pub exception: String,
     pub message: String,
     /// Caught by user code (a first-chance stop only with the `all` filter).
     pub handled: bool,
+    /// `exceptionInfo`'s `details.stackTrace`.
+    pub stack_trace: Option<String>,
+    /// `exceptionInfo`'s `details.innerException`.
+    pub inner: Option<Box<FakeThrow>>,
+}
+
+impl FakeThrow {
+    pub fn new(exception: &str, message: &str, handled: bool) -> Self {
+        Self {
+            exception: exception.into(),
+            message: message.into(),
+            handled,
+            ..Self::default()
+        }
+    }
+
+    fn details(&self) -> Value {
+        let short = self.exception.rsplit('.').next().unwrap_or_default();
+        let mut d =
+            json!({"message": self.message, "typeName": short, "fullTypeName": self.exception});
+        if let Some(t) = &self.stack_trace {
+            d["stackTrace"] = json!(t);
+        }
+        if let Some(i) = &self.inner {
+            d["innerException"] = json!([i.details()]);
+        }
+        d
+    }
 }
 
 /// One statement.
@@ -72,6 +141,11 @@ pub struct FakeStep {
     pub depth: usize,
     pub locals: Vec<FakeVar>,
     pub throws: Option<FakeThrow>,
+    /// `output` events (category, text) sent when the statement runs.
+    pub prints: Vec<(String, String)>,
+    /// The statement runs until `pause` arrives (a hang or a long loop); then it stops there with reason `pause`, and
+    /// resuming goes on after it.
+    pub runs_until_paused: bool,
 }
 
 impl FakeStep {
@@ -83,7 +157,15 @@ impl FakeStep {
             depth,
             locals,
             throws: None,
+            prints: Vec::new(),
+            runs_until_paused: false,
         }
+    }
+
+    /// The statement writes `text` to stdout when it runs.
+    pub fn printing(mut self, text: &str) -> Self {
+        self.prints.push(("stdout".into(), text.into()));
+        self
     }
 }
 
@@ -101,6 +183,10 @@ pub struct FakeProgram {
     pub process_id: i64,
     /// Exit (code 3) when this command arrives: the adapter crashes.
     pub crash_on: Option<String>,
+    /// Members merged into the `initialize` answer (for example `{"supportsVariablePaging": false}`).
+    pub extra_capabilities: Value,
+    /// The program exits with this code when a run ends (a console program), instead of waiting for the next one.
+    pub exit_at_end: Option<i64>,
 }
 
 impl Default for FakeProgram {
@@ -113,6 +199,8 @@ impl Default for FakeProgram {
             output_at_start: Vec::new(),
             process_id: 4242,
             crash_on: None,
+            extra_capabilities: Value::Null,
+            exit_at_end: None,
         }
     }
 }
@@ -344,6 +432,12 @@ struct Machine {
     exception: Option<FakeThrow>,
     /// The stop was an exception: resuming does not throw it again.
     stopped_on_exception: bool,
+    /// The statement running until `pause` arrives.
+    running_at: Option<usize>,
+    /// What `initialize` answered.
+    caps: Value,
+    /// The program exited (`exited` was sent).
+    exited: bool,
 }
 
 impl Machine {
@@ -368,6 +462,9 @@ impl Machine {
             next_ref: 1,
             exception: None,
             stopped_on_exception: false,
+            running_at: None,
+            caps: Value::Null,
+            exited: false,
         }
     }
 
@@ -448,7 +545,7 @@ impl Machine {
                 None
             }
             Incoming::Control(Control::Trigger) => {
-                if self.configured && self.pc.is_none() {
+                if self.configured && self.pc.is_none() && self.running_at.is_none() {
                     self.run_from(0, Mode::Continue);
                 }
                 None
@@ -480,17 +577,25 @@ impl Machine {
     fn request(&mut self, seq: i64, command: &str, args: &Value) -> bool {
         match command {
             "initialize" => {
-                let caps = json!({
+                let mut caps = json!({
                     "supportsConfigurationDoneRequest": true,
                     "supportsConditionalBreakpoints": true,
                     "supportsExceptionInfoRequest": true,
                     "supportsTerminateRequest": true,
                     "supportTerminateDebuggee": true,
+                    "supportsDelayedStackTraceLoading": true,
+                    "supportsVariablePaging": true,
                     "exceptionBreakpointFilters": [
                         {"filter": "user-unhandled", "label": "user-unhandled"},
                         {"filter": "all", "label": "all"}
                     ]
                 });
+                if let Value::Object(extra) = &self.program.extra_capabilities {
+                    for (k, v) in extra {
+                        caps[k] = v.clone();
+                    }
+                }
+                self.caps = caps.clone();
                 self.event("capabilities", json!({ "capabilities": caps.clone() }));
                 self.respond(seq, command, Ok(caps));
                 self.event("initialized", json!({}));
@@ -568,7 +673,7 @@ impl Machine {
                 self.respond(seq, command, Ok(json!({ "threads": threads })));
             }
             "stackTrace" => {
-                let r = self.stack_trace();
+                let r = self.stack_trace(args);
                 self.respond(seq, command, r);
             }
             "scopes" => {
@@ -589,7 +694,15 @@ impl Machine {
             }
             "variables" => {
                 let r = args["variablesReference"].as_i64().unwrap_or(0);
-                let vars = self.refs.get(&r).cloned().unwrap_or_default();
+                let mut vars = self.refs.get(&r).cloned().unwrap_or_default();
+                if self.supports("supportsVariablePaging") {
+                    let start = (args["start"].as_u64().unwrap_or(0) as usize).min(vars.len());
+                    let count = args["count"].as_u64().unwrap_or(0) as usize;
+                    vars.drain(..start);
+                    if count > 0 {
+                        vars.truncate(count);
+                    }
+                }
                 let rows: Vec<Value> = vars.into_iter().map(|v| self.variable_json(v)).collect();
                 self.respond(seq, command, Ok(json!({ "variables": rows })));
             }
@@ -601,12 +714,27 @@ impl Machine {
                 let r = match (&self.exception, self.stopped_on_exception) {
                     (Some(e), true) => {
                         Ok(json!({"exceptionId": e.exception, "description": e.message,
-                                                 "breakMode": if e.handled { "always" } else { "unhandled" }}))
+                               "breakMode": if e.handled { "always" } else { "unhandled" },
+                               "details": e.details()}))
                     }
                     _ => Err("Failed command 'exceptionInfo' : 0x80004005".into()),
                 };
                 self.respond(seq, command, r);
             }
+            "pause" => match (self.running_at, self.pc) {
+                (Some(k), _) => {
+                    self.respond(seq, command, Ok(json!({})));
+                    self.running_at = None;
+                    self.stop(k, "pause", None);
+                }
+                // Already stopped: nothing to do.
+                (None, Some(_)) => self.respond(seq, command, Ok(json!({}))),
+                (None, None) => self.respond(
+                    seq,
+                    command,
+                    Err("Failed command 'pause' : the program is not running".into()),
+                ),
+            },
             "continue" | "next" | "stepIn" | "stepOut" => {
                 let Some(pc) = self.pc else {
                     self.respond(
@@ -622,6 +750,8 @@ impl Machine {
                     json!({"threadId": tid, "allThreadsContinued": true}),
                 );
                 self.respond(seq, command, Ok(json!({"allThreadsContinued": true})));
+                // The statement stopped at runs now.
+                self.print(pc);
                 let depth = self.program.steps[pc].depth;
                 let mode = match command {
                     "continue" => Mode::Continue,
@@ -633,13 +763,11 @@ impl Machine {
                 self.run_from(pc + 1, mode);
             }
             "terminate" => {
-                self.event("exited", json!({"exitCode": 0}));
-                self.event("terminated", json!({}));
+                self.exit(0);
                 self.respond(seq, command, Ok(json!({})));
             }
             "disconnect" => {
-                self.event("exited", json!({"exitCode": 0}));
-                self.event("terminated", json!({}));
+                self.exit(0);
                 self.respond(seq, command, Ok(json!({})));
                 return false;
             }
@@ -663,6 +791,17 @@ impl Machine {
             .any(|s| s.path == path && s.line == line)
     }
 
+    fn supports(&self, capability: &str) -> bool {
+        self.caps[capability].as_bool().unwrap_or(false)
+    }
+
+    /// Statement `k` runs: its output.
+    fn print(&mut self, k: usize) {
+        for (category, text) in self.program.steps[k].prints.clone() {
+            self.event("output", json!({"category": category, "output": text}));
+        }
+    }
+
     fn alloc(&mut self, vars: Vec<FakeVar>) -> i64 {
         let r = self.next_ref;
         self.next_ref += 1;
@@ -671,13 +810,25 @@ impl Machine {
     }
 
     fn variable_json(&mut self, v: FakeVar) -> Value {
+        let n = v.children.len();
         let reference = if v.children.is_empty() {
             0
         } else {
-            self.alloc(v.children.clone())
+            self.alloc(v.children)
         };
-        json!({"name": v.name, "value": v.value, "type": v.type_name, "variablesReference": reference,
-               "evaluateName": v.name})
+        let mut row = json!({"name": v.name, "value": v.value, "type": v.type_name,
+                             "variablesReference": reference, "evaluateName": v.name});
+        if n > 0 {
+            row[if v.indexed {
+                "indexedVariables"
+            } else {
+                "namedVariables"
+            }] = json!(n);
+        }
+        if let Some(kind) = v.hint {
+            row["presentationHint"] = json!({ "kind": kind });
+        }
+        row
     }
 
     /// Walk from statement `start` until something stops the program, or the run ends.
@@ -715,9 +866,27 @@ impl Machine {
                 self.stop(k, "step", None);
                 return;
             }
+            if step.runs_until_paused {
+                self.pc = None;
+                self.running_at = Some(k);
+                return;
+            }
+            self.print(k);
         }
-        // The run is over; the program waits for the next one.
+        // The run is over; the program waits for the next one, or exits.
         self.pc = None;
+        if let Some(code) = self.program.exit_at_end {
+            self.exit(code);
+        }
+    }
+
+    /// The program exits with `code` (once) and the session ends.
+    fn exit(&mut self, code: i64) {
+        if !self.exited {
+            self.exited = true;
+            self.event("exited", json!({ "exitCode": code }));
+            self.event("terminated", json!({}));
+        }
     }
 
     fn stop(&mut self, k: usize, reason: &str, text: Option<String>) {
@@ -733,10 +902,20 @@ impl Machine {
         self.event("stopped", body);
     }
 
-    fn stack_trace(&mut self) -> Result<Value, String> {
+    fn stack_trace(&mut self, args: &Value) -> Result<Value, String> {
         let Some(pc) = self.pc else {
             return Err("Failed command 'stackTrace' : 0x80131301".into());
         };
+        let thread = args["threadId"].as_i64().unwrap_or(self.thread_id());
+        if thread != self.thread_id() {
+            // Another thread waits in external code.
+            let frames = vec![
+                json!({"id": self.stops * 1000 + 900, "name": "System.Threading.Monitor.Wait()", "line": 0,
+                       "column": 0, "presentationHint": "subtle"}),
+                json!({"id": self.stops * 1000 + 901, "name": "[Native Frames]", "line": 0, "column": 0}),
+            ];
+            return Ok(self.page_frames(frames, args));
+        }
         let steps = &self.program.steps;
         let mut chain = Vec::new();
         let top = steps[pc].depth;
@@ -763,8 +942,21 @@ impl Machine {
             json!({"id": self.stops * 1000 + 999, "name": "[Native Frames]", "line": 0, "column": 0,
                            "endLine": 0, "endColumn": 0, "moduleId": ""}),
         );
+        Ok(self.page_frames(frames, args))
+    }
+
+    /// `startFrame` and `levels` when the fake advertises delayed stack loading; the whole stack otherwise.
+    fn page_frames(&self, mut frames: Vec<Value>, args: &Value) -> Value {
         let total = frames.len();
-        Ok(json!({"stackFrames": frames, "totalFrames": total}))
+        if self.supports("supportsDelayedStackTraceLoading") {
+            let start = (args["startFrame"].as_u64().unwrap_or(0) as usize).min(total);
+            let levels = args["levels"].as_u64().unwrap_or(0) as usize;
+            frames.drain(..start);
+            if levels > 0 {
+                frames.truncate(levels);
+            }
+        }
+        json!({"stackFrames": frames, "totalFrames": total})
     }
 
     fn evaluate(&mut self, args: &Value) -> Result<Value, String> {

@@ -20,11 +20,25 @@
 //!    records who resumed the debuggee last (`last_driver`, `stopped.driver`).
 //! 6. **Editing is always allowed.** Breakpoints, watches and exception settings change in any mode; the session
 //!    picks them up at once.
+//!
+//! # Inspection (brief 0025)
+//!
+//! Reads never move what the windows show: `snapshot`, `stack`, `variables` and `exception_info` take the thread and
+//! frame as parameters (proposal 0001 rule 3), and only `select_frame` changes [`DebugModel::thread`] and
+//! [`DebugModel::frame`]. `output` reads the per-session rings ([`OutputRing`], one per [`OutputKind`]), `wait` and
+//! `output` are never refused for the mode, `snapshot` needs a break or a running debuggee, and `pause` a running
+//! one. [`DebugModel::summary`] is the stop summary as far as the model knows it (the selected frame, the loaded
+//! members), which the UI thread answers with; agents' answers are completed through the adapter by the shell.
+
+use std::collections::VecDeque;
 
 use eludite_commands::CommandError;
 use eludite_commands::debug::{
-    BreakpointRow, ConsoleRow, DebugRequest, DebugState, ExceptionSettingsRow, FrameRow,
-    HitCondition, SessionRow, StoppedRow, ThreadRow, VariableRow, WatchRow,
+    BreakpointBrief, BreakpointRow, Budget, CapabilitiesRow, ConsoleRow, DebugRequest, DebugState,
+    ExceptionBrief, ExceptionSettingsRow, FrameRow, FramesBlock, HitCondition, LocalsBlock,
+    LocationRow, OutputBlock, OutputKind, OutputLine, OutputPattern, SessionRow, StackFrameRow,
+    StopSummary, StoppedRow, SummaryStopped, SummaryWatch, ThreadRow, VarRow, VariableRow,
+    WatchRow, cut_value,
 };
 use eludite_dap::types::SourceBreakpoint;
 use eludite_editor::BreakpointGlyph;
@@ -34,6 +48,127 @@ use serde::{Deserialize, Serialize};
 pub const CONSOLE_LINES: usize = 10_000;
 /// Locals and members listed at most (the schema's bound).
 pub const MAX_VARIABLES: usize = 500;
+/// Lines each output ring keeps (`eludite.debug.output`).
+pub const OUTPUT_RING_LINES: usize = 10_000;
+
+/// One source's output in a session (brief 0025): the last [`OUTPUT_RING_LINES`] lines, numbered from 0 in the order
+/// they were written, read by cursor.
+#[derive(Debug, Clone, Default)]
+pub struct OutputRing {
+    lines: VecDeque<(String, Option<&'static str>)>,
+    /// The sequence number of the next line.
+    next: u64,
+    /// The end of the text written so far that has no newline yet, and its stream.
+    partial: Option<(String, Option<&'static str>)>,
+}
+
+/// A page of a ring: (lines, next cursor, dropped, total, more after `next`).
+pub type RingPage = (Vec<OutputLine>, u64, u64, u64, bool);
+
+impl OutputRing {
+    pub fn next(&self) -> u64 {
+        self.next
+    }
+
+    /// The sequence number of the oldest line kept.
+    fn first(&self) -> u64 {
+        self.next - self.lines.len() as u64
+    }
+
+    pub fn push_line(&mut self, text: impl Into<String>, stream: Option<&'static str>) {
+        if self.lines.len() == OUTPUT_RING_LINES {
+            self.lines.pop_front();
+        }
+        self.lines.push_back((text.into(), stream));
+        self.next += 1;
+    }
+
+    /// Text as an adapter sends it: complete lines are kept, the rest waits for its newline.
+    pub fn push_text(&mut self, text: &str, stream: Option<&'static str>) {
+        let text = text.replace('\r', "");
+        if let Some((_, s)) = &self.partial
+            && *s != stream
+        {
+            self.flush();
+        }
+        let mut buf = self.partial.take().map(|(p, _)| p).unwrap_or_default();
+        buf.push_str(&text);
+        let mut parts: Vec<&str> = buf.split('\n').collect();
+        let rest = parts.pop().unwrap_or_default().to_owned();
+        for p in parts {
+            self.push_line(p, stream);
+        }
+        if !rest.is_empty() {
+            self.partial = Some((rest, stream));
+        }
+    }
+
+    /// Keep a line without its newline (the session ended).
+    pub fn flush(&mut self) {
+        if let Some((p, s)) = self.partial.take() {
+            self.push_line(p, s);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn line(seq: u64, (text, stream): &(String, Option<&'static str>)) -> OutputLine {
+        OutputLine {
+            seq,
+            text: text.clone(),
+            stream: stream.map(str::to_owned),
+        }
+    }
+
+    /// Up to `max` lines from `since` on (those matching `pattern`). A cursor past the end (an older session's) reads
+    /// from the start.
+    pub fn read(&self, since: u64, max: usize, pattern: Option<&OutputPattern>) -> RingPage {
+        let since = if since > self.next { 0 } else { since };
+        let first = self.first();
+        let dropped = first.saturating_sub(since);
+        let mut out = Vec::new();
+        let mut next = since.max(first);
+        for (seq, l) in (first..).zip(&self.lines).skip((next - first) as usize) {
+            if out.len() == max {
+                break;
+            }
+            next = seq + 1;
+            if pattern.is_none_or(|p| p.matches(&l.0)) {
+                out.push(Self::line(seq, l));
+            }
+        }
+        // Lines after `next` that the page left out: only matching ones count.
+        let more = (first..)
+            .zip(&self.lines)
+            .skip((next - first) as usize)
+            .any(|(_, l)| pattern.is_none_or(|p| p.matches(&l.0)));
+        (out, next, dropped, self.next, more)
+    }
+
+    /// The last `max` lines.
+    pub fn tail(&self, max: usize) -> RingPage {
+        let since = self.next.saturating_sub(max as u64).max(self.first());
+        let (lines, next, _, total, _) = self.read(since, max, None);
+        (lines, next, 0, total, false)
+    }
+
+    /// As the stop summary lists it: from `since`, or the last `max` lines.
+    pub fn block(&self, since: Option<u64>, max: usize) -> OutputBlock {
+        let (lines, next, dropped, total, truncated) = match since {
+            Some(s) => self.read(s, max, None),
+            None => self.tail(max),
+        };
+        OutputBlock {
+            lines,
+            next,
+            dropped,
+            total,
+            truncated,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -143,6 +278,9 @@ pub struct VarNode {
     pub type_name: Option<String>,
     pub reference: i64,
     pub evaluate_name: Option<String>,
+    /// The adapter's member counts, when it gives them.
+    pub indexed: Option<i64>,
+    pub named: Option<i64>,
     /// A watch that failed to evaluate: `value` is the message.
     pub error: bool,
     pub expanded: bool,
@@ -158,7 +296,28 @@ impl VarNode {
             type_name: v.type_name.clone().filter(|t| !t.is_empty()),
             reference: v.variables_reference,
             evaluate_name: v.evaluate_name.clone(),
+            indexed: v.indexed_variables,
+            named: v.named_variables,
             ..Self::default()
+        }
+    }
+
+    /// The row `eludite.debug.variables` and the stop summary list, its value cut at `max_chars`, with the members
+    /// the model has loaded down to `depth` levels below it within `budget` rows (counted down).
+    pub fn var_row(&self, max_chars: usize) -> VarRow {
+        let (value, value_truncated) = cut_value(&self.value, max_chars);
+        VarRow {
+            name: self.name.clone(),
+            value,
+            type_name: self.type_name.clone(),
+            reference: self.reference,
+            // Left out when it is the name itself (most locals): a model's context is the budget.
+            evaluate_name: self.evaluate_name.clone().filter(|e| *e != self.name),
+            indexed: self.indexed,
+            named: self.named,
+            value_truncated,
+            children: None,
+            truncated: false,
         }
     }
 
@@ -241,9 +400,26 @@ pub struct Frame {
     /// The adapter's frame id (new at every stop).
     pub id: i64,
     pub row: FrameRow,
+    /// The adapter marks it `subtle` (external code, `eludite-dbg-mono`).
+    pub subtle: bool,
 }
 
 impl Frame {
+    /// The row `eludite.debug.stack` lists: frames without source are `external`.
+    pub fn stack_row(&self) -> StackFrameRow {
+        let r = &self.row;
+        StackFrameRow {
+            index: r.index,
+            name: r.name.clone(),
+            path: r.path.clone(),
+            line: r.line,
+            column: r.column,
+            end_line: r.end_line,
+            end_column: r.end_column,
+            external: r.path.is_none() || self.subtle,
+        }
+    }
+
     pub fn from_dap(index: usize, f: &eludite_dap::types::StackFrame) -> Self {
         let line = |v: i64| u32::try_from(v).ok().filter(|v| *v > 0);
         let has_source = f.path().is_some();
@@ -258,6 +434,7 @@ impl Frame {
                 end_line: f.end_line.and_then(line).filter(|_| has_source),
                 end_column: f.end_column.and_then(line).filter(|_| has_source),
             },
+            subtle: f.presentation_hint.as_deref() == Some("subtle"),
         }
     }
 }
@@ -506,6 +683,20 @@ pub struct DebugModel {
     pub message: Option<String>,
     /// The project Set as Startup Project chose (brief 0020): an absolute project file path.
     pub startup_project: Option<String>,
+    /// How many frames the selected thread's stack has (the adapter's `totalFrames`, or the frames read).
+    pub frames_total: usize,
+    /// The selected frame's locals: the scope's variables reference and how many top-level rows it has.
+    pub locals_reference: i64,
+    pub locals_total: usize,
+    /// At an exception stop: the adapter's `exceptionInfo` answer, and whether it is still awaited.
+    pub exception_info: Option<eludite_dap::types::ExceptionInfoResponse>,
+    pub exception_loading: bool,
+    /// The program's output, the debugger's messages and the adapter's (brief 0025), per session.
+    pub outputs: [OutputRing; 3],
+    /// The program's exit code, once the adapter reported it.
+    pub exit_code: Option<i64>,
+    /// What the session's adapter supports, once its handshake ended.
+    pub capabilities: Option<CapabilitiesRow>,
 }
 
 impl Default for DebugModel {
@@ -530,6 +721,14 @@ impl Default for DebugModel {
             last_driver: None,
             message: None,
             startup_project: None,
+            frames_total: 0,
+            locals_reference: 0,
+            locals_total: 0,
+            exception_info: None,
+            exception_loading: false,
+            outputs: Default::default(),
+            exit_code: None,
+            capabilities: None,
         }
     }
 }
@@ -584,8 +783,48 @@ impl DebugModel {
             DebugRequest::RunToCursor { stop, .. } => needs_break("run to cursor", *stop),
             DebugRequest::Evaluate { stop, .. } => needs_break("evaluate", *stop),
             DebugRequest::SelectFrame { stop, .. } => needs_break("select a frame", *stop),
+            DebugRequest::Stack { stop, .. } => needs_break("read the call stack", *stop),
+            DebugRequest::Variables { stop, .. } => needs_break("read variables", *stop),
+            DebugRequest::ExceptionInfo { stop, .. } => {
+                needs_break("read the exception", *stop)?;
+                match &self.stopped {
+                    Some(s) if s.reason == "exception" => Ok(()),
+                    Some(s) => Err(refused(format!(
+                        "the debuggee stopped for `{}`, not an exception (stop {s_}); there is no exception to read",
+                        s.reason,
+                        s_ = self.stop
+                    ))),
+                    None => Err(refused("the debuggee has not stopped".into())),
+                }
+            }
+            DebugRequest::Snapshot { .. } => match self.mode {
+                Mode::Break | Mode::Running | Mode::RunningWithoutDebugging => Ok(()),
+                _ => Err(refused(format!(
+                    "cannot take a snapshot: the debuggee is not in break mode or running (it is {mode}, \
+                     generation {g}, stop {s}); eludite.debug.wait waits for it"
+                ))),
+            },
+            DebugRequest::Pause { .. } if self.mode != Mode::Running => Err(refused(format!(
+                "cannot break all: the debuggee is not running (it is {mode}, generation {g}, stop {s}); Break All \
+                 needs a running debuggee"
+            ))),
             _ => Ok(()),
         }
+    }
+
+    /// The last command that started, resumed or paused the debuggee came from an agent.
+    pub fn agent_driving(&self) -> bool {
+        self.last_driver
+            .as_deref()
+            .is_some_and(|d| d.starts_with("agent:"))
+    }
+
+    pub fn output(&self, kind: OutputKind) -> &OutputRing {
+        &self.outputs[kind.index()]
+    }
+
+    pub fn output_mut(&mut self, kind: OutputKind) -> &mut OutputRing {
+        &mut self.outputs[kind.index()]
     }
 
     /// Done moving: an agent waiting on a resume can answer (no session, a program run without debugging, or a
@@ -593,7 +832,11 @@ impl DebugModel {
     pub fn settled(&self) -> bool {
         match self.mode {
             Mode::Design | Mode::RunningWithoutDebugging => true,
-            Mode::Break => !self.locals_loading,
+            Mode::Break => {
+                !self.locals_loading
+                    && !self.exception_loading
+                    && !self.watches.iter().any(|w| w.loading)
+            }
             _ => false,
         }
     }
@@ -608,9 +851,14 @@ impl DebugModel {
     fn clear_break(&mut self) {
         self.stopped = None;
         self.frames.clear();
+        self.frames_total = 0;
         self.frame = 0;
         self.locals.clear();
         self.locals_loading = false;
+        self.locals_reference = 0;
+        self.locals_total = 0;
+        self.exception_info = None;
+        self.exception_loading = false;
         for w in &mut self.watches {
             *w = VarNode::watch(&w.name);
         }
@@ -627,10 +875,18 @@ impl DebugModel {
         self.last_driver = Some(driver.to_owned());
         self.breakpoints.reset_session();
         self.clear_break();
+        for r in &mut self.outputs {
+            r.clear();
+        }
+        self.exit_code = None;
+        self.capabilities = None;
     }
 
     /// The session ended.
     pub fn end(&mut self) {
+        for r in &mut self.outputs {
+            r.flush();
+        }
         self.mode = Mode::Design;
         self.threads.clear();
         self.thread = None;
@@ -690,10 +946,174 @@ impl DebugModel {
             console: ConsoleRow {
                 lines: self.console_total,
                 tail: self.console.iter().skip(tail_from).cloned().collect(),
+                next: self.output(OutputKind::Program).next(),
             },
             last_driver: self.last_driver.clone(),
             message: self.message.clone(),
+            capabilities: self.capabilities.clone(),
+            agent_driving: self.agent_driving(),
         }
+    }
+
+    /// The stop's `stopped` block, its location the top of `top` (the stopped thread's frames).
+    pub fn summary_stopped(&self, top: Option<&StackFrameRow>) -> Option<SummaryStopped> {
+        let s = self.stopped.as_ref()?;
+        let location = top.map(|f| LocationRow {
+            path: f.path.clone(),
+            line: f.line,
+            column: f.column,
+            end_line: f.end_line,
+            end_column: f.end_column,
+            function: f.name.clone(),
+        });
+        let exception = (s.reason == "exception").then(|| {
+            let e = s.exception.clone().unwrap_or_default();
+            ExceptionBrief {
+                type_name: e.id,
+                message: e.description.or_else(|| s.description.clone()),
+                break_mode: e.break_mode,
+            }
+        });
+        let breakpoint = (s.reason == "breakpoint")
+            .then(|| {
+                let f = top?;
+                let path = crate::shell::documents::normalize_path(std::path::Path::new(
+                    f.path.as_deref()?,
+                ))
+                .to_string_lossy()
+                .into_owned();
+                let b = self.breakpoints.at(&path, f.line?)?;
+                Some(BreakpointBrief {
+                    path: b.path.clone(),
+                    line: b.line,
+                    hits: b.hits,
+                })
+            })
+            .flatten();
+        Some(SummaryStopped {
+            reason: s.reason.clone(),
+            thread: s.thread,
+            location,
+            exception,
+            breakpoint,
+            driver: s.driver.clone(),
+        })
+    }
+
+    /// The watches as the stop summary lists them.
+    pub fn summary_watches(&self, max_chars: usize) -> Vec<SummaryWatch> {
+        self.watches
+            .iter()
+            .map(|w| {
+                let (value, value_truncated) = if !w.error && !w.value.is_empty() {
+                    let (v, cut) = cut_value(&w.value, max_chars);
+                    (Some(v), cut)
+                } else {
+                    (None, false)
+                };
+                SummaryWatch {
+                    expression: w.name.clone(),
+                    value,
+                    type_name: w.type_name.clone(),
+                    reference: w.reference,
+                    error: w.error.then(|| w.value.clone()),
+                    value_truncated,
+                }
+            })
+            .collect()
+    }
+
+    /// Everything of the stop summary but the break's frames and locals: the mode, the output, the end of the session,
+    /// the capabilities and who drives.
+    pub fn summary_base(&self, budget: &Budget) -> StopSummary {
+        let output = self
+            .output(OutputKind::Program)
+            .block(budget.output_since, budget.max_output_lines);
+        let ended = self.mode == Mode::Design && self.generation > 0;
+        StopSummary {
+            mode: self.mode.as_str().into(),
+            generation: self.generation,
+            stop: self.stop,
+            stopped: None,
+            frames: None,
+            locals: None,
+            watches: None,
+            truncated: output.truncated,
+            output,
+            exit_code: self.exit_code.filter(|_| ended),
+            message: if ended {
+                Some(
+                    self.message
+                        .clone()
+                        .unwrap_or_else(|| match self.exit_code {
+                            Some(c) => {
+                                format!("The session ended: the program exited with code {c}.")
+                            }
+                            None => "The session ended.".into(),
+                        }),
+                )
+            } else if self.generation == 0 {
+                Some("There is no debugging session.".into())
+            } else {
+                self.message.clone()
+            },
+            capabilities: self.capabilities.clone(),
+            agent_driving: self.agent_driving(),
+            satisfied: None,
+            timed_out: None,
+        }
+    }
+
+    /// The stop summary as far as the model knows it: the selected thread's frames and the selected frame's locals
+    /// with the members the Locals window has loaded (what the UI thread answers; agents' answers read the adapter).
+    pub fn summary(&self, budget: &Budget) -> StopSummary {
+        let mut out = self.summary_base(budget);
+        if self.mode != Mode::Break {
+            return out;
+        }
+        let rows: Vec<StackFrameRow> = self
+            .frames
+            .iter()
+            .take(budget.max_frames)
+            .map(Frame::stack_row)
+            .collect();
+        let thread = self.thread.unwrap_or_default();
+        let total = self.frames_total.max(self.frames.len());
+        let stopped_thread = self.stopped.as_ref().map(|s| s.thread);
+        let top = (stopped_thread == self.thread)
+            .then(|| self.frames.first().map(Frame::stack_row))
+            .flatten();
+        out.stopped = self.summary_stopped(top.as_ref());
+        let frames = FramesBlock {
+            thread,
+            truncated: rows.len() < total,
+            rows,
+            total,
+        };
+        let mut left = budget.max_variables;
+        let mut cut = false;
+        let rows = model_rows(
+            &self.locals,
+            budget.depth,
+            &mut left,
+            budget.max_value_chars,
+            &mut cut,
+        );
+        let total = self.locals_total.max(self.locals.len());
+        let next = (rows.len() < total).then_some(rows.len());
+        let locals = LocalsBlock {
+            thread,
+            frame: self.frame,
+            truncated: cut || next.is_some(),
+            rows,
+            total,
+            next,
+        };
+        out.truncated |= frames.truncated || locals.truncated;
+        out.frames = Some(frames);
+        out.locals = Some(locals);
+        out.watches = Some(self.summary_watches(budget.max_value_chars));
+        out
     }
 
     /// What persists.
@@ -716,6 +1136,63 @@ impl DebugModel {
     }
 }
 
+/// `nodes` as rows within `left` rows (counted down), breadth-first to `depth` levels, using the members the model
+/// has loaded; `cut` is set when something was left out for the budget.
+pub fn model_rows(
+    nodes: &[VarNode],
+    depth: usize,
+    left: &mut usize,
+    max_chars: usize,
+    cut: &mut bool,
+) -> Vec<VarRow> {
+    let take = nodes.len().min(*left);
+    *cut |= take < nodes.len();
+    *left -= take;
+    let mut rows: Vec<VarRow> = nodes[..take].iter().map(|n| n.var_row(max_chars)).collect();
+    let mut frontier: Vec<(Vec<usize>, &VarNode)> = nodes[..take]
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (vec![i], n))
+        .collect();
+    for _ in 1..depth {
+        let mut next = Vec::new();
+        for (path, node) in frontier {
+            let Some(children) = node.children.as_deref() else {
+                continue;
+            };
+            let row = row_at_mut(&mut rows, &path).expect("a row of the frontier");
+            let n = children.len().min(*left);
+            *left -= n;
+            if n < children.len() {
+                row.truncated = true;
+                *cut = true;
+            }
+            if n == 0 && !children.is_empty() {
+                continue;
+            }
+            row.children = Some(children[..n].iter().map(|c| c.var_row(max_chars)).collect());
+            for (i, c) in children[..n].iter().enumerate() {
+                let mut p = path.clone();
+                p.push(i);
+                next.push((p, c));
+            }
+        }
+        frontier = next;
+    }
+    rows
+}
+
+/// The row at `path` (indices from the top, through `children`).
+pub fn row_at_mut<'a>(rows: &'a mut [VarRow], path: &[usize]) -> Option<&'a mut VarRow> {
+    let (first, rest) = path.split_first()?;
+    let row = rows.get_mut(*first)?;
+    if rest.is_empty() {
+        Some(row)
+    } else {
+        row_at_mut(row.children.as_deref_mut()?, rest)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -727,6 +1204,7 @@ mod tests {
             thread: None,
             stop,
             wait_ms: None,
+            budget: Default::default(),
         }
     }
 
@@ -746,7 +1224,8 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
-                wait_ms: None
+                wait_ms: None,
+                budget: Default::default()
             })
             .is_ok()
         );
@@ -758,7 +1237,8 @@ mod tests {
                 debug: true,
                 profile: None,
                 build: None,
-                wait_ms: None
+                wait_ms: None,
+                budget: Default::default()
             })
             .unwrap_err()
             .to_string()
@@ -948,5 +1428,175 @@ mod tests {
         m2.restore(&serde_json::from_str(&text).unwrap());
         assert_eq!(m2.persisted(), p);
         assert_eq!(exception_filters(&m2.exceptions), ["all", "user-unhandled"]);
+    }
+
+    #[test]
+    fn output_rings_read_by_cursor_and_count_what_they_drop() {
+        let mut r = OutputRing::default();
+        r.push_text("one\ntw", Some("stdout"));
+        r.push_text("o\r\nthree", Some("stdout"));
+        // A partial line from another stream ends the first.
+        r.push_text("err\n", Some("stderr"));
+        let (lines, next, dropped, total, more) = r.read(0, 10, None);
+        let texts: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(texts, ["one", "two", "three", "err"]);
+        assert_eq!(lines[3].stream.as_deref(), Some("stderr"));
+        assert_eq!((next, dropped, total, more), (4, 0, 4, false));
+        // Pages: forward from a cursor, `more` when lines follow.
+        let (lines, next, _, _, more) = r.read(1, 2, None);
+        assert_eq!(lines[0].seq, 1);
+        assert_eq!((next, more), (3, true));
+        // A pattern: the cursor passes the lines it skipped.
+        let p = OutputPattern::parse("/^t/").unwrap();
+        let (lines, next, _, _, more) = r.read(0, 10, Some(&p));
+        assert_eq!(lines.iter().map(|l| l.seq).collect::<Vec<_>>(), [1, 2]);
+        assert_eq!((next, more), (4, false));
+        // The tail.
+        let b = r.block(None, 2);
+        assert_eq!(b.lines.iter().map(|l| l.seq).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!((b.next, b.truncated), (4, false));
+        // Overflow: the oldest lines go, and a cursor before them hears how many.
+        for i in 0..OUTPUT_RING_LINES {
+            r.push_line(format!("l{i}"), None);
+        }
+        let (lines, next, dropped, total, more) = r.read(0, 3, None);
+        assert_eq!(dropped, 4);
+        assert_eq!(lines[0].seq, 4);
+        assert_eq!(lines[0].text, "l0");
+        assert_eq!((next, total, more), (7, OUTPUT_RING_LINES as u64 + 4, true));
+        // A cursor from an older session (past the end) reads from the start.
+        let mut fresh = OutputRing::default();
+        fresh.push_line("a", None);
+        assert_eq!(fresh.read(500, 10, None).0.len(), 1);
+        // The session's end keeps a line without its newline.
+        fresh.push_text("half", None);
+        assert_eq!(fresh.next(), 1);
+        fresh.flush();
+        assert_eq!(fresh.read(1, 10, None).0[0].text, "half");
+    }
+
+    #[test]
+    fn inspection_commands_are_refused_by_mode_and_rows_follow_the_budget() {
+        use eludite_commands::debug::{OutputKind, ScopeKind, VariablesTarget, WaitUntil};
+        let mut m = DebugModel::default();
+        let b = Budget::default();
+        let snapshot = DebugRequest::Snapshot {
+            thread: None,
+            frame: None,
+            budget: b,
+        };
+        let pause = DebugRequest::Pause {
+            thread: None,
+            wait_ms: None,
+            budget: b,
+        };
+        let vars = DebugRequest::Variables {
+            target: VariablesTarget::Frame {
+                thread: None,
+                frame: None,
+                scope: ScopeKind::Locals,
+            },
+            start: 0,
+            count: 50,
+            depth: 1,
+            filter: None,
+            max_value_chars: 200,
+            stop: Some(1),
+        };
+        let wait = DebugRequest::Wait {
+            until: WaitUntil::Any,
+            wait_ms: 10,
+            stop: None,
+            budget: b,
+        };
+        let output = DebugRequest::Output {
+            source: OutputKind::Program,
+            since: 0,
+            max_lines: 20,
+            pattern: None,
+        };
+        let info = DebugRequest::ExceptionInfo {
+            thread: None,
+            stop: None,
+        };
+        // Design: snapshot and pause are refused; wait and output never are.
+        assert!(
+            m.check(&snapshot)
+                .unwrap_err()
+                .to_string()
+                .contains("snapshot")
+        );
+        assert!(
+            m.check(&pause)
+                .unwrap_err()
+                .to_string()
+                .contains("cannot break all")
+        );
+        assert!(m.check(&wait).is_ok() && m.check(&output).is_ok());
+        // Running: snapshot (the cheap poll) and pause.
+        m.begin(Mode::Running, "agent:A");
+        assert!(m.agent_driving());
+        assert!(m.check(&snapshot).is_ok() && m.check(&pause).is_ok());
+        assert!(m.check(&vars).unwrap_err().to_string().contains("stale"));
+        // Break: pause is refused; variables quoting an older stop are stale; exception_info needs an exception.
+        m.mode = Mode::Break;
+        m.stop = 2;
+        m.stopped = Some(StoppedRow {
+            reason: "breakpoint".into(),
+            thread: 1,
+            ..Default::default()
+        });
+        assert!(
+            m.check(&pause)
+                .unwrap_err()
+                .to_string()
+                .contains("not running")
+        );
+        assert!(m.check(&vars).unwrap_err().to_string().contains("stale"));
+        let e = m.check(&info).unwrap_err().to_string();
+        assert!(e.contains("`breakpoint`, not an exception"), "{e}");
+        m.stopped.as_mut().unwrap().reason = "exception".into();
+        assert!(m.check(&info).is_ok());
+        m.resume("user");
+        assert!(!m.agent_driving());
+        assert!(!m.state().agent_driving);
+
+        // Rows within the budget, breadth-first over what the model has loaded.
+        let node = |name: &str, children: Option<Vec<VarNode>>| VarNode {
+            name: name.into(),
+            value: "v".repeat(10),
+            reference: i64::from(children.is_some()),
+            evaluate_name: Some(name.into()),
+            children,
+            ..Default::default()
+        };
+        let nodes = vec![
+            node(
+                "a",
+                Some(vec![
+                    node("a0", None),
+                    node("a1", Some(vec![node("a10", None)])),
+                ]),
+            ),
+            node("b", Some(vec![node("b0", None)])),
+            node("c", None),
+        ];
+        let (mut left, mut cut) = (5, false);
+        let rows = model_rows(&nodes, 3, &mut left, 4, &mut cut);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(
+            rows[0].children.as_ref().unwrap().len(),
+            2,
+            "a's members first"
+        );
+        assert!(
+            rows[1].children.is_none() && rows[1].truncated,
+            "the budget ran out"
+        );
+        assert!(rows[0].children.as_ref().unwrap()[1].truncated);
+        assert!(cut && left == 0);
+        assert_eq!(rows[2].value, "vvvv\u{2026} (10 chars)");
+        assert!(rows[2].value_truncated);
+        assert_eq!(rows[2].evaluate_name, None, "the name itself is left out");
     }
 }

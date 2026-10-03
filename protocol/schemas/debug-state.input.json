@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/debug-state.input.json",
   "title": "eludite.debug.state input",
-  "description": "Read the debugger's state as the debugger windows show it: the mode (design, running, break), why and where the debuggee stopped, threads, the selected thread's call stack, locals of the selected frame, watch values, breakpoints with their hit counts, exception settings and the Debug Console's last lines. Agents read this to drive a session; the human sees the same state in the windows.",
+  "description": "Read the debugger's whole state as the debugger windows show it: the mode (design, running, break), why and where the debuggee stopped, threads, the selected thread's call stack, locals of the selected frame, watch values, breakpoints with their hit counts, exception settings, the Output window's last lines, the adapter's capabilities and who drives. The human sees the same state in the windows. At a break, eludite.debug.snapshot is the smaller answer sized for a model's context.",
   "type": "object",
   "additionalProperties": false,
   "properties": {}
