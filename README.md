@@ -63,31 +63,6 @@ Windows and macOS need no extra system packages beyond the Rust and .NET toolcha
 
 A machine with no display can still run the shell and its UI tests under Xvfb with Mesa's software Vulkan; see `crates/eludite/tools/xvfb-linux.sh`.
 
-## Repository layout
-
-```
-crates/            Rust workspace (the shell)
-  eludite/         binary: entry, window, layout
-  docking/ ui/ editor/ commands/ workspace/
-  lsp/ dap/ acp/ mcp/ browser/ git/ terminal/ extensions/
-vendor/            pinned upstream text crates (sum_tree, rope, text, clock, fuzzy), each with a WHY.md
-dotnet/            .NET solution: eludite-host (Roslyn, project system, NuGet) and the test bridge
-debuggers/netfx/   eludite-dbg-netfx: ICorDebug DAP server (Rust, Windows)
-debuggers/mono/    eludite-dbg-mono: Mono soft-debugger DAP server (C#, runs under Mono on Linux and macOS)
-browsers/chromium/ eludite-chromium: CEF's browser process, tabs rendered off screen into shared memory
-agents/claude-acp/ MIT: ACP adapter that drives the claude binary directly, no Node
-protocol/          MIT: schemas and generated bindings for every cross-process boundary
-  cdp/             the pinned Chrome DevTools Protocol and the generator of its Rust types
-  schemas/         command schemas, host RPC, browser-rpc, debug adapter notes
-extension-sdk/     MIT: WASM extension API
-corpus/            golden inputs: legacy solutions, seeded-bug programs, recorded debug adapter sessions
-bench/             performance suite
-spikes/            Phase 0 prototypes, kept for their measurements
-tools/             scripts that build or fetch pinned external tools (Roslyn language server, netcoredbg,
-                   rust-analyzer, Chrome for Testing, CEF), the legacy-load runner, the DAP corpus recorder
-docs/              PLAN.md, adr/, proposals/, briefs/, agents/
-```
-
 ## Documents
 
 - [docs/PLAN.md](docs/PLAN.md): the plan, and the source of truth for scope and phases
