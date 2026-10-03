@@ -370,7 +370,10 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
     // The executable from the build's artifact message; the run table's arguments and environment.
     assert_eq!(
         launch.program,
-        p.dir.path().join("target/debug/lldbtest"),
+        p.dir.path().join(format!(
+            "target/debug/lldbtest{}",
+            std::env::consts::EXE_SUFFIX
+        )),
         "{:?}",
         p.artifacts
     );
