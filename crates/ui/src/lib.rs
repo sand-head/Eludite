@@ -20,6 +20,8 @@
 //! - [`diff`]: the line diff, its hunks and the inline diff rows of the pending-change review view.
 //! - [`vertical_text`]: text rotated 90 degrees clockwise ([`vertical_label`]) for
 //!   the auto-hide strips on the left and right edges.
+//! - [`test_explorer`]: the Test Explorer's outcome glyphs ([`TestGlyph`]), its tree rows with a glyph and a duration,
+//!   and toolbar buttons that can be disabled (brief 0035).
 //! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the menu bar, the title, the caption
 //!   buttons, and the window's frame on Linux with client-side decorations.
 //! - [`transcript`]: the Agents window's transcript rows: prompts, agent Markdown blocks, thinking, tool call cards
@@ -37,6 +39,7 @@ pub mod menu;
 pub mod popup;
 pub mod startup;
 pub mod status;
+pub mod test_explorer;
 mod theme;
 pub mod title_bar;
 pub mod transcript;
@@ -55,6 +58,7 @@ pub use keymap::{
 pub use menu::{MENU_TITLES, Menu, MenuBar, MenuEntry, menu_bar_with, vs_menus};
 pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slots, status_toggle};
+pub use test_explorer::{TestGlyph, test_row, toolbar_button};
 pub use theme::{Theme, Typography};
 pub use title_bar::TitleBar;
 pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row};

@@ -6,6 +6,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Brief 0035: the corpus fixture and the recording sink are shared with the bridge's tests. -->
+    <Compile Include="../Eludite.TestBridge.Tests/Corpus.cs" Link="Corpus.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/Eludite.Host/Eludite.Host.csproj" />
   </ItemGroup>
 

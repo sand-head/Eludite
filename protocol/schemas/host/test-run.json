@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/test-run.json",
+  "title": "eludite/test/run",
+  "description": "Run tests out of process (brief 0035; host-rpc.md, \"Tests\"): MTP containers through `testing/runTests` with the tests' nodes (a fresh test application per run), VSTest containers through vstest.console's `TestExecution.RunAllWithDefaultHost` (a whole container) or `TestExecution.RunSelectedWithDefaultHost` (its discovered TestCases). The host answers at once with the run's id; results stream as eludite/test/update (`results`, `output`, `containerFinished`) and the run ends with exactly one `finished`. One run at a time per container: a run naming a container that is being run fails with -32012 (TestRunInProgress). With `debug`, the host starts no test application itself: it sends a `launch` update with the command line to start under the shell's debug adapter (MTP), or an `attach` update with the process id of the testhost vstest.console started and paused (VSTest), and the run's results flow as for any run once the test application connects (MTP) or the shell answers eludite/test/attached (VSTest).",
+  "x-eludite-method": "eludite/test/run",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "containers": {
+          "description": "What to run. Omitted: every container of the last discovery under the current generation.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+                "type": "string",
+                "minLength": 1
+              },
+              "tests": {
+                "description": "The ids of the tests to run in it. Omitted: all of its tests.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "debug": {
+          "description": "Debug the run (Debug Test): exactly one container. MTP: the host listens on a loopback port and sends a `launch` update with the test application's command line plus `--server --client-port <port>`; the shell starts it under the adapter and the application connects back, so results flow as for any run. VSTest: the host asks vstest.console to run with debugging (`TestExecution.GetTestRunnerProcessStartInfoForRunAll` or `...ForRunSelected` with `DebuggingEnabled`); vstest.console starts the testhost itself and asks for a debugger to be attached (`TestExecution.EditorAttachDebugger2`), which the host sends as an `attach` update with the testhost's process id; the shell attaches its adapter and answers with eludite/test/attached, and the tests run. (A testhost launcher that is not an attach-capable one would receive `TestExecution.CustomTestHostLaunch` instead; the host answers it by sending the start info as a `launch` update.) Default false.",
+          "type": "boolean"
+        },
+        "parallel": {
+          "description": "Run tests in parallel where the protocol lets the host choose (the setting test.parallel; VSTest: `MaxCpuCount` 0 in the run settings). Default false.",
+          "type": "boolean"
+        },
+        "configuration": {
+          "description": "The configuration whose build outputs hold the tests, for example Debug or Release. Omitted: Debug.",
+          "type": "string",
+          "minLength": 1
+        },
+        "runSettings": {
+          "description": "Absolute path of a .runsettings file (the setting test.runSettings): VSTest gets its contents as the RunSettings of every request; MTP gets it as `--settings <path>` on the test application's command line. Omitted: none.",
+          "type": "string",
+          "minLength": 1
+        },
+        "vstestConsolePath": {
+          "description": "The vstest.console.dll to run (the setting test.vstestConsolePath). Omitted: the one in the .NET SDK `dotnet --list-sdks` lists last (the SDK the host runs on when it has one).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "runId",
+        "generation",
+        "containers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "description": "The solution generation it runs under. A new generation (another solution opened, or this one closed) cancels it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "containers": {
+          "description": "The ids of the containers the run covers.",
+          "type": "array",
+          "items": {
+            "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "testRunInProgress": {
+      "description": "`data` of a -32012 TestRunInProgress error.",
+      "type": "object",
+      "required": [
+        "runId",
+        "container"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runId": {
+          "description": "The discovery's or run's id, unique within one host process, from 1 (discoveries and runs share one counter).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "container": {
+          "description": "A test container: one test project built for one target framework, named `<absolute project path>|<target framework>`.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
