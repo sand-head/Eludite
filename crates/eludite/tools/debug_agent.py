@@ -242,7 +242,7 @@ def summarize(a):
             reached_at = n
             break
     answer = "\n".join(r["agent"] for r in rows if "agent" in r)
-    final = answer.rsplit("\n\n", 1)[-1] if answer else ""
+    final = next((r["agent"] for r in reversed(rows) if "agent" in r), "")
     # Named: the answer gives the line and the statement (whitespace aside, or its telling part).
     squash = lambda s: re.sub(r"\s+", "", s).rstrip(";")
     telling = {"OffByOne": "count - 1", "MissingCase": "return 0", "NullField": "parent != null"}.get(a.program, "")
