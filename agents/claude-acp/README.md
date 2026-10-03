@@ -15,6 +15,7 @@ eludite-claude-acp auth login                # runs `claude auth login` (the ACP
 - `claude` is found through `--claude`, then `$ELUDITE_CLAUDE_PATH`, then `$PATH`, then `~/.local/bin`. Versions older than 2.1.287 (the version validated) are refused with a message.
 - The model comes from `--model`, `$ELUDITE_CLAUDE_MODEL`, or the session's `_meta.claudeCode.options.model`. None is hard-coded.
 - `$ELUDITE_CLAUDE_ACP_LOG=stderr` (or a file path) turns on the verbose log. stdout carries ACP only.
+- Each turn ends with an ACP `usage_update` (brief 0034) built from Claude Code's `result` message: `used` (the tokens in context at the turn's last model call), `size` (the model's context window, 0 when not given), `cost` (`total_cost_usd`, the session's running total in USD) and, in `_meta.claudeCode.usage`, the turn's tokens under the names of ACP's `Usage`: `inputTokens` (uncached), `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`, `thoughtTokens`, `totalTokens`, and the `model`. Eludite's Agents window shows them as a line under the turn.
 
 Eludite's `crates/acp::default_agents()` prefers this binary when it is beside the IDE's executable, on `PATH`, or named by `$ELUDITE_CLAUDE_ACP`, and falls back to `npx -y @agentclientprotocol/claude-agent-acp`.
 

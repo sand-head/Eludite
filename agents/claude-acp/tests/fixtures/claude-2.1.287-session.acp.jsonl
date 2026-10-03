@@ -68,6 +68,7 @@
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" disappear once that"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" line"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" is fixed."}}}
+{"from":"result","update":{"sessionUpdate":"usage_update","used":22662,"size":1000000,"cost":{"amount":0.26172724999999997,"currency":"USD"},"_meta":{"claudeCode":{"usage":{"inputTokens":66,"cachedReadTokens":55789,"cachedWriteTokens":10821,"outputTokens":614,"thoughtTokens":57,"totalTokens":67290,"model":"claude-fable-5-1"}}}}}
 {"turn_end":"end_turn"}
 {"prompt":"Create a file named notes.txt in the current directory containing the word hello."}
 {"from":"stream_event","update":{"sessionUpdate":"tool_call","toolCallId":"toolu_redacted_03","title":"Write","name":"Write","kind":"edit","rawInput":{},"_meta":{"claudeCode":{"toolName":"Write"}}}}
@@ -87,6 +88,7 @@
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" at"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" a different path, let me know and"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" I'll do that."}}}
+{"from":"result","update":{"sessionUpdate":"usage_update","used":23292,"size":1000000,"cost":{"amount":0.30284075,"currency":"USD"},"_meta":{"claudeCode":{"usage":{"inputTokens":34,"cachedReadTokens":45694,"cachedWriteTokens":630,"outputTokens":335,"thoughtTokens":115,"totalTokens":46693,"model":"claude-fable-5-1"}}}}}
 {"turn_end":"end_turn"}
 {"prompt":"Count from 1 to 300, one number per line, with no other text."}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"1"}}}
@@ -94,4 +96,5 @@
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n2\n3\n4\n5"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n6\n7\n8\n9"}}}
 {"from":"stream_event","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n10\n11\n12\n13"}}}
+{"from":"result","update":{"sessionUpdate":"usage_update","used":23492,"size":1000000,"cost":{"amount":0.30284075,"currency":"USD"},"_meta":{"claudeCode":{"usage":{"inputTokens":0,"cachedReadTokens":0,"cachedWriteTokens":0,"outputTokens":0,"thoughtTokens":0,"totalTokens":0,"model":"claude-fable-5-1"}}}}}
 {"turn_end":"cancelled"}
