@@ -518,7 +518,6 @@ impl Default for Budget {
     }
 }
 
-/// `value` cut at `max` characters, ending with `… (N chars)`, and whether it was cut.
 /// The one spelling of a null reference in a value (brief 0034): eludite-dbg-mono's `(null)` reads `null`, as
 /// netcoredbg, lldb-dap's C# formatters and Visual Studio's C# Locals window show it. Every other value is unchanged.
 pub fn null_spelling(value: String) -> String {
@@ -529,6 +528,7 @@ pub fn null_spelling(value: String) -> String {
     }
 }
 
+/// `value` cut at `max` characters, ending with `… (N chars)`, and whether it was cut.
 pub fn cut_value(value: &str, max: usize) -> (String, bool) {
     let n = value.chars().count();
     if n <= max {
