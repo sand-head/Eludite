@@ -64,3 +64,5 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 The Phase 0 exit is a written go/no-go on ADR-0001, a list of vendored crates, and a sized brief for the .NET Framework debugger.
 
 Phase 0 is complete on Linux (2026-10-01). The Windows runs are listed in [windows-checklist.md](windows-checklist.md).
+
+A machine with no display can still run the shell: `crates/eludite/tools/xvfb-linux.sh OUT_DIR` draws it on an Xvfb screen with Mesa's software Vulkan and writes a screenshot, and the XTest drivers under `crates/eludite/tools/` run against that display. Timings there are not the reference machine's; use it to prove flows and take screenshots.
