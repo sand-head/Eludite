@@ -5,6 +5,7 @@
 //! as thumbnails under its card (brief 0024); clicking one asks the shell to open the full image. An agent's debug
 //! command reads as one line above its card (brief 0027): the action and the result as the person would see them, the
 //! stop's location a link that opens the file at the line, and the summary the agent received folded until expanded.
+//! The agent's messages are Markdown (brief 0043); a click on a link in them emits [`AgentsWindowEvent::OpenLink`].
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -58,6 +59,8 @@ pub enum AgentsWindowEvent {
         path: String,
         line: u32,
     },
+    /// Follow a link in the agent's message: its target as written.
+    OpenLink(String),
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -220,6 +223,11 @@ pub fn change_link(change: u64) -> String {
     format!("agents-change-{change}")
 }
 
+/// The Markdown of agent text row `ix`.
+pub fn agent_text(ix: usize) -> String {
+    format!("agents-text-{ix}")
+}
+
 /// The debug line of the tool call in row `ix` (brief 0027), its stop location and its Show/Hide toggle.
 pub fn debug_row(ix: usize) -> String {
     format!("agents-debug-{ix}")
@@ -358,7 +366,22 @@ impl AgentsWindow {
             Row::User(text) => user_prompt(text.clone(), &t).into_any_element(),
             Row::Agent(text) => {
                 let mono = gpui::font(self.mono.clone());
-                agent_block(&text.blocks, &t, &window.text_style().font(), &mono).into_any_element()
+                let this = cx.entity().downgrade();
+                let on_link: eludite_ui::markdown::OnLink = Rc::new(move |url, _, cx| {
+                    let url = url.to_owned();
+                    let _ = this.update(cx, |_, cx| cx.emit(AgentsWindowEvent::OpenLink(url)));
+                });
+                let sel = agent_text(ix);
+                agent_block(
+                    sel.clone(),
+                    &text.blocks,
+                    &t,
+                    &window.text_style().font(),
+                    &mono,
+                    on_link,
+                )
+                .debug_selector(move || sel)
+                .into_any_element()
             }
             Row::Thought { text, expanded } => thought_block(thought(ix), text, *expanded, &t)
                 .on_click(cx.listener(move |this, _, _, cx| {

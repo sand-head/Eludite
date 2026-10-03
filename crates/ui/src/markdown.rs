@@ -1,15 +1,20 @@
 //! Markdown for IntelliSense tooltips (Quick Info, completion documentation, Parameter Info) and the Agents window's
 //! transcript, parsed by `pulldown-cmark` (CommonMark with GitHub's tables, strikethrough and task lists):
 //! paragraphs, headings, fenced and indented code, bullet and numbered lists, block quotes, rules, tables, code spans,
-//! bold, italic, strikethrough, links (drawn as their text) and entities. HTML is shown as its text, except `<br>`.
-//! Images show their alt text.
+//! bold, italic, strikethrough, links and entities. HTML is shown as its text, except `<br>`. Images show their alt
+//! text.
 //!
 //! [`parse`] turns Markdown into [`Block`]s; [`plain_text`] flattens them (what an agent reads); [`render`] draws them
-//! with the theme's tokens.
+//! with the theme's tokens, links in the accent color; [`render_linked`] also makes the links clickable.
+
+use std::cell::Cell;
+use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
-    Div, Font, FontStyle, FontWeight, ParentElement, Pixels, Rgba, SharedString,
-    StrikethroughStyle, Styled, StyledText, TextRun, div, px,
+    AnyElement, App, Div, ElementId, Font, FontStyle, FontWeight, InteractiveElement as _,
+    InteractiveText, IntoElement, ParentElement, Pixels, Rgba, SharedString, Stateful,
+    StrikethroughStyle, Styled, StyledText, TextRun, UnderlineStyle, Window, div, px,
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -23,7 +28,7 @@ pub struct InlineStyle {
     pub bold: bool,
     pub italic: bool,
     pub strikethrough: bool,
-    /// A link's text (drawn in the accent color; the target is not kept).
+    /// A link's text (drawn in the accent color); its target is [`Inline::url`].
     pub link: bool,
 }
 
@@ -32,6 +37,8 @@ pub struct InlineStyle {
 pub struct Inline {
     pub text: String,
     pub style: InlineStyle,
+    /// A link's target, as written (`https://…`, `src/a.rs#L3`).
+    pub url: Option<String>,
 }
 
 /// A block of a Markdown document.
@@ -134,7 +141,8 @@ struct Builder {
     bold: u32,
     italic: u32,
     strikethrough: u32,
-    link: u32,
+    /// The targets of the links being read, innermost last; images push `None`.
+    links: Vec<Option<String>>,
 }
 
 impl Builder {
@@ -144,8 +152,12 @@ impl Builder {
             bold: self.bold > 0,
             italic: self.italic > 0,
             strikethrough: self.strikethrough > 0,
-            link: self.link > 0,
+            link: self.links.iter().any(Option::is_some),
         }
+    }
+
+    fn url(&self) -> Option<String> {
+        self.links.iter().rev().flatten().next().cloned()
     }
 
     /// Add `block` to the innermost container that holds blocks.
@@ -206,15 +218,17 @@ impl Builder {
         if self.inlines.is_none() {
             self.inlines = Some((InlineOwner::Implicit, Vec::new()));
         }
+        let url = if style.link { self.url() } else { None };
         let Some((_, runs)) = &mut self.inlines else {
             return;
         };
         match runs.last_mut() {
-            Some(last) if last.style == style => last.text.push_str(text),
+            Some(last) if last.style == style && last.url == url => last.text.push_str(text),
             _ if text.is_empty() => {}
             _ => runs.push(Inline {
                 text: text.to_owned(),
                 style,
+                url,
             }),
         }
     }
@@ -304,7 +318,8 @@ impl Builder {
             Tag::Emphasis => self.italic += 1,
             Tag::Strong => self.bold += 1,
             Tag::Strikethrough => self.strikethrough += 1,
-            Tag::Link { .. } | Tag::Image { .. } => self.link += 1,
+            Tag::Link { dest_url, .. } => self.links.push(Some(dest_url.into_string())),
+            Tag::Image { .. } => self.links.push(None),
             _ => {}
         }
     }
@@ -347,7 +362,9 @@ impl Builder {
             TagEnd::Emphasis => self.italic = self.italic.saturating_sub(1),
             TagEnd::Strong => self.bold = self.bold.saturating_sub(1),
             TagEnd::Strikethrough => self.strikethrough = self.strikethrough.saturating_sub(1),
-            TagEnd::Link | TagEnd::Image => self.link = self.link.saturating_sub(1),
+            TagEnd::Link | TagEnd::Image => {
+                self.links.pop();
+            }
             _ => {}
         }
     }
@@ -427,6 +444,9 @@ fn marker(start: Option<u64>, i: usize) -> String {
     }
 }
 
+/// What a click on a link does, given its target.
+pub type OnLink = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+
 /// How [`render`] draws text.
 #[derive(Clone)]
 struct Look<'a> {
@@ -434,6 +454,8 @@ struct Look<'a> {
     font: &'a Font,
     mono: &'a Font,
     color: Rgba,
+    /// Clickable links: the handler, and the count of clickable paragraphs drawn so far (their element ids).
+    links: Option<(OnLink, Rc<Cell<usize>>)>,
 }
 
 /// Draw `blocks` as a column: text in `font`, code (blocks and spans) in `mono`, in the theme's text colors.
@@ -445,8 +467,49 @@ pub fn render(blocks: &[Block], theme: &Theme, font: &Font, mono: &Font) -> Div 
             font,
             mono,
             color: theme.text,
+            links: None,
         },
     )
+}
+
+/// [`render`] with clickable links: a click on one calls `on_link` with its target. `id` must be unique among its
+/// siblings; the paragraphs' ids are scoped under it.
+pub fn render_linked(
+    id: impl Into<ElementId>,
+    blocks: &[Block],
+    theme: &Theme,
+    font: &Font,
+    mono: &Font,
+    on_link: OnLink,
+) -> Stateful<Div> {
+    div().id(id).child(column(
+        blocks,
+        &Look {
+            theme,
+            font,
+            mono,
+            color: theme.text,
+            links: Some((on_link, Rc::new(Cell::new(0)))),
+        },
+    ))
+}
+
+/// The links of `inlines`: each one's byte range in their joined text, and its target.
+pub fn link_ranges(inlines: &[Inline]) -> Vec<(Range<usize>, String)> {
+    let mut out: Vec<(Range<usize>, String)> = Vec::new();
+    let mut at = 0;
+    for inline in inlines {
+        let end = at + inline.text.len();
+        if let Some(url) = &inline.url {
+            match out.last_mut() {
+                // A link with bold or code inside is one link of several runs.
+                Some((range, last)) if range.end == at && last == url => range.end = end,
+                _ => out.push((at..end, url.clone())),
+            }
+        }
+        at = end;
+    }
+    out
 }
 
 fn column(blocks: &[Block], look: &Look<'_>) -> Div {
@@ -471,9 +534,9 @@ fn heading_size(level: u8, theme: &Theme) -> Option<Pixels> {
 fn block_element(block: &Block, look: &Look<'_>) -> Div {
     let theme = look.theme;
     match block {
-        Block::Paragraph(inlines) => div().child(styled(inlines, look, false)),
+        Block::Paragraph(inlines) => div().child(text_element(inlines, look, false)),
         Block::Heading { level, inlines } => {
-            let el = div().child(styled(inlines, look, true));
+            let el = div().child(text_element(inlines, look, true));
             match heading_size(*level, theme) {
                 Some(size) => el.text_size(size),
                 None => el,
@@ -530,7 +593,7 @@ fn block_element(block: &Block, look: &Look<'_>) -> Div {
                 for c in 0..columns {
                     let cell = div().flex_1().min_w_0().px_2().py_1();
                     r = r.child(match cells.get(c) {
-                        Some(inlines) => cell.child(styled(inlines, look, head)),
+                        Some(inlines) => cell.child(text_element(inlines, look, head)),
                         None => cell,
                     });
                 }
@@ -547,6 +610,24 @@ fn block_element(block: &Block, look: &Look<'_>) -> Div {
             }
             table
         }
+    }
+}
+
+/// One paragraph's runs, clickable where they are links and the look has a handler.
+fn text_element(inlines: &[Inline], look: &Look<'_>, bold: bool) -> AnyElement {
+    let text = styled(inlines, look, bold);
+    let links = link_ranges(inlines);
+    match &look.links {
+        Some((on_link, count)) if !links.is_empty() => {
+            let n = count.get();
+            count.set(n + 1);
+            let on_link = on_link.clone();
+            let (ranges, urls): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+            InteractiveText::new(ElementId::Integer(n as u64), text)
+                .on_click(ranges, move |ix, window, cx| on_link(&urls[ix], window, cx))
+                .into_any_element()
+        }
+        _ => text.into_any_element(),
     }
 }
 
@@ -577,7 +658,11 @@ fn styled(inlines: &[Inline], look: &Look<'_>, bold: bool) -> StyledText {
             font: f,
             color: color.into(),
             background_color: None,
-            underline: None,
+            underline: (inline.style.link && look.links.is_some()).then(|| UnderlineStyle {
+                thickness: px(1.),
+                color: Some(color.into()),
+                wavy: false,
+            }),
             strikethrough: inline.style.strikethrough.then(|| StrikethroughStyle {
                 thickness: px(1.),
                 color: Some(color.into()),
@@ -632,6 +717,35 @@ mod tests {
             )
         );
         assert!(r.iter().any(|(t, s)| t == "docs" && s.link));
+    }
+
+    #[test]
+    fn links_keep_their_targets() {
+        let blocks = parse(
+            "See [the **docs**](https://example.org/a) and [`a.rs`](src/a.rs#L3), ![img](x.png) <https://b.example>.",
+        );
+        let Block::Paragraph(inlines) = &blocks[0] else {
+            panic!("{blocks:?}")
+        };
+        let text: String = inlines.iter().map(|i| i.text.as_str()).collect();
+        let links: Vec<(&str, String)> = link_ranges(inlines)
+            .into_iter()
+            .map(|(r, url)| (&text[r], url))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                ("the docs", "https://example.org/a".to_owned()),
+                ("a.rs", "src/a.rs#L3".to_owned()),
+                ("https://b.example", "https://b.example".to_owned()),
+            ]
+        );
+        // An image is not a link: its alt text has no target.
+        assert!(
+            inlines
+                .iter()
+                .any(|i| i.text.contains("img") && i.url.is_none() && !i.style.link)
+        );
     }
 
     #[test]
