@@ -500,6 +500,18 @@ pub fn browser_switches(gpu: bool, has_display: bool) -> Vec<&'static str> {
         "noerrdialogs",
         // No desktop keyring prompt for a profile that keeps no passwords of the user's.
         "password-store=basic",
+        // Chrome's background services CEF 154 keeps: fewer requests to Google at startup (brief 0031 found
+        // network time, which these stop, and four more endpoints they do not; the report lists them).
+        "no-pings",
+        "no-service-autorun",
+        "disable-breakpad",
+        "disable-client-side-phishing-detection",
+        "disable-domain-reliability",
+        "disable-field-trial-config",
+        "disable-search-engine-choice-screen",
+        "metrics-recording-only",
+        "disable-features=NetworkTimeServiceQuerying,OptimizationHints,MediaRouter,DialMediaRouteProvider,\
+         Translate,CertificateTransparencyComponentUpdater,LensOverlay,AutofillServerCommunication",
     ];
     if !gpu {
         s.extend(["disable-gpu", "disable-gpu-compositing"]);
@@ -974,4 +986,24 @@ pub fn main() -> ExitCode {
     shutdown();
     out().flush(std::time::Duration::from_secs(2));
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::browser_switches;
+
+    #[test]
+    fn the_switches_never_drop_the_sandbox_and_follow_gpu_and_display() {
+        for gpu in [false, true] {
+            for display in [false, true] {
+                let s = browser_switches(gpu, display);
+                assert!(!s.iter().any(|x| x.contains("sandbox")), "{s:?}");
+                assert_eq!(s.contains(&"disable-gpu"), !gpu);
+                assert_eq!(s.contains(&"ozone-platform=headless"), !display);
+                assert!(s.contains(&"enable-logging=stderr"));
+                assert!(s.iter().any(|x| x.starts_with("disable-features=")
+                    && x.contains("NetworkTimeServiceQuerying,")));
+            }
+        }
+    }
 }
