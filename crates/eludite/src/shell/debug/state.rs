@@ -636,14 +636,15 @@ impl Breakpoints {
         self.list
             .iter()
             .map(|b| BreakpointRow {
-                path: b.path.clone(),
-                line: b.line,
+                path: Some(b.path.clone()),
+                line: Some(b.line),
                 enabled: b.enabled,
                 verified: b.verified,
                 condition: b.condition.clone(),
                 hit_condition: b.hit_condition.map(|h| h.to_string()),
                 hits: b.hits,
                 message: b.message.clone(),
+                ..Default::default()
             })
             .collect()
     }
@@ -943,7 +944,7 @@ impl DebugModel {
                 })
                 .collect(),
             breakpoints: self.breakpoints.rows(),
-            exceptions: self.exceptions,
+            exceptions: self.exceptions.clone(),
             console: ConsoleRow {
                 lines: self.console_total,
                 tail: self.console.iter().skip(tail_from).cloned().collect(),
@@ -1122,7 +1123,7 @@ impl DebugModel {
         Persisted {
             version: 1,
             breakpoints: self.breakpoints.to_persisted(),
-            exceptions: Some(self.exceptions),
+            exceptions: Some(self.exceptions.clone()),
             watches: self.watches.iter().map(|w| w.name.clone()).collect(),
             startup_project: self.startup_project.clone(),
         }
@@ -1131,7 +1132,7 @@ impl DebugModel {
     /// Load what persisted for a solution (replacing the breakpoints, settings and watches).
     pub fn restore(&mut self, p: &Persisted) {
         self.breakpoints = Breakpoints::from_persisted(&p.breakpoints);
-        self.exceptions = p.exceptions.unwrap_or_default();
+        self.exceptions = p.exceptions.clone().unwrap_or_default();
         self.watches = p.watches.iter().map(|w| VarNode::watch(w)).collect();
         self.startup_project = p.startup_project.clone();
     }
