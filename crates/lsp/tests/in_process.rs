@@ -742,3 +742,171 @@ fn test_messages_are_typed_and_a_running_container_is_refused() {
     assert_eq!(f.state, Some(host::TestState::Canceled));
     assert_eq!(f.summary.unwrap().failed, 1);
 }
+
+/// Brief 0049: the project properties, launch profiles and solution configuration messages are typed end to end, a
+/// write reloads the solution (the generation moves on and the client follows it), and a stale write is refused.
+#[test]
+fn project_property_messages_are_typed_and_writes_follow_the_generation() {
+    let fake = FakeHost::new();
+    let project = "/src/App/App.csproj";
+    fake.set_project_properties(
+        project,
+        FakeHost::sample_project_properties(project, &["net10.0"]),
+    );
+    fake.set_launch_profiles(
+        project,
+        json!([{"name": "App", "commandName": "Project", "environmentVariables": [{"name": "B", "value": "2"},
+                                                                                   {"name": "A", "value": "1"}]}]),
+    );
+    fake.set_solution_configurations(json!({
+        "format": "slnx", "configurations": ["Debug", "Release"], "platforms": ["Any CPU", "x64"],
+        "projects": [{"name": "App", "path": project, "configurations": ["Debug", "Release"],
+                      "platforms": ["Any CPU"], "mappings": [
+            {"solutionConfiguration": "Release", "solutionPlatform": "Any CPU", "configuration": "Release",
+             "platform": "Any CPU", "build": true}]}]
+    }));
+    let (client, rx) = start(&fake, 0);
+    let generation = client.open_solution("/src/App.slnx", T).unwrap();
+
+    let props = client
+        .request::<host::ProjectProperties>(host::ProjectPropertiesParams {
+            project: project.into(),
+            configuration: Some("Release".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(
+        (props.configuration.as_str(), props.generation),
+        ("Release", generation)
+    );
+    let lang = props
+        .properties
+        .iter()
+        .find(|p| p.name == "LangVersion")
+        .unwrap();
+    assert_eq!(lang.source, host::PropertySource::Inherited);
+    assert!(
+        lang.inherited_from
+            .as_deref()
+            .unwrap()
+            .ends_with("Directory.Build.props")
+    );
+
+    let edit = |generation, name: &str, value: Option<&str>, configuration: Option<&str>| {
+        client
+            .request::<host::ProjectSetProperty>(host::ProjectSetPropertyParams {
+                project: project.into(),
+                generation,
+                edits: vec![host::PropertyEdit {
+                    name: name.into(),
+                    value: value.map(str::to_owned),
+                    configuration: configuration.map(str::to_owned),
+                    platform: configuration.map(|_| "AnyCPU".to_owned()),
+                    ..Default::default()
+                }],
+            })
+            .unwrap()
+            .wait_timeout(T)
+    };
+    let inherited = edit(generation, "LangVersion", Some("13.0"), None).unwrap();
+    assert_eq!(inherited.results[0].status, host::EditStatus::Inherited);
+    assert!(!inherited.written);
+    let set = edit(
+        generation,
+        "DefineConstants",
+        Some("TRACE;RELEASE"),
+        Some("Release"),
+    )
+    .unwrap();
+    assert!(set.written);
+    assert_eq!(set.generation, generation + 1);
+    next(
+        &rx,
+        |e| matches!(e, Event::SolutionStatus(s) if s.state == SolutionState::Loaded && s.generation == generation + 1),
+    );
+    assert_eq!(client.generation(), generation + 1);
+    assert_eq!(
+        fake.project_property(project, "DefineConstants", Some(("Release", "Any CPU"))),
+        Some("TRACE;RELEASE".into())
+    );
+    let stale = edit(generation, "Version", Some("2.0.0"), None).unwrap_err();
+    assert!(
+        matches!(
+            stale,
+            eludite_lsp::Error::Stale {
+                requested: 1,
+                current: 2
+            }
+        ),
+        "{stale:?}"
+    );
+
+    let profiles = client
+        .request::<host::ProjectLaunchProfiles>(host::LaunchProfilesParams {
+            project: project.into(),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(
+        profiles.profiles[0]
+            .environment_variables
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        ["B", "A"]
+    );
+    let created = client
+        .request::<host::ProjectSetLaunchProfile>(host::SetLaunchProfileParams {
+            project: project.into(),
+            generation: generation + 1,
+            action: host::LaunchProfileAction::Create,
+            profile: "Profile 1".into(),
+            new_name: None,
+            values: Some(json!({"commandLineArgs": "--x"})),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(created.profiles.len(), 2);
+    assert_eq!(
+        created.profiles[1].command_line_args.as_deref(),
+        Some("--x")
+    );
+    assert_eq!(
+        created.generation,
+        generation + 1,
+        "launch profiles do not reload"
+    );
+
+    let configurations = client
+        .request::<host::SolutionConfigurations>(())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(configurations.platforms, ["Any CPU", "x64"]);
+    assert_eq!(configurations.format, Some(host::SolutionFormat::Slnx));
+    let selected = client
+        .request::<host::SolutionSetConfiguration>(host::SolutionSetConfigurationParams {
+            generation: generation + 1,
+            select: Some(host::Selection {
+                configuration: "Release".into(),
+                platform: "x64".into(),
+            }),
+            mappings: Some(vec![host::MappingEdit {
+                project: project.into(),
+                solution_configuration: "Release".into(),
+                solution_platform: "Any CPU".into(),
+                build: Some(false),
+                ..Default::default()
+            }]),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert!(selected.written);
+    assert_eq!(selected.generation, generation + 2);
+    assert_eq!(selected.active.platform, "x64");
+}
