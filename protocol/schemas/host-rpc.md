@@ -824,3 +824,96 @@ the `eludite/build/output` shape (ANSI escapes removed), counts `compiler-artifa
 `eludite/build/progress`, and ends with one `eludite/build/finished` whose diagnostics are the `compiler-message`
 errors and warnings (primary span: file, line, column, end; code `E0308` or the lint name). Cancel kills the process
 group (`taskkill /T /F` on Windows) and reports `canceled`.
+
+### The web registrations, several servers per document and the formatters (brief 0050)
+
+Still nothing crosses the host: the web language servers are generic servers like rust-analyzer, each an entry of
+`crates/lsp/src/servers.json`. What brief 0050 adds to the registration, the client and the shell:
+
+**The entries.**
+
+| id | Server | Files (`languageId`) | Root markers |
+|---|---|---|---|
+| `typescript` | `typescript-language-server --stdio` over TypeScript's tsserver | `*.ts` (`typescript`), `*.tsx` (`typescriptreact`), `*.mts`, `*.cts` (`typescript`), `*.js`, `*.mjs`, `*.cjs` (`javascript`), `*.jsx` (`javascriptreact`) | `tsconfig.json`, `jsconfig.json`, `package.json` |
+| `eslint` | `vscode-eslint-language-server --stdio` (vscode-eslint's server) | the `typescript` entry's files | the same |
+| `html` | `vscode-html-language-server --stdio` | `*.html`, `*.htm` (`html`); `*.cshtml` as `html`, so Razor markup gets HTML completion until the Razor server comes | `package.json` |
+| `css` | `vscode-css-language-server --stdio` | `*.css` (`css`), `*.scss` (`scss`), `*.less` (`less`) | `package.json` |
+| `json` | `vscode-json-language-server --stdio` | `*.json` (`json`), `*.jsonc` (`jsonc`) | `package.json` |
+
+A registration's `languageIds` maps a file glob to the `languageId` its documents are opened with (the entry's
+`languageId` otherwise). Several entries may match one file: the document then has **several servers**, in the order
+of `servers.json` (`typescript`, then `eslint`), the first being its primary server (the status bar, the
+IntelliSense fallback rule).
+
+**Locating a Node.js server** (`command.npmPackage`): the package's `bin` entry for the executable (what
+`node_modules/.bin/<executable>` links to) in the project's `node_modules` (the nearest at or above the server's
+root, so the project's TypeScript tooling wins), then `ELUDITE_<SERVER>` (`ELUDITE_TYPESCRIPT_LANGUAGE_SERVER`,
+`ELUDITE_HTML_LANGUAGE_SERVER`, `ELUDITE_CSS_LANGUAGE_SERVER`, `ELUDITE_JSON_LANGUAGE_SERVER`,
+`ELUDITE_ESLINT_LANGUAGE_SERVER`: an executable or a script), then the cache `tools/web-servers/fetch.sh` installs
+(`ELUDITE_WEB_SERVERS` when set, else `~/.cache/eludite/web-servers/<pin>`, the pin of `tools/web-servers/PIN`), then
+`PATH`. A script is run by the Node.js the setting `languageServers.nodePath` names, else the search of brief 0038's
+`debugger.nodePath` (`node` on `PATH`, Volta, nvm, fnm), as `node <script> --stdio`. Each candidate must prove it
+runs, off the UI thread: `--version` for `typescript-language-server`, the package's `package.json` version for the
+`vscode-langservers-extracted` servers (they have no `--version`: started without a transport they exit with an
+error). A server not found is `unavailable` in its status bar slot with the message naming the search and the fetch
+command (`tools/web-servers/fetch.sh`); nothing else degrades (tree-sitter highlighting and the syntax completion
+fallback stay).
+
+**Activation** (`activation`): a registration that is not always wanted names a setting and root files. `eslint` runs
+when `languageServers.eslint` is `on`, or `auto` (the default) and an ESLint configuration (`eslint.config.js`,
+`.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`, `.eslintrc.js`, `.cjs`, `.yaml`, `.yml`, `.json`, `.eslintrc`) is at or above
+the root; never with `off`.
+
+**Substitutions.** `initializationOptions` and `settings` strings may hold `${root}`, `${rootUri}` and `${rootName}`
+(the server's workspace root), `${cache}` and `${cacheUri}` (the web servers' cache folder) and
+`${module:<name>}` (a located module, below). A registration's `modules` names Node packages it runs on and how they
+are found: `typescript` is `languageServers.typescriptPath`, else the project's `node_modules/typescript/lib`, else the
+cache's; the status bar slot says which (`TypeScript: ready (6.0.3, project)`), and `initializationOptions.tsserver.path`
+carries it, so the project's own TypeScript version is used when present.
+
+**Pushed settings.** A registration with `pushSettings` gets `workspace/didChangeConfiguration` with
+`{"settings": <its settings>}` after `initialized` (the HTML, CSS and JSON servers read their settings only from it);
+its `workspace/configuration` answers are unchanged (an empty `section` is the whole settings object, as ESLint asks).
+
+**JSON schemas.** The `json` entry associates `package.json`, `tsconfig.json` and `tsconfig.*.json`,
+`launchSettings.json`, `appsettings.json` and `appsettings.*.json` and `global.json` with the SchemaStore schemas
+`fetch.sh` cached under `${cache}/schemas/` (pinned commit and SHA-256 in `PIN`; their `$ref`s to SchemaStore point
+at the cached copies), through the pushed `json.schemas` setting, and sets `handledSchemaProtocols` to `["file"]`: the
+server reads schema files only and asks the client (`vscode/content`) for anything else, which the shell refuses
+(-32601). No network for schemas.
+
+**Fan-out and merge** (`eludite_lsp::fanout`). The document's notifications (`didOpen`, `didChange`, `didSave`,
+`didClose`) go to each of its servers. A request goes to each server whose capabilities offer it, in order, and the
+answers merge by method:
+
+| Method | Merge |
+|---|---|
+| `textDocument/completion` | The lists concatenated, each item's `labelDetails.description` empty filled with its server's name (the source); `isIncomplete` if any is |
+| `completionItem/resolve`, `codeAction/resolve` | Sent to the server whose item it is only (the merged items carry their server in `data`, removed before it is sent) |
+| `textDocument/codeAction` | Concatenated in server order (TypeScript's, then ESLint's) |
+| `textDocument/hover`, `textDocument/signatureHelp` | The first non-empty answer in server order |
+| `textDocument/definition`, `textDocument/references` | Concatenated, duplicates (same URI and range) dropped |
+| `textDocument/formatting`, `textDocument/prepareRename`, `textDocument/rename` | The first server that offers the method only |
+| `workspace/executeCommand` | The server that listed the command in `executeCommandProvider.commands` |
+| diagnostics | Each server's list kept apart and shown together (squiggles and Error List rows; ESLint's carry `source` `eslint` and the rule id as the code) |
+
+A server that fails or does not answer a fanned-out request is left out of the merge; the request fails only when
+every server does. A restarted server raises its own generation; a document's generation is the sum of its servers',
+so an answer computed before any of them restarted is dropped.
+
+**Commands of a code action.** A code action that has a `command` and no edit (ESLint's "Fix this … problem",
+"Fix all … problems", "Disable … for this line") is run with `workspace/executeCommand` on the server that offered it
+when that server lists the command; the server answers with `workspace/applyEdit`, applied by the workspace-edit
+applier as one undo step.
+
+**Formatters** (`servers.json`'s `formatters`, the setting `editor.formatter`): Format Document
+(`eludite.editor.format_document`, Ctrl+K, Ctrl+D) and format on save (`editor.formatOnSave.<typescript|html|css|json>`)
+run, for a file a formatter's `fileGlobs` match: with `auto`, the project's Prettier (the `prettier` package in its
+`node_modules`) when it has one, else Biome when `biome.json` or `biome.jsonc` is at or above the file's folder and
+Biome is found (the project's, else the cache's), else the language server; with `prettier` or `biome`, that one (the
+project's, else the cache's); with `server`, the server. The formatter runs on a worker thread as
+`node <prettier> --stdin-filepath <file>` or `node <biome> format --stdin-file-path=<file>` in the file's folder with
+the document's text on stdin (so the project's configuration applies) and its stdout as the new text, applied as one
+edit and one undo step if the document has not changed meanwhile. A formatter that exits with an error writes its
+stderr to the Output window (Language Servers) and leaves the document. Nothing runs at startup: a formatter runs only
+when Format Document or format on save asks.
