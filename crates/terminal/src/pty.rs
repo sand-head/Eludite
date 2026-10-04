@@ -671,13 +671,19 @@ pub const WAIT_TEXT_MAX: usize = 64 * 1024;
 fn command_output(s: &Shared, mark: u64) -> (String, bool) {
     let mut out = String::new();
     let mut start: Option<u64> = None;
+    let mut command: Option<u64> = None;
     let mut any = false;
     let mut cut = false;
     for m in s.marks.iter().filter(|m| m.at >= mark) {
         match m.kind {
+            MarkKind::CommandStart => command = Some(m.at),
             MarkKind::OutputStart => start = Some(m.at),
             MarkKind::CommandEnd(_) => {
-                if let Some(a) = start.take() {
+                // No output mark (a shell without PS0): the output follows the command's own line.
+                let from = start
+                    .take()
+                    .or_else(|| command.take().and_then(|b| s.text.next_line_mark(b)));
+                if let Some(a) = from {
                     let (t, c) = s.text.range(a, m.at, WAIT_TEXT_MAX);
                     out.push_str(&t);
                     cut |= c;

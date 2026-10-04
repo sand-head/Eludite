@@ -2162,8 +2162,12 @@ mod tests {
             "nothing found: the external Chrome"
         );
         let why = why.unwrap();
-        assert!(why.contains("tools/cef/fetch.sh"), "{why}");
-        assert!(why.contains("tools/package/linux.sh"), "{why}");
+        if cfg!(target_os = "linux") {
+            assert!(why.contains("tools/cef/fetch.sh"), "{why}");
+            assert!(why.contains("tools/package/linux.sh"), "{why}");
+        } else {
+            assert!(why.contains("Linux only"), "{why}");
+        }
         if cfg!(target_os = "linux") {
             std::fs::write(dir.path().join(exe_name()), b"").unwrap();
             let cef = tempfile::tempdir().unwrap();

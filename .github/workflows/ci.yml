@@ -195,7 +195,8 @@ jobs:
           # lldb-dap attaches to a process it did not start (lldb/attach-detach); Ubuntu's Yama policy lets only a
           # process's ancestors attach unless ptrace_scope is 0.
           sudo sysctl -w kernel.yama.ptrace_scope=0
-          tools/dap-corpus/record.sh --check mono lldb js-debug
+          # js-debug's recording opens the page in the embedded engine, which needs a display.
+          xvfb-run -a tools/dap-corpus/record.sh --check mono lldb js-debug
 
       # netcoredbg cannot be downloaded where the corpus was first recorded: Linux records its sessions here and
       # uploads them (artifact dap-corpus-netcoredbg) to be reviewed and checked in under corpus/dap/netcoredbg.

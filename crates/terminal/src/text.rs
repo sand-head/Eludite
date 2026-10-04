@@ -71,6 +71,13 @@ impl Transcript {
         self.lines.front().map_or(self.end, |l| l.0)
     }
 
+    /// The mark at which the line after `mark`'s begins, if one has started: where a command's output starts for a
+    /// shell that marks the command's start but not its output's (bash before 4.4 has no PS0), the command's own
+    /// line being what the person typed.
+    pub fn next_line_mark(&self, mark: u64) -> Option<u64> {
+        self.lines.iter().find(|l| l.0 > mark).map(|l| l.0)
+    }
+
     fn current_line(&self) -> usize {
         self.lines.back().map_or(0, |l| l.1)
     }
@@ -241,6 +248,17 @@ mod tests {
         let mut t = Transcript::new();
         t.append(input);
         t.since(0, usize::MAX).0
+    }
+
+    #[test]
+    fn the_next_line_mark_is_where_a_commands_output_starts() {
+        let mut t = Transcript::new();
+        t.append(b"$ echo hi");
+        let typed = t.end();
+        assert_eq!(t.next_line_mark(typed), None, "the output has not started");
+        t.append(b"\r\nhi\r\n$ ");
+        let out = t.next_line_mark(typed).unwrap();
+        assert!(t.range(out, t.end(), 100).0.starts_with("hi"));
     }
 
     #[test]
