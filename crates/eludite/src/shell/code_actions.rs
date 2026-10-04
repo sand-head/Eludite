@@ -12,8 +12,10 @@
 //! - **Applying** an action resolves it lazily with `codeAction/resolve` when it has no edit, then hands the edit to
 //!   the workspace-edit applier with the generation and document versions it was computed for. Roslyn's nested
 //!   actions (`roslyn.client.nestedCodeAction`) are shown as a submenu; its Fix All actions
-//!   (`roslyn.client.fixAllCodeAction`) are not offered (out of scope); an action that is only some other command is
-//!   reported as unsupported, because the pinned Roslyn runs none through `workspace/executeCommand`.
+//!   (`roslyn.client.fixAllCodeAction`) are not offered (out of scope). An action that is only a command a server of
+//!   the document lists in `executeCommandProvider.commands` (ESLint's fixes, brief 0050) runs with
+//!   `workspace/executeCommand` on that server, which answers with `workspace/applyEdit` (the applier applies it);
+//!   any other command is reported as unsupported, because the pinned Roslyn runs none.
 //! - Answers are dropped when they are not the newest request's, or when the generation or the document's version
 //!   moved on (CLAUDE.md invariant 12).
 
@@ -958,9 +960,18 @@ impl Shell {
             );
             return;
         }
-        let can_resolve =
-            entry.action.data.is_some() && self.doc_features(&list.doc).code_action_resolve;
+        let features = self.doc_features(&list.doc);
+        let can_resolve = entry.action.data.is_some() && features.code_action_resolve;
         if !can_resolve {
+            if let Some(c) = entry
+                .action
+                .command
+                .clone()
+                .filter(|c| features.commands.contains(&c.command))
+            {
+                self.run_action_command(list.doc.clone(), entry.title.clone(), c, window, cx);
+                return;
+            }
             let message = match &entry.action.command {
                 Some(c) => format!(
                     "'{}' runs the command {}, which Eludite cannot run.",
@@ -1037,6 +1048,12 @@ impl Shell {
                                 cx,
                             ),
                             None => {
+                                if let Some(c) = resolved.command.clone().filter(|c| {
+                                    shell.doc_features(&doc_id).commands.contains(&c.command)
+                                }) {
+                                    shell.run_action_command(doc_id.clone(), title, c, window, cx);
+                                    return;
+                                }
                                 let message = match resolved.command {
                                     Some(c) => format!(
                                         "'{title}' runs the command {}, which Eludite cannot run.",
@@ -1064,6 +1081,52 @@ impl Shell {
         self.wake_intellisense_waiters();
     }
 
+    /// Run a code action's command on the server of document `doc` that lists it (`workspace/executeCommand`,
+    /// brief 0050); the server's `workspace/applyEdit` comes back through the applier as one undo step.
+    fn run_action_command(
+        &mut self,
+        doc: String,
+        title: String,
+        command: lsp::Command,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.code_actions.apply.state = Some(ApplyState::Applying);
+        self.flush_change(&doc, cx);
+        trace(format_args!(
+            "workspace/executeCommand {}: {title:?}",
+            command.command
+        ));
+        let (_, rx) = self.session_for(&doc).request_value(
+            "workspace/executeCommand",
+            json!({"command": command.command, "arguments": command.arguments.clone().unwrap_or_default()}),
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(reply) = rx.await else {
+                return;
+            };
+            let _ = this.update_in(cx, |shell, _, cx| {
+                shell.code_actions.list = None;
+                shell.code_actions.probed = None;
+                match reply.result {
+                    Ok(_) => shell.finish_apply_action(ApplyState::Applied, None, cx),
+                    Err(e) => {
+                        let message = match e {
+                            RequestError::Failed(m) => m,
+                            other => format!("{other:?}"),
+                        };
+                        shell.finish_apply_action(
+                            ApplyState::Failed,
+                            Some(format!("'{title}' failed: {message}")),
+                            cx,
+                        );
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn apply_action_edit(
         &mut self,
@@ -1082,8 +1145,7 @@ impl Shell {
             .code_actions
             .list
             .as_ref()
-            .and_then(|l| self.documents.get(&l.doc))
-            .map(|d| d.server.clone())
+            .map(|l| self.doc_key(&l.doc))
             .unwrap_or_default();
         let options = ApplyOptions {
             label: Some(title.clone()),

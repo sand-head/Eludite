@@ -37,6 +37,7 @@ pub mod folder;
 pub mod forge;
 #[cfg(test)]
 mod forge_tests;
+pub mod format;
 pub mod git;
 #[cfg(test)]
 mod git_tests;
@@ -80,6 +81,8 @@ mod test_runs_tests;
 mod tests;
 pub mod tests_window;
 pub mod toolbar;
+#[cfg(test)]
+mod web_tests;
 pub mod workspace_edit;
 #[cfg(test)]
 mod workspace_edit_tests;
@@ -429,6 +432,8 @@ pub struct Shell {
     rename: rename::Rename,
     /// The light bulb and its menu (brief 0015).
     code_actions: code_actions::CodeActions,
+    /// Format Document and format on save (brief 0050).
+    formatting: format::Formatting,
     /// The last `eludite.workspace.apply_edit` (state, summary).
     apply_edit: Option<(workspace::ApplyEditState, workspace_edit::ApplySummary)>,
     /// The Agents window and its sessions (brief 0016).
@@ -1063,6 +1068,7 @@ impl Shell {
             references: References::default(),
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
+            formatting: format::Formatting::default(),
             apply_edit: None,
             agents,
             capture_next: None,
@@ -1477,6 +1483,10 @@ impl Shell {
                 self.save_pages(&tab, window, cx)
             }
             WorkspaceRequest::Save { path } => {
+                // Format on save (brief 0050) formats first and writes when the formatter is done.
+                if let Some(pending) = self.save_with_format(path.as_deref(), window, cx) {
+                    return pending;
+                }
                 let saved = self.save(path.as_deref(), cx);
                 if let Ok(workspace::WorkspaceOutput::Save(out)) = &saved {
                     // Build on save (off by default), after this command's own bus call.
@@ -1486,6 +1496,9 @@ impl Shell {
                     });
                 }
                 saved
+            }
+            WorkspaceRequest::FormatDocument { path } => {
+                self.format_document_command(path.as_deref(), window, cx)
             }
             WorkspaceRequest::Undo { path } => self.history(path.as_deref(), true, cx),
             WorkspaceRequest::Redo { path } => self.history(path.as_deref(), false, cx),
@@ -1877,7 +1890,8 @@ impl Shell {
             // Generic servers' events arrive through their own sessions (`servers`).
             SessionEvent::Progress(_)
             | SessionEvent::ServerStatus(_)
-            | SessionEvent::ServerGeneration(_) => {}
+            | SessionEvent::ServerGeneration(_)
+            | SessionEvent::ServerModules(_) => {}
         }
         cx.notify();
     }

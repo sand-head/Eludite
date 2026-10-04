@@ -43,9 +43,12 @@ pub struct Document {
     pub uri: String,
     /// The LSP language id (`csharp`, `rust`) for files a language server handles; others get no LSP traffic.
     pub language_id: Option<String>,
-    /// The server the document belongs to (brief 0019).
+    /// The server the document belongs to (brief 0019): its primary one when several serve it (brief 0050).
     pub server: ServerKey,
-    /// That server's session: every LSP message about the document goes through it.
+    /// Every server that serves it, the primary first (brief 0050: TypeScript and ESLint).
+    pub servers: Vec<ServerKey>,
+    /// Its servers' session (fanned out when there are several): every LSP message about the document goes through
+    /// it.
     pub session: ServerSession,
     /// Metadata as source: read-only, and no `didOpen`, `didChange`, `didSave` or `didClose`.
     pub read_only: bool,
@@ -359,16 +362,20 @@ impl Shell {
         };
         let language = self.languages.for_path(&path);
         let view = cx.new(|cx| EditorView::new(buffer, language, cx));
+        // Emmet on Tab in HTML and CSS (brief 0050's `editor.emmet`; the language says whether it has Emmet).
+        let emmet = self.launches.emmet;
+        view.update(cx, |v, _| v.set_emmet(emmet));
         let (text, sent, version) = {
             let b = view.read(cx).editor().buffer();
             (b.text(), b.snapshot().clone(), b.version())
         };
         let uri = super::documents::path_to_uri(&path);
         let read_only = super::navigation::is_metadata_path(&path);
-        let (server, session, language_id) = match self.server_for_path(&path, window, cx) {
-            Some((server, session, language)) => (server, session, Some(language)),
-            None => (ServerKey::Host, self.session.clone(), None),
+        let (servers, session, language_id) = match self.server_for_path(&path, window, cx) {
+            Some((servers, session, language)) => (servers, session, Some(language)),
+            None => (vec![ServerKey::Host], self.session.clone(), None),
         };
+        let server = servers.first().cloned().unwrap_or_default();
         if read_only {
             view.update(cx, |v, cx| v.set_read_only(true, cx));
         } else if let Some(lang) = &language_id {
@@ -391,6 +398,7 @@ impl Shell {
                 uri: uri.clone(),
                 language_id,
                 server,
+                servers,
                 session,
                 read_only,
                 view: view.clone(),
@@ -536,6 +544,7 @@ impl Shell {
         Ok(WorkspaceOutput::Save(SaveOutput {
             path: id,
             bytes: bytes.len() as u64,
+            pending: false,
         }))
     }
 

@@ -714,6 +714,10 @@ impl Shell {
                 super::servers::ServerKey::Generic(k) => format!(
                     "the edit was computed by a language server that has restarted since ({k})"
                 ),
+                super::servers::ServerKey::Group(keys) => format!(
+                    "the edit was computed before one of the document's language servers restarted ({})",
+                    keys.join(", ")
+                ),
             });
         }
         let steps = plan(edit)?;
@@ -969,6 +973,8 @@ impl Shell {
                 Some(g) => g.session.clone(),
                 None => return,
             },
+            // A request comes from one server, never a group.
+            super::servers::ServerKey::Group(_) => return,
         };
         let options = ApplyOptions {
             label: params.label.clone(),

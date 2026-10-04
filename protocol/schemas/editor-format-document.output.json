@@ -6,6 +6,7 @@
   "type": "object",
   "required": [
     "path",
+    "state",
     "formatter",
     "applied",
     "edits"
@@ -15,6 +16,13 @@
     "path": {
       "type": "string",
       "minLength": 1
+    },
+    "state": {
+      "description": "`formatting` while the formatter runs (an agent sees it only when it stopped waiting, after 5 seconds), else `done`.",
+      "enum": [
+        "formatting",
+        "done"
+      ]
     },
     "formatter": {
       "description": "What formatted it: `prettier` or `biome` (the project's, or the pinned one), `server` (the language server's textDocument/formatting, named in `server`), or `none` when nothing can format this file.",

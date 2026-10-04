@@ -98,6 +98,8 @@ pub struct ServerFeatures {
     signature_triggers: Vec<String>,
     /// `codeActionProvider.resolveProvider` (brief 0015).
     pub code_action_resolve: bool,
+    /// `executeCommandProvider.commands` (brief 0050): a code action that is only one of these runs it.
+    pub commands: Vec<String>,
 }
 
 impl ServerFeatures {
@@ -121,7 +123,25 @@ impl ServerFeatures {
             signature_triggers,
             code_action_resolve: caps["codeActionProvider"]["resolveProvider"].as_bool()
                 == Some(true),
+            commands: strings(&caps["executeCommandProvider"]["commands"]),
         }
+    }
+
+    /// What either of two servers of one document supports (brief 0050).
+    pub fn union(mut self, other: ServerFeatures) -> Self {
+        let add = |into: &mut Vec<String>, from: Vec<String>| {
+            for t in from {
+                if !into.contains(&t) {
+                    into.push(t);
+                }
+            }
+        };
+        add(&mut self.completion_triggers, other.completion_triggers);
+        add(&mut self.signature_triggers, other.signature_triggers);
+        add(&mut self.commands, other.commands);
+        self.resolve |= other.resolve;
+        self.code_action_resolve |= other.code_action_resolve;
+        self
     }
 }
 
@@ -311,7 +331,8 @@ impl Shell {
         if doc.language_id.is_none() {
             return Provider::Syntax;
         }
-        // A generic server (brief 0019): its own state, and whether it is still loading the workspace.
+        // A generic server (brief 0019): its own state, and whether it is still loading the workspace. With several
+        // (brief 0050), the primary one's.
         if let super::servers::ServerKey::Generic(key) = &doc.server {
             return match self.generic.get(key) {
                 Some(g) if g.down() => Provider::Syntax,
@@ -1057,6 +1078,13 @@ impl Shell {
         request: &WorkspaceRequest,
         cx: &Context<Self>,
     ) -> Option<Result<WorkspaceOutput, CommandError>> {
+        // Format Document and a save that formats first (brief 0050).
+        if matches!(
+            request,
+            WorkspaceRequest::FormatDocument { .. } | WorkspaceRequest::Save { .. }
+        ) {
+            return self.format_state(request);
+        }
         if matches!(
             request,
             WorkspaceRequest::ApplyCodeAction { .. } | WorkspaceRequest::ApplyEdit { .. }
