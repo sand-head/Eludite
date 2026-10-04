@@ -107,6 +107,12 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             "eludite.editor.signature_help",
         ),
         command("ctrl-k ctrl-i", "Ctrl+K, Ctrl+I", "eludite.editor.hover"),
+        // Edit.FormatDocument (brief 0050).
+        command(
+            "ctrl-k ctrl-d",
+            "Ctrl+K, Ctrl+D",
+            "eludite.editor.format_document",
+        ),
         // Navigation (brief 0014): Edit.GoToDefinition, Edit.FindAllReferences, View.NavigateBackward and
         // View.NavigateForward.
         command("f12", "F12", "eludite.editor.go_to_definition"),
@@ -183,7 +189,7 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
 
 /// The editor actions that are commands (briefs 0012 and 0013): the shell binds these keys in the editor's own key
 /// context too, so they reach the command bus instead of the editor's built-in actions.
-pub const EDITOR_COMMAND_KEYS: [&str; 7] = [
+pub const EDITOR_COMMAND_KEYS: [&str; 8] = [
     "ctrl-z",
     "ctrl-y",
     "ctrl-shift-z",
@@ -191,6 +197,7 @@ pub const EDITOR_COMMAND_KEYS: [&str; 7] = [
     "ctrl-space",
     "ctrl-shift-space",
     "ctrl-k ctrl-i",
+    "ctrl-k ctrl-d",
 ];
 
 fn command(

@@ -15,14 +15,14 @@ use super::HighlightKind;
 #[derive(Clone, Debug, PartialEq)]
 pub struct SyntaxTheme {
     pub default: Rgba,
-    colors: [Option<Rgba>; 22],
+    colors: [Option<Rgba>; HighlightKind::ALL.len()],
 }
 
 impl SyntaxTheme {
     /// Visual Studio Dark syntax colors on top of `theme`.
     pub fn vs_dark(theme: &Theme) -> Self {
         use HighlightKind::*;
-        let mut colors = [None; 22];
+        let mut colors = [None; HighlightKind::ALL.len()];
         let mut set = |k: HighlightKind, c: u32| colors[k as usize] = Some(rgb(c));
         set(Keyword, 0x569CD6);
         set(TypeBuiltin, 0x569CD6);
@@ -42,6 +42,11 @@ impl SyntaxTheme {
         set(Operator, 0xB4B4B4);
         set(Preprocessor, 0x9B9B9B);
         set(Label, 0xC8C8C8);
+        // Visual Studio Dark's HTML, CSS and JSON colors (brief 0050).
+        set(Tag, 0x569CD6);
+        set(AttributeName, 0x9CDCFE);
+        set(PropertyName, 0x9CDCFE);
+        set(Selector, 0xD7BA7D);
         Self {
             default: theme.text,
             colors,

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-format-document.input.json",
+  "title": "eludite.editor.format_document input",
+  "description": "Format a document (Edit > Advanced > Format Document, Ctrl+K, Ctrl+D) with the formatter the setting editor.formatter chooses: the project's Prettier or Biome run out of process on the document's text, else the language server's textDocument/formatting. The result applies as one undo step; the document is not saved. A formatter that fails leaves the document unchanged, writes an Output line and answers with `applied` false and its message.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "description": "Absolute path of an open document. Omit to act on the active document.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

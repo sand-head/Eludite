@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/editor-format-document.output.json",
+  "title": "eludite.editor.format_document output",
+  "description": "What Format Document did.",
+  "type": "object",
+  "required": [
+    "path",
+    "state",
+    "formatter",
+    "applied",
+    "edits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "description": "`formatting` while the formatter runs (an agent sees it only when it stopped waiting, after 5 seconds), else `done`.",
+      "enum": [
+        "formatting",
+        "done"
+      ]
+    },
+    "formatter": {
+      "description": "What formatted it: `prettier` or `biome` (the project's, or the pinned one), `server` (the language server's textDocument/formatting, named in `server`), or `none` when nothing can format this file.",
+      "enum": [
+        "prettier",
+        "biome",
+        "server",
+        "none"
+      ]
+    },
+    "server": {
+      "description": "The language server that formatted it (its servers.json id), when `formatter` is `server`.",
+      "type": "string"
+    },
+    "version": {
+      "description": "The formatter's version (`3.9.9`), when known.",
+      "type": "string"
+    },
+    "applied": {
+      "description": "Whether the document changed (false when it was already formatted, or the formatter failed).",
+      "type": "boolean"
+    },
+    "edits": {
+      "description": "Text edits applied (0 when it was already formatted).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "Why nothing was applied: the formatter's error (also written to the Output window), or why no formatter applies.",
+      "type": "string"
+    }
+  }
+}

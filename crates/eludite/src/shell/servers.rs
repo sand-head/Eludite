@@ -8,8 +8,15 @@
 //! progress (`Indexing 120/300 (core) 40%`), `ready` once `experimental/serverStatus` reports it quiescent, or why it
 //! is unavailable. Its log (stderr, `window/logMessage`, `window/showMessage`) goes to the Output window's Language
 //! Servers source.
+//!
+//! Several servers per document (brief 0050): every registration that matches a file (and is activated: ESLint only
+//! with a configuration, `languageServers.eslint`) serves it, in `servers.json`'s order; the document's session fans
+//! out to them ([`ServerSession::fan_out`]). Each server's diagnostics are kept apart and shown together; the
+//! document's generation is the sum of its servers', so a restart of any of them drops what was computed before.
+//! A server that is not found says `not found (run tools/web-servers/fetch.sh)` in its slot; one that runs on a
+//! located module says which (`TypeScript: ready (TypeScript 5.9.3, project)`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -32,6 +39,9 @@ pub enum ServerKey {
     Host,
     /// A generic server: `<registration id>|<root>`.
     Generic(String),
+    /// Several generic servers serving one document (brief 0050), primary first: the key whose generation an edit
+    /// computed for that document is checked against (the sum of theirs).
+    Group(Vec<String>),
 }
 
 /// How the shell finds generic servers.
@@ -44,6 +54,20 @@ pub struct ServerLaunches {
     /// The setting `languageServers.rustAnalyzerPath` (brief 0020): tried first when the registration's override
     /// variable is not set.
     pub rust_analyzer: Option<PathBuf>,
+    /// The values of the registrations' settings (brief 0050): activation settings (`languageServers.eslint`) and
+    /// module paths (`languageServers.typescriptPath`), by key; empty when unset.
+    pub settings: BTreeMap<String, String>,
+    /// `languageServers.nodePath`.
+    pub node: Option<PathBuf>,
+    /// The web servers' cache folder (`ELUDITE_WEB_SERVERS`, else `~/.cache/eludite/web-servers/<pin>`), as found
+    /// when the first web document opened; `None` until looked for, `Some(None)` when it is not there.
+    pub cache: Option<Option<PathBuf>>,
+    /// `editor.formatter` (brief 0050): `auto`, `prettier`, `biome` or `server`.
+    pub formatter: String,
+    /// `editor.formatOnSave.<registration id>`, by the registration of a document's primary server.
+    pub format_on_save: BTreeMap<String, bool>,
+    /// `editor.emmet`.
+    pub emmet: bool,
 }
 
 impl Default for ServerLaunches {
@@ -52,7 +76,26 @@ impl Default for ServerLaunches {
             registry: ServerRegistry::builtin(),
             in_process: BTreeMap::new(),
             rust_analyzer: None,
+            settings: BTreeMap::new(),
+            node: None,
+            cache: None,
+            formatter: "auto".into(),
+            format_on_save: BTreeMap::new(),
+            emmet: true,
         }
+    }
+}
+
+impl ServerLaunches {
+    /// The web servers' cache folder, looked for once (a directory check).
+    pub fn cache(&mut self) -> Option<PathBuf> {
+        if self.cache.is_none() {
+            self.cache = Some(self.registry.web_servers_cache(
+                &|k| std::env::var_os(k).filter(|v| !v.is_empty()),
+                eludite_lsp::node::home_dir().as_deref(),
+            ));
+        }
+        self.cache.clone().flatten()
     }
 }
 
@@ -90,6 +133,10 @@ pub struct GenericServer {
     /// One more per (re)start; results computed under another one are dropped.
     pub generation: u64,
     pub timings: ServerTimings,
+    /// The modules it runs on, as located (`TypeScript 5.9.3, project`).
+    pub modules: Vec<String>,
+    /// Its own diagnostics, by URI (a document's servers' lists are shown together).
+    pub diagnostics: HashMap<String, Vec<eludite_lsp::lsp::Diagnostic>>,
 }
 
 impl GenericServer {
@@ -105,6 +152,14 @@ impl GenericServer {
                     .map(|m| format!(" ({m})"))
                     .unwrap_or_default()
             ),
+            Some(LanguageServerState::Unavailable)
+                if self
+                    .message
+                    .as_deref()
+                    .is_some_and(|m| m.starts_with(super::session::NOT_FOUND)) =>
+            {
+                format!("{name}: {}", self.message.as_deref().unwrap_or_default())
+            }
             Some(LanguageServerState::Unavailable) => format!(
                 "{name}: unavailable{}",
                 self.message
@@ -141,13 +196,15 @@ impl GenericServer {
                             .unwrap_or_default()
                     ),
                     Some(s) if !s.quiescent => format!("{name}: loading\u{2026}"),
-                    _ => format!(
-                        "{name}: ready{}",
-                        self.version
-                            .as_deref()
-                            .map(|v| format!(" ({v})"))
-                            .unwrap_or_default()
-                    ),
+                    _ => {
+                        let mut about: Vec<&str> = self.version.as_deref().into_iter().collect();
+                        about.extend(self.modules.iter().map(String::as_str));
+                        if about.is_empty() {
+                            format!("{name}: ready")
+                        } else {
+                            format!("{name}: ready ({})", about.join("; "))
+                        }
+                    }
                 }
             }
         }
@@ -178,27 +235,52 @@ pub fn slot(key: &str) -> String {
 }
 
 impl Shell {
-    /// The server for a file at `path`: its key, its session and its LSP language id; `None` when no registration
-    /// matches. Starts a generic session (not yet the server) for a new registration and root.
+    /// The servers for a file at `path`: their keys (the primary first), the document's session (fanned out when
+    /// there are several) and its LSP language id; `None` when no registration matches. Starts a generic session (not
+    /// yet the server) for each new registration and root; a registration that is not activated for the root
+    /// (ESLint without a configuration) is left out.
     pub(super) fn server_for_path(
         &mut self,
         path: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> Option<(ServerKey, ServerSession, String)> {
-        let reg = self.launches.registry.for_path(path)?.clone();
-        match reg.via {
-            Via::EluditeHost => Some((ServerKey::Host, self.session.clone(), reg.language_id)),
-            Via::Process => {
-                let root = self.generic_root(&reg, path);
-                let key = format!("{}|{}", reg.id, root.to_string_lossy());
-                if !self.generic.contains_key(&key) {
-                    self.start_generic(key.clone(), reg.clone(), root, window, cx);
-                }
-                let session = self.generic[&key].session.clone();
-                Some((ServerKey::Generic(key), session, reg.language_id))
-            }
+    ) -> Option<(Vec<ServerKey>, ServerSession, String)> {
+        let regs: Vec<ServerRegistration> = self
+            .launches
+            .registry
+            .all_for_path(path)
+            .into_iter()
+            .cloned()
+            .collect();
+        let primary = regs.first()?;
+        let language_id = primary.language_id_for(path).to_owned();
+        if primary.via == Via::EluditeHost {
+            return Some((vec![ServerKey::Host], self.session.clone(), language_id));
         }
+        let mut keys = Vec::new();
+        let mut members = Vec::new();
+        for (i, reg) in regs.iter().enumerate() {
+            if reg.via != Via::Process {
+                continue;
+            }
+            let root = self.generic_root(reg, path);
+            let setting = reg
+                .activation
+                .as_ref()
+                .and_then(|a| self.launches.settings.get(&a.setting))
+                .map(String::as_str);
+            // The primary server always runs; another one only when activated.
+            if i > 0 && !reg.activated(&root, setting) {
+                continue;
+            }
+            let key = format!("{}|{}", reg.id, root.to_string_lossy());
+            if !self.generic.contains_key(&key) {
+                self.start_generic(key.clone(), reg.clone(), root, window, cx);
+            }
+            members.push((reg.name.clone(), self.generic[&key].session.clone()));
+            keys.push(ServerKey::Generic(key));
+        }
+        Some((keys, ServerSession::fan_out(members), language_id))
     }
 
     /// The workspace root a generic server for `path` runs at: the open workspace's root for the registration (the
@@ -230,11 +312,33 @@ impl Shell {
         let configured = (registration.id == "rust-analyzer")
             .then(|| self.launches.rust_analyzer.clone())
             .flatten();
+        let npm = registration
+            .command
+            .as_ref()
+            .is_some_and(|c| c.npm_package.is_some());
+        let cache = if npm { self.launches.cache() } else { None };
+        let modules = registration
+            .modules
+            .iter()
+            .filter_map(|m| {
+                let value = self.launches.settings.get(m.setting.as_ref()?)?;
+                (!value.is_empty()).then(|| (m.name.clone(), PathBuf::from(value)))
+            })
+            .collect();
         let (session, mut events) = ServerSession::spawn_generic(GenericLaunch {
             registration: registration.clone(),
             root: root.clone(),
             connector,
             configured,
+            cache,
+            node: self.launches.node.clone(),
+            modules,
+            fetch: self
+                .launches
+                .registry
+                .fetch_command()
+                .filter(|_| npm)
+                .map(str::to_owned),
         });
         let slot_id = slot(&key);
         if !self.status.has_slot(&slot_id) {
@@ -278,6 +382,8 @@ impl Shell {
                     requested: Some(Instant::now()),
                     ..Default::default()
                 },
+                modules: Vec::new(),
+                diagnostics: HashMap::new(),
             },
         );
         self.refresh_server_slot(&key);
@@ -349,6 +455,11 @@ impl Shell {
                     self.refresh_fallback_lists(cx);
                 }
             }
+            SessionEvent::ServerModules(modules) => {
+                if let Some(server) = self.generic.get_mut(key) {
+                    server.modules = modules;
+                }
+            }
             SessionEvent::Diagnostics(params) => {
                 if let Some(server) = self.generic.get_mut(key)
                     && self.documents.values().any(|d| d.uri == params.uri)
@@ -364,6 +475,7 @@ impl Shell {
                             .get_or_insert_with(Instant::now);
                     }
                 }
+                let params = self.merge_server_diagnostics(key, params);
                 self.on_diagnostics(params, cx);
             }
             SessionEvent::ApplyEdit {
@@ -419,44 +531,136 @@ impl Shell {
     /// A generic server restarted: what it computed before is stale (CLAUDE.md invariant 12).
     fn on_generic_generation(&mut self, key: &str, cx: &mut Context<Self>) {
         let generic = ServerKey::Generic(key.to_owned());
-        let uris: Vec<String> = self
+        if let Some(server) = self.generic.get_mut(key) {
+            server.diagnostics.clear();
+        }
+        let docs: Vec<(String, usize)> = self
             .documents
             .values()
-            .filter(|d| d.server == generic)
-            .map(|d| d.uri.clone())
+            .filter(|d| d.servers.contains(&generic))
+            .map(|d| (d.uri.clone(), d.servers.len()))
             .collect();
-        for doc in self.documents.values_mut().filter(|d| d.server == generic) {
-            doc.clear_diagnostics(cx);
+        for doc in self
+            .documents
+            .values_mut()
+            .filter(|d| d.servers.contains(&generic))
+        {
             doc.intellisense.cancel_all();
         }
-        for uri in uris {
-            self.diagnostics.remove(&uri);
+        for (uri, servers) in docs {
+            if servers > 1 {
+                // The document's other servers' diagnostics stay (brief 0050): show what they have.
+                let merged = self.merge_server_diagnostics(
+                    key,
+                    eludite_lsp::lsp::PublishDiagnosticsParams {
+                        uri,
+                        version: None,
+                        diagnostics: Vec::new(),
+                    },
+                );
+                self.on_diagnostics(merged, cx);
+            } else {
+                if let Some(doc) = self.documents.values().find(|d| d.uri == uri) {
+                    doc.clear_diagnostics(cx);
+                }
+                self.diagnostics.remove(&uri);
+            }
         }
         self.update_error_list(cx);
     }
 
-    /// The generation of the server document `id` belongs to (the solution generation for the host).
+    /// The generation of the servers document `id` belongs to (the solution generation for the host; the sum of its
+    /// servers' for a document several serve).
     pub(super) fn doc_generation(&self, id: &str) -> u64 {
-        self.key_generation(self.documents.get(id).map(|d| &d.server))
+        self.key_generation(Some(&self.doc_key(id)))
     }
 
-    /// The generation of server `key`.
+    /// The key edits computed for document `id` are checked against: its server's, or the group of its servers.
+    pub(super) fn doc_key(&self, id: &str) -> ServerKey {
+        match self.documents.get(id) {
+            Some(d) if d.servers.len() > 1 => ServerKey::Group(
+                d.servers
+                    .iter()
+                    .filter_map(|k| match k {
+                        ServerKey::Generic(k) => Some(k.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+            ),
+            Some(d) => d.server.clone(),
+            None => ServerKey::Host,
+        }
+    }
+
+    /// The generation of server `key` (the sum of a group's).
     pub(super) fn key_generation(&self, key: Option<&ServerKey>) -> u64 {
         match key {
             Some(ServerKey::Generic(k)) => self.generic.get(k).map_or(0, |g| g.generation),
+            Some(ServerKey::Group(keys)) => keys
+                .iter()
+                .map(|k| self.generic.get(k).map_or(0, |g| g.generation))
+                .sum(),
             _ => self.generation,
         }
     }
 
-    /// What the server of document `id` supports.
+    /// What the servers of document `id` support (for several: what any of them supports).
     pub(super) fn doc_features(&self, id: &str) -> ServerFeatures {
-        match self.documents.get(id).map(|d| &d.server) {
-            Some(ServerKey::Generic(k)) => self
-                .generic
-                .get(k)
-                .map(|g| g.features.clone())
-                .unwrap_or_default(),
+        let Some(doc) = self.documents.get(id) else {
+            return self.features.clone();
+        };
+        let mut features = doc.servers.iter().filter_map(|k| match k {
+            ServerKey::Generic(k) => self.generic.get(k).map(|g| g.features.clone()),
+            _ => None,
+        });
+        match &doc.server {
+            ServerKey::Generic(_) => {
+                let first = features.next().unwrap_or_default();
+                features.fold(first, ServerFeatures::union)
+            }
             _ => self.features.clone(),
+        }
+    }
+
+    /// Server `key`'s diagnostics for `params.uri` replace its earlier ones; the answer is every server's list for
+    /// that document together, in the document's server order (TypeScript's, then ESLint's).
+    fn merge_server_diagnostics(
+        &mut self,
+        key: &str,
+        params: eludite_lsp::lsp::PublishDiagnosticsParams,
+    ) -> eludite_lsp::lsp::PublishDiagnosticsParams {
+        if let Some(server) = self.generic.get_mut(key) {
+            if params.diagnostics.is_empty() {
+                server.diagnostics.remove(&params.uri);
+            } else {
+                server
+                    .diagnostics
+                    .insert(params.uri.clone(), params.diagnostics.clone());
+            }
+        }
+        let order: Vec<String> = match self.documents.values().find(|d| d.uri == params.uri) {
+            Some(d) => d
+                .servers
+                .iter()
+                .filter_map(|k| match k {
+                    ServerKey::Generic(k) => Some(k.clone()),
+                    _ => None,
+                })
+                .collect(),
+            None => vec![key.to_owned()],
+        };
+        if order.len() < 2 {
+            return params;
+        }
+        let diagnostics = order
+            .iter()
+            .filter_map(|k| self.generic.get(k)?.diagnostics.get(&params.uri))
+            .flatten()
+            .cloned()
+            .collect();
+        eludite_lsp::lsp::PublishDiagnosticsParams {
+            diagnostics,
+            ..params
         }
     }
 
@@ -526,6 +730,8 @@ mod tests {
             features: ServerFeatures::default(),
             generation: 1,
             timings: ServerTimings::default(),
+            modules: Vec::new(),
+            diagnostics: HashMap::new(),
         }
     }
 

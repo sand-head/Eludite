@@ -66,6 +66,9 @@ pub struct HighlightStats {
     /// Time spent returning free memory to the OS after a completed pass
     /// ([`super::alloc::release_free_memory`]).
     pub release: Duration,
+    /// From the start of the step until the priority (visible) rows were
+    /// highlighted: how long fresh colors for what is on screen take.
+    pub priority: Duration,
 }
 
 /// Owns the parser, the last tree and the highlights for one buffer.
@@ -90,6 +93,10 @@ pub struct Highlighter {
     highlights: LineHighlights,
     cancel: Arc<AtomicBool>,
     retain_limit: usize,
+    /// Injected regions parsed for the current snapshot (HTML's `<script>` and
+    /// `<style>`), by byte range, so a region that spans several highlighted
+    /// row ranges is parsed once per version.
+    injected: Vec<(Range<usize>, Tree)>,
 }
 
 impl std::fmt::Debug for Highlighter {
@@ -115,6 +122,7 @@ impl Highlighter {
             highlights: LineHighlights::default(),
             cancel: Arc::default(),
             retain_limit: TREE_RETAIN_LIMIT,
+            injected: Vec::new(),
         }
     }
 
@@ -168,6 +176,7 @@ impl Highlighter {
     ) -> Option<HighlightUpdate> {
         let mut stats = HighlightStats::default();
         let parse_started = Instant::now();
+        let step_started = parse_started;
         let same_version = self
             .snapshot
             .as_ref()
@@ -220,6 +229,7 @@ impl Highlighter {
             }
             self.tree = Some(new_tree);
             self.snapshot = Some(snapshot.clone());
+            self.injected.clear();
         }
         stats.parse = parse_started.elapsed();
 
@@ -230,6 +240,7 @@ impl Highlighter {
             .iter()
             .filter_map(|r| intersect(r, &priority))
             .collect();
+        let priority_pieces = todo.len();
         let mut budget = ROWS_PER_STEP;
         for r in &dirty {
             if budget == 0 {
@@ -243,12 +254,18 @@ impl Highlighter {
                 }
             }
         }
-        for rows in todo {
+        for (i, rows) in todo.into_iter().enumerate() {
+            if i == priority_pieces {
+                stats.priority = step_started.elapsed();
+            }
             if self.cancel.load(Ordering::Relaxed) {
                 return None;
             }
             stats.rows_highlighted += rows.end - rows.start;
             self.highlight_rows(&tree, snapshot, rows);
+        }
+        if stats.priority.is_zero() {
+            stats.priority = step_started.elapsed();
         }
         stats.highlight = highlight_started.elapsed();
         drop(tree);
@@ -331,6 +348,8 @@ impl Highlighter {
                 }
             }
         }
+        drop(matches);
+        self.inject(tree, snapshot, start..end, &mut captures);
         // Outer nodes before inner ones; for the same node, earlier patterns first.
         captures.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
 
@@ -374,33 +393,90 @@ impl Highlighter {
     }
 }
 
+impl Highlighter {
+    /// Add the captures of the languages injected into `start..end` (HTML's
+    /// `<script>` as JavaScript, `<style>` as CSS): each region is parsed on
+    /// its own with its language's grammar and highlighted with its query; the
+    /// captures are inner to the outer language's, so they paint over them.
+    fn inject(
+        &mut self,
+        tree: &Tree,
+        snapshot: &BufferSnapshot,
+        range: Range<usize>,
+        captures: &mut Vec<(usize, usize, usize, HighlightKind)>,
+    ) {
+        let Some(injections) = self.language.injections() else {
+            return;
+        };
+        let rope = snapshot.as_rope();
+        let text = |node: tree_sitter::Node| {
+            rope.chunks_in_range(node.byte_range())
+                .map(|chunk| chunk.as_bytes())
+        };
+        let mut regions: Vec<(Range<usize>, Arc<Language>)> = Vec::new();
+        let mut cursor = QueryCursor::new();
+        cursor.set_byte_range(range.clone());
+        let mut matches = cursor.matches(&injections.query, tree.root_node(), text);
+        while let Some(m) = matches.next() {
+            let Some(Some(language)) = injections.languages.get(m.pattern_index) else {
+                continue;
+            };
+            for c in m.captures() {
+                let r = c.node.byte_range();
+                if c.index == injections.content && r.start < r.end {
+                    regions.push((r, language.clone()));
+                }
+            }
+        }
+        drop(matches);
+        for (region, language) in regions {
+            let source: String = rope.chunks_in_range(region.clone()).collect();
+            let cached = self.injected.iter().position(|(r, _)| *r == region);
+            let injected_tree = match cached {
+                Some(i) => self.injected[i].1.clone(),
+                None => {
+                    let mut parser = Parser::new();
+                    if parser.set_language(language.grammar()).is_err() {
+                        continue;
+                    }
+                    let Some(t) = parser.parse(&source, None) else {
+                        continue;
+                    };
+                    self.injected.push((region.clone(), t.clone()));
+                    t
+                }
+            };
+            let lo = range.start.saturating_sub(region.start).min(source.len());
+            let hi = range.end.saturating_sub(region.start).min(source.len());
+            let mut cursor = QueryCursor::new();
+            cursor.set_byte_range(lo..hi);
+            let mut matches = cursor.matches(
+                language.query(),
+                injected_tree.root_node(),
+                source.as_bytes(),
+            );
+            while let Some(m) = matches.next() {
+                for capture in m.captures() {
+                    if let Some(kind) = language.capture_kind(capture.index) {
+                        let r = capture.node.byte_range();
+                        let (s, e) = (r.start + region.start, r.end + region.start);
+                        if e > range.start && s < range.end && s < e {
+                            // After every outer pattern, so an outer capture of the same range wins.
+                            captures.push((s, e, INJECTED_PATTERN_BASE + m.pattern_index, kind));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Pattern index offset of injected captures (see [`Highlighter::inject`]).
+const INJECTED_PATTERN_BASE: usize = 1 << 20;
+
 fn kind_from_u8(v: u8) -> HighlightKind {
     // `HighlightKind` is `repr(u8)` with contiguous discriminants.
-    const ALL: [HighlightKind; 22] = [
-        HighlightKind::Keyword,
-        HighlightKind::Type,
-        HighlightKind::TypeBuiltin,
-        HighlightKind::Function,
-        HighlightKind::Macro,
-        HighlightKind::String,
-        HighlightKind::Escape,
-        HighlightKind::Number,
-        HighlightKind::Constant,
-        HighlightKind::ConstantBuiltin,
-        HighlightKind::Comment,
-        HighlightKind::DocComment,
-        HighlightKind::Variable,
-        HighlightKind::Parameter,
-        HighlightKind::VariableBuiltin,
-        HighlightKind::Property,
-        HighlightKind::Attribute,
-        HighlightKind::Namespace,
-        HighlightKind::Label,
-        HighlightKind::Operator,
-        HighlightKind::Punctuation,
-        HighlightKind::Preprocessor,
-    ];
-    ALL[v as usize]
+    HighlightKind::ALL[v as usize]
 }
 
 fn ts_point(p: Point) -> tree_sitter::Point {

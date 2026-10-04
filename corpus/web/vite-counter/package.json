@@ -2,13 +2,16 @@
   "name": "vite-counter",
   "private": true,
   "version": "0.0.0",
-  "description": "Eludite's web corpus: a Vite TypeScript counter for the JavaScript debugger (brief 0038).",
+  "description": "Eludite's web corpus: a Vite TypeScript counter for the JavaScript debugger (brief 0038) and the web language servers (brief 0050).",
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --strictPort"
   },
   "devDependencies": {
+    "eslint": "9.39.5",
+    "prettier": "3.9.9",
+    "typescript": "5.9.3",
     "vite": "8.3.2"
   }
 }

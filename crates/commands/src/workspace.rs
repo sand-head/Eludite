@@ -45,9 +45,11 @@ pub const WORKSPACE_APPLY_EDIT: &str = "eludite.workspace.apply_edit";
 pub const WORKSPACE_OPEN_FOLDER: &str = "eludite.workspace.open_folder";
 /// File > Close Workspace: the folder and any .NET solution open with it.
 pub const WORKSPACE_CLOSE: &str = "eludite.workspace.close";
+/// Edit > Advanced > Format Document (Ctrl+K, Ctrl+D; brief 0050).
+pub const EDITOR_FORMAT_DOCUMENT: &str = "eludite.editor.format_document";
 
 /// Every command this module registers.
-pub const ALL: [&str; 23] = [
+pub const ALL: [&str; 24] = [
     SOLUTION_OPEN,
     SOLUTION_CLOSE,
     FILE_OPEN,
@@ -71,6 +73,7 @@ pub const ALL: [&str; 23] = [
     WORKSPACE_APPLY_EDIT,
     WORKSPACE_OPEN_FOLDER,
     WORKSPACE_CLOSE,
+    EDITOR_FORMAT_DOCUMENT,
 ];
 
 const HISTORY_OUTPUT: &str = include_str!("../../../protocol/schemas/editor-history.output.json");
@@ -224,6 +227,13 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/workspace-apply-edit.output.json"),
             EditBuffer,
         ),
+        // Formats the buffer (unsaved), as typing would.
+        EDITOR_FORMAT_DOCUMENT => (
+            "Edit: Advanced: Format Document",
+            include_str!("../../../protocol/schemas/editor-format-document.input.json"),
+            include_str!("../../../protocol/schemas/editor-format-document.output.json"),
+            EditBuffer,
+        ),
         other => unreachable!("not a workspace command: {other}"),
     }
 }
@@ -339,6 +349,10 @@ pub enum WorkspaceRequest {
     },
     /// Close the open folder and any .NET solution with it (File > Close Workspace).
     CloseWorkspace,
+    /// Format a document with the project's formatter or its language server (brief 0050).
+    FormatDocument {
+        path: Option<String>,
+    },
 }
 
 /// `error-list-filter.input.json`.
@@ -378,6 +392,7 @@ impl WorkspaceRequest {
             WorkspaceRequest::ApplyEdit { .. } => WORKSPACE_APPLY_EDIT,
             WorkspaceRequest::OpenFolder { .. } => WORKSPACE_OPEN_FOLDER,
             WorkspaceRequest::CloseWorkspace => WORKSPACE_CLOSE,
+            WorkspaceRequest::FormatDocument { .. } => EDITOR_FORMAT_DOCUMENT,
         }
     }
 
@@ -395,7 +410,8 @@ impl WorkspaceRequest {
             | WorkspaceRequest::GoToDefinition { path, .. }
             | WorkspaceRequest::FindReferences { path, .. }
             | WorkspaceRequest::Rename { path, .. }
-            | WorkspaceRequest::CodeActions { path, .. } => path.as_deref(),
+            | WorkspaceRequest::CodeActions { path, .. }
+            | WorkspaceRequest::FormatDocument { path } => path.as_deref(),
             WorkspaceRequest::FileOpen { path, .. } | WorkspaceRequest::FileClose { path, .. } => {
                 Some(path)
             }
@@ -453,6 +469,36 @@ pub struct FileCloseOutput {
 pub struct SaveOutput {
     pub path: String,
     pub bytes: u64,
+    /// The save waits for format on save (brief 0050): an agent is answered once the file is written. Not part of
+    /// the output.
+    #[serde(skip)]
+    pub pending: bool,
+}
+
+/// `eludite.editor.format_document`'s `state`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormatState {
+    Formatting,
+    Done,
+}
+
+/// `editor-format-document.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FormatDocumentOutput {
+    pub path: String,
+    pub state: FormatState,
+    /// `prettier`, `biome`, `server` or `none`.
+    pub formatter: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub applied: bool,
+    pub edits: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// `editor-history.output.json` (undo and redo).
@@ -916,6 +962,7 @@ pub enum WorkspaceOutput {
     ApplyEdit(ApplyEditOutput),
     OpenFolder(OpenFolderOutput),
     WorkspaceClose(WorkspaceCloseOutput),
+    FormatDocument(FormatDocumentOutput),
 }
 
 /// `workspace-close.output.json`.
@@ -952,42 +999,56 @@ impl WorkspaceOutput {
             WorkspaceOutput::ApplyEdit(o) => serde_json::to_value(o),
             WorkspaceOutput::OpenFolder(o) => serde_json::to_value(o),
             WorkspaceOutput::WorkspaceClose(o) => serde_json::to_value(o),
+            WorkspaceOutput::FormatDocument(o) => serde_json::to_value(o),
         }
         .expect("workspace outputs serialize")
     }
 
-    /// True for an IntelliSense output still waiting for its answer.
+    /// True for an IntelliSense output still waiting for its answer (and a format or a save waiting for the
+    /// formatter, brief 0050).
     pub fn is_loading(&self) -> bool {
         matches!(
             self,
-            WorkspaceOutput::Complete(CompleteOutput {
-                state: PopupState::Loading,
+            WorkspaceOutput::FormatDocument(FormatDocumentOutput {
+                state: FormatState::Formatting,
                 ..
-            }) | WorkspaceOutput::Hover(HoverOutput {
-                state: PopupState::Loading,
-                ..
-            }) | WorkspaceOutput::SignatureHelp(SignatureHelpOutput {
-                state: PopupState::Loading,
-                ..
-            }) | WorkspaceOutput::GoToDefinition(DefinitionOutput {
-                state: DefinitionState::Loading,
-                ..
-            }) | WorkspaceOutput::FindReferences(ReferencesOutput {
-                state: ReferencesState::Loading,
-                ..
-            }) | WorkspaceOutput::Rename(RenameOutput {
-                state: RenameState::Loading,
-                ..
-            }) | WorkspaceOutput::CodeActions(CodeActionsOutput {
-                state: CodeActionsState::Loading,
-                ..
-            }) | WorkspaceOutput::ApplyCodeAction(ApplyCodeActionOutput {
-                state: ApplyCodeActionState::Resolving | ApplyCodeActionState::Applying,
-                ..
-            }) | WorkspaceOutput::ApplyEdit(ApplyEditOutput {
-                state: ApplyEditState::Applying,
-                ..
-            })
+            }) | WorkspaceOutput::Save(SaveOutput { pending: true, .. })
+                | WorkspaceOutput::Complete(CompleteOutput {
+                    state: PopupState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::Hover(HoverOutput {
+                    state: PopupState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::SignatureHelp(SignatureHelpOutput {
+                    state: PopupState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::GoToDefinition(DefinitionOutput {
+                    state: DefinitionState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::FindReferences(ReferencesOutput {
+                    state: ReferencesState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::Rename(RenameOutput {
+                    state: RenameState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::CodeActions(CodeActionsOutput {
+                    state: CodeActionsState::Loading,
+                    ..
+                })
+                | WorkspaceOutput::ApplyCodeAction(ApplyCodeActionOutput {
+                    state: ApplyCodeActionState::Resolving | ApplyCodeActionState::Applying,
+                    ..
+                })
+                | WorkspaceOutput::ApplyEdit(ApplyEditOutput {
+                    state: ApplyEditState::Applying,
+                    ..
+                })
         )
     }
 }
@@ -1209,12 +1270,13 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
                 save: i.save,
             }
         }
-        EDITOR_SAVE | EDITOR_UNDO | EDITOR_REDO => {
+        EDITOR_SAVE | EDITOR_UNDO | EDITOR_REDO | EDITOR_FORMAT_DOCUMENT => {
             let i: DocIn = input(value)?;
             let path = optional_path(i.path)?;
             match id {
                 EDITOR_SAVE => WorkspaceRequest::Save { path },
                 EDITOR_UNDO => WorkspaceRequest::Undo { path },
+                EDITOR_FORMAT_DOCUMENT => WorkspaceRequest::FormatDocument { path },
                 _ => WorkspaceRequest::Redo { path },
             }
         }
@@ -1663,6 +1725,7 @@ mod tests {
                 WorkspaceOutput::Save(SaveOutput {
                     path: "/a.cs".into(),
                     bytes: 12,
+                    pending: false,
                 }),
             ),
             (

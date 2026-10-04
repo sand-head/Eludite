@@ -712,11 +712,44 @@ mod tests {
                 "nuget.includePrerelease",
                 "nuget.restoreOnChange",
                 "nuget.lockFiles",
+                "editor.formatter",
+                "editor.formatOnSave.css",
+                "editor.emmet",
+                "editor.formatOnSave.html",
+                "languageServers.nodePath",
+                "languageServers.typescriptPath",
+                "languageServers.eslint",
+                "editor.formatOnSave.typescript",
+                "editor.formatOnSave.json",
             ]
         );
-        // Brief 0048: NuGet Package Manager > General, last.
+        // Brief 0050: the web languages' pages, after the earlier ones, so they keep their places.
         assert_eq!(
-            s.sections.last().map(String::as_str),
+            s.sections[s.sections.len() - 5..],
+            [
+                "Text Editor > All Languages",
+                "Text Editor > CSS",
+                "Text Editor > HTML",
+                "Text Editor > JavaScript/TypeScript",
+                "Text Editor > JSON"
+            ]
+        );
+        assert_eq!(s.section("Text Editor > JavaScript/TypeScript").count(), 4);
+        let eslint = s.get("languageServers.eslint").unwrap();
+        assert_eq!(eslint.default, json!("auto"));
+        assert!(eslint.validate(&json!("off")).is_ok());
+        assert!(eslint.validate(&json!("sometimes")).is_err());
+        let formatter = s.get("editor.formatter").unwrap();
+        assert_eq!(formatter.default, json!("auto"));
+        assert!(formatter.validate(&json!("biome")).is_ok());
+        assert_eq!(s.get("editor.emmet").unwrap().default, json!(true));
+        assert_eq!(
+            s.get("languageServers.nodePath").unwrap().env.as_deref(),
+            Some("ELUDITE_NODE")
+        );
+        // Brief 0048: NuGet Package Manager > General, the last before brief 0050's pages.
+        assert_eq!(
+            s.sections.iter().rev().nth(5).map(String::as_str),
             Some("NuGet Package Manager > General")
         );
         assert_eq!(s.section("NuGet Package Manager > General").count(), 3);
@@ -731,7 +764,7 @@ mod tests {
         assert!(lock.validate(&json!("strict")).is_err());
         // Brief 0046: the forges' page, before NuGet's.
         assert_eq!(
-            s.sections.iter().rev().nth(1).map(String::as_str),
+            s.sections.iter().rev().nth(6).map(String::as_str),
             Some("Source Control > Forges")
         );
         assert_eq!(s.section("Source Control > Forges").count(), 5);
@@ -755,7 +788,7 @@ mod tests {
         assert_eq!(s.section("Terminal").count(), 8);
         // Brief 0042: Find and Replace, after the earlier pages.
         assert_eq!(
-            s.sections.iter().rev().nth(2).map(String::as_str),
+            s.sections.iter().rev().nth(7).map(String::as_str),
             Some("Environment > Find and Replace")
         );
         assert_eq!(s.section("Environment > Find and Replace").count(), 4);

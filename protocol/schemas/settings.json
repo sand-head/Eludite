@@ -17,7 +17,12 @@
     "Terminal",
     "Environment > Find and Replace",
     "Source Control > Forges",
-    "NuGet Package Manager > General"
+    "NuGet Package Manager > General",
+    "Text Editor > All Languages",
+    "Text Editor > CSS",
+    "Text Editor > HTML",
+    "Text Editor > JavaScript/TypeScript",
+    "Text Editor > JSON"
   ],
   "properties": {
     "keyboard.preset": {
@@ -607,6 +612,92 @@
         "Respect",
         "Ignore"
       ]
+    },
+    "editor.formatter": {
+      "description": "What Format Document (Edit > Advanced > Format Document, Ctrl+K, Ctrl+D) and format on save run for a file a formatter in crates/lsp/src/servers.json handles (Prettier: TypeScript, JavaScript, HTML, CSS, SCSS, Less, JSON; Biome: TypeScript, JavaScript, CSS, JSON): `auto` the project's Prettier (`prettier` in its `node_modules`, with the project's configuration) when it has one, else the project's Biome when the workspace root has `biome.json` or `biome.jsonc`, else the language server's formatting; `prettier` Prettier (the project's, else the pinned one from tools/web-servers/fetch.sh); `biome` Biome (the project's, else the pinned one); `server` always the language server's formatting (`textDocument/formatting`). The formatter runs on the document's text out of process, only when asked; its result is one undo step.",
+      "enum": [
+        "auto",
+        "prettier",
+        "biome",
+        "server"
+      ],
+      "default": "auto",
+      "x-eludite-section": "Text Editor > All Languages",
+      "x-eludite-label": "Formatter",
+      "x-eludite-enum-labels": [
+        "The project's Prettier or Biome, else the language server",
+        "Prettier",
+        "Biome",
+        "The language server"
+      ]
+    },
+    "editor.formatOnSave.css": {
+      "description": "Format style sheets (`.css`, `.scss`, `.less`) when they are saved, with the formatter editor.formatter chooses, before the file is written. A formatter that fails writes an Output line and the file is saved as it is.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > CSS",
+      "x-eludite-label": "Format on save"
+    },
+    "editor.emmet": {
+      "description": "Expand Emmet abbreviations with Tab in HTML and CSS files (`ul>li*3`, `div.card#main`, `p{text}`, `m10` for `margin: 10px;`) when no completion item is selected; Escape closes the completion list first, and Tab then expands. Off: Tab inserts a tab.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > HTML",
+      "x-eludite-label": "Expand Emmet abbreviations on Tab"
+    },
+    "editor.formatOnSave.html": {
+      "description": "Format HTML files (`.html`, `.htm`) when they are saved, with the formatter editor.formatter chooses, before the file is written. A formatter that fails writes an Output line and the file is saved as it is.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > HTML",
+      "x-eludite-label": "Format on save"
+    },
+    "languageServers.nodePath": {
+      "description": "The Node.js executable the web language servers and formatters run on (brief 0050: typescript-language-server, the HTML, CSS, JSON and ESLint servers, Prettier and Biome's launcher; Node.js 20 or later, tools/web-servers/PIN's `node`). Empty: the same search as debugger.nodePath: `node` on PATH, then Volta's (`~/.volta/bin/node`), nvm's default (`~/.nvm/alias/default`) and fnm's default (`~/.local/share/fnm/aliases/default`, `~/.fnm/aliases/default`). Located, never bundled. Applies to the next server or formatter started.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Text Editor > JavaScript/TypeScript",
+      "x-eludite-label": "Node.js executable (web language servers and formatters)",
+      "x-eludite-env": "ELUDITE_NODE"
+    },
+    "languageServers.typescriptPath": {
+      "description": "The TypeScript the TypeScript and JavaScript language server (typescript-language-server) runs: a `typescript/lib` folder, or its `tsserver.js`. Empty: the project's own `node_modules/typescript` (the nearest one at or above the workspace root), else the pinned TypeScript in tools/web-servers/fetch.sh's cache (`~/.cache/eludite/web-servers/<pin>/node_modules/typescript`). The version in use is shown in the server's status bar slot. Applies to the next TypeScript server started.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Text Editor > JavaScript/TypeScript",
+      "x-eludite-label": "TypeScript (typescript/lib folder)"
+    },
+    "languageServers.eslint": {
+      "description": "ESLint's language server (vscode-eslint's, from tools/web-servers/fetch.sh) beside the TypeScript server for JavaScript and TypeScript files: `auto` runs it when the workspace root (or a folder above it) has an ESLint configuration, flat (`eslint.config.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`) or legacy (`.eslintrc.js`, `.cjs`, `.yaml`, `.yml`, `.json`, `.eslintrc`); `on` always; `off` never. ESLint itself is the project's (`node_modules/eslint`). Applies to documents opened next.",
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto",
+      "x-eludite-section": "Text Editor > JavaScript/TypeScript",
+      "x-eludite-label": "Run ESLint",
+      "x-eludite-enum-labels": [
+        "When the project has an ESLint configuration",
+        "Always",
+        "Never"
+      ]
+    },
+    "editor.formatOnSave.typescript": {
+      "description": "Format TypeScript and JavaScript files (`.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`) when they are saved, with the formatter editor.formatter chooses, before the file is written. A formatter that fails writes an Output line and the file is saved as it is.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > JavaScript/TypeScript",
+      "x-eludite-label": "Format on save"
+    },
+    "editor.formatOnSave.json": {
+      "description": "Format JSON files (`.json`, `.jsonc`) when they are saved, with the formatter editor.formatter chooses, before the file is written. A formatter that fails writes an Output line and the file is saved as it is.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Text Editor > JSON",
+      "x-eludite-label": "Format on save"
     }
   }
 }

@@ -199,7 +199,7 @@ impl JsSetup {
             return start();
         }
         let js = self.search.find()?;
-        let (node, _) = self.node.find()?;
+        let (node, _) = self.node.find(&eludite_dap::discovery::JS_DEBUG_NODE)?;
         let node_version = eludite_dap::discovery::check_node_version(
             &node,
             eludite_dap::discovery::node_version_output(&node).as_deref(),

@@ -23,10 +23,14 @@
 //! - **Events**: everything the server sends unasked arrives on a channel as [`Event`]s; `workspace/applyEdit` as
 //!   [`Event::ApplyEdit`], answered with `respond_apply_edit`.
 //!
+//! Several servers may serve one document (brief 0050: TypeScript and ESLint): [`fanout`] decides which of them a
+//! request goes to and merges their answers; [`node`] finds the Node.js the web servers (and vscode-js-debug, through
+//! `eludite-dap`) run on.
+//!
 //! Public API boundary: [`Connection`], [`HostClient`], [`ServerClient`], [`ServerSetup`], [`PendingRequest`],
 //! [`HostCommand`] (alias [`ServerCommand`]), [`Connector`] (a server running in this process), [`ClientInfo`],
 //! [`RestartPolicy`], [`StderrMode`], [`Event`], [`HostEvent`], [`Progress`], [`ServerStatus`], [`Error`], the
-//! [`registry`] types, plus the low-level [`Transport`] / [`FramedTransport`]. Message types live in
+//! [`registry`] types, [`fanout`], [`node`], plus the low-level [`Transport`] / [`FramedTransport`]. Message types live in
 //! `eludite-protocol`. With the `fake` feature, [`fake::FakeHost`] is a scripted in-process host and
 //! [`fake_server::FakeServer`] a scripted in-process generic server, for tests.
 
@@ -38,6 +42,8 @@ pub mod fake;
 mod fake_nuget;
 #[cfg(feature = "fake")]
 pub mod fake_server;
+pub mod fanout;
+pub mod node;
 mod pull;
 pub mod registry;
 mod server;
@@ -52,7 +58,7 @@ pub use eludite_protocol::jsonrpc::{
     self, ErrorObject, Id, Message, Notification, Request, Response,
 };
 pub use eludite_protocol::{host, lsp};
-pub use registry::{ServerRegistration, ServerRegistry, Via};
+pub use registry::{FormatterPick, FormatterSpec, ServerRegistration, ServerRegistry, Via};
 pub use server::{
     ServerClient, ServerSetup, client_capabilities, configuration, methods_generic, path_to_uri,
 };

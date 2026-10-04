@@ -181,6 +181,12 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Complete Word", "eludite.editor.complete"),
                 item("Parameter Info", "eludite.editor.signature_help"),
                 item("Quick Info", "eludite.editor.hover"),
+                Separator,
+                // Visual Studio's Edit > Advanced > Format Document (brief 0050).
+                item(
+                    "Advanced > Format Document",
+                    "eludite.editor.format_document",
+                ),
             ],
         ),
         menu(
@@ -828,6 +834,8 @@ mod tests {
         assert!(shortcuts.contains(&("Find and Replace > Quick Find", Some("Ctrl+F"))));
         assert!(shortcuts.contains(&("Find and Replace > Find in Files", Some("Ctrl+Shift+F"))));
         assert!(shortcuts.contains(&("Find and Replace > Replace in Files", Some("Ctrl+Shift+H"))));
+        // Brief 0050.
+        assert!(shortcuts.contains(&("Advanced > Format Document", Some("Ctrl+K, Ctrl+D"))));
         let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
         let shortcuts: Vec<_> = build
             .entries

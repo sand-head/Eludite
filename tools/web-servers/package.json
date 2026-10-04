@@ -1,0 +1,14 @@
+{
+  "name": "eludite-web-servers",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The web language servers and formatters Eludite locates (brief 0050); installed by fetch.sh into ~/.cache/eludite/web-servers/<pin>, never vendored.",
+  "license": "MIT",
+  "dependencies": {
+    "@biomejs/biome": "2.5.15",
+    "prettier": "3.9.9",
+    "typescript": "6.0.3",
+    "typescript-language-server": "5.3.0",
+    "vscode-langservers-extracted": "4.10.0"
+  }
+}

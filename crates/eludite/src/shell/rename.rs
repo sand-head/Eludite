@@ -1019,8 +1019,7 @@ impl Shell {
             .status
             .origin
             .as_ref()
-            .and_then(|o| self.documents.get(&o.path))
-            .map(|d| d.server.clone())
+            .map(|o| self.doc_key(&o.path))
             .unwrap_or_default();
         let options = ApplyOptions {
             label: Some(format!("Rename '{symbol}' to '{name}'")),

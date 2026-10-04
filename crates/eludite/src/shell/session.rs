@@ -38,6 +38,14 @@
 //! and [`SessionEvent::ServerStatus`]; its generation (one more per restart) as [`SessionEvent::ServerGeneration`];
 //! its stderr and `window/logMessage` as [`SessionEvent::HostLog`]. A crash restarts it under the brief 0007 policy
 //! and replays the open documents.
+//!
+//! Several servers for one document (brief 0050: TypeScript and ESLint for `*.ts`): [`ServerSession::fan_out`] makes
+//! one session of the document's servers' sessions. Its document notifications go to each of them; a request goes to
+//! the ones that offer it, from a waiter thread, and the answers merge by `eludite_lsp::fanout`'s rules, so the
+//! editor features still hold one session per document and never ask how many servers are behind it. A web server
+//! (an npm package) is located with the project's `node_modules` first and run by the Node.js
+//! `languageServers.nodePath` names or the shared search finds; one that is not found reports `not found` with the
+//! fetch command (`tools/web-servers/fetch.sh`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -157,6 +165,14 @@ pub struct GenericLaunch {
     /// The executable the settings name (brief 0020), tried before discovery unless the registration's override
     /// variable is set (the variable wins, as documented).
     pub configured: Option<PathBuf>,
+    /// The web servers' cache (`tools/web-servers/fetch.sh`), when it exists (brief 0050).
+    pub cache: Option<PathBuf>,
+    /// The setting `languageServers.nodePath` (the shared Node.js search otherwise).
+    pub node: Option<PathBuf>,
+    /// The paths the settings name for the registration's modules (`languageServers.typescriptPath`), by module.
+    pub modules: std::collections::BTreeMap<String, PathBuf>,
+    /// The command that installs the server when it is not found (`tools/web-servers/fetch.sh`).
+    pub fetch: Option<String>,
 }
 
 impl std::fmt::Debug for GenericLaunch {
@@ -224,6 +240,8 @@ pub enum SessionEvent {
     ServerStatus(ServerStatus),
     /// A generic server's generation: after it started, and after every restart.
     ServerGeneration(Generation),
+    /// The modules a generic server runs on, as located for it (brief 0050: `TypeScript 5.9.3, project`).
+    ServerModules(Vec<String>),
     /// `eludite/build/status` after the host restarted (brief 0020): the running build to replay, if any.
     BuildStatus(host::BuildStatusResult),
     /// `eludite/test/update` (brief 0035), any generation: the Test Explorer drops a stale one.
@@ -288,6 +306,9 @@ pub struct Shared {
     pub solution: Option<PathBuf>,
     pub generation: Generation,
     pub status: Option<SolutionStatus>,
+    /// A generic server's `ServerCapabilities`, once it has started (brief 0050's fan-out asks only the servers that
+    /// offer a method).
+    pub capabilities: Option<serde_json::Value>,
 }
 
 /// The shell's handle on one language server: `eludite-host`, or a generic server. Cheap to clone,
@@ -297,6 +318,9 @@ pub struct ServerSession {
     tx: Arc<Mutex<Sender<Cmd>>>,
     shared: Arc<Mutex<Shared>>,
     tickets: Arc<AtomicU64>,
+    /// A document's several servers (brief 0050), by status bar name, primary first; `tx` and `shared` are the
+    /// primary's.
+    fan: Option<Arc<Vec<(String, ServerSession)>>>,
 }
 
 /// Why a request has no result.
@@ -339,11 +363,66 @@ type RequestJob = Box<dyn FnOnce(Option<&Connection>, &Inflight) + Send>;
 pub struct RequestHandle {
     ticket: u64,
     session: ServerSession,
+    /// A fanned-out request's cancels (one per server asked).
+    fan: Option<Arc<FanCancel>>,
+}
+
+/// The cancels of a fanned-out request; a cancel sent after [`RequestHandle::cancel`] runs at once.
+#[derive(Default)]
+struct FanCancel {
+    canceled: std::sync::atomic::AtomicBool,
+    cancels: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for FanCancel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FanCancel")
+            .field("canceled", &self.canceled.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
 }
 
 impl RequestHandle {
     pub fn cancel(&self) {
-        self.session.send(Cmd::Cancel(self.ticket));
+        match &self.fan {
+            Some(fan) => {
+                fan.canceled.store(true, Ordering::Relaxed);
+                for c in lock(&fan.cancels).iter() {
+                    c();
+                }
+            }
+            None => self.session.send(Cmd::Cancel(self.ticket)),
+        }
+    }
+}
+
+/// One of a fanned-out document's servers, as `eludite_lsp::fanout::dispatch` sees it.
+struct SessionMember {
+    name: String,
+    session: ServerSession,
+}
+
+impl eludite_lsp::fanout::Member for SessionMember {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn capabilities(&self) -> Option<serde_json::Value> {
+        self.session.shared().capabilities.clone()
+    }
+
+    fn send(&self, method: &str, params: serde_json::Value) -> eludite_lsp::fanout::Sent {
+        let (handle, rx) = self.session.request_value(method, params);
+        eludite_lsp::fanout::Sent {
+            wait: Box::new(move || match futures::executor::block_on(rx) {
+                Ok(reply) => reply.result.map_err(|e| match e {
+                    RequestError::Failed(m) => m,
+                    other => format!("{other:?}"),
+                }),
+                Err(_) => Err("the session is gone".into()),
+            }),
+            cancel: Box::new(move || handle.cancel()),
+        }
     }
 }
 
@@ -391,8 +470,143 @@ impl ServerSession {
                 tx: Arc::new(Mutex::new(tx)),
                 shared,
                 tickets: Arc::new(AtomicU64::new(1)),
+                fan: None,
             },
             events_rx,
+        )
+    }
+
+    /// One session for a document several servers serve (brief 0050), `members` by status bar name with the primary
+    /// server first: notifications go to each, requests fan out and their answers merge.
+    pub fn fan_out(members: Vec<(String, ServerSession)>) -> Self {
+        let primary = members
+            .first()
+            .map(|(_, s)| s.clone())
+            .expect("a fan-out session has servers");
+        if members.len() == 1 {
+            return primary;
+        }
+        Self {
+            fan: Some(Arc::new(members)),
+            ..primary
+        }
+    }
+
+    /// Send an untyped request (`workspace/executeCommand`, a fanned-out member's request) after the document
+    /// notifications already queued; a generic server that does not offer it answers [`RequestError::Failed`] at
+    /// once without being asked.
+    pub fn request_value(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> (RequestHandle, oneshot::Receiver<Reply<serde_json::Value>>) {
+        if self.fan.is_some() {
+            return self.fan_request(method.to_owned(), params, Ok);
+        }
+        let ticket = self.tickets.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        let method = method.to_owned();
+        let shared = self.shared.clone();
+        let job: RequestJob = Box::new(move |client, inflight| {
+            let Some(client) = client else {
+                let _ = tx.send(Reply::err(RequestError::NoHost));
+                return;
+            };
+            if let Some(caps) = lock(&shared).capabilities.as_ref()
+                && !eludite_lsp::fanout::offers(&method, caps)
+            {
+                let _ = tx.send(Reply::err(RequestError::Failed(format!(
+                    "the server does not offer {method}"
+                ))));
+                return;
+            }
+            let sent = Instant::now();
+            let pending = match client.request_untyped(&method, params) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(Reply::err(request_error(e)));
+                    return;
+                }
+            };
+            lock(inflight).insert(ticket, pending.id());
+            let inflight = inflight.clone();
+            let _ = thread::Builder::new()
+                .name("eludite-lsp-reply".into())
+                .spawn(move || {
+                    let result = pending.wait().map_err(request_error);
+                    let received = Instant::now();
+                    lock(&inflight).remove(&ticket);
+                    let _ = tx.send(Reply {
+                        result,
+                        sent: Some(sent),
+                        received,
+                    });
+                });
+        });
+        self.send(Cmd::Request(job));
+        (
+            RequestHandle {
+                ticket,
+                session: self.clone(),
+                fan: None,
+            },
+            rx,
+        )
+    }
+
+    /// A request to every server of a fanned-out session, merged on a waiter thread.
+    fn fan_request<T: Send + 'static>(
+        &self,
+        method: String,
+        params: serde_json::Value,
+        convert: fn(serde_json::Value) -> Result<T, String>,
+    ) -> (RequestHandle, oneshot::Receiver<Reply<T>>) {
+        let members: Vec<Arc<dyn eludite_lsp::fanout::Member>> = self
+            .fan
+            .iter()
+            .flat_map(|f| f.iter())
+            .map(|(name, session)| {
+                Arc::new(SessionMember {
+                    name: name.clone(),
+                    session: session.clone(),
+                }) as Arc<dyn eludite_lsp::fanout::Member>
+            })
+            .collect();
+        let cancel = Arc::new(FanCancel::default());
+        let (tx, rx) = oneshot::channel();
+        let waiter = cancel.clone();
+        let spawned = thread::Builder::new()
+            .name("eludite-lsp-fan-out".into())
+            .spawn(move || {
+                let sent = Instant::now();
+                let register = |c: Box<dyn Fn() + Send + Sync>| {
+                    if waiter.canceled.load(Ordering::Relaxed) {
+                        c();
+                    }
+                    lock(&waiter.cancels).push(c);
+                };
+                let merged = eludite_lsp::fanout::dispatch(&members, &method, params, &register);
+                let result = if waiter.canceled.load(Ordering::Relaxed) {
+                    Err(RequestError::Canceled)
+                } else {
+                    merged.and_then(convert).map_err(RequestError::Failed)
+                };
+                let _ = tx.send(Reply {
+                    result,
+                    sent: Some(sent),
+                    received: Instant::now(),
+                });
+            });
+        if spawned.is_err() {
+            eprintln!("eludite: cannot start a fan-out waiter thread");
+        }
+        (
+            RequestHandle {
+                ticket: 0,
+                session: self.clone(),
+                fan: Some(cancel),
+            },
+            rx,
         )
     }
 
@@ -407,6 +621,26 @@ impl ServerSession {
         R::Params: Send + 'static,
         R::Result: Send + 'static,
     {
+        if self.fan.is_some() {
+            let params = match serde_json::to_value(&params) {
+                Ok(p) => p,
+                Err(e) => {
+                    let (tx, rx) = oneshot::channel();
+                    let _ = tx.send(Reply::err(RequestError::Failed(e.to_string())));
+                    return (
+                        RequestHandle {
+                            ticket: 0,
+                            session: self.clone(),
+                            fan: None,
+                        },
+                        rx,
+                    );
+                }
+            };
+            return self.fan_request(R::METHOD.to_owned(), params, |v| {
+                serde_json::from_value::<R::Result>(v).map_err(|e| e.to_string())
+            });
+        }
         let ticket = self.tickets.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         let job: RequestJob = Box::new(move |client, inflight| {
@@ -445,6 +679,7 @@ impl ServerSession {
             RequestHandle {
                 ticket,
                 session: self.clone(),
+                fan: None,
             },
             rx,
         )
@@ -472,7 +707,21 @@ impl ServerSession {
         was
     }
 
+    /// Each server of a fanned-out session, or this one.
+    fn each(&self) -> Vec<ServerSession> {
+        match &self.fan {
+            Some(f) => f.iter().map(|(_, s)| s.clone()).collect(),
+            None => vec![self.clone()],
+        }
+    }
+
     pub fn did_open(&self, uri: String, language_id: &str, version: i32, text: String) {
+        if self.fan.is_some() {
+            for s in self.each() {
+                s.did_open(uri.clone(), language_id, version, text.clone());
+            }
+            return;
+        }
         self.send(Cmd::DidOpen {
             uri,
             language_id: language_id.into(),
@@ -482,15 +731,25 @@ impl ServerSession {
     }
 
     pub fn did_change(&self, uri: String, version: i32, text: String) {
-        self.send(Cmd::DidChange { uri, version, text });
+        for s in self.each() {
+            s.send(Cmd::DidChange {
+                uri: uri.clone(),
+                version,
+                text: text.clone(),
+            });
+        }
     }
 
     pub fn did_save(&self, uri: String) {
-        self.send(Cmd::DidSave { uri });
+        for s in self.each() {
+            s.send(Cmd::DidSave { uri: uri.clone() });
+        }
     }
 
     pub fn did_close(&self, uri: String) {
-        self.send(Cmd::DidClose { uri });
+        for s in self.each() {
+            s.send(Cmd::DidClose { uri: uri.clone() });
+        }
     }
 
     /// Answer the host's `eludite/nuget/credentials` request `id` ([`SessionEvent::NuGetCredentials`]); `None` gives
@@ -513,7 +772,9 @@ impl ServerSession {
 
     /// Send a notification without Eludite typing (after the document notifications queued before it).
     pub fn notify_untyped(&self, method: &str, params: serde_json::Value) {
-        self.send(Cmd::Notify(method.to_owned(), params));
+        for s in self.each() {
+            s.send(Cmd::Notify(method.to_owned(), params.clone()));
+        }
     }
 
     /// Ask the host to start a build; the answer arrives as [`SessionEvent::BuildStarted`] or `BuildRefused` with
@@ -883,8 +1144,9 @@ impl Worker {
                     }
                 }
             }
-            Launch::Generic(launch) => match start_generic(launch, info) {
+            Launch::Generic(launch) => match start_generic(launch, info, &self.events) {
                 Ok((client, events)) => {
+                    lock(&self.shared).capabilities = client.capabilities();
                     self.emit(SessionEvent::ServerGeneration(client.generation()));
                     self.emit(SessionEvent::LanguageServer(running_status(&client)));
                     (Backend::Server(client), events)
@@ -977,18 +1239,79 @@ impl Worker {
     }
 }
 
+/// The status message of a server that is not found: the fetch command (the reason goes to the Output window).
+pub const NOT_FOUND: &str = "not found";
+
 /// Locate (unless in process) and start a generic server. Runs `--version` and the LSP handshake: worker thread only.
 fn start_generic(
     launch: &GenericLaunch,
     client: ClientInfo,
+    events: &UnboundedSender<SessionEvent>,
 ) -> Result<(ServerClient, Receiver<Event>), String> {
     let reg = &launch.registration;
+    let log = |line: String| {
+        let _ = events.unbounded_send(SessionEvent::HostLog(line));
+    };
+    // `${module:<name>}`: the located modules (the project's TypeScript first).
+    let mut modules = std::collections::BTreeMap::new();
+    let mut uses = Vec::new();
+    for m in &reg.modules {
+        if let Some(found) = eludite_lsp::ServerRegistration::locate_module(
+            m,
+            launch.modules.get(&m.name).map(PathBuf::as_path),
+            Some(&launch.root),
+            launch.cache.as_deref(),
+        ) {
+            uses.push(format!(
+                "{} {}, {}",
+                m.label,
+                found.version.as_deref().unwrap_or("?"),
+                found.source
+            ));
+            modules.insert(m.name.clone(), found.path.to_string_lossy().into_owned());
+        }
+    }
+    if !uses.is_empty() {
+        log(format!("{}: {}", reg.name, uses.join("; ")));
+        let _ = events.unbounded_send(SessionEvent::ServerModules(uses));
+    }
+    let root_uri = eludite_lsp::path_to_uri(&launch.root);
+    let root_name = launch
+        .root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let cache = launch
+        .cache
+        .as_ref()
+        .map(|c| c.to_string_lossy().into_owned());
+    let cache_uri = launch
+        .cache
+        .as_deref()
+        .map(eludite_lsp::path_to_uri)
+        .map(|u| u.trim_end_matches('/').to_owned());
+    let vars = |name: &str| -> Option<String> {
+        match name {
+            "root" => Some(launch.root.to_string_lossy().into_owned()),
+            "rootUri" => Some(root_uri.clone()),
+            "rootName" => Some(root_name.clone()),
+            "cache" => cache.clone(),
+            "cacheUri" => cache_uri.clone(),
+            _ => name
+                .strip_prefix("module:")
+                .and_then(|m| modules.get(m).cloned()),
+        }
+    };
     let setup = ServerSetup {
         name: reg.id.clone(),
         client,
         root: launch.root.clone(),
-        initialization_options: reg.initialization_options.clone(),
-        settings: reg.settings.clone(),
+        initialization_options: eludite_lsp::registry::substitute(
+            &reg.initialization_options,
+            &vars,
+        ),
+        settings: eludite_lsp::registry::substitute(&reg.settings, &vars),
+        push_settings: reg.push_settings,
     };
     let started = match &launch.connector {
         Some(connector) => {
@@ -1000,23 +1323,52 @@ fn start_generic(
                 .as_ref()
                 .and_then(|c| c.env_override.as_deref())
                 .is_some_and(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty()));
-            let (path, version, source) = match launch.configured.as_deref().filter(|_| !overridden)
-            {
-                Some(p) => {
-                    let version = configured_version(p).ok_or_else(|| {
+            let node = || -> Result<PathBuf, String> {
+                let user = eludite_lsp::node::WEB_SERVERS;
+                let (node, _) = eludite_lsp::node::NodeSearch {
+                    configured: launch.node.clone(),
+                    ..eludite_lsp::node::NodeSearch::from_env()
+                }
+                .find(&user)?;
+                eludite_lsp::node::check_version(
+                    &node,
+                    eludite_lsp::node::node_version_output(&node).as_deref(),
+                    &user,
+                )?;
+                Ok(node)
+            };
+            let (path, version, source, node) =
+                match launch.configured.as_deref().filter(|_| !overridden) {
+                    Some(p) => {
+                        let version = configured_version(p).ok_or_else(|| {
                         format!(
                             "{} at {} (the setting languageServers.rustAnalyzerPath) does not run",
                             reg.name,
                             p.display()
                         )
                     })?;
-                    (p.to_path_buf(), version, "settings".to_owned())
-                }
-                None => {
-                    let located = reg.locate()?;
-                    (located.path, located.version, located.source)
-                }
-            };
+                        (p.to_path_buf(), version, "settings".to_owned(), None)
+                    }
+                    None => {
+                        let located = reg
+                            .locate(Some(&launch.root), launch.cache.as_deref(), &node)
+                            .map_err(|e| {
+                                let npm = reg
+                                    .command
+                                    .as_ref()
+                                    .is_some_and(|c| c.npm_package.is_some());
+                                match (&launch.fetch, npm) {
+                                    // The Output window gets why; the status bar the remedy.
+                                    (Some(fetch), true) => {
+                                        log(format!("{}: {e}", reg.name));
+                                        format!("{NOT_FOUND} (run {fetch})")
+                                    }
+                                    _ => e,
+                                }
+                            })?;
+                        (located.path, located.version, located.source, located.node)
+                    }
+                };
             documents_trace(&format!(
                 "{} {} from {} ({})",
                 reg.id,
@@ -1024,9 +1376,20 @@ fn start_generic(
                 source,
                 path.display()
             ));
-            let mut command = ServerCommand::new(path.as_os_str())
-                .current_dir(&launch.root)
-                .stderr(StderrMode::Capture);
+            log(format!(
+                "{} {version} from {source} ({}){}",
+                reg.name,
+                path.display(),
+                node.as_deref()
+                    .map(|n| format!(" on Node.js {}", n.display()))
+                    .unwrap_or_default()
+            ));
+            let mut command = match &node {
+                Some(node) => ServerCommand::new(node.as_os_str()).arg(path.as_os_str()),
+                None => ServerCommand::new(path.as_os_str()),
+            }
+            .current_dir(&launch.root)
+            .stderr(StderrMode::Capture);
             if let Some(spec) = &reg.command {
                 for a in &spec.args {
                     command = command.arg(a);
@@ -1113,6 +1476,7 @@ impl Pump {
                     let _ = self.tx.send(Cmd::Replay);
                     match &self.backend {
                         Backend::Server(c) => {
+                            lock(&self.shared).capabilities = c.capabilities();
                             let _ = self
                                 .events
                                 .unbounded_send(SessionEvent::ServerGeneration(c.generation()));

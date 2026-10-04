@@ -1168,6 +1168,7 @@ impl Shell {
             return Ok(WorkspaceOutput::Save(SaveOutput {
                 path: project,
                 bytes,
+                pending: false,
             }));
         }
         let edits: Vec<host::PropertyEdit> = dirty
@@ -1219,6 +1220,7 @@ impl Shell {
         Ok(WorkspaceOutput::Save(SaveOutput {
             path: project,
             bytes,
+            pending: false,
         }))
     }
 

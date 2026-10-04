@@ -1,6 +1,6 @@
 # Brief 0050: The web language stack: TypeScript, JavaScript, HTML, CSS and JSON in the editor
 
-Status: open
+Status: done
 Phase: 2 (PLAN.md section 10: "TypeScript, JavaScript and the web stack"; section 7, the Web row)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 6, 12), 3 (D3: generic language servers over plain LSP), 4.1 (syntax highlighting from tree-sitter, semantic tokens layered over it), 4.3 (everything the language server provides), 4.11 (EditorConfig), 5.1, 7 (the Web row: typescript-language-server over tsserver, the HTML, CSS and JSON language services extracted from VS Code, ESLint, Prettier or Biome, Emmet), 9, 10 (Phase 2)
 Related ADRs: ADR-0001, ADR-0003

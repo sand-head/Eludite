@@ -1,0 +1,15 @@
+/* Brief 0050's CSS fixture: selectors, properties and an at-rule for the CSS server and Emmet's CSS forms. */
+:root {
+  --accent: #1e7b34;
+}
+
+.card {
+  color: var(--accent);
+  margin: 0 auto;
+}
+
+@media (max-width: 600px) {
+  .card {
+    margin: 0;
+  }
+}

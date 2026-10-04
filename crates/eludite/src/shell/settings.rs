@@ -124,6 +124,14 @@ pub struct Applied {
     pub attach_browser: bool,
     pub node: Option<PathBuf>,
     pub js_debug: Option<PathBuf>,
+    /// Brief 0050: the registrations' own settings (`languageServers.eslint`, `languageServers.typescriptPath`) by
+    /// key, `languageServers.nodePath`, `editor.formatter`, `editor.formatOnSave.<id>` by registration id and
+    /// `editor.emmet`.
+    pub server_settings: std::collections::BTreeMap<String, String>,
+    pub language_node: Option<PathBuf>,
+    pub formatter: String,
+    pub format_on_save: std::collections::BTreeMap<String, bool>,
+    pub emmet: bool,
 }
 
 impl Shell {
@@ -178,6 +186,39 @@ impl Shell {
                 attach_browser: s.bool("debugger.attachBrowser"),
                 node: s.path("debugger.nodePath"),
                 js_debug: s.path("debugger.jsDebugPath"),
+                // Whatever the registrations name (servers.json), so no language has a code path here.
+                server_settings: self
+                    .launches
+                    .registry
+                    .servers
+                    .iter()
+                    .flat_map(|r| {
+                        r.activation
+                            .iter()
+                            .map(|a| a.setting.clone())
+                            .chain(r.modules.iter().filter_map(|m| m.setting.clone()))
+                    })
+                    .filter(|k| s.schema().get(k).is_some())
+                    .map(|k| {
+                        let v = s.string(&k);
+                        (k, v)
+                    })
+                    .collect(),
+                language_node: s.path("languageServers.nodePath"),
+                formatter: s.string("editor.formatter"),
+                format_on_save: self
+                    .launches
+                    .registry
+                    .servers
+                    .iter()
+                    .map(|r| format!("editor.formatOnSave.{}", r.id))
+                    .filter(|k| s.schema().get(k).is_some())
+                    .map(|k| {
+                        let on = s.bool(&k);
+                        (k["editor.formatOnSave.".len()..].to_owned(), on)
+                    })
+                    .collect(),
+                emmet: s.bool("editor.emmet"),
             }
         };
         self.nuget_apply_settings();
@@ -203,6 +244,16 @@ impl Shell {
         self.debug.set_node_path(applied.node.clone());
         self.debug.set_js_debug_path(applied.js_debug.clone());
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
+        self.launches.settings = applied.server_settings.clone();
+        self.launches.node = applied.language_node.clone();
+        self.launches.formatter = applied.formatter.clone();
+        self.launches.format_on_save = applied.format_on_save.clone();
+        if self.launches.emmet != applied.emmet {
+            self.launches.emmet = applied.emmet;
+            for doc in self.documents.values() {
+                doc.view.update(cx, |v, _| v.set_emmet(applied.emmet));
+            }
+        }
         self.browser.set_settings(applied.browser.clone());
         // Brief 0047: the workspace's file carries the per-person opt-in, which is ignored: say so once in the
         // Output window each time it appears, and in the Web Browser window while it stays.

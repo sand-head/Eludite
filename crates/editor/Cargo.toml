@@ -18,10 +18,16 @@ eludite-ui.workspace = true
 # tree-sitter's allocator (src/syntax/alloc.rs); MIT.
 libmimalloc-sys.workspace = true
 text.workspace = true
-# tree-sitter and its grammars (all MIT); versions recorded in docs/briefs/0009-report.md.
+# tree-sitter and its grammars (all MIT); versions recorded in docs/briefs/0009-report.md and, for the web
+# grammars, docs/briefs/0050-report.md.
 tree-sitter = "0.27"
 tree-sitter-c-sharp = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-json = "0.24"
 tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

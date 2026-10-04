@@ -708,8 +708,9 @@ impl LldbSearch {
 
 /// The environment variable naming vscode-js-debug's `dapDebugServer.js` (the setting `debugger.jsDebugPath`).
 pub const JS_DEBUG_ENV: &str = "ELUDITE_JS_DEBUG";
-/// The environment variable naming the Node.js executable (the setting `debugger.nodePath`).
-pub const NODE_ENV: &str = "ELUDITE_NODE";
+/// The environment variable naming the Node.js executable (the settings `debugger.nodePath` and
+/// `languageServers.nodePath`).
+pub use eludite_lsp::node::NODE_ENV;
 /// The vscode-js-debug release `tools/js-debug/PIN` pins (and `fetch.sh` unpacks under its cache folder).
 pub const JS_DEBUG_VERSION: &str = "1.140.0";
 /// The oldest Node.js major version that release runs on (`tools/js-debug/PIN`'s `node`).
@@ -875,148 +876,26 @@ impl JsDebugSearch {
     }
 }
 
-/// Where Node.js was found.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NodeSource {
-    /// The setting `debugger.nodePath` (or `ELUDITE_NODE`).
-    Configured,
-    /// `node` on `PATH`.
-    Path,
-    /// Volta's `~/.volta/bin/node`.
-    Volta,
-    /// nvm's default version (`~/.nvm/alias/default`).
-    Nvm,
-    /// fnm's default (`~/.local/share/fnm/aliases/default`, `~/.fnm/aliases/default`).
-    Fnm,
-}
+// Node.js: the search moved to `eludite-lsp` (brief 0050), shared with the web language servers.
+pub use eludite_lsp::node::{
+    NodeSearch, NodeSource, NodeUser, node_name, node_version_output, parse_node_version,
+};
 
-/// The inputs of the Node.js search, so tests do not depend on the machine.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct NodeSearch {
-    /// The setting `debugger.nodePath` (the store resolves `ELUDITE_NODE`): the executable or its folder.
-    pub configured: Option<PathBuf>,
-    pub path: Option<OsString>,
-    pub home: Option<PathBuf>,
-}
+/// What vscode-js-debug needs of Node.js: the setting `debugger.nodePath` and [`NODE_MIN_MAJOR`].
+pub const JS_DEBUG_NODE: NodeUser = NodeUser {
+    setting: "debugger.nodePath",
+    needs: "vscode-js-debug",
+    min_major: NODE_MIN_MAJOR,
+};
 
-/// Node.js's executable name on this OS.
-pub fn node_name() -> &'static str {
-    if cfg!(windows) { "node.exe" } else { "node" }
-}
-
-/// The major version of `node --version`'s output (`v22.12.0` gives 22).
-pub fn parse_node_version(output: &str) -> Option<(String, u32)> {
-    let v = output.lines().map(str::trim).find(|l| !l.is_empty())?;
-    let major = v.trim_start_matches('v').split('.').next()?.parse().ok()?;
-    Some((v.to_owned(), major))
-}
-
-/// Whether `version` (`node --version`'s output) is at least [`NODE_MIN_MAJOR`]: its version, or why not.
+/// Whether `output` (`node --version`'s) is at least [`NODE_MIN_MAJOR`]: its version, or why not.
 pub fn check_node_version(node: &Path, output: Option<&str>) -> Result<String, String> {
-    match output.and_then(parse_node_version) {
-        Some((v, major)) if major >= NODE_MIN_MAJOR => Ok(v),
-        Some((v, _)) => Err(format!(
-            "Node.js {v} at {} is older than vscode-js-debug {JS_DEBUG_VERSION} runs on (Node.js {NODE_MIN_MAJOR} or \
-             later); install a newer one or set debugger.nodePath",
-            node.display()
-        )),
-        None => Err(format!(
-            "{} did not say its version (`node --version`); set debugger.nodePath to a Node.js {NODE_MIN_MAJOR} or \
-             later",
-            node.display()
-        )),
-    }
-}
-
-impl NodeSearch {
-    /// The machine's `PATH` and home, without a configured path (the settings store gives that).
-    pub fn from_env() -> Self {
-        Self {
-            configured: None,
-            path: std::env::var_os("PATH"),
-            home: home_dir(),
-        }
-    }
-
-    /// nvm's default version's node: `~/.nvm/alias/default` names a version (`v22.12.0`, `22`, `22.1`), resolved to
-    /// the newest installed `~/.nvm/versions/node/v<that>...`.
-    fn nvm_default(home: &Path) -> Option<PathBuf> {
-        let nvm = home.join(".nvm");
-        let alias = std::fs::read_to_string(nvm.join("alias").join("default")).ok()?;
-        let want = alias.trim().trim_start_matches('v').to_owned();
-        if want.is_empty() || !want.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-            return None;
-        }
-        let mut found: Vec<(Vec<u64>, PathBuf)> =
-            std::fs::read_dir(nvm.join("versions").join("node"))
-                .ok()?
-                .flatten()
-                .filter_map(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    let v = name.trim_start_matches('v');
-                    let matches = v == want || v.starts_with(&format!("{want}."));
-                    let node = e.path().join("bin").join(node_name());
-                    (matches && node.is_file()).then(|| (version_key(v), node))
-                })
-                .collect();
-        found.sort();
-        found.pop().map(|(_, p)| p)
-    }
-
-    /// Find Node.js (the executable only: its version is read by [`check_node_version`] on the caller's thread), or
-    /// say where it was looked for.
-    pub fn find(&self) -> Result<(PathBuf, NodeSource), String> {
-        let name = node_name();
-        if let Some(c) = &self.configured {
-            let candidate = if c.is_dir() { c.join(name) } else { c.clone() };
-            return if candidate.is_file() {
-                Ok((candidate, NodeSource::Configured))
-            } else {
-                Err(format!(
-                    "debugger.nodePath ({NODE_ENV}) is {}, which is not Node.js; vscode-js-debug needs Node.js \
-                     {NODE_MIN_MAJOR} or later",
-                    candidate.display()
-                ))
-            };
-        }
-        if let Some(path) = &self.path
-            && let Some(p) = std::env::split_paths(path)
-                .map(|d| d.join(name))
-                .find(|p| p.is_file())
-        {
-            return Ok((p, NodeSource::Path));
-        }
-        if let Some(home) = &self.home {
-            let volta = home.join(".volta").join("bin").join(name);
-            if volta.is_file() {
-                return Ok((volta, NodeSource::Volta));
-            }
-            if let Some(p) = Self::nvm_default(home) {
-                return Ok((p, NodeSource::Nvm));
-            }
-            for dir in [
-                home.join(".local/share/fnm/aliases/default"),
-                home.join(".fnm/aliases/default"),
-                home.join("Library/Application Support/fnm/aliases/default"),
-            ] {
-                let p = dir.join("bin").join(name);
-                if p.is_file() {
-                    return Ok((p, NodeSource::Fnm));
-                }
-            }
-        }
-        Err(format!(
-            "Node.js was not found: searched debugger.nodePath ({NODE_ENV}, not set), node on PATH, Volta \
-             (~/.volta/bin/node), nvm's default (~/.nvm/alias/default) and fnm's default. vscode-js-debug runs on \
-             Node.js {NODE_MIN_MAJOR} or later: install it (https://nodejs.org, or your distribution's nodejs \
-             package) or set debugger.nodePath"
-        ))
-    }
-}
-
-/// `node --version`'s output (stdout and stderr), with stdin closed and a 10-second cap: run it off the UI thread.
-pub fn node_version_output(node: &Path) -> Option<String> {
-    command_output(node, &["--version"])
+    eludite_lsp::node::check_version(node, output, &JS_DEBUG_NODE).map_err(|e| {
+        e.replace(
+            "vscode-js-debug runs on",
+            &format!("vscode-js-debug {JS_DEBUG_VERSION} runs on"),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -1391,51 +1270,6 @@ mod tests {
     }
 
     #[test]
-    fn node_search_order_is_setting_path_volta_nvm_fnm() {
-        let t = tempfile::tempdir().unwrap();
-        let home = t.path().join("home");
-        let on_path = t.path().join("onpath");
-        let name = node_name();
-        let mut s = NodeSearch {
-            configured: None,
-            path: Some(std::env::join_paths([t.path().join("nothing"), on_path.clone()]).unwrap()),
-            home: Some(home.clone()),
-        };
-        let e = s.find().unwrap_err();
-        assert!(
-            e.contains("Node.js was not found") && e.contains("debugger.nodePath"),
-            "{e}"
-        );
-        let fnm = home.join(".local/share/fnm/aliases/default/bin").join(name);
-        touch(&fnm);
-        assert_eq!(s.find().unwrap(), (fnm, NodeSource::Fnm));
-        // nvm's default alias names a version prefix: the newest installed one matching it.
-        std::fs::create_dir_all(home.join(".nvm/alias")).unwrap();
-        std::fs::write(home.join(".nvm/alias/default"), "20\n").unwrap();
-        touch(&home.join(".nvm/versions/node/v20.1.0/bin").join(name));
-        touch(&home.join(".nvm/versions/node/v20.11.1/bin").join(name));
-        touch(&home.join(".nvm/versions/node/v22.0.0/bin").join(name));
-        assert_eq!(
-            s.find().unwrap(),
-            (
-                home.join(".nvm/versions/node/v20.11.1/bin").join(name),
-                NodeSource::Nvm
-            )
-        );
-        let volta = home.join(".volta/bin").join(name);
-        touch(&volta);
-        assert_eq!(s.find().unwrap(), (volta, NodeSource::Volta));
-        touch(&on_path.join(name));
-        assert_eq!(s.find().unwrap(), (on_path.join(name), NodeSource::Path));
-        let mine = t.path().join("mine");
-        touch(&mine.join(name));
-        s.configured = Some(mine.clone());
-        assert_eq!(s.find().unwrap(), (mine.join(name), NodeSource::Configured));
-        s.configured = Some(t.path().join("nope"));
-        assert!(s.find().unwrap_err().contains("debugger.nodePath"));
-    }
-
-    #[test]
     fn the_node_version_is_checked_against_the_release_minimum() {
         let node = Path::new("/n/node");
         assert_eq!(
@@ -1477,7 +1311,7 @@ mod tests {
         assert_eq!(field("version"), JS_DEBUG_VERSION);
         assert_eq!(field("node"), NODE_MIN_MAJOR.to_string());
         // A real Node, when there is one on PATH.
-        if let Ok((p, _)) = NodeSearch::from_env().find() {
+        if let Ok((p, _)) = NodeSearch::from_env().find(&JS_DEBUG_NODE) {
             let out = node_version_output(&p);
             eprintln!("{} {out:?}", p.display());
             assert!(out.as_deref().and_then(parse_node_version).is_some());

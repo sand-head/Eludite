@@ -29,6 +29,7 @@ fn setup() -> ServerSetup {
         root: std::env::temp_dir().join("ws"),
         initialization_options: ra.initialization_options.clone(),
         settings: ra.settings.clone(),
+        push_settings: false,
     }
 }
 

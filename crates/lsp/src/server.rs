@@ -43,6 +43,10 @@ pub mod methods_generic {
     pub const LOG_MESSAGE: &str = "window/logMessage";
     pub const SHOW_MESSAGE: &str = "window/showMessage";
     pub const CONFIGURATION: &str = "workspace/configuration";
+    /// Sent after `initialized` to a registration with `pushSettings` (brief 0050): its settings.
+    pub const DID_CHANGE_CONFIGURATION: &str = "workspace/didChangeConfiguration";
+    /// Answered with the one workspace folder (the root).
+    pub const WORKSPACE_FOLDERS: &str = "workspace/workspaceFolders";
     /// Answered `null`; every open document is pulled again.
     pub const DIAGNOSTIC_REFRESH: &str = "workspace/diagnostic/refresh";
     /// Server-to-client requests answered `null`.
@@ -67,6 +71,9 @@ pub struct ServerSetup {
     pub initialization_options: Value,
     /// Answers to `workspace/configuration`, by section (`{"rust-analyzer": {...}}`).
     pub settings: Value,
+    /// Also send the settings with `workspace/didChangeConfiguration` after `initialized` (brief 0050: the HTML, CSS
+    /// and JSON servers read them only from it).
+    pub push_settings: bool,
 }
 
 /// The LSP client capabilities the generic client sends: the set `eludite-host` advertises to Roslyn
@@ -148,20 +155,26 @@ struct ServerDialect {
 }
 
 impl ServerDialect {
-    fn initialize_params(&self) -> Value {
+    /// The one workspace folder: the root.
+    fn folder(&self) -> Value {
         let uri = path_to_uri(&self.setup.root);
-        let folder_name = self
+        let name = self
             .setup
             .root
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| uri.clone());
+        json!({"uri": uri, "name": name})
+    }
+
+    fn initialize_params(&self) -> Value {
+        let uri = path_to_uri(&self.setup.root);
         let mut params = json!({
             "processId": std::process::id(),
             "clientInfo": {"name": self.setup.client.name, "version": self.setup.client.version},
             "rootUri": uri,
             "rootPath": self.setup.root.to_string_lossy(),
-            "workspaceFolders": [{"uri": uri, "name": folder_name}],
+            "workspaceFolders": [self.folder()],
             "capabilities": client_capabilities(),
             "trace": "off"
         });
@@ -190,6 +203,12 @@ impl Dialect for ServerDialect {
         let pulls = pull::advertises_pull(result.get("capabilities"));
         conn.set_initialize_result(result);
         conn.notify_untyped(methods_generic::INITIALIZED, json!({}))?;
+        if self.setup.push_settings {
+            conn.notify_untyped(
+                methods_generic::DID_CHANGE_CONFIGURATION,
+                json!({"settings": self.setup.settings}),
+            )?;
+        }
         if pulls {
             self.diagnostics.enable_pull(conn);
         }
@@ -254,6 +273,9 @@ impl Dialect for ServerDialect {
                     .collect(),
             ));
         }
+        if r.method == methods_generic::WORKSPACE_FOLDERS {
+            return Ok(json!([self.folder()]));
+        }
         if r.method == methods_generic::DIAGNOSTIC_REFRESH {
             self.diagnostics.pull_all();
             return Ok(Value::Null);
@@ -283,9 +305,14 @@ impl Dialect for ServerDialect {
     }
 }
 
-/// The answer to one `workspace/configuration` item: the settings at its dotted `section`, `null` when absent.
+/// The answer to one `workspace/configuration` item: the settings at its dotted `section`, `null` when absent; the
+/// whole settings without a section or with an empty one (ESLint asks for `""`).
 pub fn configuration(settings: &Value, item: &Value) -> Value {
-    let Some(section) = item.get("section").and_then(Value::as_str) else {
+    let Some(section) = item
+        .get("section")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    else {
         return settings.clone();
     };
     let mut at = settings;
@@ -448,6 +475,7 @@ mod tests {
             Value::Null
         );
         assert_eq!(configuration(&settings, &json!({})), settings);
+        assert_eq!(configuration(&settings, &json!({"section": ""})), settings);
     }
 
     #[test]
@@ -478,6 +506,8 @@ mod tests {
             LOG_MESSAGE,
             SHOW_MESSAGE,
             CONFIGURATION,
+            DID_CHANGE_CONFIGURATION,
+            WORKSPACE_FOLDERS,
             DIAGNOSTIC_REFRESH,
             "textDocument/diagnostic",
             "workspace/applyEdit",
