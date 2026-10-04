@@ -33,6 +33,9 @@ pub mod documents;
 pub mod error_list;
 pub mod explorer;
 pub mod folder;
+pub mod forge;
+#[cfg(test)]
+mod forge_tests;
 pub mod git;
 #[cfg(test)]
 mod git_tests;
@@ -181,6 +184,10 @@ pub struct Services {
     pub search: Arc<search::SearchService>,
     pub search_events: UnboundedReceiver<search::SearchEvent>,
     pub search_jobs: UnboundedReceiver<search::SearchJob>,
+    /// `eludite.forge.*` (brief 0046): the service, what its hub tells the UI, and the bus its checkouts go through.
+    pub forge: Arc<forge::ForgeService>,
+    pub forge_events: UnboundedReceiver<eludite_forge::hub::HubEvent>,
+    pub forge_registry: Arc<Mutex<std::sync::Weak<CommandRegistry>>>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -284,6 +291,8 @@ pub fn register_workspace(
     let (terminal, terminal_events) =
         terminal::register(commands, terminal::TerminalSetup::from_env());
     let (search, search_events, search_jobs) = search::register(commands);
+    let (forge, forge_events, forge_registry) =
+        forge::register(commands, git.clone(), forge::ForgeSetup::system());
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -323,6 +332,9 @@ pub fn register_workspace(
         search,
         search_events,
         search_jobs,
+        forge,
+        forge_events,
+        forge_registry,
     }
 }
 
@@ -445,6 +457,8 @@ pub struct Shell {
     terminal: terminal::TerminalUi,
     /// Find in Files, its dialog and the Find Results windows (brief 0042).
     search: search::SearchUi,
+    /// Forges: the Pull Requests and Issues windows, the documents, the dialog (brief 0046).
+    forge: forge::ForgeUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -466,6 +480,10 @@ fn tool_body(
     ),
     terminal_window: Entity<terminal::TerminalWindow>,
     find_results: [Entity<search::results::FindResults>; 2],
+    forge_windows: (
+        Entity<forge::pulls::PullsWindow>,
+        Entity<forge::issues::IssuesWindow>,
+    ),
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -510,11 +528,15 @@ fn tool_body(
         .clone()
         .cached(StyleRefinement::default().size_full())
         .into_any_element(),
+        // Not cached: they note when they were last drawn (the refresh timer runs only while one shows).
+        ids::PULL_REQUESTS => forge_windows.0.clone().into_any_element(),
+        ids::ISSUES => forge_windows.1.clone().into_any_element(),
         // The debugger's windows (brief 0018); titled empty panels for the rest until later briefs fill them.
         _ => debug.body(id).unwrap_or_else(|| div().into_any_element()),
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn document_body(
     views: Rc<RefCell<HashMap<String, Entity<EditorView>>>>,
     reviews: agents::Reviews,
@@ -522,6 +544,8 @@ fn document_body(
     browser_views: browser_view::Views,
     git_documents: git::Documents,
     git_margins: git::Margins,
+    forge_documents: forge::Documents,
+    forge_margins: forge::Margins,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
         if let Some(view) = browser_views.borrow().get(&tab.id) {
@@ -530,18 +554,24 @@ fn document_body(
         if let Some(view) = git_documents.borrow().get(&tab.id) {
             return view.clone().into_any_element();
         }
+        if let Some(view) = forge_documents.borrow().get(&tab.id) {
+            return view.clone().into_any_element();
+        }
         if let Some(view) = views.borrow().get(&tab.id) {
             // An agent's pending change marks the lines it touches in the gutter (brief 0016); the change margin marks
             // the lines that differ from the index (brief 0040).
             let pending = gutters.borrow().get(&tab.id).cloned();
             let changed = git_margins.borrow().get(&tab.id).cloned();
-            if pending.is_some() || changed.is_some() {
+            // Review threads of the pull request checked out (brief 0046).
+            let threads = forge_margins.borrow().get(&tab.id).cloned();
+            if pending.is_some() || changed.is_some() || threads.is_some() {
                 return div()
                     .relative()
                     .size_full()
                     .child(view.clone())
                     .children(changed)
                     .children(pending)
+                    .children(threads)
                     .into_any_element();
             }
             return view.clone().into_any_element();
@@ -645,10 +675,14 @@ impl Shell {
             search,
             search_events,
             search_jobs,
+            forge,
+            forge_events,
+            forge_registry,
         } = services;
         let git = git::GitUi::new(git, theme, cx);
         let terminal = terminal::TerminalUi::new(terminal, theme, cx);
         let search = search::SearchUi::new(search, theme, cx);
+        let forge = forge::ForgeUi::new(forge, forge_registry, theme, cx);
         *test_registry.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&commands);
         let mut tests = test_runs::TestRuns::new(test_shared);
         tests.running = testing;
@@ -679,6 +713,7 @@ impl Shell {
                     (git.changes.clone(), git.repository.clone()),
                     terminal.window.clone(),
                     search.windows.clone(),
+                    (forge.pulls.clone(), forge.issues.clone()),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -687,6 +722,8 @@ impl Shell {
                     browser_views.clone(),
                     git.documents.clone(),
                     git.margins.clone(),
+                    forge.documents.clone(),
+                    forge.margins.clone(),
                 )),
                 persistence,
                 cx,
@@ -1017,6 +1054,7 @@ impl Shell {
             git,
             terminal,
             search,
+            forge,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1041,6 +1079,7 @@ impl Shell {
         this.git_install(git_events, window, cx);
         this.terminal_install(terminal_events, window, cx);
         this.search_install(search_events, search_jobs, window, cx);
+        this.forge_install(forge_events, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1171,6 +1210,11 @@ impl Shell {
         }
         // `eludite.search.*`: the dialog, searches off the UI thread, the Find Results windows (brief 0042).
         if self.run_search(command, &mut args, window, cx) {
+            return;
+        }
+        // `eludite.forge.*`: the form, the dialog, the documents, merges and closes asked first, the rest off the UI
+        // thread (brief 0046).
+        if self.run_forge(command, &mut args, window, cx) {
             return;
         }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
@@ -2092,7 +2136,8 @@ impl Render for Shell {
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
             .children(self.code_actions.menu.clone())
-            .children(self.search.dialog.clone());
+            .children(self.search.dialog.clone())
+            .children(self.forge.signin.clone());
         match chrome.frame {
             Some(tiling) => title_bar::client_frame(shell, tiling, &t, window).into_any_element(),
             None => {

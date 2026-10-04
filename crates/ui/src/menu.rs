@@ -202,6 +202,9 @@ pub fn vs_menus() -> Vec<Menu> {
                 // View > Other Windows > Find Results 1 and 2 (brief 0042).
                 show("Other Windows > Find Results 1", "find_results_1"),
                 show("Other Windows > Find Results 2", "find_results_2"),
+                // View > Other Windows > Pull Requests and Issues (brief 0046).
+                show("Other Windows > Pull Requests", "pull_requests"),
+                show("Other Windows > Issues", "issues"),
                 Separator,
                 item("Navigate Backward", "eludite.navigation.back"),
                 item("Navigate Forward", "eludite.navigation.forward"),
@@ -224,6 +227,14 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 item("New Branch...", "eludite.git.checkout"),
                 show("Manage Branches", "git_repository"),
+                Separator,
+                // The forge of the repository's remote (brief 0046): the form, and the sign-in dialog for its host.
+                item("Create Pull Request", "eludite.forge.pull_create"),
+                MenuEntry::Item {
+                    label: "Sign in to Forge...",
+                    command: "eludite.forge.auth",
+                    args: json!({ "action": "sign_in" }),
+                },
                 Separator,
                 item(
                     "Open in File Explorer",
@@ -773,6 +784,9 @@ mod tests {
         // Brief 0042.
         assert!(shortcuts.contains(&("Other Windows > Find Results 1", None)));
         assert!(shortcuts.contains(&("Other Windows > Find Results 2", None)));
+        // Brief 0046.
+        assert!(shortcuts.contains(&("Other Windows > Pull Requests", None)));
+        assert!(shortcuts.contains(&("Other Windows > Issues", None)));
         let edit = vs_menus().into_iter().find(|m| m.title == "Edit").unwrap();
         let shortcuts: Vec<_> = edit
             .entries

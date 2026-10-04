@@ -44,6 +44,9 @@ pub const UNSTAGE_ALL: &str = "git-changes-unstage-all";
 pub const INFO: &str = "git-changes-info";
 /// The warning line while `http.sslVerify` is false (brief 0045).
 pub const SSL_WARNING: &str = "git-changes-ssl-warning";
+/// Visual Studio's "Create a Pull Request" link, after a push and while the branch is ahead of its upstream (brief
+/// 0046).
+pub const PULL_REQUEST_LINK: &str = "git-changes-create-pull-request";
 /// Its text.
 pub const SSL_WARNING_TEXT: &str = "\u{26A0} http.sslVerify is false: the certificates of this repository's https remotes are not checked";
 
@@ -206,6 +209,8 @@ pub struct GitChanges {
     selected: Option<String>,
     /// The last command's message (`true`: an error), shown under the message box.
     info: Option<(String, bool)>,
+    /// Show the "Create a Pull Request" link (brief 0046).
+    pull_request_link: bool,
     scroll: UniformListScrollHandle,
     /// Where the message box, the Commit button and the file rows were drawn, while `--bounds-out` probes (the Xvfb
     /// run clicks them).
@@ -226,6 +231,7 @@ impl GitChanges {
             collapsed: HashSet::new(),
             selected: None,
             info: None,
+            pull_request_link: false,
             scroll: UniformListScrollHandle::new(),
             probe: None,
         }
@@ -284,6 +290,19 @@ impl GitChanges {
     pub fn set_info(&mut self, info: Option<(String, bool)>, cx: &mut Context<Self>) {
         self.info = info;
         cx.notify();
+    }
+
+    /// Show or hide the "Create a Pull Request" link (brief 0046).
+    pub fn set_pull_request_link(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.pull_request_link != show {
+            self.pull_request_link = show;
+            cx.notify();
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pull_request_link(&self) -> bool {
+        self.pull_request_link
     }
 
     /// The paths listed in `group`.
@@ -843,6 +862,26 @@ impl Render for GitChanges {
                 .text_color(t.text_muted)
                 .child(p)
         });
+        let pull_request_link = self.pull_request_link.then(|| {
+            div()
+                .id(PULL_REQUEST_LINK)
+                .debug_selector(|| PULL_REQUEST_LINK.into())
+                .px_1()
+                .text_size(t.typography.small)
+                .text_color(t.accent)
+                .cursor_pointer()
+                .hover(|s| s.underline())
+                .child("Create a Pull Request")
+                .on_click(cx.listener(|_, _, window, cx| {
+                    window.dispatch_action(
+                        Box::new(RunCommand::new(
+                            "eludite.forge.pull_create".to_owned(),
+                            json!({}),
+                        )),
+                        cx,
+                    );
+                }))
+        });
         let count = self.rows.len();
         root.child(self.toolbar())
             .child(
@@ -855,6 +894,7 @@ impl Render for GitChanges {
                     .child(message_box)
                     .child(buttons)
                     .children(info)
+                    .children(pull_request_link)
                     .children(operation)
                     .children(ssl_warning)
                     .children(progress),

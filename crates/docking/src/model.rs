@@ -75,6 +75,10 @@ pub mod ids {
     /// shows one, then tabbed at the bottom with the Error List.
     pub const FIND_RESULTS_1: &str = "find_results_1";
     pub const FIND_RESULTS_2: &str = "find_results_2";
+    /// View > Other Windows > Pull Requests and Issues (brief 0046): the forge's lists, closed until shown, docked
+    /// right beside Git Changes.
+    pub const PULL_REQUESTS: &str = "pull_requests";
+    pub const ISSUES: &str = "issues";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -146,6 +150,8 @@ impl ToolWindowRegistry {
             (ids::TERMINAL, "Terminal", DockSide::Bottom),
             (ids::FIND_RESULTS_1, "Find Results 1", DockSide::Bottom),
             (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
+            (ids::PULL_REQUESTS, "Pull Requests", DockSide::Right),
+            (ids::ISSUES, "Issues", DockSide::Right),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -1323,15 +1329,17 @@ mod tests {
                 ids::TEST_EXPLORER,
                 ids::GIT_REPOSITORY,
                 ids::FIND_RESULTS_1,
-                ids::FIND_RESULTS_2
+                ids::FIND_RESULTS_2,
+                ids::PULL_REQUESTS,
+                ids::ISSUES
             ]
         );
-        // The Test Explorer (brief 0035) opens docked left; the others at the bottom.
-        assert!(
-            l.hidden
-                .iter()
-                .all(|h| h.side == DockSide::Bottom || h.id == ids::TEST_EXPLORER)
-        );
+        // The Test Explorer (brief 0035) opens docked left, the Pull Requests and Issues windows (brief 0046) right;
+        // the others at the bottom.
+        assert!(l.hidden.iter().all(|h| h.side == DockSide::Bottom
+            || h.id == ids::TEST_EXPLORER
+            || (h.side == DockSide::Right
+                && [ids::PULL_REQUESTS, ids::ISSUES].contains(&h.id.as_str()))));
         assert!(l.floating.is_empty());
         let mut shown = l.clone();
         shown.show(ids::FIND_ALL_REFERENCES).unwrap();
