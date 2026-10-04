@@ -219,6 +219,15 @@ pub enum Event {
     /// `eludite/test/update` (brief 0035): the next piece of a test discovery or run, any generation (the shell drops
     /// a stale one).
     TestUpdate(Box<eludite_protocol::host::TestUpdate>),
+    /// `eludite/nuget/update` (brief 0048): output, progress or metadata of a NuGet call, any generation (the shell
+    /// drops a stale one).
+    NuGetUpdate(Box<eludite_protocol::host::NuGetUpdate>),
+    /// `eludite/nuget/credentials` (brief 0048): a private feed asks for credentials during the person's call. Answer
+    /// with `HostClient::respond_nuget_credentials` and `id`; until then the host waits.
+    NuGetCredentials {
+        id: Id,
+        params: eludite_protocol::host::NuGetCredentialsParams,
+    },
     /// `workspace/applyEdit` from the server. Answer it with `respond_apply_edit` and `id`; until then the server
     /// waits.
     ApplyEdit {
@@ -299,6 +308,10 @@ pub(crate) trait Dialect: Send + Sync + 'static {
     fn notification(&self, conn: &Connection, n: Notification) -> Option<Event>;
     /// A request from the server other than `workspace/applyEdit`: the result to answer with, or an error.
     fn request(&self, conn: &Connection, r: &Request) -> Result<Value, ErrorObject>;
+    /// A request from the server the shell answers later, as an event (`None`: [`Dialect::request`] answers it).
+    fn deferred_request(&self, _r: &Request) -> Option<Result<Event, ErrorObject>> {
+        None
+    }
     /// Whether `workspace/applyEdit` params carry `eluditeGeneration` (the host's relay) or not (plain LSP).
     fn apply_edit_has_generation(&self) -> bool;
     /// The shutdown handshake before the process is waited for.
@@ -601,6 +614,11 @@ impl Connection {
         self.write(&Message::Response(Response::ok(id, value)))
     }
 
+    /// Answer a request of the server's that the shell answers later (an [`Event::NuGetCredentials`]).
+    pub fn respond(&self, id: Id, result: Value) -> Result<(), Error> {
+        self.write(&Message::Response(Response::ok(id, result)))
+    }
+
     /// The dialect's shutdown handshake, then waits for the process to exit (killing it after `timeout`). Disables
     /// restarts. Returns the exit code.
     pub fn shutdown(&self, timeout: Duration) -> Result<Option<i32>, Error> {
@@ -754,6 +772,17 @@ impl Connection {
                 }
             }
             return;
+        }
+        match self.inner.dialect.deferred_request(&r) {
+            Some(Ok(event)) => {
+                self.emit(event);
+                return;
+            }
+            Some(Err(e)) => {
+                let _ = self.write(&Message::Response(Response::err(Some(r.id), e)));
+                return;
+            }
+            None => {}
         }
         let response = match self.inner.dialect.request(self, &r) {
             Ok(result) => Response::ok(r.id, result),

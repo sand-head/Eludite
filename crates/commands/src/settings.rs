@@ -20,6 +20,10 @@ use serde_json::Value;
 
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
+/// The Options page that is not generated from settings (brief 0048): the package sources of the NuGet.config chain,
+/// edited through `eludite.nuget.sources` (Tools > NuGet Package Manager > Package Sources...).
+pub const PACKAGE_SOURCES_PAGE: &str = "NuGet Package Manager > Package Sources";
+
 pub const GET: &str = "eludite.settings.get";
 pub const SET: &str = "eludite.settings.set";
 /// Tools > Options: opens the dialog (the UI's; agents use `get` and `set`).
@@ -570,6 +574,7 @@ pub fn parse(
             let i: OptionsInput = input(value)?;
             if let Some(s) = &i.section
                 && !schema.sections.contains(s)
+                && s != PACKAGE_SOURCES_PAGE
             {
                 return Err(CommandError::InvalidInput(format!(
                     "no Options page {s}; the pages are {}",
@@ -704,11 +709,29 @@ mod tests {
                 "forge.githubClientId",
                 "forge.gitlabApplicationId",
                 "forge.azureApplicationId",
+                "nuget.includePrerelease",
+                "nuget.restoreOnChange",
+                "nuget.lockFiles",
             ]
         );
-        // Brief 0046: the forges' page, last.
+        // Brief 0048: NuGet Package Manager > General, last.
         assert_eq!(
             s.sections.last().map(String::as_str),
+            Some("NuGet Package Manager > General")
+        );
+        assert_eq!(s.section("NuGet Package Manager > General").count(), 3);
+        assert_eq!(s.get("nuget.restoreOnChange").unwrap().default, json!(true));
+        assert_eq!(
+            s.get("nuget.includePrerelease").unwrap().default,
+            json!(false)
+        );
+        let lock = s.get("nuget.lockFiles").unwrap();
+        assert_eq!(lock.default, json!("respect"));
+        assert!(lock.validate(&json!("ignore")).is_ok());
+        assert!(lock.validate(&json!("strict")).is_err());
+        // Brief 0046: the forges' page, before NuGet's.
+        assert_eq!(
+            s.sections.iter().rev().nth(1).map(String::as_str),
             Some("Source Control > Forges")
         );
         assert_eq!(s.section("Source Control > Forges").count(), 5);
@@ -732,7 +755,7 @@ mod tests {
         assert_eq!(s.section("Terminal").count(), 8);
         // Brief 0042: Find and Replace, after the earlier pages.
         assert_eq!(
-            s.sections.iter().rev().nth(1).map(String::as_str),
+            s.sections.iter().rev().nth(2).map(String::as_str),
             Some("Environment > Find and Replace")
         );
         assert_eq!(s.section("Environment > Find and Replace").count(), 4);

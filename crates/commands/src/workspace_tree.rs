@@ -53,6 +53,36 @@ pub struct WorkspaceProject {
     /// The startup project (brief 0020): `Some(true)` on that one project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup: Option<bool>,
+    /// For kind csproj: Visual Studio's Dependencies node (brief 0048).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependency_tree: Option<DependencyTree>,
+}
+
+/// A package of a [`DependencyTree`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DependencyPackage {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vulnerable: bool,
+    /// `Id/Version` of the packages it brings in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transitive: Vec<String>,
+}
+
+/// A .NET project's Dependencies node, as the host's solution tree has it (brief 0048).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DependencyTree {
+    pub restored: bool,
+    pub packages: Vec<DependencyPackage>,
+    /// Absolute paths of the referenced projects.
+    pub projects: Vec<String>,
+    pub frameworks: Vec<String>,
 }
 
 /// `workspace-tree.output.json`.
@@ -144,6 +174,18 @@ mod tests {
                         files: vec!["/w/dotnet/src/Eludite.Host/Program.cs".into()],
                         error: None,
                         startup: None,
+                        dependency_tree: Some(DependencyTree {
+                            restored: true,
+                            packages: vec![DependencyPackage {
+                                id: "StreamJsonRpc".into(),
+                                version: Some("2.25.29".into()),
+                                requested: None,
+                                vulnerable: false,
+                                transitive: vec!["Nerdbank.Streams/2.14.354".into()],
+                            }],
+                            projects: vec![],
+                            frameworks: vec!["Microsoft.NETCore.App".into()],
+                        }),
                     },
                     WorkspaceProject {
                         name: "eludite-editor".into(),
@@ -161,6 +203,7 @@ mod tests {
                         files: vec!["/w/crates/editor/src/buffer.rs".into()],
                         error: None,
                         startup: None,
+                        dependency_tree: None,
                     },
                 ],
             }),

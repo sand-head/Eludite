@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-manage.input.json",
+  "title": "eludite.nuget.manage input",
+  "description": "Project > Manage NuGet Packages... (a project's context menu) and Manage NuGet Packages for Solution... (the solution's): open the Manage NuGet Packages window as a document tab, scoped to the project, or to every project with the project list's check boxes. Opening it reads the installed packages; Browse searches only when its tab shows. The output is the window's place (view-tool-window.output.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "tab": {
+      "description": "The tab to show (default browse).",
+      "enum": [
+        "browse",
+        "installed",
+        "updates",
+        "consolidate"
+      ]
+    },
+    "query": {
+      "description": "Browse's search text.",
+      "type": "string"
+    },
+    "solution": {
+      "description": "Manage NuGet Packages for Solution... (the solution's context menu, Tools > NuGet Package Manager): every project, with the project list's check boxes. Without it and without `project`: the project of the active document, else the startup project, else the solution.",
+      "type": "boolean"
+    }
+  }
+}

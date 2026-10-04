@@ -159,6 +159,7 @@ pub struct OutputWindow {
     browser: OutputPane,
     /// Brief 0035: the test runners.
     tests: OutputPane,
+    package_manager: OutputPane,
     selected: OutputSource,
     scroll: UniformListScrollHandle,
     /// Auto-scroll with new output (false after the user scrolled up, until they are back at the end).
@@ -177,6 +178,7 @@ impl OutputWindow {
             debug: OutputPane::default(),
             browser: OutputPane::default(),
             tests: OutputPane::default(),
+            package_manager: OutputPane::default(),
             selected: OutputSource::Build,
             scroll: UniformListScrollHandle::new(),
             following: true,
@@ -192,6 +194,7 @@ impl OutputWindow {
             OutputSource::Debug => &self.debug,
             OutputSource::Browser => &self.browser,
             OutputSource::Tests => &self.tests,
+            OutputSource::PackageManager => &self.package_manager,
         }
     }
 
@@ -203,6 +206,7 @@ impl OutputWindow {
             OutputSource::Debug => &mut self.debug,
             OutputSource::Browser => &mut self.browser,
             OutputSource::Tests => &mut self.tests,
+            OutputSource::PackageManager => &mut self.package_manager,
         }
     }
 
@@ -299,6 +303,7 @@ impl Render for OutputWindow {
             OutputSource::Debug => "Debug",
             OutputSource::Browser => "Browser",
             OutputSource::Tests => "Tests",
+            OutputSource::PackageManager => "Package Manager",
         };
         let source_button = toggle_button(
             SOURCE_BUTTON,
@@ -319,6 +324,7 @@ impl Render for OutputWindow {
                 OutputSource::LanguageServers,
                 OutputSource::Browser,
                 OutputSource::Tests,
+                OutputSource::PackageManager,
             ]
             .into_iter()
             .enumerate()

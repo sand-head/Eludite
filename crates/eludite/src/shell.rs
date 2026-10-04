@@ -45,6 +45,9 @@ mod intellisense_tests;
 pub mod navigation;
 #[cfg(test)]
 mod navigation_tests;
+pub mod nuget;
+#[cfg(test)]
+mod nuget_tests;
 pub mod options;
 pub mod output;
 #[cfg(test)]
@@ -188,6 +191,10 @@ pub struct Services {
     pub forge: Arc<forge::ForgeService>,
     pub forge_events: UnboundedReceiver<eludite_forge::hub::HubEvent>,
     pub forge_registry: Arc<Mutex<std::sync::Weak<CommandRegistry>>>,
+    /// NuGet's `eludite.nuget.*`, what it tells the UI and asks of it (brief 0048).
+    pub nuget: Arc<nuget::NuGetService>,
+    pub nuget_events: UnboundedReceiver<nuget::NuGetEvent>,
+    pub nuget_jobs: UnboundedReceiver<nuget::NuGetJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -293,6 +300,8 @@ pub fn register_workspace(
     let (search, search_events, search_jobs) = search::register(commands);
     let (forge, forge_events, forge_registry) =
         forge::register(commands, git.clone(), forge::ForgeSetup::system());
+    let (nuget, nuget_events, nuget_jobs) =
+        nuget::register(commands, session.clone(), tree.clone());
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -335,6 +344,9 @@ pub fn register_workspace(
         forge,
         forge_events,
         forge_registry,
+        nuget,
+        nuget_events,
+        nuget_jobs,
     }
 }
 
@@ -459,6 +471,8 @@ pub struct Shell {
     search: search::SearchUi,
     /// Forges: the Pull Requests and Issues windows, the documents, the dialog (brief 0046).
     forge: forge::ForgeUi,
+    /// NuGet: the Manage NuGet Packages window, the credential prompt, the Error List rows (brief 0048).
+    nuget: nuget::NuGetUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -678,7 +692,11 @@ impl Shell {
             forge,
             forge_events,
             forge_registry,
+            nuget,
+            nuget_events,
+            nuget_jobs,
         } = services;
+        let nuget = nuget::NuGetUi::new(nuget, theme, cx);
         let git = git::GitUi::new(git, theme, cx);
         let terminal = terminal::TerminalUi::new(terminal, theme, cx);
         let search = search::SearchUi::new(search, theme, cx);
@@ -1055,6 +1073,7 @@ impl Shell {
             terminal,
             search,
             forge,
+            nuget,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1080,6 +1099,7 @@ impl Shell {
         this.terminal_install(terminal_events, window, cx);
         this.search_install(search_events, search_jobs, window, cx);
         this.forge_install(forge_events, window, cx);
+        this.nuget_install(nuget_events, nuget_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1179,6 +1199,9 @@ impl Shell {
         let ui = self.ui_bounds.clone();
         self.git.changes.update(cx, |c, _| c.set_probe(ui.clone()));
         self.forge_set_probe(ui.clone(), cx);
+        // The NuGet window's and the Workspace window's rows (brief 0048's Xvfb run).
+        self.nuget.window.update(cx, |w, _| w.set_probe(ui.clone()));
+        self.explorer.update(cx, |e, _| e.set_probe(ui.clone()));
         self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
     }
@@ -1216,6 +1239,10 @@ impl Shell {
         // `eludite.forge.*`: the form, the dialog, the documents, merges and closes asked first, the rest off the UI
         // thread (brief 0046).
         if self.run_forge(command, &mut args, window, cx) {
+            return;
+        }
+        // `eludite.nuget.*`: the Manage NuGet Packages window here, the other commands off the UI thread (brief 0048).
+        if self.run_nuget(command, &mut args, window, cx) {
             return;
         }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
@@ -1767,6 +1794,10 @@ impl Shell {
             SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),
             SessionEvent::TestUpdate(update) => self.on_test_update(*update, window, cx),
             SessionEvent::TestStatus(status) => self.on_test_status(status, window, cx),
+            SessionEvent::NuGetUpdate(update) => self.on_nuget_update(*update, window, cx),
+            SessionEvent::NuGetCredentials { id, params } => {
+                self.on_nuget_credentials(id, params, window, cx)
+            }
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)
@@ -2025,6 +2056,8 @@ impl Shell {
                 source: RowSource::Test,
             });
         }
+        // The last NuGet restore's errors and warnings (brief 0048), at the project file.
+        rows.extend(self.nuget_error_rows());
         let rank = |s: Severity| match s {
             Severity::Error => 0,
             Severity::Warning => 1,
@@ -2138,7 +2171,8 @@ impl Render for Shell {
             .children(self.debug.startup_dialog.clone())
             .children(self.code_actions.menu.clone())
             .children(self.search.dialog.clone())
-            .children(self.forge.signin.clone());
+            .children(self.forge.signin.clone())
+            .children(self.nuget.prompt.as_ref().map(|(_, p)| p.clone()));
         match chrome.frame {
             Some(tiling) => title_bar::client_frame(shell, tiling, &t, window).into_any_element(),
             None => {

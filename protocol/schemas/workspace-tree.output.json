@@ -129,6 +129,68 @@
           "startup": {
             "description": "True for a startup project (eludite.workspace.set_startup_project, one of the multiple startup projects of brief 0028 with an action other than `none`; Workspace shows each in bold).",
             "type": "boolean"
+          },
+          "dependency_tree": {
+            "description": "For kind csproj: Visual Studio's Dependencies node (brief 0048), mirroring the host's solution tree: top-level packages with their resolved and requested versions, NuGet Audit's vulnerabilities and the packages they bring in; project references; shared frameworks. Read from disk; nothing contacts a source.",
+            "type": "object",
+            "required": [
+              "restored",
+              "packages",
+              "projects",
+              "frameworks"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "restored": {
+                "type": "boolean"
+              },
+              "packages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "requested": {
+                      "type": "string"
+                    },
+                    "vulnerable": {
+                      "description": "NuGet Audit reported a known vulnerability, or the sources said it is deprecated (the yellow glyph).",
+                      "type": "boolean"
+                    },
+                    "transitive": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "`Id/Version` of the packages it brings in."
+                    }
+                  }
+                }
+              },
+              "projects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Absolute paths of the referenced projects."
+              },
+              "frameworks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }

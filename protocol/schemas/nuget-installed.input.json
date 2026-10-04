@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-installed.input.json",
+  "title": "eludite.nuget.installed input",
+  "description": "Installed: the packages of the open solution's projects, as the Manage NuGet Packages window's Installed tab lists them, read from the projects and their restore output (project.assets.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "include_transitive": {
+      "description": "List transitive packages too.",
+      "type": "boolean"
+    },
+    "vulnerabilities": {
+      "description": "Ask the sources for vulnerability and deprecation data (default true; false reads files only).",
+      "type": "boolean"
+    }
+  }
+}

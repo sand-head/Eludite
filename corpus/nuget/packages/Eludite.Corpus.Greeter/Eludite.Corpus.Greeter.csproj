@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Packed by build.sh as Eludite.Corpus.Greeter 1.0.0, 1.1.0 and 2.0.0-beta.1, each depending on
+       Eludite.Corpus.Logging (a transitive package for the projects that install it). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <Authors>The Eludite Authors</Authors>
+    <Description>Greets people, for Eludite's NuGet tests.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Eludite.Corpus.Logging" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>

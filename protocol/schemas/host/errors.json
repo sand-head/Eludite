@@ -54,6 +54,37 @@
           "minimum": 1
         }
       }
+    },
+    "nugetFailed": {
+      "description": "Error -32014: a NuGet call failed as a whole (no source has the package or version, credentials are required, every source failed, a project file could not be edited).",
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "reason": {
+          "enum": [
+            "notFound",
+            "credentialsRequired",
+            "sourceFailed",
+            "invalidProject",
+            "noSources"
+          ]
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

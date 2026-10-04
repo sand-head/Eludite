@@ -310,6 +310,42 @@ public sealed class LspProxy : IAsyncDisposable
         return next;
     }
 
+    /// <summary>
+    /// Brief 0048: the solution's projects changed on disk (a NuGet install, update, uninstall or consolidate): advances
+    /// the generation, cancels what was pinned to the old one, tells the shell with <c>eludite/solution/status</c> under
+    /// the new generation (its load state as it is), and warms the open documents again. Returns the new generation.
+    /// </summary>
+    public long AdvanceGeneration()
+    {
+        CancellationTokenSource stale;
+        long next;
+        SolutionLoad? load;
+        IReadOnlyList<string> open;
+        lock (_lock)
+        {
+            stale = BumpGenerationLocked();
+            next = _generation;
+            load = _load;
+            if (load is not null)
+            {
+                load.Generation = next;
+            }
+
+            open = _documents.Snapshot().Select(d => d.Uri).ToList();
+        }
+
+        CancelStale(stale);
+        if (load is not null)
+        {
+            _ = load.Done
+                ? NotifyStatusAsync(load, SolutionStates.Loaded)
+                : NotifyStatusAsync(load, SolutionStates.Loading, phase: "projectLoad");
+        }
+
+        _warmer.PullAll(open);
+        return next;
+    }
+
     private CancellationTokenSource BumpGenerationLocked()
     {
         var old = _generationCts;
@@ -1114,7 +1150,7 @@ public sealed class LspProxy : IAsyncDisposable
 
     private sealed class SolutionLoad(long generation, string path)
     {
-        public long Generation { get; } = generation;
+        public long Generation { get; set; } = generation;
 
         public string Path { get; } = path;
 

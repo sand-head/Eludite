@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-update.output.json",
+  "title": "eludite.nuget.update output",
+  "description": "What changed and how the restore went.",
+  "type": "object",
+  "required": [
+    "action",
+    "packages",
+    "projects",
+    "edited",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "install",
+        "uninstall",
+        "update",
+        "consolidate"
+      ]
+    },
+    "packages": {
+      "description": "The packages as written (no version for uninstall).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "projects": {
+      "description": "Absolute paths of the projects that changed.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "edited": {
+      "description": "The files written (project files, Directory.Packages.props).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "restore": {
+      "type": "object",
+      "required": [
+        "result",
+        "errors",
+        "warnings",
+        "elapsed_ms",
+        "locked_mode",
+        "lock_files",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "result": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "canceled"
+          ]
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "elapsed_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "locked_mode": {
+          "type": "boolean"
+        },
+        "lock_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "diagnostics": {
+          "description": "The errors and warnings, as the Error List shows them (source nuget).",
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "required": [
+              "severity",
+              "code",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning",
+                  "message"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Absolute path of the file (a project file for NuGet's own).",
+                "type": "string",
+                "minLength": 1
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "generation": {
+      "description": "The solution generation after the change.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "Why nothing changed.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

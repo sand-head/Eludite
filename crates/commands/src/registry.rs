@@ -174,6 +174,8 @@ pub struct CommandRegistry {
     audit: AuditLog,
     /// What escalation hooks read ([`CommandRegistry::set_policy_source`]).
     policy: RwLock<Option<PolicySource>>,
+    /// Commands whose every call keeps its arguments in the audit log ([`CommandRegistry::always_audit_arguments`]).
+    audited: RwLock<std::collections::BTreeSet<String>>,
 }
 
 impl std::fmt::Debug for CommandRegistry {
@@ -430,12 +432,8 @@ impl CommandRegistry {
         class: Option<&CallClass>,
     ) -> (u64, Result<Value, CommandError>) {
         let caller = crate::current_caller();
-        let arguments = caller.keeps_arguments().then(|| {
-            match self.entry(id).and_then(|e| e.redaction.clone()) {
-                Some(r) => r(&input),
-                None => input.clone(),
-            }
-        });
+        let arguments = (caller.keeps_arguments() || self.keeps_arguments(id))
+            .then(|| self.audit_arguments(id, &input));
         let Some(entry) = self.entry(id) else {
             let err = CommandError::UnknownCommand(id.to_owned());
             let seq =
@@ -471,6 +469,22 @@ impl CommandRegistry {
 
     pub fn audit_log(&self) -> &AuditLog {
         &self.audit
+    }
+
+    /// Keep the arguments of every call of `id` in the audit log, the user's too (brief 0048: a package change is
+    /// audited with its project, package and version whoever made it). Agents' calls keep them anyway.
+    pub fn always_audit_arguments(&self, id: &str) {
+        self.audited
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.to_owned());
+    }
+
+    fn keeps_arguments(&self, id: &str) -> bool {
+        self.audited
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(id)
     }
 }
 
@@ -630,6 +644,25 @@ mod tests {
         let e = r.audit_log().get(seq).unwrap();
         assert_eq!(e.caller, crate::Caller::User);
         assert_eq!(e.arguments, None, "the user's own arguments are not kept");
+    }
+
+    #[test]
+    fn audited_commands_keep_the_users_arguments() {
+        let r = CommandRegistry::new();
+        r.register(spec("test.change", PermissionClass::Execute), Ok)
+            .unwrap();
+        r.register(spec("test.other", PermissionClass::Execute), Ok)
+            .unwrap();
+        r.always_audit_arguments("test.change");
+        r.invoke("test.change", json!({"package": "P", "version": "1.0.0"}))
+            .unwrap();
+        r.invoke("test.other", json!({"x": 1})).unwrap();
+        let entries = r.audit_log().entries();
+        assert_eq!(
+            entries[0].arguments,
+            Some(json!({"package": "P", "version": "1.0.0"}))
+        );
+        assert_eq!(entries[1].arguments, None);
     }
 
     #[test]

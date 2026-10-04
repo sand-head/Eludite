@@ -50,6 +50,7 @@ pub fn source_label(source: RowSource) -> &'static str {
         RowSource::Live => "IntelliSense",
         RowSource::Both => "Build + IntelliSense",
         RowSource::Test => "Test",
+        RowSource::NuGet => "NuGet",
     }
 }
 

@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-restore.json",
+  "title": "eludite/nuget/restore",
+  "description": "Restore the open solution or the projects named out of process (`dotnet restore`, MSBuild's Restore target), with the lock-file rule and the session's credentials passed to it as NuGet's NuGetPackageSourceCredentials_<source> variables. Its output goes out as eludite/nuget/update `output` notifications; the answer comes when it ends.",
+  "x-eludite-method": "eludite/nuget/restore",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the call is issued under (host-rpc.md, \"Solution generation\"). A value that is not current is -32801; a generation change while the call runs cancels it with -32801.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "projects": {
+          "description": "Absolute paths of projects of the open solution. Omitted: every project the solution lists.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "lockFiles": {
+          "description": "The setting nuget.lockFiles. respect (the default): when a project has packages.lock.json, a restore that changes nothing runs with `--locked-mode` and a change updates the lock file (`--force-evaluate`); ignore: restore runs without either.",
+          "enum": [
+            "respect",
+            "ignore"
+          ]
+        },
+        "force": {
+          "description": "Re-evaluate every dependency (`--force-evaluate`), updating lock files.",
+          "type": "boolean"
+        },
+        "interactive": {
+          "description": "Whether the shell may be asked for credentials (eludite/nuget/credentials) during this call: true for the person's calls, false (the default) for agents', whose calls fail with `credentials_required` instead. Credential providers run either way.",
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "result",
+        "elapsedMs",
+        "commandLine",
+        "lockedMode",
+        "lockFiles",
+        "diagnostics"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation it ran under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "result": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "canceled"
+          ]
+        },
+        "exitCode": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "commandLine": {
+          "description": "The `dotnet restore` command line the host ran.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lockedMode": {
+          "description": "Whether `--locked-mode` was used (a lock file existed under `respect` and nothing changed).",
+          "type": "boolean"
+        },
+        "lockFiles": {
+          "description": "The packages.lock.json files of the restored projects that exist after the restore.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "description": "A restore error or warning, for the Error List (source `nuget`).",
+            "type": "object",
+            "required": [
+              "severity",
+              "code",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "enum": [
+                  "error",
+                  "warning",
+                  "message"
+                ]
+              },
+              "code": {
+                "description": "NuGet's code (NU1101, NU1605, NU1903, ...) or MSBuild's.",
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "file": {
+                "description": "Absolute path of the file the diagnostic is reported against (a project file for NuGet's own).",
+                "type": "string",
+                "minLength": 1
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "project": {
+                "description": "Absolute path of the project.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

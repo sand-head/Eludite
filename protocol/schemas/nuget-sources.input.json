@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-sources.input.json",
+  "title": "eludite.nuget.sources input",
+  "description": "The package sources from the NuGet.config chain (Tools > NuGet Package Manager > Package Sources). `list` reads; add, remove, enable and disable edit the user's NuGet.config, class execute under the solution policy's `nuget.sources` (agents are asked by default).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "Default list.",
+      "enum": [
+        "list",
+        "add",
+        "remove",
+        "enable",
+        "disable"
+      ]
+    },
+    "name": {
+      "description": "The source's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "description": "add: the feed's address or folder.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

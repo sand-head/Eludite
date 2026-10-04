@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-installed.json",
+  "title": "eludite/nuget/installed",
+  "description": "The packages of the open solution's projects (Visual Studio's Installed tab): from each project's project.assets.json (top-level and transitive packages, resolved versions, the requested ranges and target frameworks) and its PackageReference items, or Directory.Packages.props's PackageVersion items under Central Package Management; the source from the global packages folder's .nupkg.metadata. A project that is not restored lists its PackageReference items with `restored: false`; a packages.config project is listed read-only with a migration note. Reads files only, unless `metadata` asks the sources for vulnerability and deprecation data (registration resource, cached per source).",
+  "x-eludite-method": "eludite/nuget/installed",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the call is issued under (host-rpc.md, \"Solution generation\"). A value that is not current is -32801; a generation change while the call runs cancels it with -32801.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "projects": {
+          "description": "Absolute paths of projects of the open solution. Omitted: every project the solution lists.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "includeTransitive": {
+          "description": "List transitive packages too (default false: top-level only).",
+          "type": "boolean"
+        },
+        "metadata": {
+          "description": "Ask the sources' registration data for vulnerabilities and deprecation of each listed version (default false: only NuGet Audit's warnings recorded in the assets file). The answers also go out as an eludite/nuget/update `metadata` notification.",
+          "type": "boolean"
+        },
+        "interactive": {
+          "description": "Whether the shell may be asked for credentials (eludite/nuget/credentials) during this call: true for the person's calls, false (the default) for agents', whose calls fail with `credentials_required` instead. Credential providers run either way.",
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "projects",
+        "elapsedMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation it ran under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "name",
+              "format",
+              "restored",
+              "centralPackageManagement",
+              "targetFrameworks",
+              "packages"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "description": "packageReference: PackageReference items (SDK-style and migrated legacy projects). packagesConfig: the legacy packages.config, listed read-only (`note` says how to migrate). none: no packages.",
+                "enum": [
+                  "packageReference",
+                  "packagesConfig",
+                  "none"
+                ]
+              },
+              "restored": {
+                "description": "project.assets.json exists; without it versions are the requested ones and nothing is transitive.",
+                "type": "boolean"
+              },
+              "assetsFile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "centralPackageManagement": {
+                "description": "ManagePackageVersionsCentrally is true: versions live in `propsFile`.",
+                "type": "boolean"
+              },
+              "propsFile": {
+                "description": "The Directory.Packages.props that holds the versions under Central Package Management.",
+                "type": "string",
+                "minLength": 1
+              },
+              "lockFile": {
+                "description": "The project's packages.lock.json, when it has one.",
+                "type": "string",
+                "minLength": 1
+              },
+              "targetFrameworks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "packages": {
+                "type": "array",
+                "items": {
+                  "description": "A package of a project.",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "targetFrameworks",
+                    "transitive"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "requested": {
+                      "description": "The requested version or range as the project file (or Directory.Packages.props under Central Package Management) writes it; omitted for a transitive package.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "version": {
+                      "description": "The version restore resolved (project.assets.json); omitted when the project is not restored.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetFrameworks": {
+                      "description": "The project's target frameworks that reference it.",
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "source": {
+                      "description": "The source it was restored from (the global packages folder's .nupkg.metadata), when known.",
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "transitive": {
+                      "description": "Brought in by another package, not referenced by the project.",
+                      "type": "boolean"
+                    },
+                    "autoReferenced": {
+                      "description": "Added by the SDK (an implicit reference); it cannot be removed or updated here.",
+                      "type": "boolean"
+                    },
+                    "dependencies": {
+                      "description": "The package's own dependencies (project.assets.json).",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "range": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "vulnerabilities": {
+                      "type": "array",
+                      "items": {
+                        "description": "A known vulnerability of this version, from the source's registration data (or NuGet Audit's NU1901 to NU1904 warnings in the assets file).",
+                        "type": "object",
+                        "required": [
+                          "severity",
+                          "advisoryUrl"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "severity": {
+                            "description": "The advisory's severity (NuGet's 0 low, 1 moderate, 2 high, 3 critical).",
+                            "enum": [
+                              "low",
+                              "moderate",
+                              "high",
+                              "critical"
+                            ]
+                          },
+                          "advisoryUrl": {
+                            "description": "The advisory's address (a GitHub advisory for nuget.org).",
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      }
+                    },
+                    "deprecation": {
+                      "description": "The version is deprecated (registration data).",
+                      "type": "object",
+                      "required": [
+                        "reasons"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "reasons": {
+                          "description": "Why the owner deprecated it.",
+                          "type": "array",
+                          "items": {
+                            "enum": [
+                              "legacy",
+                              "criticalBugs",
+                              "other"
+                            ]
+                          }
+                        },
+                        "message": {
+                          "description": "The owner's message.",
+                          "type": "string"
+                        },
+                        "alternatePackage": {
+                          "description": "The package the owner recommends instead.",
+                          "type": "object",
+                          "required": [
+                            "id"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "range": {
+                              "description": "A version range; omitted: any.",
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "error": {
+                "description": "Why the project's packages could not be read.",
+                "type": "string",
+                "minLength": 1
+              },
+              "note": {
+                "description": "A remark for the window (the packages.config migration note).",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sources": {
+          "description": "With `metadata`: how each source answered.",
+          "type": "array",
+          "items": {
+            "description": "How one source answered.",
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "count"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "count": {
+                "description": "Packages this source answered with.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "elapsedMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cached": {
+                "description": "Answered from the session's cache for this source (no request was made).",
+                "type": "boolean"
+              },
+              "error": {
+                "description": "Why this source failed (unreachable, 401 without credentials, an invalid feed). The other sources' results still count; the window shows an error row for this one.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

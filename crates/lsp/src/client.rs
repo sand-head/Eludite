@@ -86,12 +86,37 @@ impl Dialect for HostDialect {
             methods::TEST_UPDATE => {
                 typed_or_untyped::<host::TestUpdate>(n, |u| Event::TestUpdate(Box::new(u)))
             }
+            methods::NUGET_UPDATE => {
+                typed_or_untyped::<host::NuGetUpdate>(n, |u| Event::NuGetUpdate(Box::new(u)))
+            }
             _ => Event::Notification(n),
         })
     }
 
-    /// `workspace/applyEdit` is the host's only request to the shell; anything else is MethodNotFound
-    /// (host-rpc.md, "Messages the host sends").
+    /// `eludite/nuget/credentials` (brief 0048) waits for the person: an event the shell answers later.
+    fn deferred_request(&self, r: &Request) -> Option<Result<Event, ErrorObject>> {
+        if r.method != methods::NUGET_CREDENTIALS {
+            return None;
+        }
+        Some(
+            serde_json::from_value::<host::NuGetCredentialsParams>(
+                r.params.clone().unwrap_or(Value::Null),
+            )
+            .map(|params| Event::NuGetCredentials {
+                id: r.id.clone(),
+                params,
+            })
+            .map_err(|e| {
+                ErrorObject::new(
+                    ErrorObject::INVALID_PARAMS,
+                    format!("{}: {e}", methods::NUGET_CREDENTIALS),
+                )
+            }),
+        )
+    }
+
+    /// `workspace/applyEdit` and `eludite/nuget/credentials` are the host's requests to the shell; anything else is
+    /// MethodNotFound (host-rpc.md, "Messages the host sends").
     fn request(&self, _conn: &Connection, r: &Request) -> Result<Value, ErrorObject> {
         Err(ErrorObject::new(
             ErrorObject::METHOD_NOT_FOUND,
@@ -236,6 +261,15 @@ impl HostClient {
     /// Kills the host without a shutdown. Restarts according to the policy unless [`HostClient::shutdown`] ran.
     pub fn kill(&self) -> std::io::Result<()> {
         self.conn.kill()
+    }
+
+    /// Answer the host's `eludite/nuget/credentials` request `id` ([`Event::NuGetCredentials`]); `None` gives up.
+    pub fn respond_nuget_credentials(
+        &self,
+        id: Id,
+        answer: Option<host::NuGetCredentialsAnswer>,
+    ) -> Result<(), Error> {
+        self.conn.respond(id, serde_json::to_value(answer)?)
     }
 
     /// Answer the host's `workspace/applyEdit` request `id` ([`Event::ApplyEdit`]).

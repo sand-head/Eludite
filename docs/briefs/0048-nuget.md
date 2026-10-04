@@ -1,6 +1,6 @@
 # Brief 0048: NuGet: the Manage NuGet Packages window and `eludite.nuget.*`
 
-Status: open
+Status: done (see [0048-report.md](0048-report.md))
 Phase: 2 (PLAN.md section 10: "NuGet UI"; section 4.7)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 5, 12), 3 (D2: NuGet client libraries in the host), 4.2 (References and Packages nodes, Central Package Management), 4.7 (Browse, Installed, Updates, Consolidate; multiple sources; credential providers; lock files; CPM; vulnerability badges), 5.1, 5.4, 7 (the .NET row), 8 (Visual Studio names: Manage NuGet Packages for Solution, the Packages node), 9, 10 (Phase 2), 11
 Related ADRs: ADR-0002, ADR-0003, ADR-0004

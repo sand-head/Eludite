@@ -26,7 +26,8 @@ public sealed class MsBuildProjectTreeEvaluator : IProjectTreeEvaluator
         "e24c65dc-7377-472b-9aba-bc803b73c61a",
     ];
 
-    private static readonly Lock EvaluationLock = new();
+    /// <summary>Held around every in-process evaluation and project edit (MSBuild's in-process state is shared).</summary>
+    internal static readonly Lock EvaluationLock = new();
     private readonly ReferenceAssemblies _referenceAssemblies;
 
     public MsBuildProjectTreeEvaluator(ReferenceAssemblies? referenceAssemblies = null)
@@ -160,7 +161,45 @@ public sealed class MsBuildProjectTreeEvaluator : IProjectTreeEvaluator
             }
         }
 
-        return new TreeProject(Path.GetFileNameWithoutExtension(full), full, legacy ? "legacy" : "sdk", frameworks, files) { Web = web };
+        return new TreeProject(Path.GetFileNameWithoutExtension(full), full, legacy ? "legacy" : "sdk", frameworks, files)
+        {
+            Web = web,
+            Dependencies = legacy ? null : DependenciesOf(project, full, frameworks),
+        };
+    }
+
+    /// <summary>Brief 0048: the Dependencies node from the evaluation (project and framework references) and the assets file.</summary>
+    private static TreeDependencies DependenciesOf(Project project, string full, List<string> frameworks)
+    {
+        var dir = Path.GetDirectoryName(full)!;
+        var projects = project.GetItems("ProjectReference")
+            .Select(i => Path.GetFullPath(Path.Combine(dir, i.EvaluatedInclude.Replace('\\', Path.DirectorySeparatorChar))))
+            .Distinct(StringComparer.Ordinal)
+            .Select(p => new TreeProjectReference(Path.GetFileNameWithoutExtension(p), p))
+            .ToList();
+        var tfm = frameworks.FirstOrDefault();
+        var fw = project.GetItems("FrameworkReference")
+            .Select(i => i.EvaluatedInclude)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(n => new TreeFramework(n) { TargetFramework = tfm })
+            .ToList();
+        if (fw.Count == 0 && tfm is not null && Eludite.Host.NuGet.InstalledReader.IsNetCoreApp(tfm))
+        {
+            fw.Add(new TreeFramework("Microsoft.NETCore.App") { TargetFramework = tfm });
+        }
+
+        var installed = Eludite.Host.NuGet.InstalledReader.Read(full, includeTransitive: false);
+        var packages = installed.Packages
+            .Select(p => new TreePackage(p.Id)
+            {
+                Requested = p.Requested,
+                Version = p.Version,
+                AutoReferenced = p.AutoReferenced,
+                Transitive = p.Dependencies?.Select(d => new TreeTransitive(d.Id) { Version = d.Range }).ToList(),
+                Vulnerabilities = p.Vulnerabilities,
+            })
+            .ToList();
+        return new TreeDependencies(installed.Restored, packages, projects, fw);
     }
 
     private static List<string> FrameworksOf(Project project)

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-restore.output.json",
+  "title": "eludite.nuget.restore output",
+  "description": "How the restore went.",
+  "type": "object",
+  "required": [
+    "result",
+    "errors",
+    "warnings",
+    "elapsed_ms",
+    "locked_mode",
+    "lock_files",
+    "diagnostics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "canceled"
+      ]
+    },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "warnings": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "locked_mode": {
+      "type": "boolean"
+    },
+    "lock_files": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "diagnostics": {
+      "description": "The errors and warnings, as the Error List shows them (source nuget).",
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "severity",
+          "code",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "message"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "description": "Absolute path of the file (a project file for NuGet's own).",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

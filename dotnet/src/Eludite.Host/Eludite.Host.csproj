@@ -12,6 +12,14 @@
     <PackageReference Include="Microsoft.Build" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Build.Framework" ExcludeAssets="runtime" PrivateAssets="all" />
     <PackageReference Include="Microsoft.Build.Locator" />
+    <!-- NuGet/ (brief 0048). -->
+    <PackageReference Include="NuGet.Protocol" />
+    <PackageReference Include="NuGet.Configuration" />
+    <PackageReference Include="NuGet.Versioning" />
+    <PackageReference Include="NuGet.Packaging" />
+    <PackageReference Include="NuGet.Resolver" />
+    <PackageReference Include="NuGet.ProjectModel" />
+    <PackageReference Include="NuGet.Credentials" />
   </ItemGroup>
 
   <ItemGroup>

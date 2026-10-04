@@ -146,6 +146,8 @@ pub enum OutputSource {
     Browser,
     /// The test runners' output (brief 0035): eludite-host's MTP and VSTest logs and cargo test's output.
     Tests,
+    /// What NuGet did (brief 0048): installs, updates, uninstalls, consolidations and restores.
+    PackageManager,
 }
 
 impl OutputSource {
@@ -157,6 +159,7 @@ impl OutputSource {
             OutputSource::Debug => "debug",
             OutputSource::Browser => "browser",
             OutputSource::Tests => "tests",
+            OutputSource::PackageManager => "package_manager",
         }
     }
 }

@@ -254,9 +254,24 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
         })
     };
     assert_eq!(page(&w).as_deref(), Some("Environment > Keyboard"));
+    // The page tree has more rows than it shows (the forges' and NuGet's pages, briefs 0046 and 0048), so a page is
+    // scrolled into view before it is clicked, as a person would: to the top for the first half, the bottom after.
+    // The point is inside the tree's viewport, taken before it scrolls.
+    let tree = w.bounds(&section_selector(0)).center();
+    let wheel = |w: &mut Ws, dy: f32| {
+        w.vcx.simulate_event(gpui::ScrollWheelEvent {
+            position: tree,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(dy))),
+            modifiers: gpui::Modifiers::none(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        w.vcx.run_until_parked();
+    };
     // Every section of the schema is a page, and every setting of a page has its editor.
     let schema = eludite_commands::settings::SettingsSchema::builtin();
     for (ix, section) in schema.sections.iter().enumerate() {
+        let top = ix < schema.sections.len() / 2;
+        wheel(&mut w, if top { 10_000. } else { -10_000. });
         w.click(&section_selector(ix));
         assert_eq!(page(&w).as_deref(), Some(section.as_str()));
         for spec in schema.section(section) {
@@ -269,6 +284,8 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
             w.bounds(&sel);
         }
     }
+
+    wheel(&mut w, 10_000.);
 
     // A check box: Projects and Solutions > Build and Run, Build the project after saving.
     w.click(&section_selector(1));

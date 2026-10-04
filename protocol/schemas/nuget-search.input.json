@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-search.input.json",
+  "title": "eludite.nuget.search input",
+  "description": "Browse: search the package sources (every enabled source, or `source`), as the Manage NuGet Packages window's Browse tab does. A source that fails is listed with its error; the others' results still come.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "The search text.",
+      "type": "string"
+    },
+    "source": {
+      "description": "A source's name (eludite.nuget.sources). Omitted: all.",
+      "type": "string",
+      "minLength": 1
+    },
+    "prerelease": {
+      "description": "Include prerelease versions. Omitted: the setting nuget.includePrerelease.",
+      "type": "boolean"
+    },
+    "max_items": {
+      "description": "Results to answer, 1 to 500; default 50.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "skip": {
+      "description": "Results to skip.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

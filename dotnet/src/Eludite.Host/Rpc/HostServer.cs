@@ -38,6 +38,7 @@ public static class HostServer
         target.LanguageServer.Attach(rpc);
         target.Build.Attach(rpc);
         target.Tests.Attach(rpc);
+        target.NuGet.Attach(rpc);
         rpc.StartListening();
 
         await Task.WhenAny(target.ExitRequested, rpc.Completion).ConfigureAwait(false);

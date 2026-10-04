@@ -180,6 +180,7 @@ impl Shell {
                 js_debug: s.path("debugger.jsDebugPath"),
             }
         };
+        self.nuget_apply_settings();
         let b = &mut self.builds;
         b.build_on_save = applied.build_on_save;
         b.build_before_run = applied.build_before_run;
@@ -291,18 +292,21 @@ impl Shell {
                     d
                 });
                 cx.subscribe_in(&d, window, Self::on_options_event).detach();
+                // Brief 0048: NuGet Package Manager > Package Sources, the NuGet module's page.
+                let page = self.nuget_options_page(cx);
+                d.update(cx, |d, cx| {
+                    d.add_page(
+                        eludite_commands::settings::PACKAGE_SOURCES_PAGE.into(),
+                        page,
+                        cx,
+                    )
+                });
                 self.options = Some(d.clone());
                 d
             }
         };
         if let Some(s) = &section {
-            let ix = self
-                .settings
-                .lock()
-                .schema()
-                .sections
-                .iter()
-                .position(|x| x == s);
+            let ix = dialog.read(cx).position(s);
             if let Some(ix) = ix {
                 dialog.update(cx, |d, cx| d.show_section(ix, cx));
             }

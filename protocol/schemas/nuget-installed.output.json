@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-installed.output.json",
+  "title": "eludite.nuget.installed output",
+  "description": "Per project, its packages with the requested and resolved versions, the source and known vulnerabilities.",
+  "type": "object",
+  "required": [
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "restored",
+          "central_package_management",
+          "packages"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "restored": {
+            "type": "boolean"
+          },
+          "central_package_management": {
+            "type": "boolean"
+          },
+          "props_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lock_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "packages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "transitive",
+                "vulnerabilities"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requested": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "transitive": {
+                  "type": "boolean"
+                },
+                "auto_referenced": {
+                  "type": "boolean"
+                },
+                "vulnerabilities": {
+                  "type": "array",
+                  "items": {
+                    "description": "A known vulnerability of this version, from the source's registration data (or NuGet Audit's NU1901 to NU1904 warnings in the assets file).",
+                    "type": "object",
+                    "required": [
+                      "severity",
+                      "advisory_url"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "severity": {
+                        "description": "The advisory's severity (NuGet's 0 low, 1 moderate, 2 high, 3 critical).",
+                        "enum": [
+                          "low",
+                          "moderate",
+                          "high",
+                          "critical"
+                        ]
+                      },
+                      "advisory_url": {
+                        "description": "The advisory's address (a GitHub advisory for nuget.org).",
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                "deprecated": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

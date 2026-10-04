@@ -96,6 +96,151 @@
         "error": {
           "description": "Why the project could not be evaluated; files is then empty. Workspace shows the project as unavailable.",
           "type": "string"
+        },
+        "dependencies": {
+          "description": "Visual Studio's Dependencies node (brief 0048): Packages, Projects and Frameworks, from the evaluation and the assets file; read from disk only (nothing contacts a source).",
+          "type": "object",
+          "required": [
+            "restored",
+            "packages",
+            "projects",
+            "frameworks"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "restored": {
+              "description": "project.assets.json was read; without it packages are the PackageReference items as written.",
+              "type": "boolean"
+            },
+            "packages": {
+              "description": "Top-level packages, by id.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "requested": {
+                    "description": "As the project file (or Directory.Packages.props) writes it.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "version": {
+                    "description": "As restore resolved it.",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "autoReferenced": {
+                    "description": "An implicit reference of the SDK.",
+                    "type": "boolean"
+                  },
+                  "transitive": {
+                    "description": "The packages it brings in (its dependencies in the assets file), shown when its node is expanded.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "version": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "vulnerabilities": {
+                    "description": "NuGet Audit's warnings (NU1901 to NU1904) the last restore wrote for this package.",
+                    "type": "array",
+                    "items": {
+                      "description": "A known vulnerability of this version, from the source's registration data (or NuGet Audit's NU1901 to NU1904 warnings in the assets file).",
+                      "type": "object",
+                      "required": [
+                        "severity",
+                        "advisoryUrl"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "severity": {
+                          "description": "The advisory's severity (NuGet's 0 low, 1 moderate, 2 high, 3 critical).",
+                          "enum": [
+                            "low",
+                            "moderate",
+                            "high",
+                            "critical"
+                          ]
+                        },
+                        "advisoryUrl": {
+                          "description": "The advisory's address (a GitHub advisory for nuget.org).",
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  },
+                  "deprecated": {
+                    "description": "The last answer from the sources said this version is deprecated (not known until the Manage NuGet Packages window or an agent asked).",
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "projects": {
+              "description": "ProjectReference items.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "path"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "frameworks": {
+              "description": "Shared frameworks (FrameworkReference items and the SDK's implicit one).",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "description": "Microsoft.NETCore.App, Microsoft.AspNetCore.App, ...",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "targetFramework": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

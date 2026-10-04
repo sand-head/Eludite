@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-install.input.json",
+  "title": "eludite.nuget.install input",
+  "description": "Install a package in a project (Browse's Install). The project files (or Directory.Packages.props under Central Package Management) are edited with their formatting kept, then restored unless the setting nuget.restoreOnChange is off; a failed restore leaves the edit, with its errors in the answer and the Error List. Class execute under the solution policy's `nuget.change` (agents are asked by default). Every change is audited with the project, the package and the version.",
+  "type": "object",
+  "required": [
+    "package"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "package": {
+      "description": "The package id (`Newtonsoft.Json`), case-insensitive.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "The version (default: the newest, prerelease per `prerelease`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "projects": {
+      "description": "Several projects (the solution scope's check boxes).",
+      "type": "array",
+      "items": {
+        "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "prerelease": {
+      "type": "boolean"
+    },
+    "source": {
+      "description": "A source's name. Omitted: all.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

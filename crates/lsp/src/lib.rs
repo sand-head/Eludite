@@ -35,6 +35,8 @@ mod connection;
 #[cfg(feature = "fake")]
 pub mod fake;
 #[cfg(feature = "fake")]
+mod fake_nuget;
+#[cfg(feature = "fake")]
 pub mod fake_server;
 mod pull;
 pub mod registry;

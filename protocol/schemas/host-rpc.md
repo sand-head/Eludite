@@ -82,6 +82,7 @@ Rules:
 | -32803 | RequestFailed (LSP) | The language server is unavailable (not configured, failed to start, or exited); `data.reason` is `"languageServerUnavailable"` |
 | -32010 | BuildInProgress (Eludite) | `eludite/build/start` while a build runs; `data.buildId` is the running build |
 | -32012 | TestRunInProgress (Eludite) | `eludite/test/run` naming a container that a run is running; `data` is `{ runId, container }` |
+| -32014 | NuGetFailed (Eludite) | An `eludite/nuget/*` call failed as a whole: no source has the package or version, credentials are required, every source failed, or a project file could not be edited; `data` is `{ reason, source?, host?, package? }` |
 
 Error `data` shapes: [`host/errors.json`](host/errors.json).
 
@@ -98,7 +99,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/host/exit` | notification | [host-exit.json](host/host-exit.json) | none | (none) |
 | `eludite/solution/open` | request | [solution-open.json](host/solution-open.json) | `{ path }` | `{ generation }` |
 | `eludite/solution/close` | request | [solution-close.json](host/solution-close.json) | none | `{ generation }` |
-| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], error? }] }` |
+| `eludite/solution/tree` | request | [solution-tree.json](host/solution-tree.json) | none | `{ generation, path, projects: [{ name, path, kind, web, targetFrameworks, files: [{ path, itemType, dependentUpon?, link? }], dependencies?, error? }] }` |
 | `eludite/build/start` | request | [build-start.json](host/build-start.json) | `{ target, system?, project?, configuration?, platform? }` | `{ buildId, generation, system?, path, target, configuration, platform, toolchain: { kind, path?, source? }, binlog, commandLine }` |
 | `eludite/build/cancel` | request | [build-cancel.json](host/build-cancel.json) | `{ buildId? }` | `{ canceled, buildId? }` |
 | `eludite/build/status` | request | [build-status.json](host/build-status.json) | none | `{ running: { buildId, generation, path, target, configuration, platform, toolchain, binlog, commandLine, elapsedMs, progress?, output: { firstSeq, nextSeq, text, truncated } } \| null, last?: { buildId, generation, target, path, result, elapsedMs, summary } }` |
@@ -107,6 +108,13 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/test/cancel` | request | [test-cancel.json](host/test-cancel.json) | `{ runId? }` | `{ canceled, runId? }` |
 | `eludite/test/attached` | request | [test-attached.json](host/test-attached.json) | `{ runId, processId, attached, message? }` | `{ accepted }` |
 | `eludite/test/status` | request | [test-status.json](host/test-status.json) | none | `{ running: [{ runId, kind, generation, debug?, containers, elapsedMs, nextSeq, tests, results }], last?: { runId, kind, generation, state, summary, elapsedMs } }` |
+| `eludite/nuget/search` | request | [nuget-search.json](host/nuget-search.json) | `{ generation, operation?, query?, source?, prerelease?, skip?, take?, interactive? }` | `{ generation, results: [{ id, version, versions?, description?, authors?, iconUrl?, licenseUrl?, licenseExpression?, projectUrl?, downloads?, source, vulnerabilities?, deprecation? }], sources: [{ name, url, count, elapsedMs?, cached?, error? }], elapsedMs }` |
+| `eludite/nuget/installed` | request | [nuget-installed.json](host/nuget-installed.json) | `{ generation, operation?, projects?, includeTransitive?, metadata?, interactive? }` | `{ generation, projects: [{ path, name, format, restored, assetsFile?, centralPackageManagement, propsFile?, lockFile?, targetFrameworks, packages, error?, note? }], sources?, elapsedMs }` |
+| `eludite/nuget/updates` | request | [nuget-updates.json](host/nuget-updates.json) | `{ generation, operation?, projects?, prerelease?, source?, interactive? }` | `{ generation, updates: [{ project, id, installed, requested?, latest, versions?, source, vulnerabilities?, deprecation? }], sources, elapsedMs }` |
+| `eludite/nuget/change` | request | [nuget-change.json](host/nuget-change.json) | `{ generation, operation?, action, packages: [{ id, version? }], projects?, prerelease?, source?, includeTransitive?, restore?, lockFiles?, interactive? }` | `{ generation, action, packages, projects, edited: [{ path, kind, changes }], restore?, elapsedMs, message? }` |
+| `eludite/nuget/sources` | request | [nuget-sources.json](host/nuget-sources.json) | `{ generation, operation?, action?, name?, url? }` | `{ sources: [{ name, url, enabled, local, scope, configFile? }], configFiles, userConfig, changed }` |
+| `eludite/nuget/restore` | request | [nuget-restore.json](host/nuget-restore.json) | `{ generation, operation?, projects?, lockFiles?, force?, interactive? }` | `{ generation, result, exitCode, elapsedMs, commandLine, lockedMode, lockFiles, diagnostics }` |
+| `eludite/nuget/icon` | request | [nuget-icon.json](host/nuget-icon.json) | `{ url }` | `{ path }` (a cached file, or `null`) |
 
 #### `eludite/host/initialize`
 
@@ -181,6 +189,12 @@ server's load.
   tree. A project that does not evaluate is listed with `error` and no files.
 - `generation` is the generation the tree was computed under; `path` is `null` and `projects` empty when no
   solution is open.
+- `dependencies` (brief 0048) is Visual Studio's Dependencies node per project, read from disk only: `packages` (the
+  top-level packages from `obj/project.assets.json`, with `requested`, `version`, `autoReferenced`, the packages each
+  brings in as `transitive`, and NuGet Audit's NU1901 to NU1904 warnings of the last restore as `vulnerabilities`;
+  the project file's `PackageReference` items when it is not restored, `restored: false`), `projects` (the
+  `ProjectReference` items) and `frameworks` (the `FrameworkReference` items and the SDK's implicit
+  `Microsoft.NETCore.App`). Omitted for a project that did not evaluate.
 
 Errors: -32002 before `eludite/host/initialize`; -32801 (ContentModified, with the usual `data`) when the
 generation changes before the tree is ready; -32800 when canceled.
@@ -357,6 +371,71 @@ starts a .NET test runner itself, and runs `cargo test` for Rust through its own
   --nocapture --test-threads=1`, parsing libtest's `test <name> ... ok|FAILED|ignored` lines and its failure sections
   into the same model (protocol `cargo`).
 
+#### NuGet (brief 0048)
+
+The Manage NuGet Packages window and `eludite.nuget.*` (PLAN.md 4.7, D2). The host is NuGet's client: NuGet.Client's
+libraries (`NuGet.Protocol`, `NuGet.Configuration`, `NuGet.Versioning`, `NuGet.Packaging`, `NuGet.Resolver`,
+`NuGet.ProjectModel`, `NuGet.Credentials`; Apache-2.0) run in `eludite-host`, and restores run out of process. The shell
+never talks to a package source itself.
+
+- **Nothing at startup.** No source is contacted until a search, a tab of the window or an agent asks; reading the
+  installed packages, the tree's Dependencies node and the sources list read files only. Search results, versions and
+  registration data are cached per source for the host's session.
+- **Sources** are NuGet's own: `Settings.LoadDefaultSettings` from the solution's folder (the files from the
+  solution's folder up, the user's NuGet.config, the machine-wide ones), the enabled `packageSources` with `disabledPackageSources`
+  applied. `eludite/nuget/sources` lists them with the file and scope that define each; `add`, `remove`, `enable` and
+  `disable` write the user's NuGet.config (a source defined in another file is disabled in the user's file, as
+  `dotnet nuget disable source` does). A folder (or file share) is a local feed, searched in place.
+- **Per-source failures.** Search, updates and metadata ask every enabled source side by side (or the one named), and
+  each answers its own row in `sources`: its count, its time, whether the session's cache answered, and `error` when it
+  failed. A failed source never fails the call while another answered; when every source failed the call fails with
+  -32014 `sourceFailed`.
+- **Installed** comes from each project's `obj/project.assets.json` (the targets' libraries for resolved versions and
+  transitive packages, `project.frameworks.<tfm>.dependencies` for the requested ranges, `centralPackageVersions` under
+  Central Package Management), the global packages folder's `.nupkg.metadata` for the source, and the project file's
+  `PackageReference` items for a project that is not restored (`restored: false`). A `packages.config` project is
+  listed read-only (`format: packagesConfig`) with a migration note. `metadata: true` adds each version's
+  vulnerabilities and deprecation from the sources' registration resource (`PackageMetadataResource`), cached per
+  source, and sends them as an `eludite/nuget/update` `metadata` notification too.
+- **Updates** take each top-level package's versions from every source's `FindPackageByIdResource` and list the newest
+  that is newer than the installed one (prerelease only when asked), per project. **Consolidate** is the shell's view
+  of `installed`: packages whose resolved versions differ across projects, the highest the default target.
+- **Changes.** `eludite/nuget/change` (`install`, `uninstall`, `update`, `consolidate`) resolves each package's version
+  (the newest, or the highest installed for consolidate), opens each project file with MSBuild's construction model
+  (`ProjectRootElement.Open` with `preserveFormatting`) and edits only the item it must: an existing
+  `PackageReference`'s `Version` (attribute or child element) in place; a new `PackageReference` in the first
+  `ItemGroup` that holds some (else a new `ItemGroup` after the last); a removal of the item (and of an `ItemGroup` it
+  leaves empty). Under Central Package Management (`ManagePackageVersionsCentrally` true in the project's evaluation or
+  the `Directory.Packages.props` found from the project's folder up) the project gets a version-less `PackageReference`
+  and `Directory.Packages.props` the `PackageVersion` (a `VersionOverride` in the project is updated where one exists).
+  Every other byte of the file is kept, comments and indentation included. Then a restore (unless `restore: false`),
+  and the solution generation advances by one (the answer carries it, and `eludite/solution/status` `loaded` with the
+  new generation follows), so results computed before the change are stale. A failed restore leaves the edit in place
+  and answers its diagnostics, as Visual Studio does.
+- **Restore** runs `dotnet restore <solution or project> -nologo -v:m` out of process with `DOTNET_CLI_TELEMETRY_OPTOUT=1`,
+  its output streamed as `eludite/nuget/update` `output` lines. **Lock files:** with `lockFiles: respect` (the
+  default), a project with `packages.lock.json` restores with `--locked-mode` when nothing changed, and after a change
+  with `--force-evaluate`, which rewrites the lock file; `ignore` passes neither. Errors and warnings are MSBuild's
+  canonical lines (`NU1101`, `NU1605`, `NU1903`, ...) with the file they name, for the Error List (source `nuget`).
+- **Credentials.** A source that answers 401 (or a proxy 407) asks the host's credential service: first the answers
+  kept for this session, then NuGet's credential providers found as NuGet finds them (`NuGet.Credentials`' plugin
+  discovery: the plugin folders under `~/.nuget/plugins` and `NUGET_PLUGIN_PATHS`; the plugin protocol over stdio;
+  Azure Artifacts' provider is the common one), then, only for a call with `interactive: true`, the shell: the host
+  sends `eludite/nuget/credentials` `{ operation, source, url, host, proxy, isRetry }` and waits for the person's
+  answer (`null` or `canceled` gives up). An answer the source accepts is kept in memory for the session and passed to
+  restores as `NuGetPackageSourceCredentials_<source>`; nothing is written. A call that is not interactive (an agent's)
+  fails with -32014 `credentialsRequired` and the host's name instead of asking.
+- **Icons.** `eludite/nuget/icon` fetches a search result's `iconUrl` into the host's cache folder (`<cache>/nuget-icons/`,
+  named by the address's SHA-256; `ELUDITE_CACHE_DIR` or `~/.cache/eludite`) once per session, 10 s and 1 MiB at most,
+  and answers the file's path (a `file:` address answers its own path; a failure answers `null`). The window asks only
+  for the rows it draws, off the UI thread. It takes no generation: an icon is not solution state.
+- **Generation and cancellation.** Every request but `eludite/nuget/icon` carries `generation` (a stale one is -32801), runs under a token
+  canceled by `$/cancelRequest` (-32800) or by a generation change (-32801), and every `eludite/nuget/update` carries
+  the generation and the shell's `operation` id. The host's stdout stays protocol-only: NuGet's logger writes to the
+  host's log (stderr) and to the `output` notifications.
+- **Errors:** -32002 before `eludite/host/initialize`; -32602 when no solution is open, a project is not one of the
+  solution's, `packages` is empty, or an action's arguments are missing; -32014 as above.
+
 ### Forwarded LSP methods, typed
 
 Forwarded to the Roslyn language server and typed in `eludite-protocol` (`lsp.rs`). Params and results are LSP 3.17;
@@ -479,9 +558,11 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/build/progress` | notification | [build-progress.json](host/build-progress.json) | `{ buildId, elapsedMs, projectsTotal, projectsCompleted, errors, warnings, currentProject? }` |
 | `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
 | `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message? }` |
+| `eludite/nuget/update` | notification | [nuget-update.json](host/nuget-update.json) | `{ operation, generation, seq, kind, text?, message?, packages? }` |
+| `eludite/nuget/credentials` | request | [nuget-credentials.json](host/nuget-credentials.json) | `{ operation?, source, url, host, proxy, isRetry, message? }`; result `{ username?, password?, remember?, canceled? }` or `null` |
 
-`workspace/applyEdit` is the only request the host sends to the shell. Every other request from the host is answered
--32601 by the shell.
+`workspace/applyEdit` and `eludite/nuget/credentials` (brief 0048) are the requests the host sends to the shell. Every
+other request from the host is answered -32601 by the shell.
 
 ### `workspace/applyEdit`
 

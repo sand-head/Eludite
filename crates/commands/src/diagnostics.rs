@@ -35,7 +35,7 @@ pub enum Severity {
 /// Where an Error List row comes from (brief 0017), as Visual Studio's "Build + IntelliSense" filter names them:
 /// the last build only, the live analysis only (the language server, the solution load), or both (the build reported
 /// the same file, position and code as a live diagnostic; the row is shown once), or a test that failed in the last
-/// test run (brief 0035).
+/// test run (brief 0035), or the last NuGet restore of a project (brief 0048).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RowSource {
@@ -43,6 +43,7 @@ pub enum RowSource {
     Live,
     Both,
     Test,
+    NuGet,
 }
 
 /// The input's `source` filter: build rows and rows shown as both, or live rows and rows shown as both.
@@ -52,6 +53,7 @@ enum SourceFilter {
     Build,
     Live,
     Test,
+    NuGet,
 }
 
 impl RowSource {
@@ -62,7 +64,9 @@ impl RowSource {
                 | (RowSource::Build, SourceFilter::Build)
                 | (RowSource::Live, SourceFilter::Live)
                 | (RowSource::Test, SourceFilter::Test)
-        ) && !(self == RowSource::Both && filter == SourceFilter::Test)
+                | (RowSource::NuGet, SourceFilter::NuGet)
+        ) && !(self == RowSource::Both
+            && matches!(filter, SourceFilter::Test | SourceFilter::NuGet))
     }
 }
 
@@ -313,7 +317,15 @@ mod tests {
         let schema: Value = serde_json::from_str(INPUT_SCHEMA).unwrap();
         assert_eq!(
             schema["properties"]["source"]["enum"],
-            json!(["build", "live", "test"])
+            json!(["build", "live", "test", "nuget"])
+        );
+        // A NuGet restore's row (brief 0048) passes only its own filter.
+        assert!(RowSource::NuGet.passes(SourceFilter::NuGet));
+        assert!(!RowSource::NuGet.passes(SourceFilter::Build));
+        assert!(!RowSource::Both.passes(SourceFilter::NuGet));
+        assert_eq!(
+            serde_json::to_value(RowSource::NuGet).unwrap(),
+            json!("nuget")
         );
     }
 

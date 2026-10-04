@@ -15,6 +15,12 @@
 //! and Ctrl+D on the selected file is Compare with Unmodified.
 //!
 //! A project's or folder's context menu ends with Open in Terminal (brief 0041), a terminal in its folder.
+//!
+//! A .NET project has Visual Studio's Dependencies node (brief 0048): Frameworks, Packages (each package with the ones it
+//! brings in under it) and Projects. A package with a known vulnerability (NuGet Audit, or the sources' data once the
+//! Manage NuGet Packages window or an agent asked) or a deprecation carries a yellow warning glyph. The project's
+//! context menu has Manage NuGet Packages..., the solution's Manage NuGet Packages for Solution..., the Packages node's
+//! Manage NuGet Packages..., and a package's Update and Remove.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -26,7 +32,7 @@ use eludite_ui::{
     RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, WORKSPACE_TERMINAL_ITEM,
     menu_row, tree_row_with_badge,
 };
-use eludite_workspace::explorer::{NodeKind, Row, SolutionModel};
+use eludite_workspace::explorer::{DependencyGroup, NodeKind, Row, SolutionModel};
 use gpui::{
     ClickEvent, Context, FocusHandle, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
     MouseDownEvent, ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement,
@@ -85,6 +91,16 @@ pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)>
     })
 }
 
+/// The NuGet items of the context menus (brief 0048): (selector suffix, label).
+pub const NUGET_PROJECT_ITEM: (&str, &str) = ("nuget", "Manage NuGet Packages...");
+pub const NUGET_SOLUTION_ITEM: (&str, &str) =
+    ("nuget_solution", "Manage NuGet Packages for Solution...");
+pub const NUGET_UPDATE_ITEM: (&str, &str) = ("nuget_update", "Update");
+pub const NUGET_REMOVE_ITEM: (&str, &str) = ("nuget_remove", "Remove");
+
+/// The yellow warning glyph of a package with a known vulnerability or a deprecation.
+pub const PACKAGE_WARNING: &str = "\u{26A0}";
+
 /// What the explorer shows when there is no tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Placeholder {
@@ -106,7 +122,17 @@ pub struct SolutionExplorer {
     menu: Option<(usize, Point<Pixels>)>,
     /// The repository's root and its files' glyphs (brief 0040).
     git: Option<(PathBuf, Rc<GlyphIndex>)>,
+    /// `id/version` (id lowercase) of packages the sources say are vulnerable or deprecated (brief 0048).
+    package_warnings: HashSet<String>,
+    /// Where the rows were drawn, while `--bounds-out` probes (brief 0048's Xvfb run clicks them).
+    probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
+}
+
+impl SolutionExplorer {
+    pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
+        self.probe = probe;
+    }
 }
 
 /// Debug selector of the row for node `id` (tests and the real-input driver).
@@ -123,6 +149,11 @@ fn glyph(kind: &NodeKind) -> &'static str {
         NodeKind::FolderRoot => "\u{25A0}",
         NodeKind::CargoWorkspace | NodeKind::CargoPackage { .. } => "Rs",
         NodeKind::CargoTarget { .. } => "\u{25B8}",
+        // Brief 0048: the Dependencies node.
+        NodeKind::Dependencies | NodeKind::DependencyGroup { .. } => "\u{25A6}",
+        NodeKind::Package { .. } => "\u{25C8}",
+        NodeKind::Framework => "\u{25A4}",
+        NodeKind::ProjectReference => "C#",
     }
 }
 
@@ -138,7 +169,36 @@ impl SolutionExplorer {
             startup: Vec::new(),
             menu: None,
             git: None,
+            package_warnings: HashSet::new(),
+            probe: None,
             focus: cx.focus_handle(),
+        }
+    }
+
+    /// Packages the sources say are vulnerable or deprecated (`id/version`, id lowercase), for the warning glyph.
+    pub fn set_package_warnings(&mut self, warnings: HashSet<String>, cx: &mut Context<Self>) {
+        if warnings != self.package_warnings {
+            self.package_warnings = warnings;
+            cx.notify();
+        }
+    }
+
+    /// Whether a row is a package with the yellow warning glyph.
+    pub fn package_warning(&self, row: &Row) -> bool {
+        match &row.kind {
+            NodeKind::Package {
+                id,
+                version,
+                warning,
+                ..
+            } => {
+                *warning
+                    || version.as_ref().is_some_and(|v| {
+                        self.package_warnings
+                            .contains(&format!("{}/{v}", id.to_lowercase()))
+                    })
+            }
+            _ => false,
         }
     }
 
@@ -247,19 +307,40 @@ impl SolutionExplorer {
                 .path
                 .as_deref()
                 .is_some_and(|p| self.git_relative(p).is_some());
-        self.menu = ((project || git_file) && row.path.is_some()).then_some((ix, event.position));
+        // Brief 0048: the solution, the Packages node and a top-level package have NuGet items.
+        let nuget = matches!(
+            row.kind,
+            NodeKind::Solution
+                | NodeKind::DependencyGroup {
+                    group: DependencyGroup::Packages
+                }
+                | NodeKind::Package {
+                    transitive: false,
+                    ..
+                }
+        );
+        self.menu =
+            ((project || git_file || nuget) && row.path.is_some()).then_some((ix, event.position));
         cx.notify();
     }
 
     fn run_item(&mut self, item: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(path) = self
+        let Some(row) = self
             .menu
             .take()
             .and_then(|(ix, _)| self.rows.get(ix))
-            .and_then(|r| r.path.clone())
+            .cloned()
         else {
             return;
         };
+        let Some(path) = row.path.clone() else {
+            return;
+        };
+        if let Some((command, args)) = nuget_command(item, &row) {
+            window.dispatch_action(Box::new(RunCommand::new(command, args)), cx);
+            cx.notify();
+            return;
+        }
         if let Some((command, args)) = context_command(item, &path) {
             window.dispatch_action(Box::new(RunCommand::new(command, args)), cx);
         }
@@ -271,7 +352,19 @@ impl SolutionExplorer {
         let row = self.rows.get(ix)?;
         let t = self.theme;
         let mut items = Vec::new();
-        let entries: Vec<(&'static str, &'static str)> = if row.kind.opens_file() {
+        let nuget_entries: Option<Vec<(&'static str, &'static str)>> = match &row.kind {
+            NodeKind::Solution => Some(vec![NUGET_SOLUTION_ITEM]),
+            NodeKind::DependencyGroup { .. } => Some(vec![NUGET_PROJECT_ITEM]),
+            NodeKind::Package { .. } => Some(vec![
+                NUGET_UPDATE_ITEM,
+                NUGET_REMOVE_ITEM,
+                NUGET_PROJECT_ITEM,
+            ]),
+            _ => None,
+        };
+        let entries: Vec<(&'static str, &'static str)> = if let Some(e) = nuget_entries {
+            e
+        } else if row.kind.opens_file() {
             WORKSPACE_GIT_ITEMS
                 .iter()
                 .map(|(i, l, _)| (*i, *l))
@@ -279,11 +372,26 @@ impl SolutionExplorer {
         } else {
             let mut items = CONTEXT_ITEMS.to_vec();
             items.push((WORKSPACE_TERMINAL_ITEM.0, WORKSPACE_TERMINAL_ITEM.1));
+            // Brief 0048: a .NET project's Manage NuGet Packages..., after Build, Rebuild and Clean.
+            if matches!(row.kind, NodeKind::Project { .. }) {
+                items.insert(3, NUGET_PROJECT_ITEM);
+            }
             items
         };
         let file = row.kind.opens_file();
+        let dotnet_project = matches!(row.kind, NodeKind::Project { .. });
+        let nuget_menu = row.kind.is_dependency() || row.kind == NodeKind::Solution;
         for (i, (item, label)) in entries.into_iter().enumerate() {
-            if (!file && (i == 3 || i == 4)) || (file && (i == 2 || i == 4)) {
+            let separator = if nuget_menu {
+                false
+            } else if file {
+                i == 2 || i == 4
+            } else if dotnet_project {
+                i == 3 || i == 4 || i == 5
+            } else {
+                i == 3 || i == 4
+            };
+            if separator {
                 items.push(
                     div()
                         .h(px(1.))
@@ -448,6 +556,30 @@ impl SolutionExplorer {
     }
 }
 
+/// The command a NuGet context menu item runs for `row` (brief 0048).
+pub fn nuget_command(item: &str, row: &Row) -> Option<(&'static str, Value)> {
+    let path = row.path.as_ref()?.to_string_lossy().into_owned();
+    match (item, &row.kind) {
+        (i, _) if i == NUGET_SOLUTION_ITEM.0 => {
+            Some((eludite_commands::nuget::MANAGE, json!({ "solution": true })))
+        }
+        (i, _)
+            if i == NUGET_PROJECT_ITEM.0 && !matches!(row.kind, NodeKind::CargoPackage { .. }) =>
+        {
+            Some((eludite_commands::nuget::MANAGE, json!({ "project": path })))
+        }
+        (i, NodeKind::Package { id, .. }) if i == NUGET_UPDATE_ITEM.0 => Some((
+            eludite_commands::nuget::UPDATE,
+            json!({ "package": id, "project": path }),
+        )),
+        (i, NodeKind::Package { id, .. }) if i == NUGET_REMOVE_ITEM.0 => Some((
+            eludite_commands::nuget::UNINSTALL,
+            json!({ "package": id, "project": path }),
+        )),
+        _ => None,
+    }
+}
+
 fn open_file(path: PathBuf, window: &mut Window, cx: &mut Context<SolutionExplorer>) {
     window.dispatch_action(
         Box::new(RunCommand::new(
@@ -513,7 +645,11 @@ impl Render for SolutionExplorer {
                                     bold: this.is_startup(row),
                                 };
                                 let id = row.id.clone();
-                                let badge = this.git_glyph(row).map(|g| (g.glyph(), g.color()));
+                                let badge = if this.package_warning(row) {
+                                    Some((PACKAGE_WARNING, 0xFF_CC_00))
+                                } else {
+                                    this.git_glyph(row).map(|g| (g.glyph(), g.color()))
+                                };
                                 Some(
                                     tree_row_with_badge(
                                         &t,
@@ -524,6 +660,11 @@ impl Render for SolutionExplorer {
                                         style,
                                         cx.listener(move |this, _, _, cx| this.toggle(&id, cx)),
                                     )
+                                    .relative()
+                                    .children(eludite_ui::bounds_canvas(
+                                        this.probe.as_ref(),
+                                        row_selector(&row.id),
+                                    ))
                                     .on_click(cx.listener(move |this, e, window, cx| {
                                         this.click(ix, e, window, cx)
                                     }))
@@ -558,6 +699,9 @@ fn folder_trail(root: &eludite_workspace::explorer::Node, dir: &Path) -> Option<
         }
     }
     fn stands_for(n: &Node, dir: &Path) -> bool {
+        if n.kind.is_dependency() {
+            return false;
+        }
         match n.kind {
             NodeKind::File { .. } | NodeKind::CargoTarget { .. } => false,
             NodeKind::Folder => {
