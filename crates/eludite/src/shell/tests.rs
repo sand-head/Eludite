@@ -122,10 +122,36 @@ pub(super) fn setup_services(
     let controller = DockController::new(DockLayout::default_vs(&tools), tools);
     let mut commands = builtins::default_registry();
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
+    // The store resolves the tool-path settings from its own environment (captured once, empty here), and applying the
+    // settings at startup writes them into the debug setup. A test that located a real adapter passes it in `debug`;
+    // the store gets it as that variable, as the real environment would hand it over.
+    let mut settings = crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS)));
+    if let Some(d) = &debug {
+        for (name, value) in [
+            (eludite_dap::discovery::ENV_VAR, d.search.env.clone()),
+            (
+                eludite_dap::discovery::MONO_PREFIX_ENV,
+                d.mono.configured.clone().map(PathBuf::into_os_string),
+            ),
+            (
+                eludite_dap::discovery::MONO_ADAPTER_ENV,
+                d.mono_adapter
+                    .configured
+                    .clone()
+                    .map(PathBuf::into_os_string),
+            ),
+        ] {
+            if let Some(v) = value {
+                settings
+                    .env
+                    .insert(name.to_owned(), v.to_string_lossy().into_owned());
+            }
+        }
+    }
     let mut services = Some(super::register_workspace(
         &mut commands,
         HostLaunch::InProcess(fake.connector()),
-        crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS))),
+        settings,
     ));
     if let Some(s) = services.as_mut() {
         s.agents = agents.unwrap_or_else(|| super::agents::AgentsSetup {

@@ -7131,6 +7131,8 @@ fn a_restart_through_the_adapter_reloads_the_same_tab(cx: &mut TestAppContext) {
 /// with `wait_ms` answers with the tab; a server that never answers leaves the Output line and the session running;
 /// a url that answers without the line opens too; the https profile without the development certificate opens the
 /// http page with Visual Studio's message.
+// The opener is a shell script made executable with Unix permissions.
+#[cfg(unix)]
 #[gpui::test]
 fn the_start_chooses_where_the_page_opens_and_says_when_it_cannot(cx: &mut TestAppContext) {
     let port = closed_port();

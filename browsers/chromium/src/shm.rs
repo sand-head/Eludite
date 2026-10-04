@@ -3,7 +3,8 @@
 //! the shell's side as the engine's tests use it; `crates/browser/src/embedded.rs` has the shell's own.
 //!
 //! Linux only for now: `memfd_create`, `mmap`, and the descriptor sent with `SCM_RIGHTS` ([`send_fd`]). macOS
-//! (`shm_open`) and Windows (a named file mapping) are documented in browser-rpc.md, not built.
+//! (`shm_open`) and Windows (a named file mapping) are documented in browser-rpc.md, not built: elsewhere this module
+//! compiles (so the engine's stub does) and [`Region::create`] answers `Unsupported`.
 
 // Shared memory and descriptor passing are system calls on raw pointers; every use is commented.
 #![allow(unsafe_code)]
@@ -214,18 +215,33 @@ pub enum Written {
     Dropped,
 }
 
+/// An anonymous shared-memory descriptor, close-on-exec: `memfd_create` on Linux. macOS's `shm_open` transport is not
+/// built (browser-rpc.md), so elsewhere this is `Unsupported`, and the engine's stub never gets here.
+#[cfg(target_os = "linux")]
+fn anonymous_memory() -> io::Result<OwnedFd> {
+    // SAFETY: a NUL-terminated name; the result is checked.
+    let fd = unsafe { libc::memfd_create(c"eludite-frames".as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: memfd_create returned a new descriptor we own.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn anonymous_memory() -> io::Result<OwnedFd> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the frame ring is Linux-only so far (memfd_create); macOS's shm_open transport is not built",
+    ))
+}
+
 impl Region {
     /// A new region for frames up to `width` by `height` device pixels.
     pub fn create(id: u64, width: u32, height: u32) -> io::Result<Region> {
         let slot_size = slot_size_for(width.max(1), height.max(1));
         let len = HEADER_SIZE + SLOTS * slot_size;
-        // SAFETY: a NUL-terminated name; the result is checked.
-        let fd = unsafe { libc::memfd_create(c"eludite-frames".as_ptr(), libc::MFD_CLOEXEC) };
-        if fd < 0 {
-            return Err(io::Error::last_os_error());
-        }
-        // SAFETY: memfd_create returned a new descriptor we own.
-        let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+        let fd = anonymous_memory()?;
         // SAFETY: sizing our own descriptor.
         if unsafe { libc::ftruncate(fd.as_raw_fd(), len as libc::off_t) } != 0 {
             return Err(io::Error::last_os_error());
@@ -464,8 +480,13 @@ pub fn recv_fd(sock: RawFd) -> io::Result<(u64, OwnedFd)> {
     msg.msg_iovlen = 1;
     msg.msg_control = control.as_mut_ptr().cast();
     msg.msg_controllen = space as _;
+    // Linux sets close-on-exec on the received descriptor atomically; macOS has no MSG_CMSG_CLOEXEC (fcntl below).
+    #[cfg(target_os = "linux")]
+    let flags = libc::MSG_CMSG_CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let flags = 0;
     // SAFETY: a valid msghdr; the result is checked.
-    let n = unsafe { libc::recvmsg(sock, &mut msg, libc::MSG_CMSG_CLOEXEC) };
+    let n = unsafe { libc::recvmsg(sock, &mut msg, flags) };
     if n < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -490,31 +511,50 @@ pub fn recv_fd(sock: RawFd) -> io::Result<(u64, OwnedFd)> {
         std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<RawFd>())
     };
     // SAFETY: SCM_RIGHTS gave this process a new descriptor it now owns.
-    Ok((u64::from_le_bytes(payload), unsafe {
-        OwnedFd::from_raw_fd(fd)
-    }))
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    #[cfg(not(target_os = "linux"))]
+    set_cloexec(fd.as_raw_fd())?;
+    Ok((u64::from_le_bytes(payload), fd))
 }
 
 /// A `SOCK_SEQPACKET` Unix socket pair, both ends close-on-exec.
 pub fn socket_pair() -> io::Result<(OwnedFd, OwnedFd)> {
     let mut fds = [0 as RawFd; 2];
+    // Linux sets close-on-exec atomically; the other Unixes (macOS has no SOCK_CLOEXEC) set it after the fact.
+    #[cfg(target_os = "linux")]
+    let kind = libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let kind = libc::SOCK_SEQPACKET;
     // SAFETY: socketpair writes two descriptors into the array; the result is checked.
-    let r = unsafe {
-        libc::socketpair(
-            libc::AF_UNIX,
-            libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
-            0,
-            fds.as_mut_ptr(),
-        )
-    };
+    let r = unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) };
     if r != 0 {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: two new descriptors this process owns.
-    Ok(unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) })
+    let pair = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    #[cfg(not(target_os = "linux"))]
+    {
+        set_cloexec(pair.0.as_raw_fd())?;
+        set_cloexec(pair.1.as_raw_fd())?;
+    }
+    Ok(pair)
 }
 
-#[cfg(test)]
+/// `FD_CLOEXEC` on a descriptor, where the call that made it could not set it (not Linux).
+#[cfg(not(target_os = "linux"))]
+fn set_cloexec(fd: RawFd) -> io::Result<()> {
+    // SAFETY: fcntl on a descriptor this process owns; both results are checked.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+// The ring is Linux-only (Region::create); elsewhere these would only see Unsupported.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 
