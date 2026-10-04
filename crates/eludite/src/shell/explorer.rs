@@ -41,12 +41,14 @@ use gpui::{
 use serde_json::{Value, json};
 
 /// The project context menu's items: (selector suffix, label).
-pub const CONTEXT_ITEMS: [(&str, &str); 5] = [
+pub const CONTEXT_ITEMS: [(&str, &str); 6] = [
     ("build", "Build"),
     ("rebuild", "Rebuild"),
     ("clean", "Clean"),
     ("startup", "Set as Startup Project"),
     ("folder", "Open Containing Folder"),
+    // Brief 0049: the project property pages (Alt+Enter).
+    ("properties", "Properties"),
 ];
 
 /// Debug selector of a context menu item (`build`, `rebuild`, `clean`, `startup`, `folder`).
@@ -86,6 +88,10 @@ pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)>
         "folder" => (
             eludite_commands::project::OPEN_CONTAINING_FOLDER,
             json!({ "path": p }),
+        ),
+        "properties" => (
+            eludite_commands::project::properties::PROPERTIES,
+            json!({ "project": p, "open": true }),
         ),
         _ => return None,
     })
@@ -233,9 +239,23 @@ impl SolutionExplorer {
         self.git.as_ref()?.1.get(&rel)
     }
 
-    /// Ctrl+D on the selected file: Compare with Unmodified.
+    /// Ctrl+D on the selected file: Compare with Unmodified. Alt+Enter on a project: its property pages (brief 0049).
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = &event.keystroke;
+        if k.modifiers.alt
+            && !k.modifiers.control
+            && k.key == "enter"
+            && let Some(path) = self
+                .selected
+                .as_ref()
+                .and_then(|id| self.rows.iter().find(|r| &r.id == id))
+                .filter(|r| matches!(r.kind, NodeKind::Project { .. }))
+                .and_then(|r| r.path.clone())
+        {
+            cx.stop_propagation();
+            open_properties(path, window, cx);
+            return;
+        }
         if !(k.modifiers.control && k.key == "d" && !k.modifiers.shift && !k.modifiers.alt) {
             return;
         }
@@ -387,9 +407,10 @@ impl SolutionExplorer {
             } else if file {
                 i == 2 || i == 4
             } else if dotnet_project {
-                i == 3 || i == 4 || i == 5
+                // Brief 0048's Manage NuGet Packages... at 3 moves brief 0049's Properties to 6.
+                i == 3 || i == 4 || i == 5 || i == 6
             } else {
-                i == 3 || i == 4
+                i == 3 || i == 4 || i == 5
             };
             if separator {
                 items.push(
@@ -518,8 +539,7 @@ impl SolutionExplorer {
         cx.notify();
     }
 
-    /// The selected node's id.
-    #[cfg(test)]
+    /// The selected node's id (brief 0049: Project > Properties opens the selected project's pages).
     pub fn selected_id(&self) -> Option<&str> {
         self.selected.as_deref()
     }
@@ -548,6 +568,8 @@ impl SolutionExplorer {
                 (kind, Some(path)) if kind.opens_file() => {
                     open_file(path.clone(), window, cx);
                 }
+                // A .NET project's property pages (brief 0049); the triangle still expands it.
+                (NodeKind::Project { .. }, Some(path)) => open_properties(path.clone(), window, cx),
                 _ if row.has_children => self.toggle(&row.id, cx),
                 _ => {}
             }
@@ -578,6 +600,16 @@ pub fn nuget_command(item: &str, row: &Row) -> Option<(&'static str, Value)> {
         )),
         _ => None,
     }
+}
+
+fn open_properties(path: PathBuf, window: &mut Window, cx: &mut Context<SolutionExplorer>) {
+    window.dispatch_action(
+        Box::new(RunCommand::new(
+            eludite_commands::project::properties::PROPERTIES,
+            json!({ "project": path.to_string_lossy(), "open": true }),
+        )),
+        cx,
+    );
 }
 
 fn open_file(path: PathBuf, window: &mut Window, cx: &mut Context<SolutionExplorer>) {

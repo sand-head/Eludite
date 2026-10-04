@@ -439,8 +439,29 @@ pub struct LaunchConfig {
 /// The launch configuration of `project` with launch profile `profile` (default: the first profile whose
 /// `commandName` is `Project`; none is fine).
 pub fn launch_config(project: &Path, profile: Option<&str>) -> Result<LaunchConfig, String> {
-    let info = read_project(project)?;
-    let program = output_program(&info, CONFIGURATION)?;
+    launch_config_in(project, profile, CONFIGURATION, None)
+}
+
+/// [`launch_config`] in `configuration` (the Solution Configurations list's choice mapped to the project, brief 0049)
+/// and, for a multi-targeted project, `framework` (the Target Framework list's choice) when the project lists it,
+/// ahead of `ActiveDebugFramework`.
+pub fn launch_config_in(
+    project: &Path,
+    profile: Option<&str>,
+    configuration: &str,
+    framework: Option<&str>,
+) -> Result<LaunchConfig, String> {
+    let mut info = read_project(project)?;
+    if let Some(f) = framework
+        && let Some(ix) = info
+            .target_frameworks
+            .iter()
+            .position(|t| t.eq_ignore_ascii_case(f))
+    {
+        let tfm = info.target_frameworks.remove(ix);
+        info.target_frameworks.insert(0, tfm);
+    }
+    let program = output_program(&info, configuration)?;
     let dir = project.parent().unwrap_or(Path::new(".")).to_path_buf();
     let profiles = read_launch_settings(&dir)?;
     let chosen = match profile {
@@ -1215,6 +1236,53 @@ mod tests {
         let (cmd, args) = c.run_command(Platform::Windows, "dotnet", None).unwrap();
         assert!(cmd.ends_with("tool.exe") && args.is_empty());
         assert!(c.run_command(Platform::MacOs, "dotnet", None).is_err());
+    }
+
+    /// Brief 0049: the Solution Configurations list's configuration and the Target Framework list's framework pick
+    /// the program.
+    #[test]
+    fn launch_config_in_follows_the_configuration_and_the_framework() {
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("Multi/Multi.csproj");
+        write(
+            &p,
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFrameworks>net8.0;net10.0</TargetFrameworks></PropertyGroup></Project>",
+        );
+        for (cfg, tfm) in [
+            ("Debug", "net8.0"),
+            ("Release", "net8.0"),
+            ("Release", "net10.0"),
+        ] {
+            write(
+                &t.path().join(format!("Multi/bin/{cfg}/{tfm}/Multi.dll")),
+                "",
+            );
+        }
+        let c = launch_config_in(&p, None, "Release", Some("net10.0")).unwrap();
+        assert!(
+            c.program.ends_with("bin/Release/net10.0/Multi.dll"),
+            "{:?}",
+            c.program
+        );
+        let c = launch_config_in(&p, None, "Release", None).unwrap();
+        assert!(
+            c.program.ends_with("bin/Release/net8.0/Multi.dll"),
+            "{:?}",
+            c.program
+        );
+        // A framework the project does not list changes nothing; Debug has no net10.0 build: net8.0's.
+        let c = launch_config_in(&p, None, "Debug", Some("net9.0")).unwrap();
+        assert!(
+            c.program.ends_with("bin/Debug/net8.0/Multi.dll"),
+            "{:?}",
+            c.program
+        );
+        let err = launch_config_in(&p, None, "Staging", None).unwrap_err();
+        assert!(err.contains("Staging"), "{err}");
+        assert_eq!(
+            launch_config(&p, None).unwrap(),
+            launch_config_in(&p, None, CONFIGURATION, None).unwrap()
+        );
     }
 
     #[test]

@@ -41,12 +41,8 @@ use eludite_lsp::host::{
     BuildDiagnostic, BuildDiagnosticSeverity, BuildFinished, BuildProgress, BuildResult,
     BuildStartParams, BuildStartResult, BuildSummary, BuildSystem, BuildTarget,
 };
-use eludite_ui::{Theme, toggle_button};
 use futures::channel::mpsc::UnboundedSender;
-use gpui::{
-    AppContext as _, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window, anchored, deferred, div, px,
-};
+use gpui::{AppContext as _, Context, Window};
 
 use super::Shell;
 use super::cargo_build::{self, CargoBuildSpec, CargoRun, Member};
@@ -232,7 +228,6 @@ pub struct Builds {
     pub platform: Option<String>,
     /// The platforms the solution file lists (the first is its default).
     pub platforms: Vec<String>,
-    pub menu: Option<&'static str>,
     /// Build the saved file's project after Ctrl+S (the setting `build.onSave`, or `ELUDITE_BUILD_ON_SAVE=1`; off by
     /// default).
     pub build_on_save: bool,
@@ -265,7 +260,6 @@ impl Builds {
             configuration: CONFIGURATIONS[0].to_owned(),
             platform: None,
             platforms: vec!["Any CPU".into()],
-            menu: None,
             build_on_save: false,
             build_before_run: true,
             show_output_on_start: true,
@@ -713,6 +707,13 @@ impl Shell {
                 o.select(OutputSource::Build, cx);
             }
         });
+        // A solution build skips the projects the selection does not build, as Visual Studio says (brief 0049).
+        if plan
+            .iter()
+            .any(|(s, t)| *s == BuildSystem::Msbuild && t.is_none())
+        {
+            self.write_skipped_builds(cx);
+        }
         self.status
             .set(BUILD_SLOT, format!("{} started\u{2026}", verb(kind)));
         let first = plan.remove(0);
@@ -799,16 +800,24 @@ impl Shell {
             next_seq: 0,
         });
         match system {
-            BuildSystem::Msbuild => self.session.build_start(
-                ticket,
-                BuildStartParams {
-                    target: kind_target(kind),
-                    system: None,
-                    project: target,
-                    configuration: Some(configuration.clone()),
-                    platform: platform.clone(),
-                },
-            ),
+            BuildSystem::Msbuild => {
+                // One project builds in the configuration and platform the selection maps it to (brief 0049).
+                let (configuration, platform) = match target.as_deref().and_then(|p| self.mapped(p))
+                {
+                    Some((c, p, _)) => (c, (p != "AnyCPU").then_some(p)),
+                    None => (configuration.clone(), platform.clone()),
+                };
+                self.session.build_start(
+                    ticket,
+                    BuildStartParams {
+                        target: kind_target(kind),
+                        system: None,
+                        project: target,
+                        configuration: Some(configuration),
+                        platform,
+                    },
+                )
+            }
             BuildSystem::Cargo => {
                 let ws = self.cargo_workspace().cloned().unwrap_or_else(|| {
                     unreachable!("planned a Cargo build without a Cargo workspace")
@@ -1405,104 +1414,6 @@ impl Shell {
             });
         })
         .detach();
-    }
-
-    /// Visual Studio's Solution Configurations and Solution Platforms dropdowns (its Standard toolbar's), drawn at the
-    /// right of the menu bar's row.
-    pub(super) fn build_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let t: Theme = self.theme;
-        let platform = self
-            .builds
-            .platform
-            .clone()
-            .or_else(|| self.builds.platforms.first().cloned())
-            .unwrap_or_else(|| "Any CPU".into());
-        let dropdown =
-            |id: &'static str, label: String, kind: &'static str, cx: &mut Context<Self>| {
-                toggle_button(id, format!("{label} \u{25BE}"), false, &t)
-                    .min_w(px(96.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.builds.menu = if this.builds.menu == Some(kind) {
-                            None
-                        } else {
-                            Some(kind)
-                        };
-                        cx.notify();
-                    }))
-            };
-        let menu = self.builds.menu.map(|kind| {
-            let entries: Vec<String> = if kind == "configuration" {
-                CONFIGURATIONS.iter().map(|s| (*s).to_owned()).collect()
-            } else {
-                self.builds.platforms.clone()
-            };
-            let items = entries.into_iter().enumerate().map(|(ix, value)| {
-                let sel = toolbar_item_selector(kind, ix);
-                div()
-                    .id(SharedString::from(sel.clone()))
-                    .debug_selector(move || sel)
-                    .px_2()
-                    .h(px(20.))
-                    .flex()
-                    .items_center()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(t.menu_hover))
-                    .child(value.clone())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if kind == "configuration" {
-                            this.builds.configuration = value.clone();
-                        } else {
-                            let default = this.builds.platforms.first() == Some(&value);
-                            this.builds.platform = (!default).then(|| value.clone());
-                        }
-                        this.builds.menu = None;
-                        cx.notify();
-                    }))
-            });
-            deferred(
-                anchored().child(
-                    eludite_ui::popup::popup_panel(&t)
-                        .id("build-toolbar-menu")
-                        .occlude()
-                        .min_w(px(120.))
-                        .py_1()
-                        .mt(px(22.))
-                        .ml(px(if kind == "configuration" { 0. } else { 100. }))
-                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                            this.builds.menu = None;
-                            cx.notify();
-                        }))
-                        .children(items),
-                ),
-            )
-            .with_priority(1)
-        });
-        div()
-            .id("build-toolbar")
-            .flex()
-            .flex_row()
-            .flex_none()
-            .items_center()
-            .gap_1()
-            .h(t.typography.menu_bar_height)
-            .px_2()
-            .bg(t.menu_background)
-            .text_size(t.typography.ui)
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_row()
-                    .gap_1()
-                    .child(dropdown(
-                        CONFIGURATION_BUTTON,
-                        self.builds.configuration.clone(),
-                        "configuration",
-                        cx,
-                    ))
-                    .child(dropdown(PLATFORM_BUTTON, platform, "platform", cx))
-                    .children(menu),
-            )
     }
 }
 

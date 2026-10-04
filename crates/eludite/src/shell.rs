@@ -28,6 +28,7 @@ mod build_tests;
 pub mod cargo_build;
 pub mod cargo_tests;
 pub mod code_actions;
+pub mod configuration_manager;
 pub mod debug;
 pub mod documents;
 pub mod error_list;
@@ -50,6 +51,9 @@ pub mod nuget;
 mod nuget_tests;
 pub mod options;
 pub mod output;
+pub mod project_properties;
+#[cfg(test)]
+mod project_properties_tests;
 #[cfg(test)]
 mod refactor_tests;
 pub mod references;
@@ -75,6 +79,7 @@ mod test_runs_tests;
 #[cfg(test)]
 mod tests;
 pub mod tests_window;
+pub mod toolbar;
 pub mod workspace_edit;
 #[cfg(test)]
 mod workspace_edit_tests;
@@ -195,6 +200,8 @@ pub struct Services {
     pub nuget: Arc<nuget::NuGetService>,
     pub nuget_events: UnboundedReceiver<nuget::NuGetEvent>,
     pub nuget_jobs: UnboundedReceiver<nuget::NuGetJob>,
+    /// Brief 0049's `eludite.project.*` property commands and the solution configurations from other threads.
+    pub properties_jobs: UnboundedReceiver<project_properties::PropertiesJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -302,6 +309,7 @@ pub fn register_workspace(
         forge::register(commands, git.clone(), forge::ForgeSetup::system());
     let (nuget, nuget_events, nuget_jobs) =
         nuget::register(commands, session.clone(), tree.clone());
+    let properties_jobs = project_properties::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -347,6 +355,7 @@ pub fn register_workspace(
         nuget,
         nuget_events,
         nuget_jobs,
+        properties_jobs,
     }
 }
 
@@ -473,6 +482,8 @@ pub struct Shell {
     forge: forge::ForgeUi,
     /// NuGet: the Manage NuGet Packages window, the credential prompt, the Error List rows (brief 0048).
     nuget: nuget::NuGetUi,
+    /// The project property pages, the configuration selection and Configuration Manager (brief 0049).
+    properties: project_properties::PropertiesUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -560,8 +571,12 @@ fn document_body(
     git_margins: git::Margins,
     forge_documents: forge::Documents,
     forge_margins: forge::Margins,
+    properties_documents: project_properties::Documents,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
+        if let Some(view) = properties_documents.borrow().get(&tab.id) {
+            return view.clone().into_any_element();
+        }
         if let Some(view) = browser_views.borrow().get(&tab.id) {
             return view.clone().into_any_element();
         }
@@ -695,8 +710,10 @@ impl Shell {
             nuget,
             nuget_events,
             nuget_jobs,
+            properties_jobs,
         } = services;
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
+        let properties = project_properties::PropertiesUi::default();
         let git = git::GitUi::new(git, theme, cx);
         let terminal = terminal::TerminalUi::new(terminal, theme, cx);
         let search = search::SearchUi::new(search, theme, cx);
@@ -742,6 +759,7 @@ impl Shell {
                     git.margins.clone(),
                     forge.documents.clone(),
                     forge.margins.clone(),
+                    properties.documents.clone(),
                 )),
                 persistence,
                 cx,
@@ -1074,6 +1092,7 @@ impl Shell {
             search,
             forge,
             nuget,
+            properties,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1100,6 +1119,7 @@ impl Shell {
         this.search_install(search_events, search_jobs, window, cx);
         this.forge_install(forge_events, window, cx);
         this.nuget_install(nuget_events, nuget_jobs, window, cx);
+        this.properties_install(properties_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1245,6 +1265,10 @@ impl Shell {
         if self.run_nuget(command, &mut args, window, cx) {
             return;
         }
+        // The property pages' unsaved-changes question (brief 0049).
+        if self.run_properties(command, &mut args, window, cx) {
+            return;
+        }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
         if command == eludite_commands::debug::START
             && args.get("debug") != Some(&Value::Bool(false))
@@ -1335,6 +1359,13 @@ impl Shell {
         {
             let outcome = self.apply_project(request, window, cx);
             self::startup::stage(outcome);
+        }
+        if (eludite_commands::project::properties::ALL.contains(&command)
+            || eludite_commands::solution::CONFIGURATION_COMMANDS.contains(&command))
+            && let Ok(request) = eludite_commands::project::properties::parse(command, args.clone())
+        {
+            let outcome = self.apply_properties(request, None, window, cx);
+            project_properties::stage(outcome);
         }
         if eludite_commands::test::ALL.contains(&command)
             && let Ok(request) = eludite_commands::test::parse(command, args.clone())
@@ -1436,7 +1467,15 @@ impl Shell {
             WorkspaceRequest::FileOpen { path, line, column } => {
                 self.open_file(&path, line.map(|l| (l, column.unwrap_or(1))), window, cx)
             }
+            // The project property pages (brief 0049) save and close as one document.
+            WorkspaceRequest::FileClose { path, save } if self.pages_tab(Some(&path)).is_some() => {
+                self.close_pages(&path, save, window, cx)
+            }
             WorkspaceRequest::FileClose { path, save } => self.close_file(&path, save, cx),
+            WorkspaceRequest::Save { path } if self.pages_tab(path.as_deref()).is_some() => {
+                let tab = self.pages_tab(path.as_deref()).unwrap_or_default();
+                self.save_pages(&tab, window, cx)
+            }
             WorkspaceRequest::Save { path } => {
                 let saved = self.save(path.as_deref(), cx);
                 if let Ok(workspace::WorkspaceOutput::Save(out)) = &saved {
@@ -1581,6 +1620,7 @@ impl Shell {
                 self.solution = Some(path.clone());
                 self.update_settings_dir();
                 self.debug_solution_opened(&path, cx);
+                self.properties_solution_opened(&path, window, cx);
                 let name = self.solution_name();
                 // An open folder keeps its title and its tree, where the solution shows as loading.
                 if self.folder.is_none() {
@@ -1661,6 +1701,7 @@ impl Shell {
                     self.clear_host_diagnostics(cx);
                     self.builds.diagnostics.clear();
                     self.tests_new_generation(window, cx);
+                    self.properties_new_generation(window, cx);
                     for doc in self
                         .documents
                         .values_mut()
@@ -1747,6 +1788,7 @@ impl Shell {
                 self.timings.tree.get_or_insert_with(Instant::now);
                 self.publish_tree(&tree);
                 self.find_default_startup(window, cx);
+                self.properties_tree_arrived(window, cx);
                 documents::trace(format_args!(
                     "tree generation {}: {} projects",
                     tree.generation,
@@ -2167,6 +2209,7 @@ impl Render for Shell {
             .children(self.rename.dialog.clone())
             .children(self.git.prompt.clone())
             .children(self.options.clone())
+            .children(self.configuration_manager_overlay())
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
             .children(self.code_actions.menu.clone())

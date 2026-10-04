@@ -351,6 +351,10 @@ impl FakeHost {
                             prop["inherited"] = json!(false);
                             if let Some(o) = prop.as_object_mut() {
                                 o.remove("inheritedFrom");
+                                o.remove("definedIn");
+                            }
+                            if !removed {
+                                prop["definedIn"] = json!({"file": project, "line": 5});
                             }
                             if result["status"] == "unchanged" {
                                 result["status"] =

@@ -254,7 +254,12 @@ pub fn vs_menus() -> Vec<Menu> {
                     "Set Startup Projects...",
                     "eludite.workspace.set_startup_project",
                 ),
-                item("Properties", "eludite.project.properties"),
+                // Brief 0049: the selected project's property pages as a document tab (Alt+Enter in Workspace).
+                MenuEntry::Item {
+                    label: "Properties",
+                    command: "eludite.project.properties",
+                    args: json!({ "open": true }),
+                },
             ],
         ),
         menu(
@@ -278,6 +283,12 @@ pub fn vs_menus() -> Vec<Menu> {
                 },
                 Separator,
                 item("Cancel", "eludite.build.cancel"),
+                Separator,
+                // Brief 0049: the solution-to-project mapping grid.
+                item(
+                    "Configuration Manager...",
+                    "eludite.solution.set_configuration",
+                ),
             ],
         ),
         menu(
@@ -1034,6 +1045,38 @@ mod tests {
                 "eludite.tools.options",
                 json!({"section": "NuGet Package Manager > Package Sources"})
             )
+        );
+    }
+
+    /// Brief 0049: Project > Properties opens the property pages; Build > Configuration Manager... opens the dialog
+    /// through `eludite.solution.set_configuration` without arguments.
+    #[test]
+    fn project_properties_and_configuration_manager_are_menu_items() {
+        let menus = vs_menus();
+        let find = |title: &str, label: &str| {
+            menus
+                .iter()
+                .find(|m| m.title == title)
+                .unwrap()
+                .entries
+                .iter()
+                .find_map(|e| match e {
+                    MenuEntry::Item {
+                        label: l,
+                        command,
+                        args,
+                    } if *l == label => Some((*command, args.clone())),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            find("Project", "Properties"),
+            ("eludite.project.properties", json!({"open": true}))
+        );
+        assert_eq!(
+            find("Build", "Configuration Manager..."),
+            ("eludite.solution.set_configuration", json!({}))
         );
     }
 

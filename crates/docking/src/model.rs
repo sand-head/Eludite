@@ -88,8 +88,14 @@ pub mod ids {
     pub const NUGET: &str = "nuget";
     /// Windows that open as a document tab, as Visual Studio opens its Web Browser in the document well: `view.show`
     /// opens them there (id and title), and they close like documents.
-    pub const DOCUMENT_WINDOWS: [(&str, &str); 2] =
-        [(WEB_BROWSER, "Web Browser"), (NUGET, "NuGet - Solution")];
+    pub const DOCUMENT_WINDOWS: [(&str, &str); 3] = [
+        (WEB_BROWSER, "Web Browser"),
+        (NUGET, "NuGet - Solution"),
+        (PROJECT_PROPERTIES, "Properties"),
+    ];
+    /// Project > Properties (brief 0049): `view.show` opens it as a document tab, which the shell turns into the
+    /// selected project's property pages (`project_properties:<project file>`).
+    pub const PROJECT_PROPERTIES: &str = "project_properties";
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.
