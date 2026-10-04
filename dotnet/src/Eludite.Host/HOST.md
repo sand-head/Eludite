@@ -28,6 +28,9 @@ The full contract is `protocol/schemas/host-rpc.md` (brief 0007), with a JSON sc
 | `eludite/build/start`, `eludite/build/cancel` | request | `Build/BuildService.cs` (brief 0017) |
 | `eludite/build/status` | request | `Build/BuildService.cs`, `Build/OutputHistory.cs` (brief 0020): the running build with its last 8 MiB of output, and the last result |
 | `eludite/build/output`, `eludite/build/progress`, `eludite/build/finished` | host-to-shell notification | `Build/BuildService.cs`, `Build/OutputPipe.cs` |
+| `eludite/nuget/search`, `installed`, `updates`, `change`, `sources`, `restore` | request | `NuGet/NuGetService.cs` (brief 0048) |
+| `eludite/nuget/update` | host-to-shell notification | `NuGet/NuGetService.cs` |
+| `eludite/nuget/credentials` | host-to-shell request (interactive calls only) | `NuGet/NuGetCredentials.cs` |
 
 Plain LSP `initialize`, `shutdown` and `exit` are not host methods (renamed in brief 0007; they return
 MethodNotFound). SDK discovery is behind `ISdkDiscoverer` so tests never spawn `dotnet`.
@@ -149,6 +152,31 @@ It does not wait for Roslyn: on `dotnet/Eludite.slnx` the tree is ready long bef
   diagnostic per project (`ELUDITE0101`..`0110`) and writes it to the output.
 - Cancel: `Build/ProcessTree.cs` kills the tree (`Process.Kill(true)`; on Windows `taskkill /T /F` first, untested);
   `eludite/build/finished` `canceled` follows within 2 s. A new solution generation cancels the build too.
+
+## NuGet (brief 0048)
+
+`NuGet/` is the host's NuGet client on NuGet.Client 7.6 (`NuGet.Protocol`, `NuGet.Configuration`, `NuGet.Versioning`,
+`NuGet.Packaging`, `NuGet.Resolver`, `NuGet.ProjectModel`, `NuGet.Credentials`; Apache-2.0; the version the pinned SDK
+carries). Nothing in it runs before a call: no source is contacted at startup.
+
+- `NuGetConfigChain`: the NuGet.config chain (the solution's folder up, the user's file, the machine-wide ones) loaded
+  with `Settings.LoadSettingsGivenConfigPaths`; the sources with the file and scope that define each; add, remove,
+  enable and disable write the user's file only.
+- `NuGetFeeds`: each source's search, package-versions and registration resources through `Repository.CreateSource`,
+  answers cached per source for the session (NuGet's HTTP cache bypassed); folder feeds searched in place.
+- `InstalledReader`: a project's packages from `obj/project.assets.json` (resolved versions, transitive packages,
+  NuGet Audit's NU1901 to NU1904 warnings), the project file's own version text, `.nupkg.metadata` for the source,
+  `packages.config` read-only. Also the tree's Dependencies node (`Projects/MsBuildProjectTreeEvaluator.cs`).
+- `ProjectEditor`: `PackageReference` and, under Central Package Management, `Directory.Packages.props`'s
+  `PackageVersion` items edited with `ProjectRootElement.Open(..., preserveFormatting: true)` under the evaluation lock;
+  every other line stays byte for byte (the changed element's attributes are written as MSBuild writes them).
+- `RestoreRunner`: `dotnet restore` out of process, `--locked-mode` for a project with a lock file when nothing
+  changed, `--force-evaluate` after a change (`nuget.lockFiles: respect`); NuGet's canonical lines become diagnostics.
+- `NuGetCredentials`: the process's `ICredentialService` (installed as `HttpHandlerResourceV3.CredentialService`): the
+  session's answers, then NuGet's plugin providers, then `eludite/nuget/credentials` to the shell for an interactive
+  call; each call runs under a fresh NuGet activity so a refused call never blocks the next.
+- `NuGetService`: the six methods, the generation rule (a change advances it through `LspProxy.AdvanceGeneration`),
+  cancellation, and `eludite/nuget/update` notifications in `seq` order per operation. NuGet's logger writes to stderr.
 
 ## Planned (not yet added)
 

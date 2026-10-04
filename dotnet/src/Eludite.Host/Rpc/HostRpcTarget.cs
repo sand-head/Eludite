@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using Eludite.Host.Build;
 using Eludite.Host.Lsp;
+using Eludite.Host.NuGet;
 using Eludite.Host.Projects;
 using Eludite.Host.Sdk;
 using Eludite.Host.Testing;
@@ -28,7 +29,8 @@ public sealed class HostRpcTarget
     /// <param name="tree">Answers <c>eludite/solution/tree</c>; when null, one backed by the in-process MSBuild evaluator.</param>
     /// <param name="build">Runs <c>eludite/build/*</c>; when null, one that locates the MSBuilds on its first build.</param>
     /// <param name="tests">Runs <c>eludite/test/*</c>; when null, one with the MTP and VSTest runners.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null)
+    /// <param name="nuget">Runs <c>eludite/nuget/*</c>; when null, one on NuGet's own configuration.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -37,7 +39,11 @@ public sealed class HostRpcTarget
         Tree = tree ?? new SolutionTreeProvider(new MsBuildProjectTreeEvaluator(), log);
         Build = build ?? new BuildService(LanguageServer.CurrentSolution, log);
         Tests = tests ?? new TestService(LanguageServer.CurrentSolution, log);
+        NuGet = nuget ?? new NuGetService(LanguageServer.CurrentSolution, LanguageServer.AdvanceGeneration, log);
     }
+
+    /// <summary>The <c>eludite/nuget/*</c> service (brief 0048).</summary>
+    public NuGetService NuGet { get; }
 
     /// <summary>The <c>eludite/test/*</c> service (brief 0035).</summary>
     public TestService Tests { get; }
@@ -200,11 +206,61 @@ public sealed class HostRpcTarget
     [JsonRpcMethod("eludite/test/status", UseSingleObjectParameterDeserialization = true)]
     public TestStatusResult TestStatus(object? parameters = null) => Tests.Status();
 
+    [JsonRpcMethod("eludite/nuget/search", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetSearchResult> NuGetSearchAsync(NuGetSearchParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.SearchAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/nuget/installed", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetInstalledResult> NuGetInstalledAsync(NuGetInstalledParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.InstalledAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/nuget/updates", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetUpdatesResult> NuGetUpdatesAsync(NuGetUpdatesParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.UpdatesAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/nuget/change", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetChangeResult> NuGetChangeAsync(NuGetChangeParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.ChangeAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/nuget/sources", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetSourcesResult> NuGetSourcesAsync(NuGetSourcesParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.SourcesAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/nuget/restore", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetRestoreResult> NuGetRestoreAsync(NuGetRestoreParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.RestoreAsync(parameters, cancellationToken);
+    }
+
     [JsonRpcMethod("eludite/host/shutdown")]
     public void Shutdown()
     {
         _log.WriteLine("eludite/host/shutdown requested");
         ShutdownRequested = true;
+    }
+
+    private void RequireInitialized()
+    {
+        if (!Initialized)
+        {
+            throw HostErrors.NotInitialized();
+        }
     }
 
     [JsonRpcMethod("eludite/host/exit")]

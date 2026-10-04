@@ -1,0 +1,10 @@
+<Project>
+  <!-- Brief 0048's NuGet corpus. Stops MSBuild's search for a Directory.Build.props further up, so the corpus builds the
+       same wherever it is copied. NuGet Audit is off: the local feed has no vulnerability data to offer. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NuGetAudit>false</NuGetAudit>
+  </PropertyGroup>
+</Project>

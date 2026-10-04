@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Greeter 1.0.0 here and 1.1.0 in Lib: Consolidate's case. -->
+    <PackageReference Include="Eludite.Corpus.Greeter" Version="1.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Shared/Shared.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -89,6 +89,44 @@ public sealed record TreeProject(string Name, string Path, string Kind, IReadOnl
 
     /// <summary>Why the project did not evaluate; <see cref="Files"/> is then empty.</summary>
     public string? Error { get; init; }
+
+    /// <summary>Visual Studio's Dependencies node (brief 0048): packages, project references and frameworks.</summary>
+    public TreeDependencies? Dependencies { get; init; }
+}
+
+/// <summary>A project's Dependencies node, read from disk only (solution-tree.json <c>dependencies</c>).</summary>
+public sealed record TreeDependencies(bool Restored, IReadOnlyList<TreePackage> Packages, IReadOnlyList<TreeProjectReference> Projects, IReadOnlyList<TreeFramework> Frameworks);
+
+/// <summary>A top-level package of <see cref="TreeDependencies"/>.</summary>
+public sealed record TreePackage(string Id)
+{
+    public string? Requested { get; init; }
+
+    public string? Version { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AutoReferenced { get; init; }
+
+    /// <summary>The packages it brings in.</summary>
+    public IReadOnlyList<TreeTransitive>? Transitive { get; init; }
+
+    public IReadOnlyList<Eludite.Host.NuGet.NuGetVulnerability>? Vulnerabilities { get; init; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Deprecated { get; init; }
+}
+
+/// <summary>A package a top-level package brings in.</summary>
+public sealed record TreeTransitive(string Id)
+{
+    public string? Version { get; init; }
+}
+
+public sealed record TreeProjectReference(string Name, string Path);
+
+public sealed record TreeFramework(string Name)
+{
+    public string? TargetFramework { get; init; }
 }
 
 /// <summary>A source file of a <see cref="TreeProject"/>. <see cref="ItemType"/> is <c>compile</c> or <c>content</c>.</summary>
