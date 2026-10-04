@@ -19,6 +19,7 @@ use eludite_commands::test as cmds;
 use eludite_commands::workspace;
 use eludite_dap::fake::{self, FakeHandle, FakeProgram, FakeStep, FakeVar};
 use eludite_docking::ids;
+use eludite_lsp::fake::FakeHost;
 use gpui::TestAppContext;
 use serde_json::{Value, json};
 
@@ -32,17 +33,22 @@ use super::tests_window::{self, RowKind};
 const CALCULATOR_CS: &str = "namespace Corpus.Tests\n{\n    public class CalculatorTests\n    {\n        [Fact]\n        public void Adds()\n        {\n            Assert.Equal(5, 2 + 3);\n        }\n\n        [Fact]\n        public void Subtracts()\n        {\n            Assert.Equal(1, 2 - 3);\n        }\n    }\n}\n";
 
 /// The Test Explorer over the fake host (and, for Debug Test, the fake adapter).
-struct Tw {
-    w: Ws,
-    fake: Arc<Mutex<Option<FakeHandle>>>,
+pub(super) struct Tw {
+    pub w: Ws,
+    pub fake: Arc<Mutex<Option<FakeHandle>>>,
     /// The MTP and VSTest containers' ids.
-    mtp: String,
-    vstest: String,
+    pub mtp: String,
+    pub vstest: String,
 }
 
 /// The fake host's catalogue: an MTP container (three tests, one a data row with a trait) and a VSTest container (one
 /// test), its program built, the source file on disk, and the fake adapter whose program steps through `Adds`.
-fn setup(cx: &mut TestAppContext) -> Tw {
+pub(super) fn setup(cx: &mut TestAppContext) -> Tw {
+    setup_scripted(cx, |_| {})
+}
+
+/// As [`setup`], scripting the fake host before the shell starts it (brief 0052's lenses).
+pub(super) fn setup_scripted(cx: &mut TestAppContext, script: impl FnOnce(&FakeHost)) -> Tw {
     let fake: Arc<Mutex<Option<FakeHandle>>> = Arc::default();
     let dir: Arc<Mutex<Option<PathBuf>>> = Arc::default();
     let (f, d) = (fake.clone(), dir.clone());
@@ -87,7 +93,7 @@ fn setup(cx: &mut TestAppContext) -> Tw {
         dotnet: "dotnet".into(),
         js: Default::default(),
     };
-    let w = setup_debug(cx, |_| {}, None, Some(debug));
+    let w = setup_debug(cx, script, None, Some(debug));
     let root = w.dir.path().to_path_buf();
     *dir.lock().unwrap() = Some(root.clone());
     let write = |rel: &str, text: &str| {
@@ -158,7 +164,11 @@ fn setup(cx: &mut TestAppContext) -> Tw {
 
 impl Tw {
     /// Run a command from the UI (the test thread is the UI thread), as a key, a menu or the window does.
-    fn cmd(&mut self, command: &str, args: Value) -> Result<Value, eludite_commands::CommandError> {
+    pub(super) fn cmd(
+        &mut self,
+        command: &str,
+        args: Value,
+    ) -> Result<Value, eludite_commands::CommandError> {
         let r = self.w.shell.update_in(&mut self.w.vcx, |s, window, cx| {
             s.invoke(command, args, window, cx)
         });
@@ -189,14 +199,14 @@ impl Tw {
         })
     }
 
-    fn wait_phase(&mut self, phase: Phase) {
+    pub(super) fn wait_phase(&mut self, phase: Phase) {
         self.w.wait(&format!("discovery {phase:?}"), |w| {
             w.shell
                 .read_with(&w.vcx, |s, _| s.test_runs().phase == phase)
         });
     }
 
-    fn wait_run_done(&mut self, run: u64) -> RunState {
+    pub(super) fn wait_run_done(&mut self, run: u64) -> RunState {
         self.w.wait(&format!("run {run} done"), |w| {
             w.shell.read_with(&w.vcx, |s, _| {
                 s.test_runs().run(run).is_some_and(|r| r.state.done())
@@ -222,7 +232,7 @@ impl Tw {
         })
     }
 
-    fn run_params(&self) -> Vec<Value> {
+    pub(super) fn run_params(&self) -> Vec<Value> {
         self.w.fake.received_params("eludite/test/run")
     }
 }
@@ -705,7 +715,7 @@ fn debug_test_starts_a_session_that_breaks_at_the_first_line_and_results_still_f
 }
 
 /// The corpus Cargo package (`corpus/tests/rust`) copied beside the test solution.
-fn copy_rust_corpus(to: &Path) {
+pub(super) fn copy_rust_corpus(to: &Path) {
     let from = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/rust");
     for rel in ["Cargo.toml", "src/lib.rs", "tests/integration.rs"] {
         let dest = to.join(rel);
@@ -714,7 +724,7 @@ fn copy_rust_corpus(to: &Path) {
     }
 }
 
-fn wait_long(w: &mut Ws, what: &str, mut done: impl FnMut(&mut Ws) -> bool) {
+pub(super) fn wait_long(w: &mut Ws, what: &str, mut done: impl FnMut(&mut Ws) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(240);
     loop {
         w.vcx.run_until_parked();

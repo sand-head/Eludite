@@ -438,6 +438,8 @@ impl Shell {
         self.debug_document_opened(cx);
         // The tab's source control glyph and the change margin (brief 0040).
         self.git_document_opened(&id, cx);
+        // CodeLens rows, when the settings show any for the document's language (brief 0052).
+        self.code_lens_document_opened(&id, cx);
         if self.timings.editable.is_none() {
             // Editable once the frame that shows the editor has been drawn.
             let this = cx.entity().downgrade();
@@ -664,6 +666,7 @@ impl Shell {
         };
         let closed = self.controller.close_document(&id) || had;
         self.git_document_closed(&id);
+        self.code_lens_document_closed(&id);
         self.update_error_list(cx);
         cx.notify();
         Ok(WorkspaceOutput::FileClose(FileCloseOutput {

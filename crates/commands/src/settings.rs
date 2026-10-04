@@ -672,6 +672,13 @@ mod tests {
                 "debugger.nodePath",
                 "debugger.jsDebugPath",
                 "languageServers.rustAnalyzerPath",
+                "editor.codeLens",
+                "editor.codeLens.references",
+                "editor.codeLens.tests",
+                "editor.languages.csharp.codeLens",
+                "editor.languages.rust.codeLens",
+                "editor.languages.typescript.codeLens",
+                "editor.languages.javascript.codeLens",
                 "test.runSettings",
                 "test.parallel",
                 "test.vstestConsolePath",
@@ -723,6 +730,17 @@ mod tests {
                 "editor.formatOnSave.json",
             ]
         );
+        // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise.
+        assert_eq!(
+            s.section("Text Editor > All Languages > CodeLens").count(),
+            7
+        );
+        assert_eq!(s.get("editor.codeLens").unwrap().default, json!(true));
+        let csharp = s.get("editor.languages.csharp.codeLens").unwrap();
+        assert_eq!(csharp.default, json!("default"));
+        assert!(csharp.validate(&json!("references")).is_ok());
+        assert!(csharp.validate(&json!("sometimes")).is_err());
+        // Brief 0048: NuGet Package Manager > General, last.
         // Brief 0050: the web languages' pages, after the earlier ones, so they keep their places.
         assert_eq!(
             s.sections[s.sections.len() - 5..],

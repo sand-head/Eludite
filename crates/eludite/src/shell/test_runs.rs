@@ -2197,6 +2197,8 @@ impl Shell {
     /// After the model changed: the window gets the tree again (when it changed) and the window repaints.
     pub(super) fn after_tests_change(&mut self, cx: &mut Context<Self>) {
         self.refresh_tests_window(cx);
+        // The test lenses' outcomes, and runs waiting for a discovery (brief 0052).
+        self.code_lens_tests_changed(cx);
         cx.notify();
     }
 

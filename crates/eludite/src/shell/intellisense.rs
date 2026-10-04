@@ -100,6 +100,9 @@ pub struct ServerFeatures {
     pub code_action_resolve: bool,
     /// `executeCommandProvider.commands` (brief 0050): a code action that is only one of these runs it.
     pub commands: Vec<String>,
+    /// `codeLensProvider` and its `resolveProvider` (brief 0052): a server without it is never asked for lenses.
+    pub code_lens: bool,
+    pub code_lens_resolve: bool,
 }
 
 impl ServerFeatures {
@@ -124,6 +127,9 @@ impl ServerFeatures {
             code_action_resolve: caps["codeActionProvider"]["resolveProvider"].as_bool()
                 == Some(true),
             commands: strings(&caps["executeCommandProvider"]["commands"]),
+            code_lens: caps["codeLensProvider"].is_object()
+                || caps["codeLensProvider"].as_bool() == Some(true),
+            code_lens_resolve: caps["codeLensProvider"]["resolveProvider"].as_bool() == Some(true),
         }
     }
 
@@ -828,6 +834,14 @@ impl Shell {
             ),
             // Handled by the debugger above (brief 0018).
             EditorEvent::BreakpointMarginClicked { .. } => {}
+            // CodeLens (brief 0052).
+            EditorEvent::CodeLensRequested { id: request } => {
+                self.request_code_lenses(id, *request, cx)
+            }
+            EditorEvent::CodeLensResolve { ids } => self.resolve_code_lenses(id, ids, cx),
+            EditorEvent::CodeLensActivated { id: lens, keyboard } => {
+                self.activate_code_lens(id, *lens, *keyboard, window, cx)
+            }
             // Ctrl+click: Go To Definition, through the same command as F12.
             EditorEvent::GoToDefinition { offset } => {
                 let Some(doc) = self.documents.get(id) else {

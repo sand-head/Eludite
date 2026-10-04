@@ -255,6 +255,11 @@ pub enum SessionEvent {
         id: Id,
         params: host::NuGetCredentialsParams,
     },
+    /// The server asked for fresh lenses (brief 0052): a generic server's `workspace/codeLens/refresh`, or the host's
+    /// `eludite/codeLens/refresh` under `generation`.
+    CodeLensRefresh {
+        generation: Generation,
+    },
 }
 
 enum Cmd {
@@ -1528,6 +1533,9 @@ impl Pump {
                 Event::NuGetUpdate(u) => SessionEvent::NuGetUpdate(u),
                 Event::NuGetCredentials { id, params } => {
                     SessionEvent::NuGetCredentials { id, params }
+                }
+                Event::CodeLensRefresh { generation, .. } => {
+                    SessionEvent::CodeLensRefresh { generation }
                 }
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
                     finished: Box::new(f),
