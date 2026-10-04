@@ -500,6 +500,9 @@ fn the_persons_keystroke_interrupts_an_agents_wait_and_refuses_its_next_send(
         .agent(cmds::SEND, json!({"text": "echo again"}))
         .unwrap_err();
     assert!(refused.contains("call eludite.terminal.read"), "{refused}");
+    // The wait ends at the keystroke, before `sh` has printed its next prompt: text sent before that is typed ahead
+    // and lands after the prompt, so wait for it as an agent's read would show it.
+    t.wait_screen(&id, "the prompt after Ctrl+C", |s| s.ends_with('$'));
     t.agent(cmds::READ, json!({})).unwrap();
     t.agent(cmds::SEND, json!({"text": "echo again-ok"}))
         .unwrap();
