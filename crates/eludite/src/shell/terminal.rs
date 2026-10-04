@@ -44,9 +44,10 @@ use serde_json::{Value, json};
 use super::Shell;
 
 /// The keys that stay the shell's while a terminal has focus (the report's key routing table): Ctrl+` and
-/// Ctrl+Shift+`, F5 and the debug keys, the build keys, Shift+Esc and the tool window chords with Ctrl+Alt. Escape
-/// (back to the editor) is the terminal view's own. Every other key of the shell's keymap goes to the terminal.
-pub const RESERVED_KEYS: [&str; 22] = [
+/// Ctrl+Shift+`, F5 and the debug keys, the build keys, Shift+Esc and the tool windows' chords (Ctrl+Alt, Ctrl+\\
+/// and Ctrl+0 ones; a lone Ctrl+\\ or Ctrl+0 reaches the shell when no second key follows). Escape (back to the
+/// editor) is the terminal view's own. Every other key of the shell's keymap goes to the terminal.
+pub const RESERVED_KEYS: [&str; 27] = [
     "ctrl-`",
     "ctrl-shift-`",
     "ctrl-~",
@@ -69,6 +70,11 @@ pub const RESERVED_KEYS: [&str; 22] = [
     "shift-escape",
     "ctrl-alt-l",
     "ctrl-alt-o",
+    "ctrl-alt-x",
+    "ctrl-\\ ctrl-e",
+    "ctrl-\\ ctrl-c",
+    "ctrl-0 ctrl-g",
+    "ctrl-0 ctrl-r",
 ];
 
 /// Disable, in a terminal's key context, the shell's bindings that are not reserved, so those keys reach the shell

@@ -637,6 +637,13 @@ fn the_reserved_chords_reach_the_shell_window_and_the_rest_the_terminal(cx: &mut
             .count()
             > builds
     });
+    // A tool window's chord stays the shell's: Ctrl+\, Ctrl+E shows the Error List.
+    t.run_ui("eludite.view.show", json!({"id": ids::TERMINAL}));
+    t.focus_terminal(&id);
+    t.type_keys("ctrl-\\ ctrl-e");
+    t.w.wait("the Error List", |w| {
+        w.controller.snapshot().layout.bottom.groups[0].active_id() == Some(ids::ERROR_LIST)
+    });
     // Escape goes back to the editor (here the shell, no document open).
     t.run_ui("eludite.view.show", json!({"id": ids::TERMINAL}));
     t.focus_terminal(&id);
