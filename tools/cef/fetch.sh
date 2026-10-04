@@ -8,9 +8,10 @@
 #   CEF_CACHE=/path tools/cef/fetch.sh       # another cache folder (Eludite then needs ELUDITE_CEF or CEF_PATH)
 #
 # eludite-chromium is built against it with `--features eludite-chromium/cef` and CEF_PATH set; the shell finds it,
-# in order, through ELUDITE_CEF, CEF_PATH, this cache, and beside the engine's executable
-# (crates/browser/src/embedded.rs). Always set CEF_PATH when building with the feature: without it the cef crate's
-# build script downloads CEF by itself into target/, unchecked against PIN. Nothing downloads CEF at startup.
+# in order, beside the engine's executable (its folder, or cef/ as tools/package/linux.sh lays it out), through
+# ELUDITE_CEF and CEF_PATH, then in this cache (crates/browser/src/discovery.rs, brief 0039). Always set CEF_PATH when
+# building with the feature: without it the cef crate's build script downloads CEF by itself into target/, unchecked
+# against PIN. Nothing downloads CEF at startup.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
