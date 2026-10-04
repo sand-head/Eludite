@@ -12,9 +12,16 @@
 //!   thread never waits on libgit2.
 //! - **Drafts.** The commit message box keeps a draft per repository across restarts, in
 //!   `<config dir>/eludite/git/drafts.json`, read and written off the UI thread.
+//! - **Credentials** (brief 0045). A fetch, pull, push or sync the person started that fails with
+//!   `credentials_required` opens the credential prompt ([`credentials::CredentialPrompt`], `git.credentialPrompt`)
+//!   for the host it names; OK hands the answer to the service's in-memory store (for this transfer, or for the
+//!   session with "Remember for this session") and runs the command again. An agent's command never reaches it: the
+//!   bus answers the agent with `credentials_required`. A refused certificate is shown with its host like any other
+//!   failure, and the Git Changes window shows a warning line while `http.sslVerify` is false.
 
 pub mod changes;
 pub mod compare;
+pub mod credentials;
 pub mod gutter;
 pub mod repository;
 pub mod service;
@@ -38,6 +45,7 @@ use serde_json::{Value, json};
 use super::Shell;
 use super::documents::normalize_path;
 use changes::{ChangesEvent, ChangesModel, GitChanges};
+use credentials::{CredentialEvent, CredentialPrompt};
 use repository::{GitRepositoryWindow, RepositoryEvent};
 use service::{GitEvent, GitService, GitSettings, GitSetup};
 
@@ -72,6 +80,15 @@ struct Drafts {
     write: Option<Task<()>>,
 }
 
+/// A command waiting on the credential prompt's answer.
+#[derive(Debug, Clone)]
+pub struct CredentialRequest {
+    pub host: String,
+    pub command: String,
+    pub args: Value,
+    pub then_push: bool,
+}
+
 /// The git half of the shell.
 pub struct GitUi {
     pub service: Arc<GitService>,
@@ -92,6 +109,11 @@ pub struct GitUi {
     drafts: Drafts,
     auto_fetch: Option<(u64, Task<()>)>,
     pub timings: GitTimings,
+    /// The credential prompt, while it is open, and the command it answers for.
+    pub prompt: Option<Entity<CredentialPrompt>>,
+    pub prompt_request: Option<CredentialRequest>,
+    /// Hosts whose one-time answer the running retry uses (forgotten when it ends).
+    retrying: Vec<String>,
 }
 
 impl GitUi {
@@ -116,6 +138,9 @@ impl GitUi {
             drafts: Drafts::default(),
             auto_fetch: None,
             timings: GitTimings::default(),
+            prompt: None,
+            prompt_request: None,
+            retrying: Vec::new(),
         }
     }
 }
@@ -605,6 +630,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A retry with the prompt's one-time answer ended: forget the answer.
+        for host in std::mem::take(&mut self.git.retrying) {
+            self.git.service.credentials().forget_once(&host);
+        }
         let out = match result {
             Ok(v) => v,
             Err(e) => {
@@ -613,6 +642,20 @@ impl Shell {
                     other => other.to_string(),
                 };
                 eprintln!("eludite: {command}: {text}");
+                if let Some(host) = service::credentials_required_host(&text) {
+                    let refused = text.contains(" refused the user name and password");
+                    self.git_ask_credentials(
+                        CredentialRequest {
+                            host: host.to_owned(),
+                            command: command.to_owned(),
+                            args: args.clone(),
+                            then_push,
+                        },
+                        refused,
+                        window,
+                        cx,
+                    );
+                }
                 self.status.set(slots::STATE, text.clone());
                 self.git
                     .changes
@@ -769,6 +812,78 @@ impl Shell {
         self.status
             .set(slots::STATE, info.unwrap_or_else(|| "Ready".into()));
         self.git_refresh(cx);
+        cx.notify();
+    }
+
+    /// Open the credential prompt for `request`'s host (Visual Studio asks in a dialog too); its answer runs the
+    /// command again. One prompt at a time.
+    fn git_ask_credentials(
+        &mut self,
+        request: CredentialRequest,
+        refused: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.git.prompt.is_some() {
+            return;
+        }
+        let theme = self.theme;
+        let host = request.host.clone();
+        let prompt = cx.new(|cx| CredentialPrompt::new(theme, host, refused, String::new(), cx));
+        cx.subscribe_in(
+            &prompt,
+            window,
+            |shell, _, e: &CredentialEvent, window, cx| {
+                shell.git_credential_answer(e.clone(), window, cx)
+            },
+        )
+        .detach();
+        gpui::Focusable::focus_handle(&prompt, cx).focus(window, cx);
+        self.git.prompt = Some(prompt);
+        self.git.prompt_request = Some(request);
+        cx.notify();
+    }
+
+    /// The prompt's OK (supply the answer, run the command again) or Cancel.
+    fn git_credential_answer(
+        &mut self,
+        event: CredentialEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.git.prompt = None;
+        let Some(request) = self.git.prompt_request.take() else {
+            return;
+        };
+        self.focus.focus(window, cx);
+        match event {
+            CredentialEvent::Ok {
+                username,
+                password,
+                remember,
+            } => {
+                self.git.service.credentials().supply(
+                    &request.host,
+                    eludite_git::UserPass { username, password },
+                    remember,
+                );
+                if !remember {
+                    self.git.retrying.push(request.host.clone());
+                }
+                self.git_spawn(request.command, request.args, request.then_push, window, cx);
+            }
+            CredentialEvent::Cancel => {
+                let text = format!(
+                    "{} canceled: no credentials for {}",
+                    title_of(&request.command),
+                    request.host
+                );
+                self.status.set(slots::STATE, text.clone());
+                self.git
+                    .changes
+                    .update(cx, |c, cx| c.set_info(Some((text, true)), cx));
+            }
+        }
         cx.notify();
     }
 

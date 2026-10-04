@@ -2056,6 +2056,7 @@ impl Render for Shell {
             .child(self.status.render_with(&t, self.debug_status_controls(cx)))
             .children(self.navigation.picker.clone())
             .children(self.rename.dialog.clone())
+            .children(self.git.prompt.clone())
             .children(self.options.clone())
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
