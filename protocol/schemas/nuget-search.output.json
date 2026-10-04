@@ -93,6 +93,10 @@
           },
           "deprecated": {
             "type": "boolean"
+          },
+          "icon_url": {
+            "description": "The package's icon; the window shows it once the host fetched it into its cache (eludite/nuget/icon).",
+            "type": "string"
           }
         }
       }

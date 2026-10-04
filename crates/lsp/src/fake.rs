@@ -19,6 +19,9 @@
 //! [`FakeHost::finish_build`]. `eludite/build/cancel` answers `canceled` and sends the `canceled` finished
 //! notification at once (or never, with [`FakeHost::set_build_cancel_ignored`]).
 //!
+//! NuGet (brief 0048): `eludite/nuget/*` answers from [`FakeHost::set_nuget`]'s script (see `fake_nuget.rs`), each on a
+//! thread of its own, so a private source can ask the shell for credentials (`eludite/nuget/credentials`) and wait.
+//!
 //! `eludite/build/status` (brief 0020) answers the running build with every output chunk sent so far and the last
 //! finished build. A new connection (the client restarting the fake after [`crate::HostClient::kill`]) ends the
 //! running build, as a real host restart does, unless [`FakeHost::set_build_survives_restart`] keeps it (a host the
@@ -36,6 +39,7 @@ use eludite_protocol::host::{self, Generation, methods};
 use serde_json::{Value, json};
 
 use crate::connection::Connector;
+use crate::fake_nuget::{FakeNuGet, host_of, output_updates};
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +101,8 @@ struct State {
     last_build: Option<Value>,
     /// `eludite/test/*` (brief 0035).
     tests: FakeTests,
+    /// `eludite/nuget/*` (brief 0048).
+    nuget: FakeNuGet,
 }
 
 #[derive(Default)]
@@ -501,6 +507,45 @@ impl FakeHost {
                    "elapsedMs": elapsed,
                    "summary": summary, "projects": projects, "diagnostics": diagnostics}),
         );
+    }
+
+    /// The NuGet sources, packages and projects `eludite/nuget/*` answers from (brief 0048; see `fake_nuget.rs`).
+    pub fn set_nuget(&self, script: Value) {
+        self.lock().nuget.set(&script);
+    }
+
+    /// The next restores (and changes' restores) fail with this diagnostic (`{ severity, code, message, file }`), or
+    /// succeed again with `None`.
+    pub fn set_nuget_restore_failure(&self, diagnostic: Option<Value>) {
+        self.lock().nuget.restore_failure = diagnostic;
+    }
+
+    /// Searches answer only after `delay`.
+    pub fn set_nuget_search_delay(&self, delay: Duration) {
+        self.lock().nuget.search_delay = delay;
+    }
+
+    /// The scripted projects with their packages as changes left them.
+    pub fn nuget_projects(&self) -> Value {
+        Value::Array(self.lock().nuget.projects.clone())
+    }
+
+    /// The scripted package sources as changes left them.
+    pub fn nuget_sources(&self) -> Value {
+        Value::Array(self.lock().nuget.sources.clone())
+    }
+
+    /// What `eludite/nuget/icon` answers for `url`.
+    pub fn set_nuget_icon(&self, url: &str, path: &str) {
+        self.lock()
+            .nuget
+            .icons
+            .insert(url.to_owned(), path.to_owned());
+    }
+
+    /// `eludite/nuget/*` requests answered so far.
+    pub fn nuget_calls(&self) -> u64 {
+        self.lock().nuget.calls
     }
 
     /// The test containers and their tests (brief 0035): `[{ "container": {...}, "tests": [...] }]`.
@@ -1023,12 +1068,9 @@ impl FakeHost {
             methods::SOLUTION_TREE => {
                 let (generation, path, projects, delay) = {
                     let s = self.lock();
-                    (
-                        s.generation,
-                        s.solution.clone(),
-                        s.tree.clone(),
-                        s.tree_delay,
-                    )
+                    let mut tree = s.tree.clone();
+                    s.nuget.decorate_tree(&mut tree);
+                    (s.generation, s.solution.clone(), tree, s.tree_delay)
                 };
                 let result = match path {
                     Some(p) => json!({"generation": generation, "path": p, "projects": projects}),
@@ -1087,6 +1129,17 @@ impl FakeHost {
             | methods::TEST_CANCEL
             | methods::TEST_ATTACHED
             | methods::TEST_STATUS => self.answer_test(method, params, &reply, &error),
+            methods::NUGET_SEARCH
+            | methods::NUGET_INSTALLED
+            | methods::NUGET_UPDATES
+            | methods::NUGET_CHANGE
+            | methods::NUGET_SOURCES
+            | methods::NUGET_RESTORE
+            | methods::NUGET_ICON => {
+                let (this, out, id) = (self.clone(), out.clone(), id.clone());
+                let (method, params) = (method.to_owned(), params.clone());
+                thread::spawn(move || this.serve_nuget(&out, &id, &method, &params));
+            }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>
             {
@@ -1107,6 +1160,209 @@ impl FakeHost {
 }
 
 impl FakeHost {
+    /// One `eludite/nuget/*` request, on a thread of its own (brief 0048).
+    fn serve_nuget(&self, out: &Writer, id: &Value, method: &str, params: &Value) {
+        let reply =
+            |result: Value| send(out, json!({"jsonrpc": "2.0", "id": id, "result": result}));
+        let error = |code: i64, message: &str, data: Option<Value>| {
+            let mut e = json!({"code": code, "message": message});
+            if let Some(d) = data {
+                e["data"] = d;
+            }
+            send(out, json!({"jsonrpc": "2.0", "id": id, "error": e}));
+        };
+        let (current, open) = {
+            let mut s = self.lock();
+            s.nuget.calls += 1;
+            (s.generation, s.solution.clone())
+        };
+        if method == methods::NUGET_ICON {
+            let url = params["url"].as_str().unwrap_or_default();
+            let path = match url.strip_prefix("file://") {
+                Some(p) => Some(p.to_owned()),
+                None => self.lock().nuget.icons.get(url).cloned(),
+            };
+            return reply(json!({ "path": path }));
+        }
+        let Some(generation) = params["generation"].as_u64() else {
+            return error(
+                -32602,
+                "params.generation (a non-negative integer) is required",
+                None,
+            );
+        };
+        if generation != current {
+            return error(
+                host::error_codes::CONTENT_MODIFIED,
+                "stale",
+                Some(json!({"requestedGeneration": generation, "currentGeneration": current})),
+            );
+        }
+        let Some(solution) = open else {
+            return error(-32602, "no solution is open", None);
+        };
+        let operation = params["operation"].as_u64();
+        let mut seq = 0;
+        let mut lines = |lines: &[String]| {
+            if let Some(op) = operation {
+                for u in output_updates(op, generation, &mut seq, lines) {
+                    self.notify(methods::NUGET_UPDATE, u);
+                }
+            }
+        };
+        match method {
+            methods::NUGET_SEARCH => {
+                let mut retry = false;
+                let (results, rows, needs) = loop {
+                    let (results, rows, needs) = self.lock().nuget.search(params);
+                    let Some(host) = needs.clone().filter(|_| params["interactive"] == true) else {
+                        break (results, rows, needs);
+                    };
+                    let source = self
+                        .lock()
+                        .nuget
+                        .sources
+                        .iter()
+                        .find(|s| {
+                            s["private"] == true
+                                && host_of(s["url"].as_str().unwrap_or_default()) == host
+                        })
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    let answer = self.request_shell(
+                        methods::NUGET_CREDENTIALS,
+                        json!({"operation": operation, "source": source["name"], "url": source["url"],
+                               "host": host, "proxy": false, "isRetry": retry}),
+                        Duration::from_secs(60),
+                    );
+                    let given = answer
+                        .as_ref()
+                        .map(|a| a["result"].clone())
+                        .filter(|r| r.is_object() && r["canceled"] != true);
+                    let Some(given) = given else {
+                        break (results, rows, needs);
+                    };
+                    let mut s = self.lock();
+                    let ok = s.nuget.credentials.as_ref().is_some_and(|(u, p)| {
+                        given["username"] == u.as_str() && given["password"] == p.as_str()
+                    });
+                    if ok {
+                        s.nuget.authed = true;
+                    } else if retry {
+                        drop(s);
+                        break (results, rows, needs);
+                    }
+                    retry = true;
+                };
+                let delay = self.lock().nuget.search_delay;
+                thread::sleep(delay);
+                if !rows.is_empty() && rows.iter().all(|r| r.get("error").is_some()) {
+                    let reason = if needs.is_some() {
+                        "credentialsRequired"
+                    } else {
+                        "sourceFailed"
+                    };
+                    let message = match &needs {
+                        Some(h) => format!(
+                            "credentials_required: {h} asked for credentials and none were given"
+                        ),
+                        None => "every package source failed".into(),
+                    };
+                    return error(
+                        -32014,
+                        &message,
+                        Some(json!({"reason": reason, "host": needs, "source": rows[0]["name"]})),
+                    );
+                }
+                reply(
+                    json!({"generation": generation, "results": results, "sources": rows, "elapsedMs": 3.0}),
+                );
+            }
+            methods::NUGET_INSTALLED => {
+                let projects = self.lock().nuget.installed(params);
+                if params["metadata"] == true
+                    && let Some(op) = operation
+                {
+                    let packages = FakeNuGet::metadata_packages(&projects);
+                    if !packages.is_empty() {
+                        self.notify(
+                            methods::NUGET_UPDATE,
+                            json!({"operation": op, "generation": generation, "seq": seq, "kind": "metadata",
+                                   "packages": packages}),
+                        );
+                    }
+                }
+                reply(json!({"generation": generation, "projects": projects, "elapsedMs": 2.0}));
+            }
+            methods::NUGET_UPDATES => {
+                let (updates, rows) = self.lock().nuget.updates(params);
+                reply(
+                    json!({"generation": generation, "updates": updates, "sources": rows, "elapsedMs": 2.0}),
+                );
+            }
+            methods::NUGET_CHANGE => {
+                let changed = self.lock().nuget.change(params);
+                let (written, projects, output) = match changed {
+                    Ok(c) => c,
+                    Err((code, message, data)) => return error(code, &message, Some(data)),
+                };
+                lines(&output);
+                if projects.is_empty() {
+                    lines(&["No change.".into(), "========== Finished ==========".into()]);
+                    return reply(
+                        json!({"generation": generation, "action": params["action"], "packages": written,
+                                        "projects": [], "edited": [], "elapsedMs": 5.0,
+                                        "message": "Nothing changed."}),
+                    );
+                }
+                let restore = if params["restore"] == false {
+                    None
+                } else {
+                    let (outcome, restore_lines) = self.lock().nuget.restore();
+                    lines(&restore_lines);
+                    Some(outcome)
+                };
+                lines(&["========== Finished ==========".into()]);
+                let next = {
+                    let mut s = self.lock();
+                    s.generation += 1;
+                    s.generation
+                };
+                let count = self.lock().tree.as_array().map_or(0, Vec::len);
+                self.notify(
+                    methods::SOLUTION_STATUS,
+                    json!({"generation": next, "path": solution, "state": "loaded", "elapsedMs": 1.0,
+                           "counts": {"projects": count, "legacyProjects": 0, "legacyEvaluationFailures": 0}}),
+                );
+                let edited: Vec<Value> = projects
+                    .iter()
+                    .map(|p| json!({"path": p, "kind": "project", "changes": ["PackageReference changed"]}))
+                    .collect();
+                let mut result = json!({"generation": next, "action": params["action"], "packages": written,
+                                        "projects": projects, "edited": edited, "elapsedMs": 8.0});
+                if let Some(r) = restore {
+                    result["restore"] = r;
+                }
+                reply(result);
+            }
+            methods::NUGET_SOURCES => {
+                let answer = self.lock().nuget.sources_call(params);
+                match answer {
+                    Ok(r) => reply(r),
+                    Err((code, message)) => error(code, &message, None),
+                }
+            }
+            methods::NUGET_RESTORE => {
+                let (mut outcome, restore_lines) = self.lock().nuget.restore();
+                lines(&restore_lines);
+                lines(&["========== Finished ==========".into()]);
+                outcome["generation"] = json!(generation);
+                reply(outcome);
+            }
+            other => error(-32601, &format!("{other} not found"), None),
+        }
+    }
+
     fn build_start(
         &self,
         reply: &dyn Fn(Value),

@@ -563,6 +563,7 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::NuGetChange>(),
         req::<host::NuGetSources>(),
         req::<host::NuGetRestore>(),
+        req::<host::NuGetIcon>(),
     ];
     assert!(
         eludite
@@ -1651,6 +1652,19 @@ fn nuget_messages_conform_to_their_schemas() {
         "result",
         &None::<NuGetCredentialsAnswer>,
     );
+    conforms(
+        "nuget-icon.json",
+        "params",
+        &NuGetIconParams {
+            url: "https://example.invalid/icon.png".into(),
+        },
+    );
+    for path in [
+        Some("/home/u/.cache/eludite/nuget-icons/ab.png".to_owned()),
+        None,
+    ] {
+        conforms("nuget-icon.json", "result", &NuGetIconResult { path });
+    }
     // The tree's Dependencies member.
     let schema = load("solution-tree.json");
     let project = TreeProject {

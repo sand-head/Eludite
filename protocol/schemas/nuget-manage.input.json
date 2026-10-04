@@ -23,6 +23,10 @@
     "query": {
       "description": "Browse's search text.",
       "type": "string"
+    },
+    "solution": {
+      "description": "Manage NuGet Packages for Solution... (the solution's context menu, Tools > NuGet Package Manager): every project, with the project list's check boxes. Without it and without `project`: the project of the active document, else the startup project, else the solution.",
+      "type": "boolean"
     }
   }
 }

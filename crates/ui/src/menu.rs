@@ -380,6 +380,18 @@ pub fn vs_menus() -> Vec<Menu> {
                 // profile (brief 0041).
                 item("Command Line", "eludite.terminal.open"),
                 Separator,
+                // Visual Studio's Tools > NuGet Package Manager submenu (brief 0048).
+                MenuEntry::Item {
+                    label: "NuGet Package Manager > Manage NuGet Packages for Solution...",
+                    command: "eludite.nuget.manage",
+                    args: json!({ "solution": true }),
+                },
+                MenuEntry::Item {
+                    label: "NuGet Package Manager > Package Sources...",
+                    command: "eludite.tools.options",
+                    args: json!({ "section": "NuGet Package Manager > Package Sources" }),
+                },
+                Separator,
                 item("Options...", "eludite.tools.options"),
             ],
         ),
@@ -982,6 +994,47 @@ mod tests {
                     && args.as_object().is_none_or(|o| o.is_empty()))
         });
         assert!(found);
+    }
+
+    /// Brief 0048: Project > Manage NuGet Packages... (the active project), Tools > NuGet Package Manager > Manage
+    /// NuGet Packages for Solution... and Package Sources... (the Options page).
+    #[test]
+    fn the_nuget_items_open_the_window_and_the_package_sources_page() {
+        let find = |menu: &str, label: &str| {
+            vs_menus()
+                .into_iter()
+                .find(|m| m.title == menu)
+                .unwrap()
+                .entries
+                .into_iter()
+                .find_map(|e| match e {
+                    MenuEntry::Item {
+                        label: l,
+                        command,
+                        args,
+                    } if l == label => Some((command, args)),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("no {menu} > {label}"))
+        };
+        assert_eq!(
+            find("Project", "Manage NuGet Packages..."),
+            ("eludite.nuget.manage", json!({}))
+        );
+        assert_eq!(
+            find(
+                "Tools",
+                "NuGet Package Manager > Manage NuGet Packages for Solution..."
+            ),
+            ("eludite.nuget.manage", json!({"solution": true}))
+        );
+        assert_eq!(
+            find("Tools", "NuGet Package Manager > Package Sources..."),
+            (
+                "eludite.tools.options",
+                json!({"section": "NuGet Package Manager > Package Sources"})
+            )
+        );
     }
 
     /// Brief 0038: Debug > Attach to Browser Tab... after Attach to Process..., the same command with

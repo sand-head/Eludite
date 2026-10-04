@@ -724,6 +724,73 @@ public sealed class NuGetService
         return outcome;
     }
 
+    // ------------------------------------------------------------------ icons
+
+    private static readonly HttpClient IconClient = new() { Timeout = TimeSpan.FromSeconds(10) };
+    private readonly ConcurrentDictionary<string, string?> _icons = new(StringComparer.Ordinal);
+
+    /// <summary>Where icons are cached: <c>ELUDITE_CACHE_DIR</c> (default <c>~/.cache/eludite</c>) and <c>nuget-icons/</c>.</summary>
+    public string IconFolder { get; init; } = Path.Combine(
+        Environment.GetEnvironmentVariable("ELUDITE_CACHE_DIR") is { Length: > 0 } c
+            ? c
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache", "eludite"),
+        "nuget-icons");
+
+    /// <summary><c>eludite/nuget/icon</c>: a search result's icon in the cache folder, fetched once per session.</summary>
+    public async Task<NuGetIconResult> IconAsync(NuGetIconParams? parameters, CancellationToken cancellationToken)
+    {
+        if (parameters?.Url is not { Length: > 0 } url || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            throw HostErrors.BadParams("params.url (an absolute address) is required");
+        }
+
+        if (uri.IsFile)
+        {
+            return new NuGetIconResult(File.Exists(uri.LocalPath) ? uri.LocalPath : null);
+        }
+
+        if (_icons.TryGetValue(url, out var known))
+        {
+            return new NuGetIconResult(known);
+        }
+
+        string? path = null;
+        try
+        {
+            var name = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(url)));
+            var target = Path.Combine(IconFolder, name + (Path.GetExtension(uri.AbsolutePath) is { Length: > 1 and < 6 } ext ? ext : ".png"));
+            if (!File.Exists(target))
+            {
+                using var response = await IconClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength is > 1024 * 1024)
+                {
+                    throw new InvalidDataException("the icon is larger than 1 MiB");
+                }
+
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                if (bytes.Length > 1024 * 1024)
+                {
+                    throw new InvalidDataException("the icon is larger than 1 MiB");
+                }
+
+                Directory.CreateDirectory(IconFolder);
+                var temp = target + "." + Environment.ProcessId + ".tmp";
+                await File.WriteAllBytesAsync(temp, bytes, cancellationToken).ConfigureAwait(false);
+                File.Move(temp, target, overwrite: true);
+            }
+
+            path = target;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or InvalidDataException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            await _log.WriteLineAsync($"[nuget] icon {url}: {ex.Message}").ConfigureAwait(false);
+        }
+
+        _icons[url] = path;
+        return new NuGetIconResult(path);
+    }
+
     // ------------------------------------------------------------------ the shell
 
     private async Task SendAsync(long? operation, long generation, string kind, string? text = null, string? message = null, IReadOnlyList<NuGetPackageMetadata>? packages = null)

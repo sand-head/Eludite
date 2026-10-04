@@ -84,9 +84,12 @@ pub mod ids {
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
     /// The Web Browser window (brief 0032): View > Other Windows > Web Browser.
     pub const WEB_BROWSER: &str = "web_browser";
+    /// The Manage NuGet Packages window (brief 0048), a document tab as Visual Studio's; its title names its scope.
+    pub const NUGET: &str = "nuget";
     /// Windows that open as a document tab, as Visual Studio opens its Web Browser in the document well: `view.show`
     /// opens them there (id and title), and they close like documents.
-    pub const DOCUMENT_WINDOWS: [(&str, &str); 1] = [(WEB_BROWSER, "Web Browser")];
+    pub const DOCUMENT_WINDOWS: [(&str, &str); 2] =
+        [(WEB_BROWSER, "Web Browser"), (NUGET, "NuGet - Solution")];
 }
 
 /// A kind of tool window the shell knows about. Later briefs register more.

@@ -282,3 +282,8 @@ public sealed record NuGetCredentialsAnswer
 
     public bool? Canceled { get; init; }
 }
+
+public sealed record NuGetIconParams(string? Url);
+
+/// <summary><c>eludite/nuget/icon</c>: the cached file, or null. Always written, null included.</summary>
+public sealed record NuGetIconResult([property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Path);

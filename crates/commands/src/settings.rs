@@ -20,6 +20,10 @@ use serde_json::Value;
 
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
+/// The Options page that is not generated from settings (brief 0048): the package sources of the NuGet.config chain,
+/// edited through `eludite.nuget.sources` (Tools > NuGet Package Manager > Package Sources...).
+pub const PACKAGE_SOURCES_PAGE: &str = "NuGet Package Manager > Package Sources";
+
 pub const GET: &str = "eludite.settings.get";
 pub const SET: &str = "eludite.settings.set";
 /// Tools > Options: opens the dialog (the UI's; agents use `get` and `set`).
@@ -570,6 +574,7 @@ pub fn parse(
             let i: OptionsInput = input(value)?;
             if let Some(s) = &i.section
                 && !schema.sections.contains(s)
+                && s != PACKAGE_SOURCES_PAGE
             {
                 return Err(CommandError::InvalidInput(format!(
                     "no Options page {s}; the pages are {}",

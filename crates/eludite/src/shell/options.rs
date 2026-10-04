@@ -7,6 +7,9 @@
 //! dialog shows where each value comes from (the solution's file, an environment variable that overrides it, the
 //! person's state for the workspace) and when the solution's file sets a per-person setting, which is ignored there
 //! (brief 0047's `browser.allowNoSandbox`, whose label says "for this workspace, on this machine").
+//!
+//! A page that is not generated from settings is added by its owner with [`OptionsDialog::add_page`] and drawn after
+//! the schema's pages (brief 0048: NuGet Package Manager > Package Sources, the shell's NuGet module's view).
 
 use std::sync::Arc;
 
@@ -71,6 +74,8 @@ pub struct OptionsDialog {
     focus: FocusHandle,
     /// Records where the pages, editors and OK are drawn (`eludite --bounds-out`).
     probe: Option<eludite_ui::BoundsMap>,
+    /// Pages after the schema's, with the view each shows.
+    extra: Vec<(String, gpui::AnyView)>,
 }
 
 impl OptionsDialog {
@@ -94,7 +99,29 @@ impl OptionsDialog {
             ignored: Vec::new(),
             focus: cx.focus_handle(),
             probe: None,
+            extra: Vec::new(),
         }
+    }
+
+    /// A page that is not generated from settings, after the schema's pages.
+    pub fn add_page(&mut self, name: String, view: gpui::AnyView, cx: &mut Context<Self>) {
+        if !self.extra.iter().any(|(n, _)| *n == name) {
+            self.extra.push((name, view));
+            cx.notify();
+        }
+    }
+
+    /// The index of page `name` (the schema's pages, then the added ones).
+    pub fn position(&self, name: &str) -> Option<usize> {
+        self.pages().position(|p| p == name)
+    }
+
+    fn pages(&self) -> impl Iterator<Item = &str> {
+        self.schema
+            .sections
+            .iter()
+            .map(String::as_str)
+            .chain(self.extra.iter().map(|(n, _)| n.as_str()))
     }
 
     pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
@@ -116,11 +143,11 @@ impl OptionsDialog {
 
     /// The page shown.
     pub fn section(&self) -> &str {
-        &self.schema.sections[self.section]
+        self.pages().nth(self.section).unwrap_or_default()
     }
 
     pub fn show_section(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if ix < self.schema.sections.len() {
+        if ix < self.schema.sections.len() + self.extra.len() {
             self.section = ix;
             self.editing = None;
             cx.notify();
@@ -385,7 +412,8 @@ impl Render for OptionsDialog {
         // The page tree: a parent label once, its pages indented under it.
         let mut tree = Vec::new();
         let mut parent: Option<String> = None;
-        for (ix, section) in self.schema.sections.iter().enumerate() {
+        let pages: Vec<String> = self.pages().map(str::to_owned).collect();
+        for (ix, section) in pages.iter().enumerate() {
             let (p, leaf) = match section.split_once(" > ") {
                 Some((p, leaf)) => (Some(p.to_owned()), leaf.to_owned()),
                 None => (None, section.clone()),
@@ -428,10 +456,13 @@ impl Render for OptionsDialog {
         }
         let section = self.section().to_owned();
         let specs: Vec<_> = self.schema.section(&section).cloned().collect();
-        let rows: Vec<_> = specs
+        let mut rows: Vec<gpui::AnyElement> = specs
             .iter()
-            .map(|spec| self.setting_row(spec, focused, cx))
+            .map(|spec| self.setting_row(spec, focused, cx).into_any_element())
             .collect();
+        if let Some((_, view)) = self.extra.iter().find(|(n, _)| *n == section) {
+            rows.push(view.clone().into_any_element());
+        }
         let files = match &self.solution_file {
             Some(s) => format!("User settings: {}\nWorkspace settings: {s}", self.user_file),
             None => format!("User settings: {}", self.user_file),

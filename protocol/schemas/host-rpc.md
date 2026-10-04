@@ -114,6 +114,7 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/nuget/change` | request | [nuget-change.json](host/nuget-change.json) | `{ generation, operation?, action, packages: [{ id, version? }], projects?, prerelease?, source?, includeTransitive?, restore?, lockFiles?, interactive? }` | `{ generation, action, packages, projects, edited: [{ path, kind, changes }], restore?, elapsedMs, message? }` |
 | `eludite/nuget/sources` | request | [nuget-sources.json](host/nuget-sources.json) | `{ generation, operation?, action?, name?, url? }` | `{ sources: [{ name, url, enabled, local, scope, configFile? }], configFiles, userConfig, changed }` |
 | `eludite/nuget/restore` | request | [nuget-restore.json](host/nuget-restore.json) | `{ generation, operation?, projects?, lockFiles?, force?, interactive? }` | `{ generation, result, exitCode, elapsedMs, commandLine, lockedMode, lockFiles, diagnostics }` |
+| `eludite/nuget/icon` | request | [nuget-icon.json](host/nuget-icon.json) | `{ url }` | `{ path }` (a cached file, or `null`) |
 
 #### `eludite/host/initialize`
 
@@ -424,7 +425,11 @@ never talks to a package source itself.
   answer (`null` or `canceled` gives up). An answer the source accepts is kept in memory for the session and passed to
   restores as `NuGetPackageSourceCredentials_<source>`; nothing is written. A call that is not interactive (an agent's)
   fails with -32014 `credentialsRequired` and the host's name instead of asking.
-- **Generation and cancellation.** Every request carries `generation` (a stale one is -32801), runs under a token
+- **Icons.** `eludite/nuget/icon` fetches a search result's `iconUrl` into the host's cache folder (`<cache>/nuget-icons/`,
+  named by the address's SHA-256; `ELUDITE_CACHE_DIR` or `~/.cache/eludite`) once per session, 10 s and 1 MiB at most,
+  and answers the file's path (a `file:` address answers its own path; a failure answers `null`). The window asks only
+  for the rows it draws, off the UI thread. It takes no generation: an icon is not solution state.
+- **Generation and cancellation.** Every request but `eludite/nuget/icon` carries `generation` (a stale one is -32801), runs under a token
   canceled by `$/cancelRequest` (-32800) or by a generation change (-32801), and every `eludite/nuget/update` carries
   the generation and the shell's `operation` id. The host's stdout stays protocol-only: NuGet's logger writes to the
   host's log (stderr) and to the `output` notifications.

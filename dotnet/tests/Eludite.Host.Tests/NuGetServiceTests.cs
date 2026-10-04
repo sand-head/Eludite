@@ -680,6 +680,34 @@ public sealed class NuGetServiceTests
         }
     }
 
+    [Fact]
+    public async Task Icons_AreFetchedOnceIntoTheCacheFolder()
+    {
+        var root = NuGetCorpus.Create();
+        await using var feed = new FakeV3Feed(new() { ["X"] = ["1.0.0"] });
+        try
+        {
+            await using var host = await NuGetHost.OpenAsync(root);
+            var first = await host.CallAsync("eludite/nuget/icon", new { url = feed.Base + "/icon.png" });
+            var path = first.GetProperty("path").GetString()!;
+            Assert.StartsWith(host.Target.NuGet.IconFolder, path, StringComparison.Ordinal);
+            Assert.Equal([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], File.ReadAllBytes(path));
+            var again = await host.CallAsync("eludite/nuget/icon", new { url = feed.Base + "/icon.png" });
+            Assert.Equal(path, again.GetProperty("path").GetString());
+            Assert.Equal(1, feed.Icons);
+            var missing = await host.CallAsync("eludite/nuget/icon", new { url = feed.Base + "/missing.png" });
+            Assert.Equal(JsonValueKind.Null, missing.GetProperty("path").ValueKind);
+            var local = Path.Combine(root, "feed", "local.png");
+            File.WriteAllBytes(local, [1, 2, 3]);
+            var file = await host.CallAsync("eludite/nuget/icon", new { url = new Uri(local).AbsoluteUri });
+            Assert.Equal(local, file.GetProperty("path").GetString());
+        }
+        finally
+        {
+            TestDirectory.Delete(root);
+        }
+    }
+
     /// <summary>Budgets get room on an overloaded machine (other agents build beside these tests).</summary>
     private static int Slack() => Environment.ProcessorCount >= 4 && Environment.GetEnvironmentVariable("ELUDITE_STRICT_BUDGETS") == "1" ? 1 : 3;
 
@@ -705,7 +733,10 @@ public sealed class NuGetServiceTests
             var (clientStream, serverStream) = FullDuplexStream.CreatePair();
             var chain = new NuGetConfigChain(Path.Combine(root, "user", "NuGet.Config"), machineWide: false);
             Target = new HostRpcTarget(new FakeSdkDiscoverer(), TextWriter.Null,
-                nuget: new NuGetService(() => Target!.LanguageServer.CurrentSolution(), () => Target!.LanguageServer.AdvanceGeneration(), TextWriter.Null, chain));
+                nuget: new NuGetService(() => Target!.LanguageServer.CurrentSolution(), () => Target!.LanguageServer.AdvanceGeneration(), TextWriter.Null, chain)
+                {
+                    IconFolder = Path.Combine(root, "icons"),
+                });
             _server = HostServer.RunAsync(serverStream, serverStream, Target);
             Client = TestRpc.Create(clientStream);
             TestRpc.On(Client, "eludite/nuget/update", p =>

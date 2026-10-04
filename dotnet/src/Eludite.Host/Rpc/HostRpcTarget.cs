@@ -248,6 +248,13 @@ public sealed class HostRpcTarget
         return NuGet.RestoreAsync(parameters, cancellationToken);
     }
 
+    [JsonRpcMethod("eludite/nuget/icon", UseSingleObjectParameterDeserialization = true)]
+    public Task<NuGetIconResult> NuGetIconAsync(NuGetIconParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return NuGet.IconAsync(parameters, cancellationToken);
+    }
+
     [JsonRpcMethod("eludite/host/shutdown")]
     public void Shutdown()
     {

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-icon.json",
+  "title": "eludite/nuget/icon",
+  "description": "Fetch a package's icon into the host's cache folder (`<cache>/nuget-icons/`, the address's SHA-256 as the name), for the Manage NuGet Packages window: asked lazily for the rows that show, never at startup. A `file:` address (a folder feed) answers its own path; an http(s) address is downloaded once per session with a 10 s timeout and a 1 MiB cap (the host's own HTTP client, the system proxy). A failure answers `path: null`.",
+  "x-eludite-method": "eludite/nuget/icon",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "The icon's address (`iconUrl` of a search result).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Absolute path of the cached image, or null when it could not be fetched.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

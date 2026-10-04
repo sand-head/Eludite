@@ -67,6 +67,8 @@ pub mod methods {
     /// The package sources, and changes to the user's NuGet.config.
     pub const NUGET_SOURCES: &str = "eludite/nuget/sources";
     pub const NUGET_RESTORE: &str = "eludite/nuget/restore";
+    /// Fetch a package's icon into the host's cache.
+    pub const NUGET_ICON: &str = "eludite/nuget/icon";
     /// Host-to-shell notification: output, progress and metadata of a NuGet call.
     pub const NUGET_UPDATE: &str = "eludite/nuget/update";
     /// Host-to-shell request: credentials for a private feed, during an interactive call.
@@ -96,6 +98,7 @@ pub mod methods {
         NUGET_CHANGE,
         NUGET_SOURCES,
         NUGET_RESTORE,
+        NUGET_ICON,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -1874,6 +1877,20 @@ pub struct NuGetCredentialsAnswer {
     pub canceled: Option<bool>,
 }
 
+/// `eludite/nuget/icon` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetIconParams {
+    pub url: String,
+}
+
+/// `eludite/nuget/icon` result: the cached file, or `None` when it could not be fetched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetIconResult {
+    pub path: Option<String>,
+}
+
 /// `data` of a -32014 NuGetFailed error.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1929,6 +1946,13 @@ request!(
     methods::NUGET_RESTORE,
     NuGetRestoreParams,
     NuGetRestoreResult
+);
+request!(
+    /// `eludite/nuget/icon` (brief 0048).
+    NuGetIcon,
+    methods::NUGET_ICON,
+    NuGetIconParams,
+    NuGetIconResult
 );
 request!(
     /// `eludite/nuget/credentials` (brief 0048): the host asks the shell.

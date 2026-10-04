@@ -114,6 +114,10 @@ internal sealed class FakeV3Feed : IAsyncDisposable
     private readonly Dictionary<string, string[]> _packages;
     private int _requests;
     private int _unauthorized;
+    private int _icons;
+
+    /// <summary>Icon downloads served.</summary>
+    public int Icons => _icons;
 
     public FakeV3Feed(Dictionary<string, string[]> packages, (string User, string Password)? basic = null)
     {
@@ -191,6 +195,17 @@ internal sealed class FakeV3Feed : IAsyncDisposable
             }
 
             var path = context.Request.Url!.AbsolutePath;
+            if (path == "/icon.png")
+            {
+                Interlocked.Increment(ref _icons);
+                byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+                response.ContentType = "image/png";
+                response.ContentLength64 = png.Length;
+                await response.OutputStream.WriteAsync(png);
+                response.Close();
+                return;
+            }
+
             object? body = null;
             if (path == "/v3/index.json")
             {

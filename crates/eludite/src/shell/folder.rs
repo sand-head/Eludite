@@ -400,6 +400,38 @@ impl Shell {
                     files: p.files.iter().map(|f| f.path.clone()).collect(),
                     error: p.error.clone(),
                     startup: None,
+                    dependency_tree: p.dependencies.as_ref().map(|d| {
+                        eludite_commands::workspace_tree::DependencyTree {
+                            restored: d.restored,
+                            packages: d
+                                .packages
+                                .iter()
+                                .map(|x| eludite_commands::workspace_tree::DependencyPackage {
+                                    id: x.id.clone(),
+                                    version: x.version.clone(),
+                                    requested: x.requested.clone(),
+                                    vulnerable: x.deprecated
+                                        || x.vulnerabilities
+                                            .as_ref()
+                                            .is_some_and(|v| !v.is_empty()),
+                                    transitive: x
+                                        .transitive
+                                        .iter()
+                                        .flatten()
+                                        .map(|c| {
+                                            format!(
+                                                "{}/{}",
+                                                c.id,
+                                                c.version.as_deref().unwrap_or("")
+                                            )
+                                        })
+                                        .collect(),
+                                })
+                                .collect(),
+                            projects: d.projects.iter().map(|r| r.path.clone()).collect(),
+                            frameworks: d.frameworks.iter().map(|f| f.name.clone()).collect(),
+                        }
+                    }),
                 });
             }
         }
@@ -452,6 +484,7 @@ impl Shell {
                                     .unwrap_or_default(),
                                 error: None,
                                 startup: None,
+                                dependency_tree: None,
                             });
                         }
                     }
@@ -475,6 +508,7 @@ impl Shell {
                                 files: Vec::new(),
                                 error: Some(why.clone()),
                                 startup: None,
+                                dependency_tree: None,
                             });
                         }
                     }
@@ -506,6 +540,7 @@ impl Shell {
                             .unwrap_or_default(),
                         error: None,
                         startup: None,
+                        dependency_tree: None,
                     });
                 }
                 if f.listing.is_none() {

@@ -212,6 +212,7 @@ pub struct Change {
 pub enum NuGetRequest {
     Manage {
         project: Option<String>,
+        solution: bool,
         tab: Option<Tab>,
         query: Option<String>,
     },
@@ -297,6 +298,8 @@ pub struct SearchRow {
     pub license: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vulnerabilities: Vec<Vulnerability>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -485,6 +488,7 @@ pub trait NuGetCommands: Send + Sync {
 #[serde(deny_unknown_fields)]
 struct ManageIn {
     project: Option<String>,
+    solution: Option<bool>,
     tab: Option<Tab>,
     query: Option<String>,
 }
@@ -608,8 +612,14 @@ pub fn parse(id: &str, value: Value) -> Result<NuGetRequest, CommandError> {
     Ok(match id {
         MANAGE => {
             let i: ManageIn = input(value)?;
+            let solution = i.solution.unwrap_or(false);
+            let project = non_empty("project", i.project)?;
+            if solution && project.is_some() {
+                return Err(invalid("`project` and `solution` exclude each other"));
+            }
             NuGetRequest::Manage {
-                project: non_empty("project", i.project)?,
+                project,
+                solution,
                 tab: i.tab,
                 query: i.query,
             }
@@ -828,10 +838,12 @@ mod tests {
             parse(MANAGE, json!({"project": "App", "tab": "updates"})).unwrap(),
             NuGetRequest::Manage {
                 project: Some("App".into()),
+                solution: false,
                 tab: Some(Tab::Updates),
                 query: None
             }
         );
+        assert!(parse(MANAGE, json!({"project": "App", "solution": true})).is_err());
         assert!(parse(MANAGE, json!({"tab": "nope"})).is_err());
         assert_eq!(
             parse(SEARCH, Value::Null).unwrap(),
@@ -934,6 +946,7 @@ mod tests {
                 downloads: Some(3),
                 license: Some("MIT".into()),
                 project_url: None,
+                icon_url: Some("https://example.invalid/i.png".into()),
                 vulnerabilities: vec![vuln.clone()],
                 deprecated: true,
             }],
