@@ -1506,7 +1506,7 @@ fn a_remembered_credential_is_reused_in_the_session_and_forgotten_at_close(
     g.wait_prompt(false);
     g.answer("alice", "s3cret", true);
     g.wait_info("fetched", |t| t.starts_with("Fetched from origin"));
-    assert_eq!(g.kept_hosts(), [host.clone()]);
+    assert_eq!(g.kept_hosts(), std::slice::from_ref(&host));
     // Reused within the session: the person's Push and an agent's fetch run without asking.
     g.write("src/App/Program.cs", "class Remembered { }\n");
     g.agent(
