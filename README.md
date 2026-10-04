@@ -56,6 +56,7 @@ Optional pieces. Each is located on the machine at run time, never bundled, and 
 - Mono, to debug .NET Framework programs with `eludite-dbg-mono`: `mono-devel` on Debian/Ubuntu, `mono` on Arch, the Mono framework package on macOS.
 - lldb-dap, to debug Rust: `lldb-18` on Debian/Ubuntu, `lldb` on Fedora and Arch, Xcode on macOS, LLVM's installer on Windows ([tools/lldb-dap/README.md](tools/lldb-dap/README.md)).
 - netcoredbg, to debug .NET 5+: `tools/netcoredbg/fetch.sh`.
+- vscode-js-debug, to debug the JavaScript and TypeScript of pages in the Web Browser window: `tools/js-debug/fetch.sh` fetches the pinned release by checksum (under `~/.cache/eludite/js-debug/`), and it runs on the Node.js 18 or later found on the machine; `export ELUDITE_JS_DEBUG="$(tools/js-debug/fetch.sh)"` runs its real tests.
 - The Test Explorer's corpus of small test projects: `corpus/tests/build.sh` (`build.ps1` on Windows) builds them in place so the host's and the shell's Test Explorer tests run against them.
 - The embedded browser engine `eludite-chromium` (Linux so far). Fetch CEF (326 MB, 558 MB unpacked, under `~/.cache/eludite/cef/`) and build with the `cef` feature; without it the workspace build downloads nothing ([tools/cef/README.md](tools/cef/README.md)):
 
