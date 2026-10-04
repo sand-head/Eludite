@@ -148,6 +148,98 @@ fn summary_result(v: &Value) -> (String, Option<(String, u32)>) {
     }
 }
 
+/// The last `n` non-empty lines of `text`, each at most 120 characters: the excerpt a terminal row shows.
+fn excerpt(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines[lines.len().saturating_sub(n)..]
+        .iter()
+        .map(|l| {
+            if l.chars().count() > 120 {
+                format!("{}\u{2026}", l.chars().take(120).collect::<String>())
+            } else {
+                (*l).to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// An agent's terminal command in its row (brief 0041): `send` shows the text typed, `wait` what ended it and the
+/// last lines that came (a text thumbnail of the screen), `read` the same excerpt.
+fn terminal_line(command: &str, arguments: &Value, outcome: &Result<Value, String>) -> DebugLine {
+    use eludite_commands::terminal as t;
+    let v = match outcome {
+        Err(e) => {
+            let e = e
+                .strip_prefix("command failed: ")
+                .unwrap_or(e)
+                .lines()
+                .next()
+                .unwrap_or_default();
+            let name = command.rsplit('.').next().unwrap_or(command);
+            return DebugLine {
+                text: format!("Terminal {name} refused: {e}"),
+                location: None,
+            };
+        }
+        Ok(v) => v,
+    };
+    let term = v["terminal"].as_str().unwrap_or("terminal");
+    let text = match command {
+        t::SEND => {
+            let typed = arguments["text"].as_str().unwrap_or_default();
+            let enter = if arguments.get("newline") == Some(&Value::Bool(false)) {
+                ""
+            } else {
+                " \u{21B5}"
+            };
+            format!("Typed `{}`{enter} in {term}", excerpt(typed, 3))
+        }
+        t::WAIT => {
+            let matched = v["matched"].as_str().unwrap_or_default();
+            let what = match (matched, v["exit_code"].as_i64()) {
+                ("prompt", Some(c)) => format!("prompt (exit {c})"),
+                ("interrupted", _) => "interrupted by the person".to_owned(),
+                (m, _) => m.to_owned(),
+            };
+            let body = excerpt(v["text"].as_str().unwrap_or_default(), 5);
+            format!(
+                "Waited {} ms in {term}: {what}{}{body}",
+                v["elapsed_ms"].as_u64().unwrap_or(0),
+                if body.is_empty() { "" } else { "\n" }
+            )
+        }
+        t::READ => {
+            let body = excerpt(v["text"].as_str().unwrap_or_default(), 5);
+            format!(
+                "Read {term}{}{body}",
+                if body.is_empty() { "" } else { "\n" }
+            )
+        }
+        t::OPEN => format!(
+            "Opened {} ({term}) in {}",
+            v["name"].as_str().unwrap_or_default(),
+            v["cwd"].as_str().unwrap_or_default()
+        ),
+        t::CLOSE => format!("Closed {term}"),
+        t::CLEAR => format!("Cleared {term}"),
+        t::RESIZE => format!(
+            "Resized {term} to {}x{}",
+            v["cols"].as_u64().unwrap_or(0),
+            v["rows"].as_u64().unwrap_or(0)
+        ),
+        _ => "Listed the terminals".to_owned(),
+    };
+    DebugLine {
+        text,
+        location: None,
+    }
+}
+
 /// How an agent's call of debug command `command` reads in its row (brief 0027); `None` for other commands.
 pub fn debug_line(
     command: &str,
@@ -155,6 +247,10 @@ pub fn debug_line(
     outcome: &Result<Value, String>,
 ) -> Option<DebugLine> {
     use eludite_commands::debug as d;
+    // An agent's terminal command (brief 0041): what it typed, and after a wait an excerpt of what came.
+    if command.starts_with("eludite.terminal.") {
+        return Some(terminal_line(command, arguments, outcome));
+    }
     if !command.starts_with("eludite.debug.") {
         return None;
     }
@@ -1485,6 +1581,45 @@ pub(crate) mod tests {
         assert_eq!(
             t.rows.iter().filter(|r| matches!(r, Row::Usage(_))).count(),
             2
+        );
+    }
+
+    /// Brief 0041: an agent's terminal commands read as what it typed and what came back.
+    #[test]
+    fn terminal_commands_read_as_typing_and_an_excerpt() {
+        let l = debug_line(
+            "eludite.terminal.send",
+            &json!({"text": "dotnet build"}),
+            &Ok(json!({"terminal": "term1", "mark": 0, "bytes": 13})),
+        )
+        .unwrap();
+        assert_eq!(l.text, "Typed `dotnet build` \u{21B5} in term1");
+        let out = (1..=8)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let l = debug_line(
+            "eludite.terminal.wait",
+            &json!({}),
+            &Ok(
+                json!({"terminal": "term1", "matched": "prompt", "exit_code": 0, "elapsed_ms": 42,
+                       "text": out, "integration": true, "truncated": false, "mark": 9}),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            l.text,
+            "Waited 42 ms in term1: prompt (exit 0)\nline 4\nline 5\nline 6\nline 7\nline 8"
+        );
+        let l = debug_line(
+            "eludite.terminal.send",
+            &json!({"text": "ls"}),
+            &Err("command failed: the person typed into term1 while you waited".into()),
+        )
+        .unwrap();
+        assert!(
+            l.text
+                .starts_with("Terminal send refused: the person typed")
         );
     }
 }
