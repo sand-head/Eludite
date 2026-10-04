@@ -396,7 +396,9 @@ fn the_status_bar_shows_the_branch_and_counts_and_the_glyphs_follow_the_file(
     let row = row_selector(&format!("{}|Program.cs", project.to_string_lossy()));
     g.w.double_click(&row);
     let view = g.w.editor(&program);
-    let id = program.to_string_lossy().into_owned();
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     let badge = |g: &G| g.w.controller.snapshot().badges.get(&id).cloned();
     assert_eq!(badge(&g), None);
     let explorer_glyph = |g: &G| {
@@ -655,7 +657,9 @@ fn the_change_margin_follows_edits_and_clears_after_a_stage(cx: &mut TestAppCont
         let view = g.w.editor(&program);
         (program, view)
     };
-    let id = program.to_string_lossy().into_owned();
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     let marks = |g: &G| {
         g.w.shell.read_with(&g.w.vcx, |s, cx| {
             s.git()
@@ -808,7 +812,9 @@ fn a_merge_conflict_opens_the_file_with_markers_and_staging_resolves_it(cx: &mut
     assert_eq!(g.group(Group::Merge), ["src/App/Program.cs"]);
     // The margin shows the sides.
     g.w.vcx.executor().advance_clock(gutter::IDLE);
-    let id = program.to_string_lossy().into_owned();
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     wait_margin(&mut g, "the conflict's sides", &id, |marks| {
         let k: Vec<_> = marks.iter().map(|m| m.kind).collect();
         k == [gutter::MarkKind::Ours, gutter::MarkKind::Theirs]

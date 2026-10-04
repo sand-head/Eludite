@@ -4223,7 +4223,10 @@ fn a_tracepoint_firing_ten_times_a_second_costs_the_ui_little(cx: &mut TestAppCo
             last = Instant::now();
             frames.push((draw, ui));
             let now = Instant::now();
-            if hits(&mut d) > i && now >= tick {
+            let running =
+                d.w.shell
+                    .read_with(&d.w.vcx, |s, _| s.debugger().model.mode == Mode::Running);
+            if hits(&mut d) > i && running && now >= tick {
                 break;
             }
             assert!(

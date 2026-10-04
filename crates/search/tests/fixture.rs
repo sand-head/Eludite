@@ -495,13 +495,14 @@ fn cancellation_stops_the_walk_within_one_file() {
     let started = Instant::now();
     let found = run(&r, &docs, &cancel);
     assert!(found.summary.canceled);
-    // Each walker thread finishes at most the file it was in when the token fired.
+    // Each walker thread finishes at most the file it was in when the token fired, and one it had already passed the
+    // token check for (25 after a cancel at 20 was seen on a loaded runner); never the hundreds left.
     let looked = docs.lookups.load(Ordering::SeqCst);
     assert!(
-        looked <= 20 + 4,
+        looked <= 20 + 2 * 4,
         "{looked} files looked up after the cancel at 20"
     );
-    assert!(found.summary.files_searched <= 24);
+    assert!(found.summary.files_searched <= 28);
     assert!(started.elapsed() < Duration::from_secs(2));
     // A token canceled before the start searches nothing.
     let pre = CancelToken::new();

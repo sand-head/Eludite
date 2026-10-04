@@ -100,7 +100,10 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&FakeServer)) -> Rs {
     let mut services = super::register_workspace(
         &mut commands,
         HostLaunch::InProcess(host.connector()),
-        crate::settings::SettingsSetup::isolated(None),
+        // A user settings file, so a test can set a path (`set_cargo`) through the settings command.
+        crate::settings::SettingsSetup::isolated(Some(
+            dir.path().join(super::tests::USER_SETTINGS),
+        )),
     );
     services.agents = super::agents::AgentsSetup {
         registry: Some(Vec::new()),
@@ -272,20 +275,20 @@ impl Rs {
         })
     }
 
-    /// The cargo to run: in the workspace's settings file (`build.cargoPath`), which the store reads when the folder
-    /// opens, so the startup settings pass applies the same value instead of putting `cargo` back over one poked into
-    /// the shell; and in the shell now, for a build before the folder opens.
+    /// The cargo to run, through the settings store (`build.cargoPath`) as a person would set it: the settings pass
+    /// applies the store's value and would put `cargo` back over one poked into the shell.
     fn set_cargo(&mut self, program: impl Into<std::ffi::OsString>) {
         let program = program.into();
-        let settings = self.dir.path().join(".eludite");
-        std::fs::create_dir_all(&settings).unwrap();
-        std::fs::write(
-            settings.join("settings.json"),
-            json!({"build.cargoPath": program.to_string_lossy()}).to_string(),
-        )
-        .unwrap();
-        self.shell
-            .update(&mut self.vcx, |s, _| s.builds.cargo_program = program);
+        self.commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": "build.cargoPath", "value": program.to_string_lossy()}),
+            )
+            .unwrap();
+        self.wait("the cargo path", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.builds.cargo_program == program)
+        });
     }
 }
 
