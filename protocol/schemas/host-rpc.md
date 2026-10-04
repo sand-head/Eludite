@@ -888,16 +888,16 @@ server reads schema files only and asks the client (`vscode/content`) for anythi
 `didClose`) go to each of its servers. A request goes to each server whose capabilities offer it, in order, and the
 answers merge by method:
 
-| Method | Merge |
+| Requests | Merge |
 |---|---|
-| `textDocument/completion` | The lists concatenated, each item's `labelDetails.description` empty filled with its server's name (the source); `isIncomplete` if any is |
-| `completionItem/resolve`, `codeAction/resolve` | Sent to the server whose item it is only (the merged items carry their server in `data`, removed before it is sent) |
-| `textDocument/codeAction` | Concatenated in server order (TypeScript's, then ESLint's) |
-| `textDocument/hover`, `textDocument/signatureHelp` | The first non-empty answer in server order |
-| `textDocument/definition`, `textDocument/references` | Concatenated, duplicates (same URI and range) dropped |
-| `textDocument/formatting`, `textDocument/prepareRename`, `textDocument/rename` | The first server that offers the method only |
-| `workspace/executeCommand` | The server that listed the command in `executeCommandProvider.commands` |
-| diagnostics | Each server's list kept apart and shown together (squiggles and Error List rows; ESLint's carry `source` `eslint` and the rule id as the code) |
+| Completion: `textDocument/completion` | The lists concatenated, each list's `itemDefaults` written into its items, `labelDetails.description` set to the server's name when empty (the source), the server kept in the item's `data` (`eludite.server`); `isIncomplete` if any is |
+| Resolve: `completionItem/resolve`, `codeAction/resolve` | Sent to the server whose item it is only (its own `data` restored before it is sent); a server that does not resolve gets the item back unchanged |
+| Code actions: `textDocument/codeAction` | Concatenated in server order (TypeScript's, then ESLint's) |
+| Quick Info, Parameter Info: `textDocument/hover`, `textDocument/signatureHelp` | The first non-empty answer in server order |
+| Locations: `textDocument/definition`, `textDocument/references` | Concatenated, duplicates (same URI and range) dropped |
+| One server: `textDocument/formatting`, `textDocument/prepareRename`, `textDocument/rename`, anything else | The first server, in order, that offers the method and answers (one at a time: formatting never runs twice) |
+| Commands: `workspace/executeCommand` | The server that listed the command in `executeCommandProvider.commands` |
+| Diagnostics | Each server's list kept apart and shown together (squiggles and Error List rows; ESLint's carry `source` `eslint` and the rule id as the code); a restart of one server keeps the others' |
 
 A server that fails or does not answer a fanned-out request is left out of the merge; the request fails only when
 every server does. A restarted server raises its own generation; a document's generation is the sum of its servers',
