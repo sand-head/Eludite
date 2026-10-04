@@ -105,6 +105,8 @@ pub struct PullDocument {
     /// The rendered description, parsed once per answer.
     description: Vec<markdown::Block>,
     conversation: Vec<(String, Vec<markdown::Block>)>,
+    /// Where the tabs were drawn, while `--bounds-out` probes.
+    pub probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
 }
@@ -136,6 +138,7 @@ impl PullDocument {
             pending: 0,
             description: Vec::new(),
             conversation: Vec::new(),
+            probe: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
         }
@@ -798,6 +801,11 @@ impl Render for PullDocument {
             };
             tabs = tabs.child(
                 selector_option(tab_selector(tab), label, self.tab == tab, &t)
+                    .relative()
+                    .children(eludite_ui::bounds_canvas(
+                        self.probe.as_ref(),
+                        tab_selector(tab),
+                    ))
                     .on_click(cx.listener(move |this, _, _, cx| this.select_tab(tab, cx))),
             );
         }

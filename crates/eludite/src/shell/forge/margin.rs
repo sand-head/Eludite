@@ -47,6 +47,8 @@ pub struct ThreadMarks {
     pub target: Option<(ItemRef, String)>,
     pub open: Option<Open>,
     pub reply: String,
+    /// Where the marks were drawn, while `--bounds-out` probes.
+    pub probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
     _observe: gpui::Subscription,
 }
@@ -67,6 +69,7 @@ impl ThreadMarks {
             target: None,
             open: None,
             reply: String::new(),
+            probe: None,
             focus: cx.focus_handle(),
             _observe: observe,
         }
@@ -213,6 +216,10 @@ impl Render for ThreadMarks {
                 div()
                     .id(SharedString::from(mark_selector(ix)))
                     .debug_selector(move || mark_selector(ix))
+                    .children(eludite_ui::bounds_canvas(
+                        self.probe.as_ref(),
+                        mark_selector(ix),
+                    ))
                     .absolute()
                     .right(px(14.))
                     .top(y(*line))

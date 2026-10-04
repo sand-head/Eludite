@@ -72,6 +72,8 @@ pub struct IssuesWindow {
     pub comment: String,
     pub field: Field,
     pub message: Option<(String, bool)>,
+    /// Where rows were drawn, while `--bounds-out` probes.
+    pub probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
 }
@@ -108,6 +110,7 @@ impl IssuesWindow {
             comment: String::new(),
             field: Field::Search,
             message: None,
+            probe: None,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
         }
@@ -302,9 +305,12 @@ impl IssuesWindow {
                 }
                 let sel = row_selector(ix);
                 let selected = self.selected == Some(ix);
+                let probed = eludite_ui::bounds_canvas(self.probe.as_ref(), sel.clone());
                 let row = div()
                     .id(SharedString::from(sel.clone()))
                     .debug_selector(move || sel)
+                    .relative()
+                    .children(probed)
                     .flex()
                     .flex_col()
                     .justify_center()
@@ -357,7 +363,9 @@ impl IssuesWindow {
             .flex_col()
             .gap_1()
             .p_2()
-            .max_h(px(320.))
+            .max_h(gpui::relative(0.6))
+            .flex_shrink(1.)
+            .min_h(px(60.))
             .overflow_y_scroll()
             .border_t_1()
             .border_color(t.border);
@@ -670,7 +678,8 @@ impl Render for IssuesWindow {
                 )
                 .track_scroll(&self.scroll)
                 .flex_1()
-                .min_h_0(),
+                // Three rows stay visible beside an open issue.
+                .min_h(px(ROW_HEIGHT * 3.)),
             )
             .children(detail)
     }

@@ -454,6 +454,8 @@ pub struct ForgeUi {
     pub link: bool,
     /// The registry `eludite.git.checkout` goes through (set at install).
     pub registry_slot: Arc<Mutex<Weak<CommandRegistry>>>,
+    /// Where the windows' rows, the documents' tabs and the margin's marks were drawn, while `--bounds-out` probes.
+    pub probe: Option<eludite_ui::BoundsMap>,
 }
 
 impl ForgeUi {
@@ -481,6 +483,7 @@ impl ForgeUi {
             timings: ForgeTimings::default(),
             link: false,
             registry_slot,
+            probe: None,
         }
     }
 }
@@ -608,6 +611,18 @@ impl Shell {
             }
         });
         self._tasks.push(task);
+    }
+
+    /// Record where the forge's views draw (`--bounds-out`).
+    pub(super) fn forge_set_probe(
+        &mut self,
+        probe: Option<eludite_ui::BoundsMap>,
+        cx: &mut Context<Self>,
+    ) {
+        self.forge.probe = probe.clone();
+        let p = probe.clone();
+        self.forge.pulls.update(cx, |w, _| w.probe = p);
+        self.forge.issues.update(cx, |w, _| w.probe = probe);
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -1116,7 +1131,12 @@ impl Shell {
         let theme = self.theme;
         if !self.forge.pull_documents.contains_key(&tab) {
             let detected = self.forge.detected.clone().unwrap_or_default();
-            let doc = cx.new(|cx| document::PullDocument::new(theme, item.clone(), detected, cx));
+            let probe = self.forge.probe.clone();
+            let doc = cx.new(|cx| {
+                let mut d = document::PullDocument::new(theme, item.clone(), detected, cx);
+                d.probe = probe;
+                d
+            });
             cx.subscribe_in(
                 &doc,
                 window,
@@ -1341,7 +1361,12 @@ impl Shell {
         let detected = self.forge.detected.clone().unwrap_or_default();
         let host = host.unwrap_or_else(|| detected.host.clone());
         let family = detected.family;
-        let dialog = cx.new(|cx| signin::SignInDialog::new(theme, host, family, cx));
+        let probe = self.forge.probe.clone();
+        let dialog = cx.new(|cx| {
+            let mut d = signin::SignInDialog::new(theme, host, family, cx);
+            d.probe = probe;
+            d
+        });
         cx.subscribe_in(
             &dialog,
             window,
@@ -1605,7 +1630,12 @@ impl Shell {
                     let Some(view) = self.views.borrow().get(&id).cloned() else {
                         continue;
                     };
-                    let m = cx.new(|cx| margin::ThreadMarks::new(theme, view, cx));
+                    let probe = self.forge.probe.clone();
+                    let m = cx.new(|cx| {
+                        let mut m = margin::ThreadMarks::new(theme, view, cx);
+                        m.probe = probe;
+                        m
+                    });
                     m.update(cx, |m, cx| m.set(marks, target, cx));
                     self.forge.margins.borrow_mut().insert(id.clone(), m);
                 }

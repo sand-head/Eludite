@@ -62,6 +62,8 @@ pub struct PullsWindow {
     /// When it was last drawn (the refresh timer runs only for a visible window).
     pub drawn: Option<Instant>,
     pub selected: Option<usize>,
+    /// Where rows and buttons were drawn, while `--bounds-out` probes (the Xvfb run clicks them).
+    pub probe: Option<eludite_ui::BoundsMap>,
     search_focus: FocusHandle,
     scroll: UniformListScrollHandle,
 }
@@ -90,6 +92,7 @@ impl PullsWindow {
             stale: true,
             drawn: None,
             selected: None,
+            probe: None,
             search_focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
         }
@@ -237,10 +240,13 @@ impl PullsWindow {
                 );
                 let selected = self.selected == Some(ix);
                 let sel = row_selector(ix);
+                let probed = eludite_ui::bounds_canvas(self.probe.as_ref(), sel.clone());
                 Some(
                     div()
                         .id(SharedString::from(sel.clone()))
                         .debug_selector(move || sel)
+                        .relative()
+                        .children(probed)
                         .flex()
                         .flex_col()
                         .justify_center()
@@ -415,6 +421,8 @@ impl Render for PullsWindow {
                                 true,
                                 &t,
                             )
+                            .relative()
+                            .children(eludite_ui::bounds_canvas(self.probe.as_ref(), SIGN_IN))
                             .on_click(cx.listener(|_, _, _, cx| cx.emit(PullsEvent::SignIn))),
                         )
                         .into_any_element(),

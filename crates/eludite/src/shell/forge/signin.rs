@@ -61,6 +61,8 @@ pub struct SignInDialog {
     /// The device flow's code and url while it waits.
     pub device: Option<(String, String)>,
     pub message: Option<(String, bool)>,
+    /// Where its controls were drawn, while `--bounds-out` probes.
+    pub probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
 }
 
@@ -113,6 +115,7 @@ impl SignInDialog {
             offer_file: false,
             device: None,
             message: None,
+            probe: None,
             focus: cx.focus_handle(),
         }
     }
@@ -252,6 +255,11 @@ impl Render for SignInDialog {
         for (m, label) in methods(self.family) {
             choices = choices.child(
                 selector_option(method_selector(m), label, self.method == m, &t)
+                    .relative()
+                    .children(eludite_ui::bounds_canvas(
+                        self.probe.as_ref(),
+                        method_selector(m),
+                    ))
                     .on_click(cx.listener(move |this, _, _, cx| this.set_method(m, cx))),
             );
         }
@@ -339,7 +347,10 @@ impl Render for SignInDialog {
         }
         if self.offer_file {
             panel = panel.child(div().px_3().py_1().child(
-                check_box(FILE_CONSENT, "The credential store is unavailable: keep the token in a file only I can read", self.allow_file, &t).on_click(cx.listener(|this, _, _, cx| {
+                check_box(FILE_CONSENT, "The credential store is unavailable: keep the token in a file only I can read", self.allow_file, &t)
+                    .relative()
+                    .children(eludite_ui::bounds_canvas(self.probe.as_ref(), FILE_CONSENT))
+                    .on_click(cx.listener(|this, _, _, cx| {
                     this.allow_file = !this.allow_file;
                     cx.notify();
                 })),
@@ -358,7 +369,10 @@ impl Render for SignInDialog {
                     .justify_end()
                     .gap_2()
                     .p_3()
-                    .child(push_button(SIGN_IN, "Sign In", true, self.device.is_none(), &t).on_click(cx.listener(|this, _, _, cx| {
+                    .child(push_button(SIGN_IN, "Sign In", true, self.device.is_none(), &t)
+                        .relative()
+                        .children(eludite_ui::bounds_canvas(self.probe.as_ref(), SIGN_IN))
+                        .on_click(cx.listener(|this, _, _, cx| {
                         if this.device.is_none() {
                             this.submit(cx)
                         }

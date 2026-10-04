@@ -1178,6 +1178,7 @@ impl Shell {
         self.ui_bounds = probe.as_ref().map(|_| eludite_ui::BoundsMap::default());
         let ui = self.ui_bounds.clone();
         self.git.changes.update(cx, |c, _| c.set_probe(ui.clone()));
+        self.forge_set_probe(ui.clone(), cx);
         self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
     }
