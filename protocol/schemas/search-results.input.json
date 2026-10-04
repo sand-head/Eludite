@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-results.input.json",
   "title": "eludite.search.results input",
-  "description": "Read a Find Results window's results, a page at a time, or (by `search_id`) one of the last searches' results whether or not a window shows them. With `navigate`, step to the next or previous match as F8 and Shift+F8 do: the window selects it and the editor opens at it, with the match selected.",
+  "description": "Read a Find Results window's results, a page at a time, or (by `search_id`) one of the last searches' results whether or not a window shows them. With `navigate` or `select`, move the window's selection as F8, Shift+F8, Replace in Files' Skip File and a double-click on a result do: the window selects the match and the editor opens at it, with the match selected. With `clear`, empty the window (its Clear button).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -30,11 +30,21 @@
       "maximum": 1000
     },
     "navigate": {
-      "description": "F8 (`next`) or Shift+F8 (`previous`): move the window's selection and open the editor at that match. The answer's `selected` is it.",
+      "description": "F8 (`next`), Shift+F8 (`previous`), or Replace in Files' Skip File (`next_file`: the first match of the next file): move the window's selection and open the editor at that match. The answer's `selected` is it.",
       "enum": [
         "next",
-        "previous"
+        "previous",
+        "next_file"
       ]
+    },
+    "select": {
+      "description": "Select the match at this offset (over every match in the window's order) and open the editor at it, as a double-click on the result does.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "clear": {
+      "description": "Empty the window (Clear All); a running search in it is stopped.",
+      "type": "boolean"
     }
   }
 }
