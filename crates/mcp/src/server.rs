@@ -1,7 +1,8 @@
 //! The MCP server proper: `initialize`, `ping`, `tools/list`, `tools/call`, and the guides as resources
 //! (`resources/list`, `resources/read`, `resources/templates/list`; brief 0027, [`crate::resources`]), and the
 //! repository's status as the resource `eludite://git/status` (brief 0040); the terminal's guide is
-//! `eludite://guides/terminal` (brief 0041).
+//! `eludite://guides/terminal` (brief 0041). The instructions point agents at `eludite.search.*` for searching files
+//! (brief 0042).
 //!
 //! Transport-agnostic: [`McpServer::handle`] maps one JSON-RPC message to at most one reply. See `transport` for
 //! stdio and the local TCP endpoint.
@@ -277,7 +278,7 @@ impl McpServer {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": true}, "resources": {}},
             "serverInfo": {"name": self.name, "title": "Eludite", "version": self.version},
-            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first. Before driving the debugger (eludite.debug.*), read the resource eludite://guides/debugging; before using git (eludite.git.*), eludite://guides/git; before running commands in the terminal (eludite.terminal.*), eludite://guides/terminal. The resource eludite://git/status is the repository's status."
+            "instructions": "Eludite IDE tools. Each tool is an Eludite command with the same id, schemas and permission class as in the IDE. Read tools run at once; edits are shown to the user as pending changes and the tool answers once they are accepted or rejected; build, run and other commands may ask the user first. Before driving the debugger (eludite.debug.*), read the resource eludite://guides/debugging; before using git (eludite.git.*), eludite://guides/git; before running commands in the terminal (eludite.terminal.*), eludite://guides/terminal. The resource eludite://git/status is the repository's status. To search the workspace's files use eludite.search.find (read; it honors .gitignore and reads open documents' unsaved text) rather than reading files one by one; eludite.search.replace holds its replacements as pending changes for review unless `preview` is false."
         })
     }
 

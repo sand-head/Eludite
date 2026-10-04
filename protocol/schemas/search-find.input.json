@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-find.input.json",
+  "title": "eludite.search.find input",
+  "description": "Find in Files (Edit > Find and Replace > Find in Files, Ctrl+Shift+F): every line matching `query` in the files of `scope`, grouped by file, at ripgrep speed off the UI thread (it honors `.gitignore` and the search.* settings, and reads open documents' unsaved text). The call returns when the search ends; with `results_window` the window streams the matches as they come. Always allowed for agents (class read). For a long answer, eludite.search.results pages through the same results by `search_id`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "What to find: literal text, or with `regex` a regular expression (Rust regex syntax, which is .NET's for the common forms: classes, quantifiers, groups, `(?<name>...)`, anchors, `\\b`; there are no lookarounds or backreferences). A line is matched on its own (multiline is off), so a match never spans lines. Without it (the person's Ctrl+Shift+F) the Find in Files dialog opens with the editor's selection as the query; agents give one.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "regex": {
+      "description": "Use regular expressions (Visual Studio's checkbox). Default false: `query` is literal text.",
+      "type": "boolean"
+    },
+    "case_sensitive": {
+      "description": "Match case. Default false.",
+      "type": "boolean"
+    },
+    "whole_word": {
+      "description": "Match whole word, as Visual Studio's: the match must not have an identifier character (a letter, a digit or `_`, Unicode included) just before or after it where its own first or last character is one (with `regex`, a word boundary `\\b` on both ends). Default false.",
+      "type": "boolean"
+    },
+    "scope": {
+      "description": "Look in: `solution` (Entire Solution, the default: the workspace's folder and every project's folder), `project` (Current Project: the folder of the project named by `project`, else the active document's project), `document` (Current Document: the file `path` names, else the active document), `open_documents` (All Open Documents, searched from their buffers), `folder` (the folder `path` names, with its subfolders). Files are skipped when search.excludes matches them, when `.gitignore` ignores them (search.useGitignore), when they are larger than search.maxFileSize megabytes, and when they are binary (a NUL byte). An open document is searched from its editor's text, saved or not, under its path.",
+      "enum": [
+        "solution",
+        "project",
+        "document",
+        "open_documents",
+        "folder"
+      ]
+    },
+    "project": {
+      "description": "With `scope: project`: the project's name, as eludite.workspace.tree lists it.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "With `scope: folder` (required): the folder; with `scope: document`: the file. Absolute, or relative to the workspace's folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "include": {
+      "description": "File types, as Visual Studio's box: globs a file's name or path must match (`*.cs`, `*.cshtml`, `src/**/*.ts`); one starting with `!` excludes instead (`!*.Designer.cs`). The dialog's `;`-separated text (`*.cs;*.cshtml;!*.g.cs`) is split into these. Empty or absent: every file.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 260
+      }
+    },
+    "exclude": {
+      "description": "Globs of files and folders to skip, besides search.excludes (`**/Migrations/**`).",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 260
+      }
+    },
+    "max_results": {
+      "description": "The most matches to find (default 1000, at most 10000). The search stops there and says `truncated`: the matches are then the first found, which are not necessarily the first by path, so narrow the query or the scope rather than raising it.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "context_lines": {
+      "description": "Lines of context before and after each match in the answer (0 to 3, default 0).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "results_window": {
+      "description": "Show the results in Find Results 1 or Find Results 2 as well (Visual Studio's two windows). The person's searches always show in one (1 unless the dialog says 2); an agent's show only when it gives this, else they are answered only.",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "append": {
+      "description": "Append results: add them under a separator below the window's earlier results instead of replacing them. Default false.",
+      "type": "boolean"
+    }
+  }
+}

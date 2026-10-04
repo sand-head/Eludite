@@ -83,7 +83,7 @@ impl SettingSpec {
                     }
                     for (i, item) in items.iter().enumerate() {
                         if let Some(schema) = &self.items {
-                            check_object(schema, item)
+                            check_item(schema, item)
                                 .map_err(|e| format!("{}[{i}]: {e}", self.key))?;
                         }
                     }
@@ -139,6 +139,19 @@ impl SettingSpec {
 
 /// A small check of an object against an object schema: `required`, `additionalProperties: false`, and string,
 /// array-of-strings and string-map members.
+/// A list entry: a string (search.excludes' globs, brief 0042) or an object.
+fn check_item(schema: &Value, value: &Value) -> Result<(), String> {
+    if schema["type"] == "string" {
+        let min = schema["minLength"].as_u64().unwrap_or(0);
+        return match value.as_str() {
+            Some(s) if s.len() as u64 >= min => Ok(()),
+            Some(_) => Err(format!("expected at least {min} characters")),
+            None => Err("expected a string".into()),
+        };
+    }
+    check_object(schema, value)
+}
+
 fn check_object(schema: &Value, value: &Value) -> Result<(), String> {
     let Some(obj) = value.as_object() else {
         return Err("expected an object".into());
@@ -577,11 +590,41 @@ mod tests {
                 "terminal.bell",
                 "terminal.inheritToolPaths",
                 "terminal.shellIntegration",
+                "search.excludes",
+                "search.useGitignore",
+                "search.maxFileSize",
+                "search.followSymlinks",
             ]
         );
-        // Brief 0041: the Terminal page, last, so the earlier pages keep their places.
-        assert_eq!(s.sections.last().map(String::as_str), Some("Terminal"));
+        // Brief 0041: the Terminal page, after the earlier ones, so they keep their places.
         assert_eq!(s.section("Terminal").count(), 8);
+        // Brief 0042: Find and Replace, last.
+        assert_eq!(
+            s.sections.last().map(String::as_str),
+            Some("Environment > Find and Replace")
+        );
+        assert_eq!(s.section("Environment > Find and Replace").count(), 4);
+        assert_eq!(s.get("search.excludes").unwrap().kind, SettingKind::List);
+        assert_eq!(
+            s.get("search.excludes").unwrap().default,
+            json!([
+                "**/bin/**",
+                "**/obj/**",
+                "**/node_modules/**",
+                "**/target/**",
+                "**/.git/**"
+            ])
+        );
+        let excludes = s.get("search.excludes").unwrap();
+        assert!(excludes.validate(&json!(["**/Migrations/**"])).is_ok());
+        assert!(excludes.validate(&json!([1])).is_err());
+        assert!(excludes.validate(&json!([""])).is_err());
+        assert_eq!(s.get("search.useGitignore").unwrap().default, json!(true));
+        assert_eq!(s.get("search.maxFileSize").unwrap().default, json!(4));
+        assert_eq!(
+            s.get("search.followSymlinks").unwrap().default,
+            json!(false)
+        );
         assert_eq!(s.get("terminal.scrollback").unwrap().default, json!(10_000));
         assert_eq!(
             s.get("terminal.inheritToolPaths").unwrap().default,

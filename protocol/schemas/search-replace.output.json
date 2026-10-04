@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-replace.output.json",
+  "title": "eludite.search.replace output",
+  "description": "The replacements per file, the pending changes holding them (preview) or what was applied, and the files skipped.",
+  "type": "object",
+  "required": [
+    "state",
+    "files",
+    "replacements",
+    "skipped",
+    "truncated",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "search_id": {
+      "description": "This search, for eludite.search.results and eludite.search.cancel.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "state": {
+      "description": "`pending`: held for review as `changes` (preview); `applied`: written (`preview: false`); `failed`: the applier refused the edit (see `message`), nothing applied; `nothing`: no match to replace (or every matching file was skipped); `dialog`: no `query`, the Replace in Files dialog opened.",
+      "enum": [
+        "pending",
+        "applied",
+        "failed",
+        "nothing",
+        "dialog"
+      ]
+    },
+    "files": {
+      "description": "The files with replacements, sorted by path.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "replacements"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Relative to the workspace's folder with `/` when inside it, else absolute.",
+            "type": "string"
+          },
+          "replacements": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "change": {
+            "description": "Its pending change (preview), for eludite.agents.review's `change`.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "open": {
+            "description": "An open document: its buffer is edited (one undo step).",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "replacements": {
+      "description": "Matches replaced (or held for review).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped": {
+      "description": "Files not replaced in, and why (changed since the search, unreadable).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "reason"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "truncated": {
+      "description": "The search stopped at `max_results`: there are more matches.",
+      "type": "boolean"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "message": {
+      "description": "What happened, in a sentence (the applier's refusal when `failed`).",
+      "type": "string"
+    }
+  }
+}

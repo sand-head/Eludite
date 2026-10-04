@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current layout file schema version.
-pub const LAYOUT_SCHEMA_VERSION: u32 = 4;
+pub const LAYOUT_SCHEMA_VERSION: u32 = 5;
 
 /// A dock edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -71,6 +71,10 @@ pub mod ids {
     pub const GIT_REPOSITORY: &str = "git_repository";
     /// View > Terminal, Ctrl+` (brief 0041): the Terminal window, tabbed at the bottom with the Error List and Output.
     pub const TERMINAL: &str = "terminal";
+    /// Find Results 1 and 2 (brief 0042): Visual Studio's two Find in Files results windows, closed until a search
+    /// shows one, then tabbed at the bottom with the Error List.
+    pub const FIND_RESULTS_1: &str = "find_results_1";
+    pub const FIND_RESULTS_2: &str = "find_results_2";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -140,6 +144,8 @@ impl ToolWindowRegistry {
             (ids::TEST_EXPLORER, "Test Explorer", DockSide::Left),
             (ids::GIT_REPOSITORY, "Git Repository", DockSide::Bottom),
             (ids::TERMINAL, "Terminal", DockSide::Bottom),
+            (ids::FIND_RESULTS_1, "Find Results 1", DockSide::Bottom),
+            (ids::FIND_RESULTS_2, "Find Results 2", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -975,6 +981,8 @@ impl DockLayout {
 ///   Output was not, Output takes its place; otherwise the Debug Console is removed.
 /// - 3 to 4 (brief 0041): the Terminal window joins the bottom group of Output (or of the Error List) after it, as
 ///   the default layout has it; a layout with neither in a bottom group gets it closed at the bottom.
+/// - 4 to 5 (brief 0042): Find Results 1 and Find Results 2 join the closed windows, at the bottom (a search shows
+///   them there), unless placed already.
 pub fn migrate(mut value: Value) -> Result<Value, String> {
     let version = value
         .get("version")
@@ -995,6 +1003,11 @@ pub fn migrate(mut value: Value) -> Result<Value, String> {
     }
     if version < 4 {
         add_terminal(&mut value);
+    }
+    if version < 5 {
+        for id in [ids::FIND_RESULTS_1, ids::FIND_RESULTS_2] {
+            add_closed(&mut value, id, DockSide::Bottom);
+        }
     }
     value["version"] = Value::from(LAYOUT_SCHEMA_VERSION);
     Ok(value)
@@ -1031,6 +1044,20 @@ fn add_terminal(value: &mut Value) {
             }
         }
     }
+}
+
+/// Version 5: tool window `id` joins the closed windows on `side`, unless it is placed or closed already.
+fn add_closed(value: &mut Value, id: &str, side: DockSide) {
+    if placed(value, id) {
+        return;
+    }
+    let Some(hidden) = value["hidden"].as_array_mut() else {
+        return;
+    };
+    if hidden.iter().any(|h| h["id"] == id) {
+        return;
+    }
+    hidden.push(serde_json::json!({"id": id, "side": side.name()}));
 }
 
 /// Whether tool window `id` is placed (docked, auto-hidden or floating) in a layout document.
@@ -1294,7 +1321,9 @@ mod tests {
                 ids::BREAKPOINTS,
                 ids::EXCEPTION_SETTINGS,
                 ids::TEST_EXPLORER,
-                ids::GIT_REPOSITORY
+                ids::GIT_REPOSITORY,
+                ids::FIND_RESULTS_1,
+                ids::FIND_RESULTS_2
             ]
         );
         // The Test Explorer (brief 0035) opens docked left; the others at the bottom.
@@ -1651,5 +1680,74 @@ mod tests {
             d.bottom.groups[0].tabs,
             [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
         );
+    }
+
+    /// A version 4 layout as brief 0041 saved it: the Terminal beside Output, Find All References shown.
+    const V4_LAYOUT: &str = r#"{
+      "version": 4,
+      "left": {"groups": [], "size": 240.0, "auto_hidden": ["toolbox"]},
+      "right": {"groups": [{"id": 1, "tabs": ["workspace", "git_changes", "agents"], "active": 0},
+                           {"id": 2, "tabs": ["properties"], "active": 0}],
+                "size": 300.0, "auto_hidden": []},
+      "bottom": {"groups": [{"id": 3, "tabs": ["error_list", "output", "terminal", "find_all_references"], "active": 2}],
+                 "size": 200.0, "auto_hidden": []},
+      "floating": [],
+      "hidden": [{"id": "test_explorer", "side": "left"}, {"id": "git_repository", "side": "bottom"}],
+      "documents": {"tabs": [], "active": null},
+      "next_group_id": 4
+    }"#;
+
+    #[test]
+    fn version_4_layouts_get_the_find_results_windows_closed_at_the_bottom() {
+        let r = reg();
+        let migrated = migrate(serde_json::from_str(V4_LAYOUT).unwrap()).unwrap();
+        assert_eq!(migrated["version"], LAYOUT_SCHEMA_VERSION);
+        assert_eq!(
+            migrated["hidden"],
+            serde_json::json!([
+                {"id": "test_explorer", "side": "left"},
+                {"id": "git_repository", "side": "bottom"},
+                {"id": "find_results_1", "side": "bottom"},
+                {"id": "find_results_2", "side": "bottom"}
+            ])
+        );
+        // Nothing else moved.
+        assert_eq!(
+            migrated["bottom"]["groups"][0]["tabs"],
+            serde_json::json!(["error_list", "output", "terminal", "find_all_references"])
+        );
+        let mut layout = DockLayout::from_json(&serde_json::to_string(&migrated).unwrap()).unwrap();
+        layout.normalize(&r);
+        assert!(layout.is_consistent(&r));
+        assert_eq!(layout.bottom.groups[0].active_id(), Some(ids::TERMINAL));
+        // A search shows Find Results 1 as a tab of the bottom group.
+        layout.show(ids::FIND_RESULTS_1).unwrap();
+        assert_eq!(
+            docked_side(&layout, ids::FIND_RESULTS_1),
+            Some(DockSide::Bottom)
+        );
+        assert!(
+            layout.bottom.groups[0]
+                .tabs
+                .iter()
+                .any(|t| t == ids::FIND_RESULTS_1)
+        );
+        // A layout that placed one already keeps it where it is (and the other still joins the closed ones).
+        let mut v: Value = serde_json::from_str(V4_LAYOUT).unwrap();
+        v["left"]["groups"] =
+            serde_json::json!([{"id": 5, "tabs": ["find_results_2"], "active": 0}]);
+        v["next_group_id"] = Value::from(6);
+        let migrated = migrate(v).unwrap();
+        assert_eq!(
+            migrated["left"]["groups"][0]["tabs"],
+            serde_json::json!(["find_results_2"])
+        );
+        let hidden = migrated["hidden"].as_array().unwrap();
+        assert!(hidden.iter().any(|h| h["id"] == "find_results_1"));
+        assert!(!hidden.iter().any(|h| h["id"] == "find_results_2"));
+        // Version 3 layouts get the Terminal and the two windows.
+        let v3 = migrate(serde_json::from_str(V3_LAYOUT).unwrap()).unwrap();
+        let hidden = v3["hidden"].as_array().unwrap();
+        assert!(hidden.iter().any(|h| h["id"] == "find_results_2"));
     }
 }

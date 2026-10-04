@@ -14,7 +14,8 @@
     "Agents",
     "Web Browser",
     "Source Control > Git Global Settings",
-    "Terminal"
+    "Terminal",
+    "Environment > Find and Replace"
   ],
   "properties": {
     "keyboard.preset": {
@@ -449,6 +450,47 @@
       "default": true,
       "x-eludite-section": "Terminal",
       "x-eludite-label": "Shell integration"
+    },
+    "search.excludes": {
+      "description": "Globs of files and folders Find in Files and Replace in Files skip (brief 0042), matched against the path inside the searched folder as `.gitignore` patterns are; a folder that matches is not entered. Edited in the file (the Options dialog shows the count).",
+      "type": "array",
+      "default": [
+        "**/bin/**",
+        "**/obj/**",
+        "**/node_modules/**",
+        "**/target/**",
+        "**/.git/**"
+      ],
+      "maxItems": 200,
+      "x-eludite-section": "Environment > Find and Replace",
+      "x-eludite-label": "Excluded files and folders",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "search.useGitignore": {
+      "description": "Skip what `.gitignore` files (and `.git/info/exclude` and the global excludes file) ignore, as `git` and ripgrep do. Off: only search.excludes applies.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Environment > Find and Replace",
+      "x-eludite-label": "Skip files .gitignore ignores"
+    },
+    "search.maxFileSize": {
+      "description": "Files larger than this many megabytes are not searched (generated bundles, data files). An open document is searched whatever its size.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024,
+      "default": 4,
+      "x-eludite-section": "Environment > Find and Replace",
+      "x-eludite-label": "Largest file searched (MB)"
+    },
+    "search.followSymlinks": {
+      "description": "Follow symbolic links to folders and files while searching. Off (the default) skips them, so a link cannot make a search visit a folder twice or leave the workspace.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Environment > Find and Replace",
+      "x-eludite-label": "Follow symbolic links"
     }
   }
 }

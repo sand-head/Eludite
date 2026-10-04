@@ -199,6 +199,7 @@ impl Shell {
         self.apply_test_settings();
         self.git_apply_settings(cx);
         self.terminal_apply_settings(cx);
+        self.search_apply_settings();
         let agents_changed = self
             .applied_settings
             .as_ref()

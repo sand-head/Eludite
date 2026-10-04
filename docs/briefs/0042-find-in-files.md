@@ -1,6 +1,6 @@
 # Brief 0042: Find in Files and Replace in Files
 
-Status: open
+Status: done on Linux ([report](0042-report.md))
 Phase: 1 close-out (PLAN.md section 10 names Find in Files in Phase 2's list; the owner moved it into the Phase 1 close-out, the daily-driver exit depends on it)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 4, 5, 12), 4.11 (Find in Files at ripgrep speed, Replace with preview; Roslyn structural search is a later brief), 5.1, 5.4, 8 (Visual Studio names: Find in Files, Ctrl+Shift+F, Replace in Files, Ctrl+Shift+H, Find Results 1 and 2), 9, 10
 Related ADRs: ADR-0002

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-results.output.json",
+  "title": "eludite.search.results output",
+  "description": "The window's blocks (one per search; Append adds one under the last), a page of its matches in order, and the selection.",
+  "type": "object",
+  "required": [
+    "blocks",
+    "matches",
+    "total",
+    "offset"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "results_window": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "search_id",
+          "summary",
+          "running",
+          "canceled",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "search_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "summary": {
+            "description": "Visual Studio's count line: `Find all \"x\", Subfolders, Find Results 1, Entire Solution, \"*.cs\"` then the counts, the elapsed time once done.",
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "canceled": {
+            "type": "boolean"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "first": {
+            "description": "The offset of the block's first match.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "line",
+          "column",
+          "text",
+          "ranges"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file, relative to the workspace's folder with `/` when it is inside it, else absolute.",
+            "type": "string"
+          },
+          "line": {
+            "description": "1-based.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "column": {
+            "description": "The first match's column on the line, 1-based, in characters.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "text": {
+            "description": "The line without its line ending. A line longer than 1000 characters is cut around its first match, and `…` marks the cut ends.",
+            "type": "string"
+          },
+          "ranges": {
+            "description": "Where the matches are in `text` (every match on the line).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "start": {
+                  "description": "0-based, in characters of `text`.",
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "end": {
+                  "description": "Exclusive.",
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "before": {
+            "description": "With `context_lines`: the lines just before, oldest first.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "after": {
+            "description": "With `context_lines`: the lines just after.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "block": {
+            "description": "The index of its block in `blocks`.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "index": {
+            "description": "Its offset over every match.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "Matches in the window (or the search).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "next_offset": {
+      "description": "The `offset` of the next page, when there is one.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "selected": {
+      "description": "The selected match (after `navigate`, the one the editor opened at).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}
