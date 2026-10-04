@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 
 use common::{Recorder, T};
 use eludite_dap::attach::{BrowserTarget, browser_attach, js_exception_filters};
-use eludite_dap::discovery::{JsDebugSearch, NodeSearch, check_node_version, node_version_output};
+use eludite_dap::discovery::{
+    JS_DEBUG_NODE, JsDebugSearch, NodeSearch, check_node_version, node_version_output,
+};
 use eludite_dap::fake::{self, FakeJsDebug, FakeProgram, FakeStep, FakeVar};
 use eludite_dap::session::{self, StartKind, StartPlan};
 use eludite_dap::sourcemap::{MapCache, adapt_stack, normalize};
@@ -312,7 +314,7 @@ fn real() -> Result<Real, String> {
         configured: std::env::var_os("ELUDITE_NODE").map(PathBuf::from),
         ..NodeSearch::from_env()
     }
-    .find()?;
+    .find(&JS_DEBUG_NODE)?;
     check_node_version(&node, node_version_output(&node).as_deref())?;
     let chrome = std::env::var_os("ELUDITE_CHROME")
         .map(PathBuf::from)

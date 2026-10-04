@@ -8366,7 +8366,7 @@ fn real_js_debug() -> Result<super::JsSetup, String> {
     setup.search.configured = Some(PathBuf::from(js));
     setup.node.configured = std::env::var_os("ELUDITE_NODE").map(PathBuf::from);
     setup.search.find()?;
-    let (node, _) = setup.node.find()?;
+    let (node, _) = setup.node.find(&eludite_dap::discovery::JS_DEBUG_NODE)?;
     eludite_dap::discovery::check_node_version(
         &node,
         eludite_dap::discovery::node_version_output(&node).as_deref(),

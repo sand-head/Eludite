@@ -9,6 +9,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The Node.js search, shared with the web language servers (brief 0050).
+eludite-lsp.workspace = true
 eludite-protocol.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -32,6 +32,234 @@
           "cachePriming": { "enable": true }
         }
       }
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript",
+      "languageId": "typescript",
+      "languageIds": {
+        "*.tsx": "typescriptreact",
+        "*.js": "javascript",
+        "*.mjs": "javascript",
+        "*.cjs": "javascript",
+        "*.jsx": "javascriptreact"
+      },
+      "fileGlobs": ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs"],
+      "via": "process",
+      "rootMarkers": ["tsconfig.json", "jsconfig.json", "package.json"],
+      "command": {
+        "executable": "typescript-language-server",
+        "args": ["--stdio"],
+        "envOverride": "ELUDITE_TYPESCRIPT_LANGUAGE_SERVER",
+        "npmPackage": "typescript-language-server"
+      },
+      "modules": [
+        {
+          "name": "typescript",
+          "label": "TypeScript",
+          "package": "typescript",
+          "path": "lib",
+          "setting": "languageServers.typescriptPath"
+        }
+      ],
+      "initializationOptions": {
+        "hostInfo": "eludite",
+        "tsserver": { "path": "${module:typescript}" },
+        "preferences": {
+          "includeCompletionsForModuleExports": true,
+          "includeCompletionsWithInsertText": true,
+          "importModuleSpecifierPreference": "shortest",
+          "quotePreference": "auto",
+          "providePrefixAndSuffixTextForRename": true,
+          "allowRenameOfImportPath": true
+        }
+      },
+      "settings": {
+        "formattingOptions": { "tabSize": 4, "insertSpaces": true }
+      }
+    },
+    {
+      "id": "eslint",
+      "name": "ESLint",
+      "languageId": "typescript",
+      "languageIds": {
+        "*.tsx": "typescriptreact",
+        "*.js": "javascript",
+        "*.mjs": "javascript",
+        "*.cjs": "javascript",
+        "*.jsx": "javascriptreact"
+      },
+      "fileGlobs": ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs"],
+      "via": "process",
+      "rootMarkers": ["tsconfig.json", "jsconfig.json", "package.json"],
+      "command": {
+        "executable": "vscode-eslint-language-server",
+        "args": ["--stdio"],
+        "envOverride": "ELUDITE_ESLINT_LANGUAGE_SERVER",
+        "npmPackage": "vscode-langservers-extracted",
+        "probe": "packageJson"
+      },
+      "activation": {
+        "setting": "languageServers.eslint",
+        "rootFiles": [
+          "eslint.config.js",
+          "eslint.config.mjs",
+          "eslint.config.cjs",
+          "eslint.config.ts",
+          "eslint.config.mts",
+          "eslint.config.cts",
+          ".eslintrc.js",
+          ".eslintrc.cjs",
+          ".eslintrc.yaml",
+          ".eslintrc.yml",
+          ".eslintrc.json",
+          ".eslintrc"
+        ]
+      },
+      "settings": {
+        "validate": "on",
+        "packageManager": "npm",
+        "useESLintClass": false,
+        "experimental": {},
+        "codeAction": {
+          "disableRuleComment": { "enable": true, "location": "separateLine" },
+          "showDocumentation": { "enable": false }
+        },
+        "codeActionOnSave": { "mode": "all" },
+        "format": false,
+        "quiet": false,
+        "onIgnoredFiles": "off",
+        "options": {},
+        "rulesCustomizations": [],
+        "run": "onType",
+        "problems": { "shortenToSingleLine": false },
+        "nodePath": null,
+        "workingDirectory": { "mode": "location" },
+        "workspaceFolder": { "uri": "${rootUri}", "name": "${rootName}" }
+      }
+    },
+    {
+      "id": "html",
+      "name": "HTML",
+      "languageId": "html",
+      "fileGlobs": ["*.html", "*.htm", "*.cshtml"],
+      "via": "process",
+      "rootMarkers": ["package.json"],
+      "command": {
+        "executable": "vscode-html-language-server",
+        "args": ["--stdio"],
+        "envOverride": "ELUDITE_HTML_LANGUAGE_SERVER",
+        "npmPackage": "vscode-langservers-extracted",
+        "probe": "packageJson"
+      },
+      "initializationOptions": {
+        "provideFormatter": true,
+        "embeddedLanguages": { "css": true, "javascript": true },
+        "configurationSection": ["html", "css", "javascript"]
+      },
+      "pushSettings": true,
+      "settings": {
+        "html": {
+          "suggest": { "html5": true },
+          "validate": { "scripts": true, "styles": true },
+          "format": { "enable": true, "wrapLineLength": 120, "indentInnerHtml": false },
+          "autoClosingTags": true
+        },
+        "css": { "validate": true },
+        "javascript": { "validate": { "enable": true } }
+      }
+    },
+    {
+      "id": "css",
+      "name": "CSS",
+      "languageId": "css",
+      "languageIds": { "*.scss": "scss", "*.less": "less" },
+      "fileGlobs": ["*.css", "*.scss", "*.less"],
+      "via": "process",
+      "rootMarkers": ["package.json"],
+      "command": {
+        "executable": "vscode-css-language-server",
+        "args": ["--stdio"],
+        "envOverride": "ELUDITE_CSS_LANGUAGE_SERVER",
+        "npmPackage": "vscode-langservers-extracted",
+        "probe": "packageJson"
+      },
+      "initializationOptions": { "provideFormatter": true },
+      "pushSettings": true,
+      "settings": {
+        "css": { "validate": true, "format": { "enable": true } },
+        "scss": { "validate": true, "format": { "enable": true } },
+        "less": { "validate": true, "format": { "enable": true } }
+      }
+    },
+    {
+      "id": "json",
+      "name": "JSON",
+      "languageId": "json",
+      "languageIds": { "*.jsonc": "jsonc", "tsconfig.json": "jsonc", "tsconfig.*.json": "jsonc", "jsconfig.json": "jsonc" },
+      "fileGlobs": ["*.json", "*.jsonc"],
+      "via": "process",
+      "rootMarkers": ["package.json"],
+      "command": {
+        "executable": "vscode-json-language-server",
+        "args": ["--stdio"],
+        "envOverride": "ELUDITE_JSON_LANGUAGE_SERVER",
+        "npmPackage": "vscode-langservers-extracted",
+        "probe": "packageJson"
+      },
+      "initializationOptions": {
+        "provideFormatter": true,
+        "handledSchemaProtocols": ["file"]
+      },
+      "pushSettings": true,
+      "settings": {
+        "json": {
+          "validate": { "enable": true },
+          "format": { "enable": true },
+          "schemas": [
+            { "fileMatch": ["package.json"], "url": "${cacheUri}/schemas/package.json" },
+            { "fileMatch": ["tsconfig.json", "tsconfig.*.json"], "url": "${cacheUri}/schemas/tsconfig.json" },
+            { "fileMatch": ["launchSettings.json"], "url": "${cacheUri}/schemas/launchsettings.json" },
+            { "fileMatch": ["appsettings.json", "appsettings.*.json"], "url": "${cacheUri}/schemas/appsettings.json" },
+            { "fileMatch": ["global.json"], "url": "${cacheUri}/schemas/global.json" }
+          ]
+        },
+        "http": { "proxy": "", "proxyStrictSSL": true }
+      }
     }
-  ]
+  ],
+  "formatters": [
+    {
+      "id": "prettier",
+      "name": "Prettier",
+      "fileGlobs": ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.html", "*.htm", "*.css", "*.scss", "*.less", "*.json", "*.jsonc"],
+      "command": {
+        "executable": "prettier",
+        "args": ["--stdin-filepath", "${file}"],
+        "envOverride": "ELUDITE_PRETTIER",
+        "npmPackage": "prettier"
+      },
+      "configFiles": [".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.mjs", "prettier.config.js", "prettier.config.mjs"],
+      "auto": "projectPackage"
+    },
+    {
+      "id": "biome",
+      "name": "Biome",
+      "fileGlobs": ["*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.css", "*.json", "*.jsonc"],
+      "command": {
+        "executable": "biome",
+        "args": ["format", "--stdin-file-path=${file}"],
+        "envOverride": "ELUDITE_BIOME",
+        "npmPackage": "@biomejs/biome"
+      },
+      "configFiles": ["biome.json", "biome.jsonc"],
+      "auto": "configFile"
+    }
+  ],
+  "webServers": {
+    "folder": "web-servers",
+    "pin": "2026-10-04",
+    "envOverride": "ELUDITE_WEB_SERVERS",
+    "fetch": "tools/web-servers/fetch.sh"
+  }
 }

@@ -874,6 +874,8 @@ carries it, so the project's own TypeScript version is used when present.
 **Pushed settings.** A registration with `pushSettings` gets `workspace/didChangeConfiguration` with
 `{"settings": <its settings>}` after `initialized` (the HTML, CSS and JSON servers read their settings only from it);
 its `workspace/configuration` answers are unchanged (an empty `section` is the whole settings object, as ESLint asks).
+The servers also ask `workspace/workspaceFolders`, answered with the one folder (the root), and the JSON server may ask
+`vscode/content` (refused, -32601).
 
 **JSON schemas.** The `json` entry associates `package.json`, `tsconfig.json` and `tsconfig.*.json`,
 `launchSettings.json`, `appsettings.json` and `appsettings.*.json` and `global.json` with the SchemaStore schemas
