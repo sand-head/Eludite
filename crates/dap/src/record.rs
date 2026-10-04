@@ -959,7 +959,7 @@ fn record_with(
 /// machine that built it decides). In a `stackTrace` answer, the frames of the C runtime (no source under a
 /// recorded root or the toolchain's `/rustc/`) are one `runtime` placeholder per run of them, and `totalFrames`
 /// goes: whether glibc's start-up frames have lines and columns, or how many there are, is the machine's debug
-/// information.
+/// information. A `scopes` answer loses its variable counts for the same reason (lldb's Globals).
 fn comparable(m: &Value) -> Value {
     fn is_program_frame(f: &Value) -> bool {
         f["source"]["path"]
@@ -1003,6 +1003,16 @@ fn comparable(m: &Value) -> Value {
     }
     if m["type"] == "response" && m["command"] == "stackTrace" {
         collapse_runtime_frames(&mut m["body"]);
+    }
+    if m["type"] == "response"
+        && m["command"] == "scopes"
+        && let Some(scopes) = m["body"]["scopes"].as_array_mut()
+    {
+        // How many globals lldb sees depends on the machine's debug information (glibc's, or none).
+        for scope in scopes.iter_mut().filter_map(Value::as_object_mut) {
+            scope.remove("namedVariables");
+            scope.remove("indexedVariables");
+        }
     }
     strip(&mut m);
     m
@@ -1413,6 +1423,20 @@ mod tests {
         let mut moved = without.clone();
         moved.messages[1].message["body"]["stackFrames"][0]["line"] = json!(4);
         assert!(compare(&with_debug_info, &moved).is_err());
+        let scopes = |globals: u32| {
+            let mut r = r.clone();
+            r.messages[1].message["command"] = json!("scopes");
+            r.messages[1].message["body"] = json!({"scopes": [
+                {"name": "Locals", "namedVariables": 1, "variablesReference": 1},
+                {"name": "Globals", "namedVariables": globals, "variablesReference": 2},
+            ]});
+            r
+        };
+        assert_eq!(
+            compare(&scopes(0), &scopes(2)),
+            Ok(()),
+            "the globals lldb sees are the machine's"
+        );
         other.messages[1].message["success"] = json!(false);
         let e = compare(&r, &other).unwrap_err();
         assert!(

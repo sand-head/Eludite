@@ -616,8 +616,30 @@ fn toolbar_lists_select_persist_and_the_build_uses_the_selection_and_skips_unmap
     p.w.click(&toolbar_item_selector("configuration", 2));
     p.w.click(PLATFORM_BUTTON);
     p.w.click(&toolbar_item_selector("platform", 1));
-    let selection = p.w.shell.read_with(&p.w.vcx, |s, _| s.active_selection());
-    assert_eq!(selection, ("Staging".to_owned(), "x64".to_owned()));
+    let selected = |w: &Ws| w.shell.read_with(&w.vcx, |s, _| s.active_selection());
+    if selected(&p.w) != ("Staging".to_owned(), "x64".to_owned()) {
+        let entries = p.w.commands.audit_log().entries();
+        let selects: Vec<String> = entries
+            .iter()
+            .filter(|e| e.command == "eludite.solution.select_configuration")
+            .map(|e| format!("{:?} {:?}", e.arguments, e.outcome))
+            .collect();
+        let lists = p.w.shell.read_with(&p.w.vcx, |s, _| {
+            (
+                s.solution_configurations(),
+                s.solution_platforms(),
+                s.properties.toolbar_menu,
+            )
+        });
+        panic!(
+            "selected {:?}; select_configuration calls {selects:?}; lists {lists:?}; bounds {:?} {:?}",
+            selected(&p.w),
+            p.w.vcx
+                .debug_bounds(toolbar_item_selector("configuration", 2).leak()),
+            p.w.vcx
+                .debug_bounds(toolbar_item_selector("configuration", 0).leak()),
+        );
+    }
     assert!(
         p.w.audit()
             .iter()

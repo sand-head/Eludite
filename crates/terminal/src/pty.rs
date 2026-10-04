@@ -599,15 +599,12 @@ impl Terminal {
             if w.prompt {
                 if integration {
                     let after: Vec<&Mark> = s.marks.iter().filter(|m| m.at >= w.mark).collect();
-                    // A prompt counts once drawn: its B came (the person can type). A shell that sends no B: an A
-                    // after the mark.
-                    let uses_b = s.marks.iter().any(|m| m.kind == MarkKind::CommandStart);
+                    // A prompt counts once drawn: its B came (the person can type). A shell that sends no B, or
+                    // whose B has not arrived yet: an A after the mark, once the output has been quiet for a moment.
+                    let quiet = s.last_output.elapsed() >= PROMPT_DRAWN_SILENCE;
                     let prompt = after.iter().enumerate().rev().find_map(|(i, m)| {
-                        let drawn = if uses_b {
-                            after[i..].iter().any(|n| n.kind == MarkKind::CommandStart)
-                        } else {
-                            m.at > w.mark
-                        };
+                        let drawn = after[i..].iter().any(|n| n.kind == MarkKind::CommandStart)
+                            || (m.at > w.mark && quiet);
                         (m.kind == MarkKind::PromptStart && drawn).then_some(i)
                     });
                     if let Some(p) = prompt {
@@ -633,10 +630,15 @@ impl Terminal {
                 break finish(Matched::Timeout, &s, None);
             }
             let mut step = (deadline - now).min(Duration::from_millis(50));
-            if w.prompt && !integration && end > w.mark {
+            if w.prompt && end > w.mark {
                 let silent = s.last_output.elapsed();
-                if silent < PROMPT_SILENCE {
-                    step = step.min(PROMPT_SILENCE - silent + Duration::from_millis(5));
+                let needed = if integration {
+                    PROMPT_DRAWN_SILENCE
+                } else {
+                    PROMPT_SILENCE
+                };
+                if silent < needed {
+                    step = step.min(needed - silent + Duration::from_millis(5));
                 }
             }
             s = self
@@ -662,6 +664,11 @@ impl Terminal {
         })
     }
 }
+
+/// How long an integrated shell's prompt start (A) must be followed by silence before it counts as drawn when no
+/// command start (B) has followed it: the B of a shell that sends one can arrive in a later read than its A (bash
+/// 3.2 on macOS), and a wait that took the A alone would mark the command before the shell could read it.
+pub const PROMPT_DRAWN_SILENCE: Duration = Duration::from_millis(150);
 
 /// The most text a wait answers.
 pub const WAIT_TEXT_MAX: usize = 64 * 1024;

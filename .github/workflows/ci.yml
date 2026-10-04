@@ -199,8 +199,9 @@ jobs:
           xvfb-run -a tools/dap-corpus/record.sh --check mono lldb js-debug
 
       # netcoredbg cannot be downloaded where the corpus was first recorded: Linux records its sessions here and
-      # uploads them (artifact dap-corpus-netcoredbg) to be reviewed and checked in under corpus/dap/netcoredbg.
-      # It does not fail the job until those first recordings are checked in.
+      # uploads them (artifact dap-corpus, folder netcoredbg) to be reviewed and checked in under
+      # corpus/dap/netcoredbg. It does not fail the job until those first recordings are checked in. The artifact
+      # carries the other adapters' re-recordings too, to diff against the checked-in ones when the check fails.
       - name: Record the DAP corpus (netcoredbg)
         if: runner.os == 'Linux'
         continue-on-error: true
@@ -212,8 +213,8 @@ jobs:
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: dap-corpus-netcoredbg
-          path: ${{ runner.temp }}/dap-corpus/netcoredbg
+          name: dap-corpus
+          path: ${{ runner.temp }}/dap-corpus
           if-no-files-found: warn
 
   dotnet:
