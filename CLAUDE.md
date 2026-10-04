@@ -26,7 +26,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | Path | Role | PLAN.md |
 |---|---|---|
 | `crates/eludite` | App binary: entry, window, layout | 3 (D1), 8 |
-| `crates/docking` | Tool windows, document tabs, layouts (layout schema v4 with migrations) | 8 |
+| `crates/docking` | Tool windows, document tabs, layouts (layout schema v5 with migrations) | 8 |
 | `crates/ui` | Widgets, themes, keymaps, icons | 8 |
 | `crates/editor` | Buffer, view, input | 4.1 |
 | `crates/commands` | Command bus, schemas, audit | 5.1 |
@@ -38,6 +38,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/browser` | Browser automation (`eludite.browser.*`): the engine trait, the external Chrome over CDP, tabs, refs, console and network rings (brief 0023); `EmbeddedChromium`, the engine over `eludite-chromium` with frames from shared memory (brief 0031); `record`, `devtools`, `dialog`, the engine selection (`browser.engine`) and the key table of the Web Browser window (brief 0032); a tab's debugging endpoint and target id, and `input`'s `paused` for a page stopped in the debugger (brief 0038) | 4.9, 5.8 |
 | `crates/git` | `eludite-git`, libgit2 with no `git` process (brief 0040): status with renames and the Workspace glyphs, stage, unstage, discard, commit with the identity rule, diff texts, log with graph lanes, branches, checkout, merge, rebase, cherry-pick, reset, stash, fetch, pull and push with the credential callback, worktrees, blame, and the status cache with its polling watcher; the shell's Git Changes and Git Repository windows and `eludite.git.*` sit on it | 4.8 |
 | `crates/terminal` | `eludite-terminal` (brief 0041): a shell on a real PTY (`alacritty_terminal::tty`: Unix PTYs, ConPTY on Windows) read by its own I/O thread, `alacritty_terminal`'s emulator (from crates.io, never vendored), the plain-text transcript and marks agents read and wait on, shell integration scripts (OSC 133 and OSC 7 for bash, zsh, fish and PowerShell, passed through each shell's startup options), profiles (Developer PowerShell on Windows), the located tools first on PATH, links, and our own GPUI view (never Zed's `terminal_view`); the shell's Terminal window and `eludite.terminal.*` sit on it | 4.11 |
+| `crates/search` | `eludite-search` (brief 0042): Find in Files and Replace in Files on ripgrep's engines (`ignore`'s parallel walker with `.gitignore`, `search.excludes` and File types; `grep-regex` and `grep-searcher`, multiline off, binary files skipped, UTF-8 and UTF-16 by BOM), streaming per file with cancellation and a cap, the open-documents overlay, Visual Studio's whole-word rule, and the replacement engine with `$1` groups; the shell's Find in Files dialog, the Find Results 1 and 2 windows and `eludite.search.*` sit on it | 4.11 |
 | `crates/extensions` | wasmtime extension host | 3 (D6) |
 | `protocol/` | MIT schemas and generated bindings (crate `eludite-protocol`) | 3 (D3), 11 |
 | `protocol/cdp/` | The pinned Chrome DevTools Protocol JSON and `eludite-cdp-generator` (MIT), which writes `protocol/rust/src/cdp/` | 4.9, 11 |
