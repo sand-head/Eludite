@@ -1638,9 +1638,13 @@ impl Element for EditorElement {
                 strikethrough: None,
             };
             for (row, items) in lens_items {
-                let line_text = buffer.line(row);
-                let indent =
-                    visual_column(&line_text, line_text.len() - line_text.trim_start().len());
+                // The member's indentation, from its line as laid out above.
+                let indent = rows
+                    .get(row.saturating_sub(first) as usize)
+                    .filter(|r| r.row == row)
+                    .map_or(0, |r| {
+                        visual_column(&r.text, r.text.len() - r.text.trim_start().len())
+                    });
                 let mut text = String::new();
                 let mut runs = Vec::new();
                 let mut spans = Vec::new();

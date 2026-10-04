@@ -66,6 +66,8 @@ struct LayoutCache {
     epoch: u64,
     line_height: Pixels,
     layout: VerticalLayout,
+    /// The buffer row of each of `CodeLenses::rows`, in order.
+    rows: Vec<u32>,
 }
 
 impl CodeLenses {
@@ -82,6 +84,24 @@ impl EditorView {
 
     /// Where every buffer row and lens row is, for the current text and lenses.
     pub fn vertical_layout(&self) -> Ref<'_, VerticalLayout> {
+        self.refresh_layout_cache();
+        Ref::map(self.lenses.cache.borrow(), |c| {
+            &c.as_ref().expect("filled by refresh_layout_cache").layout
+        })
+    }
+
+    /// The buffer row of each lens row, in the order of `lenses.rows` (resolved once per text version).
+    fn lens_row_numbers(&self) -> Ref<'_, [u32]> {
+        self.refresh_layout_cache();
+        Ref::map(self.lenses.cache.borrow(), |c| {
+            c.as_ref()
+                .expect("filled by refresh_layout_cache")
+                .rows
+                .as_slice()
+        })
+    }
+
+    fn refresh_layout_cache(&self) {
         let snapshot = self.editor.buffer().snapshot();
         let line_height = self.style().line_height;
         let fresh = self.lenses.cache.borrow().as_ref().is_some_and(|c| {
@@ -89,33 +109,32 @@ impl EditorView {
                 && c.line_height == line_height
                 && &c.version == snapshot.version()
         });
-        if !fresh {
-            let rows = self
-                .lenses
-                .rows
-                .iter()
-                .map(|r| {
-                    snapshot
-                        .offset_to_point(snapshot.offset_for_anchor(&r.anchor))
-                        .row
-                })
-                .collect();
-            let layout = VerticalLayout::new(
-                f32::from(line_height),
-                f32::from(self.lens_height()),
-                self.editor.buffer().line_count(),
-                rows,
-            );
-            *self.lenses.cache.borrow_mut() = Some(LayoutCache {
-                version: snapshot.version().clone(),
-                epoch: self.lenses.epoch,
-                line_height,
-                layout,
-            });
+        if fresh {
+            return;
         }
-        Ref::map(self.lenses.cache.borrow(), |c| {
-            &c.as_ref().expect("filled above").layout
-        })
+        let rows: Vec<u32> = self
+            .lenses
+            .rows
+            .iter()
+            .map(|r| {
+                snapshot
+                    .offset_to_point(snapshot.offset_for_anchor(&r.anchor))
+                    .row
+            })
+            .collect();
+        let layout = VerticalLayout::new(
+            f32::from(line_height),
+            f32::from(self.lens_height()),
+            self.editor.buffer().line_count(),
+            rows.clone(),
+        );
+        *self.lenses.cache.borrow_mut() = Some(LayoutCache {
+            version: snapshot.version().clone(),
+            epoch: self.lenses.epoch,
+            line_height,
+            layout,
+            rows,
+        });
     }
 
     /// The top of buffer row `row`'s text, in content pixels (subtract the scroll position for the viewport). Lens
@@ -382,21 +401,17 @@ impl EditorView {
         }
     }
 
-    /// The lens rows among `rows` with their indicators, for drawing: (buffer row, the row's first non-blank visual
-    /// column, its items).
-    pub(crate) fn lens_rows_in(&self, rows: Range<u32>) -> Vec<(u32, Vec<LensItem>)> {
-        let buffer = self.editor.buffer();
-        let mut out: Vec<(u32, Vec<LensItem>)> = Vec::new();
-        for r in &self.lenses.rows {
-            let row = buffer
-                .offset_to_point(buffer.offset_for_anchor(&r.anchor))
-                .row;
+    /// The lens rows among `rows` with their indicators, for drawing: (buffer row, its items), by row.
+    pub(crate) fn lens_rows_in(&self, rows: Range<u32>) -> Vec<(u32, Vec<&LensItem>)> {
+        let numbers = self.lens_row_numbers();
+        let mut out: Vec<(u32, Vec<&LensItem>)> = Vec::new();
+        for (r, &row) in self.lenses.rows.iter().zip(numbers.iter()) {
             if !rows.contains(&row) {
                 continue;
             }
             match out.iter_mut().find(|(x, _)| *x == row) {
-                Some((_, items)) => items.extend(r.items.iter().cloned()),
-                None => out.push((row, r.items.clone())),
+                Some((_, items)) => items.extend(r.items.iter()),
+                None => out.push((row, r.items.iter().collect())),
             }
         }
         out
