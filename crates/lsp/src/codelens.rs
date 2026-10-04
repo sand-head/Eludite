@@ -277,7 +277,10 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(module.kind, LensKind::DebugTest);
-        assert!(matches!(module.target, LensTarget::CargoTest { exact: false, .. }));
+        assert!(matches!(
+            module.target,
+            LensTarget::CargoTest { exact: false, .. }
+        ));
         // `cargo run` and doctests are not tests.
         assert!(
             classify(&cmd(

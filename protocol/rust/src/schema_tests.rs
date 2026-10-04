@@ -994,7 +994,8 @@ fn code_lens_messages_conform_to_their_schemas() {
         conforms("code-lens.json", "codeLens", lens);
     }
     conforms("code-lens.json", "command", run.command.as_ref().unwrap());
-    let args = |l: &lsp::CodeLens| l.command.as_ref().unwrap().arguments.as_ref().unwrap()[0].clone();
+    let args =
+        |l: &lsp::CodeLens| l.command.as_ref().unwrap().arguments.as_ref().unwrap()[0].clone();
     conforms("code-lens.json", "testArguments", &args(&run));
     conforms("code-lens.json", "referencesArguments", &args(&references));
     rejects(

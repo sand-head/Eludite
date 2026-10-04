@@ -491,7 +491,10 @@ fn code_lens_requests_and_the_refresh_move_the_lens_generation() {
         .unwrap()
         .wait_timeout(T)
         .unwrap();
-    assert_eq!(fake.received_params("codeLens/resolve")[0]["data"]["impls"], 1);
+    assert_eq!(
+        fake.received_params("codeLens/resolve")[0]["data"]["impls"],
+        1
+    );
     let imps = eludite_lsp::codelens::classify(resolved.command.as_ref().unwrap()).unwrap();
     assert_eq!(imps.kind, eludite_lsp::codelens::LensKind::Implementations);
 

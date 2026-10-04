@@ -952,7 +952,10 @@ fn typed_code_lens_and_the_relayed_refresh() {
             generation
         );
     }
-    assert_eq!(fake.received_params("codeLens/resolve")[0]["data"]["listIndex"], 0);
+    assert_eq!(
+        fake.received_params("codeLens/resolve")[0]["data"]["listIndex"],
+        0
+    );
 
     fake.notify(
         host::methods::CODE_LENS_REFRESH,
