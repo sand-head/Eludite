@@ -17,6 +17,11 @@ Eludite runs it with its launch profile and opens its page in the Web Browser wi
   ```
   cd corpus/web/minimal-api && npx -y -p typescript@5.9.3 tsc --target es2020 --sourceMap --strict wwwroot/app.ts
   ```
+- `wwwroot/fixtures/` (brief 0050), static files the page does not link: `index.html` (markup with a `<style>` and a
+  `<script>` block, highlighted as CSS and JavaScript, for the HTML server's completion and Emmet), `site.css`, and
+  `package.json` whose `"private": "yes"` SchemaStore's package.json schema rejects (the JSON server reports
+  `Incorrect type. Expected "boolean".` on line 4). The page's own script, `app.ts`, has no `tsconfig.json`: the
+  TypeScript server serves it as an inferred project.
 - `Properties/launchSettings.json`: Visual Studio's template profiles, `http` (`http://localhost:5180`) first and
   `https` (`https://localhost:7180;http://localhost:5180`), both with `launchBrowser: true` and `launchUrl: ""`, so
   F5 opens `http://localhost:5180/`, or `https://localhost:7180/` with the `https` profile when the ASP.NET Core

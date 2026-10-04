@@ -916,6 +916,10 @@ Biome is found (the project's, else the cache's), else the language server; with
 project's, else the cache's); with `server`, the server. The formatter runs on a worker thread as
 `node <prettier> --stdin-filepath <file>` or `node <biome> format --stdin-file-path=<file>` in the file's folder with
 the document's text on stdin (so the project's configuration applies) and its stdout as the new text, applied as one
-edit and one undo step if the document has not changed meanwhile. A formatter that exits with an error writes its
+edit and one undo step if the document has not changed meanwhile. A formatter with a JavaScript API (`worker`:
+Prettier's `format` and `resolveConfig`) runs instead in a Node.js worker the shell keeps after its first use (one per
+Node.js and package, started with `node --input-type=module -e <script>`, one JSON request per stdin line,
+`{"id", "text", "file"}`, answered `{"id", "text"}` or `{"id", "error"}`), so later runs are warm; a worker that cannot
+start or stops answering is dropped and the process runs instead. A formatter that exits with an error writes its
 stderr to the Output window (Language Servers) and leaves the document. Nothing runs at startup: a formatter runs only
 when Format Document or format on save asks.
