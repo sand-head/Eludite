@@ -328,3 +328,57 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
     w.click(OK);
     assert!(page(&w).is_none());
 }
+
+/// Brief 0039: a setting that belongs to the workspace (`x-eludite-scope: solution`, `browser.allowNoSandbox`) is
+/// written by the Options dialog in the workspace's `.eludite/settings.json`, never the user's file, so the dialog
+/// can turn the Web Browser's opt-in off again. (The Web Browser page is taller than the test window, so its check box
+/// is toggled by the event its click emits.)
+#[gpui::test]
+fn the_options_dialog_writes_a_workspace_setting_in_the_workspace_file(
+    cx: &mut gpui::TestAppContext,
+) {
+    use super::options::{OptionsEvent, section_selector, setting_selector};
+    let mut w = setup(cx);
+    w.open_solution();
+    w.shell.update_in(&mut w.vcx, |s, window, cx| {
+        s.run(eludite_commands::settings::OPTIONS, json!({}), window, cx)
+    });
+    w.vcx.run_until_parked();
+    let schema = eludite_commands::settings::SettingsSchema::builtin();
+    let page = schema
+        .sections
+        .iter()
+        .position(|s| s == "Web Browser")
+        .unwrap();
+    w.click(&section_selector(page));
+    w.bounds(&setting_selector("browser.allowNoSandbox"));
+    w.bounds(&setting_selector("browser.enginePath"));
+    let workspace_file = w.path(".eludite/settings.json");
+    let allowed = |w: &Ws| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.browser().settings().allow_no_sandbox)
+    };
+    let toggle = |w: &mut Ws, on: bool| {
+        let dialog = w
+            .shell
+            .read_with(&w.vcx, |s, _| s.options_dialog().cloned())
+            .unwrap();
+        dialog.update(&mut w.vcx, |_, cx| {
+            cx.emit(OptionsEvent::Set {
+                key: "browser.allowNoSandbox".into(),
+                value: json!(on),
+            })
+        });
+        w.vcx.run_until_parked();
+    };
+    toggle(&mut w, true);
+    w.wait("the opt-in on", |w| allowed(w));
+    let text = std::fs::read_to_string(&workspace_file).unwrap();
+    assert!(text.contains("\"browser.allowNoSandbox\": true"), "{text}");
+    let user = std::fs::read_to_string(w.path(USER_SETTINGS)).unwrap_or_default();
+    assert!(!user.contains("browser.allowNoSandbox"), "{user}");
+    toggle(&mut w, false);
+    w.wait("the opt-in off", |w| !allowed(w));
+    let text = std::fs::read_to_string(&workspace_file).unwrap();
+    assert!(text.contains("\"browser.allowNoSandbox\": false"), "{text}");
+}

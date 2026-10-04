@@ -8,6 +8,19 @@
 //!    Windows, `/opt/google/chrome/chrome` on Linux.
 //!
 //! When none is found the error names every place searched and `tools/chrome/fetch.sh`.
+//!
+//! Finding the embedded engine and its CEF (brief 0039), on first use only (the Web Browser window or a browser
+//! command that needs the engine; never at startup), each search saying where it looked:
+//!
+//! - [`EngineSearch`], `eludite-chromium`: the setting `browser.enginePath`, `ELUDITE_CHROMIUM`, beside the running
+//!   executable (a packaged Eludite: `tools/package/linux.sh` puts the engine beside `eludite`), then cargo's build
+//!   layout in a development build (the test binary's `target/<profile>/`, `CARGO_TARGET_DIR`, the repository's
+//!   `target/`).
+//! - [`CefSearch`], CEF's folder: beside the engine (`libcef.so` in the engine's folder, as cargo copies it, or in
+//!   `cef/` beside it, as the package lays it out), `ELUDITE_CEF` and `CEF_PATH`, then `tools/cef/fetch.sh`'s cache
+//!   for the version of `tools/cef/PIN`.
+//!
+//! The first found wins; [`EngineFound`] and [`CefFound`] say which (`eludite.browser.tabs`' `engine.found_by`).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -169,6 +182,249 @@ impl ChromeSearch {
     }
 }
 
+// ---- the embedded engine and CEF (brief 0039) ----
+
+/// How [`EngineSearch`] found the engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EngineFound {
+    /// `browser.enginePath`.
+    Setting,
+    /// `ELUDITE_CHROMIUM`.
+    Variable,
+    /// Beside the running executable.
+    Beside,
+    /// Cargo's build layout (a development build).
+    Dev,
+}
+
+impl EngineFound {
+    /// `browser-tabs.output.json`'s `engine.found_by.engine`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EngineFound::Setting => "setting",
+            EngineFound::Variable => "variable",
+            EngineFound::Beside => "beside",
+            EngineFound::Dev => "dev",
+        }
+    }
+}
+
+/// How [`CefSearch`] found CEF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CefFound {
+    /// Beside the engine (its folder, or `cef/` beside it).
+    Beside,
+    /// `ELUDITE_CEF` or `CEF_PATH`.
+    Variable,
+    /// `tools/cef/fetch.sh`'s cache.
+    Cache,
+}
+
+impl CefFound {
+    /// `browser-tabs.output.json`'s `engine.found_by.cef`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CefFound::Beside => "beside",
+            CefFound::Variable => "variable",
+            CefFound::Cache => "cache",
+        }
+    }
+}
+
+/// Where to look for `eludite-chromium`, in order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EngineSearch {
+    /// `browser.enginePath`.
+    pub setting: Option<PathBuf>,
+    /// `ELUDITE_CHROMIUM`.
+    pub variable: Option<PathBuf>,
+    /// The running executable's folder.
+    pub beside: Option<PathBuf>,
+    /// Cargo's build folders, searched in a development build only.
+    pub dev: Vec<PathBuf>,
+}
+
+/// Where to look for CEF, after the folder beside the engine.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CefSearch {
+    /// `ELUDITE_CEF`, then `CEF_PATH`.
+    pub variables: Vec<PathBuf>,
+    /// `tools/cef/fetch.sh`'s cache: `~/.cache/eludite/cef/<version>` (`CEF_CACHE` replaces `~/.cache/eludite/cef`).
+    pub cache: Option<PathBuf>,
+}
+
+/// The engine's executable name on this platform.
+pub fn engine_file_name() -> String {
+    format!(
+        "{}{}",
+        crate::embedded::ENGINE_NAME,
+        std::env::consts::EXE_SUFFIX
+    )
+}
+
+/// The file whose presence makes a folder CEF's.
+pub fn cef_library() -> &'static str {
+    if cfg!(windows) {
+        "libcef.dll"
+    } else if cfg!(target_os = "macos") {
+        "Chromium Embedded Framework.framework"
+    } else {
+        "libcef.so"
+    }
+}
+
+fn env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+impl EngineSearch {
+    /// The setting's value (`None` when empty), `ELUDITE_CHROMIUM`, the running executable's folder and, in a
+    /// development build, cargo's build folders.
+    pub fn from_env(setting: Option<PathBuf>) -> Self {
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+        let mut dev = Vec::new();
+        if cfg!(debug_assertions) {
+            // A test binary sits in target/<profile>/deps; the engine in target/<profile>.
+            if let Some(dir) = &exe_dir
+                && dir.file_name().is_some_and(|n| n == "deps")
+                && let Some(up) = dir.parent()
+            {
+                dev.push(up.to_path_buf());
+            }
+            if let Some(t) = env_path("CARGO_TARGET_DIR") {
+                dev.push(t.join("debug"));
+            }
+            // The repository this crate was built from (crates/browser/../../target/debug).
+            dev.push(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("..")
+                    .join("..")
+                    .join("target")
+                    .join("debug"),
+            );
+        }
+        Self {
+            setting: setting.filter(|p| !p.as_os_str().is_empty()),
+            variable: env_path(crate::embedded::ENGINE_ENV),
+            beside: exe_dir,
+            dev,
+        }
+    }
+
+    /// The engine, how it was found, or a message naming every place looked, the fetch script and the package.
+    pub fn find(&self) -> Result<(PathBuf, EngineFound), String> {
+        let name = engine_file_name();
+        let named = [
+            (&self.setting, EngineFound::Setting, "browser.enginePath"),
+            (
+                &self.variable,
+                EngineFound::Variable,
+                crate::embedded::ENGINE_ENV,
+            ),
+        ];
+        // An engine named explicitly must be there: never a silent fallback to another one.
+        for (p, how, what) in named {
+            if let Some(p) = p {
+                return if p.is_file() {
+                    Ok((p.clone(), how))
+                } else {
+                    Err(format!(
+                        "{what} names {}, which does not exist",
+                        p.display()
+                    ))
+                };
+            }
+        }
+        let mut looked = vec![
+            "browser.enginePath: empty".to_owned(),
+            format!("{}: unset", crate::embedded::ENGINE_ENV),
+        ];
+        if let Some(dir) = &self.beside {
+            let p = dir.join(&name);
+            if p.is_file() {
+                return Ok((p, EngineFound::Beside));
+            }
+            looked.push(format!("beside eludite: {}", p.display()));
+        }
+        for dir in &self.dev {
+            let p = dir.join(&name);
+            if p.is_file() {
+                return Ok((p, EngineFound::Dev));
+            }
+            looked.push(format!("cargo's build folder: {}", p.display()));
+        }
+        Err(format!(
+            "{} was not found (looked at {}). A packaged Eludite (tools/package/linux.sh) has it beside eludite; in a \
+             checkout, fetch CEF with tools/cef/fetch.sh and build it with `CEF_PATH=\"$(tools/cef/fetch.sh)\" cargo \
+             build -p eludite-chromium --features eludite-chromium/cef`",
+            crate::embedded::ENGINE_NAME,
+            looked.join("; ")
+        ))
+    }
+}
+
+impl CefSearch {
+    /// `ELUDITE_CEF`, `CEF_PATH` and the fetch script's cache for the pinned version.
+    pub fn from_env() -> Self {
+        let cache_root = env_path("CEF_CACHE").or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|h| !h.is_empty())
+                .or_else(|| std::env::var_os("USERPROFILE").filter(|h| !h.is_empty()))
+                .map(|h| PathBuf::from(h).join(".cache").join("eludite").join("cef"))
+        });
+        Self {
+            variables: [crate::embedded::CEF_ENV, "CEF_PATH"]
+                .iter()
+                .filter_map(|v| env_path(v))
+                .collect(),
+            cache: cache_root.map(|r| r.join(crate::embedded::CEF_VERSION)),
+        }
+    }
+
+    /// CEF's folder for the engine at `engine`, how it was found, or a message naming every place looked.
+    pub fn find(&self, engine: &Path) -> Result<(PathBuf, CefFound), String> {
+        let lib = cef_library();
+        let mut looked = Vec::new();
+        let engine_dir = engine.parent().map(Path::to_path_buf).unwrap_or_default();
+        for dir in [engine_dir.clone(), engine_dir.join("cef")] {
+            if dir.join(lib).exists() {
+                return Ok((dir, CefFound::Beside));
+            }
+            looked.push(format!("beside the engine: {}", dir.join(lib).display()));
+        }
+        for dir in &self.variables {
+            if dir.join(lib).exists() {
+                return Ok((dir.clone(), CefFound::Variable));
+            }
+            looked.push(format!(
+                "{} or CEF_PATH: {}",
+                crate::embedded::CEF_ENV,
+                dir.join(lib).display()
+            ));
+        }
+        if self.variables.is_empty() {
+            looked.push(format!("{} and CEF_PATH: unset", crate::embedded::CEF_ENV));
+        }
+        if let Some(dir) = &self.cache {
+            if dir.join(lib).exists() {
+                return Ok((dir.clone(), CefFound::Cache));
+            }
+            looked.push(format!("tools/cef/fetch.sh's cache: {}", dir.display()));
+        }
+        Err(format!(
+            "CEF {} was not found for {} (looked at {}); run tools/cef/fetch.sh, or use the package layout \
+             (tools/package/linux.sh), which ships CEF in cef/ beside the engine",
+            crate::embedded::CEF_VERSION,
+            engine.display(),
+            looked.join("; ")
+        ))
+    }
+}
+
 /// A regular file that is executable (on Unix, any execute bit).
 pub fn is_executable(p: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(p) else {
@@ -256,6 +512,132 @@ mod tests {
         // A configured path that is not there is an error, not a silent fallback.
         search.configured = Some(root.join("missing"));
         assert!(search.find().unwrap_err().contains("not an executable"));
+    }
+
+    /// Brief 0039: the engine's order (setting, variable, beside the executable, cargo's layout) and CEF's (beside the
+    /// engine or in `cef/` beside it, the variables, the cache), with temporary folders; the messages when nothing is
+    /// found name every place looked, the fetch script and the package.
+    #[test]
+    fn the_engine_and_cef_are_searched_in_order() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let dir = |n: &str| {
+            let d = root.join(n);
+            std::fs::create_dir_all(&d).unwrap();
+            d
+        };
+        let (setting, variable, beside, dev) =
+            (dir("setting"), dir("variable"), dir("beside"), dir("dev"));
+        let name = engine_file_name();
+        let mut s = EngineSearch {
+            setting: None,
+            variable: None,
+            beside: Some(beside.clone()),
+            dev: vec![dev.clone()],
+        };
+        let e = s.find().unwrap_err();
+        assert!(
+            e.contains("tools/cef/fetch.sh") && e.contains("tools/package/linux.sh"),
+            "{e}"
+        );
+        assert!(e.contains(&beside.join(&name).display().to_string()), "{e}");
+        assert!(e.contains(&dev.join(&name).display().to_string()), "{e}");
+        assert!(
+            e.contains("browser.enginePath") && e.contains("ELUDITE_CHROMIUM"),
+            "{e}"
+        );
+        std::fs::write(dev.join(&name), b"").unwrap();
+        assert_eq!(s.find().unwrap(), (dev.join(&name), EngineFound::Dev));
+        std::fs::write(beside.join(&name), b"").unwrap();
+        assert_eq!(s.find().unwrap(), (beside.join(&name), EngineFound::Beside));
+        std::fs::write(variable.join(&name), b"").unwrap();
+        s.variable = Some(variable.join(&name));
+        assert_eq!(
+            s.find().unwrap(),
+            (variable.join(&name), EngineFound::Variable)
+        );
+        std::fs::write(setting.join(&name), b"").unwrap();
+        s.setting = Some(setting.join(&name));
+        assert_eq!(
+            s.find().unwrap(),
+            (setting.join(&name), EngineFound::Setting)
+        );
+        // Named but missing: an error, not the next place.
+        s.setting = Some(root.join("missing"));
+        assert!(s.find().unwrap_err().contains("browser.enginePath names"));
+        s.setting = None;
+        s.variable = Some(root.join("missing"));
+        assert!(s.find().unwrap_err().contains("ELUDITE_CHROMIUM names"));
+
+        let lib = cef_library();
+        let (cef_var, cache) = (dir("cef-var"), dir("cache"));
+        let engine = beside.join(&name);
+        let c = CefSearch {
+            variables: vec![cef_var.clone()],
+            cache: Some(cache.clone()),
+        };
+        let e = c.find(&engine).unwrap_err();
+        assert!(
+            e.contains("tools/cef/fetch.sh") && e.contains("tools/package/linux.sh"),
+            "{e}"
+        );
+        assert!(e.contains(crate::embedded::CEF_VERSION), "{e}");
+        assert!(
+            e.contains(&beside.join("cef").join(lib).display().to_string()),
+            "{e}"
+        );
+        assert!(e.contains(&cache.display().to_string()), "{e}");
+        std::fs::write(cache.join(lib), b"").unwrap();
+        assert_eq!(c.find(&engine).unwrap(), (cache.clone(), CefFound::Cache));
+        std::fs::write(cef_var.join(lib), b"").unwrap();
+        assert_eq!(
+            c.find(&engine).unwrap(),
+            (cef_var.clone(), CefFound::Variable)
+        );
+        std::fs::create_dir_all(beside.join("cef")).unwrap();
+        std::fs::write(beside.join("cef").join(lib), b"").unwrap();
+        assert_eq!(
+            c.find(&engine).unwrap(),
+            (beside.join("cef"), CefFound::Beside),
+            "the package layout: cef/ beside the engine"
+        );
+        std::fs::write(beside.join(lib), b"").unwrap();
+        assert_eq!(
+            c.find(&engine).unwrap(),
+            (beside.clone(), CefFound::Beside),
+            "cargo's layout: libcef.so beside the engine"
+        );
+    }
+
+    /// The budget: discovery beside the executable takes well under 1 ms (printed; asserted under 50 ms so a loaded
+    /// machine does not fail it).
+    #[test]
+    fn discovery_beside_the_executable_is_quick() {
+        let t = tempfile::tempdir().unwrap();
+        let name = engine_file_name();
+        std::fs::write(t.path().join(&name), b"").unwrap();
+        std::fs::create_dir_all(t.path().join("cef")).unwrap();
+        std::fs::write(t.path().join("cef").join(cef_library()), b"").unwrap();
+        let s = EngineSearch {
+            setting: None,
+            variable: None,
+            beside: Some(t.path().to_path_buf()),
+            dev: Vec::new(),
+        };
+        let c = CefSearch::default();
+        let mut times = Vec::new();
+        for _ in 0..200 {
+            let at = std::time::Instant::now();
+            let (engine, _) = s.find().unwrap();
+            let (cef, how) = c.find(&engine).unwrap();
+            times.push(at.elapsed());
+            assert_eq!((cef, how), (t.path().join("cef"), CefFound::Beside));
+        }
+        times.sort();
+        let p50 = times[times.len() / 2];
+        let max = times[times.len() - 1];
+        eprintln!("discovery beside the executable: p50 {p50:?}, max {max:?} over 200");
+        assert!(p50 < std::time::Duration::from_millis(50), "{p50:?}");
     }
 
     #[cfg(unix)]

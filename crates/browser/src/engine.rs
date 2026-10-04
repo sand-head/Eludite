@@ -25,6 +25,10 @@ pub struct EngineConfig {
     pub headless: bool,
     /// `browser.viewport`: the window size.
     pub viewport: (u32, u32),
+    /// The embedded engine may run without Chromium's sandbox where the sandbox cannot start (brief 0039): the
+    /// workspace's opt-in `browser.allowNoSandbox`, or `ELUDITE_CHROME_NO_SANDBOX=1`. The engine then gets
+    /// `--allow-no-sandbox`; it still runs sandboxed whenever it can.
+    pub allow_no_sandbox: bool,
 }
 
 impl EngineConfig {
@@ -53,6 +57,13 @@ pub struct LaunchInfo {
     pub version: String,
     /// The browser's DevTools endpoint.
     pub endpoint: String,
+    /// The embedded engine's sandbox: `namespaces`, `helper` or `none` (brief 0039).
+    pub sandbox: Option<String>,
+    /// The embedded engine's CEF folder.
+    pub cef: Option<String>,
+    /// How the embedded engine and its CEF were found (`setting`, `variable`, `beside`, `dev`; `beside`,
+    /// `variable`, `cache`).
+    pub found_by: Option<(String, String)>,
 }
 
 /// A dialog or prompt a tab's page waits on (brief 0032).

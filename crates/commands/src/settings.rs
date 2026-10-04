@@ -57,6 +57,9 @@ pub struct SettingSpec {
     pub label: String,
     /// The environment variable that overrides the files.
     pub env: Option<String>,
+    /// Which file the Options dialog writes it in (`x-eludite-scope`): the user's, or the workspace's for a setting
+    /// that belongs to the workspace (brief 0039's `browser.allowNoSandbox`).
+    pub scope: SettingScope,
     /// The item schema of a list (to validate entries).
     items: Option<Value>,
     max_items: Option<usize>,
@@ -258,6 +261,11 @@ impl SettingsSchema {
                     .ok_or_else(|| format!("{key} has no section"))?,
                 label: str_of("x-eludite-label").ok_or_else(|| format!("{key} has no label"))?,
                 env: str_of("x-eludite-env"),
+                scope: match p["x-eludite-scope"].as_str() {
+                    None | Some("user") => SettingScope::User,
+                    Some("solution") => SettingScope::Solution,
+                    Some(other) => return Err(format!("{key}: unknown scope {other}")),
+                },
                 items: p.get("items").cloned(),
                 max_items: p["maxItems"].as_u64().map(|n| n as usize),
             };
@@ -576,6 +584,8 @@ mod tests {
                 "agents.claudeCodeAdapterPath",
                 "agents.custom",
                 "browser.engine",
+                "browser.enginePath",
+                "browser.allowNoSandbox",
                 "browser.useBuiltIn",
                 "browser.homePage",
                 "browser.showDevToolsTab",
@@ -641,6 +651,25 @@ mod tests {
         assert_eq!(s.get("terminal.profiles").unwrap().kind, SettingKind::List);
         assert_eq!(s.get("build.onSave").unwrap().default, json!(false));
         assert_eq!(s.get("build.beforeRun").unwrap().default, json!(true));
+        // Brief 0039: the opt-in is off by default and kept in the workspace's file; the engine's path in the user's.
+        let allow = s.get("browser.allowNoSandbox").unwrap();
+        assert_eq!(allow.default, json!(false));
+        assert_eq!(allow.kind, SettingKind::Bool);
+        assert_eq!(allow.scope, SettingScope::Solution);
+        assert_eq!(allow.section, "Web Browser");
+        let engine_path = s.get("browser.enginePath").unwrap();
+        assert_eq!(engine_path.kind, SettingKind::Path);
+        assert_eq!(engine_path.scope, SettingScope::User);
+        assert_eq!(
+            engine_path.env, None,
+            "the setting comes before ELUDITE_CHROMIUM"
+        );
+        assert!(
+            s.settings
+                .iter()
+                .filter(|x| x.key != "browser.allowNoSandbox")
+                .all(|x| x.scope == SettingScope::User)
+        );
         // Brief 0037: F5 opens a web project's page, in the Web Browser window, by default.
         assert_eq!(s.get("browser.useBuiltIn").unwrap().default, json!(true));
         assert_eq!(

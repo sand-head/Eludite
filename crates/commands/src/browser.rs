@@ -826,6 +826,25 @@ pub struct EngineRow {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executable: Option<String>,
+    /// The embedded engine's sandbox: `namespaces`, `helper` or `none` (brief 0039).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    /// The embedded engine's CEF folder (brief 0039).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cef: Option<String>,
+    /// How the embedded engine and its CEF were found (brief 0039).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found_by: Option<EngineFoundBy>,
+}
+
+/// `browser-tabs.output.json`'s `engine.found_by` (brief 0039).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineFoundBy {
+    /// `setting`, `variable`, `beside` or `dev`.
+    pub engine: String,
+    /// `beside`, `variable` or `cache`.
+    pub cef: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -3203,9 +3222,30 @@ mod tests {
                         name: "external-chrome".into(),
                         version: Some("HeadlessChrome/141.0.7390.37".into()),
                         executable: Some("/opt/chrome".into()),
+                        ..EngineRow::default()
                     },
                     active: Some("t1".into()),
                     tabs: vec![tab.clone(), launched],
+                }),
+            ),
+            // Brief 0039: the embedded engine's sandbox, CEF and how both were found.
+            (
+                TABS,
+                BrowserOutput::Tabs(TabsOutput {
+                    running: true,
+                    engine: EngineRow {
+                        name: "embedded-chromium".into(),
+                        version: Some("Chromium/154.0.8037.58 (CEF 154.0.32)".into()),
+                        executable: Some("/opt/eludite/eludite-chromium".into()),
+                        sandbox: Some("none".into()),
+                        cef: Some("/opt/eludite/cef".into()),
+                        found_by: Some(EngineFoundBy {
+                            engine: "beside".into(),
+                            cef: "beside".into(),
+                        }),
+                    },
+                    active: Some("t1".into()),
+                    tabs: vec![tab.clone()],
                 }),
             ),
             (

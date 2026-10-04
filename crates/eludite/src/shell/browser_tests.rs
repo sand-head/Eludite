@@ -82,6 +82,7 @@ impl Engine for FakeEngine {
             executable: "fake-chrome".into(),
             version: "Fake/1.0".into(),
             endpoint: "ws://fake".into(),
+            ..LaunchInfo::default()
         })
     }
 

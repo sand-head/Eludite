@@ -880,6 +880,7 @@ fn spike_thread(
             profile_dir: profile,
             headless: true,
             viewport,
+            allow_no_sandbox: false,
         },
         ChromiumSearch::defaults(),
         Arc::new(|l: &str| eprintln!("eludite: {l}")),
