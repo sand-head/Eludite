@@ -145,6 +145,7 @@ pub(super) fn setup_debug(
         bind_keymap(cx, &vs_keymap());
         crate::app::bind_editor_keys(cx);
         crate::shell::browser_window::bind_keys(cx);
+        crate::shell::terminal::bind_keys(cx);
         cx.open_window(Default::default(), |window, cx| {
             let shell = cx.new(|cx| {
                 Shell::new(

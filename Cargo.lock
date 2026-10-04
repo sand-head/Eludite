@@ -1788,6 +1788,7 @@ dependencies = [
  "eludite-lsp",
  "eludite-mcp",
  "eludite-protocol",
+ "eludite-terminal",
  "eludite-ui",
  "eludite-workspace",
  "futures",

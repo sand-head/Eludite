@@ -13,6 +13,8 @@
 //! In a Git repository (brief 0040) each file carries Visual Studio's source control glyph and color from the
 //! repository's status, a file's context menu has Compare with Unmodified, Undo Changes, Stage, Unstage and Blame,
 //! and Ctrl+D on the selected file is Compare with Unmodified.
+//!
+//! A project's or folder's context menu ends with Open in Terminal (brief 0041), a terminal in its folder.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -21,8 +23,8 @@ use std::rc::Rc;
 use eludite_commands::workspace;
 use eludite_git::GlyphIndex;
 use eludite_ui::{
-    RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, menu_row,
-    tree_row_with_badge,
+    RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, WORKSPACE_TERMINAL_ITEM,
+    menu_row, tree_row_with_badge,
 };
 use eludite_workspace::explorer::{NodeKind, Row, SolutionModel};
 use gpui::{
@@ -50,6 +52,10 @@ pub fn context_item_selector(item: &str) -> String {
 /// items ([`WORKSPACE_GIT_ITEMS`]), for the file at `path`.
 pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)> {
     let p = path.to_string_lossy();
+    // Open in Terminal: the terminal resolves a project file to its folder.
+    if item == WORKSPACE_TERMINAL_ITEM.0 {
+        return Some((WORKSPACE_TERMINAL_ITEM.2, json!({ "cwd": p })));
+    }
     if let Some((_, _, command)) = WORKSPACE_GIT_ITEMS.iter().find(|(i, _, _)| *i == item) {
         let args = match item {
             "compare" | "blame" => json!({ "path": p }),
@@ -271,7 +277,9 @@ impl SolutionExplorer {
                 .map(|(i, l, _)| (*i, *l))
                 .collect()
         } else {
-            CONTEXT_ITEMS.to_vec()
+            let mut items = CONTEXT_ITEMS.to_vec();
+            items.push((WORKSPACE_TERMINAL_ITEM.0, WORKSPACE_TERMINAL_ITEM.1));
+            items
         };
         let file = row.kind.opens_file();
         for (i, (item, label)) in entries.into_iter().enumerate() {

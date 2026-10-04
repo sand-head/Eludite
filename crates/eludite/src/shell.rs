@@ -6,7 +6,8 @@
 //! with the Cargo workspace and generic language servers beside the host (brief 0019, `folder` and `servers`), and
 //! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`), the Web Browser window
 //! (brief 0032, `browser_window`), a document tab View > Other Windows > Web Browser opens, and the Test Explorer with
-//! `eludite.test.*` over MTP, VSTest and `cargo test` (brief 0035, `test_runs`, `tests_window`, `cargo_tests`).
+//! `eludite.test.*` over MTP, VSTest and `cargo test` (brief 0035, `test_runs`, `tests_window`, `cargo_tests`), and
+//! the Terminal window with `eludite.terminal.*` (brief 0041, `terminal`).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -55,6 +56,9 @@ pub mod settings;
 mod settings_tests;
 pub mod startup;
 pub mod target;
+pub mod terminal;
+#[cfg(test)]
+mod terminal_tests;
 pub mod test_runs;
 #[cfg(test)]
 mod test_runs_tests;
@@ -166,6 +170,9 @@ pub struct Services {
     /// `eludite.git.*` over libgit2 and what it tells the UI (brief 0040).
     pub git: Arc<git::service::GitService>,
     pub git_events: UnboundedReceiver<git::service::GitEvent>,
+    /// The integrated terminal's `eludite.terminal.*` and what it tells the UI (brief 0041).
+    pub terminal: Arc<terminal::TerminalService>,
+    pub terminal_events: UnboundedReceiver<terminal::TerminalEvent>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -266,6 +273,8 @@ pub fn register_workspace(
     let (git_tx, git_events) = unbounded();
     let git = Arc::new(git::service::GitService::new(git::setup(), git_tx));
     eludite_commands::git::register(commands, git.clone());
+    let (terminal, terminal_events) =
+        terminal::register(commands, terminal::TerminalSetup::from_env());
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -300,6 +309,8 @@ pub fn register_workspace(
         test_registry,
         git,
         git_events,
+        terminal,
+        terminal_events,
     }
 }
 
@@ -418,6 +429,8 @@ pub struct Shell {
     cargo_test_events: futures::channel::mpsc::UnboundedSender<cargo_tests::CargoTestEvent>,
     /// Git: the Git Changes and Git Repository windows, the glyphs, the margins (brief 0040).
     git: git::GitUi,
+    /// The Terminal window and its terminals (brief 0041).
+    terminal: terminal::TerminalUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -437,6 +450,7 @@ fn tool_body(
         Entity<git::changes::GitChanges>,
         Entity<git::repository::GitRepositoryWindow>,
     ),
+    terminal_window: Entity<terminal::TerminalWindow>,
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -474,6 +488,8 @@ fn tool_body(
             .clone()
             .cached(StyleRefinement::default().size_full())
             .into_any_element(),
+        // Not cached: its terminals draw every frame they change.
+        ids::TERMINAL => terminal_window.clone().into_any_element(),
         // The debugger's windows (brief 0018); titled empty panels for the rest until later briefs fill them.
         _ => debug.body(id).unwrap_or_else(|| div().into_any_element()),
     }
@@ -604,8 +620,11 @@ impl Shell {
             test_registry,
             git,
             git_events,
+            terminal,
+            terminal_events,
         } = services;
         let git = git::GitUi::new(git, theme, cx);
+        let terminal = terminal::TerminalUi::new(terminal, theme, cx);
         *test_registry.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&commands);
         let mut tests = test_runs::TestRuns::new(test_shared);
         tests.running = testing;
@@ -634,6 +653,7 @@ impl Shell {
                     debugger.windows.clone(),
                     tests_window.clone(),
                     (git.changes.clone(), git.repository.clone()),
+                    terminal.window.clone(),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -970,6 +990,7 @@ impl Shell {
             tests_window,
             cargo_test_events,
             git,
+            terminal,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -992,6 +1013,7 @@ impl Shell {
             ],
         };
         this.git_install(git_events, window, cx);
+        this.terminal_install(terminal_events, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1114,6 +1136,10 @@ impl Shell {
         // `eludite.git.*` runs off the UI thread after Visual Studio's confirmations (brief 0040).
         let mut args = args;
         if self.run_git(command, &mut args, window, cx) {
+            return;
+        }
+        // `eludite.terminal.*` and View > Terminal run off the UI thread, asking before a kill (brief 0041).
+        if self.run_terminal(command, &mut args, window, cx) {
             return;
         }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
@@ -1413,7 +1439,11 @@ impl Shell {
                 self.debug_folder_opened(cx);
                 opened
             }
-            WorkspaceRequest::CloseWorkspace => self.close_workspace(window, cx),
+            WorkspaceRequest::CloseWorkspace => {
+                // Its terminals end with it (brief 0041).
+                self.terminal_close_all();
+                self.close_workspace(window, cx)
+            }
             WorkspaceRequest::SolutionOpen { .. } | WorkspaceRequest::SolutionClose => Err(
                 CommandError::Failed("solution commands are not applied on the UI thread".into()),
             ),

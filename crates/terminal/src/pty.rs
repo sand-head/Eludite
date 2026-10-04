@@ -417,6 +417,27 @@ impl Terminal {
         }
     }
 
+    /// The name of the command running in the foreground (Linux: `/proc/<group>/comm`), when one runs.
+    pub fn foreground(&self) -> Option<String> {
+        if !self.busy() {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            #[allow(unsafe_code)]
+            // SAFETY: as in `busy`.
+            let pgrp = unsafe { libc::tcgetpgrp(self.inner.fd) };
+            std::fs::read_to_string(format!("/proc/{pgrp}/comm"))
+                .ok()
+                .map(|n| n.trim().to_owned())
+                .filter(|n| !n.is_empty())
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    }
+
     /// Whether the shell sent an integration mark.
     pub fn integration(&self) -> bool {
         lock(&self.inner.shared).integration

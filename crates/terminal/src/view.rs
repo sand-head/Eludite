@@ -391,6 +391,29 @@ impl TerminalView {
         lines.join("\n")
     }
 
+    /// The window position of the center of visible cell (`row`, `column`), as last laid out.
+    pub fn cell_center(&self, row: usize, column: usize) -> gpui::Point<Pixels> {
+        let l = self.layout;
+        point(
+            l.origin.x + l.cell.width * (column as f32 + 0.5),
+            l.origin.y + l.cell.height * (row as f32 + 0.5),
+        )
+    }
+
+    /// The visible rows' text, as last drawn.
+    pub fn visible_rows(&self) -> Vec<String> {
+        self.snapshot
+            .rows
+            .iter()
+            .map(|r| r.iter().map(|c| c.c).collect())
+            .collect()
+    }
+
+    /// The grid size the view last laid out: (columns, rows).
+    pub fn grid_size(&self) -> (usize, usize) {
+        (self.layout.cols, self.layout.rows)
+    }
+
     /// The selection, as absolute points (start, end).
     pub fn selection(&self) -> Option<(AbsPoint, AbsPoint)> {
         self.selection

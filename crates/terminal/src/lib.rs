@@ -31,4 +31,6 @@ pub mod view;
 pub use env::ToolPaths;
 pub use profile::{Profile, ShellKind};
 pub use pty::{Event, EventSink, Matched, Options, ScreenText, Terminal, WaitFor, WaitResult};
+/// The regular expressions `Terminal::wait` takes (`WaitFor::pattern`).
+pub use regex;
 pub use view::{TerminalView, TerminalViewEvent, ViewSettings};

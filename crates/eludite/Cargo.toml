@@ -31,6 +31,7 @@ eludite-docking.workspace = true
 eludite-editor.workspace = true
 # libgit2 for the Git Changes and Git Repository windows and eludite.git.* (brief 0040).
 eludite-git.workspace = true
+eludite-terminal.workspace = true
 eludite-lsp.workspace = true
 eludite-mcp.workspace = true
 # Typed request markers for the shell's IntelliSense requests (MIT; already a dependency of eludite-lsp).
