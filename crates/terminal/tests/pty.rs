@@ -303,7 +303,9 @@ fn osc_133_marks_give_each_commands_exit_code_under_bash() {
     assert_eq!(
         r.text.trim(),
         "out-42",
-        "the output only, without prompt or command"
+        "the output only, without prompt or command; mark {m}, marks {:?}, transcript {:?}",
+        b.t.marks_since(0),
+        b.t.since(0, usize::MAX).0
     );
     let m = b.run("(exit 3)");
     assert_eq!(b.prompt(m).exit_code, Some(3));

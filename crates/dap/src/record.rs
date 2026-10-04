@@ -956,8 +956,33 @@ fn record_with(
 /// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving),
 /// lldb-dap's `statistics` (its own memory figures), and the code and memory addresses anywhere in it
 /// (`instructionReference`, `instructionPointerReference`, `memoryReference`: the debuggee's layout, which the
-/// machine that built it decides).
+/// machine that built it decides). In a `stackTrace` answer, the frames of the C runtime (no source under a
+/// recorded root or the toolchain's `/rustc/`) are one `runtime` placeholder per run of them, and `totalFrames`
+/// goes: whether glibc's start-up frames have lines and columns, or how many there are, is the machine's debug
+/// information.
 fn comparable(m: &Value) -> Value {
+    fn is_program_frame(f: &Value) -> bool {
+        f["source"]["path"]
+            .as_str()
+            .is_some_and(|p| p.contains("${") || p.starts_with("/rustc/"))
+    }
+    fn collapse_runtime_frames(body: &mut Value) {
+        let Some(frames) = body["stackFrames"].as_array() else {
+            return;
+        };
+        let mut kept = Vec::with_capacity(frames.len());
+        for f in frames {
+            if is_program_frame(f) {
+                kept.push(f.clone());
+            } else if kept.last().is_none_or(|k: &Value| k["runtime"] != true) {
+                kept.push(json!({"runtime": true}));
+            }
+        }
+        body["stackFrames"] = Value::Array(kept);
+        if let Some(o) = body.as_object_mut() {
+            o.remove("totalFrames");
+        }
+    }
     fn strip(v: &mut Value) {
         match v {
             Value::Object(o) => {
@@ -975,6 +1000,9 @@ fn comparable(m: &Value) -> Value {
         o.remove("seq");
         o.remove("request_seq");
         o.remove("statistics");
+    }
+    if m["type"] == "response" && m["command"] == "stackTrace" {
+        collapse_runtime_frames(&mut m["body"]);
     }
     strip(&mut m);
     m
@@ -1107,9 +1135,9 @@ pub fn differences(expected: &Value, actual: &Value, max: usize) -> Vec<String> 
 /// client's requests, the adapter's responses, its events, its output text by category, the session's end) agrees,
 /// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, the addresses in
 /// `instructionReference`, `instructionPointerReference` and `memoryReference` (the debuggee's layout differs
-/// between the machines that build it), `continued` events and vscode-js-debug's `loadedSource` events: how the
-/// directions, the adapter's events and the debuggee's streams interleave is timing. `Err` names the first
-/// difference of each group that differs.
+/// between the machines that build it), the C runtime's stack frames (see `comparable`), `continued` events and
+/// vscode-js-debug's `loadedSource` events: how the directions, the adapter's events and the debuggee's streams
+/// interleave is timing. `Err` names the first difference of each group that differs.
 pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), String> {
     let mut problems = Vec::new();
     if checked_in.adapter != rerecorded.adapter {
@@ -1361,6 +1389,30 @@ mod tests {
             Ok(()),
             "addresses are the building machine's"
         );
+        let stack = |libc: Value| {
+            let mut r = r.clone();
+            r.messages[1].message["command"] = json!("stackTrace");
+            r.messages[1].message["body"] = json!({"totalFrames": 4, "stackFrames": [
+                {"id": 1, "name": "app::main", "line": 3, "column": 5, "source": {"path": "${TMP}/src/main.rs"}},
+                {"id": 2, "name": "std::rt::lang_start", "line": 9, "column": 1, "source": {"path": "/rustc/abc/library/std/src/rt.rs"}},
+                {"id": 3, "name": "main", "line": 0, "column": 0},
+                libc,
+            ]});
+            r
+        };
+        let with_debug_info = stack(
+            json!({"id": 4, "name": "__libc_start_call_main", "line": 58, "column": 16, "source": {"path": "sysdeps/nptl/libc_start_call_main.h"}}),
+        );
+        let without =
+            stack(json!({"id": 4, "name": "__libc_start_call_main", "line": 0, "column": 0}));
+        assert_eq!(
+            compare(&with_debug_info, &without),
+            Ok(()),
+            "the C runtime's frames are the machine's"
+        );
+        let mut moved = without.clone();
+        moved.messages[1].message["body"]["stackFrames"][0]["line"] = json!(4);
+        assert!(compare(&with_debug_info, &moved).is_err());
         other.messages[1].message["success"] = json!(false);
         let e = compare(&r, &other).unwrap_err();
         assert!(

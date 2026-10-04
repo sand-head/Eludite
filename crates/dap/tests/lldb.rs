@@ -132,6 +132,34 @@ struct Program {
     source: String,
 }
 
+/// Whether the adapter at `path` starts at all: the LLVM installer's lldb-dap on Windows dies before `main` when the
+/// Python it was built against is not installed (an NTSTATUS exit code), as a signal kills one elsewhere.
+fn runs(path: &Path) -> Result<(), String> {
+    let out = std::process::Command::new(path)
+        .arg("--help")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    #[cfg(windows)]
+    if let Some(code) = out.status.code()
+        && (code as u32) >= 0xC000_0000
+    {
+        return Err(format!(
+            "exit status {:#x}: {}",
+            code as u32,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt as _;
+        if let Some(signal) = out.status.signal() {
+            return Err(format!("killed by signal {signal}"));
+        }
+    }
+    Ok(())
+}
+
 fn run_cargo(cargo: &Path, dir: &Path, args: &[&str]) -> std::process::Output {
     std::process::Command::new(cargo)
         .args(args)
@@ -175,13 +203,22 @@ fn setup() -> Option<Program> {
         adapter.describe(version.as_deref()),
         adapter.path.display()
     );
+    if let Err(e) = runs(&adapter.path) {
+        eprintln!("skipped: {} does not run here: {e}", adapter.path.display());
+        return None;
+    }
     let dir = tempfile::Builder::new()
         .prefix("eludite-lldb-test")
         .tempdir()
         .unwrap();
     // Canonical: cargo reports the executable under the real path, and lldb matches a breakpoint's file to the
     // debug information's path, which is `/private/var/...` on macOS where the temporary folder is `/var/...`.
+    // Without Windows' verbatim prefix, which cargo does not spell either.
     let root = dir.path().canonicalize().unwrap();
+    let root = root
+        .to_str()
+        .and_then(|s| s.strip_prefix(r"\\?\"))
+        .map_or(root.clone(), PathBuf::from);
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("Cargo.toml"), CARGO_TOML).unwrap();
     std::fs::write(root.join("src/main.rs"), MAIN_RS).unwrap();

@@ -400,7 +400,9 @@ public sealed class BuildServiceTests
             await Task.Delay(1, Ct);
         }
 
-        Assert.True(times[0].At < TimeSpan.FromMilliseconds(500), $"{times[0].At.TotalMilliseconds} ms");
+        // Half a second; the hosted Windows runners start the first timer late (2.2 s seen), so five there.
+        var firstFlush = TimeSpan.FromMilliseconds(OperatingSystem.IsWindows() ? 5000 : 500);
+        Assert.True(times[0].At < firstFlush, $"{times[0].At.TotalMilliseconds} ms");
         var line = new string('x', 999);
         for (var i = 0; i < 100; i++)
         {
