@@ -143,7 +143,16 @@ pub struct Hub {
     background: std::sync::atomic::AtomicBool,
     /// The `gh` and `glab` paths tests give (else PATH).
     cli: Mutex<HashMap<Family, std::path::PathBuf>>,
+    /// How long a cached answer counts as fresh: read without a refresh, and how long after a refresh (done or
+    /// failed) another background refresh of the same key waits. A window that redraws on each refresh would
+    /// otherwise refresh forever.
+    fresh_for: RwLock<std::time::Duration>,
+    /// When each key's last background refresh ended.
+    attempted: Mutex<HashMap<String, std::time::Instant>>,
 }
+
+/// [`Hub`]'s default freshness window.
+pub const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl std::fmt::Debug for Hub {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -171,7 +180,18 @@ impl Hub {
             listeners: Mutex::new(Vec::new()),
             background: std::sync::atomic::AtomicBool::new(true),
             cli: Mutex::new(HashMap::new()),
+            fresh_for: RwLock::new(FRESH_FOR),
+            attempted: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Set the freshness window (tests set zero: every cached answer is stale and refreshes).
+    pub fn set_fresh_for(&self, d: std::time::Duration) {
+        *self.fresh_for.write().unwrap_or_else(|e| e.into_inner()) = d;
+    }
+
+    fn fresh_for(&self) -> std::time::Duration {
+        *self.fresh_for.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn transport(&self) -> Arc<dyn Transport> {
@@ -367,7 +387,20 @@ impl Hub {
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&flight)
                 .cloned();
-            if self.background.load(Ordering::SeqCst) {
+            let fresh_for = self.fresh_for();
+            if error.is_none() && std::time::Duration::from_secs(c.age()) < fresh_for {
+                // Fresh enough: no refresh.
+                let mut a = Answer::cached(c, None);
+                a.stale = false;
+                return Ok(a);
+            }
+            let recent = self
+                .attempted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&flight)
+                .is_some_and(|t| t.elapsed() < fresh_for);
+            if self.background.load(Ordering::SeqCst) && !recent {
                 self.refresh_in_background(repo.clone(), key.to_owned(), fetch);
             }
             return Ok(Answer::cached(c, error));
@@ -450,6 +483,10 @@ impl Hub {
             .name("forge-refresh".into())
             .spawn(move || {
                 let result = hub.forge(&repo, Cancel::new()).and_then(|f| fetch(&*f));
+                hub.attempted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(flight.clone(), std::time::Instant::now());
                 hub.in_flight
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())

@@ -222,6 +222,7 @@ pub fn setup(
     let dir = tempfile::tempdir().unwrap();
     hub.set_cache(Some(Cache::for_workspace(dir.path())));
     hub.set_background(false);
+    hub.set_fresh_for(std::time::Duration::ZERO);
     Setup {
         server,
         hub,

@@ -440,5 +440,83 @@ fn a_refresh_of_fifty_pull_requests_with_20ms_per_request_is_under_2s() {
         "the same list from the cache: {:.2} ms",
         t.elapsed().as_secs_f64() * 1000.0
     );
-    assert_eq!(cached["stale"], true);
+    assert_eq!(
+        cached["stale"], false,
+        "inside the freshness window the cache is the answer"
+    );
+}
+
+#[test]
+fn inside_the_freshness_window_a_read_neither_refreshes_nor_repeats_a_failed_refresh() {
+    let s = setup(
+        "github",
+        Family::GitHub,
+        "github.test",
+        "",
+        "git@github.test:octo-org/hello-world.git",
+        Some("octocat"),
+    );
+    s.hub.set_fresh_for(Duration::from_secs(30));
+    s.hub.set_background(true);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    s.hub.add_listener(Arc::new(move |e: &HubEvent| {
+        let _ = tx.lock().unwrap().send(e.clone());
+    }));
+    let first = s.ok("eludite.forge.pulls", json!({}));
+    assert_eq!(first["stale"], false);
+    let sent = s.fixtures().count();
+    let again = s.ok("eludite.forge.pulls", json!({}));
+    assert_eq!(again["stale"], false, "fresh: answered from the cache");
+    assert_eq!(again["items"], first["items"]);
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(s.fixtures().count(), sent, "and no refresh was sent");
+    assert!(rx.try_recv().is_err());
+
+    // An old answer refreshes once; when that fails, reads inside the window show the reason without retrying.
+    let repo = s
+        .hub
+        .detect("git@github.test:octo-org/hello-world.git", false);
+    let key = eludite_forge::ops::pulls_key(Default::default(), Default::default(), None, 50, None);
+    s.cache().put_at(
+        &repo.cache_key(),
+        &key,
+        &first
+            .as_object()
+            .unwrap()
+            .get("items")
+            .map(|i| json!({"items": i}))
+            .unwrap(),
+        eludite_forge::util::now_secs() - 3600,
+    );
+    s.fixtures().push_front(Exchange::json(
+        "GET",
+        "/repos/octo-org/hello-world/pulls",
+        500,
+        json!({"message": "down"}),
+    ));
+    let stale = s.ok("eludite.forge.pulls", json!({}));
+    assert_eq!(stale["stale"], true);
+    match rx.recv_timeout(Duration::from_secs(10)).unwrap() {
+        HubEvent::RefreshFailed { .. } => {}
+        other => panic!("{other:?}"),
+    }
+    let sent = s.fixtures().count();
+    for _ in 0..3 {
+        let v = s.ok("eludite.forge.pulls", json!({}));
+        assert_eq!(v["stale"], true);
+        assert!(
+            v["refresh_error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("HTTP 500")
+        );
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        s.fixtures().count(),
+        sent,
+        "a failed refresh is not retried inside the window"
+    );
+    assert!(rx.try_recv().is_err());
 }
