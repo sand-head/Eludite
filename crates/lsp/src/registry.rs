@@ -153,6 +153,22 @@ pub struct FormatterSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub config_files: Vec<String>,
     pub auto: AutoRule,
+    /// A JavaScript API the formatter's npm package exports, kept loaded in a Node.js worker after its first use so
+    /// later runs are warm (Prettier's `format`, with `resolveConfig` for the project's configuration); without one
+    /// (Biome, a native program) every run is a process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker: Option<WorkerSpec>,
+}
+
+/// The JavaScript API of a [`FormatterSpec`]'s package: `format(text, {...config, filepath})`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkerSpec {
+    /// The function that formats (`format`): `(text, options) -> Promise<string>`.
+    pub format: String,
+    /// The function that finds the options for a file (`resolveConfig`): `(filepath) -> Promise<options | null>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolve_config: Option<String>,
 }
 
 /// The folder `tools/web-servers/fetch.sh` installs into.

@@ -60,14 +60,24 @@ package vscode-markdown-languageservice 0.5.0 MIT
 package vscode-nls 5.2.0 MIT
 package vscode-uri 3.2.0 MIT
 # The JSON schemas the JSON server validates with (no network for schemas): SchemaStore (https://www.schemastore.org,
-# Apache-2.0) at this commit, from raw.githubusercontent.com, each checked against its SHA-256. `schema <file> <sha256>`;
-# fetch.sh writes them to <cache>/schemas/ and points their `$ref`s to SchemaStore at the cached copies (file URIs), so
-# the JSON server reads only files. nuget.config is XML and has none.
+# Apache-2.0) at this commit, from raw.githubusercontent.com, each checked against its SHA-256. `schema <file> <sha256>`:
+# first the five crates/lsp/src/servers.json associates (package.json, tsconfig.json, launchSettings.json,
+# appsettings*.json, global.json; nuget.config is XML and has none), then every schema they reference, so the whole
+# closure is cached. fetch.sh writes them to <cache>/schemas/ and points their `$ref`s to SchemaStore's URLs at the
+# cached copies (file URIs; relative ones already resolve there), so the JSON server reads only files.
 schemastore de76181a2ab215431d3e9314bc14f83cc3b01ad2
 schema package.json def9733cbd5d135a325b96d148f5cdd797c187e9dbe8d864202765ff37184345
 schema tsconfig.json 4323b790e65e979876bd48c7387a5150520e0c4cf1e36c221252a7234c2bd70a
 schema launchsettings.json 25ff44df05425c3bffc2337f32478527943c4f41400bc16c5bf7a8a895dce714
 schema appsettings.json b00c628403545f6a0e0da74685eef3902233334e007653247c24e273132706ea
 schema global.json 7751ae6576aaef0b4dba6b74923ed78a1b5e69797d110c0d6c0ea8852d0a7657
+schema ava.json 3c02652299c240b152d8d30bc476dfa4bda7854132632dc9595afe53ac12ee0a
+schema eslintrc.json 2e7bf9df71bef201db128b6287c9d8b89bad4e7f8aa839d224e9c42141bb4e09
+schema jscpd.json c4451c972dd7c5040375d01279d1e777f1cf672f0e227e2ea92e3ac4b106cfd7
+schema madge.json b6e5ae0126cdfd73dcc1592bc91de0a8f246fde16fe9b7d0c0ad9c8b46b4a034
+schema nodemon.json cc1c775543f377b9561fbf56e7a30a64dea18c0d7bff993ad1ad15ec8c3eaf04
+schema partial-eslint-plugins.json 64cb0d70799fccd67e24ae1befd7643a4808c78e383f361b820932aa80a5cf16
 schema prettierrc.json a5f9c7ed250e12c1b5fb7f0a2ae1b03e064513b40be96688cd2517925f42a6f0
 schema quikrun.json 67cf4391e674bd17b77e893e97860d6d0c12f815a777251b65563c72e522b646
+schema semantic-release.json 0a471bd80eafbed9d250da67c2d6fbf2b6fab93d3cd1d627193875bf6a2c2168
+schema stylelintrc.json bbd2ced672f359a43a38f59d5cb380d6938e52f6cdf5058e9cea0870c9886efb

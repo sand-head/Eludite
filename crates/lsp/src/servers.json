@@ -237,10 +237,12 @@
         "executable": "prettier",
         "args": ["--stdin-filepath", "${file}"],
         "envOverride": "ELUDITE_PRETTIER",
-        "npmPackage": "prettier"
+        "npmPackage": "prettier",
+        "probe": "packageJson"
       },
       "configFiles": [".prettierrc", ".prettierrc.json", ".prettierrc.js", ".prettierrc.mjs", "prettier.config.js", "prettier.config.mjs"],
-      "auto": "projectPackage"
+      "auto": "projectPackage",
+      "worker": { "format": "format", "resolveConfig": "resolveConfig" }
     },
     {
       "id": "biome",
@@ -250,7 +252,8 @@
         "executable": "biome",
         "args": ["format", "--stdin-file-path=${file}"],
         "envOverride": "ELUDITE_BIOME",
-        "npmPackage": "@biomejs/biome"
+        "npmPackage": "@biomejs/biome",
+        "probe": "packageJson"
       },
       "configFiles": ["biome.json", "biome.jsonc"],
       "auto": "configFile"
