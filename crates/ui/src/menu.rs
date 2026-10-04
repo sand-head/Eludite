@@ -279,6 +279,12 @@ pub fn vs_menus() -> Vec<Menu> {
                 // Break All (brief 0025): only a running debuggee; the command refuses it otherwise.
                 item("Break All", "eludite.debug.pause"),
                 item("Attach to Process...", "eludite.debug.attach"),
+                // A page of the Web Browser window, with vscode-js-debug (brief 0038): the same dialog, its tabs only.
+                MenuEntry::Item {
+                    label: "Attach to Browser Tab...",
+                    command: "eludite.debug.attach",
+                    args: json!({ "adapter": "javascript" }),
+                },
                 // Who may drive the session (brief 0027): the person's switch for agents.
                 MenuEntry::Check {
                     label: "Allow Agents to Drive",
@@ -920,5 +926,29 @@ mod tests {
                     && args.as_object().is_none_or(|o| o.is_empty()))
         });
         assert!(found);
+    }
+
+    /// Brief 0038: Debug > Attach to Browser Tab... after Attach to Process..., the same command with
+    /// `adapter: javascript` (the dialog's tabs) and no key of its own.
+    #[test]
+    fn the_debug_menu_attaches_to_a_browser_tab() {
+        let keymap = crate::keymap::vs_keymap();
+        let debug = vs_menus().into_iter().find(|m| m.title == "Debug").unwrap();
+        let labels: Vec<&str> = debug
+            .entries
+            .iter()
+            .filter_map(|e| e.action(false).map(|a| a.0))
+            .collect();
+        let at = |label: &str| labels.iter().position(|l| *l == label).unwrap();
+        assert_eq!(
+            at("Attach to Browser Tab..."),
+            at("Attach to Process...") + 1
+        );
+        let item = debug.entries[at("Attach to Browser Tab...")]
+            .action(false)
+            .unwrap();
+        assert_eq!(item.1, "eludite.debug.attach");
+        assert_eq!(item.2, json!({"adapter": "javascript"}));
+        assert_eq!(shortcut_for(&keymap, item.1, &item.2), None);
     }
 }
