@@ -3,7 +3,8 @@
 Status: done on Linux. Windows and macOS: not built here (no targets or machines); the Windows paths (ConPTY through
 `alacritty_terminal::tty`, the Developer PowerShell profile) compile only under `cfg(windows)` and were not run. CI:
 not run (nothing pushed).
-Branch: `brief/0041-integrated-terminal`, based on `main` at `0fc40cd`; not rebased (the coordinator merges).
+Branch: `brief/0041-integrated-terminal`, rebased by the coordinator onto `main` at `a5cbf32` (after brief 0040's
+merge); not pushed or merged here.
 Date: 2026-10-04. Brief: [0041-integrated-terminal.md](0041-integrated-terminal.md).
 
 ## 1. Summary
@@ -52,29 +53,34 @@ Date: 2026-10-04. Brief: [0041-integrated-terminal.md](0041-integrated-terminal.
 
 ## 2. What was built
 
-Commits on top of `0fc40cd`, in order:
+Commits on top of `a5cbf32`, in order:
 
-1. `d54959c` Mark brief 0041 in progress.
-2. `1e077d3` The schemas, first and alone: `terminal-{open,list,send,read,wait,resize,close,clear}.{input,output}.json`,
+1. `c2569f5` Mark brief 0041 in progress.
+2. `320a14d` The schemas, first and alone: `terminal-{open,list,send,read,wait,resize,close,clear}.{input,output}.json`,
    the `terminal` object of `agents-policy.json`, the eight `terminal.*` settings (the Options page "Terminal", listed
    last), `view-show`'s `terminal` id, `mcp-resource.json`'s description of the new guide.
-3. `b302694` `crates/terminal` (section 3) with its unit and PTY tests.
-4. `d9dce4c` `crates/commands/src/terminal.rs` (parsing, typed outputs, classes, the escalation hooks), the policy's
+3. `663a29d` `crates/terminal` (section 3) with its unit and PTY tests.
+4. `d1b4a8c` `crates/commands/src/terminal.rs` (parsing, typed outputs, classes, the escalation hooks), the policy's
    `TerminalPolicy`, `AlwaysAllow::Session` and `AlwaysAllow::Granted` with `PolicySnapshot::session_grants`, the
    registry keeping a granted call's class; `crates/mcp`: the guide resource.
-5. `60fdaab` `crates/docking` (`ids::TERMINAL`, the default layout, schema 4 and its migration) and `crates/ui` (View
+5. `555db3c` `crates/docking` (`ids::TERMINAL`, the default layout, schema 4 and its migration) and `crates/ui` (View
    > Terminal, Ctrl+`, Ctrl+Shift+`, Tools > Command Line opening a terminal, `WORKSPACE_TERMINAL_ITEM`).
-6. `b95b3c8` The Agents window: Always Allow reads "Allow for this session" for a call whose escalation names a session
+6. `399f8c7` The Agents window: Always Allow reads "Allow for this session" for a call whose escalation names a session
    grant; the grant lives in the agent session's policy store.
-7. `73de31f` The transcript's terminal rows.
-8. `67dec40` The shell: `shell/terminal.rs` (service, window, hooks) and `shell/terminal_tests.rs`.
-9. `923198a` Transcript marks only grow when a line is redrawn (a bug the Xvfb run found: section 5).
-10. `708c149` The view falls back to an installed monospace font (the Xvfb run drew a proportional fallback).
-11. `e3b3fb1` The tool windows' chords stay the shell's (the Xvfb run typed Ctrl+\, Ctrl+C into the shell).
-12. `fc32b07` `crates/eludite/tools/terminal-linux.sh` and the screenshots.
-13. `6204745` The Options page test, the README's status line.
-14. The shell integration scripts move from the temp folder to Eludite's cache folder.
-15. This report, the brief's status, the index row and `CLAUDE.md`.
+7. `019466b` The transcript's terminal rows.
+8. `7d8b154` The shell: `shell/terminal.rs` (service, window, hooks) and `shell/terminal_tests.rs`.
+9. `5f924f8` Transcript marks only grow when a line is redrawn (a bug the Xvfb run found: section 5).
+10. `76341b7` The view falls back to an installed monospace font (the Xvfb run drew a proportional fallback).
+11. `7d55986` The tool windows' chords stay the shell's (the Xvfb run typed Ctrl+\, Ctrl+C into the shell).
+12. `3df0e16` `crates/eludite/tools/terminal-linux.sh` and the screenshots.
+13. `330ad7c` The Options page test, the README's status line.
+14. `9738228` Work saved at a usage limit as it stood: the shell integration scripts move from the temp folder to
+    Eludite's cache folder (with its test), the PTY test's race fixed (it asserted `busy()` before bash had handed the
+    terminal to `sleep`; it now polls with a deadline), and drafts of this report, the brief's status, the index row
+    and `CLAUDE.md`.
+15. `c6ed4e6` Ctrl+click on a link to a folder shows the Workspace with that folder's node selected and expanded (the
+    shell only showed the window before: the Workspace's reveal matched files only).
+16. This report's final numbers.
 
 ## 3. `crates/terminal`
 
@@ -125,13 +131,13 @@ Mono, Noto Sans Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, Ubuntu
 
 ## 6. Tests
 
-- **`crates/terminal`** (24 unit, 16 PTY tests on a real PTY, Unix):
+- **`crates/terminal`** (25 unit, 16 PTY tests on a real PTY, Unix):
   - unit: the scanner (marks in order, split reads, other sequences through, OSC 7 paths); the transcript (escapes,
     `\r` and backspace, marks across the cap, **marks only grow on a redraw**); links (MSBuild's and the compilers'
     forms, Windows paths, urls, what is not a link, character ranges); keys (control characters, Alt, xterm's cursor and
     function keys with modifiers, application cursor mode, typed text); profiles (shell kinds, Unix order, **Visual
     Studio's Windows names and the Developer PowerShell with and without Build Tools**, merging by name, picking the
-    default); integration (each shell's startup option, never a dotfile; the scripts installed once); the
+    default); integration (each shell's startup option, never a dotfile; the scripts installed once, in Eludite's cache folder); the
     environment (**tool folders first, once**; `dotnet` located by `DOTNET_ROOT`); bracketed paste bytes; the 256 colors.
   - PTY (`tests/pty.rs`): **the `echo` round trip** and the screen; **50,000 lines capped at a 1,000-line scrollback**
     (the transcript keeps the run); **resize changes what `tput cols` and `stty size` print**; **the exit code** (and
@@ -170,7 +176,8 @@ Mono, Noto Sans Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, Ubuntu
     agent's `wait` with `interrupted_by: "user"` (17 ms after the key); its `send` is refused naming `read`; after a
     `read` it sends.
   - `ctrl_click_on_a_path_printed_by_the_shell_opens_the_editor_at_the_line`: a plain click opens nothing; **Ctrl+click
-    on `src/lib.rs:3:1` opens the editor at line 3**.
+    on `src/lib.rs:3:1` opens the editor at line 3**; Ctrl+click on `src/App` (a folder) shows the Workspace with the
+    project in that folder selected.
   - `open_in_terminal_from_the_workspace_uses_the_projects_folder`: the project's context menu, Open in Terminal, the
     terminal's folder is the project's (`pwd`).
   - `the_reserved_chords_reach_the_shell_window_and_the_rest_the_terminal`: Ctrl+S, Ctrl+Q, Ctrl+R and Ctrl+C reach
@@ -230,6 +237,9 @@ Mono, Noto Sans Mono, DejaVu Sans Mono, Liberation Mono, Menlo, Consolas, Ubuntu
 11. **Windows and macOS** were not built: no targets are installed here. The Windows code paths are cfg-gated
     (`escape_args`, the child's pid from the ConPTY watcher, no `busy` detection); the PTY tests are `cfg(unix)`, so
     the Windows job runs the unit tests only.
+12. **Node.js** is located by `ELUDITE_NODE`, else `node` on PATH. Brief 0038 (not merged when this was written) adds
+    a fuller search in `crates/dap` (`debugger.nodePath`, Volta, nvm, fnm) under the same variable; once both are on
+    `main`, the terminal's environment can take the path that search found instead of its own.
 
 ## 8. The dependency
 
@@ -309,5 +319,6 @@ crates/eludite/tools/terminal-linux.sh OUT_DIR                   # Xvfb, xdotool
   with Allow, **Allow for this session** and Deny.
 - `terminal-agent.png`: allowed for the session: the agent's `sleep 2 && cargo --version` typed into the same
   terminal, the tab reading **"Agent Terminal Runner is typing"** while its `wait` runs.
-- `terminal-done.png`: `cargo 1.97.0` printed, the wait answered at the prompt (2,052 ms), the turn ended, the marker
+- `terminal-done.png`: `cargo 1.97.0` printed (the machine's default toolchain: the run's small package is outside
+  this repository, whose `rust-toolchain.toml` pins 1.98.1), the wait answered at the prompt (2,052 ms), the turn ended, the marker
   gone.
