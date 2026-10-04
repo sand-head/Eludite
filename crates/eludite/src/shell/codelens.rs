@@ -263,6 +263,34 @@ fn display_title(c: &LensCommand) -> String {
     }
 }
 
+/// Where a lens shows: above the member's first line, its attributes included (Visual Studio shows CodeLens above
+/// `[Fact]`; rust-analyzer's `#[test]`, TypeScript's decorators). The servers' ranges are the member's name, so the
+/// lens moves up over the attribute lines directly above it, to the first one's first character.
+pub fn lens_offset(snapshot: &text::BufferSnapshot, name: usize) -> usize {
+    let line = |row: u32| -> String {
+        snapshot
+            .text_for_range(text::Point::new(row, 0)..text::Point::new(row, snapshot.line_len(row)))
+            .collect()
+    };
+    let start = snapshot.offset_to_point(name.min(snapshot.len())).row;
+    let mut row = start;
+    while row > 0 {
+        let above = line(row - 1);
+        let t = above.trim_start();
+        if t.starts_with('[') || t.starts_with("#[") || t.starts_with('@') {
+            row -= 1;
+        } else {
+            break;
+        }
+    }
+    if row == start {
+        return name;
+    }
+    let text = line(row);
+    let indent = text.len() - text.trim_start().len();
+    snapshot.point_to_offset(text::Point::new(row, indent as u32))
+}
+
 /// `12 ms`, `1.2 s`.
 pub fn duration_text(ms: f64) -> String {
     if ms < 1.0 {
@@ -610,7 +638,7 @@ impl Shell {
             if !filter.shows(kind) {
                 continue;
             }
-            let offset = offset_in(&snapshot, lens.range.start);
+            let offset = lens_offset(&snapshot, offset_in(&snapshot, lens.range.start));
             let row = snapshot.offset_to_point(offset).row;
             state.next_id += 1;
             let lens_id = state.next_id;
@@ -1023,7 +1051,17 @@ impl Shell {
                 .unwrap_or_default()
         };
         let theme = self.theme;
-        let popup = cx.new(|cx| ReferencesPopup::new(theme, symbol, anchor, cx));
+        let noun = match self
+            .code_lens
+            .docs
+            .get(id)
+            .and_then(|d| d.entries.get(&lens_id))
+            .map(|e| e.kind)
+        {
+            Some(LensKind::Implementations) => "implementation",
+            _ => "reference",
+        };
+        let popup = cx.new(|cx| ReferencesPopup::new(theme, symbol, noun, anchor, cx));
         cx.subscribe_in(&popup, window, |shell, _, event, window, cx| match event {
             LensPopupEvent::Navigate(r) => shell.navigate_from_lens_popup(*r, window, cx),
             LensPopupEvent::Dismissed => shell.close_lens_popup(window, cx),
@@ -1228,6 +1266,8 @@ pub fn popup_row_selector(ix: usize) -> String {
 pub struct ReferencesPopup {
     theme: Theme,
     symbol: String,
+    /// What the locations are: `reference` or `implementation`.
+    noun: &'static str,
     state: PopupState,
     refs: Vec<Reference>,
     rows: Vec<PopupRow>,
@@ -1242,12 +1282,14 @@ impl ReferencesPopup {
     pub fn new(
         theme: Theme,
         symbol: String,
+        noun: &'static str,
         anchor: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> Self {
         Self {
             theme,
             symbol,
+            noun,
             state: PopupState::Loading,
             refs: Vec::new(),
             rows: Vec::new(),
@@ -1283,13 +1325,16 @@ impl ReferencesPopup {
 
     pub fn header(&self) -> String {
         match &self.state {
-            PopupState::Loading => format!("'{}' references: searching\u{2026}", self.symbol),
-            PopupState::Failed(m) => format!("'{}' references: {m}", self.symbol),
+            PopupState::Loading => {
+                format!("'{}' {}s: searching\u{2026}", self.symbol, self.noun)
+            }
+            PopupState::Failed(m) => format!("'{}' {}s: {m}", self.symbol, self.noun),
             PopupState::Done => {
                 let n = self.refs.len();
                 format!(
-                    "'{}': {n} reference{}",
+                    "'{}': {n} {}{}",
                     self.symbol,
+                    self.noun,
                     if n == 1 { "" } else { "s" }
                 )
             }
@@ -1586,6 +1631,23 @@ mod tests {
                 }
             }),
             "- references"
+        );
+    }
+
+    #[test]
+    fn lenses_show_above_the_members_attributes() {
+        let text = "class T\n{\n    [Fact]\n    [Trait(\"A\", \"B\")]\n    public void Adds() { }\n\n    void Plain() { }\n}\n";
+        let buffer = eludite_editor::Buffer::new(text);
+        let s = buffer.snapshot();
+        let adds = text.find("Adds").unwrap();
+        assert_eq!(lens_offset(s, adds), text.find("[Fact]").unwrap());
+        let plain = text.find("Plain").unwrap();
+        assert_eq!(lens_offset(s, plain), plain);
+        let rust = "mod tests {\n    #[test]\n    fn adds() {}\n}\n";
+        let b = eludite_editor::Buffer::new(rust);
+        assert_eq!(
+            lens_offset(b.snapshot(), rust.find("adds").unwrap()),
+            rust.find("#[test]").unwrap()
         );
     }
 

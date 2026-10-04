@@ -407,16 +407,16 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
     }));
     t.w.open_solution();
     let view = open_calculator(&mut t);
-    // Rows in order (an unknown command shows nothing): the class, then each test method.
+    // Rows in order (an unknown command shows nothing): the class, then each test method, above its `[Fact]`.
     assert_eq!(
         titles(&t.w, &view),
         [
             (2, "Run All Tests".to_owned()),
             (2, "Debug All Tests".to_owned()),
-            (5, "Run Test".to_owned()),
-            (5, "Debug Test".to_owned()),
-            (11, "Run Test".to_owned()),
-            (11, "Debug Test".to_owned()),
+            (4, "Run Test".to_owned()),
+            (4, "Debug Test".to_owned()),
+            (10, "Run Test".to_owned()),
+            (10, "Debug Test".to_owned()),
         ]
     );
     let seen = record_titles(&mut t.w, &view);
@@ -425,7 +425,7 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
         t.w.shell.read_with(&t.w.vcx, |s, _| s.test_runs().phase),
         Phase::Idle
     );
-    let adds = lens_id(&t.w, &view, 5, "Run Test");
+    let adds = lens_id(&t.w, &view, 4, "Run Test");
     click_lens(&mut t.w, &view, adds);
     // The discovery builds first (the Test Explorer's build gate): the fake host's build succeeds.
     t.w.wait("the build before the discovery", |w| {
@@ -449,10 +449,10 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
     let first = last_run(&t);
     assert_eq!(t.wait_run_done(first), RunState::Passed);
     t.w.wait("the outcome on the lens", |w| {
-        lenses(w, &view).contains(&(5, "Run Test (12 ms)".into(), true, Some(TestGlyph::Passed)))
+        lenses(w, &view).contains(&(4, "Run Test (12 ms)".into(), true, Some(TestGlyph::Passed)))
     });
     // The tree is current now: Run Test on Subtracts runs at once, and its failure shows.
-    let subtracts = lens_id(&t.w, &view, 11, "Run Test");
+    let subtracts = lens_id(&t.w, &view, 10, "Run Test");
     click_lens(&mut t.w, &view, subtracts);
     let second = wait_next_run(&mut t, first);
     assert_eq!(t.wait_run_done(second), RunState::Failed);
@@ -461,7 +461,7 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
         json!([{"id": t.mtp, "tests": ["u-subtracts"]}])
     );
     t.w.wait("the failure on the lens", |w| {
-        lenses(w, &view).contains(&(11, "Run Test (3 ms)".into(), true, Some(TestGlyph::Failed)))
+        lenses(w, &view).contains(&(10, "Run Test (3 ms)".into(), true, Some(TestGlyph::Failed)))
     });
     // The failure is an Error List row, as a run from the Test Explorer makes.
     assert!(
@@ -487,7 +487,7 @@ fn run_test_from_a_lens_discovers_first_runs_through_the_test_explorer_and_shows
     });
 
     // Debug Test starts a session, as brief 0035's does: the fake adapter breaks in Adds.
-    let debug = lens_id(&t.w, &view, 5, "Debug Test");
+    let debug = lens_id(&t.w, &view, 4, "Debug Test");
     click_lens(&mut t.w, &view, debug);
     t.w.wait("the debugged test", |w| {
         w.shell
@@ -732,8 +732,8 @@ fn a_rust_analyzer_run_test_lens_from_the_generic_server_runs_the_cargo_test(
         titles(&w, &view),
         [
             (3, "1 implementation".to_owned()),
-            (16, "Run Test".to_owned()),
-            (16, "Debug Test".to_owned()),
+            (15, "Run Test".to_owned()),
+            (15, "Debug Test".to_owned()),
         ]
     );
     assert!(
@@ -755,7 +755,7 @@ fn a_rust_analyzer_run_test_lens_from_the_generic_server_runs_the_cargo_test(
     assert!(ra.received_params("textDocument/references").is_empty());
     w.vcx.simulate_keystrokes("escape");
     // Run Test: the Cargo tests are discovered (the real cargo), then tests::adds runs, and its outcome shows.
-    let run = lens_id(&w, &view, 16, "Run Test");
+    let run = lens_id(&w, &view, 15, "Run Test");
     click_lens(&mut w, &view, run);
     tr::wait_long(&mut w, "the Rust run", |w| {
         w.shell.read_with(&w.vcx, |s, _| {
@@ -772,7 +772,7 @@ fn a_rust_analyzer_run_test_lens_from_the_generic_server_runs_the_cargo_test(
     w.wait("the outcome on the lens", |w| {
         lenses(w, &view)
             .iter()
-            .any(|l| l.0 == 16 && l.1.starts_with("Run Test (") && l.3 == Some(TestGlyph::Passed))
+            .any(|l| l.0 == 15 && l.1.starts_with("Run Test (") && l.3 == Some(TestGlyph::Passed))
     });
 }
 
