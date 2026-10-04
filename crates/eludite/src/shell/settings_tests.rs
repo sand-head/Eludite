@@ -439,12 +439,17 @@ fn the_options_dialog_writes_the_opt_in_in_the_persons_workspace_state(
     w.wait("the ignored key reported", |w| {
         get(w)["ignored_keys"] == json!(["browser.allowNoSandbox"])
     });
-    let notes = w.shell.read_with(&w.vcx, |s, cx| {
-        s.options_dialog()
-            .unwrap()
-            .read(cx)
-            .notes("browser.allowNoSandbox")
+    // The dialog hears of it when the shell applies the change, after the store has it.
+    let notes = |w: &Ws| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.options_dialog()
+                .unwrap()
+                .read(cx)
+                .notes("browser.allowNoSandbox")
+        })
+    };
+    w.wait("the dialog's note", |w| {
+        notes(w).iter().any(|n| n.contains("is ignored"))
     });
-    assert!(notes.iter().any(|n| n.contains("is ignored")), "{notes:?}");
     assert!(!allowed(&w), "still the person's answer: off");
 }
