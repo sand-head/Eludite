@@ -73,6 +73,50 @@ pub fn default_font_family() -> SharedString {
     }
 }
 
+/// Monospace families tried, in order, when the configured one is not installed: a terminal needs a monospace font
+/// (a proportional fallback breaks the grid).
+pub const FALLBACK_FAMILIES: [&str; 8] = [
+    "Cascadia Mono",
+    "Noto Sans Mono",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Menlo",
+    "Consolas",
+    "Ubuntu Mono",
+    "Courier New",
+];
+
+/// `wanted` when the text system has it, else the first installed of [`FALLBACK_FAMILIES`] (looked up once per
+/// family).
+pub fn installed_family(
+    wanted: &SharedString,
+    text_system: &gpui::WindowTextSystem,
+) -> SharedString {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static NAMES: OnceLock<Vec<String>> = OnceLock::new();
+    static CHOSEN: OnceLock<Mutex<HashMap<SharedString, SharedString>>> = OnceLock::new();
+    let chosen = CHOSEN.get_or_init(Default::default);
+    if let Some(f) = chosen.lock().unwrap_or_else(|e| e.into_inner()).get(wanted) {
+        return f.clone();
+    }
+    let names = NAMES.get_or_init(|| text_system.all_font_names());
+    let has = |f: &str| names.iter().any(|n| n.eq_ignore_ascii_case(f));
+    let family = if has(wanted) || names.is_empty() {
+        wanted.clone()
+    } else {
+        FALLBACK_FAMILIES
+            .iter()
+            .find(|f| has(f))
+            .map_or_else(|| wanted.clone(), |f| SharedString::from(*f))
+    };
+    chosen
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(wanted.clone(), family.clone());
+    family
+}
+
 /// What the view asks of its owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalViewEvent {
@@ -1145,8 +1189,8 @@ impl Element for GridElement {
             let v = self.view.read(cx);
             (v.settings.font_family.clone(), v.settings.font_size)
         };
-        let font = gpui::font(family);
         let text_system = window.text_system();
+        let font = gpui::font(installed_family(&family, text_system));
         let font_id = text_system.resolve_font(&font);
         let cell_width = text_system
             .advance(font_id, font_size, 'm')
