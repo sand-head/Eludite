@@ -62,6 +62,8 @@ public sealed class LspProxy : IAsyncDisposable
         "textDocument/documentSymbol",
         "workspace/symbol",
         "textDocument/diagnostic",
+        "textDocument/codeLens",
+        "codeLens/resolve",
     ];
 
     /// <summary>Forwarded requests passed through untyped (still generation-checked).</summary>
@@ -96,6 +98,12 @@ public sealed class LspProxy : IAsyncDisposable
     public const string ApplyEdit = "workspace/applyEdit";
 
     internal const string ProjectInitializationComplete = "workspace/projectInitializationComplete";
+
+    /// <summary>The language server's request for fresh lenses (brief 0052).</summary>
+    internal const string CodeLensRefresh = "workspace/codeLens/refresh";
+
+    /// <summary>What the host tells the shell when it arrives (host-rpc.md, "Messages the host sends").</summary>
+    public const string ShellCodeLensRefresh = "eludite/codeLens/refresh";
 
     private static readonly JsonElement JsonNull = JsonDocument.Parse("null").RootElement.Clone();
 
@@ -407,8 +415,11 @@ public sealed class LspProxy : IAsyncDisposable
             }
 
             // WaitAsync returns as soon as the token fires; StreamJsonRpc separately sends $/cancelRequest upstream.
-            return await session.Rpc.InvokeWithParameterObjectAsync<JsonElement>(method, forwarded, linked.Token)
+            var result = await session.Rpc.InvokeWithParameterObjectAsync<JsonElement>(method, forwarded, linked.Token)
                 .WaitAsync(linked.Token).ConfigureAwait(false);
+            return method is "textDocument/codeLens" or "codeLens/resolve"
+                ? CodeLensCommands.Map(result, DocumentText)
+                : result;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && generationToken.IsCancellationRequested)
         {
@@ -425,6 +436,15 @@ public sealed class LspProxy : IAsyncDisposable
         }
     }
 
+    /// <summary>The host's copy of an open document's text (for the CodeLens command mapping), or null.</summary>
+    private string? DocumentText(string uri)
+    {
+        lock (_lock)
+        {
+            return _documents.Get(uri)?.Text;
+        }
+    }
+
     /// <summary>Minimal shape check for typed requests; returns a problem description or null.</summary>
     internal static string? ValidateTyped(string method, JsonElement p)
     {
@@ -436,6 +456,10 @@ public sealed class LspProxy : IAsyncDisposable
             "workspace/symbol" => HasString(p, "query") ? null : "params.query (string) is required",
             "completionItem/resolve" => HasString(p, "label") ? null : "params.label (string) is required",
             "codeAction/resolve" => HasString(p, "title") ? null : "params.title (string) is required",
+            "codeLens/resolve" => p.ValueKind == JsonValueKind.Object && p.TryGetProperty("range", out var range)
+                                  && range.ValueKind == JsonValueKind.Object
+                ? null
+                : "params.range (object) is required",
             _ when TypedRequests.Contains(method) =>
                 p.ValueKind == JsonValueKind.Object && p.TryGetProperty("textDocument", out var td) && HasString(td, "uri")
                     ? null
@@ -880,6 +904,8 @@ public sealed class LspProxy : IAsyncDisposable
                 resourceOperations = new[] { "create", "rename", "delete" },
                 failureHandling = "abort",
             },
+            // Brief 0052: Roslyn asks for fresh lenses (relayed to the shell as eludite/codeLens/refresh).
+            codeLens = new { refreshSupport = true },
         },
         textDocument = new
         {
@@ -916,6 +942,8 @@ public sealed class LspProxy : IAsyncDisposable
                 disabledSupport = true,
             },
             rename = new { prepareSupport = true },
+            // Brief 0052: the references and tests lenses.
+            codeLens = new { },
             publishDiagnostics = new { },
             diagnostic = new { dynamicRegistration = false },
         },
@@ -929,8 +957,7 @@ public sealed class LspProxy : IAsyncDisposable
         foreach (var method in new[]
                  {
                      "client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create",
-                     "window/showMessageRequest", "workspace/semanticTokens/refresh", "workspace/codeLens/refresh",
-                     "workspace/inlayHint/refresh",
+                     "window/showMessageRequest", "workspace/semanticTokens/refresh", "workspace/inlayHint/refresh",
                  })
         {
             AddMethod(upstream, method, new Func<JsonElement, JsonElement>(_ => JsonNull));
@@ -960,6 +987,16 @@ public sealed class LspProxy : IAsyncDisposable
         });
         upstream.AddLocalRpcMethod(refreshBare.Method, refreshBare.Target, new JsonRpcMethodAttribute("workspace/diagnostic/refresh"));
 
+        // Brief 0052: answered at once and relayed to the shell, which asks for its documents' lenses again. Roslyn
+        // sends it without params; register both shapes.
+        AddMethod(upstream, CodeLensRefresh, new Func<JsonElement, JsonElement>(_ => RelayCodeLensRefresh()));
+        var codeLensBare = new Func<object?>(() =>
+        {
+            RelayCodeLensRefresh();
+            return null;
+        });
+        upstream.AddLocalRpcMethod(codeLensBare.Method, codeLensBare.Target, new JsonRpcMethodAttribute(CodeLensRefresh));
+
         AddMethod(upstream, ApplyEdit, new Func<JsonElement, CancellationToken, Task<JsonElement>>(RelayApplyEditAsync));
 
         AddMethod(upstream, "window/logMessage", new Func<JsonElement, Task>(p =>
@@ -976,6 +1013,12 @@ public sealed class LspProxy : IAsyncDisposable
         {
             AddMethod(upstream, method, new Func<JsonElement, Task>(p => NotifyShellAsync(method, p.Clone())));
         }
+    }
+
+    private JsonElement RelayCodeLensRefresh()
+    {
+        _ = NotifyShellAsync(ShellCodeLensRefresh, new Dictionary<string, object> { [GenerationProperty] = Generation });
+        return JsonNull;
     }
 
     /// <summary>

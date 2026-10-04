@@ -121,6 +121,19 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
             kind = "quickfix",
             edit = new { changes = new Dictionary<string, object[]>() },
         })));
+        // Brief 0052: Roslyn's lens shapes. Line 2 holds the class, line 4 a test method.
+        Add(rpc, "textDocument/codeLens", new Func<JsonElement, object>(p => Record(launch, "textDocument/codeLens", p, CodeLenses(p.GetProperty("textDocument").GetProperty("uri").GetString()!))));
+        Add(rpc, "codeLens/resolve", new Func<JsonElement, object>(p => Record(launch, "codeLens/resolve", p, new
+        {
+            range = p.GetProperty("range"),
+            command = new
+            {
+                title = "3 references",
+                command = "roslyn.client.peekReferences",
+                arguments = new object[] { p.GetProperty("data").GetProperty("textDocument").GetProperty("uri").GetString()!, p.GetProperty("range").GetProperty("start") },
+            },
+            data = p.GetProperty("data"),
+        })));
         Add(rpc, "workspace/symbol", new Func<JsonElement, object>(p => Record(launch, "workspace/symbol", p, Array.Empty<object>())));
         Add(rpc, "textDocument/diagnostic", new Func<JsonElement, CancellationToken, Task<object>>((p, ct) => DiagnosticAsync(launch, p, ct)));
         Add(rpc, "shutdown", new Func<object?>(() => Record<object?>(launch, "shutdown", default, null)));
@@ -137,6 +150,41 @@ internal sealed class FakeLanguageServer : ILanguageServerLauncher
     public Task NotifyProjectsLoadedAsync() => _rpc!.NotifyAsync("workspace/projectInitializationComplete");
 
     public Task RequestDiagnosticRefreshAsync() => _rpc!.InvokeAsync<object?>("workspace/diagnostic/refresh");
+
+    /// <summary>Sends the host <c>workspace/codeLens/refresh</c> without params, as Roslyn does.</summary>
+    public Task RequestCodeLensRefreshAsync() => _rpc!.InvokeAsync<object?>("workspace/codeLens/refresh");
+
+    /// <summary>
+    /// What the pinned Roslyn answers for a document with <c>class CalculatorTests</c> on line 2 and the test method
+    /// <c>Adds</c> on line 4: unresolved references lenses for both, then Run Test and Debug Test for the method and
+    /// Run All Tests and Debug All Tests for the class (CodeLensHandler's order).
+    /// </summary>
+    public static object[] CodeLenses(string uri)
+    {
+        static object Range(int line, int from, int to) =>
+            new { start = new { line, character = from }, end = new { line, character = to } };
+        object Test(object range, string title, bool debug) => new
+        {
+            range,
+            command = new
+            {
+                title,
+                command = "dotnet.test.run",
+                arguments = new object[] { new { textDocument = new { uri }, range, attachDebugger = debug, runSettingsPath = (string?)null } },
+            },
+        };
+        var type = Range(2, 13, 28);
+        var method = Range(4, 23, 27);
+        return
+        [
+            new { range = type, data = new { syntaxVersion = "1", listIndex = 0, textDocument = new { uri } } },
+            new { range = method, data = new { syntaxVersion = "1", listIndex = 1, textDocument = new { uri } } },
+            Test(method, "Run Test", false),
+            Test(method, "Debug Test", true),
+            Test(type, "Run All Tests", false),
+            Test(type, "Debug All Tests", true),
+        ];
+    }
 
     /// <summary>Simulates the server process dying: its end of the connection goes away.</summary>
     public void Crash() => _rpc!.Dispose();
