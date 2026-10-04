@@ -297,9 +297,11 @@ impl Browser {
         }
         // A dialog the action opened: the page waits on it, so nothing more will happen until it is answered.
         let dialog = self.dialog_row(&tab);
+        // A stop in the debugger the action ran into (brief 0038): nothing more happens until the session continues.
+        let paused = self.paused(&tab);
         // Console errors and a navigation the action caused.
         let deadline = Instant::now()
-            + if dialog.is_some() {
+            + if dialog.is_some() || paused {
                 Duration::ZERO
             } else {
                 Duration::from_millis(wait_ms)
@@ -344,6 +346,7 @@ impl Browser {
             console_errors: s.console_error_list_since(seq0),
             elapsed_ms: ms(started.elapsed()),
             dialog,
+            paused,
         })
     }
 
@@ -468,8 +471,9 @@ impl Browser {
     ) -> Result<(), CommandError> {
         let calls = events.into_iter().map(|e| (method.to_owned(), e)).collect();
         // A dialog the input opens pauses the page, which then answers no more input: give up waiting and report
-        // the dialog. The person's Stop gives up too.
-        let give_up = || self.dialog_of(tab).is_some() || self.stopped();
+        // the dialog. So does a stop in the debugger (brief 0038). The person's Stop gives up too.
+        let held = || self.dialog_of(tab).is_some() || self.paused(tab);
+        let give_up = || held() || self.stopped();
         let answers = self.engine.send_many_unless(
             &tab.session,
             calls,
@@ -481,8 +485,8 @@ impl Browser {
         }
         for r in answers {
             match r {
-                Err(crate::engine::EngineError::Interrupted) if self.dialog_of(tab).is_some() => {}
-                Err(crate::engine::EngineError::Cdp(_)) if self.dialog_of(tab).is_some() => {}
+                Err(crate::engine::EngineError::Interrupted) if held() => {}
+                Err(crate::engine::EngineError::Cdp(_)) if held() => {}
                 r => {
                     r.map_err(|e| failed(format!("{method}: {e}")))?;
                 }

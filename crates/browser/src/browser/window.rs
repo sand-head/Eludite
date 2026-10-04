@@ -25,6 +25,34 @@ pub struct Interrupt {
     stops: AtomicU64,
 }
 
+/// The tabs whose page is stopped in the debugger (brief 0038), by command tab id (`t1`): the shell's debugger sets
+/// them as a browser debugging session breaks and continues. A paused page answers no input events, so `input` stops
+/// waiting for their answers and reports `paused`.
+#[derive(Debug, Default)]
+pub struct DebuggerPauses(std::sync::Mutex<Vec<String>>);
+
+impl DebuggerPauses {
+    /// The paused tabs from now on; whether they changed.
+    pub fn set(&self, mut tabs: Vec<String>) -> bool {
+        tabs.sort_unstable();
+        tabs.dedup();
+        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if *held == tabs {
+            return false;
+        }
+        *held = tabs;
+        true
+    }
+
+    pub fn is_paused(&self, tab: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|t| t == tab)
+    }
+}
+
 /// The [`Interrupt`] counters when a call began.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Marks {

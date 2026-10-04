@@ -1188,6 +1188,9 @@ pub struct InputOutput {
     /// The dialog the action opened, which the page now waits on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dialog: Option<DialogRow>,
+    /// The page stopped in the debugger during the action (brief 0038).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub paused: bool,
 }
 
 /// A dialog a page waits on (`input`'s `dialog`).
@@ -3465,6 +3468,7 @@ mod tests {
                         message: "Sure?".into(),
                         default_text: None,
                     }),
+                    paused: true,
                 }),
             ),
             (

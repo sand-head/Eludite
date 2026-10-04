@@ -41,7 +41,7 @@ pub mod ring;
 pub mod tab;
 
 pub use browser::{Browser, DebugTarget};
-pub use browser::{Interrupt, Marks};
+pub use browser::{DebuggerPauses, Interrupt, Marks};
 pub use chrome::ExternalChrome;
 pub use connection::{CdpError, CdpEvent, Connection};
 pub use discovery::ChromeSearch;

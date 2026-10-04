@@ -21,7 +21,7 @@ mod window;
 
 pub use self::act::SET_JS;
 pub use self::data::{OPENER_ENV, base64_decode, base64_encode, opener};
-pub use self::window::{Interrupt, Marks, stopped_error};
+pub use self::window::{DebuggerPauses, Interrupt, Marks, stopped_error};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -145,6 +145,8 @@ pub struct Browser {
     /// The person's hand (brief 0032), and its counters when the current call began.
     interrupt: Arc<Interrupt>,
     marks: Marks,
+    /// The tabs stopped in the debugger (brief 0038).
+    pauses: Arc<DebuggerPauses>,
     /// `record` in progress.
     recording: Option<record::Recording>,
 }
@@ -235,6 +237,7 @@ impl Browser {
             opener: None,
             interrupt: Arc::default(),
             marks: Marks::default(),
+            pauses: Arc::default(),
             recording: None,
         }
     }
@@ -247,6 +250,16 @@ impl Browser {
     /// Share `interrupt` (the shell's, which outlives engines).
     pub fn set_interrupt(&mut self, interrupt: Arc<Interrupt>) {
         self.interrupt = interrupt;
+    }
+
+    /// Share `pauses` (the shell debugger's, brief 0038).
+    pub fn set_pauses(&mut self, pauses: Arc<DebuggerPauses>) {
+        self.pauses = pauses;
+    }
+
+    /// Whether `tab`'s page is stopped in the debugger.
+    fn paused(&self, tab: &Tab) -> bool {
+        self.pauses.is_paused(&tab.id)
     }
 
     /// The engine's tab ids by command tab id (`t1`): the Web Browser window draws the engine's tabs.

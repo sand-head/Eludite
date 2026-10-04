@@ -1,6 +1,6 @@
 //! Brief 0032's commands on a [`Browser`] over a fake engine (no browser needed): `record` makes a GIF with one
 //! frame per tick from the engine's frames, `dialog` answers the engine's dialog and `input` reports the dialog it
-//! opened instead of waiting on the paused page, `devtools` reaches the engine, `navigate` stops, and the person's
+//! opened instead of waiting on the paused page (and reports a stop in the debugger the same way, brief 0038), `devtools` reaches the engine, `navigate` stops, and the person's
 //! [`eludite_browser::Interrupt`] ends a `wait` with `interrupted_by: "user"` and fails a stopped call.
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use eludite_browser::embedded::Frame;
 use eludite_browser::{
-    Browser, CdpEvent, DialogAnswer, Engine, EngineConfig, EngineError, FrameSource, LaunchInfo,
-    PendingDialog, TargetInfo,
+    Browser, CdpEvent, DebuggerPauses, DialogAnswer, Engine, EngineConfig, EngineError,
+    FrameSource, LaunchInfo, PendingDialog, TargetInfo,
 };
 use eludite_commands::browser as cmds;
 use serde_json::{Value, json};
@@ -54,6 +54,8 @@ struct Seen {
     devtools: Mutex<Vec<Inspected>>,
     /// A mouse press opens this dialog (and is then never answered, as a paused page does).
     press_opens: Mutex<Option<PendingDialog>>,
+    /// A mouse press stops the page in the debugger: the shell's debugger marks the tab in these (brief 0038).
+    press_pauses: Mutex<Option<Arc<DebuggerPauses>>>,
 }
 
 struct Fake {
@@ -138,6 +140,25 @@ impl Engine for Fake {
                     if let Some(d) = opens {
                         *self.seen.dialog.lock().unwrap() = Some(d);
                     }
+                }
+                if m == "Input.dispatchMouseEvent"
+                    && p["type"] == "mousePressed"
+                    && let Some(pauses) = self.seen.press_pauses.lock().unwrap().as_ref()
+                {
+                    let seen = self.seen.clone();
+                    let pauses = pauses.clone();
+                    // The debugger learns of the stop a moment later, as the shell does from the adapter.
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(50));
+                        pauses.set(vec!["t1".into()]);
+                        seen.sent.lock().unwrap().push("paused".into());
+                    });
+                    let t0 = Instant::now();
+                    while !give_up() {
+                        assert!(t0.elapsed() < Duration::from_secs(5), "never gave up");
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    return Err(EngineError::Interrupted);
                 }
                 if self.seen.dialog.lock().unwrap().is_some() {
                     // The paused page answers nothing; the caller gives up.
@@ -295,6 +316,39 @@ fn input_reports_the_dialog_it_opened_and_dialog_answers_it() {
     )
     .unwrap();
     assert_eq!(p["text"], "Ada");
+}
+
+#[test]
+fn input_reports_a_stop_in_the_debugger_instead_of_waiting_on_the_paused_page() {
+    let (mut b, seen) = browser();
+    let pauses = Arc::new(DebuggerPauses::default());
+    b.set_pauses(pauses.clone());
+    *seen.press_pauses.lock().unwrap() = Some(pauses.clone());
+    let t0 = Instant::now();
+    let out = call(
+        &mut b,
+        cmds::INPUT,
+        json!({"action": "click", "x": 10, "y": 10, "wait_ms": 3000}),
+    )
+    .unwrap();
+    assert!(
+        t0.elapsed() < Duration::from_secs(2),
+        "no wait on a page stopped in the debugger: {:?}",
+        t0.elapsed()
+    );
+    assert_eq!(out["paused"], true, "{out}");
+    assert!(out.get("dialog").is_none(), "{out}");
+    // The session continued: the next input is answered and says nothing of a pause.
+    *seen.press_pauses.lock().unwrap() = None;
+    assert!(pauses.set(Vec::new()));
+    assert!(!pauses.set(Vec::new()), "no change, no news");
+    let out = call(
+        &mut b,
+        cmds::INPUT,
+        json!({"action": "click", "x": 10, "y": 10}),
+    )
+    .unwrap();
+    assert!(out.get("paused").is_none(), "{out}");
 }
 
 #[test]
