@@ -80,6 +80,16 @@
 //! [`EditorView::expression_at`] gives the member-access expression under the mouse for data tips, which the owner
 //! shows with [`EditorView::open_data_tip`] and [`EditorView::set_hover`].
 //!
+//! # CodeLens (brief 0052)
+//!
+//! [`EditorView::set_code_lenses`] shows Visual Studio's CodeLens indicators on a display-only row above each member
+//! (`3 references | Run Test | Debug Test`): the row takes layout height ([`VerticalLayout`]) but holds no buffer
+//! text, so the caret, selections, line numbers and gutter never move because of it. The view says when lenses are
+//! wanted ([`EditorEvent::CodeLensRequested`]: on [`EditorView::set_code_lens_enabled`], 150 ms after the last edit,
+//! on [`EditorView::refresh_code_lenses`]) and which to resolve ([`EditorEvent::CodeLensResolve`]: those within 50
+//! lines of the visible range); a click or Ctrl+K, Ctrl+Q emits [`EditorEvent::CodeLensActivated`]. Overlays drawn
+//! beside the text place themselves with [`EditorView::row_top`].
+//!
 //! # Known gaps
 //!
 //! No IME composition (composed text is inserted as typed), no soft wrap,
@@ -89,6 +99,7 @@
 //! must be UTF-8.
 
 mod buffer;
+mod codelens;
 mod debugging;
 pub mod display;
 mod editor;
@@ -99,12 +110,13 @@ mod view;
 
 pub use buffer::{Buffer, LARGE_FILE_THRESHOLD, LineEnding, LoadError};
 pub use debugging::{BreakpointGlyph, ExecutionKind};
+pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
 pub use intellisense::{
-    AcceptedCompletion, CompletionEdit, CompletionItem, CompletionRequest, CompletionSnapshot,
-    CompletionSource, CompletionTrigger, EditorEvent, HoverSnapshot, SignatureHelpData,
-    SignatureInfo, SignatureSnapshot, SignatureTrigger,
+    AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,
+    CompletionRequest, CompletionSnapshot, CompletionSource, CompletionTrigger, EditorEvent,
+    HoverSnapshot, SignatureHelpData, SignatureInfo, SignatureSnapshot, SignatureTrigger,
 };
 pub use text;
 pub use view::{
@@ -115,8 +127,8 @@ pub use view::{
 pub mod actions {
     pub use crate::view::{
         AcceptCompletion, CompletionPageDown, CompletionPageUp, NextSignature, PreviousSignature,
-        SelectNextCompletion, SelectPreviousCompletion, ShowCompletions, ShowHover,
-        ShowSignatureHelp,
+        SelectNextCompletion, SelectPreviousCompletion, ShowCodeLensMenu, ShowCompletions,
+        ShowHover, ShowSignatureHelp,
     };
     pub use crate::view::{
         AddCaretAbove, AddCaretBelow, Backspace, Cancel, Copy, Cut, Delete, DeleteWordLeft,

@@ -17,9 +17,10 @@ use gpui::{
 use text::{Anchor, BufferSnapshot, OffsetUtf16};
 
 use crate::buffer::Buffer;
+use crate::codelens::CodeLenses;
 use crate::debugging::{BREAKPOINT_MARGIN, BreakpointGlyph, ExecutionKind};
 use crate::display::{
-    byte_for_visual_column, expand_tabs, from_display, to_display, visual_column,
+    VerticalLayout, byte_for_visual_column, expand_tabs, from_display, to_display, visual_column,
 };
 use crate::editor::{ClickKind, Editor, FindQuery, SelectionRange};
 use crate::intellisense::{CompletionTrigger, EditorEvent, SignatureTrigger};
@@ -90,6 +91,7 @@ actions!(
         CompletionPageDown,
         PreviousSignature,
         NextSignature,
+        ShowCodeLensMenu,
     ]
 );
 
@@ -158,6 +160,8 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-space", ShowCompletions, c),
         KeyBinding::new("ctrl-shift-space", ShowSignatureHelp, c),
         KeyBinding::new("ctrl-k ctrl-i", ShowHover, c),
+        // Visual Studio's Show CodeLens Menu (brief 0052): the first indicator of the member at the caret.
+        KeyBinding::new("ctrl-k ctrl-q", ShowCodeLensMenu, c),
         // Up and Down cycle overloads while Parameter Info shows several, unless the completion list is open
         // (bound after these, so it wins).
         KeyBinding::new("up", PreviousSignature, Some(SIGNATURES_CONTEXT)),
@@ -265,6 +269,10 @@ pub(crate) struct LastLayout {
     pub rows: Vec<(u32, String, ShapedLine)>,
     /// Where the light bulb was painted.
     pub lightbulb: Option<Bounds<Pixels>>,
+    /// The rows and lens rows as painted (brief 0052).
+    pub vertical: VerticalLayout,
+    /// Where each CodeLens indicator was painted, by lens id.
+    pub lens_hits: Vec<(Bounds<Pixels>, u64)>,
 }
 
 /// A GPUI view showing one [`Editor`].
@@ -299,6 +307,8 @@ pub struct EditorView {
     pub(crate) execution: Option<(Range<Anchor>, ExecutionKind)>,
     /// Emmet abbreviations expand on Tab (brief 0050's `editor.emmet`), in languages that have an Emmet syntax.
     emmet: bool,
+    /// CodeLens rows (brief 0052).
+    pub(crate) lenses: CodeLenses,
 }
 
 impl EditorView {
@@ -336,6 +346,7 @@ impl EditorView {
             breakpoint_glyphs: Vec::new(),
             execution: None,
             emmet: false,
+            lenses: CodeLenses::default(),
         };
         this.schedule_highlight(cx);
         this
@@ -454,34 +465,39 @@ impl EditorView {
 
     /// Vertical scroll offset in pixels (top of the viewport).
     pub fn set_scroll_y(&mut self, y: Pixels, cx: &mut Context<Self>) {
-        self.scroll.y = y.max(px(0.)).min(self.max_scroll_y());
-        self.autoscroll = false;
+        self.set_scroll_y_quietly(y);
+        self.check_lens_resolve(cx);
         cx.notify();
     }
 
-    /// The largest vertical offset: the last row at the top of the viewport.
+    pub(crate) fn set_scroll_y_quietly(&mut self, y: Pixels) {
+        self.scroll.y = y.max(px(0.)).min(self.max_scroll_y());
+        self.autoscroll = false;
+    }
+
+    /// The largest vertical offset: the last row (with its lens row) at the top of the viewport.
     pub fn max_scroll_y(&self) -> Pixels {
-        self.style.line_height * (self.editor.buffer().line_count().saturating_sub(1)) as f32
+        px(self.vertical_layout().max_scroll())
     }
 
     pub fn line_height(&self) -> Pixels {
         self.style.line_height
     }
 
-    /// Scroll so `row` is at the top.
+    /// Scroll so `row` (with its lens row, if it has one) is at the top.
     pub fn scroll_to_row(&mut self, row: u32, cx: &mut Context<Self>) {
-        self.set_scroll_y(self.style.line_height * row as f32, cx);
+        let y = px(self.vertical_layout().slot_top(row));
+        self.set_scroll_y(y, cx);
     }
 
     /// Rows currently visible (from the last layout, or an estimate).
     pub fn visible_rows(&self) -> Range<u32> {
-        let lh = self.style.line_height;
-        let first = (self.scroll.y / lh).floor() as u32;
-        let count = self
+        let height = self
             .layout
             .as_ref()
-            .map_or(60, |l| (l.bounds.size.height / lh).ceil() as u32 + 1);
-        first..(first + count).min(self.editor.buffer().line_count())
+            .map_or(self.style.line_height * 60., |l| l.bounds.size.height);
+        self.vertical_layout()
+            .visible_rows(f32::from(self.scroll.y), f32::from(height))
     }
 
     // ----- highlighting -----
@@ -584,6 +600,7 @@ impl EditorView {
         }
         self.autoscroll = true;
         self.schedule_highlight(cx);
+        self.lens_edited(cx);
         cx.notify();
     }
 
@@ -841,7 +858,12 @@ impl EditorView {
         let l = self.layout.as_ref()?;
         let buffer = self.editor.buffer();
         let y = position.y - l.bounds.top() + l.scroll.y;
-        let row = ((y / l.line_height).floor().max(0.) as u32).min(buffer.line_count() - 1);
+        // A point on a lens row maps to the row below it.
+        let row = l
+            .vertical
+            .hit(f32::from(y))
+            .row
+            .min(buffer.line_count() - 1);
         let x = (position.x - l.text_left + l.scroll.x).max(px(0.));
         let col = match l.rows.iter().find(|(r, _, _)| *r == row) {
             Some((_, text, shaped)) => from_display(text, shaped.closest_index_for_x(x)),
@@ -861,7 +883,7 @@ impl EditorView {
         let p = self.editor.buffer().offset_to_point(offset);
         let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == p.row)?;
         let x = l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, p.column as usize));
-        let y = l.bounds.top() + l.line_height * p.row as f32 - l.scroll.y;
+        let y = l.bounds.top() + px(l.vertical.line_top(p.row)) - l.scroll.y;
         Some(point(x, y))
     }
 
@@ -886,6 +908,26 @@ impl EditorView {
             cx.emit(EditorEvent::LightbulbClicked { row });
             return;
         }
+        // A CodeLens indicator (brief 0052); the rest of a lens row holds no text and does nothing.
+        if let Some(l) = self.layout.as_ref() {
+            if let Some((_, id)) = l
+                .lens_hits
+                .iter()
+                .find(|(b, _)| b.contains(&event.position))
+            {
+                if event.button == MouseButton::Left {
+                    cx.emit(EditorEvent::CodeLensActivated {
+                        id: *id,
+                        keyboard: false,
+                    });
+                }
+                return;
+            }
+            let y = event.position.y - l.bounds.top() + l.scroll.y;
+            if event.position.x >= l.text_left && l.vertical.hit(f32::from(y)).in_lens {
+                return;
+            }
+        }
         let Some(offset) = self.offset_for_position(event.position) else {
             return;
         };
@@ -909,6 +951,16 @@ impl EditorView {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let lens = self.layout.as_ref().and_then(|l| {
+            l.lens_hits
+                .iter()
+                .find(|(b, _)| b.contains(&event.position))
+                .map(|(_, id)| *id)
+        });
+        if lens != self.lenses.hovered {
+            self.lenses.hovered = lens;
+            cx.notify();
+        }
         if event.pressed_button.is_none() {
             self.hover_mouse_moved(event.position, cx);
         }
@@ -935,20 +987,31 @@ impl EditorView {
             .min(self.max_scroll_y());
         self.scroll.x = (self.scroll.x - delta.x).max(px(0.));
         self.autoscroll = false;
+        self.check_lens_resolve(cx);
         cx.notify();
     }
 
     /// Called at the start of each layout: apply autoscroll and clamp.
-    fn prepare_frame(&mut self, viewport: Size<Pixels>, text_width: Pixels, char_width: Pixels) {
+    fn prepare_frame(
+        &mut self,
+        viewport: Size<Pixels>,
+        text_width: Pixels,
+        char_width: Pixels,
+        cx: &mut Context<Self>,
+    ) {
         let lh = self.style.line_height;
         let rows = ((viewport.height / lh).floor() as u32).max(1);
         self.editor.page_rows = rows.saturating_sub(1).max(1);
         if self.autoscroll {
             self.autoscroll = false;
             let head = self.editor.primary_head();
-            let top = lh * head.row as f32;
+            // The caret's line, and its lens row when scrolling up to it (the member's indicators come into view).
+            let (slot, top) = {
+                let v = self.vertical_layout();
+                (px(v.slot_top(head.row)), px(v.line_top(head.row)))
+            };
             if top < self.scroll.y {
-                self.scroll.y = top;
+                self.scroll.y = slot;
             } else if top + lh > self.scroll.y + viewport.height {
                 self.scroll.y = top + lh - viewport.height;
             }
@@ -962,6 +1025,7 @@ impl EditorView {
             }
         }
         self.scroll.y = self.scroll.y.max(px(0.)).min(self.max_scroll_y());
+        self.check_lens_resolve(cx);
     }
 }
 
@@ -1008,6 +1072,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::show_completions))
             .on_action(cx.listener(Self::show_signature_help))
             .on_action(cx.listener(Self::show_hover))
+            .on_action(
+                cx.listener(|this, _: &ShowCodeLensMenu, _, cx| this.show_code_lens_menu(cx)),
+            )
             .on_action(cx.listener(Self::accept_completion_action))
             .on_action(cx.listener(|this, _: &SelectPreviousCompletion, _, cx| {
                 this.move_completion_selection(-1, cx)
@@ -1203,7 +1270,7 @@ impl EntityInputHandler for EditorView {
         let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == start.row)?;
         let x =
             l.text_left - l.scroll.x + shaped.x_for_index(to_display(text, start.column as usize));
-        let y = l.bounds.top() + l.line_height * start.row as f32 - l.scroll.y;
+        let y = l.bounds.top() + px(l.vertical.line_top(start.row)) - l.scroll.y;
         Some(Bounds::new(point(x, y), size(px(1.), l.line_height)))
     }
 
@@ -1255,8 +1322,20 @@ struct RowLayout {
     number: ShapedLine,
 }
 
+/// One lens row as laid out: its text and where each indicator is.
+struct LensLine {
+    origin: Point<Pixels>,
+    line: ShapedLine,
+    hitboxes: Vec<gpui::Hitbox>,
+}
+
 pub struct PrepaintState {
     rows: Vec<RowLayout>,
+    /// CodeLens rows (brief 0052) and where each indicator is, by lens id.
+    lenses: Vec<LensLine>,
+    lens_hits: Vec<(Bounds<Pixels>, u64)>,
+    vertical: VerticalLayout,
+    lens_height: Pixels,
     /// The light bulb's bounds and color.
     lightbulb: Option<(Bounds<Pixels>, Rgba)>,
     /// Breakpoint glyphs and the execution arrow in the margin (brief 0018).
@@ -1318,7 +1397,7 @@ impl Element for EditorElement {
                 v.editor.buffer().line_count(),
             )
         };
-        let text_system = window.text_system();
+        let text_system = window.text_system().clone();
         let font_id = text_system.resolve_font(&font);
         let char_width = text_system
             .advance(font_id, font_size, 'm')
@@ -1329,8 +1408,8 @@ impl Element for EditorElement {
         let gutter_width =
             char_width * (digits as f32 + 2.5) + LIGHTBULB_MARGIN + BREAKPOINT_MARGIN;
         let text_width = bounds.size.width - gutter_width;
-        self.view.update(cx, |v, _| {
-            v.prepare_frame(bounds.size, text_width, char_width)
+        self.view.update(cx, |v, cx| {
+            v.prepare_frame(bounds.size, text_width, char_width, cx)
         });
 
         let v = self.view.read(cx);
@@ -1339,11 +1418,13 @@ impl Element for EditorElement {
         let buffer = v.editor.buffer();
         let snapshot = buffer.snapshot();
         let scroll = v.scroll;
-        let first = (scroll.y / lh).floor() as u32;
-        let count = (bounds.size.height / lh).ceil() as u32 + 1;
-        let last = (first + count).min(line_count);
+        // Buffer rows and the lens rows between them (brief 0052).
+        let vertical = v.vertical_layout().clone();
+        let lens_height = v.lens_height();
+        let visible = vertical.visible_rows(f32::from(scroll.y), f32::from(bounds.size.height));
+        let (first, last) = (visible.start, visible.end.min(line_count));
         let text_left = bounds.left() + gutter_width;
-        let row_top = |row: u32| bounds.top() + lh * row as f32 - scroll.y;
+        let row_top = |row: u32| bounds.top() + px(vertical.line_top(row)) - scroll.y;
 
         let selections = v.editor.selections();
         let primary = v.editor.primary_selection();
@@ -1534,8 +1615,78 @@ impl Element for EditorElement {
                 .contains(&row)
                 .then(|| (margin_cell(row), *kind))
         });
+        // CodeLens rows: the indicators at the member's indentation, separated by bars, in the lens colour and a
+        // smaller size; a test's outcome glyph in its own colour; the indicator under the mouse underlined.
+        let mut lenses = Vec::new();
+        let mut lens_hits = Vec::new();
+        let lens_items = v.lens_rows_in(first..last);
+        if !lens_items.is_empty() {
+            let lens_font = window.text_style().font();
+            let lens_size = (font_size * 0.85).round();
+            let lens_color = hsla(style.theme.code_lens);
+            let hovered = v.lenses.hovered;
+            let run = |len: usize, color: Hsla, underline: bool| TextRun {
+                len,
+                font: lens_font.clone(),
+                color,
+                background_color: None,
+                underline: underline.then_some(UnderlineStyle {
+                    color: Some(color),
+                    thickness: px(1.),
+                    wavy: false,
+                }),
+                strikethrough: None,
+            };
+            for (row, items) in lens_items {
+                let line_text = buffer.line(row);
+                let indent =
+                    visual_column(&line_text, line_text.len() - line_text.trim_start().len());
+                let mut text = String::new();
+                let mut runs = Vec::new();
+                let mut spans = Vec::new();
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        text.push_str(" | ");
+                        runs.push(run(3, lens_color, false));
+                    }
+                    let start = text.len();
+                    let under = hovered == Some(item.id);
+                    if let Some(glyph) = item.glyph {
+                        let g = format!("{} ", glyph.glyph());
+                        runs.push(run(g.len(), hsla(glyph.color()), false));
+                        text.push_str(&g);
+                    }
+                    runs.push(run(item.title.len(), lens_color, under));
+                    text.push_str(&item.title);
+                    spans.push((start, text.len(), item.id));
+                }
+                let line = text_system.shape_line(SharedString::from(text), lens_size, &runs, None);
+                let origin = point(
+                    text_left - scroll.x + char_width * indent as f32,
+                    bounds.top() + px(vertical.slot_top(row)) - scroll.y,
+                );
+                let mut hitboxes = Vec::new();
+                for (start, end, id) in spans {
+                    let hit = Bounds::from_corners(
+                        point(origin.x + line.x_for_index(start), origin.y),
+                        point(origin.x + line.x_for_index(end), origin.y + lens_height),
+                    );
+                    hitboxes.push(window.insert_hitbox(hit, gpui::HitboxBehavior::Normal));
+                    lens_hits.push((hit, id));
+                }
+                lenses.push(LensLine {
+                    origin,
+                    line,
+                    hitboxes,
+                });
+            }
+        }
         PrepaintState {
             rows,
+            lenses,
+            lens_hits,
+            vertical,
+            lens_height,
             lightbulb,
             glyphs,
             arrow,
@@ -1569,7 +1720,8 @@ impl Element for EditorElement {
         window.paint_quad(fill(bounds, hsla(state.background)));
         let lh = state.line_height;
         let text_left = bounds.left() + state.gutter_width;
-        let row_top = |row: u32| bounds.top() + lh * row as f32 - state.scroll.y;
+        let vertical = &state.vertical;
+        let row_top = |row: u32| bounds.top() + px(vertical.line_top(row)) - state.scroll.y;
         for r in &state.rows {
             let x = text_left - state.char_width * 1.5 - r.number.width();
             r.number
@@ -1685,6 +1837,18 @@ impl Element for EditorElement {
                         )
                         .ok();
                 }
+                for l in &state.lenses {
+                    l.line
+                        .paint(
+                            l.origin,
+                            state.lens_height,
+                            TextAlign::Left,
+                            None,
+                            window,
+                            cx,
+                        )
+                        .ok();
+                }
                 if state.focused {
                     for q in state.carets.drain(..) {
                         window.paint_quad(q);
@@ -1692,6 +1856,11 @@ impl Element for EditorElement {
                 }
             },
         );
+        for l in &state.lenses {
+            for h in &l.hitboxes {
+                window.set_cursor_style(CursorStyle::PointingHand, h);
+            }
+        }
         let rows = std::mem::take(&mut state.rows)
             .into_iter()
             .map(|r| (r.row, r.text, r.line))
@@ -1704,6 +1873,8 @@ impl Element for EditorElement {
             scroll: state.scroll,
             rows,
             lightbulb: state.lightbulb.map(|(b, _)| b),
+            vertical: std::mem::take(&mut state.vertical),
+            lens_hits: std::mem::take(&mut state.lens_hits),
         };
         self.view.update(cx, |v, _| v.layout = Some(layout));
     }
