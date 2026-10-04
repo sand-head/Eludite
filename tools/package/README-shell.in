@@ -1,0 +1,24 @@
+Eludite @VERSION@ for @OS@ (@ARCH@)
+====================================
+
+Run it from this folder:
+
+    eludite@EXE@ --folder path/to/my-project        (or --solution path/to/App.slnx)
+
+Nothing here needs installing, and Eludite needs no environment variables: the shell finds the programs it runs beside
+itself (Companions, below). Eludite makes no network call at startup.
+
+This archive has no embedded browser engine, which runs on Linux only so far (the Linux tarball carries it): the Web
+Browser window says so when opened. The eludite.browser.* commands still drive a Chrome found on the machine or named
+by ELUDITE_CHROME.
+
+Files
+-----
+
+    eludite@EXE@               the IDE
+    eludite-host/              the .NET host
+    eludite-dbg-mono/          the .NET Framework debugger for Mono
+    eludite-claude-acp@EXE@    the Claude Code adapter
+    LICENSE                    GNU General Public License, version 3 (Eludite is GPL-3.0-or-later)
+    THIRD-PARTY-CRATES.txt     the Rust crates linked into eludite, with their licenses
+    licenses/                  the companions' licenses

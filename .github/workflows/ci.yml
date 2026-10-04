@@ -163,21 +163,7 @@ jobs:
         if: runner.os != 'Linux'
         run: cargo test --workspace
 
-      # Brief 0039: the Linux package. tools/package/linux.sh makes the release tarball from the CEF fetched above (no
-      # download then), and the smoke test runs eludite and eludite-chromium from it with no CEF_PATH, ELUDITE_CEF,
-      # ELUDITE_CHROMIUM or CEF cache in their environment. Skipped with a notice when CEF is not there.
-      - name: Package (Linux)
-        if: runner.os == 'Linux' && env.CEF_PATH != ''
-        run: |
-          tarball="$(tools/package/linux.sh --out "${{ runner.temp }}/package")"
-          ls -l "$tarball"
-          xvfb-run -a env ELUDITE_PACKAGE_TARBALL="$tarball" \
-            cargo test -p eludite-chromium --features cef --test package -- --nocapture
-          rm -rf "${{ runner.temp }}/package"
-
-      - name: Package (Linux, skipped)
-        if: runner.os == 'Linux' && env.CEF_PATH == ''
-        run: echo "::notice::CEF is not cached, so the Linux package (tools/package/linux.sh) and its smoke test were skipped"
+      # Brief 0039's Linux package and its smoke test run in the package job below, which uploads the archives.
 
       # The scenario ran in the step above; this runs it again alone and prints its call lists, sizes and times. Same
       # features as the test step, so nothing is rebuilt.
@@ -257,3 +243,91 @@ jobs:
 
       - name: Test
         run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build
+
+  # The archives to download and run without building (tools/package/): on Linux brief 0039's tarball with the browser
+  # engine and CEF, on Windows and macOS the shell-only archive (the engine is Linux-only so far), each with the .NET host,
+  # eludite-dbg-mono and eludite-claude-acp beside the shell (companions.sh). Release builds, so this job runs beside the
+  # test jobs rather than after them. Each archive is this run's artifact eludite-<version>-<os>-<arch>.
+  package:
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev libxkbcommon-x11-dev libvulkan-dev \
+            libfontconfig1-dev libssl-dev libgit2-dev \
+            pkg-config cmake clang xvfb desktop-file-utils
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install
+
+      # agents/claude-acp is its own cargo workspace (companions.sh builds it).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            agents/claude-acp
+          cache-on-failure: true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache CEF
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/cef
+          key: cef-${{ runner.os }}-${{ hashFiles('tools/cef/PIN') }}
+
+      # linux.sh fetches CEF itself when the cache missed. The smoke test (browsers/chromium/tests/package.rs) then runs
+      # eludite and eludite-chromium from the finished tarball with no CEF_PATH, ELUDITE_CEF, ELUDITE_CHROMIUM or CEF
+      # cache in their environment; CEF_PATH here only builds the test, and ELUDITE_CHROME_NO_SANDBOX=1 is the hosted
+      # runners' AppArmor workaround, as in the rust job.
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          archive="$(tools/package/linux.sh --with-companions --out "${{ runner.temp }}/package")"
+          ls -l "$archive"
+          export CEF_PATH="$(tools/cef/fetch.sh)"
+          xvfb-run -a env ELUDITE_PACKAGE_TARBALL="$archive" ELUDITE_CHROME_NO_SANDBOX=1 \
+            cargo test -p eludite-chromium --features cef --test package -- --nocapture
+
+      - name: Package (Windows, macOS)
+        if: runner.os != 'Linux'
+        run: |
+          out="$RUNNER_TEMP/package"
+          if command -v cygpath >/dev/null 2>&1; then out="$(cygpath -u "$RUNNER_TEMP")/package"; fi
+          archive="$(tools/package/shell.sh --out "$out")"
+          ls -l "$archive"
+
+      - name: Name the artifact
+        id: name
+        run: |
+          # Git Bash's globbing needs the POSIX spelling of RUNNER_TEMP, not D:\a\_temp.
+          tmp="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null 2>&1; then tmp="$(cygpath -u "$RUNNER_TEMP")"; fi
+          archive="$(ls "$tmp"/package/eludite-*.tar.gz "$tmp"/package/eludite-*.zip 2>/dev/null | head -n 1)"
+          name="$(basename "$archive")"; name="${name%.tar.gz}"; name="${name%.zip}"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: |
+            ${{ runner.temp }}/package/eludite-*.tar.gz
+            ${{ runner.temp }}/package/eludite-*.zip
+          if-no-files-found: error
+          compression-level: 0

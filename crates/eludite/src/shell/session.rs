@@ -98,8 +98,9 @@ impl std::fmt::Debug for HostLaunch {
 }
 
 impl HostLaunch {
-    /// `eludite-host` beside this executable (an apphost `eludite-host`, or `eludite-host.dll` run with `dotnet`),
-    /// then `ELUDITE_HOST` (either form), then `eludite-host` on `PATH`. The host gets `--stdio`.
+    /// `eludite-host` in `eludite-host/` beside this executable (the package layout, `tools/package/companions.sh`) or
+    /// beside it (an apphost `eludite-host`, or `eludite-host.dll` run with `dotnet`), then `ELUDITE_HOST` (either
+    /// form), then `eludite-host` on `PATH`. The host gets `--stdio`.
     pub fn locate() -> Self {
         let beside = std::env::current_exe()
             .ok()
@@ -124,10 +125,12 @@ impl HostLaunch {
             HostLaunch::Process(cmd.arg("--stdio").stderr(eludite_lsp::StderrMode::Capture))
         };
         if let Some(dir) = beside {
-            for name in [exe.as_str(), "eludite-host.dll"] {
-                let p = dir.join(name);
-                if p.is_file() {
-                    return command(&p);
+            for dir in [dir.join("eludite-host"), dir.to_path_buf()] {
+                for name in [exe.as_str(), "eludite-host.dll"] {
+                    let p = dir.join(name);
+                    if p.is_file() {
+                        return command(&p);
+                    }
                 }
             }
         }
@@ -1696,8 +1699,31 @@ mod tests {
         assert_eq!(args, [dll.as_os_str(), "--stdio".as_ref()]);
 
         std::fs::write(beside.join(&exe), "").unwrap();
-        let (p, _) = program(HostLaunch::locate_in(Some(&beside), Some(dll), path_var));
+        let (p, _) = program(HostLaunch::locate_in(
+            Some(&beside),
+            Some(dll),
+            path_var.clone(),
+        ));
         assert_eq!(p, beside.join(&exe));
+
+        // The package layout: eludite-host/ beside the shell wins over a host beside it.
+        let packaged_root = dir.path().join("packaged");
+        let packaged = packaged_root.join("eludite-host");
+        std::fs::create_dir_all(&packaged).unwrap();
+        std::fs::write(packaged_root.join("eludite-host.dll"), "").unwrap();
+        let packaged_dll = packaged.join("eludite-host.dll");
+        std::fs::write(&packaged_dll, "").unwrap();
+        let (p, args) = program(HostLaunch::locate_in(
+            Some(&packaged_root),
+            None,
+            path_var.clone(),
+        ));
+        assert_eq!(p, "dotnet");
+        assert_eq!(args, [packaged_dll.as_os_str(), "--stdio".as_ref()]);
+        std::fs::write(packaged.join(&exe), "").unwrap();
+        let (p, args) = program(HostLaunch::locate_in(Some(&packaged_root), None, path_var));
+        assert_eq!(p, packaged.join(&exe));
+        assert_eq!(args, ["--stdio"]);
 
         assert!(matches!(
             HostLaunch::locate_in(None, Some(dir.path().join("nope")), None),

@@ -1,0 +1,22 @@
+Companions
+----------
+
+The shell starts these from beside itself; ELUDITE_HOST, ELUDITE_DBG_MONO and ELUDITE_CLAUDE_ACP would point it at other
+copies.
+
+    eludite-host/              The .NET host: the project system, builds, NuGet, the test bridge and the Roslyn proxy. A
+                               framework-dependent build: it runs on the .NET 10 runtime, which the .NET SDK installs
+                               (https://dot.net; the repository's global.json names the version). C# IntelliSense also
+                               needs the Roslyn language server, which the host looks for at ELUDITE_ROSLYN_LS, then
+                               under ~/.cache/eludite/roslyn, where the repository's tools/roslyn-pin/build.sh builds the
+                               pinned commit.
+    eludite-dbg-mono/          Debugs .NET Framework programs under Mono on Linux and macOS: eludite-dbg-mono.exe runs on
+                               the Mono installed on the machine. Not used on Windows.
+    eludite-claude-acp@EXE@    The Agent Client Protocol adapter for Claude Code: Eludite runs it to talk to your installed
+                               `claude` command with its existing login (MIT; licenses/eludite-claude-acp/).
+
+Located on the machine, never shipped here (the repository's tools/ scripts fetch the pinned versions and print where):
+netcoredbg, for debugging .NET 5 and later (tools/netcoredbg/fetch.sh, or copy its netcoredbg/ folder beside eludite),
+rust-analyzer (tools/rust-analyzer/fetch.sh, or rustup's), lldb-dap for debugging Rust (your distribution's or LLVM's),
+vscode-js-debug for debugging JavaScript (tools/js-debug/fetch.sh) and the web language servers
+(tools/web-servers/fetch.sh).

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Brief 0039: lay out a built Eludite with its browser engine and make the Linux tarball.
 #
-#   tools/package/linux.sh [--profile release|debug] [--out DIR] [--no-build]
+#   tools/package/linux.sh [--profile release|debug] [--out DIR] [--no-build] [--with-companions]
 #
 # Builds `eludite` and `eludite-chromium` (with the `cef` feature) in the given cargo profile (release by default),
 # then writes DIR/eludite-<version>-linux-<arch>/ and DIR/eludite-<version>-linux-<arch>.tar.gz (DIR defaults to
@@ -16,20 +16,23 @@
 #
 # CEF comes from tools/cef/fetch.sh, which downloads nothing when its cache holds the pinned version. --no-build
 # packages what target/<profile>/ already holds. --profile debug packages a development build (the smoke test in
-# browsers/chromium/tests/package.rs uses it, so `cargo test` never makes a release build). The last line on stdout is
-# the tarball's path; everything else goes to stderr.
+# browsers/chromium/tests/package.rs uses it, so `cargo test` never makes a release build). --with-companions adds the
+# .NET host, eludite-dbg-mono and eludite-claude-acp through companions.sh (CI does; the smoke test does not). The last
+# line on stdout is the tarball's path; everything else goes to stderr.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 profile=release
 out="$repo/target/package"
 build=1
+companions=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile=${2:?--profile needs release or debug}; shift 2 ;;
     --out) out=${2:?--out needs a folder}; shift 2 ;;
     --no-build) build=0; shift ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --with-companions) companions=1; shift ;;
+    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "linux.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -110,6 +113,11 @@ chmod 644 "$dest/README"
     --prefix none --format '{p} {l}' 2>/dev/null) | sed 's/ (\*)$//; s/ (proc-macro)//; s/ ([^)]*)\( \|$\)/\1/' |
     sort -u
 } >"$dest/THIRD-PARTY-CRATES.txt"
+
+if [ "$companions" = 1 ]; then
+  "$here/companions.sh" --into "$dest"
+  { echo; sed 's/@EXE@//g' "$here/README-companions.in"; } >>"$dest/README"
+fi
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
   desktop-file-validate "$dest/eludite.desktop" >&2
