@@ -1195,12 +1195,14 @@ fn the_git_menu_and_the_status_bar_run_their_commands(cx: &mut TestAppContext) {
         labels,
         [
             "Commit or Stash...",
+            "Manage Branches",
+            "New Branch...",
             "Fetch",
             "Pull",
             "Push",
             "Sync",
-            "New Branch...",
-            "Manage Branches",
+            "Pull Requests",
+            "Issues",
             "Create Pull Request",
             "Sign in to Forge...",
             "Open in File Explorer"

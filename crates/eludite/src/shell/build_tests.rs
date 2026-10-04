@@ -106,15 +106,14 @@ fn build_error(
 fn ctrl_shift_b_streams_output_follows_pauses_and_lists_errors(cx: &mut gpui::TestAppContext) {
     let mut w = setup(cx);
     w.open_solution();
-    assert!(w.menu_enabled("Build Solution"));
+    assert!(w.menu_enabled("Build"));
     assert!(!w.menu_enabled("Cancel"), "nothing to cancel yet");
 
     w.vcx.simulate_keystrokes("ctrl-shift-b");
     assert!(w.building());
     assert_eq!(w.build_status(), "Build started\u{2026}");
-    assert!(!w.menu_enabled("Build Solution"), "disabled while building");
-    assert!(!w.menu_enabled("Rebuild Solution"));
-    assert!(!w.menu_enabled("Build Project"));
+    assert!(!w.menu_enabled("Build"), "disabled while building");
+    assert!(!w.menu_enabled("Rebuild"));
     assert!(w.menu_enabled("Cancel"));
     let id = w.wait_build_started();
     let start = &w.fake.received_params("eludite/build/start")[0];
@@ -180,7 +179,7 @@ fn ctrl_shift_b_streams_output_follows_pauses_and_lists_errors(cx: &mut gpui::Te
     );
     w.wait("the build to finish", |w| !w.building());
     assert_eq!(w.build_status(), "Build failed: 1 error, 1 warning");
-    assert!(w.menu_enabled("Build Solution"));
+    assert!(w.menu_enabled("Build"));
     assert!(!w.menu_enabled("Cancel"));
     let rows = w.error_rows();
     assert_eq!(rows.len(), 2);
@@ -286,9 +285,9 @@ fn build_rows_are_deduplicated_against_live_ones_and_replaced_by_the_next_build(
 fn cancel_from_the_menu_and_a_concurrent_start_is_refused(cx: &mut gpui::TestAppContext) {
     let mut w = setup(cx);
     w.open_solution();
-    // Build > Rebuild Solution from the menu.
+    // Build > Rebuild from the menu.
     w.click("menu-Build");
-    w.click("menu-item-Build-Rebuild Solution");
+    w.click("menu-item-Build-Rebuild");
     w.wait_build_started();
     assert_eq!(
         w.fake.received_params("eludite/build/start")[0]["target"],
@@ -315,7 +314,7 @@ fn cancel_from_the_menu_and_a_concurrent_start_is_refused(cx: &mut gpui::TestApp
     assert_eq!(w.fake.received_params("eludite/build/cancel").len(), 1);
     assert_eq!(w.build_status(), "Rebuild All canceled");
     assert!(w.build_lines().contains(&"Build canceled.".to_owned()));
-    assert!(w.menu_enabled("Rebuild Solution"));
+    assert!(w.menu_enabled("Rebuild"));
 }
 
 #[gpui::test]
@@ -566,5 +565,5 @@ fn build_status_replays_a_running_build_after_a_host_restart(cx: &mut gpui::Test
         w.build_status(),
         "Build canceled: eludite-host restarted and the build ended"
     );
-    assert!(w.menu_enabled("Build Solution"));
+    assert!(w.menu_enabled("Build"));
 }

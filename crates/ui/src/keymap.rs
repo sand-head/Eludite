@@ -72,8 +72,13 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
             command: "eludite.view.hide",
             args: json!({}),
         },
-        command("ctrl-shift-o", "Ctrl+Shift+O", "eludite.solution.open"),
-        // File.OpenFolder (brief 0019).
+        // File.OpenFolder (brief 0019); Ctrl+Shift+O opens a workspace too, since a workspace is a folder (PLAN.md 14,
+        // decision 12).
+        command(
+            "ctrl-shift-o",
+            "Ctrl+Shift+O",
+            "eludite.workspace.open_folder",
+        ),
         command(
             "ctrl-shift-alt-o",
             "Ctrl+Shift+Alt+O",
@@ -309,7 +314,7 @@ mod tests {
             Some("Ctrl+S")
         );
         assert_eq!(
-            shortcut_for(&k, "eludite.solution.open", &json!({})),
+            shortcut_for(&k, "eludite.workspace.open_folder", &json!({})),
             Some("Ctrl+Shift+O")
         );
         assert_eq!(

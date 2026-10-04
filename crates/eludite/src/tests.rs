@@ -164,13 +164,13 @@ fn menu_items_dispatch_commands(cx: &mut TestAppContext) {
     });
     assert!(open.is_none(), "choosing an item closes the menu");
 
-    // Window > Float acts on the active tool window (Output, just shown).
-    h.click("menu-Window");
-    h.click("menu-item-Window-Float");
+    // View > Float acts on the active tool window (Output, just shown).
+    h.click("menu-View");
+    h.click("menu-item-View-Float");
     assert!(matches!(h.place(ids::OUTPUT), Some(Place::Floating { .. })));
-    // Window > Reset Window Layout.
-    h.click("menu-Window");
-    h.click("menu-item-Window-Reset Window Layout");
+    // View > Reset Window Layout.
+    h.click("menu-View");
+    h.click("menu-item-View-Reset Window Layout");
     let tools = ToolWindowRegistry::vs_default();
     assert_eq!(h.controller.layout(), DockLayout::default_vs(&tools));
 
@@ -199,50 +199,28 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
     let enabled = h.shell.read_with(&h.vcx, |s, cx| {
         let m = s.menu().read(cx);
         (
-            m.is_item_enabled("Analyze", "Code Cleanup"),
+            m.is_item_enabled("Help", "View Help"),
             m.is_item_enabled("View", "Output"),
-            m.enabled_labels("Analyze"),
-            m.enabled_labels("Window"),
+            m.enabled_labels("Help"),
             m.enabled_labels("Build"),
         )
     });
-    assert_eq!(enabled.0, Some(false), "no analysis command exists yet");
+    assert_eq!(enabled.0, Some(false), "no help command exists yet");
     assert_eq!(enabled.1, Some(true));
-    assert!(enabled.2.is_empty());
-    assert_eq!(
-        enabled.3,
-        ["Float", "Dock", "Auto Hide", "Hide", "Reset Window Layout"]
-    );
+    assert_eq!(enabled.2, ["About Eludite"]);
     // Brief 0017: the build commands exist; Cancel is disabled while no build runs.
-    assert_eq!(
-        enabled.4,
-        [
-            "Build Solution",
-            "Rebuild Solution",
-            "Clean Solution",
-            "Build Project",
-            "Rebuild Project",
-            "Clean Project",
-            // Brief 0049.
-            "Configuration Manager..."
-        ]
-    );
+    assert_eq!(enabled.3, ["Build", "Rebuild", "Clean"]);
 
     let before = h.audit();
     h.click("menu-Build");
     h.click("menu-item-Build-Cancel");
-    h.click("menu-Analyze");
-    h.click("menu-item-Analyze-Code Cleanup");
-    h.click("menu-item-Analyze-Run Code Analysis");
+    h.click("menu-Help");
+    h.click("menu-item-Help-View Help");
     assert_eq!(h.audit(), before, "disabled items invoke nothing");
     let open = h.shell.read_with(&h.vcx, |s, cx| {
         s.menu().read(cx).open_menu().map(str::to_owned)
     });
-    assert_eq!(
-        open.as_deref(),
-        Some("Analyze"),
-        "and do not close the menu"
-    );
+    assert_eq!(open.as_deref(), Some("Help"), "and do not close the menu");
     // Brief 0035: the Test menu's items exist (Run All Tests and Debug All Tests wait while a test run goes).
     let test = h
         .shell
