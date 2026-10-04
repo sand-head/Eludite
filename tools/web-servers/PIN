@@ -1,0 +1,73 @@
+# The web language servers and formatters Eludite locates (brief 0050): npm packages installed by fetch.sh (fetch.ps1
+# on Windows) with `npm ci` from the checked-in package.json and package-lock.json into
+# ~/.cache/eludite/web-servers/<pin>/ (%USERPROFILE%\.cache\eludite\web-servers\<pin>\ on Windows), never vendored,
+# never fetched at startup. Eludite reads that folder's node_modules/.bin after the project's own node_modules/.bin and
+# the ELUDITE_<SERVER> variables (crates/lsp/src/servers.json). Node.js runs them (languageServers.nodePath, the same
+# search as debugger.nodePath); the oldest major version they all run on is `node` below.
+#
+# `pin` names the cache folder; change it with any package or schema below. Every `package` line is one entry of
+# package-lock.json (`npm ci` installs only the optional @biomejs/cli-* package of this machine): its path under
+# node_modules, its version and its SPDX license expression (crates/lsp's tests check the two files agree). The
+# servers: typescript-language-server (over TypeScript's tsserver), vscode-langservers-extracted's
+# vscode-html-language-server, vscode-css-language-server, vscode-json-language-server and
+# vscode-eslint-language-server (the services extracted from VS Code and vscode-eslint's server). The formatters:
+# prettier, and @biomejs/biome (used only when the project names Biome). TypeScript 6.0.3 is the fallback tsserver
+# when the project has no node_modules/typescript (TypeScript 7 has no tsserver for typescript-language-server).
+pin 2026-10-04
+node 20
+package @biomejs/biome 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-darwin-arm64 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-darwin-x64 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-linux-arm64 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-linux-arm64-musl 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-linux-x64 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-linux-x64-musl 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-win32-arm64 2.5.15 MIT OR Apache-2.0
+package @biomejs/cli-win32-x64 2.5.15 MIT OR Apache-2.0
+package @vscode/l10n 0.0.18 MIT
+package boolbase 1.0.0 ISC
+package core-js 3.50.0 MIT
+package css-select 5.2.2 BSD-2-Clause
+package css-what 6.2.2 BSD-2-Clause
+package dom-serializer 2.0.0 MIT
+package domelementtype 2.3.0 BSD-2-Clause
+package domhandler 5.0.3 BSD-2-Clause
+package domutils 3.2.2 BSD-2-Clause
+package entities 4.5.0 BSD-2-Clause
+package he 1.2.0 MIT
+package jsonc-parser 3.3.1 MIT
+package node-html-parser 6.1.13 MIT
+package nth-check 2.1.1 BSD-2-Clause
+package picomatch 2.3.2 MIT
+package prettier 3.9.9 MIT
+package regenerator-runtime 0.13.11 MIT
+package request-light 0.7.0 MIT
+package semver 7.8.5 ISC
+package typescript 6.0.3 Apache-2.0
+package typescript-language-server 5.3.0 Apache-2.0
+package vscode-css-languageservice 6.3.10 MIT
+package vscode-css-languageservice/node_modules/vscode-languageserver-types 3.17.5 MIT
+package vscode-html-languageservice 5.6.2 MIT
+package vscode-json-languageservice 5.7.2 MIT
+package vscode-jsonrpc 9.0.3 MIT
+package vscode-langservers-extracted 4.10.0 MIT
+package vscode-langservers-extracted/node_modules/typescript 4.9.5 Apache-2.0
+package vscode-languageserver 10.1.2 MIT
+package vscode-languageserver-protocol 3.18.4 MIT
+package vscode-languageserver-textdocument 1.0.15 MIT
+package vscode-languageserver-types 3.18.4 MIT
+package vscode-markdown-languageservice 0.5.0 MIT
+package vscode-nls 5.2.0 MIT
+package vscode-uri 3.2.0 MIT
+# The JSON schemas the JSON server validates with (no network for schemas): SchemaStore (https://www.schemastore.org,
+# Apache-2.0) at this commit, from raw.githubusercontent.com, each checked against its SHA-256. `schema <file> <sha256>`;
+# fetch.sh writes them to <cache>/schemas/ and points their `$ref`s to SchemaStore at the cached copies (file URIs), so
+# the JSON server reads only files. nuget.config is XML and has none.
+schemastore de76181a2ab215431d3e9314bc14f83cc3b01ad2
+schema package.json def9733cbd5d135a325b96d148f5cdd797c187e9dbe8d864202765ff37184345
+schema tsconfig.json 4323b790e65e979876bd48c7387a5150520e0c4cf1e36c221252a7234c2bd70a
+schema launchsettings.json 25ff44df05425c3bffc2337f32478527943c4f41400bc16c5bf7a8a895dce714
+schema appsettings.json b00c628403545f6a0e0da74685eef3902233334e007653247c24e273132706ea
+schema global.json 7751ae6576aaef0b4dba6b74923ed78a1b5e69797d110c0d6c0ea8852d0a7657
+schema prettierrc.json a5f9c7ed250e12c1b5fb7f0a2ae1b03e064513b40be96688cd2517925f42a6f0
+schema quikrun.json 67cf4391e674bd17b77e893e97860d6d0c12f815a777251b65563c72e522b646
