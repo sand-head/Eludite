@@ -1082,7 +1082,8 @@ fn the_options_page_and_the_terminal_settings_apply(cx: &mut TestAppContext) {
     let fresh = t.terminal(&ids[1]);
     t.wait_screen(&ids[1], "its prompt", |s| s.ends_with('$'));
     fresh.write("seq 1 2000\r");
-    t.wait_screen(&ids[1], "the numbers", |s| s.contains("2000"));
+    // The last number on a line of its own: the echoed command line also holds "2000".
+    t.wait_screen(&ids[1], "the numbers", |s| s.lines().any(|l| l == "2000"));
     let (_, history) = fresh.all_lines();
-    assert!(history <= 500, "{history}");
+    assert!((400..=500).contains(&history), "{history}");
 }

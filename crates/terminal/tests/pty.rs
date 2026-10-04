@@ -515,7 +515,7 @@ fn clear_keeps_the_prompt_line_and_marks() {
     assert!(screen.lines[0].starts_with("$ "));
     let m = s.run("echo after");
     assert!(m >= before);
-    s.wait_for("after", m);
+    s.wait_for("(?m)^after", m);
 }
 
 /// A line redrawn after a mark was taken (a line editor wrapping a long command at the margin writes a lone `\r` and
