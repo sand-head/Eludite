@@ -64,7 +64,7 @@ sum_tree = { path = "vendor/sum_tree" }
 text = { path = "vendor/text" }
 
 # Third-party
-git2 = { version = "0.20", default-features = false }
+git2 = { version = "0.20", default-features = false, features = ["https", "ssh"] }
 # mimalloc as a global allocator, only for the editor viewer's comparison
 # build (brief 0011 measured it and kept the system allocator). MIT.
 mimalloc = "0.1.52"
