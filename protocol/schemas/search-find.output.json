@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-find.output.json",
+  "title": "eludite.search.find output",
+  "description": "The matches grouped by file, the counts Visual Studio's count line shows, and whether the search stopped early. Without `query` (the person's key) the dialog opened and the answer is `dialog: true` with no matches.",
+  "type": "object",
+  "required": [
+    "files",
+    "total",
+    "matching_lines",
+    "matching_files",
+    "files_searched",
+    "truncated",
+    "canceled",
+    "elapsed_ms"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "search_id": {
+      "description": "This search, for eludite.search.results and eludite.search.cancel.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "files": {
+      "description": "The matching files, sorted by path, each with its matching lines.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "matches"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file, relative to the workspace's folder with `/` when it is inside it, else absolute.",
+            "type": "string"
+          },
+          "open": {
+            "description": "Searched from an open document's buffer (its unsaved text).",
+            "type": "boolean"
+          },
+          "matches": {
+            "description": "Its matching lines, in line order.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "line",
+                "column",
+                "text",
+                "ranges"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "line": {
+                  "description": "1-based.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "column": {
+                  "description": "The first match's column on the line, 1-based, in characters.",
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "text": {
+                  "description": "The line without its line ending. A line longer than 1000 characters is cut around its first match, and `…` marks the cut ends.",
+                  "type": "string"
+                },
+                "ranges": {
+                  "description": "Where the matches are in `text` (every match on the line).",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "start",
+                      "end"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "start": {
+                        "description": "0-based, in characters of `text`.",
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "description": "Exclusive.",
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                },
+                "before": {
+                  "description": "With `context_lines`: the lines just before, oldest first.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "after": {
+                  "description": "With `context_lines`: the lines just after.",
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "Matches found (several on one line count each).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "matching_lines": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "matching_files": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "files_searched": {
+      "description": "Files read (binary and too-large files are skipped and not counted).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "The search stopped at `max_results`: there are more matches.",
+      "type": "boolean"
+    },
+    "canceled": {
+      "description": "Stopped by eludite.search.cancel (the Find Results window's Stop), or replaced by a newer search in the same window: the matches found until then.",
+      "type": "boolean"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results_window": {
+      "description": "The Find Results window that shows the results.",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "dialog": {
+      "description": "The Find in Files dialog opened (no `query`); nothing was searched.",
+      "type": "boolean"
+    }
+  }
+}

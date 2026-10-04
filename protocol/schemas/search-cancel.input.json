@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-cancel.input.json",
+  "title": "eludite.search.cancel input",
+  "description": "Stop a running search (the Find Results window's Stop): it ends within one file, and its answer and window keep the matches found so far, marked canceled. Always allowed (class read).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "search_id": {
+      "description": "The search to stop. Default: every running search.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

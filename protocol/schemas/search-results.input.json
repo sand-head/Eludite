@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/search-results.input.json",
+  "title": "eludite.search.results input",
+  "description": "Read a Find Results window's results, a page at a time, or (by `search_id`) one of the last searches' results whether or not a window shows them. With `navigate`, step to the next or previous match as F8 and Shift+F8 do: the window selects it and the editor opens at it, with the match selected.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "results_window": {
+      "description": "Find Results 1 or 2. Default: the one that showed the last search.",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "search_id": {
+      "description": "A search of the last 16 (from eludite.search.find), instead of a window.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "offset": {
+      "description": "The first match to return, 0-based over every match in the window's order (default 0).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "description": "How many matches (default 200, at most 1000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "navigate": {
+      "description": "F8 (`next`) or Shift+F8 (`previous`): move the window's selection and open the editor at that match. The answer's `selected` is it.",
+      "enum": [
+        "next",
+        "previous"
+      ]
+    }
+  }
+}
