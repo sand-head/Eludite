@@ -4386,7 +4386,6 @@ fn run_control_works_against_eludite_dbg_mono(cx: &mut TestAppContext) {
 // ----- Brief 0027: attach, restart, the debug policy, Allow Agents to Drive and interrupted waits. -----
 
 /// A stand-in for `dotnet` that keeps running (`/bin/sh <it> <dll>`, runtime `dotnet` in the process listing).
-#[cfg(unix)]
 #[cfg(target_os = "linux")]
 fn looping_dotnet() -> PathBuf {
     let bin = tempfile::tempdir().unwrap().keep();
