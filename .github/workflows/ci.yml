@@ -155,6 +155,13 @@ jobs:
       # On Linux the engine tests (browsers/chromium/tests, crates/browser/tests/embedded.rs) run CEF under Xvfb;
       # ELUDITE_CHROME_NO_SANDBOX=1 (set above) also covers CEF, whose sandbox meets the same AppArmor policy: the shell and
       # the tests turn it into the engine's --allow-no-sandbox (brief 0039).
+      # Ubuntu's AppArmor denies unprivileged user namespaces to unconfined programs on the hosted runners (since the
+      # 24.04 images of September 2026); Chromium then falls back to the setuid helper, which a build folder does not
+      # hold root-owned, and aborts. The sysctl lets the namespace sandbox work, as on a desktop.
+      - name: Allow unprivileged user namespaces
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --workspace ${{ env.CEF_FEATURES }}
@@ -292,18 +299,12 @@ jobs:
           path: ~/.cache/eludite/cef
           key: cef-${{ runner.os }}-${{ hashFiles('tools/cef/PIN') }}
 
-      # linux.sh fetches CEF itself when the cache missed. The smoke test (browsers/chromium/tests/package.rs) then runs
-      # eludite and eludite-chromium from the finished tarball with no CEF_PATH, ELUDITE_CEF, ELUDITE_CHROMIUM or CEF
-      # cache in their environment; CEF_PATH here only builds the test, and ELUDITE_CHROME_NO_SANDBOX=1 is the hosted
-      # runners' AppArmor workaround, as in the rust job.
+      # linux.sh fetches CEF itself when the cache missed.
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           archive="$(tools/package/linux.sh --with-companions --out "${{ runner.temp }}/package")"
           ls -l "$archive"
-          export CEF_PATH="$(tools/cef/fetch.sh)"
-          xvfb-run -a env ELUDITE_PACKAGE_TARBALL="$archive" ELUDITE_CHROME_NO_SANDBOX=1 \
-            cargo test -p eludite-chromium --features cef --test package -- --nocapture
 
       - name: Package (Windows, macOS)
         if: runner.os != 'Linux'
@@ -319,8 +320,10 @@ jobs:
           # Git Bash's globbing needs the POSIX spelling of RUNNER_TEMP, not D:\a\_temp.
           tmp="$RUNNER_TEMP"
           if command -v cygpath >/dev/null 2>&1; then tmp="$(cygpath -u "$RUNNER_TEMP")"; fi
-          archive="$(ls "$tmp"/package/eludite-*.tar.gz "$tmp"/package/eludite-*.zip 2>/dev/null | head -n 1)"
-          name="$(basename "$archive")"; name="${name%.tar.gz}"; name="${name%.zip}"
+          shopt -s nullglob
+          set -- "$tmp"/package/eludite-*.tar.gz "$tmp"/package/eludite-*.zip
+          [ $# -eq 1 ] || { echo "expected one archive, found: $*" >&2; exit 1; }
+          name="$(basename "$1")"; name="${name%.tar.gz}"; name="${name%.zip}"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -331,3 +334,18 @@ jobs:
             ${{ runner.temp }}/package/eludite-*.zip
           if-no-files-found: error
           compression-level: 0
+
+      # Brief 0039's smoke test (browsers/chromium/tests/package.rs) runs eludite and eludite-chromium from the uploaded
+      # tarball with no CEF_PATH, ELUDITE_CEF, ELUDITE_CHROMIUM or CEF cache in their environment (CEF_PATH here only
+      # builds the test). It runs after the upload so a failing engine still leaves the archive to download. Ubuntu's
+      # AppArmor denies unprivileged user namespaces to unconfined programs on the hosted runners, so Chromium falls back
+      # to the setuid helper, which a tarball cannot ship root-owned, and aborts; the sysctl lets the namespace sandbox
+      # work, as it does on a desktop. ELUDITE_CHROME_NO_SANDBOX=1 stays as the rust job's fallback.
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          export CEF_PATH="$(tools/cef/fetch.sh)"
+          xvfb-run -a env ELUDITE_PACKAGE_TARBALL="${{ runner.temp }}/package/$(basename "$(ls "${{ runner.temp }}"/package/eludite-*.tar.gz)")" \
+            ELUDITE_CHROME_NO_SANDBOX=1 \
+            cargo test -p eludite-chromium --features cef --test package -- --nocapture
