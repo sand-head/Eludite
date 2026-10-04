@@ -1,8 +1,14 @@
 //! The terminal's output as plain text, for agents: what `eludite.terminal.read` (`mode: since`) and
 //! `eludite.terminal.wait` answer. Escape sequences are removed, `\r\n` is a newline, a lone `\r` returns to the
-//! start of the line (so a progress bar keeps its last state) and a backspace erases a character. A position in the
-//! stream is a *mark*: the number of bytes of plain text printed so far. The text keeps its last [`CAP`] bytes; a
-//! mark before that reads from the oldest byte kept.
+//! start of the line (so a progress bar or a line editor's redraw keeps its last state) and a backspace erases a
+//! character.
+//!
+//! A position in the stream is a *mark*: the number of bytes of plain text printed so far, overwritten or not, so
+//! marks only grow. A table of line starts maps a mark to the text kept: a mark inside a line that was overwritten
+//! reads from that line's start, at most its current length in. The text keeps its last [`CAP`] bytes; a mark
+//! before that reads from the oldest byte kept.
+
+use std::collections::VecDeque;
 
 /// The bytes of plain text kept.
 pub const CAP: usize = 2 * 1024 * 1024;
@@ -22,14 +28,14 @@ enum Esc {
     Charset,
 }
 
-/// The plain text of a terminal's output, with its marks' base.
+/// The plain text of a terminal's output and its marks.
 #[derive(Debug)]
 pub struct Transcript {
     text: String,
-    /// The mark of `text`'s first byte (bytes dropped from the front).
-    base: u64,
-    /// Where the current line starts in `text` (after the last `\n`).
-    line_start: usize,
+    /// Bytes printed so far (the next mark).
+    end: u64,
+    /// Each kept line's start: (its mark, its index in `text`). The last is the current line's.
+    lines: VecDeque<(u64, usize)>,
     /// After a `\r`: the next printable character overwrites the line.
     pending_cr: bool,
     state: Esc,
@@ -47,8 +53,8 @@ impl Transcript {
     pub fn new() -> Self {
         Self {
             text: String::new(),
-            base: 0,
-            line_start: 0,
+            end: 0,
+            lines: VecDeque::from([(0, 0)]),
             pending_cr: false,
             state: Esc::Ground,
             partial: Vec::new(),
@@ -57,12 +63,16 @@ impl Transcript {
 
     /// The mark after everything appended so far.
     pub fn end(&self) -> u64 {
-        self.base + self.text.len() as u64
+        self.end
     }
 
     /// The oldest mark still readable.
     pub fn start(&self) -> u64 {
-        self.base
+        self.lines.front().map_or(self.end, |l| l.0)
+    }
+
+    fn current_line(&self) -> usize {
+        self.lines.back().map_or(0, |l| l.1)
     }
 
     /// Append the PTY's bytes (escape sequences and all).
@@ -79,7 +89,8 @@ impl Transcript {
                         self.flush(&mut printable);
                         self.pending_cr = false;
                         self.text.push('\n');
-                        self.line_start = self.text.len();
+                        self.end += 1;
+                        self.lines.push_back((self.end, self.text.len()));
                     }
                     b'\r' => {
                         self.flush(&mut printable);
@@ -87,7 +98,7 @@ impl Transcript {
                     }
                     0x08 => {
                         self.flush(&mut printable);
-                        if self.text.len() > self.line_start {
+                        if self.text.len() > self.current_line() {
                             self.text.pop();
                         }
                     }
@@ -142,37 +153,68 @@ impl Transcript {
         }
         if self.pending_cr {
             self.pending_cr = false;
-            self.text.truncate(self.line_start);
+            let start = self.current_line();
+            self.text.truncate(start);
         }
-        self.text.push_str(&String::from_utf8_lossy(&bytes));
+        let s = String::from_utf8_lossy(&bytes);
+        self.text.push_str(&s);
+        self.end += bytes.len() as u64;
     }
 
+    /// Keep the last [`CAP`] bytes (cut to three quarters of it, so trimming is rare).
     fn trim(&mut self) {
         if self.text.len() <= CAP {
             return;
         }
-        let mut cut = self.text.len() - CAP;
+        let mut cut = self.text.len() - CAP * 3 / 4;
         while !self.text.is_char_boundary(cut) {
             cut += 1;
         }
         self.text.drain(..cut);
-        self.base += cut as u64;
-        self.line_start = self.line_start.saturating_sub(cut);
+        while self.lines.len() > 1 && self.lines[1].1 <= cut {
+            self.lines.pop_front();
+        }
+        if let Some(first) = self.lines.front_mut()
+            && first.1 < cut
+        {
+            first.0 += (cut - first.1) as u64;
+            first.1 = cut;
+        }
+        for l in self.lines.iter_mut() {
+            l.1 -= cut;
+        }
+    }
+
+    /// The index in `text` of `mark`, and whether text before it was dropped.
+    fn index(&self, mark: u64) -> (usize, bool) {
+        if mark >= self.end {
+            return (self.text.len(), false);
+        }
+        let i = self.lines.partition_point(|l| l.0 <= mark);
+        if i == 0 {
+            return (0, true);
+        }
+        let (line_mark, start) = self.lines[i - 1];
+        let line_end = self.lines.get(i).map_or(self.text.len(), |l| l.1);
+        let mut idx = (start + (mark - line_mark) as usize).min(line_end);
+        while !self.text.is_char_boundary(idx) {
+            idx -= 1;
+        }
+        (idx, false)
     }
 
     /// The text from `mark` to the end, at most its last `max` bytes: (text, whether its start was cut).
     pub fn since(&self, mark: u64, max: usize) -> (String, bool) {
-        self.range(mark, self.end(), max)
+        self.range(mark, self.end, max)
     }
 
     /// The text from `from` to `to`, at most its last `max` bytes.
     pub fn range(&self, from: u64, to: u64, max: usize) -> (String, bool) {
-        let clamp = |m: u64| (m.max(self.base).min(self.end()) - self.base) as usize;
-        let (mut a, b) = (clamp(from), clamp(to));
+        let (mut a, mut cut) = self.index(from);
+        let (b, _) = self.index(to);
         if a > b {
             return (String::new(), false);
         }
-        let mut cut = from < self.base;
         if b - a > max {
             a = b - max;
             cut = true;
@@ -180,18 +222,13 @@ impl Transcript {
         while !self.text.is_char_boundary(a) {
             a += 1;
         }
-        let mut b = b;
-        while !self.text.is_char_boundary(b) {
-            b -= 1;
-        }
         (self.text[a..b.max(a)].to_owned(), cut)
     }
 
     /// Forget everything printed so far (marks stay valid: the end does not move back).
     pub fn clear(&mut self) {
-        self.base = self.end();
         self.text.clear();
-        self.line_start = 0;
+        self.lines = VecDeque::from([(self.end, 0)]);
         self.pending_cr = false;
     }
 }
@@ -224,6 +261,26 @@ mod tests {
     }
 
     #[test]
+    fn marks_only_grow_when_a_line_is_redrawn() {
+        // A line editor redraws its long prompt and the typed command: the text shrinks, the marks do not.
+        let mut t = Transcript::new();
+        t.append(b"root@host:/a/long/folder# ec");
+        let typed = t.end();
+        t.append(b"\rroot@host:/a/long/folder# echo hi\r\n");
+        assert!(t.end() > typed, "the end only grows");
+        let before_output = t.end();
+        t.append(b"hi\r\n");
+        assert_eq!(t.since(before_output, usize::MAX).0, "hi\n");
+        // A mark inside the redrawn line reads from inside that line, never past its end.
+        let (inside, _) = t.since(typed, usize::MAX);
+        assert_eq!(inside, "ho hi\nhi\n", "the same column of the redrawn line");
+        assert_eq!(
+            t.since(0, usize::MAX).0,
+            "root@host:/a/long/folder# echo hi\nhi\n"
+        );
+    }
+
+    #[test]
     fn marks_count_bytes_and_survive_the_cap() {
         let mut t = Transcript::new();
         t.append(b"one\n");
@@ -240,8 +297,10 @@ mod tests {
         assert_eq!(t.since(0, 3), ("\n\u{e9}".into(), true));
         let big = vec![b'x'; CAP + 10];
         t.append(&big);
-        assert_eq!(t.since(0, usize::MAX).0.len(), CAP);
-        assert!(t.since(0, usize::MAX).1, "the start was cut");
+        let (all, cut) = t.since(0, usize::MAX);
+        assert!(all.len() <= CAP && all.len() >= CAP / 2);
+        assert!(cut, "the start was cut");
+        assert!(t.start() > 0);
         let end = t.end();
         t.clear();
         assert_eq!(t.end(), end);

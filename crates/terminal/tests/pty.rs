@@ -261,6 +261,11 @@ fn links_printed_by_the_shell_are_found_on_the_screen() {
 
 /// bash with the integration script, in a home with no startup files.
 fn bash() -> Option<Term> {
+    bash_with(&[])
+}
+
+/// As [`bash`], with more variables.
+fn bash_with(more: &[(&str, &str)]) -> Option<Term> {
     let bash = eludite_terminal::profile::which("bash", std::env::var("PATH").ok().as_deref())?;
     let dir = tempfile::tempdir().unwrap();
     integration::install(dir.path()).unwrap();
@@ -274,10 +279,11 @@ fn bash() -> Option<Term> {
         &|_| None
     ));
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let extra: Vec<(&str, &str)> = extra
+    let mut extra: Vec<(&str, &str)> = extra
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
+    extra.extend_from_slice(more);
     let t = spawn_with(&bash.to_string_lossy(), &args, 80, 24, 1000, &extra);
     std::mem::forget(dir);
     Some(t)
@@ -505,4 +511,33 @@ fn clear_keeps_the_prompt_line_and_marks() {
     let m = s.run("echo after");
     assert!(m >= before);
     s.wait_for("after", m);
+}
+
+/// A line redrawn after a mark was taken (a line editor wrapping a long command at the margin writes a lone `\r` and
+/// the rest): the transcript's text shrinks, its marks never do, so the wait still sees the prompt after the mark
+/// (the bug the Xvfb run found with a long prompt).
+#[test]
+fn a_line_redrawn_after_a_mark_keeps_the_marks_growing() {
+    let s = spawn_with(
+        "/bin/sh",
+        &[
+            "-c",
+            "stty -echo; printf 'aaaaaaaaaaaaaaaaaaaa'; read x; \
+             printf '\\rb\\n\\033]133;C\\007out\\n\\033]133;D;0\\007\\033]133;A\\007$ \\033]133;B\\007'; sleep 30",
+        ],
+        80,
+        10,
+        100,
+        &[],
+    );
+    s.wait_for("aaaa", 0);
+    let m = s.t.mark();
+    s.t.write("\r");
+    let r = s.prompt(m);
+    assert!(r.integration);
+    assert_eq!(r.exit_code, Some(0));
+    assert_eq!(r.text, "out\n");
+    let marks: Vec<u64> = s.t.marks_since(0).iter().map(|k| k.at).collect();
+    assert!(marks.iter().all(|&at| at >= m), "{marks:?} after {m}");
+    s.t.close(true);
 }
