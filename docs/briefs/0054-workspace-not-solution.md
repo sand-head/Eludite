@@ -15,7 +15,7 @@ When this brief is done:
 - The Workspace window's root is the workspace folder ("Eludite", with its project count), never "Solution 'X'" or "Cargo workspace 'X'". Its children are the projects of every language in one list, and the solution's folders stay as virtual folders that group .NET projects.
 - F5 starts the **startup project** (or several startup projects), chosen from any project that can start: a .NET project that produces an executable or a web app, or a Cargo package with a binary target. The default, the persisted choice and the Startup Projects dialog are per workspace, not per solution.
 - Ctrl+Shift+B builds the workspace (every build system that owns the active document, else all of them) through `eludite.build.workspace`. Build, Rebuild and Clean on a project node build that project in its own build system.
-- The configuration (Debug or Release) belongs to the workspace and drives both MSBuild's configuration and Cargo's profile. The platform list shows only when a .NET project in the workspace targets more than Any CPU. The Configuration Manager dialog and its command are gone.
+- The build configuration belongs to the workspace. The toolbar's list is gathered from the projects: the .NET configurations the projects and the solution file define (Debug, Release, and any custom one), and the Cargo profiles (`dev`, `release`, and any `[profile.*]` in the workspace's `Cargo.toml`). Choosing one builds each project with its counterpart (Contract: Configurations), and one project can be pinned to another of its own configurations through a workspace setting. The platform list shows only when a .NET project in the workspace targets more than Any CPU. The Configuration Manager dialog and its command are gone.
 - Find in Files' default scope is "Entire Workspace". "Current Project" and "Project: X" cover projects of every language.
 - Manage NuGet Packages works on one .NET project (from its node, or from the active document) or on every .NET project in the workspace (Tools > NuGet Packages..., or the workspace root's context menu), and is titled for what it covers ("NuGet - Workspace", "NuGet: App").
 - A .NET project's property pages and launch profiles stay. They are per-project actions on a project node, like Build and Set as Startup Project.
@@ -55,7 +55,8 @@ Then the code:
   - Persist the startup set per workspace (`<config dir>/eludite/workspaces/<folder>-<hash>/startup.json`, beside brief 0047's per-workspace state). Read the old per-solution file once, keyed by the solution the folder detects, and drop it after a successful write.
   - `find_default_startup` considers .NET and Cargo projects together, in workspace order: .NET projects in solution order, then Cargo members in `cargo metadata` order.
   - Rewrite every message that says "solution" (examples in Contract).
-- `crates/eludite/src/shell/build.rs`, `cargo_build.rs`: `eludite.build.workspace`, the configuration as Cargo's profile (`Debug` = `dev`, `Release` = `release`), and the Output lines ("Building: 3 of 7 projects").
+- `crates/eludite/src/shell/build.rs`, `cargo_build.rs`: `eludite.build.workspace`, the workspace's configuration list and each project's counterpart (Contract: Configurations), Cargo's profiles read from `cargo metadata`'s manifest (`[profile.*]` in the workspace root's `Cargo.toml`) and passed as `--profile <name>`, and the Output lines ("Building: 3 of 7 projects", each project's line naming the configuration it builds with when it differs from the workspace's).
+- `crates/eludite/src/settings.rs` or wherever the settings catalog lives, and `protocol/schemas/settings.json`: the `build.configurationOverrides` setting (workspace scope): an object from a project's workspace-relative path to one of that project's own configurations or profiles.
 - `crates/eludite/src/shell/toolbar.rs`:
   - The configuration list shows for any workspace with a build system.
   - The platform list shows only as Goal says.
@@ -98,7 +99,12 @@ Then the code:
   - `eludite.build.workspace` builds the system owning the active document, else every system in turn, exactly as `eludite.build.solution` does today.
   - `rebuild` and `clean` follow it.
   - `eludite.build.project` takes any project's name or path; a name shared by two languages is refused, and the error names both paths.
-  - The configuration is one value per workspace. MSBuild receives it and the platform as today, through the solution's mapping when a solution exists. Cargo receives `--profile dev|release`.
+- **Configurations.**
+  - The workspace has one selected configuration. `eludite.build.configurations` answers the list, each entry with the projects that have it under that name or a counterpart; `eludite.build.select_configuration` selects one, and the selection persists per workspace.
+  - The list is the union, in this order: the .NET configurations (from the solution file's configuration list when one exists, else from the projects' `Configurations` property, else Debug and Release), then the Cargo profiles that have no .NET counterpart. Built-in counterparts pair .NET's Debug with Cargo's `dev` and Release with `release`; the list shows such a pair once, under the .NET name, with the profile beside it ("Debug (dev)"). A Cargo-only workspace shows Cargo's names (`dev`, `release`, custom profiles); a .NET-only workspace shows .NET's.
+  - Each project builds with: its override from `build.configurationOverrides`, else a configuration of the same name, else the built-in counterpart, else its own default (Debug for .NET, `dev` for Cargo). Falling back to the default is never silent: the Output line names the configuration used, and `eludite.build.configurations` answers it per project.
+  - MSBuild receives the project's configuration and the platform as today, through the solution's mapping when a solution exists and the selection is one of its configurations. Cargo receives `--profile <name>`.
+  - An npm package (brief 0051) has no configuration; the list ignores it.
 - **No aliases.** The removed and renamed ids are not kept as aliases. Nothing has been released (PLAN.md status line). The report lists every old id beside its new one, or "removed".
 - **State.** The new per-workspace files are written atomically and read once at workspace open. The old per-solution files are migrated, not deleted, until the new file is written.
 - The UI thread never waits (invariant 1). Results from a previous workspace generation are dropped (invariant 12).
@@ -123,6 +129,8 @@ Then the code:
   - A per-solution file from before is migrated once.
   - Ctrl+Shift+B runs `eludite.build.workspace`.
   - Release builds Cargo with `--profile release` and MSBuild with `Release`.
+  - A workspace with a custom Cargo profile `profiling` and a .NET configuration `Staging`: the list is Debug (dev), Release (release), Staging, profiling. Staging builds the .NET projects with Staging and the Cargo packages with `dev`, and the Output says so. profiling builds Cargo with `--profile profiling` and .NET with Debug.
+  - An override pins one .NET project to Release while the workspace is on Debug; the next build uses it, and `eludite.build.configurations` reports it.
   - Find in Files' default scope covers a Cargo member and a .NET project, and "Project: eludite-ui" searches only that crate.
   - The Error List's project filter lists both languages.
   - NuGet from the root node and from Tools opens "NuGet - Workspace", and from a project node "NuGet: App".
@@ -153,5 +161,6 @@ Then the code:
 - Several solution files in one folder (the detection rule picks one, as today).
 - npm packages as projects beyond what brief 0051 delivers.
 - Renaming the Workspace window or its id.
-- Cargo profiles other than `dev` and `release`.
+- An editor for the overrides beyond the settings file and `eludite.settings.set` (a later brief may put it on the project node's context menu).
+- Cross-language build order (a project that must build before another of a different language).
 - Any change to the property pages' content (brief 0049) beyond where their state is stored.
