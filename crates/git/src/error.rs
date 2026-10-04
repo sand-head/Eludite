@@ -16,8 +16,15 @@ pub enum ErrorKind {
     /// The operation is refused as asked (an unmerged branch without `force`, a non-fast-forward push).
     Refused,
     Canceled,
-    /// Authentication failed; the message says what was tried.
+    /// Authentication failed and the shell's prompt cannot help (an ssh server that takes keys only); the message
+    /// says what was tried.
     Credentials,
+    /// The remote asks for a user name and a password or token and nothing answered, or the prompt's answer was
+    /// refused ([`GitError::refused`]): the message starts with `credentials_required` and names the host
+    /// ([`GitError::host`]), which the shell's credential prompt answers for the person (brief 0045).
+    CredentialsRequired,
+    /// The server's TLS certificate (or ssh host key) could not be verified: the message names the host.
+    Certificate,
     /// A path, branch, revision, stash or worktree that does not exist.
     NotFound,
     /// Anything else libgit2 reported.
@@ -31,6 +38,10 @@ pub struct GitError {
     pub message: String,
     /// The paths a conflict or a dirty tree names.
     pub paths: Vec<String>,
+    /// The remote's host (`host` or `host:port`) a credential or certificate failure names.
+    pub host: Option<String>,
+    /// [`ErrorKind::CredentialsRequired`]: the credential the prompt supplied was refused.
+    pub refused: bool,
 }
 
 impl GitError {
@@ -39,6 +50,8 @@ impl GitError {
             kind,
             message: message.into(),
             paths: Vec::new(),
+            host: None,
+            refused: false,
         }
     }
 
@@ -61,6 +74,7 @@ impl From<git2::Error> for GitError {
         let kind = match e.code() {
             git2::ErrorCode::NotFound => ErrorKind::NotFound,
             git2::ErrorCode::Auth => ErrorKind::Credentials,
+            git2::ErrorCode::Certificate => ErrorKind::Certificate,
             git2::ErrorCode::User => ErrorKind::Canceled,
             git2::ErrorCode::Conflict | git2::ErrorCode::MergeConflict => ErrorKind::Dirty,
             git2::ErrorCode::Unmerged => ErrorKind::Conflicted,

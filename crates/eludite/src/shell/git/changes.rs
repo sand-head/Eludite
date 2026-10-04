@@ -42,6 +42,10 @@ pub const HISTORY: &str = "git-changes-history";
 pub const STAGE_ALL: &str = "git-changes-stage-all";
 pub const UNSTAGE_ALL: &str = "git-changes-unstage-all";
 pub const INFO: &str = "git-changes-info";
+/// The warning line while `http.sslVerify` is false (brief 0045).
+pub const SSL_WARNING: &str = "git-changes-ssl-warning";
+/// Its text.
+pub const SSL_WARNING_TEXT: &str = "\u{26A0} http.sslVerify is false: the certificates of this repository's https remotes are not checked";
 
 /// The groups of the list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -115,6 +119,8 @@ pub struct ChangesModel {
     pub stashes: Vec<StashOut>,
     /// A transfer in progress.
     pub progress: Option<String>,
+    /// `http.sslVerify` is false: the warning line shows.
+    pub ssl_verify_off: bool,
     pub generation: u64,
 }
 
@@ -166,6 +172,7 @@ impl ChangesModel {
             changes,
             stashes: Vec::new(),
             progress: None,
+            ssl_verify_off: status.ssl_verify_off,
             generation,
         }
     }
@@ -815,6 +822,18 @@ impl Render for GitChanges {
                     other => format!("{}: resolve, stage, then commit", other.replace('_', "-")),
                 })
         });
+        let ssl_warning = self.model.ssl_verify_off.then(|| {
+            div()
+                .id(SSL_WARNING)
+                .debug_selector(|| SSL_WARNING.into())
+                .px_1()
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .text_size(t.typography.small)
+                .text_color(rgb(0xD7_BA_7D))
+                .child(SSL_WARNING_TEXT)
+        });
         let progress = self.model.progress.clone().map(|p| {
             div()
                 .px_1()
@@ -837,6 +856,7 @@ impl Render for GitChanges {
                     .child(buttons)
                     .children(info)
                     .children(operation)
+                    .children(ssl_warning)
                     .children(progress),
             )
             .child(

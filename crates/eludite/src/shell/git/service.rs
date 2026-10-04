@@ -3,6 +3,11 @@
 //! thread when the workspace opens ([`GitService::set_workspace`]), its [`StatusCache`] and the [`Watcher`] that
 //! keeps it current, and it tells the UI what changed through [`GitEvent`]s. Changes are serialized; a long transfer
 //! (fetch, pull, push, sync) can be canceled with `eludite.git.cancel`.
+//!
+//! Credentials (brief 0045): the service keeps the session's [`SessionCredentials`] (what the person typed in the
+//! credential prompt, in memory only, forgotten when the workspace closes) and hands them to the repository's
+//! transfers. A transfer nothing answered fails with `credentials_required` and the host; for an agent the answer
+//! adds that agents cannot answer the prompt, which only the person sees.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,7 +29,8 @@ use eludite_git::diff::{Against, DiffTexts};
 use eludite_git::log::{LogOptions, rfc3339};
 use eludite_git::remote::Progress;
 use eludite_git::{
-    Cancel, GitError, GlobalConfig, Repo, Status, StatusCache, WatchOptions, Watcher,
+    Cancel, ErrorKind, GitError, GlobalConfig, Repo, SessionCredentials, Status, StatusCache,
+    WatchOptions, Watcher,
 };
 use eludite_ui::diff::{DiffKind, DiffLine, diff_lines};
 use futures::channel::mpsc::UnboundedSender;
@@ -103,6 +109,8 @@ pub struct GitService {
     running: Mutex<Option<(&'static str, Cancel)>>,
     /// Grows with each workspace change; a discovery for an older one is dropped.
     epoch: AtomicU64,
+    /// The credential prompt's answers, for this session (in memory only).
+    credentials: SessionCredentials,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -118,6 +126,19 @@ pub fn command_error(e: GitError) -> CommandError {
     }
 }
 
+/// What an agent's answer adds to `credentials_required`: the prompt is the person's.
+pub const AGENT_CANNOT_ANSWER: &str = "Agents cannot answer the credential prompt: ask the person to run this in \
+                                       Eludite (Git > Fetch, Pull or Push) and sign in there, or to set up a \
+                                       credential helper or the ssh agent; do not retry it another way.";
+
+/// The host a `credentials_required` message names (`credentials_required: <host> ...`).
+pub fn credentials_required_host(message: &str) -> Option<&str> {
+    let rest = message
+        .strip_prefix(eludite_git::credentials::CREDENTIALS_REQUIRED)?
+        .strip_prefix(": ")?;
+    rest.split(' ').next().filter(|h| !h.is_empty())
+}
+
 const NO_REPOSITORY: &str = "The workspace is in no Git repository: create one with eludite.git.init (Create Git \
                              Repository in the Git Changes window)";
 
@@ -131,7 +152,13 @@ impl GitService {
             op: Mutex::new(()),
             running: Mutex::new(None),
             epoch: AtomicU64::new(0),
+            credentials: SessionCredentials::new(),
         }
+    }
+
+    /// The credentials the prompt supplied this session.
+    pub fn credentials(&self) -> &SessionCredentials {
+        &self.credentials
     }
 
     pub fn setup(&self) -> GitSetup {
@@ -161,6 +188,8 @@ impl GitService {
     /// else runs until the workspace opens.
     pub fn set_workspace(self: &Arc<Self>, folder: Option<&Path>) {
         let epoch = self.epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        // The session's credentials go with the workspace that asked for them.
+        self.credentials.clear();
         {
             let mut inner = lock(&self.inner);
             inner.workspace = folder.map(Path::to_path_buf);
@@ -198,7 +227,9 @@ impl GitService {
     /// Watch `repo` as the workspace's repository.
     fn activate(&self, repo: Repo, epoch: u64) -> Arc<Active> {
         let setup = self.setup();
-        let repo = repo.with_global_config(setup.global.clone());
+        let repo = repo
+            .with_global_config(setup.global.clone())
+            .with_credentials(self.credentials.clone());
         let cache = StatusCache::new(repo.clone(), true);
         let events = self.events.clone();
         cache.on_change(move |g| {
@@ -316,7 +347,25 @@ impl GitService {
         let result = f(&cancel, &mut report);
         *lock(&self.running) = None;
         self.progress(None);
-        result.map_err(command_error)
+        result.map_err(|e| self.transfer_error(e))
+    }
+
+    /// A failed transfer as the caller gets it: a refused prompt answer is forgotten, and an agent's
+    /// `credentials_required` says the prompt is the person's.
+    fn transfer_error(&self, e: GitError) -> CommandError {
+        if e.kind != ErrorKind::CredentialsRequired {
+            return command_error(e);
+        }
+        if e.refused
+            && let Some(host) = &e.host
+        {
+            self.credentials.forget(host);
+        }
+        if eludite_commands::current_caller().is_agent() {
+            CommandError::Failed(format!("{} {AGENT_CANNOT_ANSWER}", e.message))
+        } else {
+            CommandError::Failed(e.message)
+        }
     }
 
     fn identity(&self) -> Option<Identity> {

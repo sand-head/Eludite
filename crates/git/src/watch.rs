@@ -6,7 +6,7 @@
 //! it changed the repository, or the watcher).
 //!
 //! The watcher is a thread of its own. Every [`WatchOptions::poll`] it stats `.git/index`, `.git/HEAD`, the files of
-//! an operation in progress, `packed-refs` and the files under `refs/`; a change there, or [`Watcher::touch`] (the
+//! an operation in progress, `packed-refs`, `config` (for `http.sslVerify`) and the files under `refs/`; a change there, or [`Watcher::touch`] (the
 //! shell saved a file), is followed by a recompute once [`WatchOptions::debounce`] (200 ms) passes with no further
 //! change. Working-tree changes made outside Eludite are found by a recompute every [`WatchOptions::rescan`] (1 s,
 //! longer when a status takes long: ten times its cost). Polling, as the settings store polls its files: the `notify`
@@ -186,6 +186,7 @@ fn stamps(repo: &Repo) -> Stamp {
         g.join("rebase-apply"),
         c.join("packed-refs"),
         c.join("FETCH_HEAD"),
+        c.join("config"),
     ]
     .into_iter()
     .map(|p| {
