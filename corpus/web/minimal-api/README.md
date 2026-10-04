@@ -29,4 +29,6 @@ Used by `crates/eludite/src/shell/debug/tests.rs`
 (`ctrl_f5_on_the_corpus_web_project_opens_the_page_in_the_embedded_engine`, which copies it into a temporary solution
 and builds it, and its netcoredbg twin), the Xvfb run `crates/eludite/tools/web-launch-linux.sh` (also a copy), and
 brief 0038's JavaScript debugging: `crates/dap/src/sourcemap.rs` and `crates/dap/tests/js_debug.rs` (the map, and the
-real vscode-js-debug on the page), the shell's `*_js_debug_*` tests and the Xvfb run `crates/eludite/tools/js-debug-linux.sh`.
+real vscode-js-debug on the page), the shell's `ctrl_f5_on_the_corpus_web_project_then_js_debug_stops_in_app_ts` and its
+netcoredbg twin, the js-debug conformance scenarios (`corpus/dap/js-debug/`) and the Xvfb run
+`crates/eludite/tools/js-debug-linux.sh`.
