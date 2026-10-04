@@ -67,6 +67,7 @@ retry it another way, tell the user.
 
 ## 6. Limits
 
-Commits are not signed. Remotes over `https://` and ssh need a libgit2 built with those transports, which this build
-is not: local paths, `file://`, `git://` and `http://` remotes work. Interactive rebase, submodules and LFS are not
-offered.
+Commits are not signed. Remotes over `https://`, `http://`, ssh, `git://` and local paths work. Agents cannot answer
+credential prompts; the person does: a fetch, pull or push no credential helper or ssh key answers fails with
+`credentials_required` and the host, so tell the user rather than retrying. Interactive rebase, submodules and LFS
+are not offered.
