@@ -569,8 +569,33 @@ mod tests {
                 "browser.chromePath",
                 "browser.headless",
                 "browser.viewport",
+                "terminal.defaultProfile",
+                "terminal.profiles",
+                "terminal.fontSize",
+                "terminal.scrollback",
+                "terminal.copyOnSelect",
+                "terminal.bell",
+                "terminal.inheritToolPaths",
+                "terminal.shellIntegration",
             ]
         );
+        // Brief 0041: the Terminal page, last, so the earlier pages keep their places.
+        assert_eq!(s.sections.last().map(String::as_str), Some("Terminal"));
+        assert_eq!(s.section("Terminal").count(), 8);
+        assert_eq!(s.get("terminal.scrollback").unwrap().default, json!(10_000));
+        assert_eq!(
+            s.get("terminal.inheritToolPaths").unwrap().default,
+            json!(true)
+        );
+        assert_eq!(
+            s.get("terminal.shellIntegration").unwrap().default,
+            json!(true)
+        );
+        assert_eq!(
+            s.get("terminal.copyOnSelect").unwrap().default,
+            json!(false)
+        );
+        assert_eq!(s.get("terminal.profiles").unwrap().kind, SettingKind::List);
         assert_eq!(s.get("build.onSave").unwrap().default, json!(false));
         assert_eq!(s.get("build.beforeRun").unwrap().default, json!(true));
         // Brief 0037: F5 opens a web project's page, in the Web Browser window, by default.
@@ -696,6 +721,18 @@ mod tests {
             SettingsRequest::Get { key: None }
         );
         assert!(ok(GET, json!({"key": "nope"})).is_err());
+        // Terminal profiles: a name and a command, args, env and a folder (brief 0041).
+        let profiles = json!([{"name": "nu", "command": "nu", "args": ["-l"], "env": {"A": "1"}, "cwd": "src"}]);
+        assert!(ok(SET, json!({"key": "terminal.profiles", "value": profiles})).is_ok());
+        assert!(
+            ok(
+                SET,
+                json!({"key": "terminal.profiles", "value": [{"name": "nu"}]})
+            )
+            .is_err()
+        );
+        assert!(ok(SET, json!({"key": "terminal.bell", "value": "audible"})).is_err());
+        assert!(ok(SET, json!({"key": "terminal.fontSize", "value": 5})).is_err());
         assert!(ok(OPTIONS, json!({"section": "Debugging > General"})).is_ok());
         assert!(ok(OPTIONS, json!({"section": "Fonts and Colors"})).is_err());
         let b = s.get("build.onSave").unwrap();

@@ -310,6 +310,15 @@ impl CommandRegistry {
                 c.reason = Some(reason);
                 c.always_allow = always_allow;
             }
+            // A call the policy allows already keeps its class and runs without asking (brief 0041).
+            Some(Escalation::Raise {
+                reason,
+                always_allow: AlwaysAllow::Granted,
+                ..
+            }) => {
+                c.reason = Some(reason);
+                c.always_allow = AlwaysAllow::Granted;
+            }
             Some(Escalation::Refuse(why)) => c.refused = Some(why),
             _ => {}
         }

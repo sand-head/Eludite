@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-read.input.json",
+  "title": "eludite.terminal.read input",
+  "description": "Read a terminal as text. `mode: screen` (default): the visible grid, one line per row, trailing spaces trimmed, with the cursor. `mode: since`: everything the terminal printed after `mark` (from eludite.terminal.send, eludite.terminal.wait or an earlier read), as plain text with escape sequences removed: the output of the commands run since. `mode: scrollback`: the last `max_lines` lines of the scrollback and screen. Every answer carries the `mark` to pass next time. Always allowed for agents (class read); also what ends the refusal of eludite.terminal.send after the person interrupted your wait.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "mode": {
+      "enum": [
+        "screen",
+        "since",
+        "scrollback"
+      ],
+      "description": "Default `screen`."
+    },
+    "mark": {
+      "description": "With `mode: since`: where to start. Default: your last eludite.terminal.send's mark, else the start.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_lines": {
+      "description": "With `mode: scrollback`: how many lines, from the end (default 200, at most 10000).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    }
+  }
+}

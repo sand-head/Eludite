@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-open.input.json",
+  "title": "eludite.terminal.open input",
+  "description": "Open a terminal in the Terminal window (View > Terminal, Ctrl+`; New Terminal, Ctrl+Shift+`): a shell on a real PTY, in the workspace's folder unless `cwd` says otherwise, with the `dotnet`, Cargo and other tool folders Eludite located put first on PATH (terminal.inheritToolPaths), so `dotnet --version` prints the SDK Eludite builds with. The person sees and can type into the same terminal. For agents, class execute decided by the solution policy's `terminal.run` (`prompt` by default: the first eludite.terminal.open or eludite.terminal.send of an agent session asks the person, and \"Allow for this session\" holds until the session ends). Answers the terminal's id and the shell's process id; then call eludite.terminal.send to run a command and eludite.terminal.wait with `prompt: true` for it to finish.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "profile": {
+      "description": "The profile's name, as the Terminal window's dropdown lists it and eludite.terminal.list answers it (`bash`, `zsh`, `sh`; `Developer PowerShell`, `PowerShell`, `Command Prompt` on Windows; and those of the setting terminal.profiles). Default: the setting terminal.defaultProfile, else the platform's default ($SHELL on Linux and macOS, Developer PowerShell on Windows).",
+      "type": "string",
+      "minLength": 1
+    },
+    "cwd": {
+      "description": "The working directory: absolute, or relative to the workspace's folder. Default: the workspace's folder (the opened folder, or the solution's), else the user's home.",
+      "type": "string",
+      "minLength": 1
+    },
+    "env": {
+      "description": "Extra environment variables for the shell, after the profile's.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "description": "The tab's name. Default: the profile's name (a second terminal of the same profile is `bash (2)`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "split_with": {
+      "description": "Split: open the terminal beside this one, in the same tab (the window's Split button). Default: a tab of its own.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "replace": {
+      "description": "Restart: start the shell again in the place of this terminal, whose shell has ended (the window's Restart). The new terminal keeps the old one's profile, folder and name unless given.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    }
+  }
+}

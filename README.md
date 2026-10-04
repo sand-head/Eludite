@@ -19,7 +19,7 @@ Pre-alpha. It opens, edits, builds and debugs real solutions on Linux, but it is
 Work is issued and recorded as briefs, each with a report, in [docs/briefs/](docs/briefs/). The index there is the authoritative status. In short:
 
 - Phase 0 (the spikes that decided the architecture) is complete on Linux and Windows.
-- Phase 1 (a daily driver for modern .NET) has landed the editor core, docking, opening a solution, IntelliSense, navigation, rename and code actions, build with the Error List, run and debug, Test Explorer, git, the Agents window, Rust through the generic paths, and settings. The integrated terminal and Find in Files are the remaining close-out items.
+- Phase 1 (a daily driver for modern .NET) has landed the editor core, docking, opening a solution, IntelliSense, navigation, rename and code actions, build with the Error List, run and debug, Test Explorer, git, the integrated terminal, the Agents window, Rust through the generic paths, and settings. Find in Files is the remaining close-out item.
 - Phase 2 work that was pulled forward: the agent debugging suite (inspection, run control, attach, multiple sessions, a recorded conformance corpus and a proving scenario with a real agent), .NET Framework debugging on Linux and macOS under Mono, Rust debugging with lldb-dap, browser automation over the Chrome DevTools Protocol, and the embedded browser engine.
 
 macOS builds in CI; nothing has been measured there yet.

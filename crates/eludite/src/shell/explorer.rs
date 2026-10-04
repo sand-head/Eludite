@@ -13,6 +13,8 @@
 //! In a Git repository (brief 0040) each file carries Visual Studio's source control glyph and color from the
 //! repository's status, a file's context menu has Compare with Unmodified, Undo Changes, Stage, Unstage and Blame,
 //! and Ctrl+D on the selected file is Compare with Unmodified.
+//!
+//! A project's or folder's context menu ends with Open in Terminal (brief 0041), a terminal in its folder.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -21,8 +23,8 @@ use std::rc::Rc;
 use eludite_commands::workspace;
 use eludite_git::GlyphIndex;
 use eludite_ui::{
-    RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, menu_row,
-    tree_row_with_badge,
+    RunCommand, TREE_ROW_HEIGHT, Theme, TreeRowStyle, WORKSPACE_GIT_ITEMS, WORKSPACE_TERMINAL_ITEM,
+    menu_row, tree_row_with_badge,
 };
 use eludite_workspace::explorer::{NodeKind, Row, SolutionModel};
 use gpui::{
@@ -50,6 +52,10 @@ pub fn context_item_selector(item: &str) -> String {
 /// items ([`WORKSPACE_GIT_ITEMS`]), for the file at `path`.
 pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)> {
     let p = path.to_string_lossy();
+    // Open in Terminal: the terminal resolves a project file to its folder.
+    if item == WORKSPACE_TERMINAL_ITEM.0 {
+        return Some((WORKSPACE_TERMINAL_ITEM.2, json!({ "cwd": p })));
+    }
     if let Some((_, _, command)) = WORKSPACE_GIT_ITEMS.iter().find(|(i, _, _)| *i == item) {
         let args = match item {
             "compare" | "blame" => json!({ "path": p }),
@@ -271,7 +277,9 @@ impl SolutionExplorer {
                 .map(|(i, l, _)| (*i, *l))
                 .collect()
         } else {
-            CONTEXT_ITEMS.to_vec()
+            let mut items = CONTEXT_ITEMS.to_vec();
+            items.push((WORKSPACE_TERMINAL_ITEM.0, WORKSPACE_TERMINAL_ITEM.1));
+            items
         };
         let file = row.kind.opens_file();
         for (i, (item, label)) in entries.into_iter().enumerate() {
@@ -384,6 +392,28 @@ impl SolutionExplorer {
             .find(|r| r.path.as_deref() == Some(path))
             .map(|r| r.id.clone());
         cx.notify();
+    }
+
+    /// Expand the folders down to the folder `dir` and select its node (a terminal's link to a directory, brief 0041):
+    /// a project or package whose file is in `dir`, else the deepest folder node named like `dir` whose files all lie
+    /// under it. Nothing changes when the tree has no node for it.
+    pub fn reveal_folder(&mut self, dir: &Path, cx: &mut Context<Self>) {
+        let Some(model) = &self.model else { return };
+        let Some(trail) = folder_trail(&model.root, dir) else {
+            return;
+        };
+        let (id, above) = trail.split_last().expect("a trail names its node");
+        self.expanded.extend(above.iter().cloned());
+        self.expanded.insert(id.clone());
+        self.selected = Some(id.clone());
+        self.refresh_rows();
+        cx.notify();
+    }
+
+    /// The selected node's id.
+    #[cfg(test)]
+    pub fn selected_id(&self) -> Option<&str> {
+        self.selected.as_deref()
     }
 
     fn refresh_rows(&mut self) {
@@ -514,4 +544,44 @@ impl Render for SolutionExplorer {
             .children(self.context_menu(cx))
             .into_any_element()
     }
+}
+
+/// The ids from `root` down to the node that stands for the folder `dir` ([`SolutionExplorer::reveal_folder`]).
+fn folder_trail(root: &eludite_workspace::explorer::Node, dir: &Path) -> Option<Vec<String>> {
+    use eludite_workspace::explorer::Node;
+    fn files<'a>(n: &'a Node, out: &mut Vec<&'a Path>) {
+        if let (NodeKind::File { .. }, Some(p)) = (&n.kind, &n.path) {
+            out.push(p);
+        }
+        for c in &n.children {
+            files(c, out);
+        }
+    }
+    fn stands_for(n: &Node, dir: &Path) -> bool {
+        match n.kind {
+            NodeKind::File { .. } | NodeKind::CargoTarget { .. } => false,
+            NodeKind::Folder => {
+                let mut under = Vec::new();
+                files(n, &mut under);
+                Some(n.label.as_str()) == dir.file_name().and_then(|f| f.to_str())
+                    && !under.is_empty()
+                    && under.iter().all(|f| f.starts_with(dir))
+            }
+            _ => n
+                .path
+                .as_deref()
+                .is_some_and(|p| p == dir || p.parent() == Some(dir)),
+        }
+    }
+    fn walk(n: &Node, dir: &Path, trail: &mut Vec<String>) -> bool {
+        trail.push(n.id.clone());
+        // The deepest match wins: a package's folder before the workspace whose manifest sits beside it.
+        if n.children.iter().any(|c| walk(c, dir, trail)) || stands_for(n, dir) {
+            return true;
+        }
+        trail.pop();
+        false
+    }
+    let mut trail = Vec::new();
+    walk(root, dir, &mut trail).then_some(trail)
 }

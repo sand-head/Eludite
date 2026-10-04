@@ -56,7 +56,8 @@ pub use keymap::{
     vs_keymap,
 };
 pub use menu::{
-    MENU_TITLES, Menu, MenuBar, MenuEntry, WORKSPACE_GIT_ITEMS, menu_bar_with, vs_menus,
+    MENU_TITLES, Menu, MenuBar, MenuEntry, WORKSPACE_GIT_ITEMS, WORKSPACE_TERMINAL_ITEM,
+    menu_bar_with, vs_menus,
 };
 pub use popup::CompletionKind;
 pub use status::{SlotAlign, StatusBar, slot_selector, slots, status_toggle};

@@ -157,6 +157,8 @@ pub struct Prompt {
     /// Whether Always Allow can persist (a solution is open, so there is a policy file, and the call's escalation
     /// lets it remember something).
     pub can_persist: bool,
+    /// Always Allow is "Allow for this session": a grant until the agent session ends, nothing written (brief 0041).
+    pub session: bool,
     /// Why the call's class was raised above its command's (ADR-0009).
     pub reason: Option<String>,
 }
@@ -734,7 +736,12 @@ impl AgentsWindow {
                 .p_2()
                 .child(button(Decision::Allow, "Allow", false));
         if p.can_persist {
-            buttons = buttons.child(button(Decision::AlwaysAllow, "Always Allow", false));
+            let label = if p.session {
+                "Allow for this session"
+            } else {
+                "Always Allow"
+            };
+            buttons = buttons.child(button(Decision::AlwaysAllow, label, false));
         }
         buttons = buttons.child(button(Decision::Deny, "Deny", true));
         Some(

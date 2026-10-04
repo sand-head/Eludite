@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-close.input.json",
+  "title": "eludite.terminal.close input",
+  "description": "Close a terminal (its tab's close button; Kill Terminal): the shell is ended (SIGHUP, as closing a terminal window does; with `kill`, every process of the terminal's session is killed at once) and its tab closes. Closing a terminal whose shell runs a command needs `kill: true`, or it is refused naming the command; the window asks the person instead. For agents, class execute decided by the solution policy's `terminal.run`; with `kill`, class dangerous.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "kill": {
+      "description": "Kill the terminal's processes even while a command runs in it (default false).",
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-open.output.json",
+  "title": "eludite.terminal.open output",
+  "description": "The terminal that opened.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "pid",
+    "name",
+    "profile",
+    "cwd",
+    "integration",
+    "mark"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "pid": {
+      "description": "The shell's process id.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "name": {
+      "description": "The tab's name.",
+      "type": "string"
+    },
+    "profile": {
+      "description": "The profile it runs.",
+      "type": "string"
+    },
+    "cwd": {
+      "description": "Its starting folder.",
+      "type": "string"
+    },
+    "integration": {
+      "description": "Whether the shell reports its prompts and each command's exit code (shell integration: OSC 133 marks from a small script Eludite sources for bash, zsh, fish and PowerShell when the setting terminal.shellIntegration is on). Without it (`sh`, a shell that declined, or the setting off) a prompt is recognized by a heuristic: the cursor's line ends in `$ `, `> ` or `# ` after 300 ms without output, and exit codes per command are unknown.",
+      "type": "boolean"
+    },
+    "mark": {
+      "description": "A position in the terminal's output stream: the number of bytes of plain text (UTF-8, escape sequences removed) the terminal has printed since it started. Pass it to eludite.terminal.read (`mode: since`) or eludite.terminal.wait to see only what came after it.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

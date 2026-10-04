@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Current layout file schema version.
-pub const LAYOUT_SCHEMA_VERSION: u32 = 3;
+pub const LAYOUT_SCHEMA_VERSION: u32 = 4;
 
 /// A dock edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,6 +69,8 @@ pub mod ids {
     /// Git > Manage Branches, Ctrl+0, Ctrl+R (brief 0040): the Git Repository window, closed until shown, docked at
     /// the bottom where its history has room.
     pub const GIT_REPOSITORY: &str = "git_repository";
+    /// View > Terminal, Ctrl+` (brief 0041): the Terminal window, tabbed at the bottom with the Error List and Output.
+    pub const TERMINAL: &str = "terminal";
     /// The windows a debugging session shows, in tab order (Visual Studio's Debug layout). The program's output is
     /// the Output window's Debug source (brief 0020 retired the Debug Console window).
     pub const DEBUG_SESSION: [&str; 3] = [LOCALS, WATCH, CALL_STACK];
@@ -137,6 +139,7 @@ impl ToolWindowRegistry {
             ),
             (ids::TEST_EXPLORER, "Test Explorer", DockSide::Left),
             (ids::GIT_REPOSITORY, "Git Repository", DockSide::Bottom),
+            (ids::TERMINAL, "Terminal", DockSide::Bottom),
         ] {
             r.register(ToolWindowDescriptor::new(id, title, side));
         }
@@ -460,7 +463,7 @@ impl DockLayout {
     }
 
     /// Visual Studio's default (PLAN.md 8): Workspace with Git Changes
-    /// tabbed on the right above Properties, Error List and Output tabbed at the
+    /// tabbed on the right above Properties, Error List, Output and Terminal tabbed at the
     /// bottom, Toolbox auto-hidden on the left, a Welcome document. Any other
     /// registered window starts closed.
     pub fn default_vs(registry: &ToolWindowRegistry) -> Self {
@@ -475,7 +478,7 @@ impl DockLayout {
             group(1, &[ids::WORKSPACE, ids::GIT_CHANGES, ids::AGENTS]),
             group(2, &[ids::PROPERTIES]),
         ];
-        l.bottom.groups = vec![group(3, &[ids::ERROR_LIST, ids::OUTPUT])];
+        l.bottom.groups = vec![group(3, &[ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL])];
         l.left.auto_hidden.push(ids::TOOLBOX.into());
         l.next_group_id = 4;
         l.documents.open("welcome", "Welcome");
@@ -970,6 +973,8 @@ impl DockLayout {
 /// - 2 to 3 (brief 0020): the Debug Console window is retired; the program's output
 ///   is the Output window's Debug source. Where the Debug Console was placed and
 ///   Output was not, Output takes its place; otherwise the Debug Console is removed.
+/// - 3 to 4 (brief 0041): the Terminal window joins the bottom group of Output (or of the Error List) after it, as
+///   the default layout has it; a layout with neither in a bottom group gets it closed at the bottom.
 pub fn migrate(mut value: Value) -> Result<Value, String> {
     let version = value
         .get("version")
@@ -988,12 +993,45 @@ pub fn migrate(mut value: Value) -> Result<Value, String> {
     if version < 3 {
         retire_id(&mut value, RETIRED_DEBUG_CONSOLE, ids::OUTPUT);
     }
+    if version < 4 {
+        add_terminal(&mut value);
+    }
     value["version"] = Value::from(LAYOUT_SCHEMA_VERSION);
     Ok(value)
 }
 
 /// The Debug Console's id in layouts of version 2 and older.
 pub const RETIRED_DEBUG_CONSOLE: &str = "debug_console";
+
+/// Version 4: put the Terminal window after Output (or the Error List) in its bottom group, unless placed already.
+fn add_terminal(value: &mut Value) {
+    if placed(value, ids::TERMINAL) {
+        return;
+    }
+    let Some(groups) = value["bottom"]["groups"].as_array_mut() else {
+        return;
+    };
+    for neighbor in [ids::OUTPUT, ids::ERROR_LIST] {
+        for g in groups.iter_mut() {
+            let Some(tabs) = g["tabs"].as_array_mut() else {
+                continue;
+            };
+            if let Some(ix) = tabs.iter().position(|t| t == neighbor) {
+                tabs.insert(ix + 1, Value::from(ids::TERMINAL));
+                // The active tab stays the same window.
+                if let Some(active) = g["active"].as_u64()
+                    && active > ix as u64
+                {
+                    g["active"] = Value::from(active + 1);
+                }
+                if let Some(hidden) = value["hidden"].as_array_mut() {
+                    hidden.retain(|h| h["id"] != ids::TERMINAL);
+                }
+                return;
+            }
+        }
+    }
+}
 
 /// Whether tool window `id` is placed (docked, auto-hidden or floating) in a layout document.
 fn placed(value: &Value, id: &str) -> bool {
@@ -1180,9 +1218,10 @@ mod tests {
             migrated["bottom"]["groups"][1],
             serde_json::json!({"id": 4, "tabs": ["call_stack", "breakpoints"], "active": 1})
         );
+        // Version 4 puts the Terminal after Output.
         assert_eq!(
             migrated["bottom"]["groups"][0]["tabs"],
-            serde_json::json!(["error_list", "output", "locals", "watch"])
+            serde_json::json!(["error_list", "output", "terminal", "locals", "watch"])
         );
         let mut layout = DockLayout::from_json(&text).unwrap();
         layout.normalize(&r);
@@ -1201,7 +1240,7 @@ mod tests {
         let migrated = migrate(v).unwrap();
         assert_eq!(
             migrated["bottom"]["groups"][1]["tabs"],
-            serde_json::json!(["call_stack", "breakpoints", "output"])
+            serde_json::json!(["call_stack", "breakpoints", "output", "terminal"])
         );
         let mut layout = DockLayout::from_json(&serde_json::to_string(&migrated).unwrap()).unwrap();
         layout.normalize(&r);
@@ -1236,7 +1275,10 @@ mod tests {
         );
         assert_eq!(l.right.groups[0].active_id(), Some(ids::WORKSPACE));
         assert_eq!(l.right.groups[1].tabs, [ids::PROPERTIES]);
-        assert_eq!(l.bottom.groups[0].tabs, [ids::ERROR_LIST, ids::OUTPUT]);
+        assert_eq!(
+            l.bottom.groups[0].tabs,
+            [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
+        );
         assert_eq!(l.bottom.groups[0].active_id(), Some(ids::ERROR_LIST));
         // Find All References starts closed and opens beside the Error List (brief 0014), as do the debugger
         // windows (brief 0018).
@@ -1266,7 +1308,12 @@ mod tests {
         shown.show(ids::FIND_ALL_REFERENCES).unwrap();
         assert_eq!(
             shown.bottom.groups[0].tabs,
-            [ids::ERROR_LIST, ids::OUTPUT, ids::FIND_ALL_REFERENCES]
+            [
+                ids::ERROR_LIST,
+                ids::OUTPUT,
+                ids::TERMINAL,
+                ids::FIND_ALL_REFERENCES
+            ]
         );
         assert_eq!(l.documents.active_tab().unwrap().title, "Welcome");
     }
@@ -1299,15 +1346,19 @@ mod tests {
         l.tab_into(ids::PROPERTIES, ids::OUTPUT).unwrap();
         assert_eq!(l.right.groups.len(), 1, "Properties' group disappears");
         let g = l.group_of(ids::OUTPUT).unwrap();
-        assert_eq!(g.tabs, [ids::ERROR_LIST, ids::OUTPUT, ids::PROPERTIES]);
+        assert_eq!(
+            g.tabs,
+            [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL, ids::PROPERTIES]
+        );
         assert_eq!(g.active_id(), Some(ids::PROPERTIES));
         // Untab: drag it out to a side.
         l.dock_to(ids::PROPERTIES, DockSide::Left).unwrap();
         assert_eq!(
             l.group_of(ids::OUTPUT).unwrap().tabs,
-            [ids::ERROR_LIST, ids::OUTPUT]
+            [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
         );
-        assert_eq!(l.group_of(ids::OUTPUT).unwrap().active, 1);
+        // The active tab moves to its neighbor (the Terminal, after Output).
+        assert_eq!(l.group_of(ids::OUTPUT).unwrap().active, 2);
         // Dropping on itself does nothing.
         l.tab_into(ids::PROPERTIES, ids::PROPERTIES).unwrap();
         assert_eq!(docked_side(&l, ids::PROPERTIES), Some(DockSide::Left));
@@ -1323,6 +1374,8 @@ mod tests {
     fn float_and_redock() {
         let r = reg();
         let mut l = DockLayout::default_vs(&r);
+        // The Error List and Output alone at the bottom (the Terminal closed).
+        l.hide(ids::TERMINAL).unwrap();
         let gid = l.float(ids::OUTPUT, Bounds::DEFAULT_FLOAT).unwrap();
         assert_eq!(l.find(ids::OUTPUT), Some(Place::Floating { group: gid }));
         assert_eq!(l.floating[0].home, DockSide::Bottom);
@@ -1381,7 +1434,7 @@ mod tests {
         );
         l.show(ids::OUTPUT).unwrap();
         let g = l.group_of(ids::OUTPUT).unwrap();
-        assert_eq!(g.tabs, [ids::ERROR_LIST, ids::OUTPUT]);
+        assert_eq!(g.tabs, [ids::ERROR_LIST, ids::TERMINAL, ids::OUTPUT]);
         assert_eq!(g.active_id(), Some(ids::OUTPUT));
         // Hiding a floating window remembers its home dock.
         l.float(ids::PROPERTIES, Bounds::DEFAULT_FLOAT).unwrap();
@@ -1411,7 +1464,10 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(i.group.unwrap(), [ids::ERROR_LIST, ids::OUTPUT]);
+        assert_eq!(
+            i.group.unwrap(),
+            [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
+        );
         assert!(!i.active);
         let t = l.info(ids::TOOLBOX, &r).unwrap();
         assert_eq!(
@@ -1530,5 +1586,70 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), n);
         assert!(l.next_group_id > *ids.last().unwrap());
+    }
+
+    /// A version 3 layout as brief 0040 saved it: the Error List and Output at the bottom with Git Repository beside
+    /// them, Output active.
+    const V3_LAYOUT: &str = r#"{
+      "version": 3,
+      "left": {"groups": [], "size": 240.0, "auto_hidden": ["toolbox"]},
+      "right": {"groups": [{"id": 1, "tabs": ["workspace", "git_changes", "agents"], "active": 0},
+                           {"id": 2, "tabs": ["properties"], "active": 0}],
+                "size": 300.0, "auto_hidden": []},
+      "bottom": {"groups": [{"id": 3, "tabs": ["error_list", "output", "git_repository"], "active": 1}],
+                 "size": 200.0, "auto_hidden": []},
+      "floating": [],
+      "hidden": [{"id": "find_all_references", "side": "bottom"}, {"id": "test_explorer", "side": "left"}],
+      "documents": {"tabs": [], "active": null},
+      "next_group_id": 4
+    }"#;
+
+    #[test]
+    fn version_3_layouts_get_the_terminal_in_the_bottom_group() {
+        let r = reg();
+        let migrated = migrate(serde_json::from_str(V3_LAYOUT).unwrap()).unwrap();
+        assert_eq!(migrated["version"], LAYOUT_SCHEMA_VERSION);
+        assert_eq!(
+            migrated["bottom"]["groups"][0]["tabs"],
+            serde_json::json!(["error_list", "output", "terminal", "git_repository"])
+        );
+        let mut layout = DockLayout::from_json(&serde_json::to_string(&migrated).unwrap()).unwrap();
+        layout.normalize(&r);
+        assert!(layout.is_consistent(&r));
+        assert_eq!(docked_side(&layout, ids::TERMINAL), Some(DockSide::Bottom));
+        assert_eq!(
+            layout.bottom.groups[0].active_id(),
+            Some(ids::OUTPUT),
+            "the active tab stays"
+        );
+        assert!(layout.hidden.iter().all(|h| h.id != ids::TERMINAL));
+
+        // Output closed: after the Error List. Neither docked at the bottom: closed, at the bottom.
+        let mut v: Value = serde_json::from_str(V3_LAYOUT).unwrap();
+        v["bottom"]["groups"][0]["tabs"] = serde_json::json!(["error_list"]);
+        v["bottom"]["groups"][0]["active"] = Value::from(0);
+        let migrated = migrate(v).unwrap();
+        assert_eq!(
+            migrated["bottom"]["groups"][0]["tabs"],
+            serde_json::json!(["error_list", "terminal"])
+        );
+        let mut v: Value = serde_json::from_str(V3_LAYOUT).unwrap();
+        v["bottom"]["groups"] = serde_json::json!([]);
+        let mut layout =
+            DockLayout::from_json(&serde_json::to_string(&migrate(v).unwrap()).unwrap()).unwrap();
+        layout.normalize(&r);
+        assert!(layout.is_consistent(&r));
+        assert!(
+            layout
+                .hidden
+                .iter()
+                .any(|h| h.id == ids::TERMINAL && h.side == DockSide::Bottom)
+        );
+        // The default layout has it beside Output.
+        let d = DockLayout::default_vs(&r);
+        assert_eq!(
+            d.bottom.groups[0].tabs,
+            [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
+        );
     }
 }

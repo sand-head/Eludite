@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-list.output.json",
+  "title": "eludite.terminal.list output",
+  "description": "The terminals, in tab order, and the profiles.",
+  "type": "object",
+  "required": [
+    "terminals",
+    "profiles"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "terminal",
+          "name",
+          "profile",
+          "pid",
+          "cwd",
+          "running",
+          "busy",
+          "integration",
+          "cols",
+          "rows",
+          "mark"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "terminal": {
+            "description": "The terminal's id.",
+            "type": "string",
+            "pattern": "^term[0-9]+$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cwd": {
+            "description": "Its starting folder, or the shell's current folder when its integration reports it (OSC 7).",
+            "type": "string"
+          },
+          "running": {
+            "description": "The shell still runs.",
+            "type": "boolean"
+          },
+          "exit_code": {
+            "description": "The shell's exit code, once it ended.",
+            "type": "integer"
+          },
+          "busy": {
+            "description": "A command is running in it: the terminal's foreground process is not the shell (Linux and macOS; always false on Windows).",
+            "type": "boolean"
+          },
+          "integration": {
+            "description": "Whether the shell reports its prompts and each command's exit code (shell integration: OSC 133 marks from a small script Eludite sources for bash, zsh, fish and PowerShell when the setting terminal.shellIntegration is on). Without it (`sh`, a shell that declined, or the setting off) a prompt is recognized by a heuristic: the cursor's line ends in `$ `, `> ` or `# ` after 300 ms without output, and exit codes per command are unknown.",
+            "type": "boolean"
+          },
+          "cols": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "split_with": {
+            "description": "The terminal it shares a tab with (Split).",
+            "type": "string",
+            "pattern": "^term[0-9]+$"
+          },
+          "agent": {
+            "description": "The agent whose eludite.terminal.send or eludite.terminal.wait is in flight on it (the tab shows \"Agent <name> is typing\").",
+            "type": "string"
+          },
+          "mark": {
+            "description": "A position in the terminal's output stream: the number of bytes of plain text (UTF-8, escape sequences removed) the terminal has printed since it started. Pass it to eludite.terminal.read (`mode: since`) or eludite.terminal.wait to see only what came after it.",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "active": {
+      "description": "The active terminal.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "profiles": {
+      "description": "The profiles' names, the default first.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

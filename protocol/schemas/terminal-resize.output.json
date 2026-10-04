@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-resize.output.json",
+  "title": "eludite.terminal.resize output",
+  "description": "The new size.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "cols",
+    "rows"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "cols": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

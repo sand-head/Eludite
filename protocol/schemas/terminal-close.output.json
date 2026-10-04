@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-close.output.json",
+  "title": "eludite.terminal.close output",
+  "description": "What was closed.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "killed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "killed": {
+      "description": "A command was running and was killed.",
+      "type": "boolean"
+    }
+  }
+}

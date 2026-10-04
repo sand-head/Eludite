@@ -951,9 +951,10 @@ fn the_debugging_guide_is_a_resource() {
     let resources = list["resources"].as_array().unwrap();
     assert_eq!(
         resources.len(),
-        2,
-        "the debugging and git guides (no git status without its command)"
+        3,
+        "the debugging, git and terminal guides (no git status without its command)"
     );
+    assert_eq!(resources[2]["uri"], "eludite://guides/terminal");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1107,9 +1108,9 @@ fn the_git_status_is_a_live_resource_read_as_the_agent() {
     );
     let list = result(call(&s, "resources/list", json!({})));
     let resources = list["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 3);
-    assert_eq!(resources[2]["uri"], crate::resources::GIT_STATUS_URI);
-    assert_eq!(resources[2]["mimeType"], "application/json");
+    assert_eq!(resources.len(), 4);
+    assert_eq!(resources[3]["uri"], crate::resources::GIT_STATUS_URI);
+    assert_eq!(resources[3]["mimeType"], "application/json");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1167,4 +1168,50 @@ fn the_git_guide_is_short_and_names_real_commands() {
     assert!(
         text.contains("git.push") && text.contains("git.history") && text.contains("git.commit")
     );
+}
+
+/// The terminal guide stays under 600 words (brief 0041), is served as `eludite://guides/terminal`, and names only
+/// commands that exist.
+#[test]
+fn the_terminal_guide_is_short_served_and_names_real_commands() {
+    let text = crate::resources::TERMINAL.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 600, "{words} words");
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.terminal.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        if id == "eludite.terminal" {
+            continue;
+        }
+        assert!(
+            eludite_commands::terminal::ALL.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named >= 8, "{named}");
+    assert!(text.contains("terminal.run") && text.contains("interrupted_by"));
+    let s = McpServer::new(std::sync::Arc::new(eludite_commands::CommandRegistry::new()));
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18"}),
+    ));
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("eludite://guides/terminal")
+    );
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/terminal"}),
+    ));
+    assert_eq!(read["contents"][0]["text"].as_str().unwrap(), text);
+    assert_eq!(read["contents"][0]["mimeType"], "text/markdown");
 }

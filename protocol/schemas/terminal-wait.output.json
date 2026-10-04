@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-wait.output.json",
+  "title": "eludite.terminal.wait output",
+  "description": "What happened, and the output since the mark.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "matched",
+    "text",
+    "integration",
+    "truncated",
+    "elapsed_ms",
+    "mark"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "matched": {
+      "enum": [
+        "prompt",
+        "pattern",
+        "exit",
+        "timeout",
+        "interrupted"
+      ],
+      "description": "What ended the wait."
+    },
+    "interrupted_by": {
+      "description": "`user`: the person typed into the terminal while you waited. Read it (eludite.terminal.read) before sending more.",
+      "enum": [
+        "user"
+      ]
+    },
+    "text": {
+      "description": "What the terminal printed after `mark`, as plain text (at most the last 64 KB; `truncated` says when more was cut). With shell integration and `prompt`, the output of the commands that ran, without their prompts and command lines.",
+      "type": "string"
+    },
+    "match": {
+      "description": "With `matched: pattern`: the matching text.",
+      "type": "string"
+    },
+    "exit_code": {
+      "description": "With `matched: prompt` and shell integration: the exit code of the last command that finished. With `matched: exit`: the shell's exit code.",
+      "type": "integer"
+    },
+    "integration": {
+      "description": "Whether the shell reports its prompts and each command's exit code (shell integration: OSC 133 marks from a small script Eludite sources for bash, zsh, fish and PowerShell when the setting terminal.shellIntegration is on). Without it (`sh`, a shell that declined, or the setting off) a prompt is recognized by a heuristic: the cursor's line ends in `$ `, `> ` or `# ` after 300 ms without output, and exit codes per command are unknown.",
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "mark": {
+      "description": "A position in the terminal's output stream: the number of bytes of plain text (UTF-8, escape sequences removed) the terminal has printed since it started. Pass it to eludite.terminal.read (`mode: since`) or eludite.terminal.wait to see only what came after it.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

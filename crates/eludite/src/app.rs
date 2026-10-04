@@ -145,6 +145,8 @@ pub fn run(args: Args, t_main: Instant) {
         bind_keymap(cx, &vs_keymap());
         bind_editor_keys(cx);
         crate::shell::browser_window::bind_keys(cx);
+        // After the shell's keymap: the keys a focused terminal takes from it (brief 0041).
+        crate::shell::terminal::bind_keys(cx);
         let title = match &args.solution {
             Some(s) => format!(
                 "{} - Eludite",
