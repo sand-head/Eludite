@@ -1,0 +1,4 @@
+repository: https://tangled.org/tangled.org/core (knot1.tangled.sh/did:plc:j5hmlfdrwkvtxm7cjmu7j2is)
+commit: 3f736f0ba5a9b2c89a2e84ebf97f79b6a9f54a3f (2026-10-01)
+copied: lexicons/{repo,pulls,issue,feed,markup,actor,com/atproto}
+license: MIT (LICENSE beside them, the repository's `license` file)

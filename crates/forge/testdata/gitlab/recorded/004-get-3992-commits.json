@@ -1,0 +1,60 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/commits",
+    "query": {
+      "per_page": "100"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"4f5b2c26e9d3f11c001e7838dff95b68\"",
+      "link": "<{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests/3992/commits?id=gitlab-org%2Fcli&merge_request_iid=3992&page=1&per_page=100>; rel=\"first\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests/3992/commits?id=gitlab-org%2Fcli&merge_request_iid=3992&page=1&per_page=100>; rel=\"last\"",
+      "x-next-page": "",
+      "x-total": "2"
+    },
+    "body": [
+      {
+        "author_email": "user@example.invalid",
+        "author_name": "Giannis Kepas",
+        "authored_date": "2026-10-03T20:10:09.000+03:00",
+        "committed_date": "2026-10-03T20:10:09.000+03:00",
+        "committer_email": "user@example.invalid",
+        "committer_name": "Giannis Kepas",
+        "created_at": "2026-10-03T20:10:09.000+03:00",
+        "extended_trailers": {},
+        "id": "d900a435b60dee9d1532bc9d4391968637567334",
+        "message": "chore: review suggestions 1\n",
+        "parent_ids": [
+          "62f5f235e7de907e3f969ec284b22c80860f2516"
+        ],
+        "short_id": "d900a435",
+        "title": "chore: review suggestions 1",
+        "trailers": {},
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/commit/d900a435b60dee9d1532bc9d4391968637567334"
+      },
+      {
+        "author_email": "user@example.invalid",
+        "author_name": "Giannis Kepas",
+        "authored_date": "2026-10-02T14:37:36.000+03:00",
+        "committed_date": "2026-10-02T14:37:36.000+03:00",
+        "committer_email": "user@example.invalid",
+        "committer_name": "Giannis Kepas",
+        "created_at": "2026-10-02T14:37:36.000+03:00",
+        "extended_trailers": {},
+        "id": "62f5f235e7de907e3f969ec284b22c80860f2516",
+        "message": "feat(auth): set default host on login to a self-managed instance\n",
+        "parent_ids": [
+          "5a38b3968afe46c133029595f4fcad920909a6fe"
+        ],
+        "short_id": "62f5f235",
+        "title": "feat(auth): set default host on login to a self-managed instance",
+        "trailers": {},
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/commit/62f5f235e7de907e3f969ec284b22c80860f2516"
+      }
+    ]
+  }
+}

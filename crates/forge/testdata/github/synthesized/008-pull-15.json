@@ -1,0 +1,63 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/pulls/15"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "ETag": "\"pull-15-v1\""
+    },
+    "body": {
+      "number": 15,
+      "node_id": "PR_kwDO15",
+      "title": "Draft: rework the session store",
+      "state": "open",
+      "draft": true,
+      "merged": false,
+      "merged_at": null,
+      "user": {
+        "login": "hubot",
+        "id": 1,
+        "html_url": "https://github.com/hubot",
+        "type": "User"
+      },
+      "head": {
+        "ref": "feature/session",
+        "sha": "dddddddddddddddddddddddddddddddddddddddd",
+        "repo": {
+          "full_name": "octo-org/hello-world",
+          "clone_url": "https://github.com/octo-org/hello-world.git",
+          "node_id": "R_kgDOtest"
+        }
+      },
+      "base": {
+        "ref": "main",
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "repo": {
+          "full_name": "octo-org/hello-world",
+          "clone_url": "https://github.com/octo-org/hello-world.git",
+          "node_id": "R_kgDOtest"
+        }
+      },
+      "body": "",
+      "html_url": "https://github.com/octo-org/hello-world/pull/15",
+      "labels": [],
+      "comments": 0,
+      "requested_reviewers": [
+        {
+          "login": "octocat",
+          "id": 1,
+          "html_url": "https://github.com/octocat",
+          "type": "User"
+        }
+      ],
+      "mergeable": true,
+      "mergeable_state": "draft",
+      "auto_merge": null,
+      "created_at": "2026-10-01T09:00:00Z",
+      "updated_at": "2026-10-07T10:00:00Z"
+    }
+  }
+}

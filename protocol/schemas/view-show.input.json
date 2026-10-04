@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/view-show.input.json",
   "title": "eludite.view.show input",
-  "description": "Show and activate a tool window (View menu, e.g. View > Workspace) or a document tab. A closed tool window reopens where it was; an auto-hidden one slides out; a tabbed one becomes the active tab of its group. `web_browser` (View > Other Windows > Web Browser) opens the Web Browser window as a document tab, as Visual Studio does. `git_changes` is Git Changes (View > Git Changes, Ctrl+0, Ctrl+G) and `git_repository` the Git Repository window (Git > Manage Branches, Ctrl+0, Ctrl+R; brief 0040). `terminal` is the Terminal window (View > Terminal, Ctrl+`; brief 0041): shown from the menu or the key it starts a shell when it has none; shown by an agent it starts nothing (eludite.terminal.open does). `find_results_1` and `find_results_2` are Visual Studio's Find Results 1 and Find Results 2 windows (View > Other Windows > Find Results 1, 2; brief 0042), closed until a search shows one, then tabbed at the bottom.",
+  "description": "Show and activate a tool window (View menu, e.g. View > Workspace) or a document tab. A closed tool window reopens where it was; an auto-hidden one slides out; a tabbed one becomes the active tab of its group. `web_browser` (View > Other Windows > Web Browser) opens the Web Browser window as a document tab, as Visual Studio does. `git_changes` is Git Changes (View > Git Changes, Ctrl+0, Ctrl+G) and `git_repository` the Git Repository window (Git > Manage Branches, Ctrl+0, Ctrl+R; brief 0040). `terminal` is the Terminal window (View > Terminal, Ctrl+`; brief 0041): shown from the menu or the key it starts a shell when it has none; shown by an agent it starts nothing (eludite.terminal.open does). `find_results_1` and `find_results_2` are Visual Studio's Find Results 1 and Find Results 2 windows (View > Other Windows > Find Results 1, 2; brief 0042), closed until a search shows one, then tabbed at the bottom. `pull_requests` and `issues` are the Pull Requests and Issues windows (View > Other Windows > Pull Requests, Issues; brief 0046), tabbed with Git Changes on the right; opening one reads the forge's cache and refreshes it, so an agent's eludite.forge.* reads do not need them shown.",
   "type": "object",
   "required": [
     "id"
   ],
   "properties": {
     "id": {
-      "description": "Tool window id (e.g. workspace, properties, error_list, output, toolbox, git_changes, git_repository, terminal, find_results_1, find_results_2, web_browser) or document tab id.",
+      "description": "Tool window id (e.g. workspace, properties, error_list, output, toolbox, git_changes, git_repository, terminal, find_results_1, find_results_2, pull_requests, issues, web_browser) or document tab id.",
       "type": "string",
       "minLength": 1
     }

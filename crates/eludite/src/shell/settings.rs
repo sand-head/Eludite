@@ -226,6 +226,7 @@ impl Shell {
         self.git_apply_settings(cx);
         self.terminal_apply_settings(cx);
         self.search_apply_settings();
+        self.forge_apply_settings(cx);
         let agents_changed = self
             .applied_settings
             .as_ref()
@@ -259,6 +260,8 @@ impl Shell {
         self.git_workspace_changed(dir.as_deref());
         // New terminals start in the workspace's folder (brief 0041).
         self.terminal_workspace_changed(dir.as_deref());
+        // The forge cache is the workspace's; nothing is fetched (brief 0046).
+        self.forge_workspace_changed(dir.as_deref());
     }
 
     /// What the last [`Shell::apply_settings`] applied.

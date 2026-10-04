@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-merge.input.json",
+  "title": "eludite.forge.pull_merge input",
+  "description": "Merge a pull request with `method` (`merge`, `squash`, `rebase`; GitLab's `fast_forward` or `semi_linear` as the project allows; Azure DevOps' `merge` (no fast-forward), `squash`, `rebase`, `rebase_merge`), or with `when_checks_pass` set it to merge when its checks pass (auto-merge, merge when pipeline succeeds, auto-complete). Refuses when the forge reports it unmergeable (conflicts, blocked, draft) or its checks failing unless `force`; `force` is refused for agents. The window asks first, naming the method. Dangerous.",
+  "x-eludite-escalates": "Dangerous; for an agent the solution policy's `forge.merge` decides: `deny` (the default) refuses, `prompt` asks. `force` is refused for agents outright.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The number (GitHub, GitLab's `iid`, Azure DevOps, Forgejo, Gitea). Give `number` or `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The item's `id` as a list answered it; Tangled's items have only this (their AT-URI). Give `number` or `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "method": {
+      "enum": [
+        "merge",
+        "squash",
+        "rebase",
+        "rebase_merge",
+        "fast_forward",
+        "semi_linear"
+      ]
+    },
+    "title": {
+      "description": "The merge or squash commit's title.",
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "type": "string"
+    },
+    "delete_branch": {
+      "description": "Delete the source branch after merging.",
+      "type": "boolean"
+    },
+    "when_checks_pass": {
+      "type": "boolean"
+    },
+    "force": {
+      "description": "Merge although checks fail. Refused for agents.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}

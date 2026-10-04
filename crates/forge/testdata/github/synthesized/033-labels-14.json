@@ -1,0 +1,15 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/repos/octo-org/hello-world/issues/14/labels"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "name": "enhancement"
+      }
+    ]
+  }
+}

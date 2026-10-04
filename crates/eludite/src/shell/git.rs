@@ -473,6 +473,8 @@ impl Shell {
         for id in ids {
             self.git_margin_later(&id, Duration::ZERO, cx);
         }
+        // The status bar's pull request, the Create a Pull Request link, the review threads (brief 0046).
+        self.forge_git_changed(cx);
         cx.notify();
         true
     }
@@ -736,11 +738,15 @@ impl Shell {
                     .map(|b| format!(": {b} incoming"))
                     .unwrap_or_default()
             )),
-            cmds::PUSH => Some(format!(
-                "Pushed {} to {}",
-                out["branch"].as_str().unwrap_or_default(),
-                out["remote"].as_str().unwrap_or_default()
-            )),
+            cmds::PUSH => Some({
+                // Offer Create a Pull Request (brief 0046).
+                self.forge_pushed(cx);
+                format!(
+                    "Pushed {} to {}",
+                    out["branch"].as_str().unwrap_or_default(),
+                    out["remote"].as_str().unwrap_or_default()
+                )
+            }),
             cmds::CHECKOUT => Some(match out["branch"].as_str() {
                 Some(b) if out["created"] == json!(true) => format!("Created and checked out {b}"),
                 Some(b) => format!("Checked out {b}"),
@@ -888,7 +894,7 @@ impl Shell {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn git_open_compare(
+    pub(super) fn git_open_compare(
         &mut self,
         path: String,
         old_label: String,
@@ -1058,6 +1064,8 @@ impl Shell {
     pub(super) fn git_document_opened(&mut self, id: &str, cx: &mut Context<Self>) {
         self.git_update_tabs(cx);
         self.git_margin_later(id, Duration::ZERO, cx);
+        // The review threads of the pull request checked out (brief 0046).
+        self.forge_update_margins(cx);
     }
 
     /// An editor's text changed: its margin once the editor is idle.
@@ -1079,6 +1087,7 @@ impl Shell {
         self.git.margins.borrow_mut().remove(id);
         self.git.margin_tasks.remove(id);
         self.git.documents.borrow_mut().remove(id);
+        self.forge_document_closed(id);
     }
 
     /// The open workspace changed: look for its repository (off the UI thread).

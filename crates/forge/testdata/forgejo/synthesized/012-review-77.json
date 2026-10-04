@@ -1,0 +1,24 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/77/reviews",
+    "body_contains": [
+      "\"event\":\"APPROVED\""
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 6001,
+      "user": {
+        "id": 1,
+        "login": "octocat",
+        "username": "octocat",
+        "html_url": "https://codeberg.org/octocat"
+      },
+      "state": "APPROVED",
+      "submitted_at": "2026-10-04T08:00:00+02:00"
+    }
+  }
+}

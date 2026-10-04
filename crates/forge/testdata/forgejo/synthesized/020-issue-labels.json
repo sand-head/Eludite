@@ -1,0 +1,16 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/repos/forgejo/forgejo/issues/14684/labels"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 11,
+        "name": "bug"
+      }
+    ]
+  }
+}

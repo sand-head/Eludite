@@ -1,0 +1,70 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PATCH",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/17",
+    "body_contains": [
+      "\"status\":\"abandoned\""
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "pullRequestId": 17,
+      "codeReviewId": 17,
+      "status": "abandoned",
+      "isDraft": false,
+      "title": "Add the login form",
+      "description": "Adds the login form.",
+      "createdBy": {
+        "id": "6c8f3c5e-0000-4000-8000-000000000001",
+        "displayName": "Octo Cat",
+        "uniqueName": "octocat@example.invalid"
+      },
+      "creationDate": "2026-10-03T09:00:00Z",
+      "sourceRefName": "refs/heads/feature/login",
+      "targetRefName": "refs/heads/main",
+      "mergeStatus": "succeeded",
+      "lastMergeSourceCommit": {
+        "commitId": "1111111111111111111111111111111111111111"
+      },
+      "lastMergeTargetCommit": {
+        "commitId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "reviewers": [
+        {
+          "id": "r-1",
+          "displayName": "Hubot",
+          "uniqueName": "hubot@example.invalid",
+          "vote": 10,
+          "isRequired": false
+        },
+        {
+          "id": "r-2",
+          "displayName": "Reviewer",
+          "uniqueName": "reviewer@example.invalid",
+          "vote": -5,
+          "isRequired": false
+        },
+        {
+          "id": "r-3",
+          "displayName": "Lead",
+          "uniqueName": "lead@example.invalid",
+          "vote": 0,
+          "isRequired": true
+        }
+      ],
+      "labels": [
+        {
+          "name": "feature"
+        }
+      ],
+      "repository": {
+        "id": "2459d599-fdb2-4d28-9810-daeec061cf90",
+        "project": {
+          "id": "cbb18261-c48f-4abb-8651-8cdcb5474649"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,218 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"30a8ec44db2195269fa8854762c0c9a6\""
+    },
+    "body": {
+      "allow_collaboration": true,
+      "allow_maintainer_to_push": true,
+      "approvals_before_merge": null,
+      "assignee": {
+        "avatar_url": "",
+        "id": 5958906,
+        "locked": false,
+        "name": "Giannis Kepas",
+        "public_email": "user@example.invalid",
+        "state": "active",
+        "username": "gkepas",
+        "web_url": "https://gitlab.com/gkepas"
+      },
+      "assignees": [
+        {
+          "avatar_url": "",
+          "id": 5958906,
+          "locked": false,
+          "name": "Giannis Kepas",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "gkepas",
+          "web_url": "https://gitlab.com/gkepas"
+        }
+      ],
+      "author": {
+        "avatar_url": "",
+        "bot": false,
+        "id": 5958906,
+        "locked": false,
+        "name": "Giannis Kepas",
+        "public_email": "user@example.invalid",
+        "state": "active",
+        "username": "gkepas",
+        "web_url": "https://gitlab.com/gkepas"
+      },
+      "blocking_discussions_resolved": false,
+      "changes_count": "4",
+      "closed_at": null,
+      "closed_by": null,
+      "created_at": "2026-10-02T11:42:57.436Z",
+      "description": "",
+      "detailed_merge_status": "requested_changes",
+      "diff_refs": {
+        "base_sha": "5a38b3968afe46c133029595f4fcad920909a6fe",
+        "head_sha": "d900a435b60dee9d1532bc9d4391968637567334",
+        "start_sha": "1a98ca509aaf26288f7c83744e9c3fbaafe0ebf3"
+      },
+      "discussion_locked": null,
+      "downvotes": 0,
+      "draft": false,
+      "first_contribution": false,
+      "first_deployed_to_production_at": null,
+      "force_remove_source_branch": true,
+      "has_conflicts": false,
+      "head_pipeline": {
+        "archived": false,
+        "before_sha": "d900a435b60dee9d1532bc9d4391968637567334",
+        "committed_at": null,
+        "coverage": "72.50",
+        "created_at": "2026-10-03T17:10:47.128Z",
+        "detailed_status": {
+          "details_path": "/gitlab-community/gitlab-org/cli/-/pipelines/2909499411",
+          "favicon": "/assets/ci_favicons/favicon_status_success-8451333011eee8ce9f2ab25dc487fe24a8758c694827a582f17f42b0a90446a2.png",
+          "group": "success",
+          "has_details": true,
+          "icon": "status_success",
+          "illustration": null,
+          "label": "passed",
+          "text": "Passed",
+          "tooltip": "passed"
+        },
+        "duration": 178,
+        "finished_at": "2026-10-03T17:13:48.206Z",
+        "id": 2909499411,
+        "iid": 1537,
+        "project_id": 45049979,
+        "queued_duration": 1,
+        "ref": "310-config-uri",
+        "sha": "d900a435b60dee9d1532bc9d4391968637567334",
+        "source": "merge_request_event",
+        "started_at": "2026-10-03T17:10:48.922Z",
+        "status": "success",
+        "tag": false,
+        "updated_at": "2026-10-03T17:13:48.224Z",
+        "user": {
+          "avatar_url": "",
+          "id": 5958906,
+          "locked": false,
+          "name": "Giannis Kepas",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "gkepas",
+          "web_url": "https://gitlab.com/gkepas"
+        },
+        "web_url": "https://gitlab.com/gitlab-community/gitlab-org/cli/-/pipelines/2909499411",
+        "yaml_errors": null
+      },
+      "id": 542136460,
+      "iid": 3992,
+      "imported": false,
+      "imported_from": "none",
+      "labels": [
+        "Community contribution",
+        "documentation",
+        "linked-issue",
+        "tw::triaged",
+        "workflow::in dev"
+      ],
+      "latest_build_finished_at": "2026-10-03T17:13:48.206Z",
+      "latest_build_started_at": "2026-10-03T17:10:48.922Z",
+      "merge_after": null,
+      "merge_commit_sha": null,
+      "merge_error": null,
+      "merge_status": "can_be_merged",
+      "merge_user": null,
+      "merge_when_pipeline_succeeds": false,
+      "merged_at": null,
+      "merged_by": null,
+      "milestone": null,
+      "pipeline": {
+        "created_at": "2026-10-03T17:10:47.128Z",
+        "id": 2909499411,
+        "iid": 1537,
+        "project_id": 45049979,
+        "ref": "310-config-uri",
+        "sha": "d900a435b60dee9d1532bc9d4391968637567334",
+        "source": "merge_request_event",
+        "status": "success",
+        "updated_at": "2026-10-03T17:13:48.224Z",
+        "web_url": "https://gitlab.com/gitlab-community/gitlab-org/cli/-/pipelines/2909499411"
+      },
+      "prepared_at": "2026-10-02T11:43:00.726Z",
+      "project_id": 34675721,
+      "reference": "!3992",
+      "references": {
+        "full": "gitlab-org/cli!3992",
+        "relative": "!3992",
+        "short": "!3992"
+      },
+      "reviewers": [
+        {
+          "avatar_url": "",
+          "id": 11809982,
+          "locked": false,
+          "name": "Jay McCure",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "jay_mccure",
+          "web_url": "https://gitlab.com/jay_mccure"
+        },
+        {
+          "avatar_url": "",
+          "id": 13169945,
+          "locked": false,
+          "name": "Ravi Kumar",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "rkumar555",
+          "web_url": "https://gitlab.com/rkumar555"
+        },
+        {
+          "avatar_url": "",
+          "id": 21826781,
+          "locked": false,
+          "name": "GitLab Duo",
+          "public_email": null,
+          "state": "active",
+          "username": "GitLabDuo",
+          "web_url": "https://gitlab.com/GitLabDuo"
+        }
+      ],
+      "sha": "d900a435b60dee9d1532bc9d4391968637567334",
+      "should_remove_source_branch": null,
+      "source_branch": "310-config-uri",
+      "source_project_id": 45049979,
+      "squash": true,
+      "squash_commit_sha": null,
+      "squash_on_merge": true,
+      "state": "opened",
+      "subscribed": false,
+      "target_branch": "main",
+      "target_project_id": 34675721,
+      "task_completion_status": {
+        "completed_count": 0,
+        "count": 0
+      },
+      "time_stats": {
+        "human_time_estimate": null,
+        "human_total_time_spent": null,
+        "time_estimate": 0,
+        "total_time_spent": 0
+      },
+      "title": "feat(auth): set default host on login to a self-managed instance",
+      "updated_at": "2026-10-03T17:15:28.625Z",
+      "upvotes": 0,
+      "user": {
+        "can_merge": false
+      },
+      "user_notes_count": 16,
+      "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3992",
+      "work_in_progress": false
+    }
+  }
+}

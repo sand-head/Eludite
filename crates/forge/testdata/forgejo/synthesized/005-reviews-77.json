@@ -1,0 +1,11 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/77/reviews"
+  },
+  "response": {
+    "status": 200,
+    "body": []
+  }
+}

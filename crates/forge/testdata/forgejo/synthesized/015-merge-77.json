@@ -1,0 +1,10 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/77/merge"
+  },
+  "response": {
+    "status": 200
+  }
+}

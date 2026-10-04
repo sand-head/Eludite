@@ -1,0 +1,23 @@
+{
+  "source": "recorded from dev.azure.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests",
+    "query": {
+      "$skip": "0",
+      "$top": "3",
+      "api-version": "7.1",
+      "searchCriteria.status": "active"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8; api-version=7.1"
+    },
+    "body": {
+      "count": 0,
+      "value": []
+    }
+  }
+}

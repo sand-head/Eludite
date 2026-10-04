@@ -1,0 +1,74 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/diffs",
+    "query": {
+      "per_page": "100"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"ce32924b9f96090ae390e2b8854a4535\"",
+      "link": "<{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests/3992/diffs?id=gitlab-org%2Fcli&merge_request_iid=3992&page=1&per_page=100&unidiff=false>; rel=\"first\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests/3992/diffs?id=gitlab-org%2Fcli&merge_request_iid=3992&page=1&per_page=100&unidiff=false>; rel=\"last\"",
+      "x-next-page": "",
+      "x-total": "4"
+    },
+    "body": [
+      {
+        "a_mode": "100644",
+        "b_mode": "100644",
+        "collapsed": false,
+        "deleted_file": false,
+        "diff": "@@ -42,6 +42,13 @@ To pass a token on standard input, use `--stdin`.\n In interactive mode, glab detects GitLab instances from your Git remotes\n and lists them as options, so you do not have to type the hostname manually.\n \n+Outside a Git repository, glab uses the `host` key in your configuration\n+file. When you sign in to an instance other than `gitlab.com`, `host` is\n+still `gitlab.com`, and you have no credentials stored for `gitlab.com`,\n+glab sets `host` to that instance. Otherwise, glab asks first in interactive mode, or prints the\n+command to set it. glab leaves `host` unchanged in CI, or when `GITLAB_HOST`,\n+`GITLAB_URI`, or `GL_HOST` is set.\n+\n When you omit `--hostname` in a non-interactive run, glab authenticates\n with the first of these that applies:\n \n",
+        "generated_file": false,
+        "new_file": false,
+        "new_path": "docs/source/auth/login.md",
+        "old_path": "docs/source/auth/login.md",
+        "renamed_file": false,
+        "too_large": false
+      },
+      {
+        "a_mode": "100644",
+        "b_mode": "100644",
+        "collapsed": false,
+        "deleted_file": false,
+        "diff": "@@ -27,6 +27,10 @@ of your instance:\n glab config set -g host gitlab.example.com\n ```\n \n+When you run `glab auth login` for your instance, `glab` sets this configuration for you\n+if the default is still `gitlab.com` and you have not signed in to `gitlab.com`. Otherwise,\n+`glab auth login` asks whether to change the default, or prints the command to change it.\n+\n Setting this configuration enables you to perform commands outside a Git repository while\n using your GitLab Self-Managed or GitLab Dedicated instance. For example:\n \n",
+        "generated_file": false,
+        "new_file": false,
+        "new_path": "docs/source/connection.md",
+        "old_path": "docs/source/connection.md",
+        "renamed_file": false,
+        "too_large": false
+      },
+      {
+        "a_mode": "100644",
+        "b_mode": "100644",
+        "collapsed": false,
+        "deleted_file": false,
+        "diff": "@@ -22,6 +22,7 @@ import (\n \t\"gitlab.com/gitlab-org/cli/internal/cmdutils\"\n \t\"gitlab.com/gitlab-org/cli/internal/commands/auth/authutils\"\n \t\"gitlab.com/gitlab-org/cli/internal/config\"\n+\t\"gitlab.com/gitlab-org/cli/internal/dbg\"\n \t\"gitlab.com/gitlab-org/cli/internal/git\"\n \t\"gitlab.com/gitlab-org/cli/internal/glinstance\"\n \t\"gitlab.com/gitlab-org/cli/internal/iostreams\"\n@@ -98,6 +99,13 @@ func NewCmdLogin(f cmdutils.Factory) *cobra.Command {\n \t\t\tIn interactive mode, glab detects GitLab instances from your Git remotes\n \t\t\tand lists them as options, so you do not have to type the hostname manually.\n \n+\t\t\tOutside a Git repository, glab uses the %[1]shost%[1]s key in your configuration\n+\t\t\tfile. When you sign in to an instance other than %[1]sgitlab.com%[1]s, %[1]shost%[1]s is\n+\t\t\tstill %[1]sgitlab.com%[1]s, and you have no credentials stored for %[1]sgitlab.com%[1]s,\n+\t\t\tglab sets %[1]shost%[1]s to that instance. Otherwise, glab asks first in interactive mode, or prints the\n+\t\t\tcommand to set it. glab leaves %[1]shost%[1]s unchanged in CI, or when %[1]sGITLAB_HOST%[1]s,\n+\t\t\t%[1]sGITLAB_URI%[1]s, or %[1]sGL_HOST%[1]s is set.\n+\n \t\t\tWhen you omit %[1]s--hostname%[1]s in a non-interactive run, glab authenticates\n \t\t\twith the first of these that applies:\n \n@@ -327,7 +335,7 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {\n \t\t}\n \t\tlogCredentialStorage(opts.IO, keyringPref)\n \t\twarnEnvTokenPrecedence(opts.IO)\n-\t\treturn nil\n+\t\treturn updateDefaultHost(ctx, opts, cfg, hostname)\n \t}\n \n \tif opts.JobToken != \"\" {\n@@ -779,9 +787,89 @@ func loginRun(ctx context.Context, opts *LoginOptions) error {\n \t\topts.IO.LogErrorf(\"  - SSH host: %s\\n\", sshHostValue)\n \t}\n \n+\treturn updateDefaultHost(ctx, opts, cfg, hostname)\n+}\n+\n+// updateDefaultHost points the global host key at hostname, which commands run\n+// outside a Git repository (such as `glab repo clone`) fall back to. It does so\n+// unprompted only while the default is still gitlab.com and gitlab.com holds no\n+// credentials, so an existing setup is never repointed silently. Otherwise it\n+// asks in interactive mode, and prints the command to run in scripted mode.\n+// The host environment variables and CI already decide the host per run, so it\n+// leaves those alone. The login has already succeeded, so cancelling the prompt\n+// counts as a no rather than a failure.\n+func updateDefaultHost(ctx context.Context, opts *LoginOptions, cfg config.Config, hostname string) error {\n+\tif config.InCI() {\n+\t\treturn nil\n+\t}\n+\tif envHost := config.GetFromEnv(\"host\"); envHost != \"\" {\n+\t\treturn nil\n+\t}\n+\n+\tcurrent, _, err := cfg.GetWithSource(\"\", \"host\", false)\n+\tif err != nil {\n+\t\treturn err\n+\t}\n+\tif current == \"\" {\n+\t\tcurrent = glinstance.DefaultHostname\n+\t}\n+\tif strings.EqualFold(current, hostname) {\n+\t\treturn nil\n+\t}\n+\n+\tc := opts.IO.Color()\n+\tsetDefault := current == glinstance.DefaultHostname && !hasCredentials(cfg, glinstance.DefaultHostname)\n+\tif !setDefault {\n+\t\tif !opts.Interactive {\n+\t\t\topts.IO.LogErrorf(\"%s Outside a Git repository, glab uses %s. To use %s instead, run: %s\\n\",\n+\t\t\t\tc.WarnIcon(), current, hostname, c.Bold(\"glab config set --global host \"+hostname))\n+\t\t\treturn nil\n+\t\t}\n+\t\tconfirm := huh.NewConfirm().\n+\t\t\tTitle(fmt.Sprintf(\"Outside a Git repository, glab uses %s. Use %s instead?\", current, hostname)).\n+\t\t\tValue(&setDefault)\n+\t\tif err := opts.IO.Run(ctx, confirm); err != nil {\n+\t\t\tif errors.Is(err, iostreams.ErrUserCancelled) {\n+\t\t\t\treturn nil\n+\t\t\t}\n+\t\t\treturn fmt.Errorf(\"could not prompt: %w\", err)\n+\t\t}\n+\t\tif !setDefault {\n+\t\t\treturn nil\n+\t\t}\n+\t}\n+\n+\tif err := cfg.Set(\"\", \"host\", hostname); err != nil {\n+\t\treturn err\n+\t}\n+\tif err := cfg.Write(); err != nil {\n+\t\treturn err\n+\t}\n+\topts.IO.LogErrorf(\"%s Default instance set to %s\\n\", c.GreenCheck(), hostname)\n \treturn nil\n }\n \n+// hasCredentials counts an environment token, because glab sends it to every\n+// host and repointing the default would send it to the new one. It also counts\n+// an unreadable keyring or config entry, so a…",
+        "generated_file": false,
+        "new_file": false,
+        "new_path": "internal/commands/auth/login/login.go",
+        "old_path": "internal/commands/auth/login/login.go",
+        "renamed_file": false,
+        "too_large": false
+      },
+      {
+        "a_mode": "100644",
+        "b_mode": "100644",
+        "collapsed": false,
+        "deleted_file": false,
+        "diff": "@@ -11,6 +11,7 @@ import (\n \t\"strings\"\n \t\"testing\"\n \n+\t\"git.sr.ht/~timofurrer/ugh\"\n \t\"github.com/google/shlex\"\n \t\"github.com/stretchr/testify/assert\"\n \t\"github.com/stretchr/testify/require\"\n@@ -972,3 +973,200 @@ func Test_nonInteractiveLoginDefaultsToTheResolvedHost(t *testing.T) {\n \tonDefault, _ := cfg.Get(\"gitlab.com\", \"job_token\")\n \tassert.Empty(t, onDefault, \"credentials should not land on gitlab.com\")\n }\n+\n+// clearDefaultHostEnv unsets what updateDefaultHost skips on, so a test does not\n+// inherit them from the developer's shell or the CI job running it.\n+func clearDefaultHostEnv(t *testing.T) {\n+\tt.Helper()\n+\n+\tfor _, e := range []string{\"GITLAB_CI\", \"CI\", \"GITLAB_HOST\", \"GITLAB_URI\", \"GL_HOST\", \"GITLAB_TOKEN\", \"GITLAB_ACCESS_TOKEN\", \"OAUTH_TOKEN\"} {\n+\t\tt.Setenv(e, \"\")\n+\t}\n+}\n+\n+func defaultHost(t *testing.T, cfg config.Config) string {\n+\tt.Helper()\n+\n+\thost, _, err := cfg.GetWithSource(\"\", \"host\", false)\n+\trequire.NoError(t, err)\n+\treturn host\n+}\n+\n+func Test_tokenLogin_updatesDefaultHost(t *testing.T) {\n+\tkeyring.MockInit()\n+\tclearDefaultHostEnv(t)\n+\n+\tlogin := func(t *testing.T, cfg config.Config, args ...string) string {\n+\t\tt.Helper()\n+\t\tt.Setenv(\"GLAB_CONFIG_DIR\", t.TempDir())\n+\n+\t\tio, _, _, stderr := cmdtest.TestIOStreams()\n+\t\tcmd := NewCmdLogin(cmdtest.NewTestFactory(io, cmdtest.WithConfig(cfg), currentUserFactoryOption(t)))\n+\t\tcmd.Flags().BoolP(\"help\", \"x\", false, \"\")\n+\t\tcmd.SetArgs(args)\n+\n+\t\t_, err := cmd.ExecuteC()\n+\t\trequire.NoError(t, err)\n+\t\treturn stderr.String()\n+\t}\n+\n+\tt.Run(\"sets the default when gitlab.com has no credentials\", func(t *testing.T) {\n+\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\n+\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.example.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\tassert.Equal(t, \"gitlab.example.com\", defaultHost(t, cfg))\n+\t\tassert.Contains(t, stderr, \"Default instance set to gitlab.example.com\")\n+\t})\n+\n+\tt.Run(\"keeps gitlab.com when it has credentials\", func(t *testing.T) {\n+\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\t\trequire.NoError(t, cfg.Set(\"gitlab.com\", \"token\", \"<scrubbed>\"))\n+\n+\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.example.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\tassert.Equal(t, \"gitlab.com\", defaultHost(t, cfg))\n+\t\tassert.Contains(t, stderr, \"glab config set --global host gitlab.example.com\")\n+\t})\n+\n+\t// Repointing the default would send the environment token, which glab uses\n+\t// for every host, to the new instance.\n+\tt.Run(\"keeps gitlab.com when an environment token is set\", func(t *testing.T) {\n+\t\tt.Setenv(\"GITLAB_TOKEN\", \"<scrubbed>\")\n+\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\n+\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.example.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\tassert.Equal(t, \"gitlab.com\", defaultHost(t, cfg))\n+\t\tassert.Contains(t, stderr, \"glab config set --global host gitlab.example.com\")\n+\t})\n+\n+\tt.Run(\"keeps a default the user set\", func(t *testing.T) {\n+\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\t\trequire.NoError(t, cfg.Set(\"\", \"host\", \"gitlab.other.com\"))\n+\n+\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.example.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\tassert.Equal(t, \"gitlab.other.com\", defaultHost(t, cfg))\n+\t\tassert.Contains(t, stderr, \"glab config set --global host gitlab.example.com\")\n+\t})\n+\n+\tt.Run(\"does nothing for gitlab.com\", func(t *testing.T) {\n+\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\n+\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\tassert.Equal(t, \"gitlab.com\", defaultHost(t, cfg))\n+\t\tassert.NotContains(t, stderr, \"Default instance\")\n+\t\tassert.NotContains(t, stderr, \"glab config set\")\n+\t})\n+\n+\tfor _, env := range []string{\"GITLAB_HOST\", \"GITLAB_URI\", \"GL_HOST\"} {\n+\t\tt.Run(\"does nothing when \"+env+\" is set\", func(t *testing.T) {\n+\t\t\tt.Setenv(env, \"gitlab.env.com\")\n+\t\t\tcfg := config.NewBlankConfigInDir(t.TempDir())\n+\n+\t\t\tstderr := login(t, cfg, \"--hostname\", \"gitlab.example.com\", \"--token\", \"<scrubbed>\")\n+\n+\t\t\tassert.Equal(t, \"gitlab.com\", defaultHost(t, cfg))\n+\t\t\tasse…",
+        "generated_file": false,
+        "new_file": false,
+        "new_path": "internal/commands/auth/login/login_test.go",
+        "old_path": "internal/commands/auth/login/login_test.go",
+        "renamed_file": false,
+        "too_large": false
+      }
+    ]
+  }
+}

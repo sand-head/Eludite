@@ -28,6 +28,11 @@
 //!   (the default) makes the first such call of an agent session dangerous, and its "Allow for this session"
 //!   ([`AlwaysAllow::Session`]) grants the rest of the session without writing anything ([`PolicySnapshot::session_grants`]);
 //!   `allow` lets them run ([`AlwaysAllow::Granted`]); `deny` refuses them. Reading terminals is always allowed.
+//! - **`forge`** (brief 0046): `read` (`allow`, or `deny` refusing agents' reads), `write` (comments, reviews,
+//!   creating and editing pull requests and issues, reruns: `prompt`, the default, asks once per agent session with
+//!   "Allow for this session" as `terminal.run` does; `allow`; `deny`), `merge` (merging and closing pull requests:
+//!   `deny`, the default, or `prompt`, asking every time; a merge's `force` is refused) and `sign_in` (always `deny`:
+//!   an agent never signs in or out), applied by the forge commands' escalation hooks through [`ForgePolicy`].
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -402,6 +407,111 @@ impl TerminalPolicy {
                          prompt); Allow for this session holds until the agent's session ends"
                     .into(),
                 always_allow: AlwaysAllow::Session(TERMINAL_RUN_GRANT.into()),
+            },
+        }
+    }
+}
+
+/// `forge.read`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeReadPolicy {
+    #[default]
+    Allow,
+    Deny,
+}
+
+/// `forge.merge`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeMergePolicy {
+    #[default]
+    Deny,
+    Prompt,
+}
+
+/// `forge.sign_in`: only `deny` exists.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeSignInPolicy {
+    #[default]
+    Deny,
+}
+
+/// `agents-policy.json`'s `forge` object (brief 0046).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForgePolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<ForgeReadPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write: Option<RunPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge: Option<ForgeMergePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<ForgeSignInPolicy>,
+}
+
+/// The session grant "Allow for this session" gives for `forge.write`.
+pub const FORGE_WRITE_GRANT: &str = "forge.write";
+
+/// Why an agent's sign-in is refused.
+pub const FORGE_SIGN_IN_REFUSED: &str = "an agent never signs in to a forge or out of one (forge.sign_in: deny): ask the person to use Git > Sign in";
+
+impl ForgePolicy {
+    /// An agent's read: refused under `read: deny`, else its declared class.
+    pub fn decide_read(&self) -> Option<crate::Escalation> {
+        (self.read.unwrap_or_default() == ForgeReadPolicy::Deny).then(|| {
+            crate::Escalation::Refuse("the solution's policy sets forge.read to deny".into())
+        })
+    }
+
+    /// An agent's write (a comment, a review, a new or edited pull request or issue, a rerun): `deny` refuses,
+    /// `allow` runs it at class execute, `prompt` (the default) asks once per agent session.
+    pub fn decide_write(&self, granted: bool) -> crate::Escalation {
+        use crate::Escalation;
+        match (self.write.unwrap_or_default(), granted) {
+            (RunPolicy::Deny, _) => Escalation::Refuse("the solution's policy sets forge.write to deny".into()),
+            (RunPolicy::Allow, _) => Escalation::Raise {
+                class: PermissionClass::Execute,
+                reason: "the solution's policy lets agents write to the forge (forge.write: allow)".into(),
+                always_allow: AlwaysAllow::Granted,
+            },
+            (RunPolicy::Prompt, true) => Escalation::Raise {
+                class: PermissionClass::Execute,
+                reason: "allowed for this agent session (forge.write: prompt)".into(),
+                always_allow: AlwaysAllow::Granted,
+            },
+            (RunPolicy::Prompt, false) => Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "the solution's policy asks before an agent writes to the forge (forge.write: prompt); Allow \
+                         for this session holds until the agent's session ends"
+                    .into(),
+                always_allow: AlwaysAllow::Session(FORGE_WRITE_GRANT.into()),
+            },
+        }
+    }
+
+    /// An agent's merge or close: `deny` (the default) refuses, `prompt` asks every time; `force` is refused.
+    pub fn decide_merge(&self, force: bool) -> crate::Escalation {
+        use crate::Escalation;
+        if force {
+            return Escalation::Refuse(
+                "`force` merges a pull request whose checks fail: refused for agents".into(),
+            );
+        }
+        match self.merge.unwrap_or_default() {
+            ForgeMergePolicy::Deny => Escalation::Refuse(
+                "the solution's policy sets forge.merge to deny (the default): merging and closing pull requests is \
+                 the person's"
+                    .into(),
+            ),
+            ForgeMergePolicy::Prompt => Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "the solution's policy asks before an agent merges or closes a pull request (forge.merge: \
+                         prompt)"
+                    .into(),
+                always_allow: AlwaysAllow::Never,
             },
         }
     }
@@ -856,6 +966,11 @@ impl PolicyView {
         self.policy().terminal.clone().unwrap_or_default()
     }
 
+    /// The `forge` object (its defaults when absent).
+    pub fn forge(&self) -> ForgePolicy {
+        self.policy().forge.clone().unwrap_or_default()
+    }
+
     /// Whether "Allow for this session" granted `key` to the running agent session.
     pub fn session_granted(&self, key: &str) -> bool {
         self.get().session_grants.iter().any(|g| g == key)
@@ -963,6 +1078,8 @@ pub struct AgentPolicy {
     pub git: Option<GitPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal: Option<TerminalPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forge: Option<ForgePolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -977,6 +1094,7 @@ impl Default for AgentPolicy {
             debug: None,
             git: None,
             terminal: None,
+            forge: None,
         }
     }
 }
@@ -1309,6 +1427,80 @@ mod tests {
         std::fs::write(&path, r#"{"version": 1, "bogus": true}"#).unwrap();
         assert!(AgentPolicy::load(&path).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_forge_object_loads_follows_its_schema_and_decides() {
+        let p: AgentPolicy = serde_json::from_str(
+            r#"{"version": 1, "forge": {"read": "allow", "write": "allow", "merge": "prompt", "sign_in": "deny"}}"#,
+        )
+        .unwrap();
+        let f = p.forge.clone().unwrap();
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let props = &schema["properties"]["forge"]["properties"];
+        for (k, v) in serde_json::to_value(&f).unwrap().as_object().unwrap() {
+            assert!(props[k]["enum"].as_array().unwrap().contains(v), "{k}");
+        }
+        assert_eq!(
+            serde_json::to_value(&f).unwrap().as_object().unwrap().len(),
+            props.as_object().unwrap().len(),
+            "every key of the schema has a field"
+        );
+        assert!(
+            serde_json::from_str::<AgentPolicy>(r#"{"version": 1, "forge": {"sign_in": "allow"}}"#)
+                .is_err()
+        );
+        // Defaults: reads run, the first write of a session asks, merges are refused.
+        let d = ForgePolicy::default();
+        assert_eq!(d.decide_read(), None);
+        match d.decide_write(false) {
+            crate::Escalation::Raise {
+                class,
+                always_allow,
+                ..
+            } => {
+                assert_eq!(class, PermissionClass::Dangerous);
+                assert_eq!(always_allow, AlwaysAllow::Session(FORGE_WRITE_GRANT.into()));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            d.decide_write(true),
+            crate::Escalation::Raise {
+                class: PermissionClass::Execute,
+                always_allow: AlwaysAllow::Granted,
+                ..
+            }
+        ));
+        assert!(matches!(
+            d.decide_merge(false),
+            crate::Escalation::Refuse(_)
+        ));
+        assert!(matches!(
+            f.decide_merge(false),
+            crate::Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                always_allow: AlwaysAllow::Never,
+                ..
+            }
+        ));
+        assert!(
+            matches!(f.decide_merge(true), crate::Escalation::Refuse(_)),
+            "force, whatever the policy"
+        );
+        let deny = ForgePolicy {
+            read: Some(ForgeReadPolicy::Deny),
+            write: Some(RunPolicy::Deny),
+            ..Default::default()
+        };
+        assert!(matches!(
+            deny.decide_read(),
+            Some(crate::Escalation::Refuse(_))
+        ));
+        assert!(
+            matches!(deny.decide_write(true), crate::Escalation::Refuse(_)),
+            "deny wins over a grant"
+        );
     }
 
     #[test]

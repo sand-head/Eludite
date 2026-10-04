@@ -1,0 +1,27 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.getIssue",
+    "query": {
+      "issue": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.issue/3mwxz7tjlyc44"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cid": "bafyreigxhsvcyxhdn7x7avxblovjxaka52hftbbsp2mxqowtcqc2uvpkku",
+      "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.issue/3mwxz7tjlyc44",
+      "value": {
+        "$type": "sh.tangled.repo.issue",
+        "body": "Currently, the README on the repository index page is buried below the file tree and commit log. Having to scroll down 1.5 pages doesn't seem like a good UX.\n\nIdeally, I think we need a complete layout redesign for our repo index page, but there are a few easy fixes we can do in the meantime:\n\n- Reduce max commit count (3~5)\\\n  imo 3 is enough. Github & Codeberg show only one, and honestly I haven't had any issues with that. I can still see handful of recent commits from the file tree.\n- Set a max height for the file tree. Cut down long lists by default.\\\n  The file tree is less important than the README.",
+        "createdAt": "2026-10-03T13:40:42.926Z",
+        "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+        "title": "UI: make readme more accessible from repo index page."
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/17/threads"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "id": 31,
+          "status": "active",
+          "threadContext": {
+            "filePath": "/src/Login.cs",
+            "rightFileStart": {
+              "line": 12,
+              "offset": 1
+            }
+          },
+          "comments": [
+            {
+              "id": 1,
+              "author": {
+                "id": "r-2",
+                "displayName": "Reviewer",
+                "uniqueName": "reviewer@example.invalid",
+                "vote": 0,
+                "isRequired": true
+              },
+              "content": "Check for an empty password here.",
+              "commentType": "text",
+              "publishedDate": "2026-10-03T10:00:00Z"
+            }
+          ]
+        },
+        {
+          "id": 32,
+          "status": "fixed",
+          "threadContext": {
+            "filePath": "/src/Program.cs",
+            "rightFileStart": {
+              "line": 3,
+              "offset": 1
+            }
+          },
+          "comments": [
+            {
+              "id": 1,
+              "author": {
+                "id": "r-1",
+                "displayName": "Hubot",
+                "uniqueName": "hubot@example.invalid",
+                "vote": 0,
+                "isRequired": true
+              },
+              "content": "Sort the usings.",
+              "commentType": "text"
+            }
+          ]
+        },
+        {
+          "id": 33,
+          "comments": [
+            {
+              "id": 1,
+              "author": {
+                "id": "6c8f3c5e-0000-4000-8000-000000000001",
+                "displayName": "Octo Cat",
+                "uniqueName": "octocat@example.invalid"
+              },
+              "content": "Ready for review.",
+              "commentType": "text",
+              "publishedDate": "2026-10-03T09:30:00Z"
+            }
+          ]
+        },
+        {
+          "id": 34,
+          "comments": [
+            {
+              "id": 1,
+              "author": {
+                "id": "6c8f3c5e-0000-4000-8000-000000000001",
+                "displayName": "Octo Cat",
+                "uniqueName": "octocat@example.invalid"
+              },
+              "content": "Octo Cat voted 10",
+              "commentType": "system"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

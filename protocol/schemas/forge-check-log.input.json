@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-check-log.input.json",
+  "title": "eludite.forge.check_log input",
+  "description": "A check's log (a job's or a run's), as text, paged by bytes: `offset` (default 0) and `max_bytes` (default 262144, at most 2 MB); the Checks log document shows the first 2 MB and links the rest. Read. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "description": "The check's `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2097152
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "id"
+  ]
+}

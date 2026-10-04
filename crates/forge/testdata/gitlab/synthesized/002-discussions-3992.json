@@ -1,0 +1,118 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/discussions"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": "d1a2b3",
+        "individual_note": false,
+        "notes": [
+          {
+            "id": 701,
+            "body": "This overrides the host the user chose.",
+            "author": {
+              "id": 1,
+              "username": "reviewer",
+              "name": "Reviewer",
+              "web_url": "https://gitlab.com/reviewer"
+            },
+            "created_at": "2026-10-02T09:00:00Z",
+            "system": false,
+            "resolvable": true,
+            "resolved": false,
+            "position": {
+              "position_type": "text",
+              "new_path": "internal/commands/auth/login/login.go",
+              "old_path": "internal/commands/auth/login/login.go",
+              "new_line": 118,
+              "old_line": null,
+              "head_sha": "d900a435b60dee9d1532bc9d4391968637567334"
+            }
+          },
+          {
+            "id": 702,
+            "body": "Fixed in the next push.",
+            "author": {
+              "id": 1,
+              "username": "gkepas",
+              "name": "Gkepas",
+              "web_url": "https://gitlab.com/gkepas"
+            },
+            "created_at": "2026-10-02T10:00:00Z",
+            "system": false,
+            "resolvable": true,
+            "resolved": false
+          }
+        ]
+      },
+      {
+        "id": "e4f5a6",
+        "individual_note": false,
+        "notes": [
+          {
+            "id": 703,
+            "body": "Nit: wording.",
+            "author": {
+              "id": 1,
+              "username": "reviewer",
+              "name": "Reviewer",
+              "web_url": "https://gitlab.com/reviewer"
+            },
+            "created_at": "2026-10-02T09:05:00Z",
+            "system": false,
+            "resolvable": true,
+            "resolved": true,
+            "position": {
+              "position_type": "text",
+              "new_path": "docs/source/auth/login.md",
+              "old_path": "docs/source/auth/login.md",
+              "new_line": 45,
+              "old_line": null,
+              "head_sha": "d900a435b60dee9d1532bc9d4391968637567334"
+            }
+          }
+        ]
+      },
+      {
+        "id": "f7a8b9",
+        "individual_note": true,
+        "notes": [
+          {
+            "id": 704,
+            "body": "Thanks for the contribution!",
+            "author": {
+              "id": 1,
+              "username": "maintainer",
+              "name": "Maintainer",
+              "web_url": "https://gitlab.com/maintainer"
+            },
+            "created_at": "2026-10-01T09:00:00Z",
+            "system": false,
+            "resolvable": false
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "individual_note": true,
+        "notes": [
+          {
+            "id": 705,
+            "body": "added 1 commit",
+            "author": {
+              "id": 1,
+              "username": "gkepas",
+              "name": "Gkepas",
+              "web_url": "https://gitlab.com/gkepas"
+            },
+            "system": true
+          }
+        ]
+      }
+    ]
+  }
+}

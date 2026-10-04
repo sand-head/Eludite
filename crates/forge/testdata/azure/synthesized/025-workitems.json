@@ -1,0 +1,64 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/wit/workitems"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "id": 101,
+          "fields": {
+            "System.Title": "Login accepts an empty password",
+            "System.WorkItemType": "Bug",
+            "System.State": "Active",
+            "System.CreatedBy": {
+              "id": "6c8f3c5e-0000-4000-8000-000000000001",
+              "displayName": "Octo Cat",
+              "uniqueName": "octocat@example.invalid"
+            },
+            "System.AssignedTo": {
+              "id": "6c8f3c5e-0000-4000-8000-000000000001",
+              "displayName": "Octo Cat",
+              "uniqueName": "octocat@example.invalid"
+            },
+            "System.Tags": "auth; security",
+            "System.IterationPath": "public\\Sprint 12",
+            "System.CreatedDate": "2026-09-30T09:00:00Z",
+            "System.ChangedDate": "2026-10-02T09:00:00Z",
+            "System.CommentCount": 1,
+            "System.Description": "<div>The form submits with an <b>empty</b> password.</div>",
+            "Microsoft.VSTS.Common.Priority": 2,
+            "Microsoft.VSTS.TCM.ReproSteps": "<ol><li>Open</li><li>Submit</li></ol>"
+          },
+          "relations": []
+        },
+        {
+          "id": 102,
+          "fields": {
+            "System.Title": "Document the session store",
+            "System.WorkItemType": "Task",
+            "System.State": "New",
+            "System.CreatedBy": {
+              "id": "6c8f3c5e-0000-4000-8000-000000000001",
+              "displayName": "Octo Cat",
+              "uniqueName": "octocat@example.invalid"
+            },
+            "System.AssignedTo": null,
+            "System.Tags": "",
+            "System.IterationPath": "public\\Sprint 12",
+            "System.CreatedDate": "2026-09-30T09:00:00Z",
+            "System.ChangedDate": "2026-10-02T09:00:00Z",
+            "System.CommentCount": 0,
+            "System.Description": "<div>The form submits with an <b>empty</b> password.</div>",
+            "Microsoft.VSTS.Common.Priority": 2,
+            "Microsoft.VSTS.TCM.ReproSteps": "<ol><li>Open</li><li>Submit</li></ol>"
+          },
+          "relations": []
+        }
+      ]
+    }
+  }
+}

@@ -15,7 +15,8 @@
     "Web Browser",
     "Source Control > Git Global Settings",
     "Terminal",
-    "Environment > Find and Replace"
+    "Environment > Find and Replace",
+    "Source Control > Forges"
   ],
   "properties": {
     "keyboard.preset": {
@@ -507,6 +508,76 @@
       "default": false,
       "x-eludite-section": "Environment > Find and Replace",
       "x-eludite-label": "Follow symbolic links"
+    },
+    "forge.refreshSeconds": {
+      "description": "Refresh the Pull Requests and Issues windows and the status bar's checks every this many seconds while one of them is visible (brief 0046). 0 (the default) refreshes only when a window opens or the person asks (Refresh): Eludite makes no network call unless asked (PLAN.md section 2).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600,
+      "default": 0,
+      "x-eludite-section": "Source Control > Forges",
+      "x-eludite-label": "Refresh visible forge windows every (seconds; 0 is only when asked)"
+    },
+    "forge.hosts": {
+      "description": "Forge hosts Eludite cannot recognize by name: GitHub Enterprise Server, self-managed GitLab, Azure DevOps Server, Forgejo and Gitea instances, Tangled knots. Each names the `host` as remotes write it and its `family`; `api` overrides the API's base url (default: GitHub Enterprise `https://<host>/api/v3`, GitLab `https://<host>/api/v4`, Azure DevOps Server `https://<host>`, Forgejo and Gitea `https://<host>/api/v1`, a knot's appview `https://api.tangled.org`). A host not listed is probed once (`/api/v4/version`, `/api/v1/version`) when a forge window opens. Edited in the file (the Options dialog shows the count).",
+      "type": "array",
+      "default": [],
+      "maxItems": 100,
+      "x-eludite-section": "Source Control > Forges",
+      "x-eludite-label": "Additional forge hosts",
+      "items": {
+        "type": "object",
+        "required": [
+          "host",
+          "family"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "family": {
+            "enum": [
+              "github",
+              "gitlab",
+              "azure_devops",
+              "forgejo",
+              "gitea",
+              "tangled"
+            ]
+          },
+          "api": {
+            "description": "The API's base url.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "forge.githubClientId": {
+      "description": "The OAuth App client id GitHub's device flow signs in with (Git > Sign in to GitHub, Sign in with a browser). Empty uses the id Eludite is built with; without either, the device flow is unavailable and a personal access token or the `gh` CLI's token signs in. The device flow needs no client secret.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Source Control > Forges",
+      "x-eludite-label": "GitHub OAuth App client id"
+    },
+    "forge.gitlabApplicationId": {
+      "description": "The OAuth application id GitLab's device flow signs in with, for gitlab.com or the instance that registered it. Empty uses the id Eludite is built with; without either, a personal access token or the `glab` CLI's token signs in.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Source Control > Forges",
+      "x-eludite-label": "GitLab application id"
+    },
+    "forge.azureApplicationId": {
+      "description": "The Microsoft identity platform application (client) id Azure DevOps' device code flow signs in with. Empty uses the id Eludite is built with; without either, a personal access token signs in.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Source Control > Forges",
+      "x-eludite-label": "Azure DevOps application id"
     }
   }
 }

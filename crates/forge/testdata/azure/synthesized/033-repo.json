@@ -1,0 +1,16 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "2459d599-fdb2-4d28-9810-daeec061cf90",
+      "project": {
+        "id": "cbb18261-c48f-4abb-8651-8cdcb5474649"
+      }
+    }
+  }
+}

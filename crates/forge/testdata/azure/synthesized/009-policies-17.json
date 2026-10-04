@@ -1,0 +1,52 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/policy/evaluations"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "evaluationId": "ev-build",
+          "status": "rejected",
+          "configuration": {
+            "isBlocking": true,
+            "type": {
+              "displayName": "Build"
+            },
+            "settings": {
+              "displayName": "PR build"
+            }
+          },
+          "context": {
+            "buildId": 4242
+          }
+        },
+        {
+          "evaluationId": "ev-reviewers",
+          "status": "approved",
+          "configuration": {
+            "isBlocking": true,
+            "type": {
+              "displayName": "Minimum number of reviewers"
+            },
+            "settings": {}
+          }
+        },
+        {
+          "evaluationId": "ev-workitems",
+          "status": "running",
+          "configuration": {
+            "isBlocking": false,
+            "type": {
+              "displayName": "Work item linking"
+            },
+            "settings": {}
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/repos/octo-org/hello-world/actions/jobs/5002/rerun"
+  },
+  "response": {
+    "status": 201,
+    "body": {}
+  }
+}

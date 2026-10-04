@@ -1,0 +1,24 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/wit/workItems/101/comments"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "comments": [
+        {
+          "id": 1,
+          "text": "<div>Reproduced on <i>main</i>.</div>",
+          "createdBy": {
+            "id": "6c8f3c5e-0000-4000-8000-000000000001",
+            "displayName": "Octo Cat",
+            "uniqueName": "octocat@example.invalid"
+          },
+          "createdDate": "2026-10-01T09:00:00Z"
+        }
+      ]
+    }
+  }
+}

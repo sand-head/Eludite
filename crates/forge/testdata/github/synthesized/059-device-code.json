@@ -1,0 +1,17 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/login/device/code"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "device_code": "dc-test",
+      "user_code": "WDJB-MJHT",
+      "verification_uri": "https://github.com/login/device",
+      "expires_in": 900,
+      "interval": 5
+    }
+  }
+}

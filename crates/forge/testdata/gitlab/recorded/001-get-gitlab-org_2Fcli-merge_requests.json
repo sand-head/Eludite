@@ -1,0 +1,396 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests",
+    "query": {
+      "order_by": "updated_at",
+      "per_page": "3",
+      "state": "opened"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"82078b6d2ea238f3162ed477f35341f4\"",
+      "link": "<{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=2&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"next\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=1&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"first\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=19&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"last\"",
+      "x-next-page": "2",
+      "x-total": "56"
+    },
+    "body": [
+      {
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 6121997,
+          "locked": false,
+          "name": "Michael Eddington",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "mikeeddington",
+          "web_url": "https://gitlab.com/mikeeddington"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 6121997,
+            "locked": false,
+            "name": "Michael Eddington",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "mikeeddington",
+            "web_url": "https://gitlab.com/mikeeddington"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 6121997,
+          "locked": false,
+          "name": "Michael Eddington",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "mikeeddington",
+          "web_url": "https://gitlab.com/mikeeddington"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-09-07T20:53:22.249Z",
+        "description": "",
+        "detailed_merge_status": "draft_status",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": true,
+        "force_remove_source_branch": true,
+        "has_conflicts": false,
+        "id": 529166231,
+        "iid": 3860,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "Category:Dependency Firewall",
+          "Enterprise Edition",
+          "automation:stale-reminded",
+          "devops::security platform",
+          "group::dependency firewall",
+          "section::sec",
+          "type::ignore"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "can_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": {
+          "created_at": "2018-03-22T13:09:23.767Z",
+          "description": "",
+          "due_date": null,
+          "expired": false,
+          "group_id": 9970,
+          "id": 490705,
+          "iid": 14,
+          "start_date": null,
+          "state": "active",
+          "title": "Backlog",
+          "updated_at": "2018-10-30T14:56:54.069Z",
+          "web_url": "https://gitlab.com/groups/gitlab-org/-/milestones/14"
+        },
+        "prepared_at": "2026-09-07T20:53:25.415Z",
+        "project_id": 34675721,
+        "reference": "!3860",
+        "references": {
+          "full": "gitlab-org/cli!3860",
+          "relative": "!3860",
+          "short": "!3860"
+        },
+        "reviewers": [],
+        "sha": "aa8ae206d675cd5a593e33f5fe8513aa90521b7e",
+        "should_remove_source_branch": null,
+        "source_branch": "feat/dependency-firewall-containers",
+        "source_project_id": 34675721,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "feat/dependency-firewall",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "Draft: feat(df): add glab df docker container Dependency Firewall",
+        "updated_at": "2026-10-04T01:30:50.625Z",
+        "upvotes": 0,
+        "user_notes_count": 10,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3860",
+        "work_in_progress": true
+      },
+      {
+        "allow_collaboration": true,
+        "allow_maintainer_to_push": true,
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 5958906,
+          "locked": false,
+          "name": "Giannis Kepas",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "gkepas",
+          "web_url": "https://gitlab.com/gkepas"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 5958906,
+            "locked": false,
+            "name": "Giannis Kepas",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "gkepas",
+            "web_url": "https://gitlab.com/gkepas"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 5958906,
+          "locked": false,
+          "name": "Giannis Kepas",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "gkepas",
+          "web_url": "https://gitlab.com/gkepas"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-10-02T11:42:57.436Z",
+        "description": "",
+        "detailed_merge_status": "requested_changes",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": false,
+        "force_remove_source_branch": true,
+        "has_conflicts": false,
+        "id": 542136460,
+        "iid": 3992,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "Community contribution",
+          "documentation",
+          "linked-issue",
+          "tw::triaged",
+          "workflow::in dev"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "can_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": null,
+        "prepared_at": "2026-10-02T11:43:00.726Z",
+        "project_id": 34675721,
+        "reference": "!3992",
+        "references": {
+          "full": "gitlab-org/cli!3992",
+          "relative": "!3992",
+          "short": "!3992"
+        },
+        "reviewers": [
+          {
+            "avatar_url": "",
+            "id": 11809982,
+            "locked": false,
+            "name": "Jay McCure",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "jay_mccure",
+            "web_url": "https://gitlab.com/jay_mccure"
+          },
+          {
+            "avatar_url": "",
+            "id": 13169945,
+            "locked": false,
+            "name": "Ravi Kumar",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "rkumar555",
+            "web_url": "https://gitlab.com/rkumar555"
+          },
+          {
+            "avatar_url": "",
+            "id": 21826781,
+            "locked": false,
+            "name": "GitLab Duo",
+            "public_email": null,
+            "state": "active",
+            "username": "GitLabDuo",
+            "web_url": "https://gitlab.com/GitLabDuo"
+          }
+        ],
+        "sha": "d900a435b60dee9d1532bc9d4391968637567334",
+        "should_remove_source_branch": null,
+        "source_branch": "310-config-uri",
+        "source_project_id": 45049979,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "main",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "feat(auth): set default host on login to a self-managed instance",
+        "updated_at": "2026-10-03T17:15:28.625Z",
+        "upvotes": 0,
+        "user_notes_count": 16,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3992",
+        "work_in_progress": false
+      },
+      {
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 12294975,
+          "locked": false,
+          "name": "James Hebden",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "jhebden",
+          "web_url": "https://gitlab.com/jhebden"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 12294975,
+            "locked": false,
+            "name": "James Hebden",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "jhebden",
+            "web_url": "https://gitlab.com/jhebden"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 12294975,
+          "locked": false,
+          "name": "James Hebden",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "jhebden",
+          "web_url": "https://gitlab.com/jhebden"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-09-23T02:23:54.207Z",
+        "description": "",
+        "detailed_merge_status": "requested_changes",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": false,
+        "force_remove_source_branch": true,
+        "has_conflicts": true,
+        "id": 537062469,
+        "iid": 3955,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "category:duo cli",
+          "devops::ai clients",
+          "group::developer clients",
+          "section::ai",
+          "type::bug"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "cannot_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": null,
+        "prepared_at": "2026-09-23T02:23:58.384Z",
+        "project_id": 34675721,
+        "reference": "!3955",
+        "references": {
+          "full": "gitlab-org/cli!3955",
+          "relative": "!3955",
+          "short": "!3955"
+        },
+        "reviewers": [
+          {
+            "avatar_url": "",
+            "id": 2935693,
+            "locked": false,
+            "name": "Kai Armstrong",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "phikai",
+            "web_url": "https://gitlab.com/phikai"
+          },
+          {
+            "avatar_url": "",
+            "id": 3457201,
+            "locked": false,
+            "name": "Tomas Vik (OOO back on 2026-10-26)",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "viktomas",
+            "web_url": "https://gitlab.com/viktomas"
+          }
+        ],
+        "sha": "c3b3b31f0f731c57590b84fe552dd14491aaab04",
+        "should_remove_source_branch": null,
+        "source_branch": "feat/color-mode-plumbing",
+        "source_project_id": 34675721,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "main",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "fix(iostreams): make background/color detection reachable, add --color mode",
+        "updated_at": "2026-10-03T12:59:10.194Z",
+        "upvotes": 0,
+        "user_notes_count": 17,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3955",
+        "work_in_progress": false
+      }
+    ]
+  }
+}

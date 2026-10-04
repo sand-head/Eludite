@@ -1,0 +1,6 @@
+repository: https://gitlab.com/gitlab-org/gitlab
+commit: 0b7b276b8dd5a29b92416eebcdea9fcc23aff759
+file: doc/api/openapi/openapi_v2.yaml
+sha256: bc293766bd7770c90f4e59b77695ec89f6427a43cb2e0dbc2c6757f06585c3ca
+fetch: curl -o openapi_v2.yaml https://gitlab.com/gitlab-org/gitlab/-/raw/0b7b276b8dd5a29b92416eebcdea9fcc23aff759/doc/api/openapi/openapi_v2.yaml
+fetched: 2026-10-04 (verified, not stored)

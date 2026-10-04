@@ -1,0 +1,431 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests",
+    "query": {
+      "id": "gitlab-org/cli",
+      "order_by": "updated_at",
+      "page": "2",
+      "per_page": "3",
+      "sort": "desc",
+      "state": "opened",
+      "with_labels_details": "false",
+      "with_merge_status_recheck": "false"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"a07b60255cc354ff3d1d2711dbf6ded8\"",
+      "link": "<{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=1&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"prev\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=3&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"next\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=1&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"first\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/merge_requests?id=gitlab-org%2Fcli&order_by=updated_at&page=19&per_page=3&sort=desc&state=opened&with_labels_details=false&with_merge_status_recheck=false>; rel=\"last\"",
+      "x-next-page": "3",
+      "x-total": "56"
+    },
+    "body": [
+      {
+        "allow_collaboration": true,
+        "allow_maintainer_to_push": true,
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 42048126,
+          "locked": false,
+          "name": "Jeston Singh",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "sjestonsingh",
+          "web_url": "https://gitlab.com/sjestonsingh"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 42048126,
+            "locked": false,
+            "name": "Jeston Singh",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "sjestonsingh",
+            "web_url": "https://gitlab.com/sjestonsingh"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 42048126,
+          "locked": false,
+          "name": "Jeston Singh",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "sjestonsingh",
+          "web_url": "https://gitlab.com/sjestonsingh"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-09-14T06:49:43.215Z",
+        "description": "",
+        "detailed_merge_status": "requested_changes",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": false,
+        "force_remove_source_branch": true,
+        "has_conflicts": false,
+        "id": 531625115,
+        "iid": 3900,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "1st contribution",
+          "Community contribution",
+          "devops::ai coding",
+          "documentation",
+          "group::code review",
+          "linked-issue",
+          "section::ai",
+          "tw::triaged",
+          "type::feature",
+          "workflow::ready for review"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "can_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": null,
+        "prepared_at": "2026-09-14T06:49:47.902Z",
+        "project_id": 34675721,
+        "reference": "!3900",
+        "references": {
+          "full": "gitlab-org/cli!3900",
+          "relative": "!3900",
+          "short": "!3900"
+        },
+        "reviewers": [
+          {
+            "avatar_url": "",
+            "id": 2935693,
+            "locked": false,
+            "name": "Kai Armstrong",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "phikai",
+            "web_url": "https://gitlab.com/phikai"
+          },
+          {
+            "avatar_url": "",
+            "id": 21826781,
+            "locked": false,
+            "name": "GitLab Duo",
+            "public_email": null,
+            "state": "active",
+            "username": "GitLabDuo",
+            "web_url": "https://gitlab.com/GitLabDuo"
+          },
+          {
+            "avatar_url": "",
+            "id": 25134515,
+            "locked": false,
+            "name": "Uma Chandran",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "uchandran",
+            "web_url": "https://gitlab.com/uchandran"
+          }
+        ],
+        "sha": "89c6f79504bb447f22896f0a9d3e82a6c545360b",
+        "should_remove_source_branch": null,
+        "source_branch": "8217-mr-checkout-worktree",
+        "source_project_id": 45049979,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "main",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 10,
+          "count": 10
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "feat(mr): add --worktree flag to mr checkout",
+        "updated_at": "2026-10-03T12:41:53.173Z",
+        "upvotes": 0,
+        "user_notes_count": 44,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3900",
+        "work_in_progress": false
+      },
+      {
+        "allow_collaboration": true,
+        "allow_maintainer_to_push": true,
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 663784,
+          "locked": false,
+          "name": "Ville Skyttä",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "scop",
+          "web_url": "https://gitlab.com/scop"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 663784,
+            "locked": false,
+            "name": "Ville Skyttä",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "scop",
+            "web_url": "https://gitlab.com/scop"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 663784,
+          "locked": false,
+          "name": "Ville Skyttä",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "scop",
+          "web_url": "https://gitlab.com/scop"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-08-07T21:43:51.174Z",
+        "description": "",
+        "detailed_merge_status": "requested_changes",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": false,
+        "force_remove_source_branch": true,
+        "has_conflicts": false,
+        "id": 516794988,
+        "iid": 3702,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "Community contribution",
+          "automation:ml",
+          "automation:prevent-auto-close",
+          "backend",
+          "category:gitlab cli",
+          "devops::ai coding",
+          "feature::enhancement",
+          "group::code review",
+          "linked-issue",
+          "section::ai",
+          "type::feature",
+          "workflow::in dev"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "can_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": null,
+        "prepared_at": "2026-08-07T21:43:54.472Z",
+        "project_id": 34675721,
+        "reference": "!3702",
+        "references": {
+          "full": "gitlab-org/cli!3702",
+          "relative": "!3702",
+          "short": "!3702"
+        },
+        "reviewers": [
+          {
+            "avatar_url": "",
+            "id": 2935693,
+            "locked": false,
+            "name": "Kai Armstrong",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "phikai",
+            "web_url": "https://gitlab.com/phikai"
+          },
+          {
+            "avatar_url": "",
+            "id": 21826781,
+            "locked": false,
+            "name": "GitLab Duo",
+            "public_email": null,
+            "state": "active",
+            "username": "GitLabDuo",
+            "web_url": "https://gitlab.com/GitLabDuo"
+          }
+        ],
+        "sha": "fa9243dc75dec6c00523d35d7640a2b3d06fa27a",
+        "should_remove_source_branch": null,
+        "source_branch": "feat/config-completion",
+        "source_project_id": 85083980,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "main",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "feat(commands): config shell completion",
+        "updated_at": "2026-10-03T12:27:00.073Z",
+        "upvotes": 0,
+        "user_notes_count": 22,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3702",
+        "work_in_progress": false
+      },
+      {
+        "allow_collaboration": true,
+        "allow_maintainer_to_push": true,
+        "approvals_before_merge": null,
+        "assignee": {
+          "avatar_url": "",
+          "id": 663784,
+          "locked": false,
+          "name": "Ville Skyttä",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "scop",
+          "web_url": "https://gitlab.com/scop"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 663784,
+            "locked": false,
+            "name": "Ville Skyttä",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "scop",
+            "web_url": "https://gitlab.com/scop"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "bot": false,
+          "id": 663784,
+          "locked": false,
+          "name": "Ville Skyttä",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "scop",
+          "web_url": "https://gitlab.com/scop"
+        },
+        "blocking_discussions_resolved": false,
+        "closed_at": null,
+        "closed_by": null,
+        "created_at": "2026-08-07T20:30:16.857Z",
+        "description": "",
+        "detailed_merge_status": "requested_changes",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "draft": false,
+        "force_remove_source_branch": true,
+        "has_conflicts": false,
+        "id": 516774519,
+        "iid": 3701,
+        "imported": false,
+        "imported_from": "none",
+        "labels": [
+          "Community contribution",
+          "automation:ml",
+          "automation:prevent-auto-close",
+          "backend",
+          "bug::functional",
+          "category:gitlab cli",
+          "devops::ai coding",
+          "group::code review",
+          "linked-issue",
+          "section::ai",
+          "stale",
+          "type::bug",
+          "workflow::ready for review"
+        ],
+        "merge_after": null,
+        "merge_commit_sha": null,
+        "merge_status": "can_be_merged",
+        "merge_user": null,
+        "merge_when_pipeline_succeeds": false,
+        "merged_at": null,
+        "merged_by": null,
+        "milestone": null,
+        "prepared_at": "2026-08-07T20:30:30.483Z",
+        "project_id": 34675721,
+        "reference": "!3701",
+        "references": {
+          "full": "gitlab-org/cli!3701",
+          "relative": "!3701",
+          "short": "!3701"
+        },
+        "reviewers": [
+          {
+            "avatar_url": "",
+            "id": 2935693,
+            "locked": false,
+            "name": "Kai Armstrong",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "phikai",
+            "web_url": "https://gitlab.com/phikai"
+          },
+          {
+            "avatar_url": "",
+            "id": 21826781,
+            "locked": false,
+            "name": "GitLab Duo",
+            "public_email": null,
+            "state": "active",
+            "username": "GitLabDuo",
+            "web_url": "https://gitlab.com/GitLabDuo"
+          }
+        ],
+        "sha": "06d2dbd137c3346f2920d548a3a45cc7ab0c9657",
+        "should_remove_source_branch": null,
+        "source_branch": "fix/no-args-no-completions",
+        "source_project_id": 85083980,
+        "squash": true,
+        "squash_commit_sha": null,
+        "squash_on_merge": true,
+        "state": "opened",
+        "target_branch": "main",
+        "target_project_id": 34675721,
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "fix(commands): do not offer filename completions if no args taken",
+        "updated_at": "2026-10-03T12:24:51.789Z",
+        "upvotes": 0,
+        "user_notes_count": 16,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3701",
+        "work_in_progress": false
+      }
+    ]
+  }
+}

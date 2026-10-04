@@ -1,0 +1,13 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/17/threads/31/comments"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 2
+    }
+  }
+}

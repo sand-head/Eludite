@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-checkout.input.json",
+  "title": "eludite.forge.pull_checkout input",
+  "description": "Check out a pull request's head locally: fetches `refs/pull/<n>/head` (GitHub, Forgejo, Gitea), `refs/merge-requests/<n>/head` (GitLab), the source branch (Azure DevOps), or the head branch from its repository (forks, Tangled) into the local branch `pr/<n>` (or `branch`) and checks it out as eludite.git.checkout does: a dirty working tree that the checkout would overwrite is refused with the paths. Execute (it changes the working tree; the policy's `execute` decides for an agent). The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The number (GitHub, GitLab's `iid`, Azure DevOps, Forgejo, Gitea). Give `number` or `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The item's `id` as a list answered it; Tangled's items have only this (their AT-URI). Give `number` or `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "description": "The local branch (default `pr/<n>`; `pr/<rkey>` on Tangled).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

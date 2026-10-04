@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/mcp-resource.json",
   "title": "Eludite MCP resource",
-  "description": "How Eludite's MCP server exposes a guide for agents as an MCP resource (MCP Resources, revision 2025-06-18 and later): `initialize` advertises the `resources` capability; `resources/list` answers `{\"resources\": [<this object>]}` in one page (no `nextCursor`); `resources/read` with `{\"uri\"}` answers `{\"contents\": [{\"uri\", \"mimeType\", \"text\"}]}` and an unknown uri is the JSON-RPC error -32002 (resource not found) naming it; `resources/templates/list` answers `{\"resourceTemplates\": []}`. The guides are compiled into Eludite from `docs/agents/`, so they match the commands of the build. The first is `eludite://guides/debugging` (`docs/agents/debugging.md`, `text/markdown`): how an agent should drive the debugger (eludite.debug.*). Besides the guides, `eludite://git/status` (`application/json`, brief 0040) is the repository's status as eludite.git.status answers it, read afresh on each `resources/read`; the guide `eludite://guides/git` (`docs/agents/git.md`) says how an agent uses eludite.git.*, and `eludite://guides/terminal` (`docs/agents/terminal.md`, brief 0041) how it runs commands in the integrated terminal (eludite.terminal.*).",
+  "description": "How Eludite's MCP server exposes a guide for agents as an MCP resource (MCP Resources, revision 2025-06-18 and later): `initialize` advertises the `resources` capability; `resources/list` answers `{\"resources\": [<this object>]}` in one page (no `nextCursor`); `resources/read` with `{\"uri\"}` answers `{\"contents\": [{\"uri\", \"mimeType\", \"text\"}]}` and an unknown uri is the JSON-RPC error -32002 (resource not found) naming it; `resources/templates/list` answers `{\"resourceTemplates\": []}`. The guides are compiled into Eludite from `docs/agents/`, so they match the commands of the build. The first is `eludite://guides/debugging` (`docs/agents/debugging.md`, `text/markdown`): how an agent should drive the debugger (eludite.debug.*). Besides the guides, `eludite://git/status` (`application/json`, brief 0040) is the repository's status as eludite.git.status answers it, read afresh on each `resources/read`; the guide `eludite://guides/git` (`docs/agents/git.md`) says how an agent uses eludite.git.*, and `eludite://guides/terminal` (`docs/agents/terminal.md`, brief 0041) how it runs commands in the integrated terminal (eludite.terminal.*). `eludite://forge/pull/current` (`application/json`, brief 0046) is the current branch's pull request as eludite.forge.pull answers it with `threads: unresolved` (or `{\"pull\": null}` when the branch has none), read afresh on each `resources/read`; the guide `eludite://guides/forge` (`docs/agents/forge.md`) says how an agent answers the review comments on its pull request.",
   "type": "object",
   "required": [
     "uri",
@@ -12,9 +12,9 @@
   "additionalProperties": false,
   "properties": {
     "uri": {
-      "description": "`eludite://guides/<name>`, or `eludite://git/status`.",
+      "description": "`eludite://guides/<name>`, `eludite://git/status` or `eludite://forge/pull/current`.",
       "type": "string",
-      "pattern": "^eludite://(guides/[a-z][a-z0-9-]*|git/status)$"
+      "pattern": "^eludite://(guides/[a-z][a-z0-9-]*|git/status|forge/pull/current)$"
     },
     "name": {
       "type": "string",

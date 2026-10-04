@@ -1,0 +1,22 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.feed.listComments",
+    "query": {
+      "limit": "100",
+      "order": "asc",
+      "subject": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.issue/3mwxz7tjlyc44"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cursor": null,
+      "items": []
+    }
+  }
+}

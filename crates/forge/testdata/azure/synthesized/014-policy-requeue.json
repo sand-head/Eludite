@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PATCH",
+    "path": "/dnceng-public/public/_apis/policy/evaluations/ev-build"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "evaluationId": "ev-build",
+      "status": "queued"
+    }
+  }
+}

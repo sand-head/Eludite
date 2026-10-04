@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-close.output.json",
+  "title": "eludite.forge.pull_close output",
+  "description": "Its state after the call.",
+  "type": "object",
+  "required": [
+    "id",
+    "state"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed",
+        "merged"
+      ]
+    }
+  }
+}

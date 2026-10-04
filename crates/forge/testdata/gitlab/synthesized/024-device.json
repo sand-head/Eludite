@@ -1,0 +1,17 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/oauth/authorize_device"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "device_code": "dc",
+      "user_code": "GLAB-1234",
+      "verification_uri": "https://gitlab.com/oauth/device",
+      "expires_in": 300,
+      "interval": 5
+    }
+  }
+}

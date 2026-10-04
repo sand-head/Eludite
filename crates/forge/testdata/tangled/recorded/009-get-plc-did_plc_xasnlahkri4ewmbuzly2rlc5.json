@@ -1,0 +1,40 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/plc/did:plc:xasnlahkri4ewmbuzly2rlc5"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/did+ld+json; charset=utf-8",
+      "etag": "W/\"22c-Wrrsd49Yn4JqCXwThyyGaFEl8aY\""
+    },
+    "body": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/multikey/v1",
+        "https://w3id.org/security/suites/secp256k1-2019/v1"
+      ],
+      "alsoKnownAs": [
+        "at://boltless.me"
+      ],
+      "id": "did:plc:xasnlahkri4ewmbuzly2rlc5",
+      "service": [
+        {
+          "id": "#atproto_pds",
+          "serviceEndpoint": "https://woodear.us-west.host.bsky.network",
+          "type": "AtprotoPersonalDataServer"
+        }
+      ],
+      "verificationMethod": [
+        {
+          "controller": "did:plc:xasnlahkri4ewmbuzly2rlc5",
+          "id": "did:plc:xasnlahkri4ewmbuzly2rlc5#atproto",
+          "publicKeyMultibase": "zQ3shcYf96RREJxP5gGRjtPDbz4PMJNkm1JTYDBaEPHHvqjYj",
+          "type": "Multikey"
+        }
+      ]
+    }
+  }
+}

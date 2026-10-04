@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-auth.input.json",
+  "title": "eludite.forge.auth input",
+  "description": "Sign in to a forge host, sign out, or read who is signed in (Git > Sign in to <forge>). `status` lists the hosts with a stored token and the workspace's. `sign_in` stores the token in the operating system's credential store (Secret Service, Keychain, Credential Manager), or, only when that is unavailable and `allow_file_store` says the person agreed, in a file only they can read (mode 0600) under Eludite's config directory: `method` `token` takes a personal access token in `token` (checked against the forge before it is stored), `device` starts the OAuth device flow and answers its `device.user_code` and `device.verification_uri` at once (the flow completes off-thread; read `status` until `signed_in`), `app_password` (Tangled) takes the handle in `user` and an app password in `token` for an atproto session, `cli` reads the token `gh auth token` or `glab auth token` prints (the only process the forge integration starts). `sign_out` removes the host's token. The token is never written to a log, an audit entry, the cache or any output.",
+  "x-eludite-escalates": "Refused for agents (`sign_in`, `sign_out`, `cancel`): an agent never signs in; `status` is a read.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "`cancel` stops a device flow in progress.",
+      "enum": [
+        "status",
+        "sign_in",
+        "sign_out",
+        "cancel"
+      ]
+    },
+    "host": {
+      "description": "The forge host (default the workspace remote's).",
+      "type": "string",
+      "minLength": 1
+    },
+    "method": {
+      "enum": [
+        "device",
+        "token",
+        "app_password",
+        "cli"
+      ]
+    },
+    "token": {
+      "description": "The personal access token or app password (`token`, `app_password`). Never echoed.",
+      "type": "string",
+      "minLength": 1
+    },
+    "user": {
+      "description": "Tangled: the handle or DID (`app_password`); Azure DevOps Server: the user name a token goes with.",
+      "type": "string",
+      "minLength": 1
+    },
+    "allow_file_store": {
+      "description": "The person agreed to keep the token in a 0600 file when the credential store is unavailable.",
+      "type": "boolean"
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

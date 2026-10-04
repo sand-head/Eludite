@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-branch-from-issue.output.json",
+  "title": "eludite.forge.branch_from_issue output",
+  "description": "The branch.",
+  "type": "object",
+  "required": [
+    "id",
+    "branch",
+    "commit",
+    "linked"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string"
+    },
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "checked_out": {
+      "type": "boolean"
+    },
+    "linked": {
+      "description": "The forge recorded the link.",
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

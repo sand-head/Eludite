@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-checkout.output.json",
+  "title": "eludite.forge.pull_checkout output",
+  "description": "The checked-out branch.",
+  "type": "object",
+  "required": [
+    "id",
+    "branch",
+    "ref",
+    "commit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string"
+    },
+    "ref": {
+      "description": "The ref fetched.",
+      "type": "string"
+    },
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "generation": {
+      "description": "The git status generation after the checkout.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

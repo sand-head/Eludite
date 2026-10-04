@@ -1,0 +1,40 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/plc/did:plc:lmwjdpgf3exmg63regtsopv6"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/did+ld+json; charset=utf-8",
+      "etag": "W/\"22a-wW420pyHQLaYv26B0TRPuOkya3w\""
+    },
+    "body": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/multikey/v1",
+        "https://w3id.org/security/suites/secp256k1-2019/v1"
+      ],
+      "alsoKnownAs": [
+        "at://asteri.sm"
+      ],
+      "id": "did:plc:lmwjdpgf3exmg63regtsopv6",
+      "service": [
+        {
+          "id": "#atproto_pds",
+          "serviceEndpoint": "https://boletus.us-west.host.bsky.network",
+          "type": "AtprotoPersonalDataServer"
+        }
+      ],
+      "verificationMethod": [
+        {
+          "controller": "did:plc:lmwjdpgf3exmg63regtsopv6",
+          "id": "did:plc:lmwjdpgf3exmg63regtsopv6#atproto",
+          "publicKeyMultibase": "zQ3shouXUmJUNP5b7T9uGMWGbFHyK5fytLxQDsGUfEXbKJxHH",
+          "type": "Multikey"
+        }
+      ]
+    }
+  }
+}

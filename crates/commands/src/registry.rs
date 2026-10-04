@@ -151,10 +151,15 @@ pub enum CommandError {
 
 pub type Handler = Box<dyn Fn(Value) -> Result<Value, CommandError> + Send + Sync>;
 
+/// What the audit keeps of a call's arguments, for commands whose input may carry a secret or a body the audit
+/// records only the length of (the forge commands, brief 0046).
+pub type AuditRedaction = Arc<dyn Fn(&Value) -> Value + Send + Sync>;
+
 struct Entry {
     spec: CommandSpec,
     handler: Handler,
     escalation: Option<EscalationHook>,
+    redaction: Option<AuditRedaction>,
 }
 
 /// All registered commands plus the audit log of their invocations.
@@ -241,10 +246,46 @@ impl CommandRegistry {
             .flatten()
     }
 
+    /// [`CommandRegistry::replace_with_escalation`] with an [`AuditRedaction`]: the audit keeps what it makes of an
+    /// agent's arguments rather than the arguments.
+    pub fn replace_with_redaction<F>(
+        &self,
+        spec: CommandSpec,
+        escalation: Option<EscalationHook>,
+        redaction: AuditRedaction,
+        handler: F,
+    ) -> Option<CommandSpec>
+    where
+        F: Fn(Value) -> Result<Value, CommandError> + Send + Sync + 'static,
+    {
+        self.insert_entry(spec, escalation, Some(redaction), Box::new(handler), true)
+            .ok()
+            .flatten()
+    }
+
+    /// What the audit records of `input` for a call of `id`: the input, or its redaction.
+    pub fn audit_arguments(&self, id: &str, input: &Value) -> Value {
+        match self.entry(id).and_then(|e| e.redaction.clone()) {
+            Some(r) => r(input),
+            None => input.clone(),
+        }
+    }
+
     fn insert(
         &self,
         spec: CommandSpec,
         escalation: Option<EscalationHook>,
+        handler: Handler,
+        replace: bool,
+    ) -> Result<Option<CommandSpec>, CommandError> {
+        self.insert_entry(spec, escalation, None, handler, replace)
+    }
+
+    fn insert_entry(
+        &self,
+        spec: CommandSpec,
+        escalation: Option<EscalationHook>,
+        redaction: Option<AuditRedaction>,
         handler: Handler,
         replace: bool,
     ) -> Result<Option<CommandSpec>, CommandError> {
@@ -258,6 +299,7 @@ impl CommandRegistry {
                 spec,
                 handler,
                 escalation,
+                redaction,
             }),
         );
         self.generation.fetch_add(1, Ordering::Release);
@@ -388,7 +430,12 @@ impl CommandRegistry {
         class: Option<&CallClass>,
     ) -> (u64, Result<Value, CommandError>) {
         let caller = crate::current_caller();
-        let arguments = caller.keeps_arguments().then(|| input.clone());
+        let arguments = caller.keeps_arguments().then(|| {
+            match self.entry(id).and_then(|e| e.redaction.clone()) {
+                Some(r) => r(&input),
+                None => input.clone(),
+            }
+        });
         let Some(entry) = self.entry(id) else {
             let err = CommandError::UnknownCommand(id.to_owned());
             let seq =

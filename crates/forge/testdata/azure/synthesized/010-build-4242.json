@@ -1,0 +1,25 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/build/builds/4242"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 4242,
+      "status": "completed",
+      "result": "failed",
+      "definition": {
+        "name": "dotnet-public-wiki-ci"
+      },
+      "startTime": "2026-10-03T09:01:00Z",
+      "finishTime": "2026-10-03T09:09:00Z",
+      "_links": {
+        "web": {
+          "href": "https://dev.azure.com/dnceng-public/public/_build/results?buildId=4242"
+        }
+      }
+    }
+  }
+}

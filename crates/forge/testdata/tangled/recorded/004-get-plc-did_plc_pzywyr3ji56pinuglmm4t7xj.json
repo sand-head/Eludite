@@ -1,0 +1,40 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/plc/did:plc:pzywyr3ji56pinuglmm4t7xj"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/did+ld+json; charset=utf-8",
+      "etag": "W/\"22f-xt1qcFjYcAtRFh3qBOEhvLs2ISA\""
+    },
+    "body": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/multikey/v1",
+        "https://w3id.org/security/suites/secp256k1-2019/v1"
+      ],
+      "alsoKnownAs": [
+        "at://mads.havmand.eu"
+      ],
+      "id": "did:plc:pzywyr3ji56pinuglmm4t7xj",
+      "service": [
+        {
+          "id": "#atproto_pds",
+          "serviceEndpoint": "https://meadow.us-east.host.bsky.network",
+          "type": "AtprotoPersonalDataServer"
+        }
+      ],
+      "verificationMethod": [
+        {
+          "controller": "did:plc:pzywyr3ji56pinuglmm4t7xj",
+          "id": "did:plc:pzywyr3ji56pinuglmm4t7xj#atproto",
+          "publicKeyMultibase": "zQ3shNus6EjDUhWV8aWPy3TEjxeMRoPiZrJMWE7cTfzBxGVYy",
+          "type": "Multikey"
+        }
+      ]
+    }
+  }
+}

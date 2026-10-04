@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-review.input.json",
+  "title": "eludite.forge.pull_review input",
+  "description": "Review a pull request: `start` opens a pending review, `add` adds a comment on `path` and `line` to it (pending), `submit` submits it with `event` `approve`, `request_changes` or `comment` and an optional `body` (Azure DevOps: a vote; GitLab: `approve` approves and the comments are a batch of draft notes), `discard` drops the pending review, `request` asks the `reviewers` (default the previous reviewers) to review again. Where the forge has no pending reviews, `add` posts the comment at once and `submit` posts the summary. For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "x-eludite-escalates": "Execute; For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The number (GitHub, GitLab's `iid`, Azure DevOps, Forgejo, Gitea). Give `number` or `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The item's `id` as a list answered it; Tangled's items have only this (their AT-URI). Give `number` or `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "enum": [
+        "start",
+        "add",
+        "submit",
+        "discard",
+        "request"
+      ]
+    },
+    "event": {
+      "enum": [
+        "approve",
+        "request_changes",
+        "comment"
+      ]
+    },
+    "body": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "side": {
+      "enum": [
+        "right",
+        "left"
+      ]
+    },
+    "reviewers": {
+      "type": "array",
+      "items": {
+        "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+        "type": "string"
+      },
+      "maxItems": 50
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-detect.input.json",
+  "title": "eludite.forge.detect input",
+  "description": "Which forge the workspace repository's remote lives on (`forge.detect`): from the remote's url and the `forge.hosts` setting, with a version probe (`/api/v4/version` for GitLab, `/api/v1/version` for Forgejo and Gitea) for a host neither names. Answers the family, host, owner and repository, the signed-in account (from the credential store; nothing is fetched to know it) and the capabilities. Runs when a window opens or a command asks, never at startup. Read.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "description": "Detect this url instead of the workspace's remote.",
+      "type": "string",
+      "minLength": 1
+    },
+    "probe": {
+      "description": "Allow the version probe for an unknown host (default true; one request, cached).",
+      "type": "boolean"
+    }
+  }
+}

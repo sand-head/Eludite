@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/commits/cccccccccccccccccccccccccccccccccccccccc/status"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "state": "pending",
+      "statuses": []
+    }
+  }
+}

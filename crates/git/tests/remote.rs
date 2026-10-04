@@ -413,3 +413,62 @@ fn https_with_a_self_signed_certificate_needs_ssl_verify_off() {
         "{log:?}"
     );
 }
+
+#[test]
+fn a_refspec_fetch_brings_a_pull_requests_head_from_the_remote_or_a_url() {
+    // A bare remote with a `refs/pull/7/head` ref beside its branches, as GitHub serves one.
+    let dir = tempfile::tempdir().unwrap();
+    let bare_path = dir.path().join("remote.git");
+    let bare = git2::Repository::init_bare(&bare_path).unwrap();
+    let work = git2::Repository::init(dir.path().join("work")).unwrap();
+    let sig = git2::Signature::now("T", "t@example.com").unwrap();
+    std::fs::write(dir.path().join("work/a.txt"), "a\n").unwrap();
+    let mut index = work.index().unwrap();
+    index.add_path(std::path::Path::new("a.txt")).unwrap();
+    let tree = work.find_tree(index.write_tree().unwrap()).unwrap();
+    let base = work
+        .commit(Some("HEAD"), &sig, &sig, "base", &tree, &[])
+        .unwrap();
+    let base_commit = work.find_commit(base).unwrap();
+    let head = work
+        .commit(None, &sig, &sig, "the pull request", &tree, &[&base_commit])
+        .unwrap();
+    let mut remote = work.remote("origin", bare_path.to_str().unwrap()).unwrap();
+    remote
+        .push(
+            &[
+                format!("{}:refs/heads/main", base),
+                format!("{}:refs/pull/7/head", head),
+            ],
+            None,
+        )
+        .unwrap();
+    drop(bare);
+    let repo = eludite_git::Repo::open(&dir.path().join("work")).unwrap();
+    let got = repo
+        .fetch_refspec(
+            None,
+            None,
+            "+refs/pull/7/head:refs/remotes/origin/pr/7",
+            &eludite_git::Cancel::new(),
+        )
+        .unwrap();
+    assert_eq!(got, head);
+    let url = bare_path.to_string_lossy().into_owned();
+    let again = repo
+        .fetch_refspec(
+            None,
+            Some(&url),
+            "+refs/pull/7/head:refs/remotes/fork/pr/7",
+            &eludite_git::Cancel::new(),
+        )
+        .unwrap();
+    assert_eq!(again, head, "from a url (a fork) too");
+    let missing = repo.fetch_refspec(
+        None,
+        None,
+        "+refs/pull/8/head:refs/remotes/origin/pr/8",
+        &eludite_git::Cancel::new(),
+    );
+    assert!(missing.is_err());
+}

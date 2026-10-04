@@ -1,0 +1,22 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/17/commits"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "commitId": "1111111111111111111111111111111111111111",
+          "comment": "Add the login form\n\nIt posts to /session.",
+          "author": {
+            "name": "Octo Cat",
+            "date": "2026-10-03T09:00:00Z"
+          }
+        }
+      ]
+    }
+  }
+}

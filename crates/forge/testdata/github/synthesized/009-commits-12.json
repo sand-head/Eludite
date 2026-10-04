@@ -1,0 +1,32 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/pulls/12/commits"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "sha": "2222222222222222222222222222222222222222",
+        "commit": {
+          "message": "Add the login form\n\nIt posts to /session.",
+          "author": {
+            "name": "Octo Cat",
+            "date": "2026-10-01T09:00:00Z"
+          }
+        }
+      },
+      {
+        "sha": "1111111111111111111111111111111111111111",
+        "commit": {
+          "message": "Validate the password",
+          "author": {
+            "name": "Octo Cat",
+            "date": "2026-10-02T09:00:00Z"
+          }
+        }
+      }
+    ]
+  }
+}

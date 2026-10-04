@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-detect.output.json",
+  "title": "eludite.forge.detect output",
+  "description": "The forge, or `family: none` with `message` (\"No supported forge for <remote>\").",
+  "type": "object",
+  "required": [
+    "repository",
+    "signed_in",
+    "capabilities"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "repository": {
+      "description": "Which forge the remote lives on.",
+      "type": "object",
+      "required": [
+        "family",
+        "host"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "description": "The forge family: `github` (github.com and GitHub Enterprise Server), `gitlab` (gitlab.com and self-managed), `azure_devops` (dev.azure.com, `*.visualstudio.com` and Azure DevOps Server), `forgejo` (Codeberg and other Forgejo instances), `gitea`, `tangled` (tangled.org, formerly tangled.sh, and its knots), `none` (no supported forge).",
+          "enum": [
+            "github",
+            "gitlab",
+            "azure_devops",
+            "forgejo",
+            "gitea",
+            "tangled",
+            "none"
+          ]
+        },
+        "host": {
+          "description": "The forge's web host (`github.com`, `gitlab.example.com:8443`).",
+          "type": "string"
+        },
+        "owner": {
+          "description": "The owner: a GitHub, Forgejo or Gitea user or organization, GitLab's group path (`group/subgroup`), Azure DevOps' organization, Tangled's handle or DID.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Azure DevOps only: the project.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The repository's name (GitLab: the project's path).",
+          "type": "string"
+        },
+        "path": {
+          "description": "How the forge names it: `owner/name`, `organization/project/name`.",
+          "type": "string"
+        },
+        "web_url": {
+          "description": "The repository's page.",
+          "type": "string"
+        },
+        "remote": {
+          "description": "The git remote it came from (`origin`).",
+          "type": "string"
+        },
+        "remote_url": {
+          "description": "That remote's url.",
+          "type": "string"
+        }
+      }
+    },
+    "account": {
+      "description": "The signed-in account.",
+      "type": "object",
+      "required": [
+        "login"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "login": {
+          "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The display name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The profile page.",
+          "type": "string"
+        }
+      }
+    },
+    "signed_in": {
+      "type": "boolean"
+    },
+    "capabilities": {
+      "description": "What this forge offers; the windows and menus show only these.",
+      "type": "object",
+      "required": [
+        "pull_requests",
+        "pull_create",
+        "reviews",
+        "pending_reviews",
+        "review_threads",
+        "thread_resolution",
+        "draft_pull_requests",
+        "merge_methods",
+        "auto_merge",
+        "request_review",
+        "issues",
+        "issue_create",
+        "labels",
+        "milestones",
+        "assignees",
+        "checks",
+        "check_logs",
+        "check_rerun",
+        "branch_from_issue",
+        "branch_link"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pull_requests": {
+          "description": "Pull requests (merge requests on GitLab) can be listed and opened.",
+          "type": "boolean"
+        },
+        "pull_create": {
+          "description": "Pull requests can be created from Eludite.",
+          "type": "boolean"
+        },
+        "reviews": {
+          "description": "Reviews can be submitted (approve, request changes, comment; Azure DevOps' votes).",
+          "type": "boolean"
+        },
+        "pending_reviews": {
+          "description": "Review comments can be held pending and submitted together; without it each comment posts at once and submit posts the summary.",
+          "type": "boolean"
+        },
+        "review_threads": {
+          "description": "Review comments anchor to a file and line.",
+          "type": "boolean"
+        },
+        "thread_resolution": {
+          "description": "Review threads can be resolved and unresolved.",
+          "type": "boolean"
+        },
+        "draft_pull_requests": {
+          "description": "Pull requests can be drafts and marked ready.",
+          "type": "boolean"
+        },
+        "merge_methods": {
+          "description": "The merge methods the forge knows (the repository may allow fewer; a pull request's `mergeable.methods` says which).",
+          "type": "array",
+          "items": {
+            "enum": [
+              "merge",
+              "squash",
+              "rebase",
+              "rebase_merge",
+              "fast_forward",
+              "semi_linear"
+            ]
+          }
+        },
+        "auto_merge": {
+          "description": "Merge when checks pass (GitHub's auto-merge, GitLab's merge when pipeline succeeds, Azure DevOps' auto-complete).",
+          "type": "boolean"
+        },
+        "request_review": {
+          "description": "Reviewers can be requested again.",
+          "type": "boolean"
+        },
+        "issues": {
+          "description": "Issues (work items on Azure DevOps) can be listed and opened.",
+          "type": "boolean"
+        },
+        "issue_create": {
+          "description": "Issues can be created.",
+          "type": "boolean"
+        },
+        "labels": {
+          "description": "Issues and pull requests carry labels (tags on Azure DevOps).",
+          "type": "boolean"
+        },
+        "milestones": {
+          "description": "Issues carry a milestone (iteration path on Azure DevOps).",
+          "type": "boolean"
+        },
+        "assignees": {
+          "description": "Issues can be assigned.",
+          "type": "boolean"
+        },
+        "checks": {
+          "description": "Checks (check runs and statuses, pipelines, policies) are reported per commit.",
+          "type": "boolean"
+        },
+        "check_logs": {
+          "description": "A check's log can be read.",
+          "type": "boolean"
+        },
+        "check_rerun": {
+          "description": "A check can be rerun.",
+          "type": "boolean"
+        },
+        "branch_from_issue": {
+          "description": "A branch can be created from an issue.",
+          "type": "boolean"
+        },
+        "branch_link": {
+          "description": "The forge records the issue's branch (GitHub's development panel, GitLab's related branch, Azure DevOps' branch link, Forgejo's branch reference); Tangled links by a comment.",
+          "type": "boolean"
+        },
+        "approvals": {
+          "description": "GitLab: approvals and approval rules.",
+          "type": "boolean"
+        },
+        "votes": {
+          "description": "Azure DevOps: reviewer votes.",
+          "type": "boolean"
+        },
+        "work_item_types": {
+          "description": "Azure DevOps: work item types from the project's process.",
+          "type": "boolean"
+        }
+      }
+    },
+    "message": {
+      "description": "Why no forge was found.",
+      "type": "string"
+    }
+  }
+}

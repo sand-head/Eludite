@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-issue-update.output.json",
+  "title": "eludite.forge.issue_update output",
+  "description": "The issue after the change.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "state",
+    "url"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "type": {
+      "description": "Azure DevOps: the work item type (Bug, Task, User Story, Product Backlog Item, Issue, as the project's process names them).",
+      "type": "string"
+    },
+    "author": {
+      "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+      "type": "string"
+    },
+    "assignees": {
+      "type": "array",
+      "items": {
+        "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+        "type": "string"
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "description": "A label's name (a tag on Azure DevOps).",
+        "type": "string"
+      }
+    },
+    "milestone": {
+      "type": "string"
+    },
+    "comments": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "created_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    }
+  }
+}

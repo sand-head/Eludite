@@ -1,0 +1,10 @@
+repository: https://github.com/MicrosoftDocs/vsts-rest-api-specs
+commit: c7e66d986b369dce462d04c02288a6c26c155002
+api-version: 7.1
+files (specification/<area>/7.1/<file>, sha256):
+  git/7.1/git.json                            b5b2c1b9aa2cf73bd843eeace8c9f0f1d693e255fdea1c7f28bdc1b591f7e76e
+  wit/7.1/workItemTracking.json               08e2a20ff9337f06a714066be91e12fccf68ee0ee6e2ae917ee2cae08cd18025
+  build/7.1/build.json                        34c3bbba8372fc63561e696e86adb80a8e68f989aa4b46ba0a67fdafcd7bac1e
+  policy/7.1/policy.json                      86f61afa75ea4b6bd7edf5fb047b5ba068748f9e1dcef42303865c88efd3a963
+  core/7.1/core.json                          88ddabd07847e1659aef94f887afeb7ea4428db1b8ea4114155bfb962e8caf76
+fetched: 2026-10-04

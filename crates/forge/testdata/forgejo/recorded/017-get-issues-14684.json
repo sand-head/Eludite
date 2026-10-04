@@ -1,0 +1,120 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/issues/14684"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8"
+    },
+    "body": {
+      "assets": [
+        {
+          "browser_download_url": "https://codeberg.org/attachments/ac8fbc00-a6f2-425c-a782-79024f781d22",
+          "created_at": "2026-10-04T01:49:41+02:00",
+          "download_count": 0,
+          "id": 1992912,
+          "name": "image.png",
+          "size": 47936,
+          "type": "attachment",
+          "uuid": "ac8fbc00-a6f2-425c-a782-79024f781d22"
+        },
+        {
+          "browser_download_url": "https://codeberg.org/attachments/c6f52086-673f-4684-8463-38a768c6e428",
+          "created_at": "2026-10-04T01:57:09+02:00",
+          "download_count": 0,
+          "id": 1992927,
+          "name": "image.png",
+          "size": 29894,
+          "type": "attachment",
+          "uuid": "c6f52086-673f-4684-8463-38a768c6e428"
+        },
+        {
+          "browser_download_url": "https://codeberg.org/attachments/e9ac0778-f7b8-467b-9921-90ca334a8869",
+          "created_at": "2026-10-04T01:57:49+02:00",
+          "download_count": 0,
+          "id": 1992930,
+          "name": "image.png",
+          "size": 19702,
+          "type": "attachment",
+          "uuid": "e9ac0778-f7b8-467b-9921-90ca334a8869"
+        }
+      ],
+      "assignee": null,
+      "assignees": null,
+      "body": "### Can you reproduce the bug on the Forgejo test instance?\n\nNo, I can't try it on the test instance for some reason\n\n### Description\n\nConsider the following repository whose contents of the `.forgejo/workflows` directory are the following:\r\n\r\n## `ci.yml`\r\n\r\n```\r\non:\r\n    push:\r\n    pull_request:\r\n\r\nname: CI\r\n\r\njobs:\r\n    ci-rvformal:\r\n      name: Reusable Workflow Test\r\n      if: false\r\n      uses: ./.forgejo/workflows/dup.yaml\r\n      secrets:\r\n        read_repo: ${{ secrets.read_repo }}\r\n      with:\r\n        condition: ${{ forgejo.repository }}\r\n\r\n    print_bool_outer:\r\n      runs-on: codeberg-tiny\r\n      steps:\r\n        - run: echo ${{ (forgejo.repository == 'cr1901/reuse-test' && forgejo.event_name == 'push') && 'true' || 'false' }}\r\n```\r\n\r\nFor the bug report, I will be changing the `if: false` line.\r\n\r\n## dup.yml\r\n\r\n```\r\nname: formal\r\n\r\non:\r\n  workflow_dispatch:\r\n  workflow_call:\r\n    inputs:\r\n     condition:\r\n        type: string\r\n        required: true\r\n     filesets:\r\n        type: string\r\n        default: >-\r\n            '.forgejo/workflows/*.yaml',\r\n            '*.txt'\r\n  schedule:\r\n      - cron: '0 5 * * 0'\r\n\r\n\r\njobs:\r\n  print_bool:\r\n    runs-on: codeberg-tiny\r\n    steps:\r\n      - run: |\r\n          echo ${{ forgejo.event_name }}\r\n          echo ${{ forgejo.repository }}\r\n          echo ${{ inputs.condition }}\r\n          echo ${{ secrets.read_repo }} | base64\r\n\r\n  check-condition:\r\n    if: ${{ fromJSON(inputs.condition)  }}\r\n    runs-on: codeberg-tiny\r\n    steps:\r\n      - run: |\r\n          echo ${{ inputs.condition }}\r\n```\r\n\r\n_`dup.yaml` contains a deliberate error_ on the `if: ${{ fromJSON(inputs.condition)  }}` line.\r\n\r\n## Behavior\r\n\r\nWhen running the above workflows on Forgejo Actions, depending on how I change the `if: false` line in `ci.yaml`, several behaviors may happen.\r\n\r\n* Log an error complaining about the bad JSON in `dup.yaml`, _when the whole reusable workflow should have been skipped due to a false `if` condition._\r\n* Silently log an error on the server side _without_ showing an error in the UI, or even starting a CI run at all, when the reusable workflow should have been run to a true `if` condition.\r\n* _Correctly_ skip the reusable workflow due to a false  `if` condition.\r\n\r\nA repo which tests all 3 scenarios is [here](https://codeberg.org/cr1901/reuse-test/src/branch/reuse-bool).\r\n\r\n\r\n|Condition|Result|Expected|Actions Run|Commit|\r\n|-|-|-|-|-|\r\n|`if: false`|Reusable Workflow runs and then triggers error with bad JSON.|Reusable Workflow is skipped.|https://codeberg.org/cr1901/reuse-test/actions/runs/67/jobs/3/attempt/2#jobstep-0-3|https://codeberg.org/cr1901/reuse-test/src/commit/ab27825dce4b2b281ae7e374e295013bcdd1da18/.forgejo/workflows/ci.yaml|\r\n|`if: 1 == 1`|Forgejo Actions never triggers a run in the UI. The server reports an error<sup>1</sup>.|Reusable Workflow runs and then prints an error about the bad JSON.|N/A|https://codeberg.org/cr1901/reuse-test/src/commit/fe021a4c31c2ce99ca8cd9c7cc7db96a682e4140/.forgejo/workflows/ci.yaml|\r\n|`if: 1 == 2`|Reusable Workflow is skipped.|Reusable Workflow is skipped.|https://codeberg.org/cr1901/reuse-test/actions/runs/90/jobs/3/attempt/1|https://codeberg.org/cr1901/reuse-test/src/commit/307183bea3c31774d5d132348f1d9f4f72ae017b/.forgejo/workflows/ci.yaml|\r\n\r\n\r\n## Footnotes\r\n\r\n1. Per [discussion](https://matrix.to/#/!vlrIayscTbS45jAkv1ePIrZHzy7q-_CYJ6Wf_y7PJJs/$WQTcX2KT5PjKLjcC8fB4D0tEihJc4cRDSgCjDJx8Ic0?via=matrix.org&via=tchncs.de&via=fedora.im) on Matrix, the server logs an error about the invalid JSON:\r\n\r\n```\r\n[E] InsertRun: InsertRun: unable to evaluate job 'if' on server-side with unexpected error: Invalid JSON: invalid character 'm' looking for beginning of value Ah, you're providing the input condition with the value ${{ forgejo.repository }}, but then you're using if: ${{ fromJSON(inputs.condition)  }} Condition is not JSON, it's just the fully-qualified name of the repository.\r\n```\n\n### Screenshots\n\nPicture of run for https://codeberg.org/cr1901/reu…",
+      "closed_at": null,
+      "comments": 0,
+      "created_at": "2026-10-04T02:11:30+02:00",
+      "due_date": null,
+      "html_url": "https://codeberg.org/forgejo/forgejo/issues/14684",
+      "id": 7595559,
+      "is_locked": false,
+      "labels": [
+        {
+          "color": "e11d21",
+          "description": "",
+          "exclusive": true,
+          "id": 201022,
+          "is_archived": false,
+          "name": "bug/new-report",
+          "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/201022"
+        },
+        {
+          "color": "eb6420",
+          "description": "",
+          "exclusive": false,
+          "id": 87703,
+          "is_archived": false,
+          "name": "forgejo/ui",
+          "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/87703"
+        }
+      ],
+      "milestone": null,
+      "number": 14684,
+      "original_author": "",
+      "original_author_id": 0,
+      "pin_order": 0,
+      "pull_request": null,
+      "ref": "",
+      "repository": {
+        "full_name": "",
+        "id": 73144,
+        "name": "forgejo",
+        "owner": "forgejo"
+      },
+      "state": "open",
+      "title": "bug: Forgejo Actions may not log errors within reusable workflow, and attempt to run reusable workflow with `if: false` condition",
+      "updated_at": "2026-10-04T02:11:30+02:00",
+      "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/issues/14684",
+      "user": {
+        "active": false,
+        "avatar_url": "",
+        "created": "2026-03-10T18:09:29+01:00",
+        "description": "",
+        "email": "user@example.invalid",
+        "followers_count": 1,
+        "following_count": 1,
+        "full_name": "",
+        "html_url": "https://codeberg.org/cr1901",
+        "id": 921439,
+        "is_admin": false,
+        "language": "",
+        "last_login": "",
+        "location": "",
+        "login": "cr1901",
+        "login_name": "",
+        "prohibit_login": false,
+        "pronouns": "",
+        "restricted": false,
+        "source_id": 0,
+        "starred_repos_count": 2,
+        "username": "cr1901",
+        "visibility": "public",
+        "website": ""
+      }
+    }
+  }
+}
