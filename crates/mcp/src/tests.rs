@@ -951,11 +951,12 @@ fn the_debugging_guide_is_a_resource() {
     let resources = list["resources"].as_array().unwrap();
     assert_eq!(
         resources.len(),
-        4,
-        "the debugging, git, terminal and forge guides (no git status without its command)"
+        5,
+        "the debugging, git, terminal, forge and nuget guides (no git status without its command)"
     );
     assert_eq!(resources[2]["uri"], "eludite://guides/terminal");
     assert_eq!(resources[3]["uri"], "eludite://guides/forge");
+    assert_eq!(resources[4]["uri"], "eludite://guides/nuget");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1109,9 +1110,9 @@ fn the_git_status_is_a_live_resource_read_as_the_agent() {
     );
     let list = result(call(&s, "resources/list", json!({})));
     let resources = list["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 5);
-    assert_eq!(resources[4]["uri"], crate::resources::GIT_STATUS_URI);
-    assert_eq!(resources[4]["mimeType"], "application/json");
+    assert_eq!(resources.len(), 6);
+    assert_eq!(resources[5]["uri"], crate::resources::GIT_STATUS_URI);
+    assert_eq!(resources[5]["mimeType"], "application/json");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1431,4 +1432,177 @@ fn the_forge_guide_resource_and_tools() {
         json!({"uri": "eludite://guides/forge"}),
     ));
     assert_eq!(guide["contents"][0]["text"].as_str().unwrap(), text);
+}
+
+/// NuGet's tools (brief 0048): listed with their classes, answered in their schema, an install goes to the gate as
+/// dangerous under the default `nuget.change: prompt`, and the guide is short, served as `eludite://guides/nuget`,
+/// named in the instructions and names only commands that exist.
+#[test]
+fn the_nuget_tools_and_guide() {
+    use eludite_commands::nuget::{
+        self, ChangeOutput, NuGetCommands, NuGetOutput, NuGetRequest, PackageVersion, SearchOutput,
+        SearchRow, SourceRow,
+    };
+    struct FakeNuGet;
+    impl NuGetCommands for FakeNuGet {
+        fn apply(
+            &self,
+            request: NuGetRequest,
+        ) -> Result<NuGetOutput, eludite_commands::CommandError> {
+            match request {
+                NuGetRequest::Search { query, .. } => {
+                    Ok(NuGetOutput::Search(Box::new(SearchOutput {
+                        results: vec![SearchRow {
+                            id: format!("Eludite.Corpus.{query}"),
+                            version: "1.1.0".into(),
+                            versions: vec!["1.1.0".into(), "1.0.0".into()],
+                            description: None,
+                            authors: None,
+                            source: "corpus".into(),
+                            downloads: None,
+                            license: None,
+                            project_url: None,
+                            icon_url: None,
+                            vulnerabilities: vec![],
+                            deprecated: false,
+                        }],
+                        sources: vec![SourceRow {
+                            name: "corpus".into(),
+                            count: 1,
+                            error: None,
+                        }],
+                        truncated: false,
+                    })))
+                }
+                NuGetRequest::Change { action, change } => {
+                    Ok(NuGetOutput::Change(Box::new(ChangeOutput {
+                        action,
+                        packages: vec![PackageVersion {
+                            id: change.package.unwrap(),
+                            version: Some("1.1.0".into()),
+                        }],
+                        projects: vec!["/s/App/App.csproj".into()],
+                        edited: vec!["/s/App/App.csproj".into()],
+                        restore: None,
+                        generation: 2,
+                        message: None,
+                    })))
+                }
+                other => Err(eludite_commands::CommandError::Failed(format!("{other:?}"))),
+            }
+        }
+    }
+    let r = Arc::new(CommandRegistry::new());
+    nuget::register(&r, Arc::new(FakeNuGet));
+    let seen: Arc<Mutex<Vec<(String, PermissionClass)>>> = Arc::default();
+    let seen2 = seen.clone();
+    let s = McpServer::new(r.clone())
+        .with_agent("Fake")
+        .with_permission_gate(Arc::new(move |spec, _, ctx| {
+            seen2
+                .lock()
+                .unwrap()
+                .push((spec.id.to_string(), ctx.class.class));
+            GateDecision::Allow
+        }));
+    let tools = result(call(&s, "tools/list", json!({})))["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let permission = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"))["_meta"]["eludite/permission"]
+            .clone()
+    };
+    // Every command but the window's (the person's) is a tool.
+    for id in nuget::ALL {
+        let listed = tools.iter().any(|t| t["name"] == id.replace('.', "-"));
+        assert_eq!(listed, id != nuget::MANAGE, "{id}");
+    }
+    for read in ["search", "installed", "updates", "sources"] {
+        assert_eq!(permission(&format!("eludite-nuget-{read}")), "read");
+    }
+    for execute in ["install", "uninstall", "update", "consolidate", "restore"] {
+        assert_eq!(permission(&format!("eludite-nuget-{execute}")), "execute");
+    }
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-nuget-search", "arguments": {"query": "Greeter"}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let answer = &out["structuredContent"];
+    assert_eq!(answer["results"][0]["id"], "Eludite.Corpus.Greeter");
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/nuget-search.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, answer);
+    assert!(errors.is_empty(), "{errors:?}");
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-nuget-install", "arguments": {"package": "Eludite.Corpus.Greeter", "project": "App"}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/nuget-install.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, &out["structuredContent"]);
+    assert!(errors.is_empty(), "{errors:?}");
+    // Searching never reaches the gate; the install does, as dangerous (nuget.change: prompt).
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [(
+            "eludite.nuget.install".to_owned(),
+            PermissionClass::Dangerous
+        )]
+    );
+    // The audit keeps the install's arguments.
+    let last = r.audit_log().entries().pop().unwrap();
+    assert_eq!(last.command, "eludite.nuget.install");
+    assert!(last.caller.is_agent());
+    assert_eq!(last.arguments.unwrap()["package"], "Eludite.Corpus.Greeter");
+
+    let text = crate::resources::NUGET.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 500, "{words} words");
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.nuget.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        if id == "eludite.nuget" {
+            continue;
+        }
+        assert!(
+            nuget::ALL.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named >= 9, "{named}");
+    assert!(text.contains("nuget.change") && text.contains("credentials_required"));
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18"}),
+    ));
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("eludite://guides/nuget")
+    );
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/nuget"}),
+    ));
+    assert_eq!(read["contents"][0]["text"].as_str().unwrap(), text);
 }

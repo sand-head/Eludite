@@ -2,8 +2,8 @@
 //! lists them, `resources/read` serves one by its uri, and `resources/templates/list` is empty. The texts are compiled
 //! in from `docs/agents/`, so a guide always matches the commands of the build that serves it.
 //!
-//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040), [`TERMINAL`] (brief 0041) and [`FORGE`] (brief
-//! 0046).
+//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040), [`TERMINAL`] (brief 0041), [`FORGE`] (brief 0046)
+//! and [`NUGET`] (brief 0048).
 //!
 //! Besides the guides, [`GIT_STATUS_URI`] (brief 0040) is live: the repository's status as `eludite.git.status`
 //! answers it, read through the command bus as the agent on each `resources/read`, and listed while that command is
@@ -71,8 +71,19 @@ pub const FORGE: Guide = Guide {
     text: include_str!("../../../docs/agents/forge.md"),
 };
 
+/// How an agent reads and changes NuGet packages and what needs permission (`docs/agents/nuget.md`, brief 0048).
+pub const NUGET: Guide = Guide {
+    uri: "eludite://guides/nuget",
+    name: "nuget",
+    title: "NuGet in Eludite: a guide for agents",
+    description: "Read before using eludite.nuget.*: read installed packages first, search the sources, install, update, \
+                  uninstall and consolidate with the restore result, failed restores, what the nuget policy \
+                  (nuget.change, nuget.sources) asks about, and what `credentials_required` means.",
+    text: include_str!("../../../docs/agents/nuget.md"),
+};
+
 /// Every guide, in the order `resources/list` gives them.
-pub const GUIDES: [Guide; 4] = [DEBUGGING, GIT, TERMINAL, FORGE];
+pub const GUIDES: [Guide; 5] = [DEBUGGING, GIT, TERMINAL, FORGE, NUGET];
 
 /// The MIME type of every guide.
 pub const MIME: &str = "text/markdown";
