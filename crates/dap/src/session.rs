@@ -29,6 +29,106 @@ impl StartKind {
             StartKind::Attach => "attach",
         }
     }
+
+    /// A `startDebugging` reverse request's `request` (brief 0038): `launch` or `attach`.
+    pub fn from_request(request: &str) -> Option<Self> {
+        match request {
+            "launch" => Some(StartKind::Launch),
+            "attach" => Some(StartKind::Attach),
+            _ => None,
+        }
+    }
+}
+
+/// Which files' breakpoints a session's adapter gets (brief 0038): each adapter claims the source kinds it can bind,
+/// and a breakpoint goes to every session whose adapter claims its file's kind; a kind no adapter claims goes to every
+/// session (the behavior before brief 0038), so `breakpoints[].sessions` names only the adapters that can bind a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterFamily {
+    /// netcoredbg, eludite-dbg-mono, eludite-dbg-netfx (`coreclr`, `mono`, `netfx`).
+    Dotnet,
+    /// vscode-js-debug's sessions of a page target (a browser session's children).
+    Javascript,
+    /// lldb-dap (`native`).
+    Native,
+    /// vscode-js-debug's browser session, the parent of the page targets' sessions: it gets no breakpoints and no
+    /// exception filters; its children do (protocol/schemas/dap-js-debug.md).
+    Browser,
+    /// An adapter of no known family (a test's): it gets every breakpoint.
+    Other,
+}
+
+/// The source kinds (file extensions, lowercase) .NET adapters claim.
+pub const DOTNET_KINDS: &[&str] = &["cs", "vb", "fs", "fsx", "cshtml", "razor"];
+/// The source kinds vscode-js-debug claims.
+pub const JAVASCRIPT_KINDS: &[&str] = &[
+    "js", "mjs", "cjs", "ts", "mts", "cts", "tsx", "jsx", "vue", "svelte",
+];
+/// The source kinds lldb-dap claims.
+pub const NATIVE_KINDS: &[&str] = &[
+    "rs", "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "m", "mm", "swift",
+];
+
+/// A path's extension, lowercase.
+fn kind_of(path: &str) -> Option<String> {
+    std::path::Path::new(path)
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+}
+
+impl AdapterFamily {
+    /// The family of a session whose `session.runtime` is `runtime` (`coreclr`, `mono`, `netfx`, `native`,
+    /// `javascript`); a `javascript` session without a parent is a [`AdapterFamily::Browser`] one.
+    pub fn of_runtime(runtime: Option<&str>, child: bool) -> Self {
+        match runtime {
+            Some("coreclr" | "mono" | "netfx") => AdapterFamily::Dotnet,
+            Some("native") => AdapterFamily::Native,
+            Some("javascript") if child => AdapterFamily::Javascript,
+            Some("javascript") => AdapterFamily::Browser,
+            _ => AdapterFamily::Other,
+        }
+    }
+
+    /// The kinds it claims (none for `Browser` and `Other`).
+    pub fn kinds(self) -> &'static [&'static str] {
+        match self {
+            AdapterFamily::Dotnet => DOTNET_KINDS,
+            AdapterFamily::Javascript => JAVASCRIPT_KINDS,
+            AdapterFamily::Native => NATIVE_KINDS,
+            AdapterFamily::Browser | AdapterFamily::Other => &[],
+        }
+    }
+
+    /// Whether it claims `path`'s kind.
+    pub fn claims(self, path: &str) -> bool {
+        kind_of(path).is_some_and(|k| self.kinds().contains(&k.as_str()))
+    }
+
+    /// Whether `path`'s breakpoints go to a session of this family: it claims the kind, or no family does (a
+    /// `Browser` session takes none, an `Other` one every one).
+    pub fn takes(self, path: &str) -> bool {
+        match self {
+            AdapterFamily::Browser => false,
+            AdapterFamily::Other => true,
+            f => f.claims(path) || !claimed(path),
+        }
+    }
+
+    /// Whether a session of this family gets exception filters (not a `Browser` one).
+    pub fn takes_exceptions(self) -> bool {
+        self != AdapterFamily::Browser
+    }
+}
+
+/// Whether some family claims `path`'s kind.
+pub fn claimed(path: &str) -> bool {
+    [
+        AdapterFamily::Dotnet,
+        AdapterFamily::Javascript,
+        AdapterFamily::Native,
+    ]
+    .iter()
+    .any(|f| f.claims(path))
 }
 
 /// What to start and with which breakpoints.
@@ -205,4 +305,50 @@ pub fn set_exception_breakpoints_arguments(
         filter_options: options.to_vec(),
     })
     .expect("exception filters serialize")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Brief 0038's file-kind table: each family takes its own kinds, a kind nobody claims goes to every family, a
+    /// browser session (js-debug's parent) takes nothing.
+    #[test]
+    fn breakpoints_go_to_the_adapters_that_claim_the_file() {
+        use AdapterFamily::*;
+        let fam = |r: &str, child: bool| AdapterFamily::of_runtime(Some(r), child);
+        assert_eq!(fam("coreclr", false), Dotnet);
+        assert_eq!(fam("mono", false), Dotnet);
+        assert_eq!(fam("netfx", false), Dotnet);
+        assert_eq!(fam("native", false), Native);
+        assert_eq!(fam("javascript", false), Browser);
+        assert_eq!(fam("javascript", true), Javascript);
+        assert_eq!(AdapterFamily::of_runtime(None, false), Other);
+        let cases: [(&str, [bool; 5]); 10] = [
+            // path: Dotnet, Javascript, Native, Browser, Other
+            ("/w/App/Program.cs", [true, false, false, false, true]),
+            ("/w/App/Module.FS", [true, false, false, false, true]),
+            (
+                "/w/App/Pages/Index.cshtml",
+                [true, false, false, false, true],
+            ),
+            ("/w/wwwroot/app.ts", [false, true, false, false, true]),
+            ("/w/src/App.vue", [false, true, false, false, true]),
+            ("/w/src/main.mjs", [false, true, false, false, true]),
+            ("/w/src/main.rs", [false, false, true, false, true]),
+            ("/w/native/lib.cpp", [false, false, true, false, true]),
+            ("/w/notes.txt", [true, true, true, false, true]),
+            ("/w/Makefile", [true, true, true, false, true]),
+        ];
+        for (path, want) in cases {
+            let got = [Dotnet, Javascript, Native, Browser, Other].map(|f| f.takes(path));
+            assert_eq!(got, want, "{path}");
+        }
+        assert!(claimed("C:\\w\\App\\Program.cs"));
+        assert!(!claimed("/w/index.html"));
+        assert!(!Browser.takes_exceptions() && Javascript.takes_exceptions());
+        assert_eq!(StartKind::from_request("attach"), Some(StartKind::Attach));
+        assert_eq!(StartKind::from_request("launch"), Some(StartKind::Launch));
+        assert_eq!(StartKind::from_request("restart"), None);
+    }
 }

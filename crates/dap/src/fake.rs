@@ -236,6 +236,17 @@ pub struct FakeProgram {
     pub extra_capabilities: Value,
     /// The program exits with this code when a run ends (a console program), instead of waiting for the next one.
     pub exit_at_end: Option<i64>,
+    /// Serve as vscode-js-debug's session of a page target (brief 0038; [`listen_js_debug`] sets it): this target.
+    pub js_debug: Option<JsTarget>,
+}
+
+/// The page target a fake vscode-js-debug child session debugs (brief 0038).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct JsTarget {
+    /// `configuration.name` of `startDebugging`: the target's title (the thread's name too).
+    pub title: String,
+    /// `__pendingTargetId`: the child's `attach` must name it.
+    pub target_id: String,
 }
 
 impl Default for FakeProgram {
@@ -250,14 +261,43 @@ impl Default for FakeProgram {
             crash_on: None,
             extra_capabilities: Value::Null,
             exit_at_end: None,
+            js_debug: None,
         }
     }
 }
+
+/// What vscode-js-debug 1.140.0 answers `initialize` with (recorded from the real server, brief 0038).
+pub fn js_debug_capabilities() -> Value {
+    json!({
+        "supportsConfigurationDoneRequest": true, "supportsFunctionBreakpoints": false,
+        "supportsConditionalBreakpoints": true, "supportsHitConditionalBreakpoints": true,
+        "supportsEvaluateForHovers": true, "supportsReadMemoryRequest": true, "supportsWriteMemoryRequest": true,
+        "exceptionBreakpointFilters": [
+            {"filter": "all", "label": "Caught Exceptions", "default": false, "supportsCondition": true},
+            {"filter": "uncaught", "label": "Uncaught Exceptions", "default": false, "supportsCondition": true}
+        ],
+        "supportsStepBack": false, "supportsSetVariable": true, "supportsRestartFrame": true,
+        "supportsGotoTargetsRequest": false, "supportsStepInTargetsRequest": true, "supportsCompletionsRequest": true,
+        "supportsModulesRequest": false, "supportsRestartRequest": true, "supportsExceptionOptions": false,
+        "supportsValueFormattingOptions": true, "supportsExceptionInfoRequest": true, "supportTerminateDebuggee": true,
+        "supportsDelayedStackTraceLoading": true, "supportsLoadedSourcesRequest": true, "supportsLogPoints": true,
+        "supportsTerminateThreadsRequest": false, "supportsSetExpression": true, "supportsTerminateRequest": false,
+        "supportsBreakpointLocationsRequest": true, "supportsClipboardContext": true,
+        "supportsExceptionFilterOptions": true, "supportsEvaluationOptions": false, "supportsANSIStyling": true
+    })
+}
+
+/// js-debug's message for a breakpoint whose script has not loaded yet.
+pub const JS_PROVISIONAL: &str = "breakpoint.provisionalBreakpoint";
+/// js-debug's message for a breakpoint on a line without code in a loaded script.
+pub const JS_UNBOUND: &str = "Unbound breakpoint";
 
 enum Control {
     Trigger,
     Crash,
     Stall(Duration),
+    /// A js-debug child's target went away (its browser session disconnected): `thread` exited and `terminated`.
+    Detach,
 }
 
 enum Incoming {
@@ -497,6 +537,8 @@ struct Machine {
     exited: bool,
     /// The session began with `attach` (brief 0027): the process id it named, if any.
     attached: Option<Option<i64>>,
+    /// A js-debug child's `attach`, answered after `configurationDone` as js-debug does (brief 0038).
+    js_attach: Option<i64>,
 }
 
 impl Machine {
@@ -528,7 +570,12 @@ impl Machine {
             caps: Value::Null,
             exited: false,
             attached: None,
+            js_attach: None,
         }
+    }
+
+    fn js(&self) -> bool {
+        self.program.js_debug.is_some()
     }
 
     fn write(&mut self, msg: &ProtocolMessage) {
@@ -607,6 +654,12 @@ impl Machine {
                 std::thread::sleep(d);
                 None
             }
+            Incoming::Control(Control::Detach) => {
+                let tid = self.thread_id();
+                self.event("thread", json!({"reason": "exited", "threadId": tid}));
+                self.event("terminated", json!({}));
+                None
+            }
             Incoming::Control(Control::Trigger) => {
                 if self.configured && self.pc.is_none() && self.running_at.is_none() {
                     self.run_from(0, Mode::Continue);
@@ -639,6 +692,38 @@ impl Machine {
     /// Handle one request; false ends the session.
     fn request(&mut self, seq: i64, command: &str, args: &Value) -> bool {
         match command {
+            "initialize" if self.js() => {
+                let caps = js_debug_capabilities();
+                self.caps = caps.clone();
+                self.respond(seq, command, Ok(caps));
+            }
+            // A js-debug child (brief 0038): it must name its pending target; `initialized` comes at once and the
+            // answer after `configurationDone`.
+            "attach" if self.js() => {
+                let want = self
+                    .program
+                    .js_debug
+                    .as_ref()
+                    .map(|j| j.target_id.clone())
+                    .unwrap_or_default();
+                match args["__pendingTargetId"].as_str() {
+                    Some(id) if id == want => {
+                        self.attached = Some(None);
+                        self.js_attach = Some(seq);
+                        self.event("initialized", json!({}));
+                    }
+                    Some(id) => self.respond(
+                        seq,
+                        command,
+                        Err(format!("__pendingTargetId {id} not found")),
+                    ),
+                    None => self.respond(
+                        seq,
+                        command,
+                        Err("Incoming session is missing __pendingTargetId".into()),
+                    ),
+                }
+            }
             "initialize" => {
                 let mut caps = json!({
                     "supportsConfigurationDoneRequest": true,
@@ -714,15 +799,18 @@ impl Machine {
                             condition_error(bp.condition.as_deref(), &locals)
                         })
                         .flatten();
+                    let js = self.js();
                     answer.push(if self.configured {
                         let mut a = json!({"id": id, "line": bp.line, "verified": verified && rejected.is_none(),
                                "source": {"path": path}});
                         if !verified {
-                            a["message"] = json!(no_code(bp.line));
+                            a["message"] = json!(if js { JS_UNBOUND.to_owned() } else { no_code(bp.line) });
                         } else if let Some(m) = &rejected {
                             a["message"] = json!(m);
                         }
                         a
+                    } else if js {
+                        json!({"id": id, "verified": false, "message": JS_PROVISIONAL})
                     } else {
                         json!({"id": id, "line": bp.line, "verified": false,
                                "message": "The breakpoint is pending and will be resolved when debugging starts."})
@@ -826,6 +914,36 @@ impl Machine {
                         command,
                         Err(format!("Failed command 'goto' : no target {target}")),
                     ),
+                }
+            }
+            "configurationDone" if self.js() => {
+                self.configured = true;
+                self.respond(seq, command, Ok(json!({})));
+                if let Some(a) = self.js_attach.take() {
+                    self.respond(a, "attach", Ok(json!({})));
+                }
+                self.event("initialized", json!({}));
+                let (tid, _) = self.program.thread.clone();
+                self.event("thread", json!({"reason": "started", "threadId": tid}));
+                let set: Vec<(String, i64, i64)> = self
+                    .breakpoints
+                    .iter()
+                    .flat_map(|(p, v)| v.iter().map(move |(id, b)| (p.clone(), *id, b.line)))
+                    .collect();
+                for (path, id, line) in set {
+                    let bp = if self.has_line(&path, line) {
+                        json!({"id": id, "line": line, "column": 1, "verified": true,
+                               "source": {"name": file_label(&path), "path": path, "sourceReference": 0}})
+                    } else {
+                        json!({"id": id, "verified": false, "message": JS_UNBOUND})
+                    };
+                    self.event("breakpoint", json!({"reason": "changed", "breakpoint": bp}));
+                }
+                for line in self.program.output_at_start.clone() {
+                    self.event("output", json!({"category": "stdout", "output": line}));
+                }
+                if self.program.run_at_start {
+                    self.run_from(0, Mode::Continue);
                 }
             }
             "configurationDone" => {
@@ -973,6 +1091,11 @@ impl Machine {
                 self.exit(0);
                 self.respond(seq, command, Ok(json!({})));
             }
+            // A js-debug child detaches from its target; the page keeps running (brief 0038).
+            "disconnect" if self.js() => {
+                self.respond(seq, command, Ok(json!({})));
+                return false;
+            }
             "disconnect" => {
                 // Detaching (an attached session's default, or `terminateDebuggee: false`) leaves the program running:
                 // the session ends without `exited`.
@@ -1080,7 +1203,8 @@ impl Machine {
                     })
                 };
                 let first_chance = wants("all");
-                let unhandled = !t.handled && wants("user-unhandled");
+                let unhandled =
+                    !t.handled && (wants("user-unhandled") || (self.js() && wants("uncaught")));
                 if first_chance || unhandled {
                     self.exception = Some(t.clone());
                     self.stop(k, "exception", Some(t.message.clone()));
@@ -1138,10 +1262,14 @@ impl Machine {
             match hit {
                 Some(Some(message)) if self.supports("supportsLogPoints") => {
                     let text = interpolate(&message, &step.locals);
-                    self.event(
-                        "output",
-                        json!({"category": "console", "output": format!("{text}\n")}),
-                    );
+                    // js-debug prints a log point on stdout with its place (brief 0038).
+                    let body = if self.js() {
+                        json!({"category": "stdout", "output": format!("{text}\n"),
+                               "source": {"name": file_label(&step.path), "path": step.path}, "line": step.line})
+                    } else {
+                        json!({"category": "console", "output": format!("{text}\n")})
+                    };
+                    self.event("output", body);
                 }
                 Some(_) => {
                     self.stop(k, "breakpoint", None);
@@ -1192,8 +1320,21 @@ impl Machine {
         self.frames.clear();
         self.refs.clear();
         self.origins.clear();
-        let mut body =
-            json!({"reason": reason, "threadId": self.thread_id(), "allThreadsStopped": true});
+        // js-debug stops one target's thread, and names the breakpoints hit (brief 0038).
+        let mut body = json!({"reason": reason, "threadId": self.thread_id(), "allThreadsStopped": !self.js()});
+        let hit_ids = if self.js() && hit_ids.is_empty() && reason == "breakpoint" {
+            let step = &self.program.steps[k];
+            self.breakpoints
+                .get(&step.path)
+                .into_iter()
+                .flatten()
+                .filter(|(_, b)| b.line == step.line)
+                .map(|(id, _)| *id)
+                .take(1)
+                .collect()
+        } else {
+            hit_ids
+        };
         if let Some(t) = text {
             body["text"] = json!(t);
         }
@@ -1327,10 +1468,18 @@ impl Machine {
                                "source": {"name": name, "path": s.path}}),
             );
         }
-        frames.push(
-            json!({"id": self.stops * 1000 + 999, "name": "[Native Frames]", "line": 0, "column": 0,
-                           "endLine": 0, "endColumn": 0, "moduleId": ""}),
-        );
+        if self.js() {
+            // js-debug: the page's frames, then the task that ran them (a label without source).
+            frames.push(
+                json!({"id": self.stops * 1000 + 999, "name": "setTimeout", "line": 0, "column": 0,
+                               "presentationHint": "label"}),
+            );
+        } else {
+            frames.push(
+                json!({"id": self.stops * 1000 + 999, "name": "[Native Frames]", "line": 0, "column": 0,
+                               "endLine": 0, "endColumn": 0, "moduleId": ""}),
+            );
+        }
         Ok(self.page_frames(frames, args))
     }
 
@@ -1434,6 +1583,264 @@ fn interpolate(message: &str, locals: &[FakeVar]) -> String {
         }
     }
     out
+}
+
+// ---- a fake vscode-js-debug (brief 0038) ----
+
+/// What a fake vscode-js-debug serves: a browser session whose `startDebugging` starts one child session per target,
+/// each playing `program` as the page's script (its steps' paths are the original `.ts` files, as js-debug's frames
+/// are when a source map applies).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FakeJsDebug {
+    pub program: FakeProgram,
+    /// The page targets, in the order js-debug finds them: (title, target id). The first plays `program`; the others
+    /// (iframes, workers) have no statements.
+    pub targets: Vec<(String, String)>,
+}
+
+impl FakeJsDebug {
+    /// One page target.
+    pub fn page(program: FakeProgram, title: &str, target_id: &str) -> Self {
+        Self {
+            program,
+            targets: vec![(title.into(), target_id.into())],
+        }
+    }
+}
+
+/// The test's handle on a fake vscode-js-debug: its port, the browser session's requests and each child's handle.
+#[derive(Clone)]
+pub struct FakeJsHandle {
+    pub port: u16,
+    parent: Arc<Mutex<Option<FakeHandle>>>,
+    children: Arc<Mutex<Vec<FakeHandle>>>,
+    /// Every connection made, in order (the browser session's first).
+    pub connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl FakeJsHandle {
+    /// The browser session's requests, once it connected.
+    pub fn parent(&self) -> Option<FakeHandle> {
+        lock(&self.parent).clone()
+    }
+
+    /// Child session `i`'s handle, once it connected.
+    pub fn child(&self, i: usize) -> Option<FakeHandle> {
+        lock(&self.children).get(i).cloned()
+    }
+
+    /// Wait for child `i` to connect.
+    pub fn wait_child(&self, i: usize, timeout: Duration) -> Option<FakeHandle> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(c) = self.child(i) {
+                return Some(c);
+            }
+            if Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Run the page's script once (a click reaching the page), in the first child.
+    pub fn trigger(&self) {
+        if let Some(c) = self.child(0) {
+            c.trigger();
+        }
+    }
+}
+
+/// The browser session's connection: js-debug's top-level session for a `pwa-chrome` attach. `initialized` after
+/// `attach`; breakpoints answered as provisional; at `configurationDone` one `startDebugging` per target, then the
+/// `attach` answer; `disconnect` is answered once every child disconnected (as js-debug 1.140 does).
+fn js_parent(
+    stream: std::net::TcpStream,
+    targets: Vec<(String, String)>,
+    handle: FakeHandle,
+    children: Arc<Mutex<Vec<FakeHandle>>>,
+) {
+    let mut out = match stream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+    let mut seq = 1i64;
+    let write = |out: &mut std::net::TcpStream, msg: ProtocolMessage| {
+        let _ = framing::write_message(out, &serde_json::to_vec(&msg).expect("serialize"));
+    };
+    let mut r = BufReader::new(stream);
+    let mut attach_seq = None;
+    while let Ok(Some(body)) = framing::read_message(&mut r) {
+        let Ok(msg) = serde_json::from_slice::<ProtocolMessage>(&body) else {
+            continue;
+        };
+        let ProtocolMessage::Request {
+            seq: rseq,
+            command,
+            arguments,
+        } = msg
+        else {
+            // The client's answer to `startDebugging`.
+            if let ProtocolMessage::Response { command, body, .. } = msg {
+                lock(&handle.requests)
+                    .push((format!("response:{command}"), body.unwrap_or(Value::Null)));
+            }
+            continue;
+        };
+        let args = arguments.unwrap_or(Value::Null);
+        lock(&handle.requests).push((command.clone(), args.clone()));
+        let mut respond = |out: &mut std::net::TcpStream, result: Result<Value, String>| {
+            let (success, message, body) = match result {
+                Ok(b) => (true, None, Some(b)),
+                Err(m) => (false, Some(m), None),
+            };
+            let m = ProtocolMessage::Response {
+                seq,
+                request_seq: rseq,
+                success,
+                command: command.clone(),
+                message,
+                body,
+            };
+            seq += 1;
+            write(out, m);
+        };
+        match command.as_str() {
+            "initialize" => respond(&mut out, Ok(js_debug_capabilities())),
+            "attach" => {
+                attach_seq = Some(rseq);
+                let m = ProtocolMessage::Event {
+                    seq,
+                    event: "initialized".into(),
+                    body: Some(json!({})),
+                };
+                seq += 1;
+                write(&mut out, m);
+            }
+            "setBreakpoints" => {
+                let n = args["breakpoints"].as_array().map_or(0, Vec::len);
+                let bps: Vec<Value> = (0..n)
+                    .map(|i| json!({"id": i + 1, "verified": false, "message": JS_PROVISIONAL}))
+                    .collect();
+                respond(&mut out, Ok(json!({ "breakpoints": bps })));
+            }
+            "setExceptionBreakpoints" => respond(&mut out, Ok(json!({}))),
+            "threads" => respond(&mut out, Ok(json!({"threads": []}))),
+            "configurationDone" => {
+                respond(&mut out, Ok(json!({})));
+                for (title, id) in &targets {
+                    let m = ProtocolMessage::Request {
+                        seq,
+                        command: "startDebugging".into(),
+                        arguments: Some(json!({"request": "attach", "configuration": {
+                            "type": "pwa-chrome", "name": title, "__pendingTargetId": id}})),
+                    };
+                    seq += 1;
+                    write(&mut out, m);
+                }
+                if let Some(a) = attach_seq.take() {
+                    let m = ProtocolMessage::Response {
+                        seq,
+                        request_seq: a,
+                        success: true,
+                        command: "attach".into(),
+                        message: None,
+                        body: Some(json!({})),
+                    };
+                    seq += 1;
+                    write(&mut out, m);
+                }
+            }
+            "disconnect" => {
+                // Every child hears that its target is gone, and the answer waits for their disconnects.
+                let kids = lock(&children).clone();
+                for k in &kids {
+                    let _ = k.tx.send(Incoming::Control(Control::Detach));
+                }
+                let deadline = Instant::now() + Duration::from_secs(5);
+                while Instant::now() < deadline && !kids.iter().all(FakeHandle::is_done) {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                respond(&mut out, Ok(json!({})));
+                let _ = out.shutdown(std::net::Shutdown::Both);
+                break;
+            }
+            other => respond(
+                &mut out,
+                Err(format!(
+                    "Failed command '{other}' : not supported by the browser session"
+                )),
+            ),
+        }
+    }
+    handle.done.store(true, Ordering::Release);
+}
+
+/// Serve a fake vscode-js-debug on a loopback port, as `node dapDebugServer.js 0 127.0.0.1` does: the first connection
+/// is the browser session, every later one a child session, which must `attach` with a `__pendingTargetId` the
+/// browser session's `startDebugging` named. Connect with [`crate::transport::TcpServer::listening`].
+pub fn listen_js_debug(js: FakeJsDebug) -> std::io::Result<FakeJsHandle> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let port = listener.local_addr()?.port();
+    let handle = FakeJsHandle {
+        port,
+        parent: Arc::default(),
+        children: Arc::default(),
+        connections: Arc::default(),
+    };
+    let h = handle.clone();
+    std::thread::Builder::new()
+        .name("fake-js-debug-accept".into())
+        .spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let Ok(stream) = stream else { break };
+                let _ = stream.set_nodelay(true);
+                h.connections.fetch_add(1, Ordering::AcqRel);
+                if n == 0 {
+                    let (parent, _rx) = channels();
+                    *lock(&h.parent) = Some(parent.clone());
+                    let (targets, children) = (js.targets.clone(), h.children.clone());
+                    std::thread::spawn(move || js_parent(stream, targets, parent, children));
+                    continue;
+                }
+                let Some((title, id)) = js.targets.get(n - 1).cloned() else {
+                    continue;
+                };
+                let mut program = if n == 1 {
+                    js.program.clone()
+                } else {
+                    FakeProgram::default()
+                };
+                program.thread = (0, title.clone());
+                program.other_threads.clear();
+                program.js_debug = Some(JsTarget {
+                    title,
+                    target_id: id,
+                });
+                let (child, rx) = channels();
+                let reader = match stream.try_clone() {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                let closer = stream.try_clone().ok();
+                let hang_up: Box<dyn FnOnce(bool) + Send> = Box::new(move |_| {
+                    if let Some(c) = closer {
+                        let _ = c.shutdown(std::net::Shutdown::Both);
+                    }
+                });
+                lock(&h.children).push(child.clone());
+                serve_with(reader, stream, program, Some(hang_up), &child, rx);
+            }
+        })?;
+    Ok(handle)
+}
+
+/// A path's file name, as js-debug names a source.
+fn file_label(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// What the fake answers for a breakpoint on a line without a statement (brief 0036).

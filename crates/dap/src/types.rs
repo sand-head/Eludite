@@ -60,10 +60,15 @@ pub struct InitializeArguments {
     pub path_format: String,
     pub supports_variable_type: bool,
     pub supports_run_in_terminal_request: bool,
+    /// The client answers the reverse request `startDebugging` (brief 0038): said only to vscode-js-debug
+    /// (`pwa-chrome`), which starts a child session per page target that way; left out for the other adapters.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub supports_start_debugging_request: bool,
 }
 
 impl InitializeArguments {
-    /// Eludite's arguments for adapter `adapter_id` (`coreclr` for netcoredbg): 1-based lines and columns, native paths.
+    /// Eludite's arguments for adapter `adapter_id` (`coreclr` for netcoredbg): 1-based lines and columns, native paths;
+    /// `startDebugging` for vscode-js-debug's `pwa-chrome`.
     pub fn eludite(adapter_id: &str) -> Self {
         Self {
             client_id: "eludite".into(),
@@ -74,6 +79,7 @@ impl InitializeArguments {
             path_format: "path".into(),
             supports_variable_type: true,
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: adapter_id == crate::attach::JS_ADAPTER_ID,
         }
     }
 }
@@ -262,6 +268,25 @@ pub struct StackFrame {
     /// `normal`, `label` or `subtle` (`eludite-dbg-mono` marks frames without source `subtle`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presentation_hint: Option<String>,
+    /// Not DAP: where the frame runs in the generated script when a source map leads to its source, added by the
+    /// client's sink for vscode-js-debug's frames (brief 0038, [`crate::sourcemap::adapt_stack`]).
+    #[serde(
+        rename = "x-eluditeGenerated",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub generated: Option<GeneratedLocation>,
+}
+
+/// A frame's place in the generated script (brief 0038): the script's path (or url), 1-based line and column.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GeneratedLocation {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<i64>,
 }
 
 impl StackFrame {
