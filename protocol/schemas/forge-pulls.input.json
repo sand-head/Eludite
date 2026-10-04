@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pulls.input.json",
+  "title": "eludite.forge.pulls input",
+  "description": "List the repository's pull requests (the Pull Requests window; merge requests on GitLab): `filter` `mine` (authored by the signed-in account), `review_requested` (a review is asked of it) or `all`, `state` (default `open`) and `text` (in the title and description), paged. Answers from the cache on disk at once (`stale: true` and its age) while a refresh runs off-thread; a failed refresh keeps the cache and says why (`refresh_error`). Read. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "filter": {
+      "enum": [
+        "all",
+        "mine",
+        "review_requested"
+      ]
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed",
+        "merged",
+        "all"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "max": {
+      "description": "Items per page: default 50, at most 200.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200
+    },
+    "cursor": {
+      "description": "The `next_cursor` of the previous page.",
+      "type": "string",
+      "minLength": 1
+    },
+    "refresh": {
+      "description": "Wait for a fresh answer from the forge instead of answering from the cache at once.",
+      "type": "boolean"
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

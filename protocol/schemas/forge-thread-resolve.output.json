@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-thread-resolve.output.json",
+  "title": "eludite.forge.thread_resolve output",
+  "description": "The thread's state.",
+  "type": "object",
+  "required": [
+    "thread",
+    "resolved"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "type": "string"
+    },
+    "resolved": {
+      "type": "boolean"
+    }
+  }
+}

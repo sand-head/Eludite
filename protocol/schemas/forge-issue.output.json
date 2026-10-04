@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-issue.output.json",
+  "title": "eludite.forge.issue output",
+  "description": "The issue.",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "state",
+    "url",
+    "stale"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "type": {
+      "description": "Azure DevOps: the work item type (Bug, Task, User Story, Product Backlog Item, Issue, as the project's process names them).",
+      "type": "string"
+    },
+    "author": {
+      "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+      "type": "string"
+    },
+    "assignees": {
+      "type": "array",
+      "items": {
+        "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+        "type": "string"
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "description": "A label's name (a tag on Azure DevOps).",
+        "type": "string"
+      }
+    },
+    "milestone": {
+      "type": "string"
+    },
+    "comments": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "created_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "body": {
+      "description": "The description (Markdown; Azure DevOps' HTML description is converted to text).",
+      "type": "string"
+    },
+    "conversation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "author",
+          "body"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The comment's id.",
+            "type": "string"
+          },
+          "author": {
+            "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+            "type": "string"
+          },
+          "body": {
+            "description": "Markdown.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "A time in RFC 3339 (UTC).",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "pending": {
+            "description": "Part of the signed-in account's pending review, not yet visible to others.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "fields": {
+      "description": "Azure DevOps: the work item type's other fields (name to text), as the process defines them.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "branches": {
+      "description": "Branches linked to the issue, where the forge records them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stale": {
+      "description": "The answer came from the cache on disk (`.eludite/forge/`) because a refresh is still running or failed; `age_seconds` says how old it is. A read answers from the cache at once and refreshes off the UI thread.",
+      "type": "boolean"
+    },
+    "fetched_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "age_seconds": {
+      "description": "How long ago the forge sent this answer.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "refresh_error": {
+      "description": "Why a refresh failed; the cached answer is kept.",
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Why: `rate_limited` (with `reset_at`), `network` (offline, timeout, refused), `sign_in_required` (no token stored for the host, or the forge refused it: sign in again), `forbidden` (the account may not), `not_found`, `unsupported` (the forge lacks it), `conflict`, `invalid` (the forge refused the input), `canceled`.",
+          "enum": [
+            "rate_limited",
+            "network",
+            "sign_in_required",
+            "unauthorized",
+            "forbidden",
+            "not_found",
+            "unsupported",
+            "conflict",
+            "invalid",
+            "canceled",
+            "other"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "host": {
+          "description": "The host it concerns.",
+          "type": "string"
+        },
+        "reset_at": {
+          "description": "A time in RFC 3339 (UTC).",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

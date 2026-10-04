@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-auth.output.json",
+  "title": "eludite.forge.auth output",
+  "description": "Who is signed in where. Never a secret.",
+  "type": "object",
+  "required": [
+    "signed_in"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "host": {
+      "type": "string"
+    },
+    "family": {
+      "enum": [
+        "github",
+        "gitlab",
+        "azure_devops",
+        "forgejo",
+        "gitea",
+        "tangled",
+        "none"
+      ]
+    },
+    "signed_in": {
+      "type": "boolean"
+    },
+    "account": {
+      "description": "The signed-in account.",
+      "type": "object",
+      "required": [
+        "login"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "login": {
+          "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The display name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The profile page.",
+          "type": "string"
+        }
+      }
+    },
+    "method": {
+      "enum": [
+        "device",
+        "token",
+        "app_password",
+        "cli"
+      ]
+    },
+    "store": {
+      "description": "Where the token is kept: the credential store, the 0600 file, or memory (tests).",
+      "enum": [
+        "keyring",
+        "file",
+        "memory"
+      ]
+    },
+    "pending": {
+      "description": "A device flow is waiting for the person to enter the code.",
+      "type": "boolean"
+    },
+    "device": {
+      "description": "The device flow's code to enter at the url.",
+      "type": "object",
+      "required": [
+        "user_code",
+        "verification_uri"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "user_code": {
+          "type": "string"
+        },
+        "verification_uri": {
+          "type": "string"
+        },
+        "expires_in": {
+          "description": "Seconds.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "interval": {
+          "description": "Seconds between polls.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "hosts": {
+      "description": "Every host with a stored token (`status`).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "host",
+          "family",
+          "signed_in"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "family": {
+            "enum": [
+              "github",
+              "gitlab",
+              "azure_devops",
+              "forgejo",
+              "gitea",
+              "tangled",
+              "none"
+            ]
+          },
+          "signed_in": {
+            "type": "boolean"
+          },
+          "account": {
+            "description": "The signed-in account.",
+            "type": "object",
+            "required": [
+              "login"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "login": {
+                "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The display name.",
+                "type": "string"
+              },
+              "url": {
+                "description": "The profile page.",
+                "type": "string"
+              }
+            }
+          },
+          "store": {
+            "enum": [
+              "keyring",
+              "file",
+              "memory"
+            ]
+          }
+        }
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

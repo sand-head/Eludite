@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-review.output.json",
+  "title": "eludite.forge.pull_review output",
+  "description": "The review's state after the call.",
+  "type": "object",
+  "required": [
+    "action",
+    "pending_comments"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "start",
+        "add",
+        "submit",
+        "discard",
+        "request"
+      ]
+    },
+    "review_id": {
+      "type": "string"
+    },
+    "pending_comments": {
+      "description": "Comments held in the pending review.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "submitted": {
+      "type": "boolean"
+    },
+    "state": {
+      "description": "GitHub, Forgejo and Gitea review states; GitLab approvals are `approved`; Azure DevOps' votes are `approved` (10), `approved_with_suggestions` (5), `waiting_for_author` (-5), `rejected` (-10); `requested`: asked, not yet reviewed.",
+      "enum": [
+        "approved",
+        "approved_with_suggestions",
+        "changes_requested",
+        "waiting_for_author",
+        "rejected",
+        "commented",
+        "pending",
+        "dismissed",
+        "requested"
+      ]
+    },
+    "requested": {
+      "type": "array",
+      "items": {
+        "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+        "type": "string"
+      }
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

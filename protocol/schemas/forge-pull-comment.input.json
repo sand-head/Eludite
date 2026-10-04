@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-comment.input.json",
+  "title": "eludite.forge.pull_comment input",
+  "description": "Comment on a pull request: on its conversation (no `path`), on a file's line (`path` and `line`, `side` default `right`: the head commit), or answering a review thread (`reply_to`: the thread's `id` from eludite.forge.pull). With `pending` the comment joins the account's pending review (eludite.forge.pull_review `start`) where the forge holds pending reviews, else it posts at once. The audit records the forge, the repository, the number and the body's length. For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "x-eludite-escalates": "Execute; For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The number (GitHub, GitLab's `iid`, Azure DevOps, Forgejo, Gitea). Give `number` or `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The item's `id` as a list answered it; Tangled's items have only this (their AT-URI). Give `number` or `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "start_line": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "side": {
+      "enum": [
+        "right",
+        "left"
+      ]
+    },
+    "reply_to": {
+      "description": "A review thread's `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "pending": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "body"
+  ]
+}

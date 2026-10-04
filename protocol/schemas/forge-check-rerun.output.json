@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-check-rerun.output.json",
+  "title": "eludite.forge.check_rerun output",
+  "description": "Whether it was queued.",
+  "type": "object",
+  "required": [
+    "id",
+    "rerun"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "rerun": {
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

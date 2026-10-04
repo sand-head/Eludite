@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-merge.output.json",
+  "title": "eludite.forge.pull_merge output",
+  "description": "What happened.",
+  "type": "object",
+  "required": [
+    "id",
+    "merged",
+    "method"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "number": {
+      "description": "The pull request's or issue's number on the forge (GitHub's and Forgejo's number, GitLab's `iid`, Azure DevOps' pull request or work item id). Tangled has no numbers: use `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The forge's own id of the item, as a string: the number again on GitHub, GitLab, Azure DevOps, Forgejo and Gitea; the record's AT-URI (`at://did:.../sh.tangled.repo.pull/<rkey>`) on Tangled.",
+      "type": "string",
+      "minLength": 1
+    },
+    "merged": {
+      "type": "boolean"
+    },
+    "method": {
+      "enum": [
+        "merge",
+        "squash",
+        "rebase",
+        "rebase_merge",
+        "fast_forward",
+        "semi_linear"
+      ]
+    },
+    "sha": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "auto_merge": {
+      "description": "Set to merge when checks pass instead.",
+      "type": "boolean"
+    },
+    "message": {
+      "type": "string"
+    }
+  }
+}

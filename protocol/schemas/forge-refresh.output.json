@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-refresh.output.json",
+  "title": "eludite.forge.refresh output",
+  "description": "What was refreshed.",
+  "type": "object",
+  "required": [
+    "refreshed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "refreshed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "description": "Why a refresh failed; the cached answer is kept.",
+        "type": "object",
+        "required": [
+          "kind",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "Why: `rate_limited` (with `reset_at`), `network` (offline, timeout, refused), `sign_in_required` (no token stored for the host, or the forge refused it: sign in again), `forbidden` (the account may not), `not_found`, `unsupported` (the forge lacks it), `conflict`, `invalid` (the forge refused the input), `canceled`.",
+            "enum": [
+              "rate_limited",
+              "network",
+              "sign_in_required",
+              "unauthorized",
+              "forbidden",
+              "not_found",
+              "unsupported",
+              "conflict",
+              "invalid",
+              "canceled",
+              "other"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "host": {
+            "description": "The host it concerns.",
+            "type": "string"
+          },
+          "reset_at": {
+            "description": "A time in RFC 3339 (UTC).",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

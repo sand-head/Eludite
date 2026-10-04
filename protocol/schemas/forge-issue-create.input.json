@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-issue-create.input.json",
+  "title": "eludite.forge.issue_create input",
+  "description": "Create an issue (Azure DevOps: a work item of `type`, default the process's bug or issue type) with labels, assignees and milestone where the forge supports them. For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "x-eludite-escalates": "Execute; For an agent, under the solution policy's `forge.write`: `prompt` (the default) makes the first write of an agent session dangerous (the Agents window asks; \"Allow for this session\" holds until the session ends), `allow` runs it, `deny` refuses it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "body": {
+      "type": "string"
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "description": "A label's name (a tag on Azure DevOps).",
+        "type": "string"
+      },
+      "maxItems": 50
+    },
+    "assignees": {
+      "type": "array",
+      "items": {
+        "description": "A user's login (user name) on the forge; on Tangled their handle, else their DID.",
+        "type": "string"
+      },
+      "maxItems": 20
+    },
+    "milestone": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "description": "Azure DevOps: the work item type.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

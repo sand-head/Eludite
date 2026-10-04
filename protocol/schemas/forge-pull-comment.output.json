@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-pull-comment.output.json",
+  "title": "eludite.forge.pull_comment output",
+  "description": "The comment.",
+  "type": "object",
+  "required": [
+    "id",
+    "pending"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "thread": {
+      "description": "The thread it is in.",
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "pending": {
+      "description": "Held in the pending review.",
+      "type": "boolean"
+    }
+  }
+}

@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-checks.output.json",
+  "title": "eludite.forge.checks output",
+  "description": "The commit's checks.",
+  "type": "object",
+  "required": [
+    "state",
+    "items",
+    "stale"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "commit": {
+      "description": "A full commit id (40 hexadecimal digits).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "state": {
+      "description": "All the checks together: `failure` if any failed, else `pending` if any is not finished, else `success`; `none` without checks.",
+      "enum": [
+        "success",
+        "failure",
+        "pending",
+        "none"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "status",
+          "conclusion",
+          "has_log",
+          "can_rerun"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Pass to eludite.forge.check_log and eludite.forge.check_rerun.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "GitHub check runs and commit statuses, GitLab pipelines and jobs, Azure DevOps builds and policy evaluations, Forgejo statuses and Actions runs, Tangled workflows.",
+            "enum": [
+              "check_run",
+              "status",
+              "pipeline",
+              "job",
+              "policy",
+              "workflow"
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "conclusion": {
+            "description": "`none` until completed.",
+            "enum": [
+              "success",
+              "failure",
+              "neutral",
+              "cancelled",
+              "skipped",
+              "timed_out",
+              "action_required",
+              "none"
+            ]
+          },
+          "url": {
+            "description": "The run's page.",
+            "type": "string"
+          },
+          "started_at": {
+            "description": "A time in RFC 3339 (UTC).",
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "has_log": {
+            "description": "eludite.forge.check_log can read its log.",
+            "type": "boolean"
+          },
+          "can_rerun": {
+            "description": "eludite.forge.check_rerun can rerun it.",
+            "type": "boolean"
+          },
+          "required": {
+            "description": "Required to merge (branch protection, Azure DevOps' blocking policies).",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "stale": {
+      "description": "The answer came from the cache on disk (`.eludite/forge/`) because a refresh is still running or failed; `age_seconds` says how old it is. A read answers from the cache at once and refreshes off the UI thread.",
+      "type": "boolean"
+    },
+    "fetched_at": {
+      "description": "A time in RFC 3339 (UTC).",
+      "type": "string"
+    },
+    "age_seconds": {
+      "description": "How long ago the forge sent this answer.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "refresh_error": {
+      "description": "Why a refresh failed; the cached answer is kept.",
+      "type": "object",
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "Why: `rate_limited` (with `reset_at`), `network` (offline, timeout, refused), `sign_in_required` (no token stored for the host, or the forge refused it: sign in again), `forbidden` (the account may not), `not_found`, `unsupported` (the forge lacks it), `conflict`, `invalid` (the forge refused the input), `canceled`.",
+          "enum": [
+            "rate_limited",
+            "network",
+            "sign_in_required",
+            "unauthorized",
+            "forbidden",
+            "not_found",
+            "unsupported",
+            "conflict",
+            "invalid",
+            "canceled",
+            "other"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "host": {
+          "description": "The host it concerns.",
+          "type": "string"
+        },
+        "reset_at": {
+          "description": "A time in RFC 3339 (UTC).",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

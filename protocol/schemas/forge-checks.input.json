@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/forge-checks.input.json",
+  "title": "eludite.forge.checks input",
+  "description": "The checks of a commit (default the current branch's head; or a pull request's head with `number` or `id`): GitHub check runs and commit statuses, GitLab pipelines and their jobs, Azure DevOps builds and the pull request's policy evaluations, Forgejo and Gitea commit statuses and Actions runs. Cached. Read. The repository is the workspace's (its remote `origin`, or `remote`), detected as eludite.forge.detect does; every call runs on the forge worker off the UI thread with a timeout and stops when canceled. A call that needs a token when none is stored for the host fails with `sign_in_required: <host>`: the person signs in (Git > Sign in to <forge>); an agent cannot.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ref": {
+      "description": "A commit id or a branch.",
+      "type": "string",
+      "minLength": 1
+    },
+    "number": {
+      "description": "The number (GitHub, GitLab's `iid`, Azure DevOps, Forgejo, Gitea). Give `number` or `id`.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "description": "The item's `id` as a list answered it; Tangled's items have only this (their AT-URI). Give `number` or `id`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "remote": {
+      "description": "The git remote to read (default `origin`, else the only remote).",
+      "type": "string",
+      "minLength": 1
+    },
+    "refresh": {
+      "description": "Wait for a fresh answer from the forge instead of answering from the cache at once.",
+      "type": "boolean"
+    }
+  }
+}

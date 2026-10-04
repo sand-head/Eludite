@@ -170,6 +170,41 @@
           ]
         }
       }
+    },
+    "forge": {
+      "description": "The forge commands (eludite.forge.*; brief 0046, ADR-0009): pull requests, reviews, issues and checks on GitHub, GitLab, Azure DevOps, Forgejo and Gitea, and Tangled. Every key is optional; a missing key is its default. Every write is audited with the forge, the repository, the pull request or issue number and the body's length, never a token.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "description": "Reads (detect, the auth status, pulls, pull, issues, issue, checks, check_log, refresh): `allow` (default) or `deny` (agents are refused, with this policy named).",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "write": {
+          "description": "Writes: comments and replies, reviews, creating and editing pull requests and issues, marking ready, resolving threads, branch from issue, reruns. `prompt` (default): the first such call of an agent session asks the person, as a dangerous action does; \"Allow for this session\" lets the agent's later writes run without asking until its session ends, nothing is written here. `allow`: they run as class execute (the `execute` policy and the rules decide). `deny`: agents are refused, with this policy named.",
+          "enum": [
+            "prompt",
+            "allow",
+            "deny"
+          ]
+        },
+        "merge": {
+          "description": "eludite.forge.pull_merge and eludite.forge.pull_close: `deny` (default: agents are refused) or `prompt` (dangerous, which asks every time). A merge's `force` is refused for agents whatever this says.",
+          "enum": [
+            "deny",
+            "prompt"
+          ]
+        },
+        "sign_in": {
+          "description": "eludite.forge.auth `sign_in` and `sign_out`: always `deny` for agents; an agent never signs in. Only `deny` exists.",
+          "enum": [
+            "deny"
+          ]
+        }
+      }
     }
   }
 }
