@@ -6,7 +6,8 @@
 //! favicon. Brief 0038: the remote debugging port, reported in `engine/ready`, answering on 127.0.0.1 only, listing
 //! the tab under the target id `Target.getTargetInfo` gives on the tab's channel. Needs the `cef` feature (CEF fetched by tools/cef/fetch.sh and CEF_PATH set); skips
 //! with a message otherwise. Runs as root only with `--allow-no-sandbox` (brief 0039's sandbox rule: Chromium does not
-//! sandbox root), which this test passes when the effective user is root, saying so.
+//! sandbox root), which this test passes when the effective user is root or ELUDITE_CHROME_NO_SANDBOX=1 is set (as the
+//! shell does), saying so.
 
 #![cfg(target_os = "linux")]
 // Descriptor 3 for the child, the received descriptors and the effective user: system calls, each commented.
@@ -65,9 +66,19 @@ fn spawn_engine_with(extra: &[String], init_extra: Value) -> Option<(Engine, Dur
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // As the shell does: --allow-no-sandbox for root, or with ELUDITE_CHROME_NO_SANDBOX=1 (CI's runners restrict
+    // user namespaces through AppArmor); the engine still sandboxes whenever it can.
     // SAFETY: geteuid has no preconditions.
-    if unsafe { libc::geteuid() } == 0 {
-        eprintln!("running as root: passing --allow-no-sandbox to the engine");
+    let root = unsafe { libc::geteuid() } == 0;
+    if root || std::env::var("ELUDITE_CHROME_NO_SANDBOX").is_ok_and(|v| v.trim() == "1") {
+        eprintln!(
+            "{}: passing --allow-no-sandbox to the engine",
+            if root {
+                "running as root"
+            } else {
+                "ELUDITE_CHROME_NO_SANDBOX=1"
+            }
+        );
         cmd.arg("--allow-no-sandbox");
     }
     {
@@ -1094,7 +1105,8 @@ fn the_remote_debugging_port_is_reported_and_answers_on_loopback_only() {
     if root {
         assert_eq!(mode, "none", "{ready}");
     } else {
-        assert!(mode == "namespaces" || mode == "helper", "{ready}");
+        // `none` only where neither works and ELUDITE_CHROME_NO_SANDBOX=1 allowed it.
+        assert!(["namespaces", "helper", "none"].contains(&mode), "{ready}");
     }
     let exe_dir = std::path::Path::new(env!("CARGO_BIN_EXE_eludite-chromium"))
         .parent()

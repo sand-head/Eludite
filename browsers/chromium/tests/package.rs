@@ -8,8 +8,8 @@
 //! - `eludite-chromium` from the layout loads `cef/libcef.so` through its `$ORIGIN/cef` run path, answers
 //!   `initialize`, reports the layout's CEF and its sandbox in `engine/ready`, and opens `about:blank`.
 //!
-//! As root (a container) the engine gets `--allow-no-sandbox`, as the shell passes it after the workspace's opt-in;
-//! the test says so. Skips with a message without the `cef` feature, off Linux, without CEF in tools/cef/fetch.sh's
+//! As root (a container), or with `ELUDITE_CHROME_NO_SANDBOX=1` (CI), the engine gets `--allow-no-sandbox`, as the shell
+//! passes it; the test says so. Skips with a message without the `cef` feature, off Linux, without CEF in tools/cef/fetch.sh's
 //! cache (the script would download it), or when `target/<profile>/eludite` predates the flag (build the workspace).
 //! `ELUDITE_PACKAGE_TARBALL=PATH` tests a tarball made by hand or by CI (`tools/package/linux.sh`, release) instead:
 //! it is unpacked into a temporary folder first.
@@ -296,8 +296,14 @@ fn the_package_runs_from_its_layout_with_no_variables() {
     let profile = tempfile::tempdir().unwrap();
     let mut cmd = Command::new(root.join("eludite-chromium"));
     cmd.arg("--profile").arg(profile.path());
-    if running_as_root() {
-        eprintln!("running as root: passing --allow-no-sandbox to the packaged engine");
+    // As the shell passes it: for root, or with ELUDITE_CHROME_NO_SANDBOX=1 in this environment (CI's runners
+    // restrict user namespaces); the engine still sandboxes whenever it can.
+    let allow = running_as_root()
+        || std::env::var("ELUDITE_CHROME_NO_SANDBOX").is_ok_and(|v| v.trim() == "1");
+    if allow {
+        eprintln!(
+            "running as root or with ELUDITE_CHROME_NO_SANDBOX=1: passing --allow-no-sandbox to the packaged engine"
+        );
         cmd.arg("--allow-no-sandbox");
     }
     clean(&mut cmd, home.path());
