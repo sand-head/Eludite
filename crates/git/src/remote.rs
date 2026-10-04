@@ -1,17 +1,24 @@
-//! Fetch, pull and push over libgit2's transports, with its credential callback: for ssh urls the ssh agent, for
-//! http urls the configured `git-credential` helper (`Cred::credential_helper`), else libgit2's default; a failure
-//! names what was tried. Each call reports its progress and stops at its [`Cancel`].
-//!
-//! Which transports exist is libgit2's build: this workspace builds libgit2 without its `https` and `ssh` features
-//! (no new dependency), so local paths, `file://`, `git://` and plain `http://` remotes work; `https://` and ssh
-//! remotes fail with libgit2's "unsupported URL protocol".
+//! Fetch, pull and push over libgit2's transports: local paths, `file://`, `git://`, `http://`, `https://` (git2's
+//! `https` feature: OpenSSL on Linux, SecureTransport on macOS, WinHTTP on Windows) and ssh (`ssh` feature: the
+//! bundled libssh2), with the credential callback of [`crate::credentials`], the proxy and certificate rule of
+//! [`crate::transport`], and refusals that name the host. Each call reports its progress and stops at its
+//! [`Cancel`].
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 
-use git2::{Cred, CredentialType, FetchOptions, PushOptions, RemoteCallbacks, Repository};
+use git2::{
+    CertificateCheckStatus, Cred, CredentialHelper, FetchOptions, ProxyOptions, PushOptions,
+    RemoteCallbacks,
+};
 
 use crate::branches::MergeOutcome;
 use crate::commit::Identity;
+use crate::credentials::{
+    Attempt, CredentialState, KeyFile, SessionCredentials, Sources, UserPass, default_ssh_dir,
+    remote_host, remote_scheme, ssh_key_candidates,
+};
+use crate::transport::{certificate_refusal, proxy_for};
 use crate::{Cancel, ErrorKind, GitError, Repo, Result};
 
 /// A transfer's progress.
@@ -42,77 +49,157 @@ pub struct Pushed {
     pub oid: git2::Oid,
 }
 
-/// What the credential callback tried, for the failure message.
-#[derive(Debug, Default)]
-struct Tried {
-    agent: bool,
-    helper: Option<String>,
-    default: bool,
+/// The message for a credential failure on `url` after trying `tried` (kept for callers of brief 0040's API).
+pub fn credential_failure(url: &str, tried: &str) -> String {
+    crate::credentials::credential_failure(&remote_host(url).unwrap_or_default(), url, tried)
+        .message
 }
 
-impl Tried {
-    fn describe(&self) -> String {
-        let mut parts = Vec::new();
-        if self.agent {
-            parts.push("the ssh agent (SSH_AUTH_SOCK)".to_owned());
+/// The callback's sources on this machine: the environment, the git config, the session's credentials.
+struct LiveSources<'a> {
+    config: Option<&'a git2::Config>,
+    session: &'a SessionCredentials,
+}
+
+/// The configured helper's name: `credential.<url>.helper`, else `credential.helper`.
+fn helper_name(config: &git2::Config) -> Option<String> {
+    let mut url_specific = None;
+    if let Ok(mut entries) = config.entries(Some(r"credential\..+\.helper")) {
+        while let Some(Ok(e)) = entries.next() {
+            if let Some(v) = e.value().filter(|v| !v.is_empty()) {
+                url_specific = Some(v.to_owned());
+            }
         }
-        if let Some(h) = &self.helper {
-            parts.push(format!("the credential helper `{h}`"));
+    }
+    config
+        .get_string("credential.helper")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or(url_specific)
+}
+
+impl Sources for LiveSources<'_> {
+    fn agent(&self) -> bool {
+        // Windows: libssh2 reaches Pageant or OpenSSH's agent pipe without SSH_AUTH_SOCK.
+        cfg!(windows) || std::env::var_os("SSH_AUTH_SOCK").is_some_and(|s| !s.is_empty())
+    }
+
+    fn ssh_keys(&self) -> (Vec<KeyFile>, Vec<PathBuf>) {
+        default_ssh_dir()
+            .map(|d| ssh_key_candidates(&d))
+            .unwrap_or_default()
+    }
+
+    fn helper(
+        &self,
+        url: &str,
+        username: Option<&str>,
+    ) -> (Option<String>, Option<(String, String)>) {
+        let Some(config) = self.config else {
+            return (None, None);
+        };
+        let name = helper_name(config);
+        if name.is_none() {
+            return (None, None);
         }
-        if self.default {
-            parts.push("the system's default credentials".to_owned());
-        }
-        if parts.is_empty() {
-            "nothing (the remote asked for no method Eludite supports)".into()
-        } else {
-            parts.join(", then ")
-        }
+        let answer = CredentialHelper::new(url)
+            .config(config)
+            .username(username)
+            .execute();
+        (name, answer)
+    }
+
+    fn supplied(&self, host: &str) -> Option<UserPass> {
+        self.session.get(host)
+    }
+
+    fn local_user(&self) -> String {
+        ["USER", "USERNAME", "LOGNAME"]
+            .iter()
+            .find_map(|v| std::env::var(v).ok().filter(|u| !u.is_empty()))
+            .unwrap_or_else(|| "git".into())
     }
 }
 
-/// The message for a credential failure on `url` after trying `tried`.
-pub fn credential_failure(url: &str, tried: &str) -> String {
-    format!(
-        "Authentication failed for {url}: tried {tried}. Set up a credential helper (`git config --global \
-         credential.helper <helper>`, such as Git Credential Manager or `store`), or for ssh add your key to the ssh \
-         agent (`ssh-add`)."
-    )
+/// What a transfer needs besides libgit2's remote: the configuration it read and the session's credentials.
+struct Setup {
+    config: Option<git2::Config>,
+    session: SessionCredentials,
+    ssl_verify: bool,
+}
+
+impl Setup {
+    fn of(repo: &Repo) -> Setup {
+        let config = repo.effective_config().ok();
+        let ssl_verify = config
+            .as_ref()
+            .and_then(|c| c.get_bool("http.sslVerify").ok())
+            .unwrap_or(true);
+        Setup {
+            config,
+            session: repo.credentials().clone(),
+            ssl_verify,
+        }
+    }
+
+    /// The proxy options for `url` (see [`proxy_for`]).
+    fn proxy(&self, url: &str) -> ProxyOptions<'static> {
+        let configured = self
+            .config
+            .as_ref()
+            .and_then(|c| c.get_string("http.proxy").ok());
+        let mut po = ProxyOptions::new();
+        if let Some(p) = proxy_for(url, configured.as_deref(), &|n| std::env::var(n).ok()) {
+            po.url(&p);
+        }
+        po
+    }
+}
+
+fn to_cred(attempt: Attempt) -> std::result::Result<Cred, git2::Error> {
+    match attempt {
+        Attempt::Username(u) => Cred::username(&u),
+        Attempt::Agent(u) => Cred::ssh_key_from_agent(&u),
+        Attempt::KeyFile(u, k) => Cred::ssh_key(&u, k.public.as_deref(), &k.private, None),
+        Attempt::Helper(up) | Attempt::Supplied(up) => {
+            Cred::userpass_plaintext(&up.username, &up.password)
+        }
+        Attempt::Default => Cred::default(),
+    }
 }
 
 fn callbacks<'a, 'p: 'a>(
-    repo: &'a Repository,
-    tried: &'a RefCell<Tried>,
+    setup: &'a Setup,
+    state: &'a RefCell<CredentialState>,
     cancel: &'a Cancel,
     progress: &'a RefCell<&'p mut (dyn FnMut(Progress) + 'p)>,
     updated: Option<&'a RefCell<Vec<String>>>,
 ) -> RemoteCallbacks<'a> {
     let mut cb = RemoteCallbacks::new();
     cb.credentials(move |url, username, allowed| {
-        let mut t = tried.borrow_mut();
-        if allowed.contains(CredentialType::SSH_KEY) && !t.agent {
-            t.agent = true;
-            return Cred::ssh_key_from_agent(username.unwrap_or("git"));
+        let sources = LiveSources {
+            config: setup.config.as_ref(),
+            session: &setup.session,
+        };
+        let next = state.borrow_mut().next(url, username, allowed, &sources);
+        match next {
+            Ok(attempt) => to_cred(attempt),
+            Err(e) => Err(git2::Error::new(
+                git2::ErrorCode::Auth,
+                git2::ErrorClass::Net,
+                e.message,
+            )),
         }
-        if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) && t.helper.is_none() {
-            let config = repo.config()?;
-            t.helper = Some(
-                config
-                    .get_string("credential.helper")
-                    .unwrap_or_else(|_| "(none configured)".into()),
-            );
-            if let Ok(c) = Cred::credential_helper(&config, url, username) {
-                return Ok(c);
-            }
+    });
+    let ssl_verify = setup.ssl_verify;
+    cb.certificate_check(move |cert, _host| {
+        // `http.sslVerify = false` accepts any TLS certificate, as git does; ssh host keys are libgit2's to check
+        // against known_hosts either way.
+        if !ssl_verify && cert.as_x509().is_some() {
+            Ok(CertificateCheckStatus::CertificateOk)
+        } else {
+            Ok(CertificateCheckStatus::CertificatePassthrough)
         }
-        if allowed.contains(CredentialType::DEFAULT) && !t.default {
-            t.default = true;
-            return Cred::default();
-        }
-        Err(git2::Error::new(
-            git2::ErrorCode::Auth,
-            git2::ErrorClass::Net,
-            credential_failure(url, &t.describe()),
-        ))
     });
     cb.transfer_progress(move |p| {
         (*progress.borrow_mut())(Progress {
@@ -145,20 +232,37 @@ fn callbacks<'a, 'p: 'a>(
     cb
 }
 
-/// A failed transfer as the caller sees it: canceled, a credential failure, or libgit2's message.
-fn transfer_error(e: git2::Error, cancel: &Cancel, url: &str, tried: &Tried) -> GitError {
+/// A failed transfer as the caller sees it: canceled, the credential callback's failure, a refused certificate
+/// naming the host, or libgit2's message.
+fn transfer_error(
+    e: git2::Error,
+    cancel: &Cancel,
+    url: &str,
+    state: &mut CredentialState,
+) -> GitError {
     if cancel.is_canceled() {
         return GitError::new(ErrorKind::Canceled, "canceled");
+    }
+    if let Some(f) = state.failure.take() {
+        return f;
+    }
+    let host = remote_host(url).unwrap_or_else(|| url.to_owned());
+    if e.code() == git2::ErrorCode::Certificate
+        || matches!(e.class(), git2::ErrorClass::Ssl)
+            && e.message().to_ascii_lowercase().contains("certificate")
+    {
+        return certificate_refusal(&host, remote_scheme(url) == "ssh", e.message());
     }
     if e.code() == git2::ErrorCode::Auth
         || (e.class() == git2::ErrorClass::Http && e.message().contains("auth"))
     {
-        let msg = if e.message().starts_with("Authentication failed") {
-            e.message().to_owned()
-        } else {
-            credential_failure(url, &tried.describe())
-        };
-        return GitError::new(ErrorKind::Credentials, msg);
+        let mut g = crate::credentials::credential_failure(&host, url, &state.describe());
+        if e.message().starts_with("Authentication failed")
+            || e.message().starts_with("credentials_required")
+        {
+            g.message = e.message().to_owned();
+        }
+        return g;
     }
     e.into()
 }
@@ -194,20 +298,22 @@ impl Repo {
             GitError::new(ErrorKind::NotFound, format!("there is no remote `{name}`"))
         })?;
         let url = r.url().unwrap_or_default().to_owned();
-        let tried = RefCell::new(Tried::default());
+        let setup = Setup::of(self);
+        let state = RefCell::new(CredentialState::new());
         let updated = RefCell::new(Vec::new());
         let progress = RefCell::new(progress);
         let result = {
-            let cb = callbacks(&repo, &tried, cancel, &progress, Some(&updated));
+            let cb = callbacks(&setup, &state, cancel, &progress, Some(&updated));
             let mut fo = FetchOptions::new();
             fo.remote_callbacks(cb);
+            fo.proxy_options(setup.proxy(&url));
             fo.download_tags(git2::AutotagOption::All);
             if prune {
                 fo.prune(git2::FetchPrune::On);
             }
             r.fetch::<&str>(&[], Some(&mut fo), None)
         };
-        result.map_err(|e| transfer_error(e, cancel, &url, &tried.borrow()))?;
+        result.map_err(|e| transfer_error(e, cancel, &url, &mut state.borrow_mut()))?;
         let received = r.stats().received_objects();
         let mut updated = updated.into_inner();
         updated.sort();
@@ -311,13 +417,14 @@ impl Repo {
             )
         })?;
         let url = r.pushurl().or(r.url()).unwrap_or_default().to_owned();
-        let tried = RefCell::new(Tried::default());
+        let setup = Setup::of(self);
+        let state = RefCell::new(CredentialState::new());
         let progress = RefCell::new(progress);
         let dst = format!("refs/heads/{remote_branch}");
         let rejected: RefCell<Option<String>> = RefCell::new(None);
         let non_ff = RefCell::new(false);
         let result = {
-            let mut cb = callbacks(&repo, &tried, cancel, &progress, None);
+            let mut cb = callbacks(&setup, &state, cancel, &progress, None);
             cb.push_update_reference(|name, status| {
                 if let Some(s) = status {
                     *rejected.borrow_mut() = Some(format!("{name}: {s}"));
@@ -345,6 +452,7 @@ impl Repo {
             }
             let mut po = PushOptions::new();
             po.remote_callbacks(cb);
+            po.proxy_options(setup.proxy(&url));
             let spec = format!("{}refs/heads/{branch}:{dst}", if force { "+" } else { "" });
             r.push(&[spec.as_str()], Some(&mut po))
         };
@@ -357,7 +465,7 @@ impl Repo {
                 ),
             ));
         }
-        result.map_err(|e| transfer_error(e, cancel, &url, &tried.borrow()))?;
+        result.map_err(|e| transfer_error(e, cancel, &url, &mut state.borrow_mut()))?;
         if let Some(why) = rejected.into_inner() {
             return Err(GitError::new(
                 ErrorKind::Refused,
@@ -397,18 +505,19 @@ mod tests {
 
     #[test]
     fn credential_failures_say_what_was_tried() {
-        let t = Tried {
-            agent: true,
-            helper: Some("store".into()),
-            default: false,
-        };
-        let m = credential_failure("https://example.com/r.git", &t.describe());
+        let m = credential_failure(
+            "ssh://example.com/r.git",
+            "the ssh agent, then the key files `~/.ssh/id_ed25519`",
+        );
         assert!(
-            m.contains("the ssh agent (SSH_AUTH_SOCK), then the credential helper `store`"),
+            m.starts_with("Authentication failed for ssh://example.com/r.git: tried the ssh agent"),
             "{m}"
         );
-        assert!(m.contains("credential.helper"), "{m}");
-        assert!(Tried::default().describe().starts_with("nothing"));
+        assert!(
+            m.contains("ssh-add") && m.contains("credential.helper"),
+            "{m}"
+        );
+        assert!(CredentialState::new().describe().starts_with("nothing"));
     }
 
     #[test]

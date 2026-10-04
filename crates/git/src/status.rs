@@ -99,6 +99,9 @@ pub struct Status {
     /// Ignored files and folders (a folder ends with `/`), when asked for.
     pub ignored: Vec<String>,
     pub stashes: usize,
+    /// `http.sslVerify` is false in the repository's (or the global) config: TLS certificates of its remotes are not
+    /// checked, and the Git Changes window says so (brief 0045).
+    pub ssl_verify_off: bool,
 }
 
 impl Status {
@@ -349,6 +352,7 @@ impl Repo {
         })
         .ok();
         out.stashes = stashes;
+        out.ssl_verify_off = !self.ssl_verify();
         Ok(out)
     }
 

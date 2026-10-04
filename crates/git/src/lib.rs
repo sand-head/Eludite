@@ -10,8 +10,12 @@
 //!   the repository's config, the global config, then a fallback, else [`ErrorKind::Identity`]), [`diff`] (a path's
 //!   old and new texts against the index, HEAD or a revision; the line diff is the caller's), [`log`] (the history
 //!   with its graph lanes, bounded and cancelable), [`branches`] (branches, checkout with libgit2's safe checkout,
-//!   merge, rebase, cherry-pick, reset), [`stash`], [`remote`] (fetch, pull, push, with libgit2's credential
-//!   callback), [`worktree`] and [`blame`].
+//!   merge, rebase, cherry-pick, reset), [`stash`], [`remote`] (fetch, pull, push over `file://`, `http(s)://` and
+//!   ssh, with libgit2's credential callback), [`worktree`] and [`blame`].
+//! - [`credentials`] (brief 0045): the order the credential callback tries the ssh agent, key files, the
+//!   configured helper, the default credentials and the shell's prompt's answer ([`SessionCredentials`], in memory
+//!   only, given to a handle with [`Repo::with_credentials`]); [`transport`]: the proxy order and the certificate
+//!   rule (`http.sslVerify`), with refusals that name the host.
 //! - [`watch`]: the [`StatusCache`] and the [`Watcher`] that keeps it current, bumping its generation when
 //!   `.git/index`, `.git/HEAD`, `.git/refs/` or the working tree change (debounced 200 ms).
 //! - [`Cancel`]: the token every long call checks.
@@ -21,6 +25,7 @@
 pub mod blame;
 pub mod branches;
 pub mod commit;
+pub mod credentials;
 pub mod diff;
 mod error;
 pub mod index;
@@ -28,6 +33,7 @@ pub mod log;
 pub mod remote;
 pub mod stash;
 pub mod status;
+pub mod transport;
 pub mod watch;
 pub mod worktree;
 
@@ -35,6 +41,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use credentials::{SessionCredentials, UserPass};
 pub use error::{ErrorKind, GitError};
 pub use git2;
 pub use git2::Oid;
@@ -86,6 +93,7 @@ pub struct Repo {
     git_dir: PathBuf,
     common_dir: PathBuf,
     global: GlobalConfig,
+    credentials: SessionCredentials,
 }
 
 impl Repo {
@@ -137,6 +145,7 @@ impl Repo {
             git_dir: strip_slash(r.path()),
             common_dir: strip_slash(r.commondir()),
             global: GlobalConfig::User,
+            credentials: SessionCredentials::default(),
         })
     }
 
@@ -163,6 +172,44 @@ impl Repo {
 
     pub fn global_config(&self) -> &GlobalConfig {
         &self.global
+    }
+
+    /// This handle offering the credentials kept in `credentials` (the shell's prompt's answers) to remotes that
+    /// ask for a user name and password, after the helper and the default credentials.
+    pub fn with_credentials(mut self, credentials: SessionCredentials) -> Self {
+        self.credentials = credentials;
+        self
+    }
+
+    pub fn credentials(&self) -> &SessionCredentials {
+        &self.credentials
+    }
+
+    /// The configuration a transfer reads (`credential.helper`, `http.proxy`, `http.sslVerify`): the repository's,
+    /// then the global configuration this handle reads (see [`GlobalConfig`]).
+    pub fn effective_config(&self) -> Result<git2::Config> {
+        match &self.global {
+            GlobalConfig::User => Ok(self.repository()?.config()?),
+            GlobalConfig::Files(files) => {
+                let mut c = git2::Config::new()?;
+                for f in files {
+                    c.add_file(f, git2::ConfigLevel::Global, false)?;
+                }
+                let local = self.common_dir.join("config");
+                if local.is_file() {
+                    c.add_file(&local, git2::ConfigLevel::Local, false)?;
+                }
+                Ok(c)
+            }
+        }
+    }
+
+    /// Whether TLS certificates are verified: `http.sslVerify`, true unless set false (as in git).
+    pub fn ssl_verify(&self) -> bool {
+        self.effective_config()
+            .ok()
+            .and_then(|c| c.get_bool("http.sslVerify").ok())
+            .unwrap_or(true)
     }
 
     /// libgit2's repository, opened for one call.
