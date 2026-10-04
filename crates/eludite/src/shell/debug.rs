@@ -614,7 +614,7 @@ pub enum DebugMsg {
     /// The launch configuration is known.
     Launched {
         generation: u64,
-        session: SessionRow,
+        session: Box<SessionRow>,
         run: Option<RunHandle>,
         /// What a web project's launch opens (brief 0037): its `session.browser` is the page, waiting.
         plan: Option<Box<launch::BrowserLaunch>>,
@@ -2969,7 +2969,7 @@ fn launch_thread(job: LaunchJob) {
         let handle: RunHandle = Arc::new(Mutex::new(Some(child)));
         let _ = tx.unbounded_send(DebugMsg::Launched {
             generation,
-            session,
+            session: Box::new(session),
             run: Some(handle.clone()),
             plan: browser_plan,
         });
@@ -3076,7 +3076,7 @@ fn launch_thread(job: LaunchJob) {
     session.adapter = Some(adapter);
     let _ = tx.unbounded_send(DebugMsg::Launched {
         generation,
-        session,
+        session: Box::new(session),
         run: None,
         plan: browser_plan,
     });
@@ -3600,7 +3600,7 @@ fn attach_thread(job: AttachJob) {
     session.adapter = Some(description);
     let _ = tx.unbounded_send(DebugMsg::Launched {
         generation,
-        session,
+        session: Box::new(session),
         run: None,
         plan: None,
     });
@@ -3839,7 +3839,7 @@ fn js_attach_thread(job: JsAttachJob) {
     };
     let _ = tx.unbounded_send(DebugMsg::Launched {
         generation,
-        session,
+        session: Box::new(session),
         run: None,
         plan: None,
     });
@@ -7304,6 +7304,7 @@ impl Shell {
                 run,
                 plan,
             } if generation == current => {
+                let session = *session;
                 self.debug.model.browser_plan = plan.map(|p| *p);
                 let program = file_name(&session.program);
                 trace(format_args!(
