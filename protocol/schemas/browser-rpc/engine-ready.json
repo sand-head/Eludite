@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/engine-ready.json",
+  "title": "engine/ready",
+  "description": "Engine-to-shell notification, sent once after the `initialize` answer (brief 0038): the engine's Chrome DevTools remote debugging port answers. The engine chose a free port on 127.0.0.1 before CefInitialize (CEF binds the DevTools HTTP and websocket server to 127.0.0.1 only) and sends this once `GET /json/version` on it answered. A debugger (vscode-js-debug's `pwa-chrome` attach) reaches the engine's tabs there; the shell never guesses the port. Absent when the port did not answer within 10 s (the engine logs why on stderr): the tabs then cannot be debugged.",
+  "x-eludite-method": "engine/ready",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "engineToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "remoteDebuggingPort",
+        "address"
+      ],
+      "properties": {
+        "remoteDebuggingPort": {
+          "description": "The remote debugging port (CEF accepts 1024 to 65534).",
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "address": {
+          "description": "Where it listens: always the loopback address.",
+          "const": "127.0.0.1"
+        }
+      }
+    }
+  }
+}

@@ -222,7 +222,7 @@
                 "type": "string"
               },
               "path": {
-                "description": "The source file, when the frame has one.",
+                "description": "The source file, when the frame has one (through a source map, the original file: `source` names both).",
                 "type": "string"
               },
               "line": {
@@ -248,6 +248,32 @@
               "external": {
                 "description": "True for a frame without source (Visual Studio's [External Code]); absent otherwise.",
                 "type": "boolean"
+              },
+              "source": {
+                "description": "Where the frame is, when a source map applies (brief 0038): `original` is the source file the map leads to (the frame's `path`, which the execution point opens), `generated` the script that runs (a file under the web root, or the url the page loaded it from), with its line and column when known.",
+                "type": "object",
+                "required": [
+                  "original"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "original": {
+                    "type": "string"
+                  },
+                  "generated": {
+                    "type": "string"
+                  },
+                  "generated_line": {
+                    "description": "1-based.",
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "generated_column": {
+                    "description": "1-based.",
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
               }
             }
           }
@@ -560,7 +586,7 @@
       "additionalProperties": false,
       "properties": {
         "adapter": {
-          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `fake` (tests).",
+          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `lldb` (lldb-dap or CodeLLDB), `javascript` (vscode-js-debug, brief 0038), `fake` (tests).",
           "type": "string"
         },
         "pause": {

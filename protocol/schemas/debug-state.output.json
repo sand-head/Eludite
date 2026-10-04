@@ -81,16 +81,17 @@
           "type": "boolean"
         },
         "adapter": {
-          "description": "The debug adapter's executable and transport: `netcoredbg --interpreter=vscode (stdio)`, `eludite-dbg-mono under mono 6.8.0.105 (stdio)` (the version from `mono --version`), or `lldb-dap 18.1.3 (stdio)` (the version from `lldb-dap --version`, else from the `lldb --version` beside it; CodeLLDB reads `codelldb (stdio)`).",
+          "description": "The debug adapter's executable and transport: `netcoredbg --interpreter=vscode (stdio)`, `eludite-dbg-mono under mono 6.8.0.105 (stdio)` (the version from `mono --version`), `lldb-dap 18.1.3 (stdio)` (the version from `lldb-dap --version`, else from the `lldb --version` beside it; CodeLLDB reads `codelldb (stdio)`), or `vscode-js-debug 1.140.0 under node v22.12.0 (tcp 127.0.0.1:PORT)` (brief 0038).",
           "type": "string"
         },
         "runtime": {
-          "description": "What runs the program: `coreclr` (.NET 5 and later, .NET Core: `dotnet`, debugged with netcoredbg), `mono` (a .NET Framework program run by the located Mono off Windows, debugged with eludite-dbg-mono), `netfx` (a .NET Framework program run directly on Windows, debugged with eludite-dbg-netfx once brief 0004 builds it), `native` (a Cargo package's executable, run directly and debugged with lldb-dap).",
+          "description": "What runs the program: `coreclr` (.NET 5 and later, .NET Core: `dotnet`, debugged with netcoredbg), `mono` (a .NET Framework program run by the located Mono off Windows, debugged with eludite-dbg-mono), `netfx` (a .NET Framework program run directly on Windows, debugged with eludite-dbg-netfx once brief 0004 builds it), `native` (a Cargo package's executable, run directly and debugged with lldb-dap). `javascript`: a web page in a browser, debugged with vscode-js-debug (brief 0038).",
           "enum": [
             "coreclr",
             "mono",
             "netfx",
-            "native"
+            "native",
+            "javascript"
           ]
         },
         "process_id": {
@@ -100,6 +101,20 @@
         "attached": {
           "description": "The session attached to a running process (eludite.debug.attach): Stop detaches and the process keeps running; Restart is refused. Absent for a launch.",
           "type": "boolean"
+        },
+        "parent": {
+          "description": "A child session's parent (brief 0038).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "tab": {
+          "type": "string",
+          "pattern": "^t[0-9]+$",
+          "description": "A browser session's tab (brief 0038)."
+        },
+        "url": {
+          "description": "A browser session's page url (brief 0038).",
+          "type": "string"
         },
         "browser": {
           "$ref": "#/$defs/browser"
@@ -195,7 +210,7 @@
             "type": "string"
           },
           "path": {
-            "description": "The source file, when the frame has one.",
+            "description": "The source file, when the frame has one (through a source map, the original file: `source` names both).",
             "type": "string"
           },
           "line": {
@@ -213,6 +228,32 @@
           "end_column": {
             "type": "integer",
             "minimum": 1
+          },
+          "source": {
+            "description": "Where the frame is, when a source map applies (brief 0038): `original` is the source file the map leads to (the frame's `path`, which the execution point opens), `generated` the script that runs (a file under the web root, or the url the page loaded it from), with its line and column when known.",
+            "type": "object",
+            "required": [
+              "original"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "original": {
+                "type": "string"
+              },
+              "generated": {
+                "type": "string"
+              },
+              "generated_line": {
+                "description": "1-based.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "generated_column": {
+                "description": "1-based.",
+                "type": "integer",
+                "minimum": 1
+              }
+            }
           }
         }
       }
@@ -500,7 +541,7 @@
       "additionalProperties": false,
       "properties": {
         "adapter": {
-          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `lldb` (lldb-dap or CodeLLDB), `fake` (tests).",
+          "description": "The adapter's id: `coreclr` (netcoredbg), `mono` (eludite-dbg-mono), `lldb` (lldb-dap or CodeLLDB), `javascript` (vscode-js-debug, brief 0038), `fake` (tests).",
           "type": "string"
         },
         "pause": {
@@ -597,7 +638,7 @@
           "minimum": 1
         },
         "name": {
-          "description": "The project's name (its project file or Cargo package without the extension), or the attached process's name.",
+          "description": "The project's name (its project file or Cargo package without the extension), the attached process's name, or a browser session's page title (brief 0038; renamed when the title changes).",
           "type": "string"
         },
         "mode": {
@@ -632,11 +673,16 @@
             "coreclr",
             "mono",
             "netfx",
-            "native"
+            "native",
+            "javascript"
           ]
         },
         "adapter": {
           "description": "As `session.adapter` in eludite.debug.state.",
+          "type": "string"
+        },
+        "adapter_version": {
+          "description": "The versions of the adapter and the runtime it runs on, as found when the session started: `vscode-js-debug 1.140.0, node v22.12.0` (brief 0038), `mono 6.8.0.105`, `lldb-dap 18.1.3`.",
           "type": "string"
         },
         "process_id": {
@@ -651,6 +697,20 @@
         "attached": {
           "description": "The session attached to a running process.",
           "type": "boolean"
+        },
+        "parent": {
+          "description": "A child session's parent (brief 0038): vscode-js-debug starts one child session per page target of a browser session (DAP `startDebugging`); it is listed under its parent and ends with it. Commands on the parent address the parent only.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "tab": {
+          "type": "string",
+          "pattern": "^t[0-9]+$",
+          "description": "A browser session's tab (eludite.browser.tabs' `id`), when it attached to one."
+        },
+        "url": {
+          "description": "A browser session's page url (or the DevTools websocket url it attached to).",
+          "type": "string"
         },
         "agents_allowed": {
           "description": "Whether agents may drive this session (Allow Agents to Drive is per session).",

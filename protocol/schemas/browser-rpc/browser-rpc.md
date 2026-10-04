@@ -26,6 +26,11 @@ Rust: the shell side is `crates/browser/src/embedded.rs` (`EmbeddedChromium`), t
    and, on Linux and macOS, one end of a `socketpair(AF_UNIX, SOCK_SEQPACKET)` as file descriptor 3. The engine runs
    `CefExecuteProcess` and `CefInitialize` before it reads stdin.
 2. `initialize`, then any number of `tab/*` requests and notifications.
+   After its `initialize` answer the engine sends `engine/ready` (brief 0038) once its Chrome DevTools remote
+   debugging port answers: a free port on 127.0.0.1 the engine chose before `CefInitialize` (CEF binds it to the
+   loopback address only), reported to the shell, which never guesses it. vscode-js-debug attaches to the engine's
+   tabs through it (`protocol/schemas/dap-js-debug.md`); a tab's target id there is what `Target.getTargetInfo`
+   answers on the tab's own `tab/cdp` channel.
 3. `shutdown`: the engine closes its tabs, answers, and exits with code 0.
 
 CEF's renderer, GPU and utility subprocesses are the same executable started by CEF with `--type=...`
@@ -59,6 +64,7 @@ CEF's renderer, GPU and utility subprocesses are the same executable started by 
 | `tab/dialogClosed` | notification | engine to shell | [tab-dialog-closed.json](tab-dialog-closed.json) | `{ tab, id, accepted? }` | |
 | `tab/download` | notification | engine to shell | [tab-download.json](tab-download.json) | `{ tab, id, url, file, path?, state, receivedBytes?, totalBytes?, mime?, message? }` | |
 | `tab/contextMenu` | notification | engine to shell | [tab-context-menu.json](tab-context-menu.json) | `{ tab, x, y, pageUrl, linkUrl?, imageUrl?, selectionText?, editable, edit }` | |
+| `engine/ready` | notification | engine to shell | [engine-ready.json](engine-ready.json) | `{ remoteDebuggingPort, address: "127.0.0.1" }` | |
 
 Errors: JSON-RPC's codes (-32700, -32600, -32601 for every method not listed, -32602, -32603), and -32001
 (`NoSuchTab`) for a `tab` the engine does not know.

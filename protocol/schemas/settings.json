@@ -123,6 +123,31 @@
       "x-eludite-section": "Debugging > General",
       "x-eludite-label": "Open the launch profile's page when a web project starts"
     },
+    "debugger.attachBrowser": {
+      "description": "Debug a web project's page too (brief 0038): when F5 opens the page in the Web Browser window, vscode-js-debug attaches to its tab once the page is up, as a second session beside the server's, so breakpoints in the page's `.ts` and `.js` files stop it. Off: only the server is debugged (attach to the tab later with Debug > Attach to Browser Tab...). Applies to the next start.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Debug the page's JavaScript when a web project starts"
+    },
+    "debugger.nodePath": {
+      "description": "The Node.js executable vscode-js-debug runs on (brief 0038; version 18 or later). Empty: `node` on PATH, then Volta's (`~/.volta/bin/node`), nvm's default (`~/.nvm/alias/default`) and fnm's default (`~/.local/share/fnm/aliases/default`, `~/.fnm/aliases/default`). Located, never bundled. Applies to the next session.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "Node.js executable (JavaScript debugging)",
+      "x-eludite-env": "ELUDITE_NODE"
+    },
+    "debugger.jsDebugPath": {
+      "description": "vscode-js-debug's DAP server, `src/dapDebugServer.js` (or the folder of the unpacked release holding it), which debugs pages in the Web Browser window (brief 0038). Empty: `~/.cache/eludite/js-debug/<version>/js-debug/src/dapDebugServer.js` (what tools/js-debug/fetch.sh unpacks, the version in tools/js-debug/PIN), then `js-debug/src/dapDebugServer.js` beside the eludite executable. Located, never bundled. Applies to the next session.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Debugging > General",
+      "x-eludite-label": "vscode-js-debug server (dapDebugServer.js)",
+      "x-eludite-env": "ELUDITE_JS_DEBUG"
+    },
     "languageServers.rustAnalyzerPath": {
       "description": "The rust-analyzer executable for Cargo workspaces. Empty: beside the eludite executable, then PATH, then `rustup which rust-analyzer`. Applies to the next rust-analyzer started.",
       "type": "string",
