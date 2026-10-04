@@ -1606,3 +1606,129 @@ fn the_nuget_tools_and_guide() {
     ));
     assert_eq!(read["contents"][0]["text"].as_str().unwrap(), text);
 }
+
+/// Brief 0049: the project property and solution configuration commands are tools with their classes (reads `read`,
+/// edits `execute`, the per-solution selection `edit_buffer`), and a read answers what its output schema says.
+#[test]
+fn the_project_property_tools_are_listed_with_their_classes_and_answer() {
+    use eludite_commands::project::properties::{
+        self as props, ConfigurationsOutput, PropertiesOutput, PropertiesOutputs,
+        PropertiesRequest, PropertiesTarget, PropertyRow, SelectionRow,
+    };
+    struct FakeProps;
+    impl PropertiesTarget for FakeProps {
+        fn apply(
+            &self,
+            request: PropertiesRequest,
+        ) -> Result<PropertiesOutputs, eludite_commands::CommandError> {
+            Ok(match request {
+                PropertiesRequest::Properties(i) => {
+                    PropertiesOutputs::Properties(Box::new(PropertiesOutput {
+                        project: "App".into(),
+                        path: "/s/App/App.csproj".into(),
+                        kind: "sdk".into(),
+                        configuration: i.configuration.unwrap_or_else(|| "Debug".into()),
+                        platform: "AnyCPU".into(),
+                        framework: None,
+                        configurations: vec!["Debug".into(), "Release".into()],
+                        platforms: vec!["AnyCPU".into()],
+                        frameworks: vec!["net10.0".into()],
+                        pages: vec![],
+                        properties: vec![PropertyRow {
+                            name: "LangVersion".into(),
+                            page: "application".into(),
+                            section: Some("General".into()),
+                            label: "Language version".into(),
+                            kind: "enum".into(),
+                            values: vec!["latest".into(), "12.0".into()],
+                            per_configuration: false,
+                            value: "12.0".into(),
+                            raw: Some("12.0".into()),
+                            source: "inherited".into(),
+                            file: Some("/s/Directory.Build.props".into()),
+                            line: Some(4),
+                            condition: None,
+                            inherited_from: Some("/s/Directory.Build.props".into()),
+                            conditions: vec![],
+                            read_only: false,
+                        }],
+                        generation: 3,
+                        opened: false,
+                        pending: false,
+                    }))
+                }
+                _ => PropertiesOutputs::Configurations(ConfigurationsOutput {
+                    path: Some("/s/S.slnx".into()),
+                    format: Some("slnx".into()),
+                    configurations: vec!["Debug".into(), "Release".into()],
+                    platforms: vec!["Any CPU".into()],
+                    active: SelectionRow {
+                        configuration: "Debug".into(),
+                        platform: "Any CPU".into(),
+                    },
+                    projects: vec![],
+                }),
+            })
+        }
+    }
+    let r = eludite_commands::CommandRegistry::new();
+    props::register(&r, Arc::new(FakeProps));
+    eludite_commands::solution::register_configurations(&r, Arc::new(FakeProps));
+    let s = McpServer::new(Arc::new(r));
+    let list = result(call(&s, "tools/list", json!({})));
+    let tools = list["tools"].as_array().unwrap();
+    let permission = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"))["_meta"]["eludite/permission"]
+            .clone()
+    };
+    assert_eq!(permission("eludite-project-properties"), "read");
+    assert_eq!(permission("eludite-project-launch_profiles"), "read");
+    assert_eq!(permission("eludite-project-set_property"), "execute");
+    assert_eq!(permission("eludite-project-set_launch_profile"), "execute");
+    assert_eq!(permission("eludite-solution-configurations"), "read");
+    assert_eq!(
+        permission("eludite-solution-select_configuration"),
+        "edit_buffer"
+    );
+    assert_eq!(permission("eludite-solution-set_configuration"), "execute");
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-project-properties", "arguments": {"project": "App", "configuration": "Release"}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let answer = &out["structuredContent"];
+    assert_eq!(answer["configuration"], "Release");
+    assert_eq!(answer["properties"][0]["source"], "inherited");
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/project-properties.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, answer);
+    assert!(errors.is_empty(), "{errors:?}");
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-solution-configurations", "arguments": {}}),
+    ));
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/solution-configurations.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, &out["structuredContent"]);
+    assert!(errors.is_empty(), "{errors:?}");
+    // An edit needs the gate: no gate refuses it.
+    let refused = call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-project-set_property", "arguments": {"property": "LangVersion", "value": "13.0"}}),
+    );
+    let refused = serde_json::to_value(&refused).unwrap();
+    assert!(
+        refused.get("error").is_some() || refused["result"]["isError"] == true,
+        "{refused}"
+    );
+}
