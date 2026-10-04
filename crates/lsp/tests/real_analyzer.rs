@@ -148,7 +148,7 @@ fn real_rust_analyzer_offers_run_debug_and_implementations_lenses() {
     use eludite_lsp::codelens::{self, LensKind, LensTarget};
     let registry = ServerRegistry::builtin();
     let ra = registry.get("rust-analyzer").unwrap();
-    let located = match ra.locate() {
+    let located = match ra.locate(None, None, &|| Err("not needed".into())) {
         Ok(l) => l,
         Err(why) => {
             eprintln!("skipped: {why}");
@@ -189,6 +189,7 @@ fn real_rust_analyzer_offers_run_debug_and_implementations_lenses() {
             root: dir.path().to_path_buf(),
             initialization_options: serde_json::json!({"checkOnSave": false, "cargo": {"targetDir": true}}),
             settings: serde_json::json!({"rust-analyzer": {"checkOnSave": false}}),
+            push_settings: false,
         },
         RestartPolicy::default(),
     )
