@@ -62,10 +62,10 @@ work, else the helper where Chromium will use it (beside the engine, or beside `
 user running it), else it refuses to start with a message naming both remedies (allowing user namespaces, or `sudo
 chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`) and the opt-in. Running as root is refused the same
 way. `--no-sandbox` happens only with `--allow-no-sandbox` on the engine's command line, which the shell passes only
-after the workspace's opt-in (the Web Browser window's dialog, stored as `browser.allowNoSandbox` in the workspace's
-settings) or with `ELUDITE_CHROME_NO_SANDBOX=1` in its environment (brief 0023's variable, for tests and CI). The
-package ships the helper in `cef/` as CEF does; installing it (root ownership and the setuid bit) is the user's or an
-installer's step (Phase 3).
+after the person's opt-in for the workspace (the Web Browser window's dialog, stored as `browser.allowNoSandbox` in the
+person's own state for the workspace, never the workspace's `.eludite/settings.json`; brief 0047) or with
+`ELUDITE_CHROME_NO_SANDBOX=1` in its environment (brief 0023's variable, for tests and CI). The package ships the helper
+in `cef/` as CEF does; installing it (root ownership and the setuid bit) is the user's or an installer's step (Phase 3).
 
 ## Windows (brief E's other half; not built here)
 
