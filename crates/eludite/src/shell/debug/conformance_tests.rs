@@ -16,6 +16,14 @@
 //!   this way so an adapter upgrade is noticed, with `DAP_CORPUS_REQUIRE=mono,lldb` so a missing adapter fails the
 //!   check instead of skipping it. `tools/dap-corpus/record.sh` (and `record.ps1`) runs these modes.
 //!
+//! vscode-js-debug (brief 0038) is a DAP server with one connection per debugging session: the browser session and
+//! each child session `startDebugging` asks for. Its scenarios record each connection to a file of its own
+//! (`<scenario>.dap.json` for the browser session, `<scenario>.child1.dap.json` for the first child, ...) and replay
+//! the n-th connection the shell opens from the n-th file. The page is the corpus web project's (`app.ts` compiled
+//! with its map, the "Add" button) served by the test, in the real embedded engine when recording and in a fake
+//! engine when replaying; the run's own origin, DevTools port and target id are scrubbed as tokens. A click in the
+//! page is not DAP: the recorder marks where it happened and the replay holds what followed until the test clicks.
+//!
 //! The programs: brief 0022's TestApp (`debuggers/mono/Eludite.Debugger.Mono.TestApp`) under `eludite-dbg-mono`, and
 //! under netcoredbg built for net10.0; a small Cargo program written here under lldb-dap (attached to with address
 //! space randomization off on Linux, as lldb-dap launches programs, so its addresses are the same every time). Recording needs Mono and
@@ -33,9 +41,10 @@ use gpui::TestAppContext;
 use serde_json::{Value, json};
 
 use super::super::tests::{Ws, setup_debug};
-use super::DebugSetup;
 use super::native::NativeSetup;
 use super::state::Mode;
+use super::{DebugSetup, JsSetup};
+use eludite_dap::transport::AdapterServer;
 
 /// What `${PID}` becomes in a replay (a number no recorded value is likely to equal).
 const REPLAY_PID: i64 = 3_999_971;
@@ -43,6 +52,40 @@ const REPLAY_PID: i64 = 3_999_971;
 const MONO_AGENT_PORT: u16 = 47_033;
 /// The Cargo program's package (and binary) name.
 const RS_PACKAGE: &str = "conformance";
+/// The page the js-debug scenarios debug: the corpus web project's (brief 0038), with a button whose inline handler
+/// throws for the exception scenario.
+const JS_PAGE: &str = "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <title>Minimal API</title>\n</head>\n<body>\n  <h1>Minimal API</h1>\n  <p><label for=\"price\">Price</label><input id=\"price\" type=\"number\" value=\"5\"><button id=\"add\" type=\"button\">Add</button> Total: <span id=\"total\">0</span></p>\n  <p><button id=\"fail\" type=\"button\" onclick=\"JSON.parse('{')\">Fail</button></p>\n  <script src=\"/app.js\"></script>\n</body>\n</html>\n";
+/// The most `startDebugging` target ids a js-debug recording scrubs (`${PENDING_TARGET}`, `${PENDING_TARGET_2}`, ...).
+const PENDING_TARGETS: usize = 4;
+
+fn pending_placeholder(n: usize) -> String {
+    if n == 1 {
+        "${PENDING_TARGET}".into()
+    } else {
+        format!("${{PENDING_TARGET_{n}}}")
+    }
+}
+
+/// The target ids vscode-js-debug's `startDebugging` requests named, in order (each run's own: scrubbed as tokens).
+fn pending_targets(r: &Recording) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for m in &r.messages {
+        if m.dir == record::Dir::Adapter
+            && m.message["type"] == "request"
+            && m.message["command"] == "startDebugging"
+            && let Some(id) = m.message["arguments"]["configuration"]["__pendingTargetId"].as_str()
+            && !id.starts_with("${")
+            && !out.iter().any(|o| o == id)
+        {
+            out.push(id.to_owned());
+        }
+    }
+    out.truncate(PENDING_TARGETS);
+    out
+}
+
+/// Where the replay's fake engine says its tab is (`browser_tests::PageEngine`).
+const REPLAY_ORIGIN: &str = "127.0.0.1:5180";
 
 /// The Cargo program the lldb-dap scenarios debug (MIT, this repository's).
 const RS_MAIN: &str = r#"fn add(a: i32, b: i32) -> i32 {
@@ -98,6 +141,7 @@ enum Adapter {
     Mono,
     Lldb,
     Netcoredbg,
+    JsDebug,
 }
 
 impl Adapter {
@@ -106,6 +150,7 @@ impl Adapter {
             Adapter::Mono => "mono",
             Adapter::Lldb => "lldb",
             Adapter::Netcoredbg => "netcoredbg",
+            Adapter::JsDebug => "js-debug",
         }
     }
 }
@@ -128,6 +173,9 @@ enum Act {
     /// already the first stop depends on how fast the adapter breaks. The answer is not kept; a `wait` step after it
     /// reads the stop.
     AgentStart(&'static str, Value),
+    /// A click on the page's button with this name, through `eludite.browser.input` (not DAP: marked in the
+    /// recording, and passed in the replay instead of clicking).
+    Click(&'static str),
 }
 
 /// What a step waits for before its snapshot (always also for the shell to settle).
@@ -139,6 +187,8 @@ enum Until {
     Mode(Mode),
     /// The debuggee printed this line (it is running).
     Output(&'static str),
+    /// A child session (vscode-js-debug's page) runs.
+    Child,
 }
 
 struct Step {
@@ -464,6 +514,71 @@ fn steps(adapter: Adapter, scenario: &str) -> Vec<Step> {
                 Mode(super::state::Mode::Design),
             ),
         ],
+        (Adapter::JsDebug, "attach-break-step") => vec![
+            step(
+                "F9 in onAdd",
+                Line("=const sum = total(cart);", json!({})),
+                Settled,
+            ),
+            step(
+                "agent attach to the tab",
+                AgentStart(
+                    cmds::ATTACH,
+                    json!({"tab": "t1", "web_root": "@webroot", "wait_ms": 20000}),
+                ),
+                Child,
+            ),
+            step("click Add", Click("Add"), Break(1)),
+            step("F11 into total", Keys("f11"), Break(2)),
+            step("F10", Keys("f10"), Break(3)),
+            step(
+                "agent stack",
+                Agent(cmds::STACK, json!({"count": 5})),
+                Settled,
+            ),
+            step("Shift+F11", Keys("shift-f11"), Break(4)),
+            step("F5", Keys("f5"), Mode(super::state::Mode::Running)),
+            step(
+                "agent stop",
+                Agent(cmds::STOP, json!({"session": "@browser"})),
+                Mode(super::state::Mode::Design),
+            ),
+        ],
+        (Adapter::JsDebug, "logpoints-and-exceptions") => vec![
+            step(
+                "tracepoint in onAdd",
+                Line(
+                    "=cart.push(item);",
+                    set(json!({"log_message": "added {item.name} at {price}"})),
+                ),
+                Settled,
+            ),
+            step(
+                "break when thrown",
+                Ui(cmds::EXCEPTION_SETTINGS, json!({"break_when_thrown": true})),
+                Settled,
+            ),
+            step(
+                "agent attach to the tab",
+                AgentStart(
+                    cmds::ATTACH,
+                    json!({"tab": "t1", "web_root": "@webroot", "wait_ms": 20000}),
+                ),
+                Child,
+            ),
+            step("click Add", Click("Add"), Output("added item 1 at 5")),
+            step("click Fail", Click("Fail"), Break(1)),
+            step(
+                "agent exception_info",
+                Agent(cmds::EXCEPTION_INFO, json!({})),
+                Settled,
+            ),
+            step(
+                "agent stop",
+                Agent(cmds::STOP, json!({"session": "@browser"})),
+                Mode(super::state::Mode::Design),
+            ),
+        ],
         other => panic!("no scenario {other:?}"),
     }
 }
@@ -505,6 +620,9 @@ enum Real {
     },
     Netcoredbg {
         found: eludite_dap::discovery::Found,
+    },
+    JsDebug {
+        setup: JsSetup,
     },
 }
 
@@ -562,7 +680,187 @@ fn find_real(adapter: Adapter) -> Result<Real, String> {
             }
             Ok(Real::Netcoredbg { found })
         }
+        Adapter::JsDebug => {
+            let mut setup = JsSetup::from_env();
+            setup.search.configured = env_dir("ELUDITE_JS_DEBUG");
+            setup.node.configured = env_dir("ELUDITE_NODE");
+            setup.search.find()?;
+            let (node, _) = setup.node.find()?;
+            eludite_dap::discovery::check_node_version(
+                &node,
+                eludite_dap::discovery::node_version_output(&node).as_deref(),
+            )?;
+            match eludite_browser::select_engine(
+                eludite_browser::EngineChoice::Embedded,
+                &eludite_browser::ChromiumSearch::defaults(),
+            ) {
+                (eludite_browser::EngineChoice::Embedded, _) => Ok(Real::JsDebug { setup }),
+                (_, why) => Err(why.unwrap_or_else(|| "the embedded engine was not found".into())),
+            }
+        }
     }
+}
+
+/// The file of connection `n` (0: the first) of a scenario recorded at `first` (`<scenario>.dap.json`):
+/// `<scenario>.child<n>.dap.json` for the later ones (vscode-js-debug's child sessions).
+fn connection_path(first: &Path, n: usize) -> PathBuf {
+    if n == 0 {
+        return first.to_path_buf();
+    }
+    let name = first.file_name().unwrap().to_string_lossy();
+    let stem = name.strip_suffix(".dap.json").unwrap_or(&name);
+    first.with_file_name(format!("{stem}.child{n}.dap.json"))
+}
+
+/// The later connections' recordings beside `first`, in order, as far as they go.
+fn more_recordings(first: &Path) -> Vec<Recording> {
+    let mut out = Vec::new();
+    for n in 1.. {
+        match Recording::read(&connection_path(first, n)) {
+            Ok(r) => out.push(r),
+            Err(_) => break,
+        }
+    }
+    out
+}
+
+/// The real vscode-js-debug server with the recorder on each connection it opens (brief 0038).
+struct RecordingServer {
+    inner: Arc<dyn AdapterServer>,
+    /// The order across the server's connections.
+    order: Arc<std::sync::atomic::AtomicU64>,
+    first: PathBuf,
+    version: String,
+    roots: Arc<Mutex<Vec<(String, PathBuf)>>>,
+    tokens: Arc<Mutex<Vec<(String, String)>>>,
+    handles: Arc<Mutex<Vec<RecordHandle>>>,
+    first_handle: Arc<Mutex<Option<RecordHandle>>>,
+}
+
+impl AdapterServer for RecordingServer {
+    fn connect(&self) -> std::io::Result<eludite_dap::Connection> {
+        let conn = self.inner.connect()?;
+        let mut handles = self.handles.lock().unwrap();
+        let (conn, handle) = record::record_ordered(
+            conn,
+            RecordOptions {
+                path: connection_path(&self.first, handles.len()),
+                adapter: Adapter::JsDebug.name().into(),
+                version: self.version.clone(),
+                roots: self.roots.lock().unwrap().clone(),
+            },
+            self.order.clone(),
+        );
+        for (placeholder, text) in self.tokens.lock().unwrap().iter() {
+            handle.add_token(placeholder, text);
+        }
+        // The server's own loopback address (`tcp 127.0.0.1:PORT`).
+        if let Some(address) = self.inner.describe().strip_prefix("tcp ") {
+            handle.add_token("${JS_DEBUG}", address);
+        }
+        if handles.is_empty() {
+            *self.first_handle.lock().unwrap() = Some(handle.clone());
+        }
+        handles.push(handle);
+        Ok(conn)
+    }
+
+    fn describe(&self) -> String {
+        self.inner.describe()
+    }
+}
+
+/// The replay of a vscode-js-debug scenario: connection n from recording n (brief 0038).
+struct ReplayServer {
+    recordings: Vec<Recording>,
+    group: Arc<replay::ReplayGroup>,
+    roots: Arc<Mutex<Vec<(String, PathBuf)>>>,
+    tokens: Arc<Mutex<Vec<(String, String)>>>,
+    handles: Arc<Mutex<Vec<ReplayHandle>>>,
+    first_handle: Arc<Mutex<Option<ReplayHandle>>>,
+}
+
+impl AdapterServer for ReplayServer {
+    fn connect(&self) -> std::io::Result<eludite_dap::Connection> {
+        let mut handles = self.handles.lock().unwrap();
+        let recording = self.recordings.get(handles.len()).ok_or_else(|| {
+            std::io::Error::other(format!(
+                "the recording has {} connections; the shell opened one more",
+                self.recordings.len()
+            ))
+        })?;
+        let (conn, handle) = replay::serve_in_group(
+            recording,
+            ReplayOptions {
+                roots: self.roots.lock().unwrap().clone(),
+                pid: REPLAY_PID,
+                real_time: false,
+                tokens: self.tokens.lock().unwrap().clone(),
+            },
+            self.group.clone(),
+        );
+        if handles.is_empty() {
+            *self.first_handle.lock().unwrap() = Some(handle.clone());
+        }
+        handles.push(handle);
+        Ok(conn)
+    }
+
+    fn describe(&self) -> String {
+        "replay (tcp)".into()
+    }
+}
+
+/// Serve `dir`'s files over HTTP on a loopback port (the js-debug scenarios' page, recording). The thread lives as
+/// long as the test process.
+fn serve_static(dir: PathBuf) -> u16 {
+    use std::io::{BufRead, Write};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                let mut reader = std::io::BufReader::new(&stream);
+                let mut first = String::new();
+                if reader.read_line(&mut first).is_err() {
+                    return;
+                }
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() {
+                        break;
+                    }
+                }
+                let path = first.split_whitespace().nth(1).unwrap_or("/");
+                let path = path
+                    .split('?')
+                    .next()
+                    .unwrap_or("/")
+                    .trim_start_matches('/');
+                let path = if path.is_empty() { "index.html" } else { path };
+                let file = dir.join(path);
+                let (status, body) = match std::fs::read(&file) {
+                    Ok(b) if !path.contains("..") => ("200 OK", b),
+                    _ => ("404 Not Found", b"not found".to_vec()),
+                };
+                let kind = match file.extension().and_then(|e| e.to_str()) {
+                    Some("html") => "text/html; charset=utf-8",
+                    Some("js") => "text/javascript",
+                    Some("map") => "application/json",
+                    _ => "text/plain",
+                };
+                let mut out = &stream;
+                let _ = write!(
+                    out,
+                    "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = out.write_all(&body);
+            });
+        }
+    });
+    port
 }
 
 /// Starts the real adapter (recording).
@@ -570,8 +868,15 @@ type RealConnect = Box<dyn Fn() -> std::io::Result<eludite_dap::Connection> + Se
 
 /// How the scenario's session reaches its adapter.
 enum Source {
-    Record { real: Real, path: PathBuf },
-    Replay { recording: Recording },
+    Record {
+        real: Real,
+        path: PathBuf,
+    },
+    /// The recording, and the later connections' (vscode-js-debug's child sessions).
+    Replay {
+        recording: Recording,
+        more: Vec<Recording>,
+    },
 }
 
 /// The shell of one scenario run.
@@ -591,6 +896,13 @@ struct Run {
     /// Placeholder roots this run substitutes and scrubs.
     roots: Vec<(String, PathBuf)>,
     recording: bool,
+    /// Every connection's recorder or replay, the first one's also in `record` or `replay` (vscode-js-debug).
+    records: Arc<Mutex<Vec<RecordHandle>>>,
+    replays: Arc<Mutex<Vec<ReplayHandle>>>,
+    /// The run's tokens (brief 0038: the page's origin, the DevTools endpoint, the target id).
+    tokens: Vec<(String, String)>,
+    /// The folder the js-debug scenarios' page is served from (`@webroot`).
+    web: PathBuf,
 }
 
 impl Drop for Run {
@@ -625,6 +937,9 @@ impl Run {
                     // What the real adapter said so far, to see why.
                     let _ = h.write();
                 }
+                for h in self.records.lock().unwrap().iter() {
+                    let _ = h.write();
+                }
                 panic!("timed out waiting for {what}{}", self.replay_report());
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -632,17 +947,82 @@ impl Run {
     }
 
     fn replay_report(&self) -> String {
-        let Some(h) = self.replay.lock().unwrap().clone() else {
-            return String::new();
-        };
-        let mut out = String::new();
-        if let Some(w) = h.waiting_for() {
-            out.push_str(&format!("\nthe replay: {w}"));
+        let mut all = self.replays.lock().unwrap().clone();
+        if all.is_empty() {
+            all.extend(self.replay.lock().unwrap().clone());
         }
-        for f in h.failures() {
-            out.push_str(&format!("\nthe replay: {f}"));
+        let mut out = String::new();
+        for (n, h) in all.iter().enumerate() {
+            let which = if n == 0 {
+                "the replay".to_owned()
+            } else {
+                format!("the replay of connection {}", n + 1)
+            };
+            if let Some(w) = h.waiting_for() {
+                out.push_str(&format!("\n{which}: {w}"));
+            }
+            for f in h.failures() {
+                out.push_str(&format!("\n{which}: {f}"));
+            }
         }
         out
+    }
+
+    /// Run a browser command on another thread, running the UI meanwhile.
+    fn browser(&mut self, command: &'static str, args: Value) -> Value {
+        let commands = self.w.commands.clone();
+        let handle = std::thread::spawn(move || {
+            commands
+                .invoke(command, args)
+                .unwrap_or_else(|e| json!({ "error": e.to_string() }))
+        });
+        let deadline = Instant::now() + step_timeout(self.recording);
+        while !handle.is_finished() {
+            assert!(Instant::now() < deadline, "{command} did not finish");
+            self.w.vcx.run_until_parked();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        handle.join().unwrap()
+    }
+
+    /// The page's button `name` clicked (recording: marked first on every connection; replay: the mark passed).
+    fn click(&mut self, name: &str) {
+        let mark = format!("click {name}");
+        if !self.recording {
+            for h in self.replays.lock().unwrap().iter() {
+                h.mark(&mark);
+            }
+            return;
+        }
+        let read = self.browser(eludite_commands::browser::READ_PAGE, json!({"tab": "t1"}));
+        let r = read["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|n| n["role"] == "button" && n["name"] == name)
+            .and_then(|n| n["ref"].as_str())
+            .unwrap_or_else(|| panic!("no {name} button: {read}"))
+            .to_owned();
+        for h in self.records.lock().unwrap().iter() {
+            h.mark(&mark);
+        }
+        let out = self.browser(
+            eludite_commands::browser::INPUT,
+            json!({"tab": "t1", "action": "click", "ref": r, "wait_ms": 0}),
+        );
+        assert!(out.get("error").is_none(), "click {name}: {out}");
+    }
+
+    /// The browser session's id (`@browser`).
+    fn browser_session(&self) -> u32 {
+        self.w.shell.read_with(&self.w.vcx, |s, _| {
+            s.debugger()
+                .sessions_info()
+                .iter()
+                .find(|r| r.parent.is_none() && r.runtime.as_deref() == Some("javascript"))
+                .map(|r| r.id)
+                .expect("a browser session")
+        })
     }
 
     fn cmd(&mut self, command: &str, args: Value) -> Value {
@@ -671,6 +1051,8 @@ impl Run {
             Value::String(s) if s == "@source" => json!(self.source.to_string_lossy()),
             Value::String(s) if s == "@pid" => json!(self.pid),
             Value::String(s) if s == "@port" => json!(MONO_AGENT_PORT),
+            Value::String(s) if s == "@webroot" => json!(self.web.to_string_lossy()),
+            Value::String(s) if s == "@browser" => json!(self.browser_session()),
             Value::String(s) if s.starts_with("@line:") => json!(self.line_of(&s[6..])),
             Value::String(s) if s.starts_with("@ref:") => {
                 let name = &s[5..];
@@ -755,6 +1137,18 @@ impl Run {
                     let m = &s.debugger().model;
                     m.mode == Mode::Running
                         && m.state().console.tail.iter().any(|l| l.contains(line))
+                })
+            }),
+            Until::Child => self.wait(&format!("{label}: a child session"), |w| {
+                w.shell.read_with(&w.vcx, |s, _| {
+                    let d = s.debugger();
+                    d.sessions_info()
+                        .iter()
+                        .any(|r| r.parent.is_some() && r.mode == "running")
+                        && d.state()
+                            .breakpoints
+                            .iter()
+                            .all(|b| b.verified || !b.enabled)
                 })
             }),
         }
@@ -887,6 +1281,10 @@ impl Run {
                 assert!(answer.get("error").is_none(), "{command}: {answer}");
                 None
             }
+            Act::Click(name) => {
+                self.click(name);
+                None
+            }
         }
     }
 
@@ -897,6 +1295,9 @@ impl Run {
             let answer = self.act(s);
             self.settle(s.until, s.label);
             if let Some(h) = self.replay.lock().unwrap().clone() {
+                h.check().unwrap_or_else(|e| panic!("{}: {e}", s.label));
+            }
+            for h in self.replays.lock().unwrap().iter() {
                 h.check().unwrap_or_else(|e| panic!("{}: {e}", s.label));
             }
             let state = self.cmd(cmds::STATE, json!({}));
@@ -1044,17 +1445,84 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
                     let t = found.transport();
                     Box::new(move || eludite_dap::transport::connect(&t))
                 }
+                // vscode-js-debug is reached through `js` below, never `connect`.
+                Real::JsDebug { .. } => {
+                    Box::new(|| Err(std::io::Error::other("vscode-js-debug is started by `js`")))
+                }
             };
             (Some(connect), None, Some(path.clone()))
         }
-        Source::Replay { recording } => (None, Some(recording.clone()), None),
+        Source::Replay { recording, .. } => (None, Some(recording.clone()), None),
     };
     let version = match &source {
         Source::Record { real, .. } => match real {
             Real::Mono { version, .. } | Real::Lldb { version, .. } => version.clone(),
             Real::Netcoredbg { found } => format!("netcoredbg ({})", found.path.display()),
+            Real::JsDebug { .. } => String::new(),
         },
-        Source::Replay { recording } => recording.version.clone(),
+        Source::Replay { recording, .. } => recording.version.clone(),
+    };
+    // vscode-js-debug: a server whose every connection is recorded, or replayed from its own recording.
+    let records: Arc<Mutex<Vec<RecordHandle>>> = Arc::default();
+    let replays: Arc<Mutex<Vec<ReplayHandle>>> = Arc::default();
+    let tokens_slot: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let js = if adapter == Adapter::JsDebug {
+        let (roots, tokens) = (roots_slot.clone(), tokens_slot.clone());
+        let starter: super::JsStarter = match &source {
+            Source::Record {
+                real: Real::JsDebug { setup },
+                path,
+            } => {
+                let (setup, first, records, first_handle) =
+                    (setup.clone(), path.clone(), records.clone(), record.clone());
+                Arc::new(move || {
+                    let (inner, description, version) = setup.start_server()?;
+                    let server = RecordingServer {
+                        inner,
+                        order: Arc::default(),
+                        first: first.clone(),
+                        version: version.clone(),
+                        roots: roots.clone(),
+                        tokens: tokens.clone(),
+                        handles: records.clone(),
+                        first_handle: first_handle.clone(),
+                    };
+                    Ok((
+                        Arc::new(server) as Arc<dyn AdapterServer>,
+                        description,
+                        version,
+                    ))
+                })
+            }
+            Source::Replay { recording, more } => {
+                let mut recordings = vec![recording.clone()];
+                recordings.extend(more.iter().cloned());
+                let (replays, first_handle) = (replays.clone(), replay_slot.clone());
+                Arc::new(move || {
+                    let version = recordings[0].version.clone();
+                    let server = ReplayServer {
+                        group: replay::ReplayGroup::new(&recordings),
+                        recordings: recordings.clone(),
+                        roots: roots.clone(),
+                        tokens: tokens.clone(),
+                        handles: replays.clone(),
+                        first_handle: first_handle.clone(),
+                    };
+                    Ok((
+                        Arc::new(server) as Arc<dyn AdapterServer>,
+                        format!("replay of {version}"),
+                        version,
+                    ))
+                })
+            }
+            Source::Record { .. } => unreachable!("js-debug records with Real::JsDebug"),
+        };
+        JsSetup {
+            start: Some(starter),
+            ..JsSetup::default()
+        }
+    } else {
+        JsSetup::default()
     };
     let adapter_name = adapter.name();
     let setup = DebugSetup {
@@ -1081,6 +1549,7 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
                         roots,
                         pid: *pid.lock().unwrap(),
                         real_time: false,
+                        tokens: Vec::new(),
                     },
                 );
                 *rep.lock().unwrap() = Some(handle);
@@ -1097,7 +1566,7 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
         },
         store_dir: Some(store),
         dotnet: "dotnet".into(),
-        js: Default::default(),
+        js,
     };
     let w = setup_debug(cx, |_| {}, None, Some(setup));
     let tmp = w.dir.path().to_path_buf();
@@ -1112,6 +1581,10 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
         attached_app: None,
         roots: Vec::new(),
         recording,
+        records,
+        replays,
+        tokens: Vec::new(),
+        web: PathBuf::new(),
     };
     set_build_before_run(&mut run, false);
     let mut roots = vec![
@@ -1281,6 +1754,64 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
                 w.shell
                     .read_with(&w.vcx, |s, _| s.cargo_workspace().is_some())
             });
+        }
+        Adapter::JsDebug => {
+            // The corpus web project's script, its map and its TypeScript source, under the page served.
+            let web = tmp.join("web");
+            let corpus = repo_root().join("corpus/web/minimal-api/wwwroot");
+            std::fs::create_dir_all(&web).unwrap();
+            for f in ["app.ts", "app.js", "app.js.map"] {
+                std::fs::copy(corpus.join(f), web.join(f)).unwrap();
+            }
+            std::fs::write(web.join("index.html"), JS_PAGE).unwrap();
+            run.source = web.join("app.ts");
+            run.text = std::fs::read_to_string(&run.source).unwrap();
+            run.web = web.clone();
+            // The folder first: opening one closes the browser.
+            run.cmd(
+                eludite_commands::workspace::WORKSPACE_OPEN_FOLDER,
+                json!({ "path": tmp.to_string_lossy() }),
+            );
+            let origin = if recording {
+                format!("127.0.0.1:{}", serve_static(web))
+            } else {
+                super::super::browser_tests::install_page_engine(&run.w);
+                REPLAY_ORIGIN.to_owned()
+            };
+            let opened = run.browser(
+                eludite_commands::browser::TAB_OPEN,
+                json!({"url": format!("http://{origin}/")}),
+            );
+            assert_eq!(opened["id"], "t1", "{opened}");
+            let bus = run
+                .w
+                .shell
+                .read_with(&run.w.vcx, |s, _| s.debug.browser_bus.clone())
+                .expect("the browser");
+            let target = bus
+                .debug_target(super::super::browser::DebugTab::Id("t1".into()))
+                .expect("the tab's debugging endpoint");
+            run.tokens = vec![
+                // vscode-js-debug names a page's scripts after the origin with a modifier letter colon.
+                ("${ORIGIN_NAME}".to_owned(), origin.replace(':', "\u{a789}")),
+                ("${ORIGIN}".to_owned(), origin),
+                (
+                    "${DEVTOOLS}".to_owned(),
+                    format!("{}:{}", target.address, target.port),
+                ),
+                ("${DEVTOOLS_PORT}".to_owned(), target.port.to_string()),
+            ];
+            if let Some(t) = target.target_id {
+                run.tokens.push(("${TARGET}".to_owned(), t));
+            }
+            if !recording {
+                // The pending target ids `startDebugging` named when recording (`pending_targets`).
+                for n in 1..=PENDING_TARGETS {
+                    run.tokens
+                        .push((pending_placeholder(n), format!("PENDING-TARGET-{n}")));
+                }
+            }
+            *tokens_slot.lock().unwrap() = run.tokens.clone();
         }
     }
     *pid_slot.lock().unwrap() = run.pid;
@@ -1465,9 +1996,11 @@ fn replay_scenario(
     adapter: Adapter,
     scenario: &str,
     recording: Recording,
+    more: Vec<Recording>,
 ) -> (Vec<Value>, Duration) {
     let clock = Instant::now();
-    let mut run = start(cx, adapter, scenario, Source::Replay { recording });
+    let connections = 1 + more.len();
+    let mut run = start(cx, adapter, scenario, Source::Replay { recording, more });
     let snapshots = run.run(&steps(adapter, scenario));
     let process = (scenario == "attach-detach")
         .then(|| process_name(run.pid))
@@ -1479,8 +2012,23 @@ fn replay_scenario(
         .clone()
         .expect("the session connected");
     handle.check().unwrap_or_else(|e| panic!("{e}"));
+    let replays = run.replays.lock().unwrap().clone();
+    for h in &replays {
+        h.check().unwrap_or_else(|e| panic!("{e}"));
+    }
+    if adapter == Adapter::JsDebug {
+        assert_eq!(
+            replays.len(),
+            connections,
+            "the shell opened {} of the recording's {connections} connections",
+            replays.len()
+        );
+    }
     let mut scrubber = Scrubber::new(&run.roots);
     scrubber.add_pid(run.pid);
+    for (placeholder, text) in &run.tokens {
+        scrubber.add_token(placeholder, text);
+    }
     let out = snapshots
         .into_iter()
         .map(|s| normalize(s, &scrubber, process.as_deref()))
@@ -1490,14 +2038,15 @@ fn replay_scenario(
     (out, took)
 }
 
-/// Record `scenario` against the real adapter into `dir`: the recording and the golden file of the live snapshots.
+/// Record `scenario` against the real adapter into `dir`: the recording (and the later connections', vscode-js-debug's
+/// child sessions) and the golden file of the live snapshots.
 fn record_scenario(
     cx: &mut TestAppContext,
     adapter: Adapter,
     scenario: &str,
     real: Real,
     dir: &Path,
-) -> (Recording, Vec<Value>) {
+) -> (Recording, Vec<Recording>, Vec<Value>) {
     let (rec_path, golden_path) = paths(dir, adapter, scenario);
     let clock = Instant::now();
     let mut run = start(
@@ -1536,7 +2085,33 @@ fn record_scenario(
         }
         handle.add_pid(run.pid);
     }
-    let recording = handle.write().unwrap();
+    let mut recording = handle.write().unwrap();
+    // The child sessions' connections, written once they ended too.
+    let all = run.records.lock().unwrap().clone();
+    for h in all.iter().skip(1) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while h.ended().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    // vscode-js-debug's pending target ids are the run's own: scrubbed everywhere.
+    for (n, id) in pending_targets(&recording).iter().enumerate() {
+        for h in &all {
+            h.add_token(&pending_placeholder(n + 1), id);
+        }
+    }
+    if !all.is_empty() {
+        recording = handle.write().unwrap();
+    }
+    let more: Vec<Recording> = all.iter().skip(1).map(|h| h.write().unwrap()).collect();
+    if adapter == Adapter::JsDebug {
+        // The page's tab and the engine go with the run.
+        let closed = run
+            .w
+            .shell
+            .read_with(&run.w.vcx, |s, _| s.browser().shutdown());
+        let _ = closed.recv_timeout(Duration::from_secs(10));
+    }
     let scrubber = handle.scrubber();
     let mut scrubber_with_roots = scrubber.clone();
     if !scrubber_with_roots.pids().contains(&run.pid) && run.pid != REPLAY_PID {
@@ -1548,15 +2123,16 @@ fn record_scenario(
         .collect();
     std::fs::write(&golden_path, golden_text(adapter, scenario, &golden)).unwrap();
     eprintln!(
-        "recorded {} ({} messages, {} bytes) and {} in {:.1} s",
+        "recorded {} ({} messages, {} bytes; {} more connections) and {} in {:.1} s",
         rec_path.display(),
         recording.messages.len(),
         recording.to_text().len(),
+        more.len(),
         golden_path.display(),
         clock.elapsed().as_secs_f64()
     );
     drop(run);
-    (recording, golden)
+    (recording, more, golden)
 }
 
 /// One scenario: recorded first when `RECORD_DAP` is set and the adapter is here (then replayed from that fresh
@@ -1565,11 +2141,13 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
     if let Some(dir) = env_dir("RECORD_DAP") {
         match find_real(adapter) {
             Ok(real) => {
-                let (recording, golden) = record_scenario(cx, adapter, scenario, real, &dir);
-                assert!(
-                    recording.to_text().len() < record::MAX_RECORDING_BYTES,
-                    "the recording is over 2 MB"
-                );
+                let (recording, more, golden) = record_scenario(cx, adapter, scenario, real, &dir);
+                for r in std::iter::once(&recording).chain(&more) {
+                    assert!(
+                        r.to_text().len() < record::MAX_RECORDING_BYTES,
+                        "the recording is over 2 MB"
+                    );
+                }
                 let (checked_in, _) = paths(&corpus_dir(), adapter, scenario);
                 if env_on("DAP_CORPUS_CHECK") && checked_in != paths(&dir, adapter, scenario).0 {
                     if !checked_in.is_file() && adapter == Adapter::Netcoredbg {
@@ -1580,7 +2158,24 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
                     } else {
                         let old = Recording::read(&checked_in)
                             .unwrap_or_else(|e| panic!("{}: {e}", checked_in.display()));
-                        if let Err(e) = record::compare(&old, &recording) {
+                        let old_more = more_recordings(&checked_in);
+                        let compared =
+                            record::compare(&old, &recording).and_then(|()| {
+                                if old_more.len() != more.len() {
+                                    return Err(format!(
+                                        "{} connections checked in, {} re-recorded",
+                                        old_more.len() + 1,
+                                        more.len() + 1
+                                    ));
+                                }
+                                old_more.iter().zip(&more).enumerate().try_for_each(
+                                    |(n, (a, b))| {
+                                        record::compare(a, b)
+                                            .map_err(|e| format!("connection {}: {e}", n + 2))
+                                    },
+                                )
+                            });
+                        if let Err(e) = compared {
                             panic!(
                                 "{adapter:?} {scenario}: the re-recording differs from the checked-in one (an adapter \
                                  or shell change; re-record with tools/dap-corpus/record.sh and review the diff):\n{e}"
@@ -1588,7 +2183,7 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
                         }
                     }
                 }
-                let (replayed, _) = replay_scenario(cx, adapter, scenario, recording);
+                let (replayed, _) = replay_scenario(cx, adapter, scenario, recording, more);
                 let fresh = json!({"steps": golden});
                 compare_golden(&fresh, &replayed).unwrap_or_else(|e| {
                     panic!("{adapter:?} {scenario}: the replay of the fresh recording is not what the shell saw live: {e}")
@@ -1620,7 +2215,8 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
         );
         return;
     };
-    let (replayed, took) = replay_scenario(cx, adapter, scenario, recording);
+    let more = more_recordings(&rec_path);
+    let (replayed, took) = replay_scenario(cx, adapter, scenario, recording, more);
     eprintln!(
         "timing: replay of {} {scenario}: {:.0} ms",
         adapter.name(),
@@ -1698,6 +2294,16 @@ fn netcoredbg_run_until_and_trace(cx: &mut TestAppContext) {
     conformance(cx, Adapter::Netcoredbg, "run-until-and-trace");
 }
 
+#[gpui::test]
+fn js_debug_attach_break_step(cx: &mut TestAppContext) {
+    conformance(cx, Adapter::JsDebug, "attach-break-step");
+}
+
+#[gpui::test]
+fn js_debug_logpoints_and_exceptions(cx: &mut TestAppContext) {
+    conformance(cx, Adapter::JsDebug, "logpoints-and-exceptions");
+}
+
 /// A golden file edited by hand (here in memory: Mono's F11 lands in `Twice` with `x = 6`) fails the replay with the
 /// step, the path and both values.
 #[gpui::test]
@@ -1706,7 +2312,13 @@ fn a_golden_edit_fails_with_a_readable_diff(cx: &mut TestAppContext) {
     let recording = Recording::read(&rec_path).unwrap();
     let mut golden: Value =
         serde_json::from_str(&std::fs::read_to_string(&golden_path).unwrap()).unwrap();
-    let (replayed, _) = replay_scenario(cx, Adapter::Mono, "launch-break-step", recording);
+    let (replayed, _) = replay_scenario(
+        cx,
+        Adapter::Mono,
+        "launch-break-step",
+        recording,
+        Vec::new(),
+    );
     compare_golden(&golden, &replayed).unwrap();
     let step = golden["steps"]
         .as_array()

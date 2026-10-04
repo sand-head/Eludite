@@ -1,0 +1,849 @@
+{
+  "adapter": "js-debug",
+  "scenario": "logpoints-and-exceptions",
+  "steps": [
+    {
+      "step": "tracepoint in onAdd",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": false,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 24 [enabled] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "break when thrown",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": false,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 24 [enabled] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "agent attach to the tab",
+      "state": {
+        "mode": "running",
+        "generation": 2,
+        "stop": 0,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": true,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}",
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": true,
+            "generation": 2,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 24 [enabled, bound] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "click Add",
+      "state": {
+        "mode": "running",
+        "generation": 2,
+        "stop": 0,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": true,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}",
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 2,
+          "tail": [
+            "Debugging Minimal API (session 1's target).",
+            "added item 1 at 5"
+          ],
+          "next": 1
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": true,
+            "generation": 2,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 24 [enabled, bound] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "click Fail",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 1,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "exception",
+          "thread": 0,
+          "description": "Paused on exception",
+          "exception": {
+            "id": "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+            "break_mode": "all"
+          },
+          "driver": "agent:Conformance Agent"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "button#fail.onclick",
+            "path": "${TMP}/web/index.html",
+            "line": 10,
+            "column": 69
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "event",
+            "value": "PointerEvent {isTrusted: true, pointerId: 1, width: 1, height: 1, pressure: 0, …}",
+            "type": "PointerEvent",
+            "reference": 6,
+            "evaluate_name": "event"
+          },
+          {
+            "name": "this",
+            "value": "<button id=\"fail\" type=\"button\" onclick=\"JSON.parse('{')\">...</button>",
+            "type": "object",
+            "reference": 7,
+            "evaluate_name": "this"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": true,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}",
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Debugging Minimal API (session 1's target).",
+            "added item 1 at 5",
+            "Exception thrown: 'SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)'"
+          ],
+          "next": 1
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 1,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "exception"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ event = PointerEvent {isTrusted: true, pointerId: 1, width: 1, height: 1, pressure: 0, …} : PointerEvent",
+          "+ this = <button id=\"fail\" type=\"button\" onclick=\"JSON.parse('{')\">...</button> : object"
+        ],
+        "call_stack": [
+          "> button#fail.onclick | index.html, line 10"
+        ],
+        "threads": [
+          "> 0 Minimal API | button#fail.onclick"
+        ],
+        "breakpoints": [
+          "app.ts, line 24 [enabled, bound] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "agent exception_info",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 1,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "exception",
+          "thread": 0,
+          "description": "Paused on exception",
+          "exception": {
+            "id": "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+            "break_mode": "all"
+          },
+          "driver": "agent:Conformance Agent"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "button#fail.onclick",
+            "path": "${TMP}/web/index.html",
+            "line": 10,
+            "column": 69
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "event",
+            "value": "PointerEvent {isTrusted: true, pointerId: 1, width: 1, height: 1, pressure: 0, …}",
+            "type": "PointerEvent",
+            "reference": 6,
+            "evaluate_name": "event"
+          },
+          {
+            "name": "this",
+            "value": "<button id=\"fail\" type=\"button\" onclick=\"JSON.parse('{')\">...</button>",
+            "type": "object",
+            "reference": 7,
+            "evaluate_name": "this"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": true,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}",
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Debugging Minimal API (session 1's target).",
+            "added item 1 at 5",
+            "Exception thrown: 'SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)'"
+          ],
+          "next": 1
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 1,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "exception"
+          }
+        ]
+      },
+      "answer": {
+        "supported": true,
+        "type": "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+        "break_mode": "all",
+        "details": {
+          "stack_trace": "  at JSON.parse (<anonymous>)\n    at HTMLButtonElement.onclick (http://${ORIGIN}/:10:69)"
+        },
+        "thread": 0,
+        "stop": 1
+      },
+      "windows": {
+        "locals": [
+          "+ event = PointerEvent {isTrusted: true, pointerId: 1, width: 1, height: 1, pressure: 0, …} : PointerEvent",
+          "+ this = <button id=\"fail\" type=\"button\" onclick=\"JSON.parse('{')\">...</button> : object"
+        ],
+        "call_stack": [
+          "> button#fail.onclick | index.html, line 10"
+        ],
+        "threads": [
+          "> 0 Minimal API | button#fail.onclick"
+        ],
+        "breakpoints": [
+          "app.ts, line 24 [enabled, bound] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    },
+    {
+      "step": "agent stop",
+      "state": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 0,
+        "session": {
+          "id": 1,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": false,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Attaching vscode-js-debug to tab t1…",
+            "Debugging ${ORIGIN} ",
+            "Detached from Minimal API (http://${ORIGIN}/); the page keeps running."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "message": "Detached from Minimal API (http://${ORIGIN}/); the page keeps running.",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true
+      },
+      "answer": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 0,
+        "session": {
+          "id": 1,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "tracepoint",
+            "path": "${TMP}/web/app.ts",
+            "line": 24,
+            "enabled": true,
+            "verified": false,
+            "hits": 0,
+            "log_message": "added {item.name} at {price}"
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": true,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Attaching vscode-js-debug to tab t1…",
+            "Debugging ${ORIGIN} ",
+            "Detached from Minimal API (http://${ORIGIN}/); the page keeps running."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "message": "Detached from Minimal API (http://${ORIGIN}/); the page keeps running.",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true
+      },
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 24 [enabled] hits 0 print added {item.name} at {price}"
+        ]
+      }
+    }
+  ]
+}

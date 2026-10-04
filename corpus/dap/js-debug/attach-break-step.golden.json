@@ -1,0 +1,1432 @@
+{
+  "adapter": "js-debug",
+  "scenario": "attach-break-step",
+  "steps": [
+    {
+      "step": "F9 in onAdd",
+      "state": {
+        "mode": "design",
+        "generation": 0,
+        "stop": 0,
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": false,
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 0,
+          "tail": [],
+          "next": 0
+        },
+        "agent_driving": false,
+        "agents_allowed": true
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 25 [enabled] hits 0"
+        ]
+      }
+    },
+    {
+      "step": "agent attach to the tab",
+      "state": {
+        "mode": "running",
+        "generation": 2,
+        "stop": 0,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 0,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 0
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": true,
+            "generation": 2,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 0"
+        ]
+      }
+    },
+    {
+      "step": "click Add",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 1,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "breakpoint",
+          "thread": 0,
+          "description": "Paused on breakpoint",
+          "driver": "agent:Conformance Agent"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "button#add.onAdd",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "column": 15,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 18,
+              "generated_column": 17
+            }
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "input",
+            "value": "<input id=\"price\" type=\"number\" value=\"5\"></input>",
+            "type": "object",
+            "reference": 4,
+            "evaluate_name": "input"
+          },
+          {
+            "name": "item",
+            "value": "{name: 'item 1', price: 5}",
+            "type": "Object",
+            "reference": 6,
+            "evaluate_name": "item"
+          },
+          {
+            "name": "price",
+            "value": "5",
+            "type": "number",
+            "reference": 0,
+            "evaluate_name": "price"
+          },
+          {
+            "name": "this",
+            "value": "<button id=\"add\" type=\"button\">...</button>",
+            "type": "object",
+            "reference": 7,
+            "evaluate_name": "this"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 1,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "breakpoint"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ input = <input id=\"price\" type=\"number\" value=\"5\"></input> : object",
+          "+ item = {name: 'item 1', price: 5} : Object",
+          "price = 5 : number",
+          "+ this = <button id=\"add\" type=\"button\">...</button> : object"
+        ],
+        "call_stack": [
+          "> button#add.onAdd | app.ts, line 25"
+        ],
+        "threads": [
+          "> 0 Minimal API | button#add.onAdd"
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "F11 into total",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 2,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": 0,
+          "description": "Paused",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "total",
+            "path": "${TMP}/web/app.ts",
+            "line": 13,
+            "column": 13,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 7,
+              "generated_column": 15
+            }
+          },
+          {
+            "index": 1,
+            "name": "button#add.onAdd",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "column": 15,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 18,
+              "generated_column": 17
+            }
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "items",
+            "value": "(1) [{…}]",
+            "type": "Array",
+            "reference": 11,
+            "evaluate_name": "items"
+          },
+          {
+            "name": "this",
+            "value": "undefined",
+            "type": "undefined",
+            "reference": 0,
+            "evaluate_name": "this"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 2,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ items = (1) [{…}] : Array",
+          "this = undefined : undefined"
+        ],
+        "call_stack": [
+          "> total | app.ts, line 13",
+          "  button#add.onAdd | app.ts, line 25"
+        ],
+        "threads": [
+          "> 0 Minimal API | total"
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "F10",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 3,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": 0,
+          "description": "Paused",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "total",
+            "path": "${TMP}/web/app.ts",
+            "line": 14,
+            "column": 16,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 8,
+              "generated_column": 18
+            }
+          },
+          {
+            "index": 1,
+            "name": "button#add.onAdd",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "column": 15,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 18,
+              "generated_column": 17
+            }
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "items",
+            "value": "(1) [{…}]",
+            "type": "Array",
+            "reference": 17,
+            "evaluate_name": "items"
+          },
+          {
+            "name": "sum",
+            "value": "0",
+            "type": "number",
+            "reference": 0,
+            "evaluate_name": "sum"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 3,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ items = (1) [{…}] : Array",
+          "sum = 0 : number"
+        ],
+        "call_stack": [
+          "> total | app.ts, line 14",
+          "  button#add.onAdd | app.ts, line 25"
+        ],
+        "threads": [
+          "> 0 Minimal API | total"
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "agent stack",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 3,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": 0,
+          "description": "Paused",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "total",
+            "path": "${TMP}/web/app.ts",
+            "line": 14,
+            "column": 16,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 8,
+              "generated_column": 18
+            }
+          },
+          {
+            "index": 1,
+            "name": "button#add.onAdd",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "column": 15,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 18,
+              "generated_column": 17
+            }
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "items",
+            "value": "(1) [{…}]",
+            "type": "Array",
+            "reference": 17,
+            "evaluate_name": "items"
+          },
+          {
+            "name": "sum",
+            "value": "0",
+            "type": "number",
+            "reference": 0,
+            "evaluate_name": "sum"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 3,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": {
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API",
+            "frames": [
+              {
+                "index": 0,
+                "name": "total",
+                "path": "${TMP}/web/app.ts",
+                "line": 14,
+                "column": 16,
+                "source": {
+                  "original": "${TMP}/web/app.ts",
+                  "generated": "${TMP}/web/app.js",
+                  "generated_line": 8,
+                  "generated_column": 18
+                }
+              },
+              {
+                "index": 1,
+                "name": "button#add.onAdd",
+                "path": "${TMP}/web/app.ts",
+                "line": 25,
+                "column": 15,
+                "source": {
+                  "original": "${TMP}/web/app.ts",
+                  "generated": "${TMP}/web/app.js",
+                  "generated_line": 18,
+                  "generated_column": 17
+                }
+              }
+            ],
+            "total": 2,
+            "truncated": false
+          }
+        ],
+        "stop": 3
+      },
+      "windows": {
+        "locals": [
+          "+ items = (1) [{…}] : Array",
+          "sum = 0 : number"
+        ],
+        "call_stack": [
+          "> total | app.ts, line 14",
+          "  button#add.onAdd | app.ts, line 25"
+        ],
+        "threads": [
+          "> 0 Minimal API | total"
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "Shift+F11",
+      "state": {
+        "mode": "break",
+        "generation": 2,
+        "stop": 4,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "stopped": {
+          "reason": "step",
+          "thread": 0,
+          "description": "Paused",
+          "driver": "user"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [
+          {
+            "index": 0,
+            "name": "button#add.onAdd",
+            "path": "${TMP}/web/app.ts",
+            "line": 26,
+            "column": 3,
+            "source": {
+              "original": "${TMP}/web/app.ts",
+              "generated": "${TMP}/web/app.js",
+              "generated_line": 19,
+              "generated_column": 5
+            }
+          }
+        ],
+        "frame": 0,
+        "locals": [
+          {
+            "name": "input",
+            "value": "<input id=\"price\" type=\"number\" value=\"5\"></input>",
+            "type": "object",
+            "reference": 22,
+            "evaluate_name": "input"
+          },
+          {
+            "name": "item",
+            "value": "{name: 'item 1', price: 5}",
+            "type": "Object",
+            "reference": 24,
+            "evaluate_name": "item"
+          },
+          {
+            "name": "price",
+            "value": "5",
+            "type": "number",
+            "reference": 0,
+            "evaluate_name": "price"
+          },
+          {
+            "name": "sum",
+            "value": "0",
+            "type": "number",
+            "reference": 0,
+            "evaluate_name": "sum"
+          },
+          {
+            "name": "this",
+            "value": "<button id=\"add\" type=\"button\">...</button>",
+            "type": "object",
+            "reference": 26,
+            "evaluate_name": "this"
+          }
+        ],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "break",
+            "active": true,
+            "generation": 2,
+            "stop": 4,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true,
+            "stopped": "step"
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [
+          "+ input = <input id=\"price\" type=\"number\" value=\"5\"></input> : object",
+          "+ item = {name: 'item 1', price: 5} : Object",
+          "price = 5 : number",
+          "sum = 0 : number",
+          "+ this = <button id=\"add\" type=\"button\">...</button> : object"
+        ],
+        "call_stack": [
+          "> button#add.onAdd | app.ts, line 26"
+        ],
+        "threads": [
+          "> 0 Minimal API | button#add.onAdd"
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "F5",
+      "state": {
+        "mode": "running",
+        "generation": 2,
+        "stop": 4,
+        "session": {
+          "id": 2,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "parent": 1,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [
+          {
+            "id": 0,
+            "name": "Minimal API"
+          }
+        ],
+        "thread": 0,
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": true,
+            "hits": 1,
+            "sessions": [
+              {
+                "session": 2,
+                "verified": true,
+                "hits": 1
+              }
+            ]
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 1,
+          "tail": [
+            "Debugging Minimal API (session 1's target)."
+          ],
+          "next": 0
+        },
+        "last_driver": "user",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": false,
+        "agents_allowed": true,
+        "sessions": [
+          {
+            "id": 1,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": false,
+            "generation": 1,
+            "stop": 0,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          },
+          {
+            "id": 2,
+            "name": "Minimal API",
+            "mode": "running",
+            "active": true,
+            "generation": 2,
+            "stop": 4,
+            "runtime": "javascript",
+            "adapter": "${ADAPTER}",
+            "adapter_version": "vscode-js-debug 1.140.0, node v22.22.0",
+            "project": "Minimal API",
+            "attached": true,
+            "parent": 1,
+            "tab": "t1",
+            "url": "http://${ORIGIN}/",
+            "agents_allowed": true
+          }
+        ]
+      },
+      "answer": null,
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [
+          "> 0 Minimal API | "
+        ],
+        "breakpoints": [
+          "app.ts, line 25 [enabled, bound] hits 1"
+        ]
+      }
+    },
+    {
+      "step": "agent stop",
+      "state": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 0,
+        "session": {
+          "id": 1,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": false,
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Attaching vscode-js-debug to tab t1…",
+            "Debugging ${ORIGIN} ",
+            "Detached from Minimal API (http://${ORIGIN}/); the page keeps running."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "message": "Detached from Minimal API (http://${ORIGIN}/); the page keeps running.",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true
+      },
+      "answer": {
+        "mode": "design",
+        "generation": 1,
+        "stop": 0,
+        "session": {
+          "id": 1,
+          "project": "${PROCESS}",
+          "program": "${PROCESS}",
+          "args": "${PROCESS}",
+          "cwd": "${PROCESS}",
+          "debug": true,
+          "adapter": "${ADAPTER}",
+          "runtime": "javascript",
+          "attached": true,
+          "tab": "t1",
+          "url": "http://${ORIGIN}/"
+        },
+        "threads": [],
+        "frames": [],
+        "locals": [],
+        "watches": [],
+        "breakpoints": [
+          {
+            "kind": "line",
+            "path": "${TMP}/web/app.ts",
+            "line": 25,
+            "enabled": true,
+            "verified": false,
+            "hits": 0
+          }
+        ],
+        "exceptions": {
+          "break_when_thrown": false,
+          "break_when_user_unhandled": true,
+          "break_on_rust_panic": true
+        },
+        "console": {
+          "lines": 3,
+          "tail": [
+            "Attaching vscode-js-debug to tab t1…",
+            "Debugging ${ORIGIN} ",
+            "Detached from Minimal API (http://${ORIGIN}/); the page keeps running."
+          ],
+          "next": 0
+        },
+        "last_driver": "agent:Conformance Agent",
+        "message": "Detached from Minimal API (http://${ORIGIN}/); the page keeps running.",
+        "capabilities": {
+          "adapter": "javascript",
+          "pause": true,
+          "set_variable": true,
+          "exception_info": true,
+          "function_breakpoints": false,
+          "log_points": "adapter",
+          "hit_conditions": "adapter",
+          "exception_filter_options": true,
+          "set_next_statement": false,
+          "data_breakpoints": false,
+          "step_back": false,
+          "restart": true,
+          "terminate": false,
+          "modules": false,
+          "memory": true,
+          "disassembly": false,
+          "delayed_stack_loading": true,
+          "variable_paging": false
+        },
+        "agent_driving": true,
+        "agents_allowed": true
+      },
+      "windows": {
+        "locals": [],
+        "call_stack": [],
+        "threads": [],
+        "breakpoints": [
+          "app.ts, line 25 [enabled] hits 0"
+        ]
+      }
+    }
+  ]
+}
