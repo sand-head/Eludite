@@ -953,15 +953,30 @@ fn record_with(
     (conn, RecordHandle { shared })
 }
 
-/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving) and
-/// lldb-dap's `statistics` (its own memory figures).
+/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving),
+/// lldb-dap's `statistics` (its own memory figures), and the code and memory addresses anywhere in it
+/// (`instructionReference`, `instructionPointerReference`, `memoryReference`: the debuggee's layout, which the
+/// machine that built it decides).
 fn comparable(m: &Value) -> Value {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                o.remove("instructionReference");
+                o.remove("instructionPointerReference");
+                o.remove("memoryReference");
+                o.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
     let mut m = m.clone();
     if let Some(o) = m.as_object_mut() {
         o.remove("seq");
         o.remove("request_seq");
         o.remove("statistics");
     }
+    strip(&mut m);
     m
 }
 
@@ -1090,10 +1105,11 @@ pub fn differences(expected: &Value, actual: &Value, max: usize) -> Vec<String> 
 
 /// The re-record check: `rerecorded` reproduces `checked_in` when each group of messages (see `groups`: the
 /// client's requests, the adapter's responses, its events, its output text by category, the session's end) agrees,
-/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, `continued` events and
-/// vscode-js-debug's `loadedSource` events: how the directions, the adapter's events and the debuggee's streams
-/// interleave is timing. `Err` names the first difference of each group
-/// that differs.
+/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, the addresses in
+/// `instructionReference`, `instructionPointerReference` and `memoryReference` (the debuggee's layout differs
+/// between the machines that build it), `continued` events and vscode-js-debug's `loadedSource` events: how the
+/// directions, the adapter's events and the debuggee's streams interleave is timing. `Err` names the first
+/// difference of each group that differs.
 pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), String> {
     let mut problems = Vec::new();
     if checked_in.adapter != rerecorded.adapter {
@@ -1335,6 +1351,16 @@ mod tests {
         other.messages[1].t_ms = 900;
         other.messages[1].message["seq"] = json!(7);
         assert_eq!(compare(&r, &other), Ok(()), "timing and seq are not drift");
+        let (mut here, mut there) = (r.clone(), r.clone());
+        here.messages[1].message["body"] =
+            json!({"breakpoints": [{"verified": true, "instructionReference": "0x55555556C94C"}]});
+        there.messages[1].message["body"] =
+            json!({"breakpoints": [{"verified": true, "instructionReference": "0x55555556C24C"}]});
+        assert_eq!(
+            compare(&here, &there),
+            Ok(()),
+            "addresses are the building machine's"
+        );
         other.messages[1].message["success"] = json!(false);
         let e = compare(&r, &other).unwrap_err();
         assert!(

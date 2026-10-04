@@ -670,7 +670,11 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
     let stack = frames(&client, tid, 40);
     let names: Vec<&str> = stack.iter().map(|f| f["name"].as_str().unwrap()).collect();
     eprintln!("panic stop ({}): {names:?}", s.reason);
-    assert!(names[0].ends_with("rust_panic"), "{names:?}");
+    // Apple's lldb-dap marks optimized frames ` [opt]`.
+    assert!(
+        names[0].trim_end_matches(" [opt]").ends_with("rust_panic"),
+        "{names:?}"
+    );
     let main_ix = names
         .iter()
         .position(|n| *n == "lldbtest::main")
