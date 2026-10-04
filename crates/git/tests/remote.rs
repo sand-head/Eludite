@@ -1,10 +1,16 @@
-//! Fetch, pull and push against a bare repository on disk (no network), with the ahead and behind counts.
+//! Fetch, pull and push against a bare repository on disk (no network), with the ahead and behind counts; then the
+//! same repository served on loopback by `git http-backend` behind basic authentication, over http and over https
+//! with a self-signed certificate (brief 0045, `support/server.rs`).
 
 use std::path::Path;
 
 use eludite_git::branches::MergeOutcome;
 use eludite_git::commit::CommitOptions;
-use eludite_git::{Cancel, ErrorKind, GlobalConfig, Repo, git2};
+use eludite_git::{Cancel, ErrorKind, GlobalConfig, Repo, SessionCredentials, UserPass, git2};
+
+#[path = "support/server.rs"]
+mod server;
+use server::GitHttp;
 
 fn clone_of(bare: &Path, at: &Path) -> Repo {
     let url = format!("file://{}", bare.display());
@@ -197,18 +203,213 @@ fn a_new_branch_pushes_with_its_upstream_and_pull_conflicts_stop() {
     assert_eq!(e.kind, ErrorKind::NotFound);
 }
 
-/// This build's libgit2 has no https or ssh transport (no `https` or `ssh` feature: they add dependencies): such a
-/// remote fails at once: https with "there is no TLS stream available", ssh as an unsupported protocol.
-#[test]
-fn https_and_ssh_remotes_need_transports_this_build_lacks() {
-    let (_tmp, a, _) = setup();
-    let r = a.repository().unwrap();
-    r.remote("web", "https://example.invalid/r.git").unwrap();
-    r.remote("ssh", "ssh://git@example.invalid/r.git").unwrap();
-    for (remote, says) in [("web", "TLS"), ("ssh", "unsupported")] {
-        let e = a
-            .fetch(Some(remote), false, &Cancel::new(), &mut |_| {})
-            .unwrap_err();
-        assert!(e.message.contains(says), "{remote}: {e}");
+fn up(username: &str, password: &str) -> UserPass {
+    UserPass {
+        username: username.into(),
+        password: password.into(),
     }
+}
+
+/// `repo`'s `origin` moved to `url`, and `repo` offering `session`'s credentials.
+fn served(repo: Repo, url: &str, session: &SessionCredentials) -> Repo {
+    repo.repository()
+        .unwrap()
+        .remote_set_url("origin", url)
+        .unwrap();
+    repo.with_credentials(session.clone())
+}
+
+fn fetch(repo: &Repo) -> eludite_git::Result<eludite_git::remote::Fetched> {
+    repo.fetch(None, false, &Cancel::new(), &mut |_| {})
+}
+
+fn push(repo: &Repo) -> eludite_git::Result<eludite_git::remote::Pushed> {
+    repo.push(None, None, false, false, &Cancel::new(), &mut |_| {})
+}
+
+/// An http remote that asks for a user name and password: nothing answers (credentials_required with the host, as
+/// the shell's prompt needs it), a wrong answer is refused and says so, the right one fetches and pushes.
+#[test]
+fn an_http_remote_asking_for_credentials_takes_the_prompts_answer() {
+    let (tmp, a, b) = setup();
+    let Some(server) = GitHttp::start(tmp.path(), "alice", "s3cret") else {
+        return;
+    };
+    let session = SessionCredentials::new();
+    let a = served(a, &server.url("remote.git"), &session);
+    let e = fetch(&a).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::CredentialsRequired, "{e}");
+    assert_eq!(e.host.as_deref(), Some(server.host().as_str()));
+    assert!(!e.refused);
+    assert!(
+        e.message.starts_with(&format!(
+            "credentials_required: {} asks for a user name and a password or token",
+            server.host()
+        )),
+        "{e}"
+    );
+    assert!(e.message.contains("git.credentialPrompt"), "{e}");
+    let asked = server.requests();
+    assert!(
+        !asked.is_empty() && asked.iter().all(|r| r.status == 401),
+        "{asked:?}"
+    );
+    // A wrong answer: refused.
+    session.supply(&server.host(), up("alice", "wrong"), false);
+    let e = fetch(&a).unwrap_err();
+    assert_eq!(
+        (e.kind, e.refused),
+        (ErrorKind::CredentialsRequired, true),
+        "{e}"
+    );
+    assert!(
+        e.message.contains("refused the user name and password"),
+        "{e}"
+    );
+    // The right one, remembered for the session: fetch, pull and push go as alice.
+    session.forget_once(&server.host());
+    session.supply(&server.host(), up("alice", "s3cret"), true);
+    commit(&b, "b.cs", "b\n", "from b");
+    b.push(None, None, false, false, &Cancel::new(), &mut |_| {})
+        .unwrap();
+    let f = fetch(&a).unwrap();
+    assert_eq!(f.updated, ["origin/main"]);
+    assert_eq!(a.status(false).unwrap().behind, 1);
+    assert!(matches!(
+        a.pull(None, false, None, &Cancel::new(), &mut |_| {})
+            .unwrap(),
+        MergeOutcome::FastForward(_)
+    ));
+    commit(&a, "a2.cs", "a2\n", "from a over http");
+    push(&a).unwrap();
+    let s = a.status(false).unwrap();
+    assert_eq!((s.ahead, s.behind), (0, 0));
+    let log = server.requests();
+    assert!(
+        log.iter().any(|r| r.user.as_deref() == Some("alice")
+            && r.status == 200
+            && r.target.contains("git-receive-pack")),
+        "the push went through http-backend as alice: {log:?}"
+    );
+}
+
+/// The configured credential helper answers before the prompt's answer is tried (a wrong one is kept here: it is
+/// never reached).
+#[test]
+fn the_configured_credential_helper_answers_before_the_prompt() {
+    if !server::on_path("sh", "-c") && !cfg!(unix) {
+        eprintln!("skipped: the test's helper is a shell function");
+        return;
+    }
+    let (tmp, a, _) = setup();
+    let Some(server) = GitHttp::start(tmp.path(), "alice", "s3cret") else {
+        return;
+    };
+    let session = SessionCredentials::new();
+    session.supply(&server.host(), up("alice", "wrong"), true);
+    let a = served(a, &server.url("remote.git"), &session);
+    a.repository()
+        .unwrap()
+        .config()
+        .unwrap()
+        .set_str(
+            "credential.helper",
+            "!f() { echo username=alice; echo password=s3cret; }; f",
+        )
+        .unwrap();
+    fetch(&a).unwrap();
+    assert!(
+        server
+            .requests()
+            .iter()
+            .any(|r| r.user.as_deref() == Some("alice") && r.status == 200)
+    );
+}
+
+/// `http.proxy` carries an https transfer: a remote on a host that does not resolve is reached through a CONNECT
+/// proxy on loopback, which tunnels to the TLS test server (libgit2 tunnels only https through a proxy).
+#[test]
+fn http_proxy_carries_an_https_transfer() {
+    let (tmp, a, _) = setup();
+    let Some(server) = GitHttp::start_tls(tmp.path(), "alice", "s3cret") else {
+        return;
+    };
+    let proxy = server::ConnectProxy::start(server.port);
+    let session = SessionCredentials::new();
+    session.supply("git.example.invalid", up("alice", "s3cret"), true);
+    let a = served(a, "https://git.example.invalid/remote.git", &session);
+    let config = || a.repository().unwrap().config().unwrap();
+    config().set_bool("http.sslVerify", false).unwrap();
+    config()
+        .set_str("http.proxy", &format!("http://127.0.0.1:{}", proxy.port))
+        .unwrap();
+    fetch(&a).unwrap();
+    assert_eq!(
+        proxy.connects().first().map(String::as_str),
+        Some("git.example.invalid:443")
+    );
+    assert!(server.requests().iter().any(|r| r.status == 200));
+    // An empty http.proxy turns it off (as in git): the host does not resolve.
+    config().set_str("http.proxy", "").unwrap();
+    let before = proxy.connects().len();
+    assert!(fetch(&a).is_err());
+    assert_eq!(proxy.connects().len(), before);
+}
+
+/// https with a self-signed certificate: refused, naming the host, while `http.sslVerify` is on; with it off (as git
+/// honors it) fetch, pull and push go over TLS, and the credential callback answered the server's 401 there too.
+#[test]
+fn https_with_a_self_signed_certificate_needs_ssl_verify_off() {
+    let (tmp, a, b) = setup();
+    let Some(server) = GitHttp::start_tls(tmp.path(), "alice", "s3cret") else {
+        return;
+    };
+    let session = SessionCredentials::new();
+    session.supply(&server.host(), up("alice", "s3cret"), true);
+    let a = served(a, &server.url("remote.git"), &session);
+    assert!(server.url("remote.git").starts_with("https://"));
+    let e = fetch(&a).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Certificate, "{e}");
+    assert_eq!(e.host.as_deref(), Some(server.host().as_str()));
+    assert!(
+        e.message.starts_with(&format!(
+            "The certificate of {} could not be verified",
+            server.host()
+        )),
+        "{e}"
+    );
+    assert!(
+        server.requests().is_empty(),
+        "nothing was sent before the certificate"
+    );
+    assert!(!a.status(false).unwrap().ssl_verify_off);
+    a.repository()
+        .unwrap()
+        .config()
+        .unwrap()
+        .set_bool("http.sslVerify", false)
+        .unwrap();
+    assert!(
+        a.status(false).unwrap().ssl_verify_off,
+        "the status says verification is off"
+    );
+    commit(&b, "b.cs", "b\n", "from b");
+    b.push(None, None, false, false, &Cancel::new(), &mut |_| {})
+        .unwrap();
+    assert_eq!(fetch(&a).unwrap().updated, ["origin/main"]);
+    assert!(matches!(
+        a.pull(None, false, None, &Cancel::new(), &mut |_| {})
+            .unwrap(),
+        MergeOutcome::FastForward(_)
+    ));
+    commit(&a, "tls.cs", "tls\n", "over https");
+    push(&a).unwrap();
+    assert_eq!(a.status(false).unwrap().ahead, 0);
+    let log = server.requests();
+    assert_eq!(log.first().map(|r| r.status), Some(401), "{log:?}");
+    assert!(
+        log.iter()
+            .any(|r| r.status == 200 && r.target.contains("git-receive-pack")),
+        "{log:?}"
+    );
 }
