@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/settings.json",
   "title": "Eludite settings file",
-  "description": "Eludite's settings (PLAN.md 4.12), one JSON object of dotted keys. Two files are merged, user then solution, so a key in the solution's file wins: the user file `settings.json` in Eludite's config directory (`$XDG_CONFIG_HOME/eludite/settings.json`, default `~/.config/eludite/settings.json`, on Linux; `%APPDATA%\\eludite\\settings.json` on Windows; `~/Library/Application Support/eludite/settings.json` on macOS; `ELUDITE_CONFIG_DIR` replaces the `eludite` folder), and `.eludite/settings.json` beside the open solution (or in the open folder), which a team may commit. A key missing from both has the default given here. An environment variable named by `x-eludite-env` overrides both files while it is set. Eludite watches both files and applies a change without a restart; it writes them only for eludite.settings.set (and the Options dialog, which runs it). Every property has a default, a description, a section of the Options dialog (`x-eludite-section`, in VS's Tools > Options tree), a label (`x-eludite-label`) and, for strings, how the dialog edits it (`x-eludite-editor`: text or path; `enum` gives a choice). Unknown keys are ignored and reported.",
+  "description": "Eludite's settings (PLAN.md 4.12), one JSON object of dotted keys. Two files are merged, user then solution, so a key in the solution's file wins: the user file `settings.json` in Eludite's config directory (`$XDG_CONFIG_HOME/eludite/settings.json`, default `~/.config/eludite/settings.json`, on Linux; `%APPDATA%\\eludite\\settings.json` on Windows; `~/Library/Application Support/eludite/settings.json` on macOS; `ELUDITE_CONFIG_DIR` replaces the `eludite` folder), and `.eludite/settings.json` beside the open solution (or in the open folder), which a team may commit. A key missing from both has the default given here. An environment variable named by `x-eludite-env` overrides both files while it is set. Eludite watches both files and applies a change without a restart; it writes them only for eludite.settings.set (and the Options dialog, which runs it). Every property has a default, a description, a section of the Options dialog (`x-eludite-section`, in VS's Tools > Options tree), a label (`x-eludite-label`) and, for strings, how the dialog edits it (`x-eludite-editor`: text or path; `enum` gives a choice). A setting that belongs to the workspace rather than the person (`x-eludite-scope`: `solution`) is written by the Options dialog in the workspace's `.eludite/settings.json`; every other one in the user file. Unknown keys are ignored and reported.",
   "type": "object",
   "additionalProperties": false,
   "x-eludite-sections": [
@@ -297,6 +297,22 @@
         "Embedded Chromium (Web Browser window)",
         "External Chrome"
       ]
+    },
+    "browser.enginePath": {
+      "description": "The `eludite-chromium` executable of the embedded engine (browser.engine `embedded`). Empty: ELUDITE_CHROMIUM, then `eludite-chromium` beside the eludite executable (a packaged Eludite: tools/package/linux.sh lays it out), then cargo's build folder in a development build. CEF's files are then looked for beside the engine (`libcef.so` in its folder, or in `cef/` beside it), at CEF_PATH, then in tools/cef/fetch.sh's cache. Searched when the Web Browser window or a browser command first needs the engine, never at startup. Applies to the next launch.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "path",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Embedded engine executable"
+    },
+    "browser.allowNoSandbox": {
+      "description": "Let the embedded engine run without Chromium's sandbox in this workspace when the sandbox cannot start: neither unprivileged user namespaces nor the setuid `chrome-sandbox` helper beside `libcef.so` is available, or Eludite runs as root. The engine still runs sandboxed whenever it can. Off: the engine refuses to start there, and the Web Browser window says how to enable the sandbox (`sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`, or allowing user namespaces) and offers this opt-in once. While the engine runs without the sandbox, the Web Browser window shows it in a strip and the audit log records the start (`eludite.browser.engine_start`, `sandbox: none`). Kept in the workspace's `.eludite/settings.json`; ELUDITE_CHROME_NO_SANDBOX=1 in Eludite's environment (tests, CI) is the only other way. Applies to the next launch.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-scope": "solution",
+      "x-eludite-section": "Web Browser",
+      "x-eludite-label": "Run without Chromium's sandbox for this workspace"
     },
     "browser.useBuiltIn": {
       "description": "Open the page of a web project that starts (its launch profile's `launchBrowser` and `launchUrl`) in the Web Browser window, as a tab agents can read and drive (eludite.browser.*): Debug > Open in Web Browser Window. Takes effect while the embedded engine is found (browser.engine `embedded` with `eludite-chromium` and CEF present); otherwise, or off, the page opens in the system browser. Applies to the next start.",

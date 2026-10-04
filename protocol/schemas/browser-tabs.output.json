@@ -35,6 +35,44 @@
         "executable": {
           "description": "The executable launched; present while it runs.",
           "type": "string"
+        },
+        "sandbox": {
+          "description": "The embedded engine's sandbox while it runs (brief 0039): `namespaces` (unprivileged user namespaces), `helper` (the setuid chrome-sandbox), or `none` (--no-sandbox, after the workspace's opt-in browser.allowNoSandbox or ELUDITE_CHROME_NO_SANDBOX=1; the Web Browser window shows a strip meanwhile). Absent for the external Chrome.",
+          "enum": [
+            "namespaces",
+            "helper",
+            "none"
+          ]
+        },
+        "cef": {
+          "description": "The CEF folder the embedded engine runs with; present while it runs.",
+          "type": "string"
+        },
+        "found_by": {
+          "description": "How the embedded engine and its CEF were found, the first that held them (brief 0039): the engine by the setting browser.enginePath (`setting`), ELUDITE_CHROMIUM (`variable`), beside the eludite executable (`beside`) or cargo's build folder (`dev`); CEF beside the engine (`beside`), at ELUDITE_CEF or CEF_PATH (`variable`), or in tools/cef/fetch.sh's cache (`cache`). Present while it runs.",
+          "type": "object",
+          "required": [
+            "engine",
+            "cef"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "engine": {
+              "enum": [
+                "setting",
+                "variable",
+                "beside",
+                "dev"
+              ]
+            },
+            "cef": {
+              "enum": [
+                "beside",
+                "variable",
+                "cache"
+              ]
+            }
+          }
         }
       }
     },
