@@ -17,18 +17,22 @@
 //! The tree-sitter glue is written for Eludite, following the approach of
 //! Zed's `language/src/syntax_map.rs` (incremental re-parse from buffer edits,
 //! `changed_ranges` to find rows to re-highlight) without porting its
-//! injection layers, which C# and Rust do not need yet.
+//! injection layers: an injection (HTML's `<script>` and `<style>`, brief
+//! 0050) is parsed on its own when rows that hold it are highlighted, and its
+//! captures paint over the outer language's.
 
 pub mod alloc;
 mod highlighter;
 mod highlights;
 pub mod language;
 mod theme;
+#[cfg(test)]
+mod web_tests;
 mod worker;
 
 pub use highlighter::{HighlightStats, HighlightUpdate, Highlighter, TREE_RETAIN_LIMIT};
 pub use highlights::{LineHighlights, Span};
-pub use language::{Language, LanguageConfig, LanguageError, LanguageRegistry};
+pub use language::{BUILTINS, Language, LanguageConfig, LanguageError, LanguageRegistry};
 pub use theme::SyntaxTheme;
 pub use worker::SyntaxThread;
 
@@ -58,12 +62,58 @@ pub enum HighlightKind {
     Operator,
     Punctuation,
     Preprocessor,
+    /// An HTML or JSX element name, a CSS type selector's tag.
+    Tag,
+    /// An HTML or JSX attribute name.
+    AttributeName,
+    /// A CSS property name, a JSON key.
+    PropertyName,
+    /// A CSS selector (class, id, nesting, universal).
+    Selector,
+}
+
+impl HighlightKind {
+    /// Every kind, in discriminant order.
+    pub const ALL: [HighlightKind; 26] = [
+        HighlightKind::Keyword,
+        HighlightKind::Type,
+        HighlightKind::TypeBuiltin,
+        HighlightKind::Function,
+        HighlightKind::Macro,
+        HighlightKind::String,
+        HighlightKind::Escape,
+        HighlightKind::Number,
+        HighlightKind::Constant,
+        HighlightKind::ConstantBuiltin,
+        HighlightKind::Comment,
+        HighlightKind::DocComment,
+        HighlightKind::Variable,
+        HighlightKind::Parameter,
+        HighlightKind::VariableBuiltin,
+        HighlightKind::Property,
+        HighlightKind::Attribute,
+        HighlightKind::Namespace,
+        HighlightKind::Label,
+        HighlightKind::Operator,
+        HighlightKind::Punctuation,
+        HighlightKind::Preprocessor,
+        HighlightKind::Tag,
+        HighlightKind::AttributeName,
+        HighlightKind::PropertyName,
+        HighlightKind::Selector,
+    ];
 }
 
 /// Capture name to kind. Lookup tries the full name, then drops trailing
 /// `.segment`s, so `function.method` falls back to `function`.
 const CAPTURE_KINDS: &[(&str, HighlightKind)] = &[
     ("keyword", HighlightKind::Keyword),
+    ("tag.attribute", HighlightKind::AttributeName),
+    ("tag", HighlightKind::Tag),
+    ("property.key", HighlightKind::PropertyName),
+    ("selector", HighlightKind::Selector),
+    // A template literal's `${...}`: the default text color, so the expression is not drawn as string.
+    ("embedded", HighlightKind::Variable),
     ("type.builtin", HighlightKind::TypeBuiltin),
     ("type", HighlightKind::Type),
     ("constructor", HighlightKind::Type),

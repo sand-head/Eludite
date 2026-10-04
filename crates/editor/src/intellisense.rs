@@ -20,6 +20,8 @@ use text::Anchor;
 
 use crate::syntax::Language;
 
+pub mod emmet;
+
 /// How long the mouse must rest over an identifier before Quick Info is requested.
 pub const HOVER_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
 

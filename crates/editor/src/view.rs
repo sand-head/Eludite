@@ -297,6 +297,8 @@ pub struct EditorView {
     pub(crate) breakpoint_glyphs: Vec<(Anchor, BreakpointGlyph)>,
     /// The debugger's execution point: the statement, and which arrow.
     pub(crate) execution: Option<(Range<Anchor>, ExecutionKind)>,
+    /// Emmet abbreviations expand on Tab (brief 0050's `editor.emmet`), in languages that have an Emmet syntax.
+    emmet: bool,
 }
 
 impl EditorView {
@@ -333,6 +335,7 @@ impl EditorView {
             lightbulb: None,
             breakpoint_glyphs: Vec::new(),
             execution: None,
+            emmet: false,
         };
         this.schedule_highlight(cx);
         this
@@ -619,6 +622,63 @@ impl EditorView {
         self.editor.backspace();
         self.changed(cx);
         self.after_backspace(cx);
+    }
+
+    /// Tab: expand an Emmet abbreviation before the caret in an HTML or CSS document (brief 0050), else indent. With
+    /// the completion list open, Tab accepts the selected item instead (its own binding).
+    fn tab(&mut self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
+        if !self.read_only && self.expand_emmet(cx) {
+            return;
+        }
+        self.edit(cx, Editor::tab);
+    }
+
+    /// Turn Emmet expansion on Tab on or off (the setting `editor.emmet`); it applies only to languages with an Emmet
+    /// syntax ([`crate::syntax::LanguageConfig::emmet`]). Off by default.
+    pub fn set_emmet(&mut self, enabled: bool) {
+        self.emmet = enabled;
+    }
+
+    /// Expand the Emmet abbreviation that ends at the caret (one caret, no selection), as one undo step, and put the
+    /// caret where the expansion's first empty content is. False (nothing changed) when Emmet is off, the language has
+    /// no Emmet syntax or the text before the caret is not an abbreviation.
+    pub fn expand_emmet(&mut self, cx: &mut Context<Self>) -> bool {
+        use crate::intellisense::emmet;
+        let Some(syntax) = self.syntax.language.as_ref().and_then(|l| l.config().emmet) else {
+            return false;
+        };
+        if !self.emmet || self.read_only {
+            return false;
+        }
+        let selections = self.editor.selections();
+        let [sel] = selections.as_slice() else {
+            return false;
+        };
+        if !sel.is_empty() {
+            return false;
+        }
+        let caret = sel.start();
+        let point = self.editor.buffer().offset_to_point(caret);
+        let line = self.editor.buffer().line(point.row);
+        let before = &line[..(point.column as usize).min(line.len())];
+        let Some((start, abbr)) = emmet::abbreviation_before(before, syntax) else {
+            return false;
+        };
+        let indent: String = line
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        let unit = " ".repeat(crate::display::TAB_SIZE as usize);
+        let Some(expansion) = emmet::expand(abbr, syntax, &indent, &unit) else {
+            return false;
+        };
+        let from = caret - (before.len() - start);
+        self.editor
+            .apply_edits(vec![(from..caret, expansion.text.clone())]);
+        self.editor.set_caret(from + expansion.caret);
+        self.changed(cx);
+        self.after_other_change(cx);
+        true
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
@@ -937,6 +997,7 @@ impl Render for EditorView {
             .relative()
             .cursor(CursorStyle::IBeam)
             .on_action(cx.listener(Self::backspace))
+            .on_action(cx.listener(Self::tab))
             .on_action(cx.listener(Self::newline))
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::find))
@@ -1011,7 +1072,6 @@ impl Render for EditorView {
             Delete => |e| e.delete(), edit;
             DeleteWordLeft => |e| e.delete_word_left(), edit;
             DeleteWordRight => |e| e.delete_word_right(), edit;
-            Tab => |e| e.tab(), edit;
             Undo => |e| e.undo(), edit;
             Redo => |e| e.redo(), edit;
         );
