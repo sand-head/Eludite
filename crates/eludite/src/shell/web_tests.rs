@@ -976,7 +976,7 @@ fn the_json_server_gets_the_cached_schema_associations(cx: &mut TestAppContext) 
         .as_array()
         .unwrap()
         .clone();
-    let cache_uri = path_to_uri(&w.cache.path().to_path_buf());
+    let cache_uri = path_to_uri(w.cache.path());
     let appsettings = schemas
         .iter()
         .find(|s| {

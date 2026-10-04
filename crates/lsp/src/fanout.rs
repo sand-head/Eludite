@@ -326,9 +326,12 @@ pub fn retag(method: &str, server: usize, mut result: Value) -> Value {
     result
 }
 
+/// Waits for one server's answer.
+pub type Wait = Box<dyn FnOnce() -> Result<Value, String> + Send>;
+
 /// A request sent to one server: wait for its answer, or cancel it.
 pub struct Sent {
-    pub wait: Box<dyn FnOnce() -> Result<Value, String> + Send>,
+    pub wait: Wait,
     pub cancel: Box<dyn Fn() + Send + Sync>,
 }
 
@@ -420,11 +423,7 @@ pub fn dispatch(
             Err(failures.join("; "))
         };
     }
-    let waits: Vec<(
-        usize,
-        String,
-        Option<Box<dyn FnOnce() -> Result<Value, String> + Send>>,
-    )> = members
+    let waits: Vec<(usize, String, Option<Wait>)> = members
         .iter()
         .enumerate()
         .map(|(i, m)| {

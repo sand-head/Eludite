@@ -566,8 +566,7 @@ pub const CSS_KEYWORDS: &[(&str, &str)] = &[
 const UNITLESS: &[&str] = &["opacity", "z-index", "line-height", "font-weight"];
 
 fn css_value(property: &str, raw: &str) -> Option<String> {
-    if raw.starts_with('#') {
-        let hex = &raw[1..];
+    if let Some(hex) = raw.strip_prefix('#') {
         return (matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit()))
             .then(|| raw.to_owned());
     }
