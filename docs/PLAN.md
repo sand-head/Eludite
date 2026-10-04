@@ -149,7 +149,7 @@ Test Explorer with hierarchy, filtering, run/debug/profile at any node, live res
 Browse, Installed, Updates, Consolidate; multiple sources; credential providers; lock files; Central Package Management; vulnerability badges. NuGet client libraries in the host.
 
 ### 4.8 Source control
-Git via libgit2 in the shell: status, staged/unstaged, hunks, blame, log graph, branches, stashes, worktrees (agents use these constantly), conflict editor, PR integration for GitHub, GitLab and Azure DevOps. No shelling out to `git` on hot paths.
+Git via libgit2 in the shell: status, staged/unstaged, hunks, blame, log graph, branches, stashes, worktrees (agents use these constantly), conflict editor, PR integration for GitHub, GitLab, Azure DevOps, Forgejo and Gitea (Codeberg), and Tangled. No shelling out to `git` on hot paths.
 
 ### 4.9 Web: WebForms, MVC, Razor, Blazor
 - `.aspx`, `.ascx`, `.master`, `.ashx`: our own parser (tree-sitter grammar for markup plus control-tree analysis) producing the same partial class the ASP.NET page parser would, feeding Roslyn so IntelliSense works in `<% %>` blocks and code-behind. Automatic `.designer.cs` regeneration on markup change, validated byte-for-byte against VS output over a corpus of real projects. Control type resolution from references and `web.config` `<pages><controls>`.

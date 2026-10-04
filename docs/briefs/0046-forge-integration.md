@@ -1,6 +1,6 @@
 # Brief 0046: Forge integration: GitHub, GitLab, Azure DevOps, Forgejo and Gitea (Codeberg), and Tangled
 
-Status: in progress
+Status: done
 Phase: 2 (PLAN.md section 4.8: PR integration; section 5: agents review changesets and work from review comments)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 4, 5, 12), 4.8 (the hosting side of source control: PR integration), 5.1, 5.3 (the policy), 5.4, 8 (Visual Studio names: the "Create a Pull Request" link in Git Changes, the Pull Requests and Issues windows under View > Other Windows), 9, 10 (Phase 2), 11; brief 0040's report section 8 (what PR integration needs)
 Related ADRs: ADR-0002, ADR-0005, ADR-0009 (per-call escalation applies to writes on a forge)
