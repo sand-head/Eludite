@@ -129,6 +129,10 @@
         }
       },
       "description": "In solution order."
+    },
+    "pending": {
+      "description": "Invoked on the UI thread, which never waits for the host: the edit was sent, and Configuration Manager shows its result.",
+      "type": "boolean"
     }
   }
 }

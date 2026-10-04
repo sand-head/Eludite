@@ -564,6 +564,12 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::NuGetSources>(),
         req::<host::NuGetRestore>(),
         req::<host::NuGetIcon>(),
+        req::<host::ProjectProperties>(),
+        req::<host::ProjectSetProperty>(),
+        req::<host::ProjectLaunchProfiles>(),
+        req::<host::ProjectSetLaunchProfile>(),
+        req::<host::SolutionConfigurations>(),
+        req::<host::SolutionSetConfiguration>(),
     ];
     assert!(
         eludite
@@ -1717,4 +1723,263 @@ fn nuget_messages_conform_to_their_schemas() {
         "errors.json",
     )
     .unwrap();
+}
+
+/// Brief 0049: the project properties, launch profiles and solution configuration messages.
+#[test]
+fn project_property_messages_conform_to_their_schemas() {
+    use host::*;
+    conforms(
+        "project-properties.json",
+        "params",
+        &ProjectPropertiesParams {
+            project: "/s/App/App.csproj".into(),
+            configuration: Some("Release".into()),
+            platform: Some("AnyCPU".into()),
+            framework: None,
+        },
+    );
+    rejects("project-properties.json", "params", json!({}));
+    let property = ProjectProperty {
+        name: "DefineConstants".into(),
+        page: "build".into(),
+        section: Some("General".into()),
+        label: "Conditional compilation symbols".into(),
+        description: Some("Symbols.".into()),
+        kind: PropertyType::List,
+        values: None,
+        true_value: None,
+        false_value: None,
+        per_configuration: true,
+        target: None,
+        value: "TRACE;RELEASE_ONLY".into(),
+        raw: Some("$(DefineConstants);RELEASE_ONLY".into()),
+        source: PropertySource::Conditioned,
+        defined_in: Some(DefinedIn {
+            file: "/s/App/App.csproj".into(),
+            line: 13,
+            condition: Some("'$(Configuration)|$(Platform)'=='Release|AnyCPU'".into()),
+        }),
+        conditioned: true,
+        inherited: false,
+        inherited_from: None,
+        conditions: Some(vec![
+            "'$(Configuration)|$(Platform)'=='Release|AnyCPU'".into(),
+        ]),
+        read_only: false,
+        read_only_reason: None,
+    };
+    conforms("project-properties.json", "property", &property);
+    let nullable = ProjectProperty {
+        name: "ImplicitUsings".into(),
+        kind: PropertyType::Bool,
+        true_value: Some("enable".into()),
+        false_value: Some("disable".into()),
+        values: Some(vec![CatalogValue {
+            value: "enable".into(),
+            label: "Enable".into(),
+        }]),
+        source: PropertySource::Inherited,
+        inherited: true,
+        inherited_from: Some("/s/Directory.Build.props".into()),
+        read_only: true,
+        read_only_reason: Some("Legacy".into()),
+        ..property.clone()
+    };
+    conforms("project-properties.json", "property", &nullable);
+    let wire = serde_json::to_value(&nullable).unwrap();
+    assert_eq!(wire["type"], "bool");
+    assert_eq!(wire["source"], "inherited");
+    assert_eq!(wire["readOnly"], true);
+    assert!(
+        serde_json::to_value(&property)
+            .unwrap()
+            .get("readOnly")
+            .is_none()
+    );
+    let page = PropertyPage {
+        id: "resources".into(),
+        title: "Resources".into(),
+        state: "notYet".into(),
+        note: Some("Not yet.".into()),
+    };
+    conforms("project-properties.json", "page", &page);
+    let result = ProjectPropertiesResult {
+        generation: 3,
+        project: "/s/App/App.csproj".into(),
+        kind: "sdk".into(),
+        configuration: "Release".into(),
+        platform: "AnyCPU".into(),
+        framework: None,
+        configurations: vec!["Debug".into(), "Release".into()],
+        platforms: vec!["AnyCPU".into()],
+        frameworks: vec!["net10.0".into()],
+        pages: vec![page],
+        properties: vec![property, nullable],
+    };
+    conforms("project-properties.json", "result", &result);
+    let back: ProjectPropertiesResult =
+        serde_json::from_value(serde_json::to_value(&result).unwrap()).unwrap();
+    assert_eq!(back, result);
+
+    let edit = PropertyEdit {
+        name: "DefineConstants".into(),
+        value: None,
+        configuration: Some("Debug".into()),
+        platform: Some("AnyCPU".into()),
+        framework: None,
+        all_configurations: false,
+        override_inherited: true,
+    };
+    let edit_wire = serde_json::to_value(&edit).unwrap();
+    assert_eq!(
+        edit_wire["value"],
+        Value::Null,
+        "null removes: sent, not omitted"
+    );
+    assert_eq!(edit_wire["override"], true);
+    conforms("project-set-property.json", "edit", &edit);
+    conforms(
+        "project-set-property.json",
+        "params",
+        &ProjectSetPropertyParams {
+            project: "/s/App/App.csproj".into(),
+            generation: 3,
+            edits: vec![edit],
+        },
+    );
+    rejects(
+        "project-set-property.json",
+        "params",
+        json!({"project": "/s/App/App.csproj", "edits": []}),
+    );
+    let set = ProjectSetPropertyResult {
+        generation: 4,
+        project: "/s/App/App.csproj".into(),
+        written: true,
+        results: vec![PropertyEditResult {
+            name: "LangVersion".into(),
+            status: EditStatus::Inherited,
+            condition: None,
+            line: None,
+            inherited_from: Some("/s/Directory.Build.props".into()),
+            removed_conditions: None,
+        }],
+    };
+    conforms("project-set-property.json", "result", &set);
+    conforms("project-set-property.json", "editResult", &set.results[0]);
+
+    let profile = LaunchProfile {
+        name: "https".into(),
+        command_name: "Project".into(),
+        environment_variables: vec![EnvironmentVariable {
+            name: "ASPNETCORE_ENVIRONMENT".into(),
+            value: "Development".into(),
+        }],
+        launch_browser: Some(true),
+        application_url: Some("https://localhost:7080".into()),
+        unknown: Some(vec!["x-note".into()]),
+        ..LaunchProfile::default()
+    };
+    conforms("launch-profiles.json", "profile", &profile);
+    let profiles = LaunchProfilesResult {
+        generation: 3,
+        project: "/s/App/App.csproj".into(),
+        file: "/s/App/Properties/launchSettings.json".into(),
+        exists: true,
+        profiles: vec![profile],
+    };
+    conforms("launch-profiles.json", "result", &profiles);
+    conforms("launch-profile-set.json", "result", &profiles);
+    conforms(
+        "launch-profiles.json",
+        "params",
+        &LaunchProfilesParams {
+            project: "/s/App/App.csproj".into(),
+        },
+    );
+    let set_profile = SetLaunchProfileParams {
+        project: "/s/App/App.csproj".into(),
+        generation: 3,
+        action: LaunchProfileAction::Set,
+        profile: "https".into(),
+        new_name: None,
+        values: Some(json!({"commandLineArgs": "--x", "launchUrl": null,
+                            "environmentVariables": [{"name": "A", "value": "1"}]})),
+    };
+    conforms("launch-profile-set.json", "params", &set_profile);
+    conforms(
+        "launch-profile-set.json",
+        "values",
+        set_profile.values.as_ref().unwrap(),
+    );
+    rejects(
+        "launch-profile-set.json",
+        "values",
+        json!({"commandLineArgs": "x", "other": 1}),
+    );
+
+    let mapping = ConfigurationMapping {
+        solution_configuration: "Release".into(),
+        solution_platform: "Any CPU".into(),
+        configuration: "Release".into(),
+        platform: "Any CPU".into(),
+        build: false,
+        deploy: false,
+    };
+    conforms("solution-configurations.json", "mapping", &mapping);
+    let configurations = SolutionConfigurationsResult {
+        generation: 3,
+        path: Some("/s/S.sln".into()),
+        format: Some(SolutionFormat::Sln),
+        configurations: vec!["Debug".into(), "Release".into()],
+        platforms: vec!["Any CPU".into(), "x64".into()],
+        active: Selection {
+            configuration: "Debug".into(),
+            platform: "Any CPU".into(),
+        },
+        projects: vec![SolutionProjectConfigurations {
+            name: "Lib".into(),
+            path: "/s/Lib/Lib.csproj".into(),
+            configurations: vec!["Debug".into(), "Release".into()],
+            platforms: vec!["Any CPU".into()],
+            mappings: vec![mapping],
+        }],
+    };
+    conforms("solution-configurations.json", "result", &configurations);
+    conforms(
+        "solution-configurations.json",
+        "project",
+        &configurations.projects[0],
+    );
+    conforms("solution-configurations.json", "params", &());
+    let edit = MappingEdit {
+        project: "/s/Lib/Lib.csproj".into(),
+        solution_configuration: "Release".into(),
+        solution_platform: "Any CPU".into(),
+        configuration: None,
+        platform: None,
+        build: Some(true),
+    };
+    conforms("solution-set-configuration.json", "mappingEdit", &edit);
+    conforms(
+        "solution-set-configuration.json",
+        "params",
+        &SolutionSetConfigurationParams {
+            generation: 3,
+            select: Some(configurations.active.clone()),
+            mappings: Some(vec![edit]),
+        },
+    );
+    rejects("solution-set-configuration.json", "params", json!({}));
+    conforms(
+        "solution-set-configuration.json",
+        "result",
+        &SolutionSetConfigurationResult {
+            generation: 4,
+            path: Some("/s/S.sln".into()),
+            written: true,
+            active: configurations.active,
+        },
+    );
 }

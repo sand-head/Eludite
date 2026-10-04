@@ -249,6 +249,10 @@
     "opened": {
       "description": "The Properties document tab was opened or activated (`open`).",
       "type": "boolean"
+    },
+    "pending": {
+      "description": "Invoked on the UI thread, which never waits for the host: the values are the ones the property pages have (possibly none yet), and the evaluation was asked for.",
+      "type": "boolean"
     }
   }
 }

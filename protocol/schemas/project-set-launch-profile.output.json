@@ -127,6 +127,10 @@
         }
       },
       "description": "In the file's order."
+    },
+    "pending": {
+      "description": "Invoked on the UI thread, which never waits for the host: the profiles are the ones the shell has, and the change was sent; the Debug page shows its result.",
+      "type": "boolean"
     }
   }
 }

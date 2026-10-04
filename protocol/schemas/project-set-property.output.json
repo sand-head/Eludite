@@ -33,9 +33,10 @@
         "written",
         "removed",
         "unchanged",
-        "inherited"
+        "inherited",
+        "pending"
       ],
-      "description": "written, removed (equal to the default), unchanged, or inherited (not written: pass `override`)."
+      "description": "written, removed (equal to the default), unchanged, inherited (not written: pass `override`), or pending (invoked on the UI thread, which never waits for the host: the edit was sent, and the property pages show its result)."
     },
     "condition": {
       "description": "The condition of the group written to.",

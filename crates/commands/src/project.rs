@@ -6,8 +6,14 @@
 //! Brief 0028: `set_startup_project` with `projects` sets Visual Studio's multiple startup projects, each with an
 //! action ([`StartupAction`]); from the UI without arguments it opens the Startup Projects dialog
 //! ([`ProjectRequest::StartupProjectsDialog`]).
+//!
+//! Brief 0049: [`properties`] holds the project property pages' `eludite.project.properties`, `set_property`,
+//! `launch_profiles` and `set_launch_profile`, and the parsing of the solution configuration commands
+//! ([`crate::solution::CONFIGURATION_COMMANDS`]).
 
 use std::sync::Arc;
+
+pub mod properties;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

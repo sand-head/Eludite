@@ -73,6 +73,18 @@ pub mod methods {
     pub const NUGET_UPDATE: &str = "eludite/nuget/update";
     /// Host-to-shell request: credentials for a private feed, during an interactive call.
     pub const NUGET_CREDENTIALS: &str = "eludite/nuget/credentials";
+    /// The project property pages' catalog with its values (brief 0049).
+    pub const PROJECT_PROPERTIES: &str = "eludite/project/properties";
+    /// Edit catalog properties of a project file, preserving its formatting (brief 0049).
+    pub const PROJECT_SET_PROPERTY: &str = "eludite/project/setProperty";
+    /// A project's `launchSettings.json` profiles (brief 0049).
+    pub const PROJECT_LAUNCH_PROFILES: &str = "eludite/project/launchProfiles";
+    /// Create, edit, rename or delete a launch profile (brief 0049).
+    pub const PROJECT_SET_LAUNCH_PROFILE: &str = "eludite/project/setLaunchProfile";
+    /// The solution's configurations, platforms, mapping and active selection (brief 0049).
+    pub const SOLUTION_CONFIGURATIONS: &str = "eludite/solution/configurations";
+    /// Select the active configuration and platform; edit Configuration Manager's mapping (brief 0049).
+    pub const SOLUTION_SET_CONFIGURATION: &str = "eludite/solution/setConfiguration";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -99,6 +111,12 @@ pub mod methods {
         NUGET_SOURCES,
         NUGET_RESTORE,
         NUGET_ICON,
+        PROJECT_PROPERTIES,
+        PROJECT_SET_PROPERTY,
+        PROJECT_LAUNCH_PROFILES,
+        PROJECT_SET_LAUNCH_PROFILE,
+        SOLUTION_CONFIGURATIONS,
+        SOLUTION_SET_CONFIGURATION,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -1969,6 +1987,410 @@ impl NotificationType for NuGetUpdateNotification {
     const METHOD: &'static str = methods::NUGET_UPDATE;
     type Params = NuGetUpdate;
 }
+
+// Project properties (brief 0049): `eludite/project/*` and the solution configurations, see host-rpc.md
+// "Project properties".
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// `eludite/project/properties` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPropertiesParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+}
+
+/// An enum property's choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CatalogValue {
+    pub value: String,
+    pub label: String,
+}
+
+/// The element that defines a property's value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinedIn {
+    pub file: String,
+    pub line: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+}
+
+/// Where a property's value comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertySource {
+    /// An unconditioned element of the project file.
+    Project,
+    /// An element of the project file under a condition that holds.
+    Conditioned,
+    /// An imported file that is not the SDK's (Directory.Build.props).
+    Inherited,
+    /// The SDK's default, or nothing.
+    Default,
+}
+
+/// How the property pages edit a property.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PropertyType {
+    String,
+    Bool,
+    Enum,
+    List,
+    Path,
+    Multiline,
+}
+
+/// One catalog property with its value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectProperty {
+    pub name: String,
+    pub page: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: PropertyType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<CatalogValue>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub true_value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub false_value: Option<String>,
+    pub per_configuration: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+    pub source: PropertySource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defined_in: Option<DefinedIn>,
+    pub conditioned: bool,
+    pub inherited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only_reason: Option<String>,
+}
+
+/// One property page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PropertyPage {
+    pub id: String,
+    pub title: String,
+    /// `ready`, `launchProfiles` or `notYet`.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// `eludite/project/properties` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPropertiesResult {
+    pub generation: Generation,
+    pub project: String,
+    /// `sdk` or `legacy`.
+    pub kind: String,
+    pub configuration: String,
+    pub platform: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    pub configurations: Vec<String>,
+    pub platforms: Vec<String>,
+    pub frameworks: Vec<String>,
+    pub pages: Vec<PropertyPage>,
+    pub properties: Vec<ProjectProperty>,
+}
+
+/// One property edit: `value` None (sent as null) removes the element.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyEdit {
+    pub name: String,
+    pub value: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub all_configurations: bool,
+    #[serde(default, rename = "override", skip_serializing_if = "is_false")]
+    pub override_inherited: bool,
+}
+
+/// `eludite/project/setProperty` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSetPropertyParams {
+    pub project: String,
+    pub generation: Generation,
+    pub edits: Vec<PropertyEdit>,
+}
+
+/// What one edit did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EditStatus {
+    Written,
+    Removed,
+    Unchanged,
+    /// Inherited and not overridden: nothing was written.
+    Inherited,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyEditResult {
+    pub name: String,
+    pub status: EditStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherited_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed_conditions: Option<Vec<String>>,
+}
+
+/// `eludite/project/setProperty` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSetPropertyResult {
+    pub generation: Generation,
+    pub project: String,
+    pub written: bool,
+    pub results: Vec<PropertyEditResult>,
+}
+
+/// One environment variable of a launch profile, in the file's order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentVariable {
+    pub name: String,
+    pub value: String,
+}
+
+/// One launch profile of `launchSettings.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchProfile {
+    pub name: String,
+    pub command_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_line_args: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_directory: Option<String>,
+    pub environment_variables: Vec<EnvironmentVariable>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_browser: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dotnet_run_messages: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hot_reload_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executable_path: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unknown: Option<Vec<String>>,
+}
+
+/// `eludite/project/launchProfiles` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchProfilesParams {
+    pub project: String,
+}
+
+/// `eludite/project/launchProfiles` and `setLaunchProfile` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchProfilesResult {
+    pub generation: Generation,
+    pub project: String,
+    pub file: String,
+    pub exists: bool,
+    pub profiles: Vec<LaunchProfile>,
+}
+
+/// What `eludite/project/setLaunchProfile` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LaunchProfileAction {
+    Set,
+    Create,
+    Rename,
+    Delete,
+}
+
+/// `eludite/project/setLaunchProfile` params. `values` is an object of camelCase members; a member with null removes
+/// it (launch-profile-set.json `$defs.values`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetLaunchProfileParams {
+    pub project: String,
+    pub generation: Generation,
+    pub action: LaunchProfileAction,
+    pub profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Value>,
+}
+
+/// The active solution configuration and platform.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Selection {
+    pub configuration: String,
+    pub platform: String,
+}
+
+/// One row of Configuration Manager: what a project builds in a solution configuration and platform.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigurationMapping {
+    pub solution_configuration: String,
+    pub solution_platform: String,
+    pub configuration: String,
+    pub platform: String,
+    pub build: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deploy: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SolutionProjectConfigurations {
+    pub name: String,
+    pub path: String,
+    pub configurations: Vec<String>,
+    pub platforms: Vec<String>,
+    pub mappings: Vec<ConfigurationMapping>,
+}
+
+/// Which file the mapping comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SolutionFormat {
+    Sln,
+    Slnx,
+    Project,
+}
+
+/// `eludite/solution/configurations` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SolutionConfigurationsResult {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<SolutionFormat>,
+    pub configurations: Vec<String>,
+    pub platforms: Vec<String>,
+    pub active: Selection,
+    pub projects: Vec<SolutionProjectConfigurations>,
+}
+
+/// One cell of Configuration Manager's grid.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MappingEdit {
+    pub project: String,
+    pub solution_configuration: String,
+    pub solution_platform: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<bool>,
+}
+
+/// `eludite/solution/setConfiguration` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SolutionSetConfigurationParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub select: Option<Selection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mappings: Option<Vec<MappingEdit>>,
+}
+
+/// `eludite/solution/setConfiguration` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SolutionSetConfigurationResult {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub written: bool,
+    pub active: Selection,
+}
+
+request!(
+    /// `eludite/project/properties` (brief 0049).
+    ProjectProperties,
+    methods::PROJECT_PROPERTIES,
+    ProjectPropertiesParams,
+    ProjectPropertiesResult
+);
+request!(
+    /// `eludite/project/setProperty` (brief 0049).
+    ProjectSetProperty,
+    methods::PROJECT_SET_PROPERTY,
+    ProjectSetPropertyParams,
+    ProjectSetPropertyResult
+);
+request!(
+    /// `eludite/project/launchProfiles` (brief 0049).
+    ProjectLaunchProfiles,
+    methods::PROJECT_LAUNCH_PROFILES,
+    LaunchProfilesParams,
+    LaunchProfilesResult
+);
+request!(
+    /// `eludite/project/setLaunchProfile` (brief 0049).
+    ProjectSetLaunchProfile,
+    methods::PROJECT_SET_LAUNCH_PROFILE,
+    SetLaunchProfileParams,
+    LaunchProfilesResult
+);
+request!(
+    /// `eludite/solution/configurations` (brief 0049).
+    SolutionConfigurations,
+    methods::SOLUTION_CONFIGURATIONS,
+    (),
+    SolutionConfigurationsResult
+);
+request!(
+    /// `eludite/solution/setConfiguration` (brief 0049).
+    SolutionSetConfiguration,
+    methods::SOLUTION_SET_CONFIGURATION,
+    SolutionSetConfigurationParams,
+    SolutionSetConfigurationResult
+);
 
 #[cfg(test)]
 mod tests {

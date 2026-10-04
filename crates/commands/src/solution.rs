@@ -1,6 +1,11 @@
 //! `eludite.solution.tree` (brief 0016): the open solution's projects and files, as the Workspace window shows them, for
 //! agents (PLAN.md 5.4, the solution graph). Read from a caller-supplied source, like `diagnostics.list`, so it runs on
 //! whichever thread invokes it.
+//!
+//! Brief 0049 adds the Standard toolbar's Solution Configurations and Solution Platforms lists and Configuration
+//! Manager: `eludite.solution.configurations` (read), `eludite.solution.select_configuration` (edit_buffer: the
+//! per-solution selection) and `eludite.solution.set_configuration` (execute: it writes the solution file), parsed and
+//! answered with [`crate::project::properties`]' types through its [`crate::project::properties::PropertiesTarget`].
 
 use std::sync::Arc;
 
@@ -10,6 +15,21 @@ use serde_json::Value;
 use crate::{CommandError, CommandId, CommandRegistry, CommandSpec, PermissionClass};
 
 pub const SOLUTION_TREE: &str = "eludite.solution.tree";
+pub const CONFIGURATIONS: &str = "eludite.solution.configurations";
+pub const SELECT_CONFIGURATION: &str = "eludite.solution.select_configuration";
+pub const SET_CONFIGURATION: &str = "eludite.solution.set_configuration";
+
+/// The configuration commands of brief 0049.
+pub const CONFIGURATION_COMMANDS: [&str; 3] =
+    [CONFIGURATIONS, SELECT_CONFIGURATION, SET_CONFIGURATION];
+
+/// Register the configuration commands (brief 0049), answered by `target`.
+pub fn register_configurations(
+    registry: &CommandRegistry,
+    target: Arc<dyn crate::project::properties::PropertiesTarget>,
+) {
+    crate::project::properties::register_ids(registry, &CONFIGURATION_COMMANDS, target);
+}
 
 const INPUT: &str = include_str!("../../../protocol/schemas/solution-tree.input.json");
 const OUTPUT: &str = include_str!("../../../protocol/schemas/solution-tree.output.json");
