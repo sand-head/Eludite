@@ -1,0 +1,23 @@
+# The fixture server's log of brief 0046's Xvfb run (crates/eludite/tools/forge-linux.sh): status, method, target.
+requests before a window opened: 0
+600 OUT_DIR/xdg/eludite/forge-credentials.json
+The token is not in the cache.
+200 GET /repos/octo-org/hello-world/pulls?state=open&per_page=50&sort=updated&direction=desc
+200 GET /repos/octo-org/hello-world/pulls?state=open&page=2
+200 GET /repos/octo-org/hello-world/pulls/12
+200 GET /repos/octo-org/hello-world/pulls/12/commits?per_page=100
+200 GET /repos/octo-org/hello-world/pulls/12/files?per_page=100
+200 GET /repos/octo-org/hello-world/pulls/12/comments?per_page=100
+200 POST /graphql
+200 GET /repos/octo-org/hello-world/issues/12/comments?per_page=100
+200 GET /repos/octo-org/hello-world/pulls/12/reviews?per_page=100
+200 GET /repos/octo-org/hello-world/commits/1111111111111111111111111111111111111111/check-runs?per_page=100
+200 GET /repos/octo-org/hello-world/commits/1111111111111111111111111111111111111111/status
+200 GET /repos/octo-org/hello-world
+200 GET /repos/octo-org/hello-world/commits/1111111111111111111111111111111111111111/check-runs?per_page=100
+200 GET /repos/octo-org/hello-world/commits/1111111111111111111111111111111111111111/status
+200 GET /user
+200 GET /user
+200 GET /repos/octo-org/hello-world/issues?state=open&per_page=50
+200 GET /repos/octo-org/hello-world/issues/42
+200 GET /repos/octo-org/hello-world/issues/42/comments?per_page=100
