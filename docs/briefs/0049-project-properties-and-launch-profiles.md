@@ -1,6 +1,6 @@
 # Brief 0049: Project property pages, launch profiles, and the configuration and platform selectors
 
-Status: open
+Status: in progress
 Phase: 2 (PLAN.md section 10: "project property pages, launch profiles, multi-config and multi-target")
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 5, 12), 3 (D2, D4: the MSBuild project system in the host), 4.2 (project property pages for the ~30 properties people touch, editing the project XML directly and preserving formatting; multi-targeting), 4.5 (launch profiles), 5.1, 5.4, 8 (Visual Studio names: the project Properties pages, the Debug launch profiles UI, the Solution Configurations and Solution Platforms toolbar lists, Configuration Manager), 9, 10 (Phase 2)
 Related ADRs: ADR-0002, ADR-0004
