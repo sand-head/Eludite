@@ -80,6 +80,7 @@ fn setup(cx: &mut TestAppContext) -> Nt {
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(store.path().to_path_buf()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, None, Some(setup));
     let root = w.path("rs");

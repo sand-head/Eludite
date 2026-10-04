@@ -547,6 +547,9 @@ mod tests {
                 "debugger.rustFormatters",
                 "debugger.allowAgentsByDefault",
                 "debugger.launchBrowser",
+                "debugger.attachBrowser",
+                "debugger.nodePath",
+                "debugger.jsDebugPath",
                 "languageServers.rustAnalyzerPath",
                 "test.runSettings",
                 "test.parallel",
@@ -598,7 +601,21 @@ mod tests {
                 .iter()
                 .all(|x| !x.description.is_empty() && !x.label.is_empty())
         );
-        assert_eq!(s.section("Debugging > General").count(), 7);
+        assert_eq!(s.section("Debugging > General").count(), 10);
+        // Brief 0038: F5 on a web project debugs its page too, by default; js-debug and Node are located.
+        assert_eq!(
+            s.get("debugger.attachBrowser").unwrap().default,
+            json!(true)
+        );
+        assert_eq!(
+            s.get("debugger.jsDebugPath").unwrap().env.as_deref(),
+            Some("ELUDITE_JS_DEBUG")
+        );
+        assert_eq!(
+            s.get("debugger.nodePath").unwrap().env.as_deref(),
+            Some("ELUDITE_NODE")
+        );
+        assert_eq!(s.get("debugger.nodePath").unwrap().kind, SettingKind::Path);
         assert_eq!(
             s.get("debugger.allowAgentsByDefault").unwrap().default,
             json!(true)

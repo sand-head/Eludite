@@ -41,8 +41,8 @@ use std::time::Duration;
 
 use eludite_browser::embedded::{FrameSource, TabControl};
 use eludite_browser::{
-    Browser, ChromeSearch, ChromiumSearch, EmbeddedChromium, Engine, EngineChoice, EngineConfig,
-    EngineEvent, ExternalChrome, Interrupt, LogSink,
+    Browser, ChromeSearch, ChromiumSearch, DebugTarget, EmbeddedChromium, Engine, EngineChoice,
+    EngineConfig, EngineEvent, ExternalChrome, Interrupt, LogSink,
 };
 use eludite_commands::browser::{self as cmds, BrowserOutput, BrowserRequest, BrowserTarget};
 use eludite_commands::{Caller, CommandError, current_caller};
@@ -188,6 +188,20 @@ enum Job {
     ),
     /// Close the browser if it runs (the workspace changed or closed, or the shell exits).
     Shutdown(Option<mpsc::SyncSender<()>>),
+    /// Where a debugger reaches a tab, by its id or a page url (brief 0038); never starts the browser.
+    DebugTarget(
+        DebugTab,
+        mpsc::SyncSender<Result<DebugTarget, CommandError>>,
+    ),
+    /// The tabs as (id, title, url), when the browser runs (brief 0038: the Attach to Process dialog's).
+    TabList(mpsc::SyncSender<Option<Vec<(String, String, String)>>>),
+}
+
+/// A tab a debugger names (brief 0038).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DebugTab {
+    Id(String),
+    Url(String),
 }
 
 struct Inner {
@@ -220,6 +234,11 @@ struct Inner {
     sessions: Mutex<BTreeMap<String, cmds::TabSession>>,
     /// How many tabs the browser has, as last announced (before the command that changed them answers).
     tab_count: AtomicUsize,
+    /// A debugging session's launch opened or navigated the window's page last (brief 0038): the window opens and
+    /// shows it without taking the keyboard focus from the editor; the person's next command clears it.
+    quiet: AtomicBool,
+    /// The tabs stopped in the debugger, shared with every engine's [`Browser`] (brief 0038).
+    pauses: Arc<eludite_browser::DebuggerPauses>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -328,6 +347,7 @@ impl Inner {
         let make = |embedded: bool, config: EngineConfig| {
             let mut b = Browser::new(self.make_engine(embedded, config, log.clone()), log.clone());
             b.set_interrupt(self.interrupt.clone());
+            b.set_pauses(self.pauses.clone());
             b
         };
         let mut browser = make(embedded, config.clone());
@@ -349,12 +369,41 @@ impl Inner {
                         config = now;
                     }
                     browser.set_opener(lock(&self.opener).clone());
+                    // A session's page opens without taking the keys (brief 0038); anyone else's command may.
+                    self.quiet
+                        .store(matches!(*caller, Caller::Session { .. }), Ordering::SeqCst);
                     let mut answer = browser.apply(request);
                     self.follow_sessions(&caller, &mut answer);
                     // The window hears of the tabs before the caller gets its answer (a session's launch shows the
                     // window right after its tab opened; brief 0037).
                     self.announce_tabs(&browser, &mut shown);
                     let _ = reply.send(answer);
+                    continue;
+                }
+                Job::DebugTarget(tab, reply) => {
+                    let found = match tab {
+                        DebugTab::Id(t) => browser.debug_target(&t),
+                        DebugTab::Url(u) => browser
+                            .tab_with_url(&u)
+                            .and_then(|t| browser.debug_target(&t)),
+                    };
+                    let _ = reply.send(found);
+                    continue;
+                }
+                Job::TabList(reply) => {
+                    let rows = browser.is_running().then(|| {
+                        browser
+                            .apply(BrowserRequest::Tabs)
+                            .ok()
+                            .and_then(|o| match o {
+                                BrowserOutput::Tabs(t) => Some(
+                                    t.tabs.into_iter().map(|r| (r.id, r.title, r.url)).collect(),
+                                ),
+                                _ => None,
+                            })
+                            .unwrap_or_default()
+                    });
+                    let _ = reply.send(rows);
                     continue;
                 }
                 Job::Shutdown(reply) => {
@@ -540,6 +589,44 @@ impl BrowserBus {
         lock(&self.inner.window_rx).take()
     }
 
+    /// Where a debugger reaches tab `tab` (brief 0038): the browser's remote debugging endpoint and the page's target
+    /// id, url and title. Waits on the browser worker: call it off the UI thread.
+    pub fn debug_target(&self, tab: DebugTab) -> Result<DebugTarget, CommandError> {
+        let (reply, rx) = mpsc::sync_channel(1);
+        self.inner
+            .sender()?
+            .send(Job::DebugTarget(tab, reply))
+            .map_err(|_| CommandError::Failed("the browser worker is gone".into()))?;
+        rx.recv_timeout(REPLY_TIMEOUT)
+            .map_err(|_| CommandError::Failed("the browser worker did not answer".into()))?
+    }
+
+    /// The browser's tabs as (id, title, url), `None` while it does not run (brief 0038). Waits on the browser
+    /// worker: call it off the UI thread.
+    pub fn tab_list(&self) -> Option<Vec<(String, String, String)>> {
+        let (reply, rx) = mpsc::sync_channel(1);
+        self.inner.sender().ok()?.send(Job::TabList(reply)).ok()?;
+        rx.recv_timeout(REPLY_TIMEOUT).ok().flatten()
+    }
+
+    /// Whether a debugging session's launch opened the page last (brief 0038): the window then does not take the
+    /// keyboard focus.
+    pub fn quiet(&self) -> bool {
+        self.inner.quiet.load(Ordering::SeqCst)
+    }
+
+    /// The tabs whose page is stopped in the debugger from now on (brief 0038): `eludite.browser.input` stops
+    /// waiting on such a page and answers `paused`. Whether they changed.
+    pub fn set_debugger_pauses(&self, tabs: Vec<String>) -> bool {
+        self.inner.pauses.set(tabs)
+    }
+
+    /// Whether `tab` is marked stopped in the debugger (tests).
+    #[cfg(test)]
+    pub fn debugger_paused(&self, tab: &str) -> bool {
+        self.inner.pauses.is_paused(tab)
+    }
+
     /// Where a test's fake engine sends what the embedded engine would.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn window_sink(&self) -> WindowSink {
@@ -698,6 +785,8 @@ pub fn register(commands: &CommandRegistry) -> (BrowserBus, UnboundedReceiver<St
             opener: Mutex::new(None),
             sessions: Mutex::default(),
             tab_count: AtomicUsize::new(0),
+            quiet: AtomicBool::new(false),
+            pauses: Arc::default(),
         }),
     };
     cmds::register(commands, Arc::new(bus.clone()));
@@ -755,14 +844,29 @@ impl Shell {
         use futures::StreamExt as _;
         let events = bus.window_events();
         let w = browser_window.clone();
-        let events_task = cx.spawn_in(window, async move |_, cx| {
+        let events_task = cx.spawn_in(window, async move |this, cx| {
             let Some(mut events) = events else { return };
             while let Some(e) = events.next().await {
+                // The tabs, or a tab's title, changed: a browser session follows its tab (brief 0038).
+                let tabs_changed = match &e {
+                    WindowEvent::Tabs { .. } | WindowEvent::Stopped => true,
+                    WindowEvent::Notification { method, .. } => {
+                        method == "tab/state" || method == "tab/closed"
+                    }
+                    _ => false,
+                };
                 if cx
                     .update(|window, cx| w.update(cx, |w, cx| w.on_event(e, window, cx)))
                     .is_err()
                 {
                     break;
+                }
+                if tabs_changed {
+                    let w = w.clone();
+                    let _ = this.update(cx, |shell, cx| {
+                        let tabs = w.read(cx).tab_titles();
+                        shell.debug_tabs_changed(&tabs, cx);
+                    });
                 }
             }
         });

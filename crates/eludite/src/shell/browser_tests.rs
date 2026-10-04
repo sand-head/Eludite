@@ -728,7 +728,7 @@ pub(crate) struct PageSeen {
     /// `Page.reload`: the engine tabs reloaded, in order.
     pub reloads: Mutex<Vec<String>>,
     /// The open engine tabs and their pages.
-    pages: Mutex<Vec<(String, String)>>,
+    pub pages: Mutex<Vec<(String, String)>>,
     next: AtomicUsize,
     events: Mutex<Vec<(String, mpsc::Sender<CdpEvent>)>>,
 }

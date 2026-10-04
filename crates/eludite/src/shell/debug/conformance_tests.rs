@@ -1097,6 +1097,7 @@ fn start(cx: &mut TestAppContext, adapter: Adapter, scenario: &str, source: Sour
         },
         store_dir: Some(store),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, None, Some(setup));
     let tmp = w.dir.path().to_path_buf();

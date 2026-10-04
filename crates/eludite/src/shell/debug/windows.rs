@@ -1117,6 +1117,8 @@ pub struct ExceptionsWindow {
     theme: Theme,
     settings: ExceptionSettingsRow,
     add: LineInput,
+    /// A browser session is live: the JavaScript Exceptions group shows (brief 0038).
+    javascript: bool,
 }
 
 impl ExceptionsWindow {
@@ -1125,7 +1127,22 @@ impl ExceptionsWindow {
             theme,
             settings: ExceptionSettingsRow::default(),
             add: LineInput::new(cx),
+            javascript: false,
         }
+    }
+
+    /// Show the JavaScript Exceptions group (brief 0038): its boxes are the same Thrown and User-Unhandled settings,
+    /// which a browser session's vscode-js-debug gets as its `all` and `uncaught` filters.
+    pub fn set_javascript(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.javascript != on {
+            self.javascript = on;
+            cx.notify();
+        }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn javascript(&self) -> bool {
+        self.javascript
     }
 
     pub fn set(&mut self, settings: ExceptionSettingsRow, cx: &mut Context<Self>) {
@@ -1283,6 +1300,25 @@ impl Render for ExceptionsWindow {
             ))
             .child(div().flex_none().w(px(90.)))
             .child(cell("Rust panics", None));
+        // Brief 0038: while a browser session is live, the same two boxes as vscode-js-debug's filters.
+        let javascript = self.javascript.then(|| {
+            row_base(&t, "debug-exc-javascript".to_owned())
+                .text_color(t.text)
+                .child(check(
+                    "debug-exc-javascript-thrown".into(),
+                    s.break_when_thrown,
+                    json!({"break_when_thrown": !s.break_when_thrown}),
+                ))
+                .child(check(
+                    "debug-exc-javascript-unhandled".into(),
+                    s.break_when_user_unhandled,
+                    json!({"break_when_user_unhandled": !s.break_when_user_unhandled}),
+                ))
+                .child(cell(
+                    "\u{25E2} JavaScript Exceptions (caught: all, uncaught: User-Unhandled)",
+                    None,
+                ))
+        });
         div()
             .id("debug-exceptions")
             .size_full()
@@ -1305,7 +1341,8 @@ impl Render for ExceptionsWindow {
                     .overflow_y_scroll()
                     .children(types)
                     // Brief 0029: a native (Cargo) session breaks at `rust_panic`.
-                    .child(rust_panics),
+                    .child(rust_panics)
+                    .children(javascript),
             )
     }
 }
@@ -1401,12 +1438,32 @@ pub fn attach_row(pid: u32) -> String {
     format!("attach-row-{pid}")
 }
 
+/// The row of browser tab `tab` (brief 0038).
+pub fn attach_tab_row(tab: &str) -> String {
+    format!("attach-tab-{tab}")
+}
+
 /// What the dialog asks the shell to do: `eludite.debug.processes` (Refresh), `eludite.debug.attach` (Attach), close.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttachEvent {
-    Refresh { filter: Option<String> },
-    Attach { pid: u32 },
+    Refresh {
+        filter: Option<String>,
+    },
+    Attach {
+        pid: u32,
+    },
+    /// A browser tab, with vscode-js-debug (brief 0038).
+    AttachTab {
+        tab: String,
+    },
     Close,
+}
+
+/// What the dialog has selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachPick {
+    Process(u32),
+    Tab(String),
 }
 
 /// Visual Studio's Attach to Process dialog: the processes (`eludite.debug.processes`) with their id, name, runtime,
@@ -1416,8 +1473,13 @@ pub enum AttachEvent {
 pub struct AttachDialog {
     theme: Theme,
     rows: Vec<cmds::ProcessRow>,
+    /// The browser's tabs, under the Web Browser heading (brief 0038).
+    tabs: Vec<cmds::AttachTabRow>,
+    /// Debug > Attach to Browser Tab...: the tabs only.
+    tabs_only: bool,
     filter: LineInput,
     selected: Option<u32>,
+    selected_tab: Option<String>,
     message: Option<String>,
     focus: FocusHandle,
 }
@@ -1435,11 +1497,61 @@ impl AttachDialog {
         Self {
             theme,
             rows: Vec::new(),
+            tabs: Vec::new(),
+            tabs_only: false,
             filter: LineInput::new(cx),
             selected: None,
+            selected_tab: None,
             message: Some("Listing processes\u{2026}".into()),
             focus: cx.focus_handle(),
         }
+    }
+
+    /// The browser's tabs (`eludite.debug.processes`' `tabs`; brief 0038).
+    pub fn set_tabs(&mut self, tabs: Vec<cmds::AttachTabRow>, cx: &mut Context<Self>) {
+        self.tabs = tabs;
+        if self
+            .selected_tab
+            .as_ref()
+            .is_some_and(|t| !self.tabs.iter().any(|r| r.id == *t))
+        {
+            self.selected_tab = None;
+        }
+        cx.notify();
+    }
+
+    /// Debug > Attach to Browser Tab... lists the tabs only (brief 0038).
+    pub fn set_tabs_only(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.tabs_only = on;
+        cx.notify();
+    }
+
+    /// The tabs the filter leaves (title or url containing it).
+    pub fn visible_tabs(&self) -> Vec<&cmds::AttachTabRow> {
+        let needle = self.filter.text.trim().to_lowercase();
+        self.tabs
+            .iter()
+            .filter(|r| {
+                needle.is_empty()
+                    || r.title.to_lowercase().contains(&needle)
+                    || r.url.to_lowercase().contains(&needle)
+            })
+            .collect()
+    }
+
+    pub fn select_tab(&mut self, tab: &str, cx: &mut Context<Self>) {
+        self.selected_tab = Some(tab.to_owned());
+        self.selected = None;
+        cx.notify();
+    }
+
+    /// What is selected.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn pick(&self) -> Option<AttachPick> {
+        self.selected_tab
+            .clone()
+            .map(AttachPick::Tab)
+            .or(self.selected.map(AttachPick::Process))
     }
 
     /// The listing (`eludite.debug.processes`' rows), or why there is none.
@@ -1487,10 +1599,19 @@ impl AttachDialog {
 
     pub fn select(&mut self, pid: u32, cx: &mut Context<Self>) {
         self.selected = Some(pid);
+        self.selected_tab = None;
         cx.notify();
     }
 
     fn attach(&mut self, cx: &mut Context<Self>) {
+        if let Some(tab) = self
+            .selected_tab
+            .clone()
+            .filter(|t| self.visible_tabs().iter().any(|r| r.id == *t))
+        {
+            cx.emit(AttachEvent::AttachTab { tab });
+            return;
+        }
         if let Some(pid) = self
             .selected
             .filter(|pid| self.visible().iter().any(|r| r.pid == *pid))
@@ -1581,11 +1702,84 @@ impl Render for AttachDialog {
                 }
             })
             .collect();
-        let can_attach = selected.is_some_and(|pid| self.visible().iter().any(|r| r.pid == pid));
+        // Brief 0038: the browser's tabs under a Web Browser heading, attached with vscode-js-debug.
+        let selected_tab = self.selected_tab.clone();
+        let tab_rows: Vec<_> = self
+            .visible_tabs()
+            .into_iter()
+            .map(|r| {
+                let id = r.id.clone();
+                let sel = attach_tab_row(&id);
+                let note = r
+                    .session
+                    .map(|s| format!("debugged in session {s}"))
+                    .unwrap_or_default();
+                let row = div()
+                    .id(SharedString::from(sel.clone()))
+                    .debug_selector(move || sel)
+                    .flex()
+                    .flex_row()
+                    .h(px(ROW_HEIGHT))
+                    .items_center()
+                    .cursor_pointer()
+                    .child(cell(
+                        if r.title.is_empty() {
+                            r.url.clone()
+                        } else {
+                            r.title.clone()
+                        },
+                        Some(230.),
+                    ))
+                    .child(cell(r.id.clone(), Some(70.)))
+                    .child(cell(note, Some(130.)))
+                    .child(cell(r.url.clone(), None))
+                    .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                        this.select_tab(&id, cx);
+                        if e.click_count() >= 2 {
+                            this.attach(cx);
+                        }
+                    }));
+                if selected_tab.as_deref() == Some(r.id.as_str()) {
+                    row.bg(t.accent).text_color(t.text_on_accent)
+                } else {
+                    row.hover(|s| s.bg(t.menu_hover))
+                }
+            })
+            .collect();
+        let web_heading = div()
+            .id("attach-web-browser")
+            .debug_selector(|| "attach-web-browser".into())
+            .flex()
+            .flex_row()
+            .h(px(ROW_HEIGHT))
+            .items_center()
+            .font_weight(FontWeight::SEMIBOLD)
+            .border_b_1()
+            .border_color(t.border)
+            .child(cell("Web Browser", Some(230.)))
+            .child(cell("Tab", Some(70.)))
+            .child(cell("", Some(130.)))
+            .child(cell("Address", None));
+        let no_tabs = tab_rows.is_empty().then(|| {
+            div()
+                .px_2()
+                .text_color(t.text_muted)
+                .child("No page is open in the Web Browser window.")
+        });
+        let tabs_only = self.tabs_only;
+        let can_attach = selected.is_some_and(|pid| self.visible().iter().any(|r| r.pid == pid))
+            || self
+                .selected_tab
+                .as_ref()
+                .is_some_and(|tab| self.visible_tabs().iter().any(|r| r.id == *tab));
         let filter = text_box(
             ATTACH_FILTER,
             &self.filter.text,
-            "Filter processes",
+            if tabs_only {
+                "Filter tabs"
+            } else {
+                "Filter processes"
+            },
             focused,
             &t,
         )
@@ -1600,7 +1794,14 @@ impl Render for AttachDialog {
         let button = |id: &'static str, label: &'static str, default: bool, enabled: bool| {
             eludite_ui::push_button(id, label, default, enabled, &t)
         };
-        let panel = eludite_ui::dialog_panel(&t, "Attach to Process")
+        let panel = eludite_ui::dialog_panel(
+            &t,
+            if tabs_only {
+                "Attach to Browser Tab"
+            } else {
+                "Attach to Process"
+            },
+        )
             .id(ATTACH_DIALOG)
             .debug_selector(|| ATTACH_DIALOG.into())
             .track_focus(&self.focus)
@@ -1620,7 +1821,11 @@ impl Render for AttachDialog {
                             .flex_row()
                             .gap_2()
                             .items_center()
-                            .child("Available processes")
+                            .child(if tabs_only {
+                                "Pages to debug with vscode-js-debug"
+                            } else {
+                                "Available processes and pages"
+                            })
                             .child(div().flex_1())
                             .child(filter),
                     )
@@ -1632,14 +1837,17 @@ impl Render for AttachDialog {
                             .border_1()
                             .border_color(t.border)
                             .bg(t.background)
-                            .child(header)
                             .child(
                                 div()
                                     .id("attach-rows")
                                     .flex()
                                     .flex_col()
                                     .overflow_y_scroll()
-                                    .children(rows),
+                                    .child(web_heading)
+                                    .children(tab_rows)
+                                    .children(no_tabs)
+                                    .children((!tabs_only).then_some(header))
+                                    .children(if tabs_only { Vec::new() } else { rows }),
                             ),
                     )
                     .children(self.message.clone().map(|m| {

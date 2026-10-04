@@ -85,6 +85,7 @@ fn setup(cx: &mut TestAppContext) -> Tw {
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(tempfile::tempdir().unwrap().keep()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, None, Some(debug));
     let root = w.dir.path().to_path_buf();
@@ -901,6 +902,7 @@ fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut Te
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(tempfile::tempdir().unwrap().keep()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     // The native setup is the machine's (lldb-dap from ELUDITE_LLDB_DAP or PATH, the toolchain's formatters).
     let mut w = setup_debug(cx, |_| {}, None, Some(debug));
@@ -1040,6 +1042,7 @@ fn setup_real_host(cx: &mut TestAppContext, settings: Value) -> Option<Ws> {
             platform: eludite_dap::launch::Platform::current(),
             store_dir: Some(dir.path().join("store")),
             dotnet: "dotnet".into(),
+            js: Default::default(),
         };
     }
     let commands = Arc::new(commands);

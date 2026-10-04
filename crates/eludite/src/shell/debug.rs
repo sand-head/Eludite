@@ -95,10 +95,13 @@ use eludite_commands::project::StartupAction;
 use eludite_commands::view::{DockEdge, DockTarget, ViewRequest, ViewTarget as _};
 use eludite_commands::{Caller, CommandError, CommandRegistry};
 use eludite_dap::attach::{AttachAdapter, attach_plan};
-use eludite_dap::discovery::{AdapterSearch, MonoAdapterSearch, MonoSearch};
+use eludite_dap::discovery::{
+    AdapterSearch, JsDebugSearch, MonoAdapterSearch, MonoSearch, NodeSearch,
+};
 use eludite_dap::launch::{AdapterKind, FrameworkKind, Platform, Readiness, ServerWatch};
 use eludite_dap::processes;
-use eludite_dap::session::{self as dap_session, StartKind, StartPlan, Started};
+use eludite_dap::session::{self as dap_session, AdapterFamily, StartKind, StartPlan, Started};
+use eludite_dap::transport::AdapterServer;
 use eludite_dap::types::{
     Capabilities, EvaluateResponse, Event, ExceptionDetails, ExceptionInfoResponse,
     GotoTargetsResponse, ScopesResponse, SetBreakpointsResponse, SetVariableResponse,
@@ -113,8 +116,8 @@ use gpui::{AppContext as _, AsyncWindowContext, Context, WeakEntity, Window};
 use serde_json::{Value, json};
 
 use self::state::{
-    Breakpoint, DebugModel, Frame, Mode, Persisted, Segment, VarNode, exception_plan, flatten,
-    node_mut, parse_message, row_at_mut,
+    Breakpoint, BrowserAttach, DebugModel, Frame, Mode, Persisted, Segment, VarNode,
+    exception_plan, exception_plan_for, flatten, locals_scope, node_mut, parse_message, row_at_mut,
 };
 use self::windows::{DebugWindows, StackRow, ThreadLine};
 use super::Shell;
@@ -159,6 +162,67 @@ pub struct DebugSetup {
     pub store_dir: Option<PathBuf>,
     /// The `dotnet` Start Without Debugging runs (`dotnet` on `PATH`).
     pub dotnet: String,
+    /// vscode-js-debug and the Node.js it runs on (brief 0038).
+    pub js: JsSetup,
+}
+
+/// Starts vscode-js-debug for a browser session (brief 0038; tests: the fake js-debug): the server every connection
+/// of the session's tree goes to, its description for `session.adapter`, and the versions for `adapter_version`.
+pub type JsStarter =
+    Arc<dyn Fn() -> Result<(Arc<dyn AdapterServer>, String, String), String> + Send + Sync>;
+
+/// How browser sessions reach vscode-js-debug (brief 0038).
+#[derive(Clone, Default)]
+pub struct JsSetup {
+    /// `dapDebugServer.js`: the setting `debugger.jsDebugPath`, the cache of `tools/js-debug/fetch.sh`, beside Eludite.
+    pub search: JsDebugSearch,
+    /// The Node.js it runs on: the setting `debugger.nodePath`, `PATH`, Volta, nvm, fnm.
+    pub node: NodeSearch,
+    /// Start this instead (tests): the search and Node are not looked at.
+    pub start: Option<JsStarter>,
+}
+
+impl JsSetup {
+    /// The machine's searches, without the configured paths (the settings store gives them).
+    pub fn from_env() -> Self {
+        Self {
+            search: JsDebugSearch::from_env(),
+            node: NodeSearch::from_env(),
+            start: None,
+        }
+    }
+
+    /// Locate vscode-js-debug and Node.js (its version checked) and start the DAP server on a loopback port. Blocks:
+    /// call it on the attach thread. The error says what is missing and how to get it.
+    pub fn start_server(&self) -> Result<(Arc<dyn AdapterServer>, String, String), String> {
+        if let Some(start) = &self.start {
+            return start();
+        }
+        let js = self.search.find()?;
+        let (node, _) = self.node.find()?;
+        let node_version = eludite_dap::discovery::check_node_version(
+            &node,
+            eludite_dap::discovery::node_version_output(&node).as_deref(),
+        )?;
+        let args = vec![
+            js.script.to_string_lossy().into_owned(),
+            "0".to_owned(),
+            "127.0.0.1".to_owned(),
+        ];
+        let server = eludite_dap::transport::start_tcp_server(
+            &node,
+            &args,
+            eludite_dap::transport::TCP_SERVER_START_TIMEOUT,
+        )
+        .map_err(|e| format!("cannot start vscode-js-debug: {e}"))?;
+        let description = format!(
+            "vscode-js-debug {} under node {node_version} ({})",
+            js.version,
+            server.describe()
+        );
+        let version = format!("vscode-js-debug {}, node {node_version}", js.version);
+        Ok((Arc::new(server), description, version))
+    }
 }
 
 impl DebugSetup {
@@ -176,6 +240,7 @@ impl DebugSetup {
             platform: Platform::current(),
             store_dir: eludite_docking::eludite_config_dir().map(|d| d.join("breakpoints")),
             dotnet: "dotnet".into(),
+            js: JsSetup::from_env(),
         }
     }
 }
@@ -245,6 +310,7 @@ fn resolve_attach(request: DebugRequest) -> Result<DebugRequest, CommandError> {
         adapter,
         transport,
         mono,
+        web_root,
         wait_ms,
         budget,
     } = request
@@ -267,6 +333,7 @@ fn resolve_attach(request: DebugRequest) -> Result<DebugRequest, CommandError> {
         adapter,
         transport,
         mono,
+        web_root,
         wait_ms,
         budget,
     })
@@ -305,7 +372,9 @@ fn find_process(
                 )),
             }
         }
-        AttachTarget::Dialog => Err("name the process: `pid` or `process_name`".into()),
+        AttachTarget::Dialog | AttachTarget::Tab(_) | AttachTarget::Url(_) => {
+            Err("name the process: `pid` or `process_name`".into())
+        }
     }
 }
 
@@ -352,7 +421,24 @@ pub fn list_processes(filter: Option<&str>, roots: &[u32]) -> Result<ProcessesOu
         processes: rows,
         total,
         truncated,
+        tabs: None,
     })
+}
+
+/// `processes`' listing with the browser's tabs (brief 0038), asked of the browser worker (it never starts the
+/// browser). On the listing's thread.
+fn with_tabs(mut out: ProcessesOutput, bus: Option<&BrowserBus>) -> ProcessesOutput {
+    out.tabs = bus.and_then(BrowserBus::tab_list).map(|rows| {
+        rows.into_iter()
+            .map(|(id, title, url)| cmds::AttachTabRow {
+                id,
+                title,
+                url,
+                session: None,
+            })
+            .collect()
+    });
+    out
 }
 
 /// What the Debug menu's Restart and Attach to Process... items and its Allow Agents to Drive check item read (the
@@ -581,6 +667,19 @@ pub enum DebugMsg {
     Processes {
         listing: Result<ProcessesOutput, String>,
     },
+    /// The session's adapter and runtime versions (brief 0038).
+    AdapterVersion {
+        generation: u64,
+        version: String,
+    },
+    /// vscode-js-debug asked (DAP `startDebugging`) for a child session of the session of `generation` (brief 0038):
+    /// its `request` and configuration, and the server its connection goes to.
+    StartChild {
+        generation: u64,
+        request: String,
+        configuration: Value,
+        server: Arc<dyn AdapterServer>,
+    },
 }
 
 impl DebugMsg {
@@ -595,6 +694,8 @@ impl DebugMsg {
             | DebugMsg::Output { generation, .. }
             | DebugMsg::ProgramExited { generation, .. }
             | DebugMsg::Browser { generation, .. }
+            | DebugMsg::StartChild { generation, .. }
+            | DebugMsg::AdapterVersion { generation, .. }
             | DebugMsg::StopTimeout { generation } => Some(*generation),
             DebugMsg::Loaded { .. } | DebugMsg::Processes { .. } => None,
         }
@@ -907,6 +1008,11 @@ pub struct DebugTimings {
     pub launched: Option<Instant>,
     /// An agent's interrupted wait was answered (brief 0027; from `Debugger::interrupted_at`).
     pub interrupt_answered: Option<Instant>,
+    /// A web project's page opened and its debugger started attaching (brief 0038), and how long from then until
+    /// the page's child session ran (the budget: the fake attach adds under 50 ms to the launch).
+    pub page_attach_started: Option<Instant>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub page_attach: Option<Duration>,
 }
 
 /// A start waiting for its build (brief 0020).
@@ -1085,6 +1191,10 @@ pub struct Debugger {
     pub browser_launch: LaunchBrowserSettings,
     browser_commands: Option<Arc<CommandRegistry>>,
     browser_bus: Option<BrowserBus>,
+    /// The setting `debugger.attachBrowser` (brief 0038).
+    pub attach_browser: bool,
+    /// The `browser` entries of the start being applied (brief 0038; they become their sessions').
+    start_browsers: Vec<cmds::BrowserEntry>,
 }
 
 impl Debugger {
@@ -1154,6 +1264,8 @@ impl Debugger {
                 browser_launch: LaunchBrowserSettings::default(),
                 browser_commands: None,
                 browser_bus: None,
+                attach_browser: true,
+                start_browsers: Vec::new(),
                 test_launch: None,
             },
             rx,
@@ -1244,6 +1356,115 @@ impl Debugger {
         }
         ids.sort_unstable();
         ids
+    }
+
+    /// The page a start of `project` debugs once it is up (brief 0038): the start's `browser` entry for it (taken,
+    /// so each goes to one session; one without `project` goes to the first debugged project), else the implied one of
+    /// a debugged web project whose page opens in the Web Browser window, with the setting debugger.attachBrowser on.
+    fn take_browser_entry(
+        &mut self,
+        project: Option<&str>,
+        debug: bool,
+    ) -> Option<cmds::BrowserEntry> {
+        if !debug {
+            return None;
+        }
+        let matches = |e: &cmds::BrowserEntry| match (&e.project, project) {
+            (None, _) => true,
+            (Some(want), Some(p)) => {
+                want == p || project_name(want) == project_name(p) || norm(want) == norm(p)
+            }
+            (Some(_), None) => false,
+        };
+        if let Some(i) = self.start_browsers.iter().position(matches) {
+            return Some(self.start_browsers.remove(i));
+        }
+        let page_in_window = !matches!(
+            self.start_browser,
+            Some(cmds::BrowserChoice::External | cmds::BrowserChoice::None)
+        );
+        (self.attach_browser && page_in_window).then(cmds::BrowserEntry::default)
+    }
+
+    /// The folder of the project whose launch opened tab `tab` (brief 0037's `session.browser.tab`), live or ended.
+    fn project_of_tab(&self, tab: &str) -> Option<PathBuf> {
+        let of = |m: &DebugModel| {
+            let s = m.session.as_ref()?;
+            let b = s.browser.as_ref()?;
+            (b.tab.as_deref() == Some(tab))
+                .then(|| Path::new(&s.project).parent().map(Path::to_path_buf))
+                .flatten()
+        };
+        of(&self.model).or_else(|| self.others.iter().rev().find_map(|s| of(&s.model)))
+    }
+
+    /// The live sessions with their adapter's family (brief 0038): which breakpoints each takes.
+    fn live_families(&self) -> Vec<(u32, AdapterFamily)> {
+        let mut rows: Vec<(u32, AdapterFamily)> = self
+            .others
+            .iter()
+            .filter(|s| Self::live_mode(s.model.mode))
+            .map(|s| (s.id, s.model.family()))
+            .collect();
+        if Self::live_mode(self.model.mode) && self.session_id > 0 {
+            rows.push((self.session_id, self.model.family()));
+        }
+        rows.sort_unstable_by_key(|r| r.0);
+        rows
+    }
+
+    /// The browser tabs whose page is stopped in the debugger (brief 0038): the tab of every browser session that
+    /// is, or has a child session that is, in break mode.
+    fn paused_tabs(&self) -> Vec<String> {
+        let rows = self.sessions_info();
+        let root_tab = |mut id: u32| {
+            for _ in 0..rows.len() {
+                let r = rows.iter().find(|r| r.id == id)?;
+                match r.parent {
+                    Some(p) => id = p,
+                    None => return r.tab.clone(),
+                }
+            }
+            None
+        };
+        rows.iter()
+            .filter(|r| r.stopped.is_some())
+            .filter_map(|r| root_tab(r.id))
+            .collect()
+    }
+
+    /// Tell the browser which tabs are stopped in the debugger, for `eludite.browser.input` (brief 0038).
+    fn publish_pauses(&self) {
+        if let Some(bus) = &self.browser_bus {
+            bus.set_debugger_pauses(self.paused_tabs());
+        }
+    }
+
+    /// The live sessions whose `parent` is `id` (brief 0038), at any depth.
+    fn children_of(&self, id: u32) -> Vec<u32> {
+        let parent_of = |m: &DebugModel| m.session.as_ref().and_then(|s| s.parent);
+        let all: Vec<(u32, Option<u32>, Mode)> = self
+            .others
+            .iter()
+            .map(|s| (s.id, parent_of(&s.model), s.model.mode))
+            .chain(std::iter::once((
+                self.session_id,
+                parent_of(&self.model),
+                self.model.mode,
+            )))
+            .collect();
+        let mut out = Vec::new();
+        let mut frontier = vec![id];
+        while let Some(p) = frontier.pop() {
+            for (c, parent, mode) in &all {
+                if *parent == Some(p) && Self::live_mode(*mode) && !out.contains(c) {
+                    out.push(*c);
+                    frontier.push(*c);
+                }
+            }
+        }
+        out.sort_unstable();
+        out
     }
 
     /// The ids of the live sessions that have an adapter connected.
@@ -1416,9 +1637,13 @@ impl Debugger {
             stop: m.stop,
             runtime: m.session.as_ref().and_then(|s| s.runtime.clone()),
             adapter: m.session.as_ref().and_then(|s| s.adapter.clone()),
+            adapter_version: m.adapter_version.clone(),
             process_id: m.session.as_ref().and_then(|s| s.process_id),
             project: m.session.as_ref().map(|s| s.project.clone()),
             attached: m.attached(),
+            parent: m.session.as_ref().and_then(|s| s.parent),
+            tab: m.session.as_ref().and_then(|s| s.tab.clone()),
+            url: m.session.as_ref().and_then(|s| s.url.clone()),
             agents_allowed: m.agents_allowed,
             stopped: (m.mode == Mode::Break)
                 .then(|| m.stopped.as_ref().map(|s| s.reason.clone()))
@@ -1503,8 +1728,7 @@ impl Debugger {
     /// binding per session.
     pub fn state(&self) -> cmds::DebugState {
         let mut s = self.model.state();
-        let live = self.live_ids();
-        s.breakpoints = self.model.breakpoints.rows_for(&live);
+        s.breakpoints = self.model.breakpoints.rows_for(&self.live_families());
         if let Some(row) = s.session.as_mut() {
             row.id = Some(self.session_id).filter(|id| *id > 0);
         }
@@ -1522,7 +1746,7 @@ impl Debugger {
         target: Option<&BreakpointTarget>,
     ) -> DebugOutput {
         let live = self.live_ids();
-        let rows = self.model.breakpoints.rows_for(&live);
+        let rows = self.model.breakpoints.rows_for(&self.live_families());
         let breakpoints_total = rows.len();
         let breakpoint = target.and_then(|t| {
             rows.into_iter().find(|r| match t {
@@ -1687,7 +1911,8 @@ impl Debugger {
 
     /// Send `path`'s breakpoints (and Run To Cursor's one-shot line) to the current session.
     fn send_breakpoints_here(&mut self, path: &str) {
-        if self.client.is_none() {
+        // Only the adapters that can bind the file get it (brief 0038).
+        if self.client.is_none() || !self.model.family().takes(path) {
             return;
         }
         let extra = self
@@ -1747,10 +1972,11 @@ impl Debugger {
 
     /// Send the exception settings to the current session (types as filter options where the adapter takes them).
     fn send_exception_settings_here(&mut self) {
-        if self.client.is_none() {
+        let family = self.model.family();
+        if self.client.is_none() || !family.takes_exceptions() {
             return;
         }
-        let args = exception_plan(&self.model.exceptions)
+        let args = exception_plan_for(family, &self.model.exceptions)
             .arguments(self.caps.supports_exception_filter_options);
         let _ = self.send("setExceptionBreakpoints", args, Pending::Other);
     }
@@ -2299,6 +2525,21 @@ impl Debugger {
         self.model.agents_default = on;
     }
 
+    /// The setting `debugger.jsDebugPath` (brief 0038).
+    pub fn set_js_debug_path(&mut self, path: Option<PathBuf>) {
+        self.setup.js.search.configured = path;
+    }
+
+    /// The setting `debugger.nodePath` (brief 0038).
+    pub fn set_node_path(&mut self, path: Option<PathBuf>) {
+        self.setup.js.node.configured = path;
+    }
+
+    /// The setting `debugger.attachBrowser` (brief 0038): a web project's start debugs its page too.
+    pub fn set_attach_browser(&mut self, on: bool) {
+        self.attach_browser = on;
+    }
+
     /// The settings `browser.useBuiltIn` and `debugger.launchBrowser` (brief 0037): the next start's browser step.
     pub fn set_launch_browser(&mut self, use_built_in: bool, launch_browser: bool) {
         self.browser_launch.use_built_in = use_built_in;
@@ -2653,8 +2894,15 @@ fn launch_thread(job: LaunchJob) {
         runtime: Some(launch::runtime_name(config.kind, platform).to_owned()),
         process_id: None,
         attached: false,
+        parent: None,
+        tab: None,
+        url: None,
         browser: None,
     };
+    // Only the breakpoints the adapter can bind (brief 0038): a .NET program's `.cs`, a Cargo package's `.rs`.
+    let mut breakpoints = breakpoints;
+    let family = AdapterFamily::of_runtime(session.runtime.as_deref(), false);
+    breakpoints.retain(|(path, _)| family.takes(path));
     // A web project's page (brief 0037): planned here (it reads the launch profile), opened once the program runs.
     let planned = plan_browser(&browser, &config);
     let name = project_name(&config.project.to_string_lossy());
@@ -3287,11 +3535,17 @@ fn attach_thread(job: AttachJob) {
         runtime: Some(adapter.runtime_name().to_owned()),
         process_id: Some(i64::from(info.pid)),
         attached: true,
+        parent: None,
+        tab: None,
+        url: None,
         browser: None,
     };
     let Some(kind) = adapter.kind() else {
         return fail(format!("Cannot attach to process {}: no adapter", info.pid));
     };
+    let mut breakpoints = breakpoints;
+    let family = AdapterFamily::of_runtime(Some(adapter.runtime_name()), false);
+    breakpoints.retain(|(path, _)| family.takes(path));
     let reached: Result<(Connection, String), String> = if let Some((host, port)) = &transport {
         let t = eludite_dap::AdapterTransport::Tcp {
             host: host.clone(),
@@ -3391,14 +3645,302 @@ fn attach_thread(job: AttachJob) {
     });
 }
 
+// ---- vscode-js-debug (brief 0038) ----
+
+/// What a browser session attaches to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PageTarget {
+    /// A tab of the browser Eludite runs (`t1`).
+    Tab(String),
+    /// A page url of that browser, or a Chrome DevTools websocket url.
+    Url(String),
+}
+
+/// What the browser session's attach thread needs.
+struct JsAttachJob {
+    generation: u64,
+    target: PageTarget,
+    /// The `web_root` given, else where to look for one: the project whose launch opened the page, then the
+    /// solution's or folder's root.
+    web_root: Option<PathBuf>,
+    project_dir: Option<PathBuf>,
+    root: Option<PathBuf>,
+    js: JsSetup,
+    browser: Option<BrowserBus>,
+    tx: UnboundedSender<DebugMsg>,
+}
+
+/// The web root js-debug maps the page's urls under: the given one, else the project's `wwwroot` (Visual Studio's web
+/// root), else the project's folder, else the root. Reads the disk: on the attach thread.
+fn web_root_for(
+    given: Option<PathBuf>,
+    project_dir: Option<&Path>,
+    root: Option<&Path>,
+) -> PathBuf {
+    if let Some(w) = given {
+        return w;
+    }
+    if let Some(p) = project_dir {
+        let www = p.join("wwwroot");
+        return if www.is_dir() { www } else { p.to_path_buf() };
+    }
+    root.map(Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+}
+
+/// The sink of a browser session's connection: `stackTrace` answers get their frames' generated places through the
+/// source maps on disk (on the client's reader thread; `eludite_dap::sourcemap`), then everything goes to the UI.
+fn js_sink(generation: u64, tx: UnboundedSender<DebugMsg>) -> eludite_dap::EventSink {
+    let maps = Mutex::new(eludite_dap::sourcemap::MapCache::new());
+    Arc::new(move |event| {
+        let event = match event {
+            ClientEvent::Response {
+                request_seq,
+                command,
+                result: Ok(mut body),
+            } if command == "stackTrace" => {
+                eludite_dap::sourcemap::adapt_stack(
+                    &mut body,
+                    &mut maps.lock().unwrap_or_else(|e| e.into_inner()),
+                );
+                ClientEvent::Response {
+                    request_seq,
+                    command,
+                    result: Ok(body),
+                }
+            }
+            e => e,
+        };
+        let _ = tx.unbounded_send(DebugMsg::Client { generation, event });
+    })
+}
+
+/// The reverse-request handler of a session of `server` (generation `generation`): `startDebugging` is answered at
+/// once and becomes a child session on the UI thread ([`DebugMsg::StartChild`]).
+fn js_reverse(
+    generation: u64,
+    server: Arc<dyn AdapterServer>,
+    tx: UnboundedSender<DebugMsg>,
+) -> eludite_dap::ReverseHandler {
+    Arc::new(move |command, args| {
+        if command != "startDebugging" {
+            return None;
+        }
+        let request = args["request"].as_str().unwrap_or("attach").to_owned();
+        if StartKind::from_request(&request).is_none() {
+            return Some(Err(format!("unknown request `{request}`")));
+        }
+        let _ = tx.unbounded_send(DebugMsg::StartChild {
+            generation,
+            request,
+            configuration: args["configuration"].clone(),
+            server: server.clone(),
+        });
+        Some(Ok(json!({})))
+    })
+}
+
+/// The browser session's attach (brief 0038), on its `debug-attach` thread: the tab's debug endpoint from the
+/// browser worker (or a DevTools websocket url's), vscode-js-debug and Node.js located and the server started, the
+/// first connection with the `pwa-chrome` attach. Its children come through `startDebugging`.
+fn js_attach_thread(job: JsAttachJob) {
+    let JsAttachJob {
+        generation,
+        target,
+        web_root,
+        project_dir,
+        root,
+        js,
+        browser,
+        tx,
+    } = job;
+    let fail = |message: String| {
+        let _ = tx.unbounded_send(DebugMsg::LaunchFailed {
+            generation,
+            message,
+        });
+    };
+    let page = match &target {
+        PageTarget::Url(u) if u.starts_with("ws://") || u.starts_with("wss://") => {
+            match eludite_dap::attach::parse_devtools_url(u) {
+                Some((address, port, id)) => (
+                    None,
+                    eludite_dap::attach::BrowserTarget {
+                        address,
+                        port,
+                        target_id: Some(id.clone()),
+                        url: u.clone(),
+                        title: format!("page {id}"),
+                    },
+                ),
+                None => {
+                    return fail(format!(
+                        "Cannot attach: {u} is not a Chrome DevTools page url (ws://HOST:PORT/devtools/page/ID)"
+                    ));
+                }
+            }
+        }
+        _ => {
+            let Some(bus) = &browser else {
+                return fail("Cannot attach: the browser is not available".into());
+            };
+            let want = match &target {
+                PageTarget::Tab(t) => super::browser::DebugTab::Id(t.clone()),
+                PageTarget::Url(u) => super::browser::DebugTab::Url(u.clone()),
+            };
+            match bus.debug_target(want) {
+                Ok(d) => (
+                    Some(d.tab.clone()),
+                    eludite_dap::attach::BrowserTarget {
+                        address: d.address,
+                        port: d.port,
+                        target_id: d.target_id,
+                        url: d.url,
+                        title: d.title,
+                    },
+                ),
+                Err(e) => return fail(format!("Cannot attach: {e}")),
+            }
+        }
+    };
+    let (tab, page) = page;
+    let web_root = web_root_for(web_root, project_dir.as_deref(), root.as_deref());
+    let (server, description, version) = match js.start_server() {
+        Ok(s) => s,
+        Err(e) => return fail(format!("Cannot debug the page: {e}")),
+    };
+    let title = if page.title.is_empty() {
+        page.url.clone()
+    } else {
+        page.title.clone()
+    };
+    let session = SessionRow {
+        id: None,
+        project: title.clone(),
+        program: page.url.clone(),
+        args: Vec::new(),
+        cwd: web_root.to_string_lossy().into_owned(),
+        profile: None,
+        debug: true,
+        adapter: Some(description),
+        runtime: Some("javascript".into()),
+        process_id: None,
+        attached: true,
+        parent: None,
+        tab,
+        url: Some(page.url.clone()),
+        browser: None,
+    };
+    let _ = tx.unbounded_send(DebugMsg::Launched {
+        generation,
+        session,
+        run: None,
+        plan: None,
+    });
+    let _ = tx.unbounded_send(DebugMsg::AdapterVersion {
+        generation,
+        version,
+    });
+    let connection = match server.connect() {
+        Ok(c) => c,
+        Err(e) => return fail(format!("cannot reach vscode-js-debug: {e}")),
+    };
+    let client = DapClient::start_with(
+        connection,
+        js_sink(generation, tx.clone()),
+        Some(js_reverse(generation, server.clone(), tx.clone())),
+    );
+    let _ = tx.unbounded_send(DebugMsg::Connected {
+        generation,
+        client: client.clone(),
+    });
+    let plan = eludite_dap::attach::browser_attach(&page, &web_root);
+    // The browser session gets no breakpoints and no exception filters: its children own the page's scripts.
+    let start = StartPlan {
+        adapter_id: plan.adapter_id.into(),
+        kind: StartKind::Attach,
+        arguments: plan.arguments,
+        breakpoints: Vec::new(),
+        exception_filters: Vec::new(),
+        exception_options: Vec::new(),
+        function_breakpoints: Vec::new(),
+    };
+    let result = dap_session::start(&client, &start, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    let _ = tx.unbounded_send(DebugMsg::Started {
+        generation,
+        result,
+        adapter_id: "javascript".into(),
+    });
+}
+
+/// A child session's handshake (brief 0038), on its own thread: a new connection to the same server, then
+/// `initialize` and the `request` js-debug named with its configuration, the page's breakpoints and exception filters.
+struct JsChildJob {
+    generation: u64,
+    kind: StartKind,
+    configuration: Value,
+    server: Arc<dyn AdapterServer>,
+    breakpoints: Vec<(String, Vec<eludite_dap::types::SourceBreakpoint>)>,
+    exceptions: state::ExceptionPlan,
+    tx: UnboundedSender<DebugMsg>,
+}
+
+fn js_child_thread(job: JsChildJob) {
+    let JsChildJob {
+        generation,
+        kind,
+        configuration,
+        server,
+        breakpoints,
+        exceptions,
+        tx,
+    } = job;
+    let connection = match server.connect() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.unbounded_send(DebugMsg::LaunchFailed {
+                generation,
+                message: format!("cannot reach vscode-js-debug: {e}"),
+            });
+            return;
+        }
+    };
+    let client = DapClient::start_with(
+        connection,
+        js_sink(generation, tx.clone()),
+        Some(js_reverse(generation, server.clone(), tx.clone())),
+    );
+    let _ = tx.unbounded_send(DebugMsg::Connected {
+        generation,
+        client: client.clone(),
+    });
+    let start = StartPlan {
+        adapter_id: eludite_dap::attach::JS_ADAPTER_ID.into(),
+        kind,
+        arguments: configuration,
+        breakpoints,
+        exception_filters: exceptions.filters,
+        exception_options: exceptions.options,
+        function_breakpoints: Vec::new(),
+    };
+    let result = dap_session::start(&client, &start, HANDSHAKE_TIMEOUT).map_err(|e| e.to_string());
+    let _ = tx.unbounded_send(DebugMsg::Started {
+        generation,
+        result,
+        adapter_id: "javascript".into(),
+    });
+}
+
 impl Debugger {
     /// List the processes on a `debug-attach` thread; the answer comes back as [`DebugMsg::Processes`].
     fn list_processes_later(&self, filter: Option<String>, roots: Vec<u32>) {
         let tx = self.tx.clone();
+        let bus = self.browser_bus.clone();
         std::thread::Builder::new()
             .name("debug-attach".into())
             .spawn(move || {
-                let listing = list_processes(filter.as_deref(), &roots);
+                let listing =
+                    list_processes(filter.as_deref(), &roots).map(|o| with_tabs(o, bus.as_ref()));
                 let _ = tx.unbounded_send(DebugMsg::Processes { listing });
             })
             .expect("spawn debug-attach");
@@ -3434,7 +3976,34 @@ impl Shell {
                 .as_ref()
                 .and_then(|s| s.browser.as_ref())
                 .is_some_and(|b| b.waiting());
-        !page && ((start && m.mode == Mode::Running) || m.settled())
+        // And for its page's debugger to attach (brief 0038).
+        let attaching = start
+            && matches!(&m.browser_attach, Some(BrowserAttach::Session(id))
+                if self.debug.mode_of(*id) == Some(Mode::Launching));
+        !page && !attaching && ((start && m.mode == Mode::Running) || m.settled())
+    }
+
+    /// A start's answer names the browser session its page's debugger started, and that session's children (brief
+    /// 0038): the server first.
+    fn compound_rows(&mut self, sid: u32) -> Vec<cmds::CompoundSessionRow> {
+        let Some(BrowserAttach::Session(browser)) =
+            self.in_session(sid, |s| s.debug.model.browser_attach.clone())
+        else {
+            return Vec::new();
+        };
+        let mut ids = vec![sid, browser];
+        ids.extend(self.debug.children_of(browser));
+        ids.into_iter()
+            .filter_map(|id| {
+                self.in_session(id, |s| {
+                    (s.debug.session_id == id).then(|| cmds::CompoundSessionRow {
+                        id,
+                        name: Debugger::name_of(&s.debug.model, &s.debug.session_name),
+                        mode: s.debug.model.mode.as_str().into(),
+                    })
+                })
+            })
+            .collect()
     }
 
     /// The tasks that apply the debugger's messages (in batches: a burst of events costs one frame) and agents'
@@ -3761,6 +4330,7 @@ impl Shell {
                 cargo,
                 compound,
                 browser,
+                browsers,
                 ..
             } => {
                 let plain = project.is_none() && compound.is_none();
@@ -3775,8 +4345,10 @@ impl Shell {
                 }
                 self.debug.start_cargo = cargo;
                 self.debug.start_browser = browser;
+                self.debug.start_browsers = browsers;
                 let ids = self.debug_start_set(entries, build, &driver, window, cx);
                 self.debug.start_browser = None;
+                self.debug.start_browsers.clear();
                 if ids.len() > 1 {
                     self.debug.compound = ids.clone();
                     (agent && !wait.is_zero()).then_some(Followup::Compound { ids, wait, budget })
@@ -4376,17 +4948,49 @@ impl Shell {
             // Brief 0027: attach, processes, restart and who may drive.
             DebugRequest::Attach {
                 target: AttachTarget::Dialog,
+                adapter,
                 ..
             } => {
                 if agent {
                     return Err(CommandError::Failed(
-                        "name the process to attach to: `pid` or `process_name` (eludite.debug.processes lists the \
-                         candidates)"
+                        "name the process to attach to: `pid` or `process_name` (or a page: `tab` or `url`; \
+                         eludite.debug.processes lists the candidates)"
                             .into(),
                     ));
                 }
-                self.open_attach_dialog(window, cx);
+                // Debug > Attach to Browser Tab... (brief 0038): the same dialog, its tabs only.
+                let tabs_only = adapter.as_deref() == Some("javascript");
+                self.open_attach_dialog_with(tabs_only, window, cx);
                 None
+            }
+            // A page, with vscode-js-debug (brief 0038).
+            DebugRequest::Attach {
+                target: AttachTarget::Tab(tab),
+                web_root,
+                ..
+            } => {
+                self.debug_attach_page(
+                    PageTarget::Tab(tab),
+                    web_root.map(PathBuf::from),
+                    &driver,
+                    None,
+                    cx,
+                );
+                settle(true, None)
+            }
+            DebugRequest::Attach {
+                target: AttachTarget::Url(url),
+                web_root,
+                ..
+            } => {
+                self.debug_attach_page(
+                    PageTarget::Url(url),
+                    web_root.map(PathBuf::from),
+                    &driver,
+                    None,
+                    cx,
+                );
+                settle(true, None)
             }
             DebugRequest::Attach {
                 target,
@@ -4569,8 +5173,21 @@ impl Shell {
         )))
     }
 
-    /// An attach beside live sessions (brief 0028): refused for a process a session already debugs.
+    /// An attach beside live sessions (brief 0028): refused for a process a session already debugs, or a tab a browser
+    /// session already debugs (brief 0038).
     fn check_attach(&self, target: &AttachTarget) -> Result<(), CommandError> {
+        if let AttachTarget::Tab(tab) = target
+            && let Some(s) = self
+                .debug
+                .sessions_info()
+                .into_iter()
+                .find(|s| s.parent.is_none() && s.tab.as_deref() == Some(tab.as_str()))
+        {
+            return Err(CommandError::Failed(format!(
+                "tab {tab} is already being debugged in session {} ({})",
+                s.id, s.name
+            )));
+        }
         if let AttachTarget::Pid(pid) = target
             && let Some(s) = self
                 .debug
@@ -4632,8 +5249,10 @@ impl Shell {
             if !self.debug.live_ids().contains(&self.debug.active) {
                 self.debug.active = id;
             }
+            let entry = self.debug.take_browser_entry(e.project.as_deref(), e.debug);
             let d = &mut self.debug;
             d.cargo_options = cmds::CargoOptions::default();
+            d.model.browser_entry = entry;
             d.model.browser_choice = d.start_browser;
             d.model.browser_reuse = None;
             d.last_start = Some(StartArgs {
@@ -4737,6 +5356,8 @@ impl Shell {
             }
         }
         self.debug.cargo_options = std::mem::take(&mut self.debug.start_cargo);
+        // Its page's debugger (brief 0038).
+        self.debug.model.browser_entry = self.debug.take_browser_entry(project.as_deref(), debug);
         // Where a web project's page opens (brief 0037); a restart navigates the tab its page opened in.
         self.debug.model.browser_choice = self.debug.start_browser;
         if !self.debug.restarting {
@@ -4827,7 +5448,7 @@ impl Shell {
         // it, keeps running: it may be the process attached to.
         let name = match &target {
             AttachTarget::Pid(pid) => format!("process {pid}"),
-            AttachTarget::Name(n) => n.clone(),
+            AttachTarget::Name(n) | AttachTarget::Tab(n) | AttachTarget::Url(n) => n.clone(),
             AttachTarget::Dialog => String::new(),
         };
         if self.debug.model.mode == Mode::RunningWithoutDebugging
@@ -4854,7 +5475,9 @@ impl Shell {
         d.restart_pending = None;
         let what = match &target {
             AttachTarget::Pid(pid) => format!("process {pid}"),
-            AttachTarget::Name(name) => format!("`{name}`"),
+            AttachTarget::Name(name) | AttachTarget::Tab(name) | AttachTarget::Url(name) => {
+                format!("`{name}`")
+            }
             AttachTarget::Dialog => String::new(),
         };
         d.console_line(format!("Attaching to {what}\u{2026}"));
@@ -4897,6 +5520,213 @@ impl Shell {
         self.output
             .update(cx, |o, cx| o.select(OutputSource::Debug, cx));
         self.refresh_glyphs(cx);
+    }
+
+    /// A browser session (brief 0038): vscode-js-debug attached to a page, a session in mode `launching` whose attach
+    /// runs on a `debug-attach` thread; `attached_for` is the server session whose page it is (a compound start).
+    /// Returns the new session.
+    fn debug_attach_page(
+        &mut self,
+        target: PageTarget,
+        web_root: Option<PathBuf>,
+        driver: &str,
+        attached_for: Option<u32>,
+        cx: &mut Context<Self>,
+    ) -> u32 {
+        let (name, what) = match &target {
+            PageTarget::Tab(t) => (format!("tab {t}"), format!("tab {t}")),
+            PageTarget::Url(u) => (u.clone(), u.clone()),
+        };
+        // The project whose launch opened the page: its wwwroot is the default web root.
+        let project_dir = match &target {
+            PageTarget::Tab(t) => self.debug.project_of_tab(t),
+            PageTarget::Url(_) => None,
+        }
+        .or_else(|| {
+            let id = attached_for?;
+            self.in_session(id, |s| {
+                s.debug
+                    .model
+                    .session
+                    .as_ref()
+                    .and_then(|r| Path::new(&r.project).parent().map(Path::to_path_buf))
+            })
+        });
+        let root = self.workspace_root();
+        let id = self.debug.new_session(name);
+        self.debug.started = Some(id);
+        if !self.debug.live_ids().contains(&self.debug.active) {
+            self.debug.active = id;
+        }
+        let d = &mut self.debug;
+        d.begin(Mode::Launching, driver);
+        d.reset_for_start();
+        d.pending.clear();
+        d.caps = Capabilities::default();
+        d.run_to_cursor = None;
+        d.early_breakpoints.clear();
+        d.trace_hits.clear();
+        d.goto_error = None;
+        d.console_partial_adapter.clear();
+        d.restart_pending = None;
+        d.last_start = None;
+        d.model.browser_entry = None;
+        d.model.attached_for = attached_for;
+        d.console_line(format!("Attaching vscode-js-debug to {what}\u{2026}"));
+        let job = JsAttachJob {
+            generation: d.model.generation,
+            target,
+            web_root,
+            project_dir,
+            root,
+            js: d.setup.js.clone(),
+            browser: d.browser_bus.clone(),
+            tx: d.tx.clone(),
+        };
+        std::thread::Builder::new()
+            .name("debug-attach".into())
+            .spawn(move || js_attach_thread(job))
+            .expect("spawn debug-attach");
+        self.show_debug_windows();
+        self.refresh_glyphs(cx);
+        id
+    }
+
+    /// vscode-js-debug's `startDebugging` (brief 0038), with the parent session current: a child session with
+    /// `parent`, named after the target, whose handshake runs on a thread of its own on a new connection.
+    fn start_child_session(
+        &mut self,
+        request: &str,
+        configuration: Value,
+        server: Arc<dyn AdapterServer>,
+        cx: &mut Context<Self>,
+    ) {
+        let d = &self.debug;
+        if matches!(d.model.mode, Mode::Design | Mode::Stopping) {
+            return;
+        }
+        let parent = d.session_id;
+        let Some(kind) = StartKind::from_request(request) else {
+            return;
+        };
+        let row = d.model.session.clone().unwrap_or_default();
+        let version = d.model.adapter_version.clone();
+        let driver = d.model.last_driver.clone().unwrap_or_else(|| "user".into());
+        let name = configuration["name"]
+            .as_str()
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| row.project.clone());
+        let was_active = d.active == parent;
+        let id = self.debug.new_session(name.clone());
+        if was_active || !self.debug.live_ids().contains(&self.debug.active) {
+            self.debug.active = id;
+        }
+        let d = &mut self.debug;
+        d.begin(Mode::Launching, &driver);
+        d.pending.clear();
+        d.caps = Capabilities::default();
+        d.early_breakpoints.clear();
+        d.last_start = None;
+        d.model.browser_entry = None;
+        d.model.session = Some(SessionRow {
+            project: name.clone(),
+            program: row.program.clone(),
+            cwd: row.cwd.clone(),
+            debug: true,
+            adapter: row.adapter.clone(),
+            runtime: Some("javascript".into()),
+            attached: true,
+            parent: Some(parent),
+            tab: row.tab.clone(),
+            url: row.url.clone(),
+            ..SessionRow::default()
+        });
+        d.model.adapter_version = version;
+        d.console_line(format!("Debugging {name} (session {parent}'s target)."));
+        let family = d.model.family();
+        let breakpoints = d
+            .model
+            .breakpoints
+            .files()
+            .into_iter()
+            .filter(|f| family.takes(f))
+            .map(|f| {
+                let (_, sbps) = d
+                    .model
+                    .breakpoints
+                    .source_breakpoints(&f, false, false, None);
+                (f, sbps)
+            })
+            .collect();
+        let job = JsChildJob {
+            generation: d.model.generation,
+            kind,
+            configuration,
+            server,
+            breakpoints,
+            exceptions: exception_plan_for(family, &d.model.exceptions),
+            tx: d.tx.clone(),
+        };
+        let _ = std::thread::Builder::new()
+            .name("debug-attach".into())
+            .spawn(move || js_child_thread(job));
+        trace(format_args!("debug child session {id} of {parent}: {name}"));
+        self.refresh_glyphs(cx);
+    }
+
+    /// The tabs the Web Browser window shows changed (brief 0038): a browser session whose tab is gone ends, with
+    /// its children; one whose tab's title changed is renamed.
+    pub(super) fn debug_tabs_changed(
+        &mut self,
+        tabs: &[(String, Option<String>)],
+        cx: &mut Context<Self>,
+    ) {
+        let browsers: Vec<(u32, String, String)> = self
+            .debug
+            .sessions_info()
+            .into_iter()
+            .filter(|s| s.parent.is_none() && s.runtime.as_deref() == Some("javascript"))
+            .filter_map(|s| Some((s.id, s.tab.clone()?, s.name.clone())))
+            .collect();
+        if browsers.is_empty() {
+            return;
+        }
+        for (id, tab, name) in browsers {
+            match tabs.iter().find(|(t, _)| *t == tab) {
+                None => self.in_session(id, |s| {
+                    if s.debug.model.mode == Mode::Design {
+                        return;
+                    }
+                    let m = format!("The tab {tab} closed.");
+                    s.debug.console_line(m.clone());
+                    s.end_session(Some(m), cx);
+                }),
+                Some((_, Some(title))) if *title != name => {
+                    let title = title.clone();
+                    let kids = self.debug.children_of(id);
+                    self.in_session(id, |s| {
+                        if let Some(r) = s.debug.model.session.as_mut() {
+                            r.project = title.clone();
+                        }
+                        s.debug.session_name = title.clone();
+                    });
+                    // Children named after the old title (the page's own target) follow it.
+                    for k in kids {
+                        self.in_session(k, |s| {
+                            if let Some(r) = s.debug.model.session.as_mut()
+                                && r.project == name
+                            {
+                                r.project = title.clone();
+                            }
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.settle_active(cx);
+        self.refresh_debug(cx);
     }
 
     /// Restart (brief 0027): DAP `restart` where the adapter has it, else stop and start the last start again once the
@@ -4972,7 +5802,13 @@ impl Shell {
     }
 
     /// Debug > Attach to Process... (Ctrl+Alt+P): the dialog, with a fresh listing.
-    pub(super) fn open_attach_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// The Attach to Process dialog; `tabs_only`: Debug > Attach to Browser Tab... (brief 0038).
+    pub(super) fn open_attach_dialog_with(
+        &mut self,
+        tabs_only: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let dialog = match &self.debug.attach_dialog {
             Some(d) => d.clone(),
             None => {
@@ -4983,9 +5819,14 @@ impl Shell {
                 d
             }
         };
+        dialog.update(cx, |d, cx| d.set_tabs_only(tabs_only, cx));
         if let Some(out) = &self.debug.processes {
             let rows = out.processes.clone();
-            dialog.update(cx, |d, cx| d.set_rows(rows, None, cx));
+            let tabs = out.tabs.clone().unwrap_or_default();
+            dialog.update(cx, |d, cx| {
+                d.set_rows(rows, None, cx);
+                d.set_tabs(tabs, cx);
+            });
         }
         gpui::Focusable::focus_handle(dialog.read(cx), cx).focus(window, cx);
         let filter = dialog.read(cx).filter_text();
@@ -5030,6 +5871,11 @@ impl Shell {
                 let pid = *pid;
                 self.close_attach_dialog(window, cx);
                 self.run(cmds::ATTACH, json!({ "pid": pid }), window, cx);
+            }
+            windows::AttachEvent::AttachTab { tab } => {
+                let tab = tab.clone();
+                self.close_attach_dialog(window, cx);
+                self.run(cmds::ATTACH, json!({ "tab": tab }), window, cx);
             }
             windows::AttachEvent::Close => self.close_attach_dialog(window, cx),
         }
@@ -5377,6 +6223,28 @@ impl Shell {
             }
             return;
         }
+        // A browser session's children detach first: vscode-js-debug answers the parent's `disconnect` once they have
+        // (brief 0038).
+        let children = d.children_of(d.session_id);
+        if !children.is_empty() {
+            for c in children {
+                self.in_session(c, |s| {
+                    let d = &mut s.debug;
+                    if matches!(d.model.mode, Mode::Design | Mode::Stopping) || d.client.is_none() {
+                        return;
+                    }
+                    d.model.last_driver = Some(driver.to_owned());
+                    d.model.mode = Mode::Stopping;
+                    let generation = d.generation();
+                    let _ = d.send(
+                        "disconnect",
+                        json!({ "terminateDebuggee": false }),
+                        Pending::Detach { generation },
+                    );
+                });
+            }
+        }
+        let d = &mut self.debug;
         if d.client.is_some() {
             // An attached session detaches: the process keeps running, and the session ends with the answer (an
             // adapter may stay up after detaching; brief 0027).
@@ -6007,6 +6875,7 @@ impl Shell {
         self.debug.enter(active);
         self.refresh_debug_shown(cx);
         self.debug.enter(back);
+        self.debug.publish_pauses();
     }
 
     fn refresh_debug_shown(&mut self, cx: &mut Context<Self>) {
@@ -6057,15 +6926,48 @@ impl Shell {
                 current: Some(t.id) == m.thread,
             })
             .collect();
-        let breakpoints = m.breakpoints.rows_for(&d.live_ids());
+        let breakpoints = m.breakpoints.rows_for(&d.live_families());
         let exceptions = m.exceptions.clone();
         // The Call Stack and Threads windows' session selector (brief 0028): shown with two sessions or more.
         let choices: Vec<windows::SessionChoice> = if sessions.len() > 1 {
-            sessions
+            // A child session (brief 0038) is listed under its parent, indented.
+            let parents: HashMap<u32, u32> = d
+                .sessions_info()
                 .iter()
+                .filter_map(|s| Some((s.id, s.parent?)))
+                .collect();
+            let depth = |mut id: u32| {
+                let mut n = 0;
+                while let Some(p) = parents.get(&id) {
+                    n += 1;
+                    id = *p;
+                }
+                n
+            };
+            let mut ordered: Vec<&(u32, String, &'static str, String)> = Vec::new();
+            fn place<'a>(
+                id: Option<u32>,
+                all: &'a [(u32, String, &'static str, String)],
+                parents: &HashMap<u32, u32>,
+                out: &mut Vec<&'a (u32, String, &'static str, String)>,
+            ) {
+                for s in all.iter().filter(|s| parents.get(&s.0).copied() == id) {
+                    out.push(s);
+                    place(Some(s.0), all, parents, out);
+                }
+            }
+            place(None, &sessions, &parents, &mut ordered);
+            // A child whose parent is not live is listed at the top level.
+            for s in &sessions {
+                if !ordered.iter().any(|o| o.0 == s.0) {
+                    ordered.push(s);
+                }
+            }
+            ordered
+                .into_iter()
                 .map(|(id, name, mode, _)| windows::SessionChoice {
                     id: *id,
-                    label: format!("{id}: {name} ({mode})"),
+                    label: format!("{}{id}: {name} ({mode})", "    ".repeat(depth(*id))),
                     active: *id == d.active,
                 })
                 .collect()
@@ -6085,7 +6987,15 @@ impl Shell {
         w.threads.update(cx, |v, cx| v.set_rows(threads, cx));
         w.breakpoints
             .update(cx, |v, cx| v.set_rows(breakpoints, cx));
-        w.exceptions.update(cx, |v, cx| v.set(exceptions, cx));
+        // The JavaScript group while a browser session is live (brief 0038).
+        let javascript = d
+            .live_families()
+            .iter()
+            .any(|(_, f)| matches!(f, AdapterFamily::Javascript | AdapterFamily::Browser));
+        w.exceptions.update(cx, |v, cx| {
+            v.set(exceptions, cx);
+            v.set_javascript(javascript, cx);
+        });
         // The program's output and the debugger's messages: the Output window's Debug source (brief 0020).
         let out = std::mem::take(&mut d.output_queue);
         let clear = std::mem::take(&mut d.output_clear);
@@ -6221,19 +7131,94 @@ impl Shell {
         let detached = (d.model.attached() && d.model.exit_code.is_none() && message.is_none())
             .then(|| {
                 let s = d.model.session.as_ref().expect("attached");
-                format!(
-                    "Detached from {} (process {}); it keeps running.",
-                    s.project,
-                    s.process_id.unwrap_or_default()
-                )
+                match (&s.url, s.process_id) {
+                    // A page (brief 0038).
+                    (Some(url), None) => format!(
+                        "Detached from {} ({url}); the page keeps running.",
+                        s.project
+                    ),
+                    _ => format!(
+                        "Detached from {} (process {}); it keeps running.",
+                        s.project,
+                        s.process_id.unwrap_or_default()
+                    ),
+                }
             });
         if let Some(m) = &detached {
             d.console_line(m.clone());
         }
+        let never_ran = d.model.capabilities.is_none();
         d.model.end();
         d.model.message = detached.or(message);
+        // Brief 0038: a browser session's children end with it; a browser attach of a compound that failed says so in
+        // its server session's answer and the Output window, the server running on.
+        let (sid, message, attached_for) =
+            (d.session_id, d.model.message.clone(), d.model.attached_for);
+        for c in self.debug.children_of(sid) {
+            self.in_session(c, |s| {
+                if let Some(client) = s.debug.client.take() {
+                    client.kill();
+                }
+                s.end_session(None, cx);
+            });
+        }
+        if let (Some(server), true, Some(m)) = (attached_for, never_ran, message) {
+            self.in_session(server, |s| {
+                if s.debug.session_id != server {
+                    return;
+                }
+                let line =
+                    format!("The page could not be debugged: {m} The server's session goes on.");
+                s.debug.console_line(line.clone());
+                s.debug.model.browser_attach = Some(BrowserAttach::Failed(m.clone()));
+                if s.debug.model.mode != Mode::Design {
+                    s.debug.model.message = Some(line);
+                }
+            });
+        }
         self.apply_exec(cx);
         self.refresh_glyphs(cx);
+    }
+
+    /// The server session's page is up (brief 0038): when its start debugs the page (a compound's `browser` entry, or
+    /// `browser: built_in` with the setting debugger.attachBrowser on), vscode-js-debug attaches to the tab, the URL
+    /// or the tab the launch opened (`opened`), once.
+    fn attach_page_of_server(&mut self, opened: Option<String>, cx: &mut Context<Self>) {
+        let d = &self.debug;
+        let Some(entry) = d.model.browser_entry.clone() else {
+            return;
+        };
+        if matches!(d.model.mode, Mode::Design | Mode::Stopping)
+            || matches!(&d.model.browser_attach, Some(BrowserAttach::Session(id)) if d.live_ids().contains(id))
+        {
+            return;
+        }
+        let target = match (entry.tab, entry.url, opened) {
+            (Some(t), _, _) => PageTarget::Tab(t),
+            (None, Some(u), _) => PageTarget::Url(u),
+            (None, None, Some(t)) => PageTarget::Tab(t),
+            (None, None, None) => {
+                self.debug.console_line(
+                    "The page opened in the system browser: the JavaScript debugger attaches to a tab of the Web \
+                     Browser window (Debug > Open in Web Browser Window)."
+                        .to_owned(),
+                );
+                return;
+            }
+        };
+        let server = d.session_id;
+        let driver = d.model.last_driver.clone().unwrap_or_else(|| "user".into());
+        self.debug.timings.page_attach_started = Some(Instant::now());
+        let id = self.debug_attach_page(
+            target,
+            entry.web_root.map(PathBuf::from),
+            &driver,
+            Some(server),
+            cx,
+        );
+        self.in_session(server, |s| {
+            s.debug.model.browser_attach = Some(BrowserAttach::Session(id));
+        });
     }
 
     /// Apply a batch of messages from the launch thread, the adapter and the program.
@@ -6361,6 +7346,27 @@ impl Shell {
                         self.debug.model.mode = Mode::Running;
                     }
                     trace(format_args!("debug running generation {current}"));
+                    // A page's child session runs (brief 0038's budget).
+                    if self.debug.model.family() == AdapterFamily::Javascript
+                        && let Some(at) = self.debug.timings.page_attach_started.take()
+                    {
+                        self.debug.timings.page_attach = Some(at.elapsed());
+                        trace(format_args!(
+                            "debug page attached {:.1} ms after the page opened",
+                            at.elapsed().as_secs_f64() * 1e3
+                        ));
+                    }
+                    // A compound's browser entry naming its page, for a server whose launch opens none (brief 0038).
+                    if self.debug.model.browser_plan.is_none()
+                        && self
+                            .debug
+                            .model
+                            .browser_entry
+                            .as_ref()
+                            .is_some_and(|e| e.tab.is_some() || e.url.is_some())
+                    {
+                        self.attach_page_of_server(None, cx);
+                    }
                     // What the handshake could not know: hit conditions and log points go to an adapter that has
                     // them.
                     let tracepoints = self
@@ -6437,8 +7443,13 @@ impl Shell {
                 if browser.state == "opened" && browser.tab.is_some() {
                     self.debug.model.browser_reuse = browser.tab.clone();
                 }
+                let opened = (browser.state == "opened").then(|| browser.tab.clone());
                 if let Some(s) = self.debug.model.session.as_mut() {
                     s.browser = Some(browser);
+                }
+                // The page is up: debug it too (brief 0038).
+                if let Some(tab) = opened {
+                    self.attach_page_of_server(tab, cx);
                 }
             }
             DebugMsg::ProgramExited { generation, code } if generation == current => {
@@ -6459,11 +7470,39 @@ impl Shell {
             DebugMsg::Client { generation, event } if generation == current => {
                 self.on_client_event(event, window, cx)
             }
+            DebugMsg::StartChild {
+                generation,
+                request,
+                configuration,
+                server,
+            } if generation == current => {
+                self.start_child_session(&request, configuration, server, cx);
+            }
+            DebugMsg::AdapterVersion {
+                generation,
+                version,
+            } if generation == current => {
+                self.debug.model.adapter_version = Some(version);
+            }
             DebugMsg::Processes { listing } => match listing {
-                Ok(out) => {
+                Ok(mut out) => {
+                    // Which browser session debugs each tab (brief 0038).
+                    let sessions = self.debug.sessions_info();
+                    for row in out.tabs.iter_mut().flatten() {
+                        row.session = sessions
+                            .iter()
+                            .find(|s| {
+                                s.parent.is_none() && s.tab.as_deref() == Some(row.id.as_str())
+                            })
+                            .map(|s| s.id);
+                    }
                     if let Some(dialog) = self.debug.attach_dialog.clone() {
                         let rows = out.processes.clone();
-                        dialog.update(cx, |d, cx| d.set_rows(rows, None, cx));
+                        let tabs = out.tabs.clone().unwrap_or_default();
+                        dialog.update(cx, |d, cx| {
+                            d.set_rows(rows, None, cx);
+                            d.set_tabs(tabs, cx);
+                        });
                     }
                     self.debug.processes = Some(out);
                 }
@@ -6610,7 +7649,22 @@ impl Shell {
             }
             Event::Terminated => {
                 if d.model.mode != Mode::Stopping {
-                    let _ = d.send("disconnect", json!({}), Pending::Other);
+                    // vscode-js-debug keeps its socket open after `disconnect`: the answer ends the session (brief
+                    // 0038), as a detach's does.
+                    let js = matches!(
+                        d.model.family(),
+                        AdapterFamily::Javascript | AdapterFamily::Browser
+                    );
+                    let generation = d.generation();
+                    let _ = d.send(
+                        "disconnect",
+                        json!({}),
+                        if js {
+                            Pending::Detach { generation }
+                        } else {
+                            Pending::Other
+                        },
+                    );
                 }
                 d.model.mode = Mode::Stopping;
             }
@@ -6839,7 +7893,7 @@ impl Shell {
                     .ok()
                     .and_then(|b| serde_json::from_value(b).ok())
                     .unwrap_or_default();
-                let scope = scopes.scopes.iter().find(|s| !s.expensive);
+                let scope = locals_scope(&scopes.scopes);
                 match scope {
                     Some(s) => {
                         self.debug.model.locals_reference = s.variables_reference;
@@ -7672,7 +8726,13 @@ impl Reader {
         let locals = scopes
             .scopes
             .iter()
-            .find(|s| named(s, "locals", &["locals"]))
+            .find(|s| !s.expensive && s.name.starts_with("Local:"))
+            .or_else(|| {
+                scopes
+                    .scopes
+                    .iter()
+                    .find(|s| named(s, "locals", &["locals"]))
+            })
             .or_else(|| scopes.scopes.iter().find(|s| !s.expensive))
             .or(scopes.scopes.first())
             .cloned();
@@ -7999,10 +9059,7 @@ impl Reader {
                 .await?,
         )
         .map_err(|e| format!("scopes: {e}"))?;
-        let scope = scopes
-            .scopes
-            .iter()
-            .find(|s| !s.expensive)
+        let scope = locals_scope(&scopes.scopes)
             .or(scopes.scopes.first())
             .ok_or_else(|| format!("frame {frame} has no variables"))?
             .variables_reference;
@@ -8260,14 +9317,34 @@ async fn follow_up(
         }
         Followup::Processes { filter, roots } => {
             let (tx, rx) = oneshot::channel();
+            let bus = this
+                .update(cx, |s, _| s.debug.browser_bus.clone())
+                .map_err(|_| closed())?;
             std::thread::Builder::new()
                 .name("debug-attach".into())
                 .spawn(move || {
-                    let _ = tx.send(list_processes(filter.as_deref(), &roots));
+                    let _ = tx.send(
+                        list_processes(filter.as_deref(), &roots)
+                            .map(|o| with_tabs(o, bus.as_ref())),
+                    );
                 })
                 .map_err(|e| CommandError::Failed(e.to_string()))?;
             match rx.await {
-                Ok(Ok(out)) => Ok(DebugOutput::Processes(out)),
+                Ok(Ok(mut out)) => {
+                    // Which browser session debugs each tab (brief 0038).
+                    let sessions = this
+                        .update(cx, |s, _| s.debug.sessions_info())
+                        .map_err(|_| closed())?;
+                    for row in out.tabs.iter_mut().flatten() {
+                        row.session = sessions
+                            .iter()
+                            .find(|s| {
+                                s.parent.is_none() && s.tab.as_deref() == Some(row.id.as_str())
+                            })
+                            .map(|s| s.id);
+                    }
+                    Ok(DebugOutput::Processes(out))
+                }
                 Ok(Err(e)) => Err(CommandError::Failed(format!("cannot list processes: {e}"))),
                 Err(_) => Err(CommandError::Failed("the process listing failed".into())),
             }
@@ -8375,6 +9452,11 @@ async fn follow_up(
             let mut summary = summarize(&this, cx, sid, None, None, &budget).await?;
             if !settled {
                 summary.timed_out = Some(true);
+            }
+            if start && summary.sessions.is_empty() {
+                summary.sessions = this
+                    .update(cx, |s, _| s.compound_rows(sid))
+                    .map_err(|_| closed())?;
             }
             if !points.is_empty() {
                 summary.points_failed = this
@@ -8515,10 +9597,29 @@ async fn follow_up(
                 }
                 let (holds, waiter) = this
                     .update(cx, |s, _| {
-                        s.in_session(sid, |s| {
-                            let holds = wait_satisfied(&s.debug.model, until, stop, baseline);
-                            (holds, holds.is_none().then(|| s.debug_waiter()))
-                        })
+                        let own = s.in_session(sid, |s| {
+                            wait_satisfied(&s.debug.model, until, stop, baseline).map(|w| (w, sid))
+                        });
+                        // A browser session's wait ends at its first stop or its children's (brief 0038).
+                        let mut child = || {
+                            if !matches!(until, WaitUntil::Stopped | WaitUntil::Any) {
+                                return None;
+                            }
+                            s.debug.children_of(sid).into_iter().find_map(|c| {
+                                s.in_session(c, |s| {
+                                    let m = &s.debug.model;
+                                    (s.debug.session_id == c
+                                        && m.mode == Mode::Break
+                                        && m.settled())
+                                    .then_some(("stopped", c))
+                                })
+                            })
+                        };
+                        let holds = match own {
+                            Some(("terminated", _)) | None => child().or(own),
+                            other => other,
+                        };
+                        (holds, holds.is_none().then(|| s.debug_waiter()))
                     })
                     .map_err(|_| closed())?;
                 let left = deadline.saturating_duration_since(Instant::now());
@@ -8527,6 +9628,10 @@ async fn follow_up(
                 };
                 let timer = real_timer(left);
                 let _ = futures::future::select(waiter, timer).await;
+            };
+            let (satisfied, sid) = match satisfied {
+                Some((why, id)) => (Some(why), id),
+                None => (None, sid),
             };
             let mut summary = summarize(&this, cx, sid, None, None, &budget).await?;
             match satisfied {

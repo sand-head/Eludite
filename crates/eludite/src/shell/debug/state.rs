@@ -69,6 +69,7 @@ use eludite_commands::debug::{
     cut_value, null_spelling, pending_message,
 };
 use eludite_commands::project::StartupAction;
+use eludite_dap::session::AdapterFamily;
 use eludite_dap::types::{
     ExceptionFilterOptions, FunctionBreakpoint as DapFunction, SourceBreakpoint,
 };
@@ -707,6 +708,7 @@ impl Frame {
             end_line: r.end_line,
             end_column: r.end_column,
             external: r.path.is_none() || self.subtle,
+            source: r.source.clone(),
         }
     }
 
@@ -723,6 +725,15 @@ impl Frame {
                 column: line(f.column).filter(|_| has_source),
                 end_line: f.end_line.and_then(line).filter(|_| has_source),
                 end_column: f.end_column.and_then(line).filter(|_| has_source),
+                // Through a source map (brief 0038): the original file is the frame's path.
+                source: f.generated.as_ref().zip(f.path()).map(|(g, p)| {
+                    eludite_commands::debug::FrameSourceRow {
+                        original: p.to_owned(),
+                        generated: Some(g.path.clone()),
+                        generated_line: g.line.and_then(line),
+                        generated_column: g.column.and_then(line),
+                    }
+                }),
             },
             subtle: f.presentation_hint.as_deref() == Some("subtle"),
         }
@@ -1178,20 +1189,23 @@ impl Breakpoints {
     }
 
     /// The rows with each breakpoint's binding in the live sessions `live` (brief 0028): `sessions` per session, the
-    /// row's `verified` bound in any, its `hits` summed; with no live session, as the current one left them.
-    pub fn rows_for(&self, live: &[u32]) -> Vec<BreakpointRow> {
+    /// row's `verified` bound in any, its `hits` summed; with no live session, as the current one left them. A line
+    /// breakpoint lists only the sessions whose adapter takes its file (brief 0038, [`AdapterFamily::takes`]).
+    pub fn rows_for(&self, live: &[(u32, AdapterFamily)]) -> Vec<BreakpointRow> {
         let current = self.current;
         let per = |verified: bool,
                    hits: u32,
                    message: &Option<String>,
-                   bindings: &[(u32, Binding)]|
+                   bindings: &[(u32, Binding)],
+                   path: Option<&str>|
          -> (bool, u32, Vec<BreakpointSessionRow>) {
             if live.is_empty() {
                 return (verified, hits, Vec::new());
             }
             let rows: Vec<BreakpointSessionRow> = live
                 .iter()
-                .map(|id| {
+                .filter(|(_, f)| path.is_none_or(|p| f.takes(p)))
+                .map(|(id, _)| {
                     if *id == current {
                         BreakpointSessionRow {
                             session: *id,
@@ -1225,11 +1239,11 @@ impl Breakpoints {
             .zip(
                 self.list
                     .iter()
-                    .map(|b| per(b.verified, b.hits, &b.message, &b.bindings))
+                    .map(|b| per(b.verified, b.hits, &b.message, &b.bindings, Some(&b.path)))
                     .chain(
                         self.functions
                             .iter()
-                            .map(|f| per(f.verified, f.hits, &f.message, &f.bindings)),
+                            .map(|f| per(f.verified, f.hits, &f.message, &f.bindings, None)),
                     ),
             )
             .map(|(mut row, (verified, hits, sessions))| {
@@ -1329,6 +1343,32 @@ pub fn exception_plan(e: &ExceptionSettingsRow) -> ExceptionPlan {
     plan
 }
 
+/// The exception plan for a session of `family` (brief 0038): vscode-js-debug's `all` and `uncaught` from the two
+/// boxes (its filter options take JavaScript conditions, so the .NET exception types are not sent); a browser session
+/// gets none; the others the .NET plan above.
+pub fn exception_plan_for(family: AdapterFamily, e: &ExceptionSettingsRow) -> ExceptionPlan {
+    match family {
+        AdapterFamily::Javascript => ExceptionPlan {
+            filters: eludite_dap::attach::js_exception_filters(
+                e.break_when_thrown,
+                e.break_when_user_unhandled,
+            ),
+            options: Vec::new(),
+        },
+        AdapterFamily::Browser => ExceptionPlan::default(),
+        _ => exception_plan(e),
+    }
+}
+
+/// The scope the Locals window shows: the first one named `Local` (vscode-js-debug lists `Block: f`, then `Local: f`:
+/// the function's variables; brief 0038), else the first that is not expensive, else the first.
+pub fn locals_scope(scopes: &[eludite_dap::types::Scope]) -> Option<&eludite_dap::types::Scope> {
+    scopes
+        .iter()
+        .find(|s| !s.expensive && s.name.starts_with("Local"))
+        .or_else(|| scopes.iter().find(|s| !s.expensive))
+}
+
 /// The DAP exception filters without conditions (an adapter without filter options gets these only).
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn exception_filters(e: &ExceptionSettingsRow) -> Vec<String> {
@@ -1398,6 +1438,24 @@ pub struct DebugModel {
     pub browser_reuse: Option<String>,
     /// From Kestrel's listening line to the page opened (brief 0037's budget).
     pub browser_latency: Option<std::time::Duration>,
+    /// The versions of the session's adapter and its runtime (brief 0038: `vscode-js-debug 1.140.0, node v22.12.0`).
+    pub adapter_version: Option<String>,
+    /// A server session's page to debug once it opens (brief 0038): the start's `browser` entry, or the implied one of
+    /// `browser: built_in` with the setting debugger.attachBrowser on.
+    pub browser_entry: Option<eludite_commands::debug::BrowserEntry>,
+    /// What came of that attach.
+    pub browser_attach: Option<BrowserAttach>,
+    /// A browser session started for a server session's page: that session (its answer and message say how it went).
+    pub attached_for: Option<u32>,
+}
+
+/// A server session's browser attach (brief 0038).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BrowserAttach {
+    /// The browser session (it attaches, then runs).
+    Session(u32),
+    /// Why it could not attach (no Node.js, no vscode-js-debug, no tab).
+    Failed(String),
 }
 
 impl Default for DebugModel {
@@ -1441,6 +1499,10 @@ impl Default for DebugModel {
             browser_choice: None,
             browser_reuse: None,
             browser_latency: None,
+            adapter_version: None,
+            browser_entry: None,
+            browser_attach: None,
+            attached_for: None,
         }
     }
 }
@@ -1636,7 +1698,18 @@ impl DebugModel {
         self.capabilities = None;
         self.ended_failed.clear();
         self.removed_points.clear();
+        self.adapter_version = None;
+        self.browser_attach = None;
         self.agents_allowed = self.agents_next.take().unwrap_or(self.agents_default);
+    }
+
+    /// Which files' breakpoints the session's adapter gets (brief 0038).
+    pub fn family(&self) -> eludite_dap::session::AdapterFamily {
+        let s = self.session.as_ref();
+        eludite_dap::session::AdapterFamily::of_runtime(
+            s.and_then(|s| s.runtime.as_deref()),
+            s.is_some_and(|s| s.parent.is_some()),
+        )
     }
 
     /// Whether the session attached to a running process.
@@ -2028,6 +2101,7 @@ mod tests {
         assert!(
             m.check(&DebugRequest::Start {
                 compound: None,
+                browsers: Vec::new(),
                 project: None,
                 debug: true,
                 profile: None,
@@ -2044,6 +2118,7 @@ mod tests {
         assert!(
             m.check(&DebugRequest::Start {
                 compound: None,
+                browsers: Vec::new(),
                 project: None,
                 debug: true,
                 profile: None,
@@ -2497,7 +2572,7 @@ mod tests {
         assert!(b.at("/s/a.cs", 6).unwrap().bound(), "bound in session 1");
         b.apply_answer("/s/a.cs", &[6], &[bound(false)]);
         b.at_mut("/s/a.cs", 6).unwrap().hits = 1;
-        let rows = b.rows_for(&[1, 2]);
+        let rows = b.rows_for(&[(1, AdapterFamily::Other), (2, AdapterFamily::Other)]);
         assert!(rows[0].verified);
         assert_eq!(rows[0].hits, 3);
         assert_eq!(
@@ -2587,5 +2662,71 @@ mod tests {
                 )
             ]
         );
+    }
+
+    /// Brief 0038: a line breakpoint's row lists only the sessions whose adapter takes its file; the exception plan
+    /// of a vscode-js-debug session is `all` and `uncaught`, without the .NET exception types; the Locals scope is
+    /// js-debug's `Local:` one.
+    #[test]
+    fn rows_name_only_the_adapters_that_take_the_file_and_js_gets_its_filters() {
+        let mut b = Breakpoints::default();
+        b.toggle("/w/App/Program.cs", 5);
+        b.toggle("/w/wwwroot/app.ts", 25);
+        b.toggle("/w/notes.txt", 1);
+        let live = [
+            (1, AdapterFamily::Dotnet),
+            (2, AdapterFamily::Browser),
+            (3, AdapterFamily::Javascript),
+        ];
+        let rows = b.rows_for(&live);
+        let sessions = |path: &str| -> Vec<u32> {
+            rows.iter()
+                .find(|r| r.path.as_deref() == Some(path))
+                .unwrap()
+                .sessions
+                .iter()
+                .map(|s| s.session)
+                .collect()
+        };
+        assert_eq!(sessions("/w/App/Program.cs"), [1]);
+        assert_eq!(sessions("/w/wwwroot/app.ts"), [3]);
+        assert_eq!(sessions("/w/notes.txt"), [1, 3]);
+        let e = ExceptionSettingsRow {
+            break_when_thrown: false,
+            break_when_user_unhandled: true,
+            types: vec![ExceptionTypeRow {
+                type_name: "System.InvalidOperationException".into(),
+                break_when_thrown: true,
+                break_when_user_unhandled: false,
+            }],
+            ..ExceptionSettingsRow::default()
+        };
+        let js = exception_plan_for(AdapterFamily::Javascript, &e);
+        assert_eq!(
+            (js.filters.clone(), js.options.len()),
+            (vec!["uncaught".to_owned()], 0)
+        );
+        assert_eq!(
+            exception_plan_for(AdapterFamily::Browser, &e),
+            ExceptionPlan::default()
+        );
+        assert_eq!(
+            exception_plan_for(AdapterFamily::Dotnet, &e),
+            exception_plan(&e)
+        );
+        let scope = |name: &str, expensive: bool| eludite_dap::types::Scope {
+            name: name.into(),
+            expensive,
+            ..Default::default()
+        };
+        let js_scopes = [
+            scope("Block: total", false),
+            scope("Local: total", false),
+            scope("Global", true),
+        ];
+        assert_eq!(locals_scope(&js_scopes).unwrap().name, "Local: total");
+        let net = [scope("Locals", false)];
+        assert_eq!(locals_scope(&net).unwrap().name, "Locals");
+        assert!(locals_scope(&[scope("Global", true)]).is_none());
     }
 }

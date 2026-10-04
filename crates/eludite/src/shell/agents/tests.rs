@@ -1405,6 +1405,7 @@ fn debug_scenario_with(
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(store.path().to_path_buf()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let mut w = super::super::tests::setup_debug(
         cx,
