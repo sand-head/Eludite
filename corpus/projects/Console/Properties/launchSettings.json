@@ -1,0 +1,19 @@
+{
+  "profiles": {
+    "Console": {
+      "commandName": "Project",
+      "commandLineArgs": "--verbose first",
+      "environmentVariables": {
+        "ZETA": "last",
+        "ALPHA": "first",
+        "MIDDLE": "2"
+      },
+      "x-corpus-note": "an unknown member Eludite keeps"
+    },
+    "Tool": {
+      "commandName": "Executable",
+      "executablePath": "/usr/bin/env",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <!-- The same projects as Corpus.sln. -->
+  <Project Path="Console/Console.csproj" />
+  <Project Path="Tabs/Tabs.csproj" />
+  <Project Path="Multi/Multi.csproj" />
+  <Folder Name="/Inherited/">
+    <Project Path="Inherited/Lib/Lib.csproj">
+      <Build Solution="Release|*" Project="false" />
+    </Project>
+  </Folder>
+  <Project Path="Web/Web.csproj" />
+</Solution>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+			<AssemblyName>Tabs.Odd</AssemblyName>
+		<LangVersion>latest</LangVersion>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<DefineConstants>$(DefineConstants);TABS_DEBUG</DefineConstants>
+	</PropertyGroup>
+	<!-- A trailing comment, tabs, CRLF and a byte order mark. -->
+</Project>
