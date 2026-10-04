@@ -83,6 +83,7 @@ Optional header lines: Status (open, in progress, done), Plan reference, Depends
 | [0050](0050-web-language-stack.md) | The web language stack: TypeScript, JavaScript, HTML, CSS and JSON through the generic server path, tree-sitter grammars, ESLint, Prettier or Biome, Emmet, JSON schemas (PLAN.md section 7, Web row) | 2 | open |
 | [0051](0051-web-package-ui-and-scripts.md) | The web package UI on the NuGet window, `package.json` scripts as run targets with Task Runner Explorer, workspaces, `eludite.npm.*` (PLAN.md section 7, Web row) | 2 | open |
 | [0052](0052-codelens.md) | CodeLens for references and tests above members, the References popup, Run Test and Debug Test from the lens (PLAN.md 4.1, 4.3) | 2 | open |
+| [0053](0053-codelens-commit-history.md) | The commit history CodeLens: "N authors, M changes" per member from libgit2's history of its lines, the commit popup with View Diff, `eludite.git.history` (PLAN.md 4.1, 4.8) | 2 | open |
 
 Guides for agents: [docs/agents/debugging.md](../agents/debugging.md) (brief 0027), how an agent drives Eludite's
 debugger, also served to hosted agents as the MCP resource `eludite://guides/debugging`; [docs/agents/git.md](../agents/git.md)
