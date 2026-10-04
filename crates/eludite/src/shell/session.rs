@@ -230,6 +230,13 @@ pub enum SessionEvent {
     TestUpdate(Box<host::TestUpdate>),
     /// `eludite/test/status` after the host restarted (brief 0035): the discoveries and runs to replay.
     TestStatus(host::TestStatusResult),
+    /// `eludite/nuget/update` (brief 0048), any generation: the NuGet window drops a stale one.
+    NuGetUpdate(Box<host::NuGetUpdate>),
+    /// `eludite/nuget/credentials` (brief 0048): answer with [`ServerSession::respond_nuget_credentials`] and `id`.
+    NuGetCredentials {
+        id: Id,
+        params: host::NuGetCredentialsParams,
+    },
 }
 
 enum Cmd {
@@ -260,6 +267,10 @@ enum Cmd {
     Cancel(u64),
     /// Answer the server's `workspace/applyEdit`.
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
+    /// Answer the host's `eludite/nuget/credentials` (brief 0048).
+    RespondNuGetCredentials(Id, Option<host::NuGetCredentialsAnswer>),
+    /// Ask for the tree again (the projects changed under a new generation; brief 0048).
+    RefreshTree,
     /// An untyped notification (`workspace/didChangeWatchedFiles`).
     Notify(String, serde_json::Value),
     BuildStart(u64, host::BuildStartParams),
@@ -481,6 +492,18 @@ impl ServerSession {
         self.send(Cmd::DidClose { uri });
     }
 
+    /// Answer the host's `eludite/nuget/credentials` request `id` ([`SessionEvent::NuGetCredentials`]); `None` gives
+    /// up.
+    pub fn respond_nuget_credentials(&self, id: Id, answer: Option<host::NuGetCredentialsAnswer>) {
+        self.send(Cmd::RespondNuGetCredentials(id, answer));
+    }
+
+    /// Ask the host for the solution tree again (a NuGet change advanced the generation; brief 0048). The answer
+    /// arrives as [`SessionEvent::Tree`] when it is still current.
+    pub fn refresh_tree(&self) {
+        self.send(Cmd::RefreshTree);
+    }
+
     /// Answer the server's `workspace/applyEdit` request `id` ([`SessionEvent::ApplyEdit`]).
     pub fn respond_apply_edit(&self, id: Id, result: lsp::ApplyWorkspaceEditResult) {
         self.send(Cmd::RespondApplyEdit(id, result));
@@ -680,6 +703,16 @@ impl Worker {
                 Cmd::Notify(method, params) => {
                     if let Some(c) = self.conn() {
                         let _ = c.notify_untyped(&method, params);
+                    }
+                }
+                Cmd::RespondNuGetCredentials(id, answer) => {
+                    if let Some(c) = self.host() {
+                        let _ = c.respond_nuget_credentials(id, answer);
+                    }
+                }
+                Cmd::RefreshTree => {
+                    if let Some(c) = self.host().cloned() {
+                        self.request_tree(c);
                     }
                 }
                 Cmd::BuildStart(ticket, params) => self.build_start(ticket, params),
@@ -916,8 +949,12 @@ impl Worker {
             }
         };
         lock(&self.shared).generation = generation;
-        // The tree streams in when the host's evaluation finishes; wait for it off this thread so document
-        // notifications keep flowing.
+        self.request_tree(client);
+    }
+
+    /// Ask for the tree; it streams in when the host's evaluation finishes. Waits off this thread so document
+    /// notifications keep flowing; a tree for a generation that is no longer current is dropped.
+    fn request_tree(&self, client: HostClient) {
         let pending = client.request::<host::SolutionTreeRequest>(());
         let events = self.events.clone();
         let _ = thread::Builder::new()
@@ -1122,6 +1159,10 @@ impl Pump {
                 Event::BuildOutput(o) => SessionEvent::BuildOutput(o),
                 Event::BuildProgress(p) => SessionEvent::BuildProgress(p),
                 Event::TestUpdate(u) => SessionEvent::TestUpdate(u),
+                Event::NuGetUpdate(u) => SessionEvent::NuGetUpdate(u),
+                Event::NuGetCredentials { id, params } => {
+                    SessionEvent::NuGetCredentials { id, params }
+                }
                 Event::BuildFinished(f) => SessionEvent::BuildFinished {
                     finished: Box::new(f),
                     received: Instant::now(),

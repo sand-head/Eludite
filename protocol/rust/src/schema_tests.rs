@@ -162,6 +162,8 @@ fn every_schema_file_names_a_documented_method() {
         methods::BUILD_PROGRESS,
         methods::BUILD_FINISHED,
         methods::TEST_UPDATE,
+        methods::NUGET_UPDATE,
+        methods::NUGET_CREDENTIALS,
     ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
@@ -299,6 +301,7 @@ fn eludite_messages_conform_to_their_schemas() {
             link: None,
         }],
         error: None,
+        dependencies: None,
     };
     conforms("solution-tree.json", "project", &project);
     conforms("solution-tree.json", "file", &project.files[0]);
@@ -554,6 +557,12 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::TestCancel>(),
         req::<host::TestAttached>(),
         req::<host::TestStatus>(),
+        req::<host::NuGetSearch>(),
+        req::<host::NuGetInstalled>(),
+        req::<host::NuGetUpdates>(),
+        req::<host::NuGetChange>(),
+        req::<host::NuGetSources>(),
+        req::<host::NuGetRestore>(),
     ];
     assert!(
         eludite
@@ -571,7 +580,11 @@ fn typed_marker_methods_match_the_method_lists() {
     assert_eq!(notes.as_slice(), methods::FORWARDED_TYPED_NOTIFICATIONS);
     assert!(methods::HOST_TO_SHELL.contains(&lsp::PublishDiagnostics::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&lsp::ApplyEdit::METHOD));
-    assert_eq!(methods::HOST_TO_SHELL_REQUESTS, [lsp::ApplyEdit::METHOD]);
+    assert_eq!(
+        methods::HOST_TO_SHELL_REQUESTS,
+        [lsp::ApplyEdit::METHOD, host::NuGetCredentials::METHOD]
+    );
+    assert!(methods::HOST_TO_SHELL.contains(&host::NuGetCredentials::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&host::SolutionStatusNotification::METHOD));
     assert!(methods::HOST_TO_SHELL.contains(&host::LanguageServerStatusNotification::METHOD));
     for m in [
@@ -579,6 +592,7 @@ fn typed_marker_methods_match_the_method_lists() {
         host::BuildProgressNotification::METHOD,
         host::BuildFinishedNotification::METHOD,
         host::TestUpdateNotification::METHOD,
+        host::NuGetUpdateNotification::METHOD,
     ] {
         assert!(methods::HOST_TO_SHELL.contains(&m), "{m}");
     }
@@ -1288,4 +1302,405 @@ fn test_messages_conform_to_their_schemas() {
         serde_json::from_value(serde_json::to_value(&status).unwrap()).unwrap();
     assert_eq!(back, status);
     rejects("test-status.json", "result", json!({}));
+}
+
+#[test]
+fn nuget_messages_conform_to_their_schemas() {
+    use host::*;
+    let vuln = NuGetVulnerability {
+        severity: "high".into(),
+        advisory_url: "https://github.com/advisories/GHSA-test".into(),
+    };
+    let deprecation = NuGetDeprecation {
+        reasons: vec!["legacy".into()],
+        message: Some("Use 1.1.0".into()),
+        alternate_package: Some(NuGetAlternatePackage {
+            id: "Other".into(),
+            range: Some("[1.0.0, )".into()),
+        }),
+    };
+    let rows = vec![
+        NuGetSourceResult {
+            name: "corpus".into(),
+            url: "/c/feed".into(),
+            count: 2,
+            elapsed_ms: Some(4.5),
+            cached: true,
+            error: None,
+        },
+        NuGetSourceResult {
+            name: "down".into(),
+            url: "http://127.0.0.1:9/v3/index.json".into(),
+            count: 0,
+            elapsed_ms: Some(1.0),
+            cached: false,
+            error: Some("Unable to load the service index".into()),
+        },
+    ];
+    conforms(
+        "nuget-search.json",
+        "params",
+        &NuGetSearchParams {
+            generation: 2,
+            operation: Some(4),
+            query: Some("Greeter".into()),
+            source: Some("corpus".into()),
+            prerelease: Some(true),
+            skip: Some(0),
+            take: Some(50),
+            interactive: Some(true),
+        },
+    );
+    rejects("nuget-search.json", "params", json!({"query": "x"}));
+    rejects(
+        "nuget-search.json",
+        "params",
+        json!({"generation": 1, "take": 0}),
+    );
+    let package = NuGetSearchPackage {
+        id: "Eludite.Corpus.Greeter".into(),
+        version: "1.1.0".into(),
+        source: "corpus".into(),
+        versions: Some(vec!["1.1.0".into(), "1.0.0".into()]),
+        title: Some("Greeter".into()),
+        description: Some("Greets".into()),
+        authors: Some("The Eludite Authors".into()),
+        icon_url: Some("https://example.invalid/icon.png".into()),
+        license_url: None,
+        license_expression: Some("MIT".into()),
+        project_url: None,
+        downloads: Some(42),
+        vulnerabilities: Some(vec![vuln.clone()]),
+        deprecation: Some(deprecation.clone()),
+    };
+    conforms(
+        "nuget-search.json",
+        "result",
+        &NuGetSearchResult {
+            generation: 2,
+            results: vec![package],
+            sources: rows.clone(),
+            elapsed_ms: 6.0,
+        },
+    );
+    conforms(
+        "nuget-installed.json",
+        "params",
+        &NuGetInstalledParams {
+            generation: 2,
+            operation: None,
+            projects: Some(vec!["/c/App/App.csproj".into()]),
+            include_transitive: Some(true),
+            metadata: Some(true),
+            interactive: None,
+        },
+    );
+    let installed = NuGetInstalledPackage {
+        id: "Eludite.Corpus.Greeter".into(),
+        target_frameworks: vec!["net10.0".into()],
+        transitive: false,
+        requested: Some("1.0.0".into()),
+        version: Some("1.0.0".into()),
+        source: Some("/c/feed".into()),
+        auto_referenced: false,
+        dependencies: Some(vec![NuGetPackageDependency {
+            id: "Eludite.Corpus.Logging".into(),
+            range: Some("[1.0.0, )".into()),
+        }]),
+        vulnerabilities: Some(vec![vuln.clone()]),
+        deprecation: Some(deprecation.clone()),
+    };
+    conforms(
+        "nuget-installed.json",
+        "result",
+        &NuGetInstalledResult {
+            generation: 2,
+            projects: vec![
+                NuGetInstalledProject {
+                    path: "/c/App/App.csproj".into(),
+                    name: "App".into(),
+                    format: NuGetProjectFormat::PackageReference,
+                    restored: true,
+                    central_package_management: true,
+                    target_frameworks: vec!["net10.0".into()],
+                    packages: vec![installed.clone()],
+                    assets_file: Some("/c/App/obj/project.assets.json".into()),
+                    props_file: Some("/c/Directory.Packages.props".into()),
+                    lock_file: Some("/c/App/packages.lock.json".into()),
+                    error: None,
+                    note: None,
+                },
+                NuGetInstalledProject {
+                    path: "/c/Old/Old.csproj".into(),
+                    name: "Old".into(),
+                    format: NuGetProjectFormat::PackagesConfig,
+                    restored: false,
+                    central_package_management: false,
+                    target_frameworks: vec![],
+                    packages: vec![],
+                    assets_file: None,
+                    props_file: None,
+                    lock_file: None,
+                    error: None,
+                    note: Some("packages.config is listed read-only".into()),
+                },
+            ],
+            sources: Some(rows.clone()),
+            elapsed_ms: 12.0,
+        },
+    );
+    conforms(
+        "nuget-updates.json",
+        "params",
+        &NuGetUpdatesParams {
+            generation: 2,
+            prerelease: Some(false),
+            ..Default::default()
+        },
+    );
+    conforms(
+        "nuget-updates.json",
+        "result",
+        &NuGetUpdatesResult {
+            generation: 2,
+            updates: vec![NuGetUpdateRow {
+                project: "/c/App/App.csproj".into(),
+                id: "Eludite.Corpus.Greeter".into(),
+                installed: "1.0.0".into(),
+                latest: "1.1.0".into(),
+                source: "corpus".into(),
+                requested: Some("1.0.0".into()),
+                versions: Some(vec!["1.1.0".into(), "1.0.0".into()]),
+                vulnerabilities: Some(vec![vuln.clone()]),
+                deprecation: None,
+            }],
+            sources: rows.clone(),
+            elapsed_ms: 3.0,
+        },
+    );
+    conforms(
+        "nuget-change.json",
+        "params",
+        &NuGetChangeParams {
+            generation: 2,
+            operation: Some(9),
+            action: NuGetAction::Install,
+            packages: vec![NuGetPackageArg {
+                id: "Eludite.Corpus.Logging".into(),
+                version: Some("1.0.0".into()),
+            }],
+            projects: Some(vec!["/c/App/App.csproj".into()]),
+            prerelease: None,
+            source: None,
+            include_transitive: Some(false),
+            restore: Some(true),
+            lock_files: Some(NuGetLockFiles::Respect),
+            interactive: Some(true),
+        },
+    );
+    rejects(
+        "nuget-change.json",
+        "params",
+        json!({"generation": 1, "action": "reinstall", "packages": [{"id": "X"}]}),
+    );
+    let outcome = NuGetRestoreOutcome {
+        result: NuGetRestoreState::Failed,
+        exit_code: Some(1),
+        elapsed_ms: 900.0,
+        command_line: "dotnet restore /c/Corpus.slnx".into(),
+        locked_mode: false,
+        lock_files: vec!["/c/Lib/packages.lock.json".into()],
+        diagnostics: vec![NuGetDiagnostic {
+            severity: BuildDiagnosticSeverity::Error,
+            code: "NU1102".into(),
+            message: "Unable to find package with version (>= 7.0.0)".into(),
+            file: Some("/c/Lib/Lib.csproj".into()),
+            line: None,
+            column: None,
+            project: Some("/c/Corpus.slnx".into()),
+        }],
+    };
+    conforms(
+        "nuget-change.json",
+        "result",
+        &NuGetChangeResult {
+            generation: 3,
+            action: NuGetAction::Install,
+            packages: vec![NuGetPackageArg {
+                id: "Eludite.Corpus.Logging".into(),
+                version: Some("1.0.0".into()),
+            }],
+            projects: vec!["/c/App/App.csproj".into()],
+            edited: vec![NuGetEditedFile {
+                path: "/c/App/App.csproj".into(),
+                kind: NuGetEditedKind::Project,
+                changes: vec!["PackageReference Eludite.Corpus.Logging 1.0.0 added".into()],
+            }],
+            restore: Some(outcome.clone()),
+            elapsed_ms: 2500.0,
+            message: None,
+        },
+    );
+    conforms(
+        "nuget-sources.json",
+        "params",
+        &NuGetSourcesParams {
+            generation: 2,
+            operation: None,
+            action: Some(NuGetSourcesAction::Add),
+            name: Some("mine".into()),
+            url: Some("https://example.invalid/v3/index.json".into()),
+        },
+    );
+    conforms(
+        "nuget-sources.json",
+        "result",
+        &NuGetSourcesResult {
+            sources: vec![NuGetSourceInfo {
+                name: "corpus".into(),
+                url: "/c/feed".into(),
+                enabled: true,
+                local: true,
+                scope: NuGetSourceScope::Solution,
+                config_file: Some("/c/NuGet.config".into()),
+            }],
+            config_files: vec!["/c/NuGet.config".into()],
+            user_config: "/home/u/.nuget/NuGet/NuGet.Config".into(),
+            changed: false,
+        },
+    );
+    conforms(
+        "nuget-restore.json",
+        "params",
+        &NuGetRestoreParams {
+            generation: 2,
+            force: Some(true),
+            lock_files: Some(NuGetLockFiles::Ignore),
+            ..Default::default()
+        },
+    );
+    let restore = NuGetRestoreResult {
+        generation: 2,
+        outcome,
+    };
+    conforms("nuget-restore.json", "result", &restore);
+    let back: NuGetRestoreResult =
+        serde_json::from_value(serde_json::to_value(&restore).unwrap()).unwrap();
+    assert_eq!(back, restore);
+    for update in [
+        NuGetUpdate {
+            operation: 9,
+            generation: 2,
+            seq: 0,
+            kind: NuGetUpdateKind::Output,
+            text: Some("Installing NuGet package Eludite.Corpus.Logging 1.0.0 in App.\n".into()),
+            message: None,
+            packages: None,
+        },
+        NuGetUpdate {
+            operation: 9,
+            generation: 2,
+            seq: 1,
+            kind: NuGetUpdateKind::Progress,
+            text: None,
+            message: Some("Restoring Corpus.slnx".into()),
+            packages: None,
+        },
+        NuGetUpdate {
+            operation: 9,
+            generation: 2,
+            seq: 2,
+            kind: NuGetUpdateKind::Metadata,
+            text: None,
+            message: None,
+            packages: Some(vec![NuGetPackageMetadata {
+                id: "Eludite.Corpus.Greeter".into(),
+                version: "1.0.0".into(),
+                vulnerabilities: Some(vec![vuln.clone()]),
+                deprecation: Some(deprecation.clone()),
+            }]),
+        },
+    ] {
+        conforms("nuget-update.json", "params", &update);
+    }
+    conforms(
+        "nuget-credentials.json",
+        "params",
+        &NuGetCredentialsParams {
+            operation: Some(9),
+            source: "private".into(),
+            url: "https://feed.example/v3/index.json".into(),
+            host: "feed.example".into(),
+            proxy: false,
+            is_retry: false,
+            message: None,
+        },
+    );
+    conforms(
+        "nuget-credentials.json",
+        "result",
+        &Some(NuGetCredentialsAnswer {
+            username: Some("alice".into()),
+            password: Some("secret".into()),
+            remember: Some(true),
+            canceled: None,
+        }),
+    );
+    conforms(
+        "nuget-credentials.json",
+        "result",
+        &None::<NuGetCredentialsAnswer>,
+    );
+    // The tree's Dependencies member.
+    let schema = load("solution-tree.json");
+    let project = TreeProject {
+        name: "App".into(),
+        path: "/c/App/App.csproj".into(),
+        kind: TreeProjectKind::Sdk,
+        web: false,
+        target_frameworks: vec!["net10.0".into()],
+        files: vec![],
+        error: None,
+        dependencies: Some(TreeDependencies {
+            restored: true,
+            packages: vec![TreePackage {
+                id: "Eludite.Corpus.Greeter".into(),
+                requested: Some("1.0.0".into()),
+                version: Some("1.0.0".into()),
+                auto_referenced: false,
+                transitive: Some(vec![TreeTransitive {
+                    id: "Eludite.Corpus.Logging".into(),
+                    version: Some("[1.0.0, )".into()),
+                }]),
+                vulnerabilities: Some(vec![vuln]),
+                deprecated: true,
+            }],
+            projects: vec![TreeProjectReference {
+                name: "Shared".into(),
+                path: "/c/Shared/Shared.csproj".into(),
+            }],
+            frameworks: vec![TreeFramework {
+                name: "Microsoft.NETCore.App".into(),
+                target_framework: Some("net10.0".into()),
+            }],
+        }),
+    };
+    validate(
+        &schema["$defs"]["project"],
+        &serde_json::to_value(&project).unwrap(),
+        "solution-tree.json",
+    )
+    .unwrap();
+    let data = NuGetFailedData {
+        reason: "credentialsRequired".into(),
+        source: Some("private".into()),
+        host: Some("feed.example".into()),
+        package: None,
+    };
+    validate(
+        &load("errors.json")["$defs"]["nugetFailed"],
+        &serde_json::to_value(&data).unwrap(),
+        "errors.json",
+    )
+    .unwrap();
 }

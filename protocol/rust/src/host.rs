@@ -56,6 +56,21 @@ pub mod methods {
     pub const TEST_STATUS: &str = "eludite/test/status";
     /// Host-to-shell notification: the next piece of a discovery or run.
     pub const TEST_UPDATE: &str = "eludite/test/update";
+    /// NuGet (brief 0048): search the package sources.
+    pub const NUGET_SEARCH: &str = "eludite/nuget/search";
+    /// The projects' packages.
+    pub const NUGET_INSTALLED: &str = "eludite/nuget/installed";
+    /// Newer versions of the projects' packages.
+    pub const NUGET_UPDATES: &str = "eludite/nuget/updates";
+    /// Install, uninstall, update or consolidate.
+    pub const NUGET_CHANGE: &str = "eludite/nuget/change";
+    /// The package sources, and changes to the user's NuGet.config.
+    pub const NUGET_SOURCES: &str = "eludite/nuget/sources";
+    pub const NUGET_RESTORE: &str = "eludite/nuget/restore";
+    /// Host-to-shell notification: output, progress and metadata of a NuGet call.
+    pub const NUGET_UPDATE: &str = "eludite/nuget/update";
+    /// Host-to-shell request: credentials for a private feed, during an interactive call.
+    pub const NUGET_CREDENTIALS: &str = "eludite/nuget/credentials";
 
     /// Eludite requests and notifications the host accepts.
     pub const ELUDITE_ACCEPTED: &[&str] = &[
@@ -75,6 +90,12 @@ pub mod methods {
         TEST_CANCEL,
         TEST_ATTACHED,
         TEST_STATUS,
+        NUGET_SEARCH,
+        NUGET_INSTALLED,
+        NUGET_UPDATES,
+        NUGET_CHANGE,
+        NUGET_SOURCES,
+        NUGET_RESTORE,
     ];
 
     /// Forwarded LSP requests typed in [`crate::lsp`].
@@ -128,10 +149,12 @@ pub mod methods {
         BUILD_PROGRESS,
         BUILD_FINISHED,
         TEST_UPDATE,
+        NUGET_UPDATE,
+        NUGET_CREDENTIALS,
     ];
 
     /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
-    pub const HOST_TO_SHELL_REQUESTS: &[&str] = &[APPLY_EDIT];
+    pub const HOST_TO_SHELL_REQUESTS: &[&str] = &[APPLY_EDIT, NUGET_CREDENTIALS];
 }
 
 /// Error codes the host returns (host-rpc.md, "Error codes").
@@ -148,6 +171,8 @@ pub mod error_codes {
     pub const BUILD_IN_PROGRESS: i64 = -32010;
     /// `eludite/test/run` naming a container a run is running (data: [`super::TestRunInProgressData`]).
     pub const TEST_RUN_IN_PROGRESS: i64 = -32012;
+    /// An `eludite/nuget/*` call failed as a whole (data: [`super::NuGetFailedData`]).
+    pub const NUGET_FAILED: i64 = -32014;
 }
 
 /// The `hostName` value every conforming host reports.
@@ -254,6 +279,62 @@ pub struct TreeProject {
     /// Why the project did not evaluate; `files` is then empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Visual Studio's Dependencies node (brief 0048).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependencies: Option<TreeDependencies>,
+}
+
+/// A project's Dependencies node: packages, project references and frameworks, read from disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeDependencies {
+    pub restored: bool,
+    pub packages: Vec<TreePackage>,
+    pub projects: Vec<TreeProjectReference>,
+    pub frameworks: Vec<TreeFramework>,
+}
+
+/// A top-level package of [`TreeDependencies`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreePackage {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_referenced: bool,
+    /// The packages it brings in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transitive: Option<Vec<TreeTransitive>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulnerabilities: Option<Vec<NuGetVulnerability>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deprecated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeTransitive {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeProjectReference {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeFramework {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_framework: Option<String>,
 }
 
 /// The MSBuild item type of a [`TreeFile`].
@@ -1263,6 +1344,608 @@ impl NotificationType for TestUpdateNotification {
     type Params = TestUpdate;
 }
 
+// NuGet (brief 0048): `eludite/nuget/*`, see host-rpc.md "NuGet".
+
+/// A known vulnerability of a package version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetVulnerability {
+    /// `low`, `moderate`, `high` or `critical`.
+    pub severity: String,
+    pub advisory_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetAlternatePackage {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<String>,
+}
+
+/// Why a version is deprecated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetDeprecation {
+    /// `legacy`, `criticalBugs`, `other`.
+    pub reasons: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate_package: Option<NuGetAlternatePackage>,
+}
+
+/// How one source answered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSourceResult {
+    pub name: String,
+    pub url: String,
+    pub count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cached: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// `eludite/nuget/search` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSearchParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerelease: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub take: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<bool>,
+}
+
+/// One package of a search.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSearchPackage {
+    pub id: String,
+    pub version: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub versions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authors: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_expression: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulnerabilities: Option<Vec<NuGetVulnerability>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation: Option<NuGetDeprecation>,
+}
+
+/// `eludite/nuget/search` result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSearchResult {
+    pub generation: Generation,
+    pub results: Vec<NuGetSearchPackage>,
+    pub sources: Vec<NuGetSourceResult>,
+    pub elapsed_ms: f64,
+}
+
+/// `eludite/nuget/installed` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetInstalledParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_transitive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetPackageDependency {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range: Option<String>,
+}
+
+/// A package of a project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetInstalledPackage {
+    pub id: String,
+    pub target_frameworks: Vec<String>,
+    pub transitive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_referenced: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependencies: Option<Vec<NuGetPackageDependency>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulnerabilities: Option<Vec<NuGetVulnerability>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation: Option<NuGetDeprecation>,
+}
+
+/// How a project references packages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetProjectFormat {
+    PackageReference,
+    PackagesConfig,
+    None,
+}
+
+/// A project's packages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetInstalledProject {
+    pub path: String,
+    pub name: String,
+    pub format: NuGetProjectFormat,
+    pub restored: bool,
+    pub central_package_management: bool,
+    pub target_frameworks: Vec<String>,
+    pub packages: Vec<NuGetInstalledPackage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub props_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// `eludite/nuget/installed` result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetInstalledResult {
+    pub generation: Generation,
+    pub projects: Vec<NuGetInstalledProject>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<Vec<NuGetSourceResult>>,
+    pub elapsed_ms: f64,
+}
+
+/// `eludite/nuget/updates` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetUpdatesParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerelease: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<bool>,
+}
+
+/// One available update.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetUpdateRow {
+    pub project: String,
+    pub id: String,
+    pub installed: String,
+    pub latest: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub versions: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulnerabilities: Option<Vec<NuGetVulnerability>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation: Option<NuGetDeprecation>,
+}
+
+/// `eludite/nuget/updates` result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetUpdatesResult {
+    pub generation: Generation,
+    pub updates: Vec<NuGetUpdateRow>,
+    pub sources: Vec<NuGetSourceResult>,
+    pub elapsed_ms: f64,
+}
+
+/// What `eludite/nuget/change` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetAction {
+    Install,
+    Uninstall,
+    Update,
+    Consolidate,
+}
+
+impl NuGetAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NuGetAction::Install => "install",
+            NuGetAction::Uninstall => "uninstall",
+            NuGetAction::Update => "update",
+            NuGetAction::Consolidate => "consolidate",
+        }
+    }
+}
+
+/// The setting `nuget.lockFiles`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetLockFiles {
+    #[default]
+    Respect,
+    Ignore,
+}
+
+/// A package to change, and the version (when given).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetPackageArg {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// `eludite/nuget/change` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetChangeParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    pub action: NuGetAction,
+    pub packages: Vec<NuGetPackageArg>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prerelease: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_transitive: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_files: Option<NuGetLockFiles>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetEditedKind {
+    Project,
+    CentralPackageVersions,
+}
+
+/// A file a change wrote.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetEditedFile {
+    pub path: String,
+    pub kind: NuGetEditedKind,
+    pub changes: Vec<String>,
+}
+
+/// A restore error or warning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetDiagnostic {
+    pub severity: BuildDiagnosticSeverity,
+    pub code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetRestoreState {
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+/// How a restore went.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetRestoreOutcome {
+    pub result: NuGetRestoreState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    pub elapsed_ms: f64,
+    pub command_line: String,
+    pub locked_mode: bool,
+    pub lock_files: Vec<String>,
+    pub diagnostics: Vec<NuGetDiagnostic>,
+}
+
+/// `eludite/nuget/change` result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetChangeResult {
+    /// The generation after the change.
+    pub generation: Generation,
+    pub action: NuGetAction,
+    pub packages: Vec<NuGetPackageArg>,
+    pub projects: Vec<String>,
+    pub edited: Vec<NuGetEditedFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore: Option<NuGetRestoreOutcome>,
+    pub elapsed_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetSourcesAction {
+    #[default]
+    List,
+    Add,
+    Remove,
+    Enable,
+    Disable,
+}
+
+/// `eludite/nuget/sources` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSourcesParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<NuGetSourcesAction>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetSourceScope {
+    Machine,
+    User,
+    Solution,
+    Other,
+}
+
+/// A package source of the NuGet.config chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSourceInfo {
+    pub name: String,
+    pub url: String,
+    pub enabled: bool,
+    pub local: bool,
+    pub scope: NuGetSourceScope,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_file: Option<String>,
+}
+
+/// `eludite/nuget/sources` result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetSourcesResult {
+    pub sources: Vec<NuGetSourceInfo>,
+    pub config_files: Vec<String>,
+    pub user_config: String,
+    pub changed: bool,
+}
+
+/// `eludite/nuget/restore` params.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetRestoreParams {
+    pub generation: Generation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_files: Option<NuGetLockFiles>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<bool>,
+}
+
+/// `eludite/nuget/restore` result.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetRestoreResult {
+    pub generation: Generation,
+    #[serde(flatten)]
+    pub outcome: NuGetRestoreOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NuGetUpdateKind {
+    Output,
+    Progress,
+    Metadata,
+}
+
+/// A package version's vulnerability and deprecation data (a `metadata` update).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetPackageMetadata {
+    pub id: String,
+    pub version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vulnerabilities: Option<Vec<NuGetVulnerability>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecation: Option<NuGetDeprecation>,
+}
+
+/// `eludite/nuget/update` params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetUpdate {
+    pub operation: u64,
+    pub generation: Generation,
+    pub seq: u64,
+    pub kind: NuGetUpdateKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packages: Option<Vec<NuGetPackageMetadata>>,
+}
+
+/// `eludite/nuget/credentials` params (host to shell).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetCredentialsParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<u64>,
+    pub source: String,
+    pub url: String,
+    pub host: String,
+    pub proxy: bool,
+    pub is_retry: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// The shell's answer to `eludite/nuget/credentials` (`null` gives up too).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetCredentialsAnswer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remember: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canceled: Option<bool>,
+}
+
+/// `data` of a -32014 NuGetFailed error.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuGetFailedData {
+    /// `notFound`, `credentialsRequired`, `sourceFailed`, `invalidProject`, `noSources`.
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+}
+
+request!(
+    /// `eludite/nuget/search` (brief 0048).
+    NuGetSearch,
+    methods::NUGET_SEARCH,
+    NuGetSearchParams,
+    NuGetSearchResult
+);
+request!(
+    /// `eludite/nuget/installed` (brief 0048).
+    NuGetInstalled,
+    methods::NUGET_INSTALLED,
+    NuGetInstalledParams,
+    NuGetInstalledResult
+);
+request!(
+    /// `eludite/nuget/updates` (brief 0048).
+    NuGetUpdates,
+    methods::NUGET_UPDATES,
+    NuGetUpdatesParams,
+    NuGetUpdatesResult
+);
+request!(
+    /// `eludite/nuget/change` (brief 0048).
+    NuGetChange,
+    methods::NUGET_CHANGE,
+    NuGetChangeParams,
+    NuGetChangeResult
+);
+request!(
+    /// `eludite/nuget/sources` (brief 0048).
+    NuGetSources,
+    methods::NUGET_SOURCES,
+    NuGetSourcesParams,
+    NuGetSourcesResult
+);
+request!(
+    /// `eludite/nuget/restore` (brief 0048).
+    NuGetRestore,
+    methods::NUGET_RESTORE,
+    NuGetRestoreParams,
+    NuGetRestoreResult
+);
+request!(
+    /// `eludite/nuget/credentials` (brief 0048): the host asks the shell.
+    NuGetCredentials,
+    methods::NUGET_CREDENTIALS,
+    NuGetCredentialsParams,
+    Option<NuGetCredentialsAnswer>
+);
+
+/// `eludite/nuget/update` (host to shell).
+#[derive(Debug)]
+pub enum NuGetUpdateNotification {}
+impl NotificationType for NuGetUpdateNotification {
+    const METHOD: &'static str = methods::NUGET_UPDATE;
+    type Params = NuGetUpdate;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1359,6 +2042,7 @@ mod tests {
                             link: None,
                         }],
                         error: None,
+                        dependencies: None,
                     },
                     TreeProject {
                         name: "Shop".into(),
@@ -1387,6 +2071,7 @@ mod tests {
                             },
                         ],
                         error: None,
+                        dependencies: None,
                     },
                     TreeProject {
                         name: "Broken".into(),
@@ -1396,6 +2081,7 @@ mod tests {
                         target_frameworks: vec![],
                         files: vec![],
                         error: Some("MSB4025: invalid XML".into()),
+                        dependencies: None,
                     },
                 ],
             },

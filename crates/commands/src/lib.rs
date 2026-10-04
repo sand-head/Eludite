@@ -32,7 +32,9 @@
 //! holds Find in Files and Replace in Files, `eludite.search.*` (brief 0042), registered by the shell through a
 //! [`search::SearchCommands`]. [`forge`] holds the forge commands `eludite.forge.*` (brief 0046), registered by the
 //! shell through a [`forge::ForgeCommands`], with the policy's `forge` object applied by their escalation hooks and
-//! an agent's arguments audited through their redaction ([`AuditRedaction`]).
+//! an agent's arguments audited through their redaction ([`AuditRedaction`]). [`nuget`] holds NuGet's
+//! `eludite.nuget.*` (brief 0048), registered by the shell through a [`nuget::NuGetCommands`], with the policy's
+//! `nuget` object applied by their escalation hooks.
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -50,6 +52,7 @@ pub mod diagnostics;
 pub mod forge;
 pub mod git;
 mod id;
+pub mod nuget;
 pub mod policy;
 pub mod project;
 mod registry;

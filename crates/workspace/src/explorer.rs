@@ -56,6 +56,46 @@ pub enum NodeKind {
     CargoTarget {
         kind: TargetKind,
     },
+    /// Visual Studio's Dependencies node of a .NET project (brief 0048); `path` is the project file.
+    Dependencies,
+    /// Its Frameworks, Packages or Projects folder; `path` is the project file.
+    DependencyGroup {
+        group: DependencyGroup,
+    },
+    /// A package: a top-level one of the project, or one a package brings in (`transitive`); `path` is the project
+    /// file. `warning`: a known vulnerability (NuGet Audit) or a deprecation, the yellow glyph.
+    Package {
+        id: String,
+        version: Option<String>,
+        transitive: bool,
+        warning: bool,
+    },
+    /// A shared framework (`Microsoft.NETCore.App`).
+    Framework,
+    /// A project reference; `path` is the referenced project file.
+    ProjectReference,
+}
+
+/// The folders of a Dependencies node, in Visual Studio's order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum DependencyGroup {
+    Frameworks,
+    Packages,
+    Projects,
+}
+
+impl NodeKind {
+    /// Whether the node is part of a project's Dependencies node.
+    pub fn is_dependency(&self) -> bool {
+        matches!(
+            self,
+            NodeKind::Dependencies
+                | NodeKind::DependencyGroup { .. }
+                | NodeKind::Package { .. }
+                | NodeKind::Framework
+                | NodeKind::ProjectReference
+        )
+    }
 }
 
 impl NodeKind {
@@ -556,7 +596,11 @@ fn project_node(p: &TreeProject) -> Node {
     let children = if p.error.is_some() {
         Vec::new()
     } else {
-        folder_nodes(&root, "", &entries, &children_of, &id)
+        let mut children = folder_nodes(&root, "", &entries, &children_of, &id);
+        if let Some(deps) = &p.dependencies {
+            children.insert(0, dependencies_node(&id, &p.path, deps));
+        }
+        children
     };
     Node {
         id: id.clone(),
@@ -568,6 +612,121 @@ fn project_node(p: &TreeProject) -> Node {
         },
         path: Some(PathBuf::from(&p.path)),
         children,
+    }
+}
+
+/// Visual Studio's Dependencies node (brief 0048): Frameworks, Packages (each package with the packages it brings in
+/// under it) and Projects, each folder only when it has something. Node ids are `<project>|deps`, then
+/// `<project>|deps|frameworks`, `...|packages|<id>`, `...|packages|<id>|<child id>`, `...|projects|<path>`.
+fn dependencies_node(
+    id: &str,
+    project: &str,
+    deps: &eludite_protocol::host::TreeDependencies,
+) -> Node {
+    let path = Some(PathBuf::from(project));
+    let base = format!("{id}|deps");
+    let label_of = |name: &str, version: Option<&str>| match version {
+        Some(v) if !v.is_empty() => format!("{name} ({v})"),
+        _ => name.to_owned(),
+    };
+    let mut groups = Vec::new();
+    if !deps.frameworks.is_empty() {
+        groups.push(Node {
+            id: format!("{base}|frameworks"),
+            label: "Frameworks".into(),
+            kind: NodeKind::DependencyGroup {
+                group: DependencyGroup::Frameworks,
+            },
+            path: path.clone(),
+            children: deps
+                .frameworks
+                .iter()
+                .map(|f| Node {
+                    id: format!("{base}|frameworks|{}", f.name),
+                    label: f.name.clone(),
+                    kind: NodeKind::Framework,
+                    path: path.clone(),
+                    children: Vec::new(),
+                })
+                .collect(),
+        });
+    }
+    if !deps.packages.is_empty() {
+        let mut packages: Vec<&eludite_protocol::host::TreePackage> =
+            deps.packages.iter().collect();
+        packages.sort_by_key(|p| p.id.to_lowercase());
+        groups.push(Node {
+            id: format!("{base}|packages"),
+            label: "Packages".into(),
+            kind: NodeKind::DependencyGroup {
+                group: DependencyGroup::Packages,
+            },
+            path: path.clone(),
+            children: packages
+                .into_iter()
+                .map(|p| {
+                    let pid = format!("{base}|packages|{}", p.id);
+                    let version = p.version.clone().or_else(|| p.requested.clone());
+                    Node {
+                        id: pid.clone(),
+                        label: label_of(&p.id, version.as_deref()),
+                        kind: NodeKind::Package {
+                            id: p.id.clone(),
+                            version,
+                            transitive: false,
+                            warning: p.deprecated
+                                || p.vulnerabilities.as_ref().is_some_and(|v| !v.is_empty()),
+                        },
+                        path: path.clone(),
+                        children: p
+                            .transitive
+                            .iter()
+                            .flatten()
+                            .map(|c| Node {
+                                id: format!("{pid}|{}", c.id),
+                                label: label_of(&c.id, c.version.as_deref()),
+                                kind: NodeKind::Package {
+                                    id: c.id.clone(),
+                                    version: c.version.clone(),
+                                    transitive: true,
+                                    warning: false,
+                                },
+                                path: path.clone(),
+                                children: Vec::new(),
+                            })
+                            .collect(),
+                    }
+                })
+                .collect(),
+        });
+    }
+    if !deps.projects.is_empty() {
+        groups.push(Node {
+            id: format!("{base}|projects"),
+            label: "Projects".into(),
+            kind: NodeKind::DependencyGroup {
+                group: DependencyGroup::Projects,
+            },
+            path: path.clone(),
+            children: deps
+                .projects
+                .iter()
+                .map(|r| Node {
+                    id: format!("{base}|projects|{}", r.path),
+                    label: r.name.clone(),
+                    kind: NodeKind::ProjectReference,
+                    path: Some(PathBuf::from(&r.path)),
+                    children: Vec::new(),
+                })
+                .collect(),
+        });
+    }
+    Node {
+        id: base,
+        label: "Dependencies".into(),
+        kind: NodeKind::Dependencies,
+        path,
+        children: groups,
     }
 }
 
@@ -731,6 +890,116 @@ mod tests {
     use super::*;
     use eludite_protocol::host::TreeFile;
 
+    #[test]
+    fn a_project_with_dependencies_shows_visual_studios_dependencies_node_first() {
+        use eludite_protocol::host::{
+            NuGetVulnerability, TreeDependencies, TreeFramework, TreePackage, TreeProjectReference,
+            TreeTransitive,
+        };
+        let tree = SolutionTree {
+            generation: 3,
+            path: Some("/c/Corpus.slnx".into()),
+            projects: vec![TreeProject {
+                name: "App".into(),
+                path: "/c/App/App.csproj".into(),
+                kind: TreeProjectKind::Sdk,
+                web: false,
+                target_frameworks: vec!["net10.0".into()],
+                files: vec![file("/c/App/Program.cs", TreeItemType::Compile)],
+                error: None,
+                dependencies: Some(TreeDependencies {
+                    restored: true,
+                    packages: vec![
+                        TreePackage {
+                            id: "Zeta".into(),
+                            requested: Some("2.0.0".into()),
+                            ..TreePackage::default()
+                        },
+                        TreePackage {
+                            id: "Eludite.Corpus.Greeter".into(),
+                            version: Some("1.0.0".into()),
+                            transitive: Some(vec![TreeTransitive {
+                                id: "Eludite.Corpus.Logging".into(),
+                                version: Some("[1.0.0, )".into()),
+                            }]),
+                            vulnerabilities: Some(vec![NuGetVulnerability {
+                                severity: "high".into(),
+                                advisory_url: "https://github.com/advisories/GHSA-x".into(),
+                            }]),
+                            ..TreePackage::default()
+                        },
+                    ],
+                    projects: vec![TreeProjectReference {
+                        name: "Shared".into(),
+                        path: "/c/Shared/Shared.csproj".into(),
+                    }],
+                    frameworks: vec![TreeFramework {
+                        name: "Microsoft.NETCore.App".into(),
+                        target_framework: Some("net10.0".into()),
+                    }],
+                }),
+            }],
+        };
+        let model = SolutionModel::from_tree(&tree).unwrap();
+        let mut expanded = model.default_expanded();
+        for id in [
+            "/c/App/App.csproj",
+            "/c/App/App.csproj|deps",
+            "/c/App/App.csproj|deps|packages",
+            "/c/App/App.csproj|deps|packages|Eludite.Corpus.Greeter",
+            "/c/App/App.csproj|deps|frameworks",
+            "/c/App/App.csproj|deps|projects",
+        ] {
+            expanded.insert(id.into());
+        }
+        let rows: Vec<String> = model
+            .visible_rows(&expanded)
+            .iter()
+            .map(|r| format!("{}{}", "  ".repeat(r.depth), r.label))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                "Solution 'Corpus' (1 of 1 project)",
+                "  App (net10.0)",
+                "    Dependencies",
+                "      Frameworks",
+                "        Microsoft.NETCore.App",
+                "      Packages",
+                "        Eludite.Corpus.Greeter (1.0.0)",
+                "          Eludite.Corpus.Logging ([1.0.0, ))",
+                "        Zeta (2.0.0)",
+                "      Projects",
+                "        Shared",
+                "    Program.cs",
+            ]
+        );
+        let greeter = model
+            .find("/c/App/App.csproj|deps|packages|Eludite.Corpus.Greeter")
+            .unwrap();
+        assert!(
+            matches!(&greeter.kind, NodeKind::Package { warning: true, transitive: false, version: Some(v), .. } if v == "1.0.0")
+        );
+        assert!(greeter.kind.is_dependency() && !greeter.kind.opens_file());
+        assert_eq!(
+            greeter.path.as_deref(),
+            Some(Path::new("/c/App/App.csproj"))
+        );
+        let shared = model
+            .find("/c/App/App.csproj|deps|projects|/c/Shared/Shared.csproj")
+            .unwrap();
+        assert_eq!(
+            shared.path.as_deref(),
+            Some(Path::new("/c/Shared/Shared.csproj"))
+        );
+        // The file is still found under its project.
+        assert!(
+            model
+                .ancestors_of_file(Path::new("/c/App/Program.cs"))
+                .is_some()
+        );
+    }
+
     fn file(path: &str, item_type: TreeItemType) -> TreeFile {
         TreeFile {
             path: path.into(),
@@ -772,6 +1041,7 @@ mod tests {
                         },
                     ],
                     error: None,
+                    dependencies: None,
                 },
                 TreeProject {
                     name: "Core".into(),
@@ -787,6 +1057,7 @@ mod tests {
                         file("/src/Core/a.cs", Compile),
                     ],
                     error: None,
+                    dependencies: None,
                 },
                 TreeProject {
                     name: "Broken".into(),
@@ -796,6 +1067,7 @@ mod tests {
                     target_frameworks: vec![],
                     files: vec![],
                     error: Some("bad xml".into()),
+                    dependencies: None,
                 },
             ],
         }
@@ -936,6 +1208,7 @@ mod tests {
                     TreeItemType::Compile,
                 )],
                 error: None,
+                dependencies: None,
             }],
         };
         let files = [

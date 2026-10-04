@@ -123,6 +123,11 @@ fn glyph(kind: &NodeKind) -> &'static str {
         NodeKind::FolderRoot => "\u{25A0}",
         NodeKind::CargoWorkspace | NodeKind::CargoPackage { .. } => "Rs",
         NodeKind::CargoTarget { .. } => "\u{25B8}",
+        // Brief 0048: the Dependencies node.
+        NodeKind::Dependencies | NodeKind::DependencyGroup { .. } => "\u{25A6}",
+        NodeKind::Package { .. } => "\u{25C8}",
+        NodeKind::Framework => "\u{25A4}",
+        NodeKind::ProjectReference => "C#",
     }
 }
 

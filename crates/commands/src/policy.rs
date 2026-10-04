@@ -33,6 +33,11 @@
 //!   "Allow for this session" as `terminal.run` does; `allow`; `deny`), `merge` (merging and closing pull requests:
 //!   `deny`, the default, or `prompt`, asking every time; a merge's `force` is refused) and `sign_in` (always `deny`:
 //!   an agent never signs in or out), applied by the forge commands' escalation hooks through [`ForgePolicy`].
+//! - **`nuget`** (brief 0048): `change` (an agent's install, uninstall, update and consolidate) and `sources` (adding,
+//!   removing, enabling and disabling package sources), applied by the NuGet commands' escalation hooks through
+//!   [`NuGetPolicy::decide_for`]: `prompt` (the default for both) makes a call dangerous (Always Allow writes a tool
+//!   rule), `allow` (`change` only) leaves it at class execute, `deny` refuses it for an agent with the policy named;
+//!   tool rules are checked first. Reads (search, installed, updates, the sources list) are always allowed.
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -343,6 +348,87 @@ impl GitPolicy {
         use crate::Escalation;
         let e = self.decide(call)?;
         if call.force || !rules.iter().any(|r| r.matches(tool, input)) {
+            return Some(e);
+        }
+        Some(match e {
+            Escalation::Refuse(why) => Escalation::raise(PermissionClass::Dangerous, why),
+            raise => raise,
+        })
+    }
+}
+
+/// `nuget.change`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NuGetChangePolicy {
+    #[default]
+    Prompt,
+    Allow,
+    Deny,
+}
+
+/// `agents-policy.json`'s `nuget` object (brief 0048).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NuGetPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<NuGetChangePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<GuardPolicy>,
+}
+
+/// What a NuGet command's call does, for the `nuget` policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NuGetCall {
+    /// Install, uninstall, update or consolidate.
+    pub change: bool,
+    /// Add, remove, enable or disable a package source.
+    pub sources: bool,
+}
+
+impl NuGetPolicy {
+    /// What the policy makes of `call`: a refusal (`deny`), a raise to dangerous (`prompt`), or `None` (the command's
+    /// class: execute).
+    pub fn decide(&self, call: NuGetCall) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        if call.change {
+            return match self.change.unwrap_or_default() {
+                NuGetChangePolicy::Deny => Some(Escalation::Refuse(
+                    "the solution's policy sets nuget.change to deny".into(),
+                )),
+                NuGetChangePolicy::Prompt => Some(Escalation::raise(
+                    PermissionClass::Dangerous,
+                    "the solution's policy asks before an agent changes packages (nuget.change: prompt)",
+                )),
+                NuGetChangePolicy::Allow => None,
+            };
+        }
+        if call.sources {
+            return match self.sources.unwrap_or_default() {
+                GuardPolicy::Deny => Some(Escalation::Refuse(
+                    "the solution's policy sets nuget.sources to deny".into(),
+                )),
+                GuardPolicy::Prompt => Some(Escalation::raise(
+                    PermissionClass::Dangerous,
+                    "the solution's policy asks before an agent changes package sources (nuget.sources: prompt)",
+                )),
+            };
+        }
+        None
+    }
+
+    /// [`NuGetPolicy::decide`] for a call of `tool` with `input` under `rules`: a matching tool rule turns a policy
+    /// refusal into a raise to dangerous that the rule decides.
+    pub fn decide_for(
+        &self,
+        call: NuGetCall,
+        rules: &[PolicyRule],
+        tool: &str,
+        input: &Value,
+    ) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        let e = self.decide(call)?;
+        if !rules.iter().any(|r| r.matches(tool, input)) {
             return Some(e);
         }
         Some(match e {
@@ -971,6 +1057,11 @@ impl PolicyView {
         self.policy().forge.clone().unwrap_or_default()
     }
 
+    /// The `nuget` object (its defaults when absent).
+    pub fn nuget(&self) -> NuGetPolicy {
+        self.policy().nuget.clone().unwrap_or_default()
+    }
+
     /// Whether "Allow for this session" granted `key` to the running agent session.
     pub fn session_granted(&self, key: &str) -> bool {
         self.get().session_grants.iter().any(|g| g == key)
@@ -1080,6 +1171,7 @@ pub struct AgentPolicy {
     pub terminal: Option<TerminalPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge: Option<ForgePolicy>,
+    pub nuget: Option<NuGetPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -1095,6 +1187,7 @@ impl Default for AgentPolicy {
             git: None,
             terminal: None,
             forge: None,
+            nuget: None,
         }
     }
 }
@@ -1556,6 +1649,69 @@ mod tests {
         ));
         std::fs::write(&path, r#"{"version": 1, "git": {"push": "allow"}}"#).unwrap();
         assert!(AgentPolicy::load(&path).is_err(), "push has no allow");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_nuget_object_loads_and_follows_its_schema() {
+        let dir = std::env::temp_dir().join(format!("eludite-policy-nuget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = AgentPolicy::path_for(&dir);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"version": 1, "nuget": {"change": "allow", "sources": "deny"}}"#,
+        )
+        .unwrap();
+        let p = AgentPolicy::load(&path).unwrap();
+        let nuget = p.nuget.clone().unwrap();
+        assert_eq!(
+            (nuget.change, nuget.sources),
+            (Some(NuGetChangePolicy::Allow), Some(GuardPolicy::Deny))
+        );
+        p.save(&path).unwrap();
+        assert_eq!(AgentPolicy::load(&path).unwrap(), p);
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let props = &schema["properties"]["nuget"]["properties"];
+        for (k, v) in serde_json::to_value(&nuget).unwrap().as_object().unwrap() {
+            assert!(props[k]["enum"].as_array().unwrap().contains(v), "{k}");
+        }
+        let change = NuGetCall {
+            change: true,
+            ..Default::default()
+        };
+        let sources = NuGetCall {
+            sources: true,
+            ..Default::default()
+        };
+        // Defaults: both prompt (dangerous: the Agents window asks).
+        let d = NuGetPolicy::default();
+        for call in [change, sources] {
+            assert!(matches!(
+                d.decide(call),
+                Some(crate::Escalation::Raise {
+                    class: PermissionClass::Dangerous,
+                    ..
+                })
+            ));
+        }
+        assert_eq!(d.decide(NuGetCall::default()), None);
+        // allow leaves a change at class execute; deny refuses, unless a tool rule decides.
+        assert_eq!(nuget.decide(change), None);
+        assert!(
+            matches!(nuget.decide(sources), Some(crate::Escalation::Refuse(r)) if r.contains("nuget.sources"))
+        );
+        let rule = PolicyRule {
+            tool: "eludite-nuget-sources".into(),
+            command_prefix: None,
+            decision: RuleDecision::Allow,
+        };
+        assert!(matches!(
+            nuget.decide_for(sources, &[rule], "eludite-nuget-sources", &json!({})),
+            Some(crate::Escalation::Raise { .. })
+        ));
+        std::fs::write(&path, r#"{"version": 1, "nuget": {"sources": "allow"}}"#).unwrap();
+        assert!(AgentPolicy::load(&path).is_err(), "sources has no allow");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

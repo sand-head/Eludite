@@ -1767,6 +1767,11 @@ impl Shell {
             SessionEvent::BuildStatus(status) => self.on_build_status(status, window, cx),
             SessionEvent::TestUpdate(update) => self.on_test_update(*update, window, cx),
             SessionEvent::TestStatus(status) => self.on_test_status(status, window, cx),
+            // Brief 0048: the NuGet window's events arrive with its module.
+            SessionEvent::NuGetUpdate(_) => {}
+            SessionEvent::NuGetCredentials { id, .. } => {
+                self.session.respond_nuget_credentials(id, None)
+            }
             SessionEvent::BuildProgress(p) => self.on_build_progress(p, cx),
             SessionEvent::BuildFinished { finished, received } => {
                 self.on_build_finished(*finished, received, window, cx)
