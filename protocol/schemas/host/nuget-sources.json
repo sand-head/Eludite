@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-sources.json",
+  "title": "eludite/nuget/sources",
+  "description": "The package sources of the open solution's NuGet.config chain (machine, user, then the files from the solution's folder up, as NuGet reads them), and the changes the Package Sources page makes: add, remove, enable and disable edit the user's NuGet.config (a source defined elsewhere is disabled there, as NuGet does). Contacts no source.",
+  "x-eludite-method": "eludite/nuget/sources",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the call is issued under (host-rpc.md, \"Solution generation\"). A value that is not current is -32801; a generation change while the call runs cancels it with -32801.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "description": "Default list.",
+          "enum": [
+            "list",
+            "add",
+            "remove",
+            "enable",
+            "disable"
+          ]
+        },
+        "name": {
+          "description": "The source's name (add, remove, enable, disable).",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "add: the feed's address or folder.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "sources",
+        "configFiles",
+        "userConfig",
+        "changed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "enabled",
+              "local",
+              "scope"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "local": {
+                "description": "A folder (or file share) rather than an http(s) feed.",
+                "type": "boolean"
+              },
+              "scope": {
+                "description": "Which NuGet.config of the chain defines it: the machine-wide folder, the user's file, one beside or above the solution, or another file NuGet read.",
+                "enum": [
+                  "machine",
+                  "user",
+                  "solution",
+                  "other"
+                ]
+              },
+              "configFile": {
+                "description": "The NuGet.config that defines it.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "configFiles": {
+          "description": "The NuGet.config files read, highest priority first.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "userConfig": {
+          "description": "The user's NuGet.config, which changes are written to.",
+          "type": "string",
+          "minLength": 1
+        },
+        "changed": {
+          "description": "Whether the call wrote the user's file.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

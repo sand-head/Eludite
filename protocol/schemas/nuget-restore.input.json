@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-restore.input.json",
+  "title": "eludite.nuget.restore input",
+  "description": "Restore the solution's packages (or one project's), out of process, with the lock-file rule (nuget.lockFiles). Class execute.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "force": {
+      "description": "Re-evaluate every dependency (`--force-evaluate`), updating lock files.",
+      "type": "boolean"
+    }
+  }
+}

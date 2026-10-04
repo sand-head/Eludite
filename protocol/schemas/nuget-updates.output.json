@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-updates.output.json",
+  "title": "eludite.nuget.updates output",
+  "description": "The available updates and how each source answered.",
+  "type": "object",
+  "required": [
+    "updates",
+    "sources"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "updates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "project",
+          "id",
+          "installed",
+          "latest",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "installed": {
+            "type": "string",
+            "minLength": 1
+          },
+          "latest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "vulnerable": {
+            "description": "The installed version has a known vulnerability.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-sources.output.json",
+  "title": "eludite.nuget.sources output",
+  "description": "The sources after the call.",
+  "type": "object",
+  "required": [
+    "sources",
+    "user_config",
+    "changed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "enabled",
+          "local",
+          "scope"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "local": {
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "machine",
+              "user",
+              "solution",
+              "other"
+            ]
+          },
+          "config_file": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "user_config": {
+      "description": "The user's NuGet.config, where changes are written.",
+      "type": "string",
+      "minLength": 1
+    },
+    "changed": {
+      "type": "boolean"
+    }
+  }
+}

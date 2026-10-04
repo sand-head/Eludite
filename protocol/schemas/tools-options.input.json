@@ -6,7 +6,7 @@
   "type": "object",
   "properties": {
     "section": {
-      "description": "The page to show, for example `Projects and Solutions > Build and Run`. Omitted: the first page.",
+      "description": "The page to show, for example `Projects and Solutions > Build and Run`, or `NuGet Package Manager > Package Sources` (the sources from the NuGet.config chain, edited through eludite.nuget.sources; Tools > NuGet Package Manager > Package Sources...). Omitted: the first page.",
       "type": "string",
       "minLength": 1
     }

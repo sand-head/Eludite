@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-update.json",
+  "title": "eludite/nuget/update",
+  "description": "Host-to-shell notification: what a NuGet call is doing, in order (`seq` from 0 per operation). kind output: `text`, lines for the Output window's Package Manager source (NuGet's log and the restore's output, each line ending with \\n). progress: `message` (\"Restoring App.csproj\"). metadata: `packages`, the vulnerability and deprecation data the sources answered (the Workspace window's glyphs follow it). Every update carries the generation its call started under; the shell drops a stale one.",
+  "x-eludite-method": "eludite/nuget/update",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "operation",
+        "generation",
+        "seq",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "output",
+            "progress",
+            "metadata"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "vulnerabilities": {
+                "type": "array",
+                "items": {
+                  "description": "A known vulnerability of this version, from the source's registration data (or NuGet Audit's NU1901 to NU1904 warnings in the assets file).",
+                  "type": "object",
+                  "required": [
+                    "severity",
+                    "advisoryUrl"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "severity": {
+                      "description": "The advisory's severity (NuGet's 0 low, 1 moderate, 2 high, 3 critical).",
+                      "enum": [
+                        "low",
+                        "moderate",
+                        "high",
+                        "critical"
+                      ]
+                    },
+                    "advisoryUrl": {
+                      "description": "The advisory's address (a GitHub advisory for nuget.org).",
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              "deprecation": {
+                "description": "The version is deprecated (registration data).",
+                "type": "object",
+                "required": [
+                  "reasons"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "reasons": {
+                    "description": "Why the owner deprecated it.",
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "legacy",
+                        "criticalBugs",
+                        "other"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "description": "The owner's message.",
+                    "type": "string"
+                  },
+                  "alternatePackage": {
+                    "description": "The package the owner recommends instead.",
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "range": {
+                        "description": "A version range; omitted: any.",
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

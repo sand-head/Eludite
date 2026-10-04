@@ -16,7 +16,8 @@
     "Source Control > Git Global Settings",
     "Terminal",
     "Environment > Find and Replace",
-    "Source Control > Forges"
+    "Source Control > Forges",
+    "NuGet Package Manager > General"
   ],
   "properties": {
     "keyboard.preset": {
@@ -578,6 +579,34 @@
       "x-eludite-editor": "text",
       "x-eludite-section": "Source Control > Forges",
       "x-eludite-label": "Azure DevOps application id"
+    },
+    "nuget.includePrerelease": {
+      "description": "The Manage NuGet Packages window's \"Include prerelease\" check box starts checked, and eludite.nuget.search, updates and update include prerelease versions when they do not say (brief 0048).",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "NuGet Package Manager > General",
+      "x-eludite-label": "Include prerelease versions"
+    },
+    "nuget.restoreOnChange": {
+      "description": "Restore after Install, Update, Uninstall and Consolidate edit a project (Visual Studio restores at once). Off: the edit is written and the next build restores.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "NuGet Package Manager > General",
+      "x-eludite-label": "Restore packages after a change"
+    },
+    "nuget.lockFiles": {
+      "description": "How restores treat packages.lock.json: respect (the default) restores a project that has one with `--locked-mode`, so a lock file that no longer matches fails the restore, and a change re-evaluates and updates it; ignore restores without either.",
+      "enum": [
+        "respect",
+        "ignore"
+      ],
+      "default": "respect",
+      "x-eludite-section": "NuGet Package Manager > General",
+      "x-eludite-label": "Lock files (packages.lock.json)",
+      "x-eludite-enum-labels": [
+        "Respect",
+        "Ignore"
+      ]
     }
   }
 }

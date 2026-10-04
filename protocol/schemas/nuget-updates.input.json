@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-updates.input.json",
+  "title": "eludite.nuget.updates input",
+  "description": "Updates: each installed package with a newer version on the sources, per project.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "prerelease": {
+      "description": "Include prerelease versions. Omitted: the setting nuget.includePrerelease.",
+      "type": "boolean"
+    },
+    "source": {
+      "description": "A source's name. Omitted: all.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -14,11 +14,12 @@
       ]
     },
     "source": {
-      "description": "Only return diagnostics from this source: build (the last build's, including those the live analysis reports too), live (the language server's and the solution load's, including those the build reports too) or test (the last test run's failures). Omit to return all.",
+      "description": "Only return diagnostics from this source: build (the last build's, including those the live analysis reports too), live (the language server's and the solution load's, including those the build reports too) or test (the last test run's failures). or nuget (the last NuGet restore's errors and warnings, against the project file; brief 0048). Omit to return all.",
       "enum": [
         "build",
         "live",
-        "test"
+        "test",
+        "nuget"
       ]
     }
   },

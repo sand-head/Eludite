@@ -51,12 +51,13 @@
         "minLength": 1
       },
       "source": {
-        "description": "Where the row comes from, as the Error List's Build + IntelliSense filter names it: build (the last build only), live (the language server or the solution load only), both (the build reported the same file, position and code as a live diagnostic, so the row is shown once), or test (a test that failed in the last test run, at its failure's first stack frame in the project; brief 0035). Omitted means live.",
+        "description": "Where the row comes from, as the Error List's Build + IntelliSense filter names it: build (the last build only), live (the language server or the solution load only), both (the build reported the same file, position and code as a live diagnostic, so the row is shown once), or test (a test that failed in the last test run, at its failure's first stack frame in the project; brief 0035). or nuget (the last NuGet restore of the project, at its project file; brief 0048). Omitted means live.",
         "enum": [
           "build",
           "live",
           "both",
-          "test"
+          "test",
+          "nuget"
         ]
       }
     }

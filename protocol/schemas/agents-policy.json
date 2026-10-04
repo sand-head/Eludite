@@ -205,6 +205,28 @@
           ]
         }
       }
+    },
+    "nuget": {
+      "description": "The NuGet commands (eludite.nuget.*; brief 0048). Every key is optional; a missing key is its default. Reading (search, installed, updates, sources with `list`) is always allowed. `prompt` makes a call dangerous (the Agents window asks; Always Allow writes a tool rule for it), `deny` refuses agents with this policy named; the tool rules above are checked first.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "description": "eludite.nuget.install, uninstall, update and consolidate (class execute): `prompt` (default: dangerous, which asks), `allow` (class execute, decided by `execute` and the rules) or `deny`.",
+          "enum": [
+            "prompt",
+            "allow",
+            "deny"
+          ]
+        },
+        "sources": {
+          "description": "eludite.nuget.sources with add, remove, enable or disable (class execute): `prompt` (default: dangerous) or `deny`.",
+          "enum": [
+            "prompt",
+            "deny"
+          ]
+        }
+      }
     }
   }
 }

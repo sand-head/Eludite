@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-change.json",
+  "title": "eludite/nuget/change",
+  "description": "Install, uninstall, update or consolidate packages (one request shape for the four). The host edits the projects' PackageReference items, or under Central Package Management (ManagePackageVersionsCentrally) the PackageVersion items of Directory.Packages.props and version-less PackageReference items, with MSBuild's construction model (preserving formatting, element order and comments), then restores (unless `restore` is false) with the lock-file rule. A failed restore leaves the edit in place and answers its diagnostics. After a change the solution generation advances (an eludite/solution/status `loaded` carries the new one) and the shell asks for the tree again. Progress and NuGet's output go out as eludite/nuget/update notifications with the call's `operation`.",
+  "x-eludite-method": "eludite/nuget/change",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation",
+        "action",
+        "packages"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the call is issued under (host-rpc.md, \"Solution generation\"). A value that is not current is -32801; a generation change while the call runs cancels it with -32801.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "description": "install: add the package (or change its version) in each project. uninstall: remove it. update: set each project that references it to `version` (omitted: the newest). consolidate: set every project that references it to `version` (omitted: the highest installed).",
+          "enum": [
+            "install",
+            "uninstall",
+            "update",
+            "consolidate"
+          ]
+        },
+        "packages": {
+          "description": "The packages (Updates' Select All sends several).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "description": "A version (omitted: the newest for install and update, the highest installed for consolidate).",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "projects": {
+          "description": "Absolute paths of the projects to change. Omitted: install needs them when the solution has more than one project; uninstall, update and consolidate change every project that references the package.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "prerelease": {
+          "description": "Include prerelease versions (Visual Studio's \"Include prerelease\"). Default false.",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "A package source's name (its key in NuGet.config). Omitted: every enabled source (Visual Studio's \"All\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "includeTransitive": {
+          "description": "update and consolidate: a package a project has only transitively gets a top-level reference at the new version (transitive pinning). Default false: only projects that reference it change.",
+          "type": "boolean"
+        },
+        "restore": {
+          "description": "Restore after the edit (the setting nuget.restoreOnChange; default true).",
+          "type": "boolean"
+        },
+        "lockFiles": {
+          "description": "The setting nuget.lockFiles. respect (the default): when a project has packages.lock.json, a restore that changes nothing runs with `--locked-mode` and a change updates the lock file (`--force-evaluate`); ignore: restore runs without either.",
+          "enum": [
+            "respect",
+            "ignore"
+          ]
+        },
+        "interactive": {
+          "description": "Whether the shell may be asked for credentials (eludite/nuget/credentials) during this call: true for the person's calls, false (the default) for agents', whose calls fail with `credentials_required` instead. Credential providers run either way.",
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "action",
+        "packages",
+        "projects",
+        "edited",
+        "elapsedMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation after the change (one more than the request's when a file was edited).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "enum": [
+            "install",
+            "uninstall",
+            "update",
+            "consolidate"
+          ]
+        },
+        "packages": {
+          "description": "The packages as resolved.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "description": "The version written (omitted for uninstall).",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "projects": {
+          "description": "The projects that changed.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "edited": {
+          "description": "The files written.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "kind",
+              "changes"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "enum": [
+                  "project",
+                  "centralPackageVersions"
+                ]
+              },
+              "changes": {
+                "description": "One line per change (`PackageReference Newtonsoft.Json 13.0.3 added`).",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "restore": {
+          "description": "How the restore went. A failed restore leaves an edit in place, as Visual Studio does.",
+          "type": "object",
+          "required": [
+            "result",
+            "elapsedMs",
+            "commandLine",
+            "lockedMode",
+            "lockFiles",
+            "diagnostics"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "result": {
+              "enum": [
+                "succeeded",
+                "failed",
+                "canceled"
+              ]
+            },
+            "exitCode": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "elapsedMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "commandLine": {
+              "description": "The `dotnet restore` command line the host ran.",
+              "type": "string",
+              "minLength": 1
+            },
+            "lockedMode": {
+              "description": "Whether `--locked-mode` was used (a lock file existed under `respect` and nothing changed).",
+              "type": "boolean"
+            },
+            "lockFiles": {
+              "description": "The packages.lock.json files of the restored projects that exist after the restore.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "diagnostics": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": {
+                "description": "A restore error or warning, for the Error List (source `nuget`).",
+                "type": "object",
+                "required": [
+                  "severity",
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "severity": {
+                    "enum": [
+                      "error",
+                      "warning",
+                      "message"
+                    ]
+                  },
+                  "code": {
+                    "description": "NuGet's code (NU1101, NU1605, NU1903, ...) or MSBuild's.",
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "description": "Absolute path of the file the diagnostic is reported against (a project file for NuGet's own).",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "project": {
+                    "description": "Absolute path of the project.",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "message": {
+          "description": "Why nothing changed (already at that version, not referenced).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

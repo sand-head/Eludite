@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-update.input.json",
+  "title": "eludite.nuget.update input",
+  "description": "Update packages (Updates' Update, with Select All: `all`). The project files (or Directory.Packages.props under Central Package Management) are edited with their formatting kept, then restored unless the setting nuget.restoreOnChange is off; a failed restore leaves the edit, with its errors in the answer and the Error List. Class execute under the solution policy's `nuget.change` (agents are asked by default). Every change is audited with the project, the package and the version.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "package": {
+      "description": "The package id (`Newtonsoft.Json`), case-insensitive.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "The version (default: the newest).",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "all": {
+      "description": "Every package eludite.nuget.updates lists (for `project`, or the solution).",
+      "type": "boolean"
+    },
+    "prerelease": {
+      "description": "Omitted: the setting nuget.includePrerelease.",
+      "type": "boolean"
+    }
+  }
+}

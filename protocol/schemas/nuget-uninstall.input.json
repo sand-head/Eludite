@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/nuget-uninstall.input.json",
+  "title": "eludite.nuget.uninstall input",
+  "description": "Uninstall a package (Installed's Uninstall). The project files (or Directory.Packages.props under Central Package Management) are edited with their formatting kept, then restored unless the setting nuget.restoreOnChange is off; a failed restore leaves the edit, with its errors in the answer and the Error List. Class execute under the solution policy's `nuget.change` (agents are asked by default). Every change is audited with the project, the package and the version.",
+  "type": "object",
+  "required": [
+    "package"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "package": {
+      "description": "The package id (`Newtonsoft.Json`), case-insensitive.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "projects": {
+      "description": "Several projects. Omitted with `project`: every project that references it.",
+      "type": "array",
+      "items": {
+        "description": "A project of the open solution: its name (`App`) or the absolute path of its project file.",
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

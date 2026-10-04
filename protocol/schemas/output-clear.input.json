@@ -12,7 +12,8 @@
         "host",
         "language_servers",
         "debug",
-        "browser"
+        "browser",
+        "package_manager"
       ]
     }
   },

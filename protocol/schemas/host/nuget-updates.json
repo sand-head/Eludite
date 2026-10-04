@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/nuget-updates.json",
+  "title": "eludite/nuget/updates",
+  "description": "Visual Studio's Updates tab: for each top-level package of the projects, the newest version the sources list (prerelease per the request), when it is newer than the installed one; per project. Versions come from each source's package versions (FindPackageById) resource, cached per source; a source that fails answers its row and the others still count.",
+  "x-eludite-method": "eludite/nuget/updates",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation the call is issued under (host-rpc.md, \"Solution generation\"). A value that is not current is -32801; a generation change while the call runs cancels it with -32801.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "description": "The shell's id for this call (from 1): eludite/nuget/update notifications and eludite/nuget/credentials requests caused by it carry it, so the shell can route the Package Manager output and know who asked.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "projects": {
+          "description": "Absolute paths of projects of the open solution. Omitted: every project the solution lists.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "prerelease": {
+          "description": "Include prerelease versions (Visual Studio's \"Include prerelease\"). Default false.",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "A package source's name (its key in NuGet.config). Omitted: every enabled source (Visual Studio's \"All\").",
+          "type": "string",
+          "minLength": 1
+        },
+        "interactive": {
+          "description": "Whether the shell may be asked for credentials (eludite/nuget/credentials) during this call: true for the person's calls, false (the default) for agents', whose calls fail with `credentials_required` instead. Credential providers run either way.",
+          "type": "boolean"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "updates",
+        "sources",
+        "elapsedMs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation it ran under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "updates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "project",
+              "id",
+              "installed",
+              "latest",
+              "source"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "project": {
+                "description": "Absolute path of the project.",
+                "type": "string",
+                "minLength": 1
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "installed": {
+                "description": "The resolved (or requested) version installed now.",
+                "type": "string",
+                "minLength": 1
+              },
+              "requested": {
+                "type": "string",
+                "minLength": 1
+              },
+              "latest": {
+                "description": "The newest version the sources list that is newer (prerelease per the request).",
+                "type": "string",
+                "minLength": 1
+              },
+              "versions": {
+                "description": "Every version the sources list, newest first.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "source": {
+                "description": "The source that lists `latest`.",
+                "type": "string",
+                "minLength": 1
+              },
+              "vulnerabilities": {
+                "type": "array",
+                "items": {
+                  "description": "A known vulnerability of this version, from the source's registration data (or NuGet Audit's NU1901 to NU1904 warnings in the assets file).",
+                  "type": "object",
+                  "required": [
+                    "severity",
+                    "advisoryUrl"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "severity": {
+                      "description": "The advisory's severity (NuGet's 0 low, 1 moderate, 2 high, 3 critical).",
+                      "enum": [
+                        "low",
+                        "moderate",
+                        "high",
+                        "critical"
+                      ]
+                    },
+                    "advisoryUrl": {
+                      "description": "The advisory's address (a GitHub advisory for nuget.org).",
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "description": "Known vulnerabilities of the installed version."
+              },
+              "deprecation": {
+                "description": "The version is deprecated (registration data).",
+                "type": "object",
+                "required": [
+                  "reasons"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "reasons": {
+                    "description": "Why the owner deprecated it.",
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "legacy",
+                        "criticalBugs",
+                        "other"
+                      ]
+                    }
+                  },
+                  "message": {
+                    "description": "The owner's message.",
+                    "type": "string"
+                  },
+                  "alternatePackage": {
+                    "description": "The package the owner recommends instead.",
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "range": {
+                        "description": "A version range; omitted: any.",
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "description": "How one source answered.",
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "count"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "count": {
+                "description": "Packages this source answered with.",
+                "type": "integer",
+                "minimum": 0
+              },
+              "elapsedMs": {
+                "type": "number",
+                "minimum": 0
+              },
+              "cached": {
+                "description": "Answered from the session's cache for this source (no request was made).",
+                "type": "boolean"
+              },
+              "error": {
+                "description": "Why this source failed (unreachable, 401 without credentials, an invalid feed). The other sources' results still count; the window shows an error row for this one.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
