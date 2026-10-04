@@ -273,6 +273,12 @@ impl NuGetWindow {
         self.source.as_deref()
     }
 
+    /// Browse's last answer.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn browse_output(&self) -> Option<&SearchOutput> {
+        self.browse.as_ref()
+    }
+
     pub fn rows(&self) -> &[Row] {
         &self.rows
     }
@@ -882,24 +888,30 @@ impl NuGetWindow {
         }
         self.rows_drawn += range.len();
         let updates = self.tab == Tab::Updates;
+        // Few elements per row: in a debug build every builder call moves the element, and the list redraws its
+        // rows each frame (brief 0048's frame budget).
+        let probe = self.probe.clone();
         range
             .filter_map(|ix| {
-                let row = self.rows.get(ix)?.clone();
-                let el = div()
-                    .id(SharedString::from(row_selector(ix)))
-                    .debug_selector(move || row_selector(ix))
-                    .relative()
-                    .children(self.probed(row_selector(ix)))
+                let row = self.rows.get(ix)?;
+                let sel = row_selector(ix);
+                let mut el = div()
+                    .id(SharedString::from(sel.clone()))
+                    .debug_selector(move || sel)
                     .h(px(ROW_HEIGHT))
                     .w_full()
                     .flex()
-                    .flex_row()
                     .items_center()
                     .gap_2()
                     .px_2()
                     .border_b_1()
                     .border_color(t.border)
                     .text_size(t.typography.ui);
+                if probe.is_some() {
+                    el = el
+                        .relative()
+                        .children(eludite_ui::bounds_canvas(probe.as_ref(), row_selector(ix)));
+                }
                 Some(match row {
                     Row::SourceError(name, why) => el
                         .text_color(rgb(0xF1_4C_4C))
@@ -912,7 +924,6 @@ impl NuGetWindow {
                         icon,
                         warning,
                     } => {
-                        let selected = self.selected.as_deref() == Some(id.as_str());
                         let icon_el = match icon
                             .as_ref()
                             .and_then(|u| self.icons.get(u))
@@ -930,58 +941,59 @@ impl NuGetWindow {
                                 .child("\u{25C8}")
                                 .into_any_element(),
                         };
-                        let check =
-                            updates.then(|| {
-                                let check_id = id.clone();
+                        if updates {
+                            let check_id = id.clone();
+                            el = el.child(
                                 check_box(
-                                    update_check_selector(&id),
+                                    update_check_selector(id),
                                     "",
-                                    self.checked_updates.contains(&id),
+                                    self.checked_updates.contains(id),
                                     &t,
                                 )
                                 .on_click(cx.listener(
                                     move |this, _, _, cx| this.toggle_update(&check_id, cx),
-                                ))
-                            });
-                        let select_id = id.clone();
-                        let el = if selected {
+                                )),
+                            );
+                        }
+                        el = if self.selected.as_deref() == Some(id.as_str()) {
                             el.bg(t.menu_hover)
                         } else {
                             el.hover(|s| s.bg(t.menu_hover))
                         };
+                        // A vulnerable or deprecated package: the warning glyph, in yellow, before its version.
+                        let (version_text, version_color) = if *warning {
+                            (
+                                SharedString::from(format!("\u{26A0} {version}")),
+                                rgb(0xFF_CC_00),
+                            )
+                        } else {
+                            (SharedString::from(version.clone()), t.text_muted)
+                        };
+                        let select_id = id.clone();
                         el.cursor_pointer()
-                            .children(check)
                             .child(icon_el)
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .flex()
-                                    .flex_col()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
                                     .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                    .child(id.clone()),
-                                            )
-                                            .children(warning.then(|| {
-                                                div().text_color(rgb(0xFF_CC_00)).child("\u{26A0}")
-                                            })),
+                                        div().font_weight(FontWeight::SEMIBOLD).child(id.clone()),
                                     )
                                     .child(
                                         div()
-                                            .overflow_hidden()
-                                            .whitespace_nowrap()
                                             .text_size(t.typography.small)
                                             .text_color(t.text_muted)
-                                            .child(detail),
+                                            .child(detail.clone()),
                                     ),
                             )
-                            .child(div().flex_none().text_color(t.text_muted).child(version))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_color(version_color)
+                                    .child(version_text),
+                            )
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.select(Some(select_id.clone()), cx)
                             }))
