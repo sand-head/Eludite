@@ -9,7 +9,7 @@ namespace OffByOne
         /// <summary>The sum of every price in the basket.</summary>
         public static int Total(List<int> prices)
         {
-            int total = 0, count = prices.Count;
+            var (total, count) = (0, prices.Count);
             for (var i = 0; i < count - 1; i++)
             {
                 total += prices[i];

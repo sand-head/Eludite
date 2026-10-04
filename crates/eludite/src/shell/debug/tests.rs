@@ -1829,6 +1829,57 @@ fn deep_break(
     d
 }
 
+/// At an exception stop netcoredbg lists `$exception`, two dozen members deep (brief 0030's NullField wait came to
+/// 8.7 KB with it expanded). A depth snapshot leaves it folded, with its reference for `variables` on demand, and
+/// spends the member budget on the program's own locals.
+#[gpui::test]
+fn a_depth_snapshot_leaves_the_exception_pseudo_local_folded(cx: &mut TestAppContext) {
+    let mut d = deep_break(cx, |p| {
+        let exception = FakeVar::new(
+            "$exception",
+            "{System.NullReferenceException}",
+            "System.NullReferenceException",
+        )
+        .with_children(vec![
+            FakeVar::new("_message", "\"boom\"", "string"),
+            FakeVar::new("HResult", "-2147467261", "int"),
+        ]);
+        for step in &mut p.steps {
+            if step.function == "App.Calc.Level28(int depth)" {
+                step.locals.insert(0, exception.clone());
+            }
+        }
+    });
+    agent_call(&mut d, cmds::CONTINUE, json!({"stop": 1, "wait_ms": 5000}));
+    // 120 locals at the top level; the 80 rows left go to members, breadth-first.
+    let s = agent_call(
+        &mut d,
+        cmds::SNAPSHOT,
+        json!({"depth": 2, "max_variables": 200}),
+    );
+    let rows = s["locals"]["rows"].as_array().unwrap();
+    let exception = rows
+        .iter()
+        .find(|r| r["name"] == "$exception")
+        .expect("$exception among the locals");
+    let reference = exception["reference"].as_i64().unwrap();
+    assert!(reference > 0, "{exception}");
+    assert!(exception.get("children").is_none(), "{exception}");
+    let big = rows.iter().find(|r| r["name"] == "big").unwrap();
+    assert!(
+        big["children"].as_array().is_some_and(|c| !c.is_empty()),
+        "the budget went to the program's locals: {big}"
+    );
+    // Asked for, it still expands.
+    let v = agent_call(&mut d, cmds::VARIABLES, json!({"reference": reference}));
+    assert!(
+        v["rows"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|x| x["name"] == "_message")),
+        "{v}"
+    );
+}
+
 fn json_size(v: &Value) -> usize {
     serde_json::to_string(v).unwrap().len()
 }
@@ -4336,6 +4387,7 @@ fn run_control_works_against_eludite_dbg_mono(cx: &mut TestAppContext) {
 
 /// A stand-in for `dotnet` that keeps running (`/bin/sh <it> <dll>`, runtime `dotnet` in the process listing).
 #[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn looping_dotnet() -> PathBuf {
     let bin = tempfile::tempdir().unwrap().keep();
     let script = bin.join("dotnet");

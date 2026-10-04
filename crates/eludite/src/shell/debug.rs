@@ -8951,10 +8951,13 @@ impl Reader {
         max_chars: usize,
         cut: &mut bool,
     ) -> Result<(), String> {
+        // netcoredbg's `$exception` pseudo-local at an exception stop has two dozen members (Watson buckets, HResult,
+        // the stack trace twice); the stop's `exception` already says what was thrown, so a depth snapshot leaves it
+        // folded (its reference stays, for `variables` on demand) and spends the budget on the program's own locals.
         let mut frontier: Vec<Vec<usize>> = rows
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.reference > 0)
+            .filter(|(_, r)| r.reference > 0 && r.name != EXCEPTION_PSEUDO_LOCAL)
             .map(|(i, _)| vec![i])
             .collect();
         let paging = self.paging(cx)?;
@@ -9851,6 +9854,9 @@ fn wait_satisfied(
 
 /// The adapter's exception details as `eludite.debug.exception_info` lists them, inner exceptions at most
 /// [`cmds::MAX_INNER_EXCEPTIONS`] deep.
+/// The pseudo-local netcoredbg (and vsdbg-style adapters) list at an exception stop, holding the thrown exception.
+const EXCEPTION_PSEUDO_LOCAL: &str = "$exception";
+
 fn details_row(d: &ExceptionDetails, depth: usize) -> ExceptionDetailsRow {
     ExceptionDetailsRow {
         message: d.message.clone(),
