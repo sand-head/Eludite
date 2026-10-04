@@ -938,22 +938,22 @@ fn cat_of_a_large_file_keeps_frames_short_and_the_scrollback_small(cx: &mut Test
     let frames_before = view.read_with(&t.w.vcx, |v, _| v.frame_times().len());
     let terminal = t.terminal(&id);
     let started = Instant::now();
-    terminal.write(format!("cat '{path}'; echo cat-done\r"));
-    let mark = terminal.mark();
-    let _ = mark;
+    // The marker is printed as `cat-done` but typed as `"cat""-done"`, so the echoed command line never matches it.
+    terminal.write(format!("cat '{path}'; echo \"cat\"\"-done\"\r"));
+    let done = |text: &str| text.lines().any(|l| l == "cat-done");
     // Draw frames as the window would while it runs.
     let deadline = Instant::now() + Duration::from_secs(300);
     loop {
         t.w.vcx.run_until_parked();
         let (text, _, _) = terminal.since(terminal.mark().saturating_sub(64), 64);
-        if text.contains("cat-done") {
+        if done(&text) {
             break;
         }
         assert!(Instant::now() < deadline, "cat never finished");
         std::thread::sleep(Duration::from_millis(16));
     }
     let drawn = started.elapsed();
-    t.wait_drawn(&id, "the end", |s| s.contains("cat-done"));
+    t.wait_drawn(&id, "the end", done);
     let mut frames: Vec<Duration> =
         view.read_with(&t.w.vcx, |v, _| v.frame_times()[frames_before..].to_vec());
     frames.sort();
