@@ -262,8 +262,11 @@ fn ctrl_shift_f_opens_the_dialog_with_the_selection_and_enter_searches_the_solut
     s.w.vcx.run_until_parked();
     let customer = s.w.path("src/App/Models/Customer.cs");
     let cview = s.w.editor(&customer);
+    let customer_id = super::documents::normalize_path(&customer)
+        .to_string_lossy()
+        .into_owned();
     s.w.wait("the selection", |w| {
-        w.controller.active_document().as_deref() == Some(customer.to_string_lossy().as_ref())
+        w.controller.active_document().as_deref() == Some(customer_id.as_str())
     });
     let sel = cview.read_with(&s.w.vcx, |v, _| {
         let e = v.editor();
@@ -649,7 +652,7 @@ fn replace_all_with_preview_holds_changes_and_accept_all_is_one_undo_step_per_do
             .contains("Order First"),
         "not saved"
     );
-    assert!(s.w.dirty(&customer.to_string_lossy()));
+    assert!(s.w.dirty(&super::documents::normalize_path(&customer).to_string_lossy()));
     // One undo step per document: Ctrl+Z takes Program.cs's two replacements back at once.
     s.run(
         workspace::EDITOR_UNDO,

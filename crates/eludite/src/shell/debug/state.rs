@@ -747,6 +747,10 @@ pub struct Breakpoints {
     functions: Vec<FunctionBreakpoint>,
     /// The session whose binding the fields hold (brief 0028; 0 before any).
     current: u32,
+    /// Conditions the current session's adapter could not evaluate at a hit (netcoredbg prints why and stops, as
+    /// Visual Studio does), kept for the stop's summary even when the breakpoint itself goes (`remove_after`) or the
+    /// adapter re-verifies it; cleared when a session starts and when the breakpoint's condition changes.
+    condition_errors: Vec<FailedBreakpointRow>,
 }
 
 impl Breakpoints {
@@ -1031,6 +1035,36 @@ impl Breakpoints {
     /// The current session's breakpoints its adapter refused or whose condition it rejected (brief 0036): not bound,
     /// with a message that is not a pending one. `run_until`'s and `trace`'s temporary points are reported by those
     /// commands (`points_failed`), not here.
+    /// The adapter could not evaluate the breakpoint's condition at a hit (netcoredbg says so on stderr and stops, as
+    /// Visual Studio does): the message becomes the breakpoint's and it counts as refused, so [`Self::failed`] lists it
+    /// for an agent to read (brief 0036) as it would an up-front refusal. True when a breakpoint was found.
+    pub fn set_condition_error(&mut self, path: &str, line: u32, message: &str) -> bool {
+        self.forget_condition_error(path, line);
+        self.condition_errors.push(FailedBreakpointRow {
+            path: Some(path.to_owned()),
+            line: Some(line),
+            function: None,
+            session: self.current,
+            message: message.to_owned(),
+        });
+        let Some(b) = self
+            .list
+            .iter_mut()
+            .find(|b| b.path == path && b.line == line)
+        else {
+            return false;
+        };
+        b.verified = false;
+        b.message = Some(message.to_owned());
+        true
+    }
+
+    /// The breakpoint's condition changed: what the adapter said of the old one no longer applies.
+    pub fn forget_condition_error(&mut self, path: &str, line: u32) {
+        self.condition_errors
+            .retain(|r| (r.path.as_deref(), r.line) != (Some(path), Some(line)));
+    }
+
     pub fn failed(&self) -> Vec<FailedBreakpointRow> {
         let refused = |verified: bool, enabled: bool, message: &Option<String>| {
             message
@@ -1056,7 +1090,13 @@ impl Breakpoints {
                 message: refused(f.verified, f.enabled, &f.message)?,
             })
         });
-        lines.chain(functions).collect()
+        let mut rows: Vec<FailedBreakpointRow> = lines.chain(functions).collect();
+        for e in &self.condition_errors {
+            if !rows.iter().any(|r| (&r.path, r.line) == (&e.path, e.line)) {
+                rows.push(e.clone());
+            }
+        }
+        rows
     }
 
     /// The binding of the breakpoint on a line in the current session: (bound, the adapter's message).
@@ -1066,6 +1106,7 @@ impl Breakpoints {
 
     /// Forget the session's state (a new session starts).
     pub fn reset_session(&mut self) {
+        self.condition_errors.clear();
         for b in &mut self.list {
             b.verified = false;
             b.hits = 0;
@@ -1165,6 +1206,7 @@ impl Breakpoints {
                 .collect(),
             functions: Vec::new(),
             current: 0,
+            condition_errors: Vec::new(),
         };
         for r in rows {
             if let Some(name) = r.function.as_deref().filter(|n| !n.trim().is_empty())

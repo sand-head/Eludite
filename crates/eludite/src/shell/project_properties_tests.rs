@@ -402,7 +402,13 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
     assert!(!dirty, "an inherited value is read-only before Override");
     p.w.click(&pages::override_selector("LangVersion"));
     p.w.click(&pages::choice_selector("LangVersion", 2));
-    assert_eq!(p.shown("LangVersion"), "13.0");
+    assert_eq!(
+        p.shown("LangVersion"),
+        "13.0",
+        "choice 2 at {:?}, override at {:?}",
+        p.w.bounds(&pages::choice_selector("LangVersion", 2)),
+        p.w.bounds(&pages::override_selector("LangVersion"))
+    );
     p.w.vcx.simulate_keystrokes("ctrl-s");
     p.wait_set_properties(3);
     assert_eq!(

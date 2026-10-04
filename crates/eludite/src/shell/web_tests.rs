@@ -411,7 +411,12 @@ fn nothing_starts_until_a_web_document_opens_then_typescript_and_eslint_serve_it
     assert_eq!(init.params["rootUri"], json!(path_to_uri(&root)));
     assert_eq!(
         init.params["initializationOptions"]["tsserver"]["path"],
-        json!(root.join("node_modules/typescript/lib").to_string_lossy())
+        json!(
+            root.join("node_modules")
+                .join("typescript")
+                .join("lib")
+                .to_string_lossy()
+        )
     );
     assert_eq!(init.params["initializationOptions"]["hostInfo"], "eludite");
     w.wait("TypeScript ready on the project's TypeScript", |w| {

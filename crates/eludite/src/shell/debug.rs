@@ -6458,6 +6458,9 @@ impl Shell {
                     }
                 }
                 BreakpointAction::Set => {
+                    if condition.is_some() {
+                        b.forget_condition_error(&path, line);
+                    }
                     let bp = b.ensure(&path, line);
                     if let Some(e) = enabled {
                         bp.enabled = e;
@@ -7676,6 +7679,17 @@ impl Shell {
                         "stderr"
                     };
                     d.program_output(&o.output, stream);
+                    let mut changed = false;
+                    for (path, line, message) in condition_errors(&o.output) {
+                        let hit = d
+                            .model
+                            .breakpoints
+                            .set_condition_error(&path, line, &message);
+                        changed |= hit;
+                    }
+                    if changed {
+                        self.refresh_glyphs(cx);
+                    }
                 }
                 // `console` (DAP's default), `important` and the rest: the adapter's messages.
                 _ => {
@@ -7748,22 +7762,12 @@ impl Shell {
             }
             Event::Terminated => {
                 if d.model.mode != Mode::Stopping {
-                    // vscode-js-debug keeps its socket open after `disconnect`: the answer ends the session (brief
-                    // 0038), as a detach's does.
-                    let js = matches!(
-                        d.model.family(),
-                        AdapterFamily::Javascript | AdapterFamily::Browser
-                    );
+                    // The `disconnect` answer ends the session, as a detach's does: vscode-js-debug keeps its socket
+                    // open after it (brief 0038), and netcoredbg can take long to exit after it on a loaded machine
+                    // (the session sat in `stopping` for the agents' 20 s waits on CI). Ending the session kills an
+                    // adapter still up; one that closes first ends the session the same way.
                     let generation = d.generation();
-                    let _ = d.send(
-                        "disconnect",
-                        json!({}),
-                        if js {
-                            Pending::Detach { generation }
-                        } else {
-                            Pending::Other
-                        },
-                    );
+                    let _ = d.send("disconnect", json!({}), Pending::Detach { generation });
                 }
                 d.model.mode = Mode::Stopping;
             }
@@ -9856,6 +9860,25 @@ fn wait_satisfied(
 /// [`cmds::MAX_INNER_EXCEPTIONS`] deep.
 /// The pseudo-local netcoredbg (and vsdbg-style adapters) list at an exception stop, holding the thrown exception.
 const EXCEPTION_PSEUDO_LOCAL: &str = "$exception";
+
+/// The breakpoints whose condition netcoredbg could not evaluate at a hit, from the lines it prints on stderr as it
+/// stops there (Visual Studio's behavior): `Breakpoint error: The condition for a breakpoint failed to execute. The
+/// condition was 'c'. The error returned was 'e'. - <path>:<line>`. Each is (the normalized path, the line, the message
+/// up to the location).
+fn condition_errors(text: &str) -> Vec<(String, u32, String)> {
+    text.lines()
+        .filter_map(|l| {
+            let rest = l.trim().strip_prefix("Breakpoint error: ")?;
+            let (message, at) = rest.rsplit_once(" - ")?;
+            let (path, line) = at.trim().rsplit_once(':')?;
+            let line = line.trim().parse::<u32>().ok()?;
+            let path = normalize_path(Path::new(path.trim()))
+                .to_string_lossy()
+                .into_owned();
+            Some((path, line, message.trim().to_owned()))
+        })
+        .collect()
+}
 
 fn details_row(d: &ExceptionDetails, depth: usize) -> ExceptionDetailsRow {
     ExceptionDetailsRow {

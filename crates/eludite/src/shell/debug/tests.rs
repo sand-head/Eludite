@@ -323,9 +323,17 @@ fn assert_budget(what: &str, measured: Duration, limit: Duration) {
     let load = std::fs::read_to_string("/proc/loadavg")
         .ok()
         .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok());
+    // The budgets are calibrated on Linux (CI's reference job); the hosted Windows and macOS runners are shared VMs
+    // with no load average to read, so there the numbers are printed, not asserted.
+    let hosted_elsewhere = !cfg!(target_os = "linux") && std::env::var_os("CI").is_some();
     match load {
         Some(l) if l > cores => eprintln!(
             "timing: {what} {:.2} ms not asserted against {:.0} ms: load average {l:.1} on {cores:.0} cores",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        ),
+        _ if hosted_elsewhere => eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a hosted runner, not the reference machine",
             measured.as_secs_f64() * 1e3,
             limit.as_secs_f64() * 1e3
         ),
@@ -1877,6 +1885,69 @@ fn a_depth_snapshot_leaves_the_exception_pseudo_local_folded(cx: &mut TestAppCon
             .as_array()
             .is_some_and(|r| r.iter().any(|x| x["name"] == "_message")),
         "{v}"
+    );
+}
+
+/// netcoredbg cannot evaluate a condition: it prints why to stderr, naming the breakpoint, and stops there (Visual
+/// Studio's behavior). The message becomes the breakpoint's, in `breakpoints_failed`, for an agent to read.
+#[gpui::test]
+fn a_condition_error_printed_by_the_adapter_marks_the_breakpoint(cx: &mut TestAppContext) {
+    let mut d = setup_with(cx, |p| {
+        // The fake prints a statement's output as it runs: line 5's, before line 6's breakpoint stops, as netcoredbg
+        // prints the error before its stop.
+        let main = p.steps[1].path.clone();
+        p.steps[0].prints.push((
+            "stderr".into(),
+            format!(
+                "Breakpoint error: The condition for a breakpoint failed to execute. The condition was 'x == \
+                 Money.One'. The error returned was 'error: The name 'Money.One' does not exist in the current \
+                 context'. - {main}:6\n"
+            ),
+        ));
+    });
+    d.w.open_solution();
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"action": "set", "path": "src/App/Program.cs", "line": 6, "condition": "x == 1"}),
+    )
+    .unwrap();
+    d.start_and_break();
+    // The stop summary an agent's wait answers carries the failed rows.
+    let summary = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"until": "stopped", "wait_ms": 2000}),
+    );
+    assert_eq!(summary["mode"], "break", "{summary}");
+    let failed = &summary["breakpoints_failed"];
+    assert_eq!(failed.as_array().map(Vec::len), Some(1), "{summary:#}");
+    assert_eq!(failed[0]["line"], 6);
+    assert!(
+        failed[0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("The condition was 'x == Money.One'")),
+        "{failed}"
+    );
+}
+
+#[test]
+fn condition_errors_are_parsed_from_netcoredbgs_line() {
+    let text = "Breakpoint error: The condition for a breakpoint failed to execute. The condition was 'coin == \
+                Money.Quarter'. The error returned was 'error: The name 'Money.Quarter' does not exist in the \
+                current context'. - /w/corpus/MissingCase/Program.cs:19\n";
+    let parsed = super::condition_errors(text);
+    assert_eq!(parsed.len(), 1, "{parsed:?}");
+    assert_eq!(parsed[0].1, 19);
+    assert!(parsed[0].0.ends_with("Program.cs"), "{}", parsed[0].0);
+    assert!(
+        parsed[0]
+            .2
+            .starts_with("The condition for a breakpoint failed")
+    );
+    assert!(
+        parsed[0].2.ends_with("current context'."),
+        "{}",
+        parsed[0].2
     );
 }
 
@@ -4143,11 +4214,19 @@ fn a_tracepoint_firing_ten_times_a_second_costs_the_ui_little(cx: &mut TestAppCo
         std::thread::sleep(Duration::from_millis(16));
     }
     firer.join().unwrap();
-    d.w.wait("20 hits", |w| {
-        w.shell.read_with(&w.vcx, |s, _| {
-            s.debugger().model.breakpoints.all()[0].hits == 20
-        })
-    });
+    // Each hit is a round trip through the fake adapter; a loaded runner takes longer than T for twenty.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        d.w.vcx.run_until_parked();
+        let hits = d.w.shell.read_with(&d.w.vcx, |s, _| {
+            s.debugger().model.breakpoints.all()[0].hits
+        });
+        if hits == 20 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "20 hits: {hits} so far");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let mut cost: Vec<Duration> = frames.iter().map(|(a, b)| *a + *b).collect();
     cost.sort();
     let mut share: Vec<Duration> = frames.iter().map(|(_, b)| *b).collect();

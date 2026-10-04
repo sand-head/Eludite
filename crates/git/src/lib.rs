@@ -101,7 +101,7 @@ impl Repo {
     /// no working tree and count as none.
     pub fn discover(path: &Path) -> Result<Option<Repo>> {
         match git2::Repository::discover(path) {
-            Ok(r) => Ok(Self::from_repository(&r)),
+            Ok(r) => Ok(Self::from_repository(&r, path)),
             Err(e) if e.code() == git2::ErrorCode::NotFound => Ok(None),
             Err(e) => Err(e.into()),
         }
@@ -110,7 +110,7 @@ impl Repo {
     /// The repository whose working tree is exactly `path`.
     pub fn open(path: &Path) -> Result<Repo> {
         let r = git2::Repository::open(path)?;
-        Self::from_repository(&r).ok_or_else(|| {
+        Self::from_repository(&r, path).ok_or_else(|| {
             GitError::new(
                 ErrorKind::NotARepository,
                 format!("{} is a bare repository", path.display()),
@@ -134,14 +134,16 @@ impl Repo {
         let mut opts = git2::RepositoryInitOptions::new();
         opts.initial_head("main").mkpath(true);
         let r = git2::Repository::init_opts(path, &opts)?;
-        Self::from_repository(&r)
+        Self::from_repository(&r, path)
             .ok_or_else(|| GitError::new(ErrorKind::Git, "the new repository has no working tree"))
     }
 
-    fn from_repository(r: &git2::Repository) -> Option<Repo> {
+    /// `given` is the path the caller named (the folder opened, or one inside it); the working tree keeps that
+    /// spelling when it is the same directory.
+    fn from_repository(r: &git2::Repository, given: &Path) -> Option<Repo> {
         let workdir = r.workdir()?;
         Some(Repo {
-            workdir: strip_slash(workdir),
+            workdir: as_given(strip_slash(workdir), given),
             git_dir: strip_slash(r.path()),
             common_dir: strip_slash(r.commondir()),
             global: GlobalConfig::User,
@@ -256,6 +258,25 @@ impl Repo {
     /// The absolute path of repository path `rel`.
     pub fn absolute(&self, rel: &str) -> PathBuf {
         self.workdir.join(rel)
+    }
+}
+
+/// The working tree as the caller spelled it. libgit2 answers the real path: `/private/var/…` for macOS's `/var/…`,
+/// a Windows short name expanded. The shell keys documents and the tree by the path the person opened, so when `given`
+/// or one of its ancestors is the same directory as `workdir`, that spelling wins; otherwise libgit2's stands.
+fn as_given(workdir: PathBuf, given: &Path) -> PathBuf {
+    let Ok(real) = std::fs::canonicalize(&workdir) else {
+        return workdir;
+    };
+    let mut p = given;
+    loop {
+        if std::fs::canonicalize(p).is_ok_and(|c| c == real) {
+            return strip_slash(p);
+        }
+        match p.parent() {
+            Some(q) if !q.as_os_str().is_empty() => p = q,
+            _ => return workdir,
+        }
     }
 }
 

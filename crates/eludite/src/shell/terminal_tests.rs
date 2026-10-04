@@ -626,8 +626,13 @@ fn open_in_terminal_from_the_workspace_uses_the_projects_folder(cx: &mut TestApp
     );
     t.wait_screen(&id, "the prompt", |s| s.ends_with('$'));
     t.terminal(&id).write("pwd\r");
+    // macOS's temporary folder is a symlink (`/var` to `/private/var`); the shell prints its physical cwd.
     let f = folder.to_string_lossy().into_owned();
-    t.wait_screen(&id, "pwd", |s| s.lines().any(|l| l == f));
+    let real = std::fs::canonicalize(&folder)
+        .unwrap_or_else(|_| folder.clone())
+        .to_string_lossy()
+        .into_owned();
+    t.wait_screen(&id, "pwd", |s| s.lines().any(|l| l == f || l == real));
     // The terminal window is shown, with the terminal focused.
     assert_eq!(
         t.w.controller.snapshot().layout.bottom.groups[0].active_id(),

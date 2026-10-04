@@ -51,6 +51,8 @@ fn identity(r: &git2::Repository) {
     let mut c = r.config().unwrap();
     c.set_str("user.name", "Test").unwrap();
     c.set_str("user.email", "test@example.com").unwrap();
+    // Git for Windows's system config sets core.autocrlf=true; the tests compare bytes.
+    c.set_bool("core.autocrlf", false).unwrap();
 }
 
 /// Stage everything in `r` and commit it with git2.
@@ -543,9 +545,17 @@ pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
     let load = std::fs::read_to_string("/proc/loadavg")
         .ok()
         .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok());
+    // The budgets are calibrated on Linux (CI's reference job); the hosted Windows and macOS runners are shared VMs
+    // with no load average to read, so there the numbers are printed, not asserted.
+    let hosted_elsewhere = !cfg!(target_os = "linux") && std::env::var_os("CI").is_some();
     match load {
         Some(l) if l > cores => eprintln!(
             "timing: {what} {:.2} ms not asserted against {:.0} ms: load average {l:.1} on {cores:.0} cores",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        ),
+        _ if hosted_elsewhere => eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a hosted runner, not the reference machine",
             measured.as_secs_f64() * 1e3,
             limit.as_secs_f64() * 1e3
         ),
@@ -829,7 +839,7 @@ fn with_remote(g: &mut G) -> (PathBuf, git2::Repository) {
     let mut opts = git2::RepositoryInitOptions::new();
     opts.bare(true).initial_head("main");
     git2::Repository::init_opts(&bare, &opts).unwrap();
-    let url = format!("file://{}", bare.display());
+    let url = super::documents::path_to_uri(&bare);
     g.repo().remote("origin", &url).unwrap();
     g.agent(cmds::PUSH, json!({ "set_upstream": true }))
         .unwrap_or_else(|e| panic!("{e}"));

@@ -828,7 +828,7 @@ fn cargo_tests_are_built_listed_and_run_with_libtest_parsed(cx: &mut TestAppCont
         "{failed}"
     );
     assert_eq!(failed["line"], 25);
-    assert!(failed["source"].as_str().unwrap().ends_with("src/lib.rs"));
+    assert!(Path::new(failed["source"].as_str().unwrap()).ends_with("src/lib.rs"));
     let skipped = t
         .agent(cmds::RESULTS, json!({"outcome": "skipped"}))
         .unwrap();
@@ -894,6 +894,9 @@ fn cargo_tests_are_built_listed_and_run_with_libtest_parsed(cx: &mut TestAppCont
     assert!(cancel_at.elapsed() < Duration::from_secs(5));
 }
 
+// The real lldb-dap is pinned and exercised on Linux (brief 0029); macOS's and Windows's answer their stop with a
+// thread id their thread list does not carry, which is their own pass (the recorded corpus replays everywhere).
+#[cfg(target_os = "linux")]
 #[gpui::test]
 fn debug_test_of_a_rust_test_breaks_at_its_first_line_under_lldb_dap(cx: &mut TestAppContext) {
     if eludite_dap::discovery::LldbSearch::from_env()
