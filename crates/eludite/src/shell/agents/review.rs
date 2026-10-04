@@ -648,12 +648,14 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Vec<u64>, String> {
-        let Caller::Agent {
-            call, tool_call, ..
-        } = caller
-        else {
-            return Err("not an agent's edit".into());
+        // An agent's call is joined to its audit entry; the person's Replace All (brief 0042) gets a call of its own.
+        let (call, tool_call) = match caller {
+            Caller::Agent {
+                call, tool_call, ..
+            } => (*call, tool_call.clone()),
+            _ => (eludite_commands::next_call_id(), None),
         };
+        let (call, tool_call) = (&call, &tool_call);
         let parts = split_edit(edit)?;
         let label = options.label.clone().unwrap_or_else(|| "Agent edit".into());
         let mut ids = Vec::new();
@@ -998,6 +1000,14 @@ impl Shell {
         if ids.is_empty() {
             return Err("no pending change".into());
         }
+        // Replace All's changes are checked against the searched text first (brief 0042).
+        let checked;
+        let ids = if accept {
+            checked = self.search_before_accept(ids, window, cx);
+            &checked[..]
+        } else {
+            ids
+        };
         if !accept {
             for &id in ids {
                 if let Some(ChangeSource::AgentTool { key, generation }) =
@@ -1138,7 +1148,7 @@ impl Shell {
         }
     }
 
-    fn finish_change(
+    pub(in crate::shell) fn finish_change(
         &mut self,
         id: u64,
         state: ChangeState,

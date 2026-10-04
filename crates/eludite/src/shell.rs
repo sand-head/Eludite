@@ -7,7 +7,8 @@
 //! the browser of `eludite.browser.*` on its own worker thread (brief 0023, `browser`), the Web Browser window
 //! (brief 0032, `browser_window`), a document tab View > Other Windows > Web Browser opens, and the Test Explorer with
 //! `eludite.test.*` over MTP, VSTest and `cargo test` (brief 0035, `test_runs`, `tests_window`, `cargo_tests`), and
-//! the Terminal window with `eludite.terminal.*` (brief 0041, `terminal`).
+//! the Terminal window with `eludite.terminal.*` (brief 0041, `terminal`), and Find in Files and Replace in Files with
+//! the Find Results windows and `eludite.search.*` (brief 0042, `search`).
 //!
 //! Keys and menu items both produce [`RunCommand`]; this view's action handler is the one place the UI turns that
 //! into a command-bus invocation. The file and editor commands are applied here, on the UI thread, whoever invokes
@@ -49,6 +50,9 @@ pub mod references;
 pub mod rename;
 #[cfg(test)]
 mod rust_tests;
+pub mod search;
+#[cfg(test)]
+mod search_tests;
 pub mod servers;
 pub mod session;
 pub mod settings;
@@ -173,6 +177,10 @@ pub struct Services {
     /// The integrated terminal's `eludite.terminal.*` and what it tells the UI (brief 0041).
     pub terminal: Arc<terminal::TerminalService>,
     pub terminal_events: UnboundedReceiver<terminal::TerminalEvent>,
+    /// Find in Files' `eludite.search.*`, what it tells the UI and asks of it (brief 0042).
+    pub search: Arc<search::SearchService>,
+    pub search_events: UnboundedReceiver<search::SearchEvent>,
+    pub search_jobs: UnboundedReceiver<search::SearchJob>,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -275,6 +283,7 @@ pub fn register_workspace(
     eludite_commands::git::register(commands, git.clone());
     let (terminal, terminal_events) =
         terminal::register(commands, terminal::TerminalSetup::from_env());
+    let (search, search_events, search_jobs) = search::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -311,6 +320,9 @@ pub fn register_workspace(
         git_events,
         terminal,
         terminal_events,
+        search,
+        search_events,
+        search_jobs,
     }
 }
 
@@ -431,6 +443,8 @@ pub struct Shell {
     git: git::GitUi,
     /// The Terminal window and its terminals (brief 0041).
     terminal: terminal::TerminalUi,
+    /// Find in Files, its dialog and the Find Results windows (brief 0042).
+    search: search::SearchUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -451,6 +465,7 @@ fn tool_body(
         Entity<git::repository::GitRepositoryWindow>,
     ),
     terminal_window: Entity<terminal::TerminalWindow>,
+    find_results: [Entity<search::results::FindResults>; 2],
 ) -> impl Fn(&str, &Theme) -> AnyElement {
     // Cached: they re-render when they change, not on every keystroke frame of the editor.
     move |id, _| match id {
@@ -490,6 +505,11 @@ fn tool_body(
             .into_any_element(),
         // Not cached: its terminals draw every frame they change.
         ids::TERMINAL => terminal_window.clone().into_any_element(),
+        ids::FIND_RESULTS_1 | ids::FIND_RESULTS_2 => find_results
+            [usize::from(id == ids::FIND_RESULTS_2)]
+        .clone()
+        .cached(StyleRefinement::default().size_full())
+        .into_any_element(),
         // The debugger's windows (brief 0018); titled empty panels for the rest until later briefs fill them.
         _ => debug.body(id).unwrap_or_else(|| div().into_any_element()),
     }
@@ -622,9 +642,13 @@ impl Shell {
             git_events,
             terminal,
             terminal_events,
+            search,
+            search_events,
+            search_jobs,
         } = services;
         let git = git::GitUi::new(git, theme, cx);
         let terminal = terminal::TerminalUi::new(terminal, theme, cx);
+        let search = search::SearchUi::new(search, theme, cx);
         *test_registry.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&commands);
         let mut tests = test_runs::TestRuns::new(test_shared);
         tests.running = testing;
@@ -654,6 +678,7 @@ impl Shell {
                     tests_window.clone(),
                     (git.changes.clone(), git.repository.clone()),
                     terminal.window.clone(),
+                    search.windows.clone(),
                 )),
                 Rc::new(document_body(
                     views.clone(),
@@ -991,6 +1016,7 @@ impl Shell {
             cargo_test_events,
             git,
             terminal,
+            search,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1014,6 +1040,7 @@ impl Shell {
         };
         this.git_install(git_events, window, cx);
         this.terminal_install(terminal_events, window, cx);
+        this.search_install(search_events, search_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1140,6 +1167,10 @@ impl Shell {
         }
         // `eludite.terminal.*` and View > Terminal run off the UI thread, asking before a kill (brief 0041).
         if self.run_terminal(command, &mut args, window, cx) {
+            return;
+        }
+        // `eludite.search.*`: the dialog, searches off the UI thread, the Find Results windows (brief 0042).
+        if self.run_search(command, &mut args, window, cx) {
             return;
         }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).
@@ -2060,7 +2091,8 @@ impl Render for Shell {
             .children(self.options.clone())
             .children(self.debug.attach_dialog.clone())
             .children(self.debug.startup_dialog.clone())
-            .children(self.code_actions.menu.clone());
+            .children(self.code_actions.menu.clone())
+            .children(self.search.dialog.clone());
         match chrome.frame {
             Some(tiling) => title_bar::client_frame(shell, tiling, &t, window).into_any_element(),
             None => {
