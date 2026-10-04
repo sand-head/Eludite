@@ -272,6 +272,11 @@ struct ItemIn {
     #[serde(rename = "ref")]
     git_ref: Option<String>,
     what: Option<Vec<String>>,
+    head: Option<String>,
+    max_bytes: Option<u64>,
+    offset: Option<u64>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
 }
 
 /// The members of `id`'s input schema.
@@ -440,6 +445,22 @@ pub fn decide(id: &'static str, input: &Value, view: &PolicyView) -> Option<Esca
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_member_of_every_item_schema_passes_the_shape_check() {
+        for id in ALL {
+            if [DETECT, AUTH, PULLS, ISSUES].contains(&id) {
+                continue;
+            }
+            for k in members(id) {
+                let one = serde_json::Map::from_iter([(k.clone(), Value::Null)]);
+                assert!(
+                    serde_json::from_value::<ItemIn>(Value::Object(one)).is_ok(),
+                    "{id}: `{k}` is in the schema but refused"
+                );
+            }
+        }
+    }
     use crate::policy::{
         AgentPolicy, AlwaysAllow, ForgeMergePolicy, ForgePolicy, ForgeReadPolicy, PolicySnapshot,
         RunPolicy,
