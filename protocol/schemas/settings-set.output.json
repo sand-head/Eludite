@@ -19,7 +19,8 @@
     "scope": {
       "enum": [
         "user",
-        "solution"
+        "solution",
+        "user-workspace"
       ]
     },
     "path": {
@@ -34,6 +35,7 @@
         "default",
         "user",
         "solution",
+        "user-workspace",
         "environment"
       ]
     }

@@ -37,11 +37,19 @@
           "type": "string"
         },
         "sandbox": {
-          "description": "The embedded engine's sandbox while it runs (brief 0039): `namespaces` (unprivileged user namespaces), `helper` (the setuid chrome-sandbox), or `none` (--no-sandbox, after the workspace's opt-in browser.allowNoSandbox or ELUDITE_CHROME_NO_SANDBOX=1; the Web Browser window shows a strip meanwhile). Absent for the external Chrome.",
+          "description": "The embedded engine's sandbox while it runs (brief 0039): `namespaces` (unprivileged user namespaces), `helper` (the setuid chrome-sandbox), or `none` (--no-sandbox, after the person's opt-in for the workspace, browser.allowNoSandbox, or ELUDITE_CHROME_NO_SANDBOX=1; the Web Browser window shows a strip meanwhile). Absent for the external Chrome.",
           "enum": [
             "namespaces",
             "helper",
             "none"
+          ]
+        },
+        "allowed_by": {
+          "description": "What let the engine run without the sandbox, present with `sandbox: none` (brief 0047): `dialog` (the person took the Web Browser window's opt-in this session), `options` (the person's stored answer for the workspace, browser.allowNoSandbox, set in Tools > Options > Web Browser, by eludite.settings.set, or by the dialog in an earlier session), or `variable` (ELUDITE_CHROME_NO_SANDBOX=1). The audit entry eludite.browser.engine_start carries the same value.",
+          "enum": [
+            "dialog",
+            "options",
+            "variable"
           ]
         },
         "cef": {

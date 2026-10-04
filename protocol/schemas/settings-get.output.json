@@ -18,6 +18,10 @@
       "description": "The open solution's (or folder's) `.eludite/settings.json`; omitted when nothing is open.",
       "$ref": "#/$defs/file"
     },
+    "user_workspace_file": {
+      "description": "The person's own state for the open workspace, which holds the `user-workspace` settings (`x-eludite-scope`, such as browser.allowNoSandbox): `<config dir>/eludite/workspaces/<folder name>-<16 hex digits>/settings.json`; omitted when nothing is open or Eludite's config directory is unknown.",
+      "$ref": "#/$defs/file"
+    },
     "settings": {
       "type": "array",
       "items": {
@@ -41,11 +45,12 @@
           },
           "default": {},
           "source": {
-            "description": "Where the value came from: the schema's default, the user file, the solution file, or an environment variable.",
+            "description": "Where the value came from: the schema's default, the user file, the solution file, the person's state for the workspace (`user-workspace`), or an environment variable.",
             "enum": [
               "default",
               "user",
               "solution",
+              "user-workspace",
               "environment"
             ]
           },
@@ -64,6 +69,13 @@
             "type": "string"
           }
         }
+      }
+    },
+    "ignored_keys": {
+      "description": "Keys found in the solution's `.eludite/settings.json` that are the person's own (`x-eludite-scope: user-workspace`, such as browser.allowNoSandbox): their values there are ignored, never applied.",
+      "type": "array",
+      "items": {
+        "type": "string"
       }
     },
     "unknown_keys": {

@@ -17,10 +17,11 @@
       "description": "The new value, of the setting's type, or null to remove it from the file."
     },
     "scope": {
-      "description": "user (default): the user settings file. solution: the open solution's (or folder's) `.eludite/settings.json`, created if needed.",
+      "description": "Which file: omitted, the setting's own (`x-eludite-scope` in protocol/schemas/settings.json: user for most). user: the user settings file. solution: the open solution's (or folder's) `.eludite/settings.json`, created if needed; refused for a `user-workspace` setting, which is ignored there (except a null value, which removes it). user-workspace: the person's own state for the open workspace (mode 0600 on Unix), only for `user-workspace` settings.",
       "enum": [
         "user",
-        "solution"
+        "solution",
+        "user-workspace"
       ]
     }
   },
