@@ -43,4 +43,5 @@ Negative:
 
 - A hook needs state beyond the input and `PolicyView`, such as the target of a running session.
   - Note, 2026-10-03 (brief 0027): `PolicyView` grew a snapshot of the processes Eludite launched, so `eludite.debug.attach` escalates only for processes the IDE did not start. The hook still reads a snapshot, never live session state.
+  - Note, 2026-10-04 (brief 0041): a prompt may offer "Allow for this session" instead of Always Allow when the escalation names a session grant (`AlwaysAllow::Session(key)`, first used by the terminal's `terminal.run`). Answering it records the grant in the agent session's own policy store, which ends with the session and writes nothing to the policy file; the hook then raises later calls with `AlwaysAllow::Granted`, which the gate allows at the declared class unless a deny rule matches. The hook still reads a snapshot (`PolicySnapshot::session_grants`).
 - Agents or MCP clients start treating `_meta` `eludite/escalates` as insufficient and ask for per-call class previews.
