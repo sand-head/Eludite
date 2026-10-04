@@ -101,12 +101,14 @@ impl ScopeKind {
     }
 }
 
-/// F8 and Shift+F8.
+/// F8, Shift+F8 and Skip File.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Navigate {
     Next,
     Previous,
+    /// The first match of the next file (Replace in Files' Skip File).
+    NextFile,
 }
 
 /// What to find and where (the find half of both dialogs).
@@ -184,6 +186,10 @@ pub enum SearchRequest {
         offset: usize,
         limit: usize,
         navigate: Option<Navigate>,
+        /// Select (and open) the match at this offset.
+        select: Option<usize>,
+        /// Empty the window.
+        clear: bool,
     },
 }
 
@@ -450,6 +456,8 @@ struct ResultsIn {
     offset: Option<u64>,
     limit: Option<u64>,
     navigate: Option<Navigate>,
+    select: Option<u64>,
+    clear: Option<bool>,
 }
 
 fn input<T: for<'de> Deserialize<'de> + Default>(value: Value) -> Result<T, CommandError> {
@@ -586,10 +594,20 @@ pub fn parse(id: &str, value: Value) -> Result<SearchRequest, CommandError> {
             if i.search_id.is_some() && i.results_window.is_some() {
                 return Err(invalid("give `results_window` or `search_id`, not both"));
             }
-            if i.search_id.is_some() && i.navigate.is_some() {
+            let clear = i.clear.unwrap_or(false);
+            let moves = i.navigate.is_some() || i.select.is_some() || clear;
+            if i.search_id.is_some() && moves {
                 return Err(invalid(
-                    "`navigate` steps through a results window, not a search",
+                    "`navigate`, `select` and `clear` act on a results window, not a search",
                 ));
+            }
+            if [i.navigate.is_some(), i.select.is_some(), clear]
+                .iter()
+                .filter(|b| **b)
+                .count()
+                > 1
+            {
+                return Err(invalid("give one of `navigate`, `select` and `clear`"));
             }
             SearchRequest::Results {
                 results_window: window("results_window", i.results_window)?,
@@ -597,6 +615,8 @@ pub fn parse(id: &str, value: Value) -> Result<SearchRequest, CommandError> {
                 offset: i.offset.unwrap_or(0) as usize,
                 limit,
                 navigate: i.navigate,
+                select: i.select.map(|n| n as usize),
+                clear,
             }
         }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
@@ -801,9 +821,31 @@ mod tests {
                 search_id: None,
                 offset: 0,
                 limit: DEFAULT_PAGE,
-                navigate: Some(Navigate::Next)
+                navigate: Some(Navigate::Next),
+                select: None,
+                clear: false
             }
         );
+        assert!(matches!(
+            parse(
+                RESULTS,
+                json!({"navigate": "next_file", "results_window": 2})
+            )
+            .unwrap(),
+            SearchRequest::Results {
+                navigate: Some(Navigate::NextFile),
+                results_window: Some(2),
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse(RESULTS, json!({"select": 3})).unwrap(),
+            SearchRequest::Results {
+                select: Some(3),
+                ..
+            }
+        ));
+        assert!(parse(RESULTS, json!({"select": 3, "clear": true})).is_err());
         assert!(parse(RESULTS, json!({"limit": 1001})).is_err());
         assert!(parse(RESULTS, json!({"search_id": 1, "results_window": 1})).is_err());
         assert!(parse(RESULTS, json!({"search_id": 1, "navigate": "next"})).is_err());

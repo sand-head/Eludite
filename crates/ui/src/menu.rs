@@ -158,7 +158,14 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Copy", "eludite.edit.copy"),
                 item("Paste", "eludite.edit.paste"),
                 Separator,
-                item("Find and Replace", "eludite.editor.find"),
+                // Visual Studio's Edit > Find and Replace submenu: Quick Find (the editor's find bar), Find in Files
+                // and Replace in Files (brief 0042).
+                item("Find and Replace > Quick Find", "eludite.editor.find"),
+                item("Find and Replace > Find in Files", "eludite.search.find"),
+                item(
+                    "Find and Replace > Replace in Files",
+                    "eludite.search.replace",
+                ),
                 item("Go To All", "eludite.edit.go_to_all"),
                 item("Go To Definition", "eludite.editor.go_to_definition"),
                 item("Find All References", "eludite.editor.find_references"),
@@ -192,6 +199,9 @@ pub fn vs_menus() -> Vec<Menu> {
                 show("Toolbox", "toolbox"),
                 // Visual Studio's View > Other Windows > Web Browser (brief 0032): a document tab.
                 show("Other Windows > Web Browser", "web_browser"),
+                // View > Other Windows > Find Results 1 and 2 (brief 0042).
+                show("Other Windows > Find Results 1", "find_results_1"),
+                show("Other Windows > Find Results 2", "find_results_2"),
                 Separator,
                 item("Navigate Backward", "eludite.navigation.back"),
                 item("Navigate Forward", "eludite.navigation.forward"),
@@ -760,6 +770,27 @@ mod tests {
         assert!(shortcuts.contains(&("Other Windows > Web Browser", None)));
         // Brief 0041.
         assert!(shortcuts.contains(&("Terminal", Some("Ctrl+`"))));
+        // Brief 0042.
+        assert!(shortcuts.contains(&("Other Windows > Find Results 1", None)));
+        assert!(shortcuts.contains(&("Other Windows > Find Results 2", None)));
+        let edit = vs_menus().into_iter().find(|m| m.title == "Edit").unwrap();
+        let shortcuts: Vec<_> = edit
+            .entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item {
+                    label,
+                    command,
+                    args,
+                } => Some((*label, shortcut_for(&keymap, command, args))),
+                MenuEntry::Separator | MenuEntry::Check { .. } | MenuEntry::SettingCheck { .. } => {
+                    None
+                }
+            })
+            .collect();
+        assert!(shortcuts.contains(&("Find and Replace > Quick Find", Some("Ctrl+F"))));
+        assert!(shortcuts.contains(&("Find and Replace > Find in Files", Some("Ctrl+Shift+F"))));
+        assert!(shortcuts.contains(&("Find and Replace > Replace in Files", Some("Ctrl+Shift+H"))));
         let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
         let shortcuts: Vec<_> = build
             .entries

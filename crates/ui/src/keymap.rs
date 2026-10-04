@@ -83,6 +83,22 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         command("ctrl-z", "Ctrl+Z", "eludite.editor.undo"),
         command("ctrl-y", "Ctrl+Y", "eludite.editor.redo"),
         command("ctrl-f", "Ctrl+F", "eludite.editor.find"),
+        // Edit.FindInFiles and Edit.ReplaceInFiles (brief 0042): the dialog, with the editor's selection as the query;
+        // Edit.GoToNextLocation and Edit.GoToPrevLocation (F8, Shift+F8) step through the active Find Results window.
+        command("ctrl-shift-f", "Ctrl+Shift+F", "eludite.search.find"),
+        command("ctrl-shift-h", "Ctrl+Shift+H", "eludite.search.replace"),
+        KeyBindingSpec {
+            keystrokes: "f8",
+            display: "F8",
+            command: "eludite.search.results",
+            args: json!({ "navigate": "next" }),
+        },
+        KeyBindingSpec {
+            keystrokes: "shift-f8",
+            display: "Shift+F8",
+            command: "eludite.search.results",
+            args: json!({ "navigate": "previous" }),
+        },
         // Edit > IntelliSense (brief 0013).
         command("ctrl-space", "Ctrl+Space", "eludite.editor.complete"),
         command(
@@ -216,6 +232,31 @@ pub fn shortcut_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn find_in_files_keys() {
+        let k = vs_keymap();
+        assert_eq!(
+            shortcut_for(&k, "eludite.search.find", &json!({})),
+            Some("Ctrl+Shift+F")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.search.replace", &json!({})),
+            Some("Ctrl+Shift+H")
+        );
+        assert_eq!(
+            shortcut_for(&k, "eludite.search.results", &json!({"navigate": "next"})),
+            Some("F8")
+        );
+        assert_eq!(
+            shortcut_for(
+                &k,
+                "eludite.search.results",
+                &json!({"navigate": "previous"})
+            ),
+            Some("Shift+F8")
+        );
+    }
 
     #[test]
     fn test_explorer_keys() {
