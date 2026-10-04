@@ -92,6 +92,49 @@ impl Pw {
             w.shell
                 .read_with(&w.vcx, |s, _| s.properties.configurations.is_some())
         });
+        self.settled_generation();
+    }
+
+    /// Wait until the shell has seen the host's current generation (its `eludite/solution/status` can arrive after
+    /// the tree and the answers that `open` waits for), and return it.
+    fn settled_generation(&mut self) -> u64 {
+        let fake = self.w.fake.clone();
+        self.w.wait("the shell to see the host's generation", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.generation == fake.generation())
+        });
+        self.generation()
+    }
+
+    /// Wait until a save that reloaded the solution has fully landed: the shell is on `generation` (the host sends the
+    /// reload's `eludite/solution/status` before the `setProperty` answer, and the shell takes them from different
+    /// channels, so either can be seen first), the tab is clean, and the pages show values evaluated under
+    /// `generation` (of `configuration`, when given), not the ones from before the write.
+    fn wait_reloaded(
+        &mut self,
+        generation: u64,
+        configuration: Option<&str>,
+    ) -> Entity<PropertyPages> {
+        let project = self.project.clone();
+        let tab = tab_id(&project);
+        let configuration = configuration.map(str::to_owned);
+        self.w.wait("the save and the reload", |w| {
+            !w.dirty(&tab)
+                && w.shell.read_with(&w.vcx, |s, cx| {
+                    s.generation == generation
+                        && s.property_pages(&project).is_some_and(|p| {
+                            let p = p.read(cx);
+                            !p.loading
+                                && p.result.as_ref().is_some_and(|r| {
+                                    r.generation == generation
+                                        && configuration
+                                            .as_ref()
+                                            .is_none_or(|c| &r.configuration == c)
+                                })
+                        })
+                })
+        });
+        self.pages().unwrap()
     }
 
     fn pages(&self) -> Option<Entity<PropertyPages>> {
@@ -229,12 +272,7 @@ fn pages_open_from_workspace_show_sources_save_through_the_host_and_ask_on_close
         p.set_property_edits()[0],
         json!([{"name": "AssemblyName", "value": "AppRenamed"}])
     );
-    p.w.wait("the save and the reload", |w| {
-        w.shell
-            .read_with(&w.vcx, |s, _| s.generation == generation + 1)
-            && !w.dirty(&tab)
-    });
-    p.wait_values(None);
+    p.wait_reloaded(generation + 1, None);
     assert_eq!(p.shown("AssemblyName"), "AppRenamed");
     assert_eq!(p.note("AssemblyName"), "From the project file, line 5");
     let fake = p.w.fake.clone();
@@ -316,6 +354,7 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
         &pages::property_selector("DefineConstants"),
         ";RELEASE_ONLY",
     );
+    let generation = p.settled_generation();
     p.w.click(pages::SAVE);
     p.wait_set_properties(1);
     assert_eq!(
@@ -323,11 +362,7 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
         json!([{"name": "DefineConstants", "value": "TRACE;DEBUG;RELEASE_ONLY", "configuration": "Release",
                 "platform": "AnyCPU"}])
     );
-    p.w.wait("the save", |w| {
-        !w.dirty(&tab_id(&w.path("src/App/App.csproj").to_string_lossy()))
-    });
-    let values = p.wait_values(Some("Release"));
-    let _ = values;
+    p.wait_reloaded(generation + 1, Some("Release"));
     assert_eq!(
         p.note("DefineConstants").split(", under").next(),
         Some("From the project file")
