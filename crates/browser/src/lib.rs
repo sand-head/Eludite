@@ -40,8 +40,8 @@ pub mod page;
 pub mod ring;
 pub mod tab;
 
-pub use browser::Browser;
-pub use browser::{Interrupt, Marks};
+pub use browser::{Browser, DebugTarget};
+pub use browser::{DebuggerPauses, Interrupt, Marks};
 pub use chrome::ExternalChrome;
 pub use connection::{CdpError, CdpEvent, Connection};
 pub use discovery::ChromeSearch;
@@ -50,8 +50,8 @@ pub use embedded::{
     FrameSource, TabControl, TabFrames, TabInfo, select_engine,
 };
 pub use engine::{
-    DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog, TabHistory,
-    TargetInfo,
+    DebugEndpoint, DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog,
+    TabHistory, TargetInfo,
 };
 
 /// Where the browser's lifecycle lines go (the shell's Output window, Browser source). Called from any thread;

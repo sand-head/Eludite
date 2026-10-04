@@ -26,6 +26,11 @@
 //! - [`record`]: the recorder, a [`Connection`] wrapper that writes a session to a scrubbed `.dap.json` file, and the
 //!   re-record check (brief 0033).
 //! - `replay` (feature `replay`): the replaying adapter, which serves a recording to a client (brief 0033).
+//! - vscode-js-debug (brief 0038): [`discovery::JsDebugSearch`] and [`discovery::NodeSearch`] locate it and the Node.js
+//!   it runs on; [`transport::start_tcp_server`] starts it as a TCP server ([`transport::AdapterServer`] opens a
+//!   connection per session); [`attach::browser_attach`] is its `pwa-chrome` attach; [`DapClient::start_with`] answers
+//!   its `startDebugging` reverse requests; [`session::AdapterFamily`] sends each breakpoint to the adapters that claim
+//!   its file; [`sourcemap`] gives its frames their generated location.
 
 pub mod attach;
 pub mod cargo;
@@ -39,10 +44,11 @@ pub mod record;
 #[cfg(feature = "replay")]
 pub mod replay;
 pub mod session;
+pub mod sourcemap;
 pub mod transport;
 pub mod types;
 
-pub use client::{ClientEvent, DapClient, DapError, EventSink};
+pub use client::{ClientEvent, DapClient, DapError, EventSink, ReverseHandler};
 pub use transport::Connection;
 
 use serde::{Deserialize, Serialize};

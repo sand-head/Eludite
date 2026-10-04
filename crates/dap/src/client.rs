@@ -48,6 +48,11 @@ pub enum ClientEvent {
 /// Where the client delivers events and responses. Called on the client's reader thread; it must not block.
 pub type EventSink = Arc<dyn Fn(ClientEvent) + Send + Sync>;
 
+/// Answers the adapter's reverse requests (brief 0038: vscode-js-debug's `startDebugging`), on the client's reader
+/// thread, so it must not block: `Some` is the answer (its body, or a refusal's message), `None` refuses the request
+/// as unsupported (`runInTerminal`, and every reverse request of a client started without a handler).
+pub type ReverseHandler = Arc<dyn Fn(&str, &Value) -> Option<Result<Value, String>> + Send + Sync>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DapError {
     /// The connection is closed (the adapter exited).
@@ -116,6 +121,15 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 impl DapClient {
     /// Start the client's threads on `connection`; events and responses go to `sink`.
     pub fn start(connection: Connection, sink: EventSink) -> Self {
+        Self::start_with(connection, sink, None)
+    }
+
+    /// [`DapClient::start`], with `reverse` answering the adapter's reverse requests (brief 0038).
+    pub fn start_with(
+        connection: Connection,
+        sink: EventSink,
+        reverse: Option<ReverseHandler>,
+    ) -> Self {
         let Connection {
             reader,
             writer,
@@ -154,7 +168,7 @@ impl DapClient {
         let reader_inner = inner.clone();
         std::thread::Builder::new()
             .name("dap-reader".into())
-            .spawn(move || reader_loop(reader, reader_inner, sink))
+            .spawn(move || reader_loop(reader, reader_inner, sink, reverse))
             .expect("spawn dap-reader");
         Self { inner }
     }
@@ -310,7 +324,12 @@ fn stderr_loop(
     }
 }
 
-fn reader_loop(reader: Box<dyn Read + Send>, inner: Arc<Inner>, sink: EventSink) {
+fn reader_loop(
+    reader: Box<dyn Read + Send>,
+    inner: Arc<Inner>,
+    sink: EventSink,
+    reverse: Option<ReverseHandler>,
+) {
     let mut reader = BufReader::new(reader);
     let mut terminated = false;
     while let Ok(Some(body)) = framing::read_message(&mut reader) {
@@ -366,16 +385,28 @@ fn reader_loop(reader: Box<dyn Read + Send>, inner: Arc<Inner>, sink: EventSink)
                 }
                 sink(ClientEvent::Event(event));
             }
-            ProtocolMessage::Request { seq, command, .. } => {
-                // Reverse requests (runInTerminal, startDebugging) are not supported: say so, so the adapter does not
-                // wait forever.
+            ProtocolMessage::Request {
+                seq,
+                command,
+                arguments,
+            } => {
+                // Reverse requests: the handler's answer (`startDebugging`, brief 0038); the others (`runInTerminal`)
+                // are refused, so the adapter does not wait forever.
+                let answer = reverse
+                    .as_ref()
+                    .and_then(|h| h(&command, arguments.as_ref().unwrap_or(&Value::Null)))
+                    .unwrap_or_else(|| Err("not supported by Eludite".into()));
+                let (success, message, body) = match answer {
+                    Ok(body) => (true, None, Some(body)),
+                    Err(m) => (false, Some(m), None),
+                };
                 let reply = ProtocolMessage::Response {
-                    seq: 0,
+                    seq: inner.seq.fetch_add(1, Ordering::AcqRel),
                     request_seq: seq,
-                    success: false,
+                    success,
                     command,
-                    message: Some("not supported by Eludite".into()),
-                    body: None,
+                    message,
+                    body,
                 };
                 if let (Ok(bytes), Some(tx)) =
                     (serde_json::to_vec(&reply), lock(&inner.tx).as_ref())

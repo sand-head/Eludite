@@ -15,6 +15,7 @@
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
 //! | `browser.useBuiltIn`, `debugger.launchBrowser` | where (and whether) the next start opens a web project's page (brief 0037) |
+//! | `debugger.attachBrowser`, `debugger.nodePath`, `debugger.jsDebugPath` | whether the next start debugs its page, and the next browser session's Node.js and vscode-js-debug (brief 0038) |
 //! | `test.parallel`, `test.runSettings`, `test.vstestConsolePath` | the next test discovery and run (`test_runs`, brief 0035) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
@@ -118,6 +119,10 @@ pub struct Applied {
     /// `browser.useBuiltIn` and `debugger.launchBrowser` (brief 0037).
     pub use_built_in: bool,
     pub launch_browser: bool,
+    /// `debugger.attachBrowser`, `debugger.nodePath`, `debugger.jsDebugPath` (brief 0038).
+    pub attach_browser: bool,
+    pub node: Option<PathBuf>,
+    pub js_debug: Option<PathBuf>,
 }
 
 impl Shell {
@@ -163,6 +168,9 @@ impl Shell {
                 },
                 use_built_in: s.bool("browser.useBuiltIn"),
                 launch_browser: s.bool("debugger.launchBrowser"),
+                attach_browser: s.bool("debugger.attachBrowser"),
+                node: s.path("debugger.nodePath"),
+                js_debug: s.path("debugger.jsDebugPath"),
             }
         };
         let b = &mut self.builds;
@@ -183,6 +191,9 @@ impl Shell {
         self.debug.set_agents_default(applied.agents_drive);
         self.debug
             .set_launch_browser(applied.use_built_in, applied.launch_browser);
+        self.debug.set_attach_browser(applied.attach_browser);
+        self.debug.set_node_path(applied.node.clone());
+        self.debug.set_js_debug_path(applied.js_debug.clone());
         self.launches.rust_analyzer = applied.rust_analyzer.clone();
         self.browser.set_settings(applied.browser.clone());
         self.apply_test_settings();

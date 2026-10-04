@@ -45,8 +45,8 @@ use crate::LogSink;
 use crate::chrome::{NO_SANDBOX_ENV, prepare_profile};
 use crate::connection::{CdpError, CdpEvent, DEFAULT_TIMEOUT};
 use crate::engine::{
-    DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog, TabHistory,
-    TargetInfo,
+    DebugEndpoint, DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog,
+    TabHistory, TargetInfo,
 };
 
 /// The engine's executable name.
@@ -596,6 +596,8 @@ pub struct TabFrames {
     frames: AtomicU64,
     info: Mutex<TabInfo>,
     closed: AtomicBool,
+    /// The page's Chrome DevTools target id, once asked (brief 0038).
+    cdp_target: Mutex<Option<String>>,
     /// The dirty rectangles of the last [`DIRTY_HISTORY`] announced frames, by sequence (`tab/frame`'s `dirty`).
     recent: Mutex<VecDeque<(u64, Vec<DirtyRect>)>>,
 }
@@ -706,6 +708,8 @@ struct Control {
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<CdpEvent>>>>,
     tabs: Mutex<Vec<(String, Arc<TabFrames>)>>,
     closed: AtomicBool,
+    /// The remote debugging port `engine/ready` reported (0 before; brief 0038).
+    debug_port: std::sync::atomic::AtomicU16,
 }
 
 impl Control {
@@ -902,6 +906,14 @@ impl Control {
                 if let Some(id) = p["id"].as_u64() {
                     lock(&self.prompts).remove(&id);
                 }
+            }
+            // The remote debugging port answers (brief 0038).
+            "engine/ready" => {
+                let port = p["remoteDebuggingPort"]
+                    .as_u64()
+                    .and_then(|v| u16::try_from(v).ok())
+                    .unwrap_or(0);
+                self.debug_port.store(port, Ordering::Release);
             }
             "tab/closed" => {
                 lock(&self.subscribers).remove(&tab);
@@ -1307,6 +1319,7 @@ impl EmbeddedChromium {
             subscribers: Mutex::default(),
             tabs: Mutex::default(),
             closed: AtomicBool::new(false),
+            debug_port: Default::default(),
         });
         let child = Arc::new(Mutex::new(Some(child)));
         let stopping = Arc::new(AtomicBool::new(false));
@@ -1918,6 +1931,47 @@ impl Engine for EmbeddedChromium {
         Ok(d)
     }
 
+    /// The port `engine/ready` reported; an engine that just answered `initialize` gets 5 s to report it.
+    fn debug_endpoint(&self) -> Option<DebugEndpoint> {
+        let c = self.control().ok()?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let port = c.debug_port.load(Ordering::Acquire);
+            if port != 0 {
+                return Some(DebugEndpoint {
+                    address: "127.0.0.1".into(),
+                    port,
+                });
+            }
+            if c.is_closed() || Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// `Target.getTargetInfo` on the tab's own channel, once per tab.
+    fn cdp_target_id(&self, target_id: &str) -> Option<String> {
+        let c = self.control().ok()?;
+        let frames = c.tab(target_id)?;
+        if let Some(id) = lock(&frames.cdp_target).clone() {
+            return Some(id);
+        }
+        let rx = c
+            .cdp_send(target_id, "Target.getTargetInfo", json!({}))
+            .ok()?;
+        let v = wait_cdp(
+            &rx,
+            "Target.getTargetInfo",
+            Instant::now() + DEFAULT_TIMEOUT,
+            DEFAULT_TIMEOUT,
+        )
+        .ok()?;
+        let id = v["targetInfo"]["targetId"].as_str()?.to_owned();
+        *lock(&frames.cdp_target) = Some(id.clone());
+        Some(id)
+    }
+
     fn devtools(
         &mut self,
         target_id: &str,
@@ -2148,6 +2202,7 @@ mod tests {
         for m in [
             "initialize",
             "shutdown",
+            "engine/ready",
             "tab/create",
             "tab/close",
             "tab/resize",
@@ -2184,6 +2239,7 @@ mod tests {
             subscribers: Mutex::default(),
             tabs: Mutex::new(vec![("1".into(), Arc::new(TabFrames::default()))]),
             closed: AtomicBool::new(false),
+            debug_port: Default::default(),
         };
         let (tx, rx) = mpsc::channel();
         lock(&c.cdp_pending).insert(4, ("Runtime.evaluate".into(), tx));

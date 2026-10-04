@@ -152,6 +152,7 @@ fn setup_dotnet_agents(
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(store.clone()),
         dotnet: dotnet.to_owned(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, agents, Some(setup));
     *dir.lock().unwrap() = Some(w.dir.path().to_path_buf());
@@ -175,10 +176,27 @@ fn setup_dotnet_agents(
     };
     // These tests launch the built program at once; build before run has its own tests (brief 0020).
     d.set_build_before_run(false);
+    // A web project's start debugs its page only where a test asks (brief 0038's tests; the setting is on by default).
+    d.set_attach_browser(false);
     d
 }
 
 impl Dbg {
+    /// The setting `debugger.attachBrowser` (brief 0038), through the bus.
+    fn set_attach_browser(&mut self, on: bool) {
+        self.w
+            .commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": "debugger.attachBrowser", "value": on}),
+            )
+            .unwrap();
+        self.w.wait("attach browser", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.debug.attach_browser == on)
+        });
+    }
+
     /// The setting `build.beforeRun`, through the bus.
     fn set_build_before_run(&mut self, on: bool) {
         self.w
@@ -1514,6 +1532,7 @@ fn setup_netfx(
         platform,
         store_dir: Some(store.clone()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, None, Some(setup));
     *dir.lock().unwrap() = Some(w.dir.path().to_path_buf());
@@ -7405,10 +7424,15 @@ fn corpus_web(d: &Dbg) -> Option<u16> {
     for stale in ["Calc.cs", "Default.aspx.cs", "Models/Order.cs"] {
         let _ = std::fs::remove_file(app.join(stale));
     }
+    std::fs::create_dir_all(app.join("wwwroot")).unwrap();
     for (from, to) in [
         ("MinimalApi.csproj", "App.csproj"),
         ("Program.cs", "Program.cs"),
         ("Directory.Build.props", "Directory.Build.props"),
+        // The page's script (brief 0038).
+        ("wwwroot/app.ts", "wwwroot/app.ts"),
+        ("wwwroot/app.js", "wwwroot/app.js"),
+        ("wwwroot/app.js.map", "wwwroot/app.js.map"),
     ] {
         std::fs::copy(corpus.join(from), app.join(to)).unwrap();
     }
@@ -7582,6 +7606,7 @@ fn f5_on_the_corpus_web_project_under_netcoredbg_opens_the_page(cx: &mut TestApp
         platform: eludite_dap::launch::Platform::current(),
         store_dir: Some(store.clone()),
         dotnet: "dotnet".into(),
+        js: Default::default(),
     };
     let w = setup_debug(cx, |_| {}, None, Some(setup));
     let mut d = Dbg {
@@ -7592,4 +7617,1079 @@ fn f5_on_the_corpus_web_project_under_netcoredbg_opens_the_page(cx: &mut TestApp
     };
     d.set_build_before_run(false);
     real_web_run(&mut d, true);
+}
+
+// ---- Brief 0038: JavaScript debugging in the Web Browser window with vscode-js-debug (the fake js-debug) ----
+
+/// The test solution's web project with the corpus page's script: `src/App/wwwroot/app.ts` with its compiled `app.js`
+/// and `app.js.map` (copied from corpus/web/minimal-api/wwwroot), and the normalized path of app.ts.
+fn web_root_files(d: &Dbg) -> String {
+    let corpus =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/web/minimal-api/wwwroot");
+    let www = d.w.path("src/App/wwwroot");
+    std::fs::create_dir_all(&www).unwrap();
+    for f in ["app.ts", "app.js", "app.js.map"] {
+        std::fs::copy(corpus.join(f), www.join(f)).unwrap();
+    }
+    normalize_path(&www.join("app.ts"))
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The page's script as the fake js-debug plays it on a click (app.ts): `onAdd` (lines 21, 24, 25) calls `total`
+/// (14, 17), then shows the total (26).
+fn page_program(ts: &str) -> FakeProgram {
+    let v = FakeVar::new;
+    let item = || v("item", "{name: 'item 1', price: 5}", "Object");
+    let local = |extra: Vec<FakeVar>| {
+        let mut l = vec![
+            v("input", "input#price", "HTMLInputElement"),
+            v("price", "5", "number"),
+        ];
+        l.extend(extra);
+        l
+    };
+    let items = v("items", "(1) [{…}]", "Array").with_children(vec![v("0", "{…}", "Object")]);
+    FakeProgram {
+        steps: vec![
+            FakeStep::new(ts, 21, "button#add.onAdd", 0, local(vec![])),
+            FakeStep::new(ts, 24, "button#add.onAdd", 0, local(vec![item()])),
+            FakeStep::new(ts, 25, "button#add.onAdd", 0, local(vec![item()])),
+            FakeStep::new(
+                ts,
+                14,
+                "total",
+                1,
+                vec![items.clone(), v("sum", "0", "number")],
+            ),
+            FakeStep::new(ts, 17, "total", 1, vec![items, v("sum", "0", "number")]),
+            FakeStep::new(
+                ts,
+                26,
+                "button#add.onAdd",
+                0,
+                local(vec![item(), v("sum", "0", "number")]),
+            ),
+        ],
+        ..FakeProgram::default()
+    }
+}
+
+/// The fake js-debug of every browser session from now on (a server per session, as `node dapDebugServer.js` is),
+/// playing `page_program`; the latest one's handle.
+fn install_js_debug(d: &mut Dbg, ts: &str) -> Arc<Mutex<Option<fake::FakeJsHandle>>> {
+    install_js_debug_with(d, page_program(ts))
+}
+
+/// [`install_js_debug`] playing `program`.
+fn install_js_debug_with(
+    d: &mut Dbg,
+    program: FakeProgram,
+) -> Arc<Mutex<Option<fake::FakeJsHandle>>> {
+    let latest: Arc<Mutex<Option<fake::FakeJsHandle>>> = Arc::default();
+    let l = latest.clone();
+    let start: super::JsStarter = Arc::new(move || {
+        let js = fake::listen_js_debug(fake::FakeJsDebug::page(
+            program.clone(),
+            "Minimal API",
+            "TARGET-P1",
+        ))
+        .map_err(|e| e.to_string())?;
+        let port = js.port;
+        *l.lock().unwrap() = Some(js);
+        Ok((
+            Arc::new(eludite_dap::transport::TcpServer::listening(
+                "127.0.0.1",
+                port,
+            )) as Arc<dyn eludite_dap::transport::AdapterServer>,
+            format!("vscode-js-debug 1.140.0 under node v22.12.0 (tcp 127.0.0.1:{port})"),
+            "vscode-js-debug 1.140.0, node v22.12.0".to_owned(),
+        ))
+    });
+    d.w.shell
+        .update(&mut d.w.vcx, |s, _| s.debug.setup.js.start = Some(start));
+    latest
+}
+
+impl Dbg {
+    fn js(&mut self, latest: &Arc<Mutex<Option<fake::FakeJsHandle>>>) -> fake::FakeJsHandle {
+        self.w
+            .wait("the fake js-debug", |_| latest.lock().unwrap().is_some());
+        latest.lock().unwrap().clone().unwrap()
+    }
+
+    /// The live browser session (no parent, runtime javascript) and its child.
+    fn browser_sessions(&self) -> Option<(cmds::SessionInfo, Option<cmds::SessionInfo>)> {
+        let all = self.sessions();
+        let parent = all
+            .iter()
+            .find(|s| s.parent.is_none() && s.runtime.as_deref() == Some("javascript"))?
+            .clone();
+        let child = all.into_iter().find(|s| s.parent == Some(parent.id));
+        Some((parent, child))
+    }
+
+    fn wait_child_running(&mut self) -> (cmds::SessionInfo, cmds::SessionInfo) {
+        self.wait_sessions("the page's child session running", |s| {
+            s.iter().any(|r| r.parent.is_some() && r.mode == "running")
+        });
+        let (p, c) = self.browser_sessions().unwrap();
+        (p, c.unwrap())
+    }
+}
+
+/// A web project's tab open in the (fake) Web Browser window, the page's script in the project, the fake js-debug.
+fn js_page(
+    cx: &mut TestAppContext,
+) -> (
+    Dbg,
+    Arc<super::super::browser_tests::PageSeen>,
+    String,
+    Arc<Mutex<Option<fake::FakeJsHandle>>>,
+) {
+    let port = closed_port();
+    let mut d = setup_with(cx, move |p| p.output_at_start = kestrel_lines(port));
+    web_project(&d, &format!("http://127.0.0.1:{port}"), "");
+    let ts = web_root_files(&d);
+    let engine = super::super::browser_tests::install_page_engine(&d.w);
+    let js = install_js_debug(&mut d, &ts);
+    d.w.open_solution();
+    (d, engine, ts, js)
+}
+
+/// Brief 0038: `attach` with `tab` attaches vscode-js-debug to the tab (the browser session: attached, named after the
+/// page's title, runtime javascript, its tab and url, the adapter's versions); js-debug's `startDebugging` starts a
+/// child session under it; a breakpoint in app.ts goes to the child only and stops there on a click with the mapped
+/// frame (app.ts, and app.js's place); the Locals show the handler's variables; the Exception Settings window shows the
+/// JavaScript group and the child gets `uncaught` without the .NET exception types; Stop on the browser session ends
+/// both and leaves the page running.
+#[gpui::test]
+fn attach_to_a_tab_debugs_the_page_through_a_child_session(cx: &mut TestAppContext) {
+    let (mut d, engine, ts, latest) = js_page(cx);
+    let opened = browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_OPEN,
+        json!({"url": "http://127.0.0.1:5180/"}),
+    );
+    assert_eq!(opened["id"], "t1", "{opened}");
+    let tabs = browser_call(&mut d, eludite_commands::browser::TABS, json!({}));
+    assert_eq!(tabs["tabs"][0]["target_id"], "TARGET-P1", "{tabs}");
+    // An exception type that must not reach js-debug.
+    d.cmd(
+        cmds::EXCEPTION_SETTINGS,
+        json!({"break_when_user_unhandled": true, "types": [{"type": "System.InvalidOperationException", "break_when_thrown": true}]}),
+    )
+    .unwrap();
+    d.open("src/App/wwwroot/app.ts", 25);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": ts.clone(), "line": 25}),
+    )
+    .unwrap();
+    let t0 = Instant::now();
+    let out = agent_call(&mut d, cmds::ATTACH, json!({"tab": "t1", "wait_ms": 5000}));
+    assert_eq!(out["mode"], "running", "{out}");
+    let (parent, child) = d.wait_child_running();
+    eprintln!(
+        "timing: attach to the tab to the child running {:.1} ms (fake js-debug)",
+        t0.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(out["session"], parent.id);
+    assert_eq!(parent.name, "Minimal API");
+    assert_eq!(
+        (parent.tab.as_deref(), parent.url.as_deref()),
+        (Some("t1"), Some("http://127.0.0.1:5180/"))
+    );
+    assert!(parent.attached && parent.runtime.as_deref() == Some("javascript"));
+    assert_eq!(
+        parent.adapter_version.as_deref(),
+        Some("vscode-js-debug 1.140.0, node v22.12.0")
+    );
+    assert!(
+        parent
+            .adapter
+            .as_deref()
+            .unwrap()
+            .starts_with("vscode-js-debug 1.140.0 under node v22.12.0")
+    );
+    assert_eq!(
+        (child.parent, child.name.as_str()),
+        (Some(parent.id), "Minimal API")
+    );
+    let js = d.js(&latest);
+    let p = js.parent().unwrap();
+    let attach = p.last("attach").unwrap();
+    assert_eq!(
+        (
+            attach["type"].clone(),
+            attach["port"].clone(),
+            attach["targetId"].clone()
+        ),
+        (json!("pwa-chrome"), json!(9), json!("TARGET-P1"))
+    );
+    // A tab no launch opened: the open solution's folder is the web root (a launch's tab gets its project's wwwroot).
+    assert_eq!(
+        normalize_path(Path::new(attach["webRoot"].as_str().unwrap())),
+        normalize_path(d.w.dir.path())
+    );
+    assert!(
+        !p.commands().contains(&"setBreakpoints".to_owned()),
+        "the browser session gets no breakpoints"
+    );
+    let c = js.child(0).unwrap();
+    assert_eq!(
+        c.last("setExceptionBreakpoints").unwrap(),
+        json!({"filters": ["uncaught"]})
+    );
+    // The breakpoint is the child's only.
+    let state = d.state();
+    let row = &state["breakpoints"][0];
+    assert_eq!(row["sessions"].as_array().unwrap().len(), 1, "{row}");
+    assert_eq!(row["sessions"][0]["session"], child.id);
+    d.w.wait("bound", |w| {
+        state_of(w)["breakpoints"][0]["verified"] == true
+    });
+    assert!(d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.debugger().windows.exceptions.read(cx).javascript()
+    }));
+    // A click on the page (the fake engine runs no script: the fake js-debug plays the handler).
+    js.trigger();
+    d.wait_break_in(child.id, 1);
+    assert_eq!(
+        d.active(),
+        child.id,
+        "the session that broke takes the windows"
+    );
+    let s = d.state();
+    assert_eq!(s["session"]["parent"], parent.id);
+    let top = &s["frames"][0];
+    assert_eq!(
+        (top["path"].as_str().unwrap(), top["line"].as_u64()),
+        (ts.as_str(), Some(25))
+    );
+    let app_js = normalize_path(&d.w.path("src/App/wwwroot/app.js"))
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(top["source"]["original"], json!(ts));
+    assert_eq!(top["source"]["generated"], json!(app_js));
+    assert_eq!(top["source"]["generated_line"], 18);
+    let locals: Vec<String> = d.locals().into_iter().map(|(n, _)| n).collect();
+    assert_eq!(locals, ["input", "price", "item"]);
+    // The execution point is in app.ts.
+    let view = d.w.editor(&d.w.path("src/App/wwwroot/app.ts"));
+    assert_eq!(d.exec(&view).map(|e| e.0), Some(24));
+    // The Call Stack's selector lists the child under its parent, indented, with readable modes.
+    let labels: Vec<String> = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let w = s.debugger().windows.call_stack.read(cx);
+        w.sessions().iter().map(|c| c.label.clone()).collect()
+    });
+    assert_eq!(
+        labels,
+        [
+            format!("{}: Minimal API (running)", parent.id),
+            format!("    {}: Minimal API (break)", child.id)
+        ]
+    );
+    assert_eq!(
+        super::mode_words("running_without_debugging"),
+        "running without debugging"
+    );
+    // Stop on the browser session: the child detaches first, then the browser session; the page keeps running.
+    d.cmd(cmds::STOP, json!({"session": parent.id})).unwrap();
+    d.wait_sessions("both ended", |s| s.is_empty());
+    assert!(c.commands().contains(&"disconnect".to_owned()));
+    assert_eq!(
+        p.last("disconnect").unwrap(),
+        json!({"terminateDebuggee": false})
+    );
+    let out = debug_output(&d);
+    assert!(
+        out.iter().any(|l| l.contains(
+            "Detached from Minimal API (http://127.0.0.1:5180/); the page keeps running."
+        )),
+        "{out:?}"
+    );
+    assert_eq!(engine.pages.lock().unwrap().len(), 1, "the tab stays open");
+}
+
+/// Brief 0038's agent: "set a breakpoint in the click handler, click the button, read the locals" is three commands
+/// after the attach: `toggle_breakpoint` in app.ts, `eludite.browser.input` (a click on the button), `wait` on the
+/// browser session (it answers the child's stop) and `variables`. A browser session's `snapshot` stays under 50 ms
+/// (p95, fake).
+#[gpui::test]
+fn an_agent_debugs_the_click_handler_in_three_commands(cx: &mut TestAppContext) {
+    let (mut d, _engine, ts, latest) = js_page(cx);
+    browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_OPEN,
+        json!({"url": "http://127.0.0.1:5180/"}),
+    );
+    let attached = agent_call(&mut d, cmds::ATTACH, json!({"tab": "t1"}));
+    let browser = attached["session"].as_u64().unwrap() as u32;
+    d.wait_child_running();
+    let js = d.js(&latest);
+    // 1. The breakpoint.
+    let bp = agent_call(
+        &mut d,
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": ts, "line": 25}),
+    );
+    assert_eq!(bp["action"], "added", "{bp}");
+    // 2. The click (the page's script runs in the fake js-debug when the input lands).
+    let click = browser_call(
+        &mut d,
+        eludite_commands::browser::INPUT,
+        json!({"tab": "t1", "action": "click", "x": 10, "y": 10}),
+    );
+    assert!(click.get("error").is_none(), "{click}");
+    js.trigger();
+    // 3. Wait on the browser session: the child's stop.
+    let stop = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"session": browser, "until": "stopped", "wait_ms": 5000}),
+    );
+    assert_eq!(stop["satisfied"], "stopped", "{stop}");
+    let child = stop["session"].as_u64().unwrap() as u32;
+    assert_ne!(child, browser);
+    assert_eq!(stop["stopped"]["reason"], "breakpoint");
+    assert_eq!(stop["stopped"]["location"]["line"], 25);
+    assert_eq!(
+        stop["frames"]["rows"][0]["source"]["generated_line"], 18,
+        "{stop}"
+    );
+    // The browser knows the tab is stopped: its input answers `paused` instead of waiting on the page.
+    let paused = |d: &Dbg| {
+        d.w.shell.read_with(&d.w.vcx, |s, _| {
+            s.debug
+                .browser_bus
+                .as_ref()
+                .is_some_and(|b| b.debugger_paused("t1"))
+        })
+    };
+    assert!(paused(&d), "the stopped tab is not marked paused");
+    let vars = agent_call(&mut d, cmds::VARIABLES, json!({"session": child}));
+    let names: Vec<&str> = vars["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["input", "price", "item"], "{vars}");
+    // The snapshot budget on the browser session's child.
+    let mut times = Vec::new();
+    for _ in 0..20 {
+        let t = Instant::now();
+        let s = agent_call(&mut d, cmds::SNAPSHOT, json!({"session": child}));
+        times.push(t.elapsed());
+        assert_eq!(s["mode"], "break");
+    }
+    let p = p95(times);
+    eprintln!(
+        "timing: a browser session's snapshot p95 {:.1} ms (fake js-debug)",
+        p.as_secs_f64() * 1e3
+    );
+    assert_budget(
+        "a browser session's snapshot p95",
+        p,
+        Duration::from_millis(50),
+    );
+    let go = agent_call(&mut d, cmds::CONTINUE, json!({"session": child}));
+    assert!(go.get("error").is_none(), "{go}");
+    let deadline = Instant::now() + T;
+    while paused(&d) {
+        assert!(
+            Instant::now() < deadline,
+            "the continued tab stays marked paused"
+        );
+        d.w.vcx.run_until_parked();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
+
+/// Brief 0038: F5 on a web project (the fake .NET adapter, the fake engine, the setting debugger.attachBrowser on)
+/// attaches vscode-js-debug to the opened tab once the page is up, as one compound: an agent's start answers with both
+/// sessions (and the child); a breakpoint in app.ts goes to js-debug's child only and one in Program.cs to the .NET
+/// adapter only; the fake attach adds under 50 ms to brief 0037's launch; the launch never takes the keyboard focus
+/// from the editor, so F5 there does not reload the page.
+#[gpui::test]
+fn a_web_project_start_attaches_its_page_after_readiness(cx: &mut TestAppContext) {
+    let (mut d, engine, ts, latest) = js_page(cx);
+    d.set_attach_browser(true);
+    let cs =
+        d.w.path("src/App/Program.cs")
+            .to_string_lossy()
+            .into_owned();
+    d.open("src/App/Program.cs", 5);
+    d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": cs, "line": 5}))
+        .unwrap();
+    d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": ts, "line": 25}))
+        .unwrap();
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 10000}));
+    assert_eq!(out["mode"], "running", "{out}");
+    let sessions: Vec<(String, String)> = out["sessions"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{out}"))
+        .iter()
+        .map(|s| {
+            (
+                s["name"].as_str().unwrap().to_owned(),
+                s["mode"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(sessions[0].0, "App", "{out}");
+    assert_eq!(sessions[1].0, "Minimal API", "{out}");
+    assert_eq!(out["browser"]["tab"], "t1");
+    let (parent, child) = d.wait_child_running();
+    let server = d.sessions().into_iter().find(|s| s.name == "App").unwrap();
+    let js = d.js(&latest);
+    // Breakpoints by language.
+    let state = d.state();
+    let by_path = |p: &str| -> Vec<u64> {
+        state["breakpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["path"] == p)
+            .unwrap()["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["session"].as_u64().unwrap())
+            .collect()
+    };
+    let cs_norm = normalize_path(&d.w.path("src/App/Program.cs"))
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(by_path(&cs_norm), [u64::from(server.id)]);
+    assert_eq!(by_path(&ts), [u64::from(child.id)]);
+    let net = d.fake_of(server.id);
+    let sent: Vec<String> = net
+        .requests()
+        .into_iter()
+        .filter(|(c, _)| c == "setBreakpoints")
+        .map(|(_, a)| a["source"]["path"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(!sent.iter().any(|p| p.ends_with(".ts")), "{sent:?}");
+    let c = js.child(0).unwrap();
+    let sent: Vec<String> = c
+        .requests()
+        .into_iter()
+        .filter(|(c, _)| c == "setBreakpoints")
+        .map(|(_, a)| a["source"]["path"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        !sent.is_empty() && sent.iter().all(|p| *p == ts),
+        "{sent:?}"
+    );
+    assert_eq!(parent.tab.as_deref(), Some("t1"));
+    // The launch's tab: its project's wwwroot is the web root.
+    let attach = js.parent().unwrap().last("attach").unwrap();
+    assert_eq!(
+        normalize_path(Path::new(attach["webRoot"].as_str().unwrap())),
+        normalize_path(&d.w.path("src/App/wwwroot"))
+    );
+    // The budget: the fake attach after the page opened.
+    let attach =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.debugger().timings.page_attach)
+            .expect("measured");
+    eprintln!(
+        "timing: the page's debugger attached {:.1} ms after the page opened (fake js-debug)",
+        attach.as_secs_f64() * 1e3
+    );
+    assert_budget(
+        "the fake attach after the page opened",
+        attach,
+        Duration::from_millis(50),
+    );
+    // The launch left the keys with the editor: F5 there is not the Web Browser window's Reload.
+    let focused = d.w.shell.update_in(&mut d.w.vcx, |s, window, cx| {
+        s.browser_window().read(cx).has_focus(window, cx)
+    });
+    assert!(!focused, "the launch took the keyboard focus");
+    let reloads = engine.reloads.lock().unwrap().len();
+    d.w.vcx.simulate_keystrokes("f5");
+    d.w.vcx.run_until_parked();
+    assert_eq!(
+        engine.reloads.lock().unwrap().len(),
+        reloads,
+        "F5 reloaded the page"
+    );
+    // Stop Debugging ends all three.
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("all ended", |s| s.is_empty());
+}
+
+/// Brief 0038: without Node.js or vscode-js-debug the page's attach fails, and the server's session goes on: the
+/// start's answer and the Output window say why, naming tools/js-debug/fetch.sh for js-debug and the minimum for Node.
+#[gpui::test]
+fn a_missing_js_debug_or_node_leaves_the_server_running_with_the_reason(cx: &mut TestAppContext) {
+    let port = closed_port();
+    let mut d = setup_with(cx, move |p| p.output_at_start = kestrel_lines(port));
+    web_project(&d, &format!("http://127.0.0.1:{port}"), "");
+    let _engine = super::super::browser_tests::install_page_engine(&d.w);
+    let tmp = d.w.dir.path().to_path_buf();
+    // No vscode-js-debug anywhere.
+    d.w.shell.update(&mut d.w.vcx, |s, _| {
+        s.debug.setup.js = super::JsSetup {
+            search: eludite_dap::discovery::JsDebugSearch {
+                configured: None,
+                cache: Some(tmp.join("no-cache")),
+                exe_dir: None,
+            },
+            node: eludite_dap::discovery::NodeSearch::default(),
+            start: None,
+        };
+    });
+    d.set_attach_browser(true);
+    d.w.open_solution();
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 10000}));
+    assert_eq!(out["mode"], "running", "{out}");
+    let m = out["message"].as_str().unwrap_or_else(|| panic!("{out}"));
+    assert!(
+        m.contains("vscode-js-debug was not found") && m.contains("tools/js-debug/fetch.sh"),
+        "{m}"
+    );
+    assert!(m.contains("The server's session goes on"), "{m}");
+    assert!(
+        debug_output(&d)
+            .iter()
+            .any(|l| l.contains("The page could not be debugged"))
+    );
+    assert_eq!(d.mode(), Mode::Running);
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    // vscode-js-debug found, no Node.js.
+    let js = tmp.join("js").join(eludite_dap::discovery::JS_DEBUG_SERVER);
+    std::fs::create_dir_all(js.parent().unwrap()).unwrap();
+    std::fs::write(&js, "").unwrap();
+    d.w.shell.update(&mut d.w.vcx, |s, _| {
+        s.debug.setup.js.search.configured = Some(js.clone());
+    });
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 10000}));
+    assert_eq!(out["mode"], "running", "{out}");
+    let m = out["message"].as_str().unwrap_or_else(|| panic!("{out}"));
+    assert!(
+        m.contains("Node.js was not found") && m.contains("18 or later"),
+        "{m}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+}
+
+/// Brief 0038: the browser session follows its tab: the tab's title renames it (the window's `tab/state`), the tab
+/// closing ends it and its child with mode `design` and a message; `attach` by a DevTools websocket url names that
+/// page's target and port; the Attach to Process dialog lists the tabs under Web Browser, and Debug > Attach to
+/// Browser Tab... opens it with the tabs only and attaches to the one picked.
+#[gpui::test]
+fn the_browser_session_follows_its_tab_and_the_dialog_lists_tabs(cx: &mut TestAppContext) {
+    let (mut d, _engine, _ts, latest) = js_page(cx);
+    browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_OPEN,
+        json!({"url": "http://127.0.0.1:5180/"}),
+    );
+    agent_call(&mut d, cmds::ATTACH, json!({"tab": "t1"}));
+    let (parent, child) = d.wait_child_running();
+    // A second attach to the same tab is refused.
+    let again = agent_call(&mut d, cmds::ATTACH, json!({"tab": "t1"}));
+    assert!(
+        again["error"]
+            .as_str()
+            .unwrap()
+            .contains("already being debugged"),
+        "{again}"
+    );
+    // The title changes.
+    let target = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        s.browser_window().read(cx).strip()[0].1.clone()
+    });
+    let sink =
+        d.w.shell
+            .read_with(&d.w.vcx, |s, _| s.browser().window_sink());
+    sink(super::super::browser::WindowEvent::Notification {
+        method: "tab/state".into(),
+        params: json!({"tab": target, "title": "Cart (1)"}),
+    });
+    d.wait_sessions("renamed", |s| {
+        s.iter().any(|r| r.id == parent.id && r.name == "Cart (1)")
+    });
+    assert_eq!(
+        d.sessions().iter().find(|r| r.id == child.id).unwrap().name,
+        "Cart (1)"
+    );
+    // The tab closes: both end, with the message.
+    let closed = browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_CLOSE,
+        json!({"tab": "t1"}),
+    );
+    assert_eq!(closed["closed"], "t1", "{closed}");
+    d.wait_sessions("ended with the tab", |s| s.is_empty());
+    let message = d.w.shell.update(&mut d.w.vcx, |s, _| {
+        s.in_session(parent.id, |s| s.debug.model.message.clone())
+    });
+    assert_eq!(message.as_deref(), Some("The tab t1 closed."));
+    // By a DevTools websocket url.
+    *latest.lock().unwrap() = None;
+    let out = agent_call(
+        &mut d,
+        cmds::ATTACH,
+        json!({"url": "ws://127.0.0.1:9333/devtools/page/TARGET-P1", "wait_ms": 5000}),
+    );
+    assert_eq!(out["mode"], "running", "{out}");
+    d.wait_child_running();
+    let js = d.js(&latest);
+    let attach = js.parent().unwrap().last("attach").unwrap();
+    assert_eq!(
+        (attach["port"].clone(), attach["targetId"].clone()),
+        (json!(9333), json!("TARGET-P1"))
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+    // The dialog: Debug > Attach to Browser Tab... lists the tabs only; picking one attaches.
+    browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_OPEN,
+        json!({"url": "http://127.0.0.1:5180/cart"}),
+    );
+    d.cmd(cmds::ATTACH, json!({"adapter": "javascript"}))
+        .unwrap();
+    d.w.wait("the dialog's tabs", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.debugger()
+                .attach_dialog
+                .as_ref()
+                .is_some_and(|dlg| !dlg.read(cx).visible_tabs().is_empty())
+        })
+    });
+    let tab = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let dlg = s.debugger().attach_dialog.as_ref().unwrap().read(cx);
+        dlg.visible_tabs()[0].id.clone()
+    });
+    assert_eq!(tab, "t2");
+    // Listing the tabs only, the first is selected: Enter attaches to it.
+    d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let dlg = s.debugger().attach_dialog.as_ref().unwrap().read(cx);
+        assert_eq!(
+            dlg.pick(),
+            Some(super::windows::AttachPick::Tab("t2".into()))
+        );
+    });
+    d.w.vcx.simulate_keystrokes("enter");
+    d.wait_child_running();
+    assert_eq!(d.browser_sessions().unwrap().0.tab.as_deref(), Some("t2"));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
+
+/// Brief 0038's frame budget: a web project's server session and its page's child session stopping alternately ten
+/// times a second cost the frame little: the debugger's share stays under 8 ms at p99 (brief 0028's assertion).
+#[gpui::test]
+fn a_server_and_its_page_stopping_by_turns_cost_the_frame_little(cx: &mut TestAppContext) {
+    let port = closed_port();
+    let mut d = setup_with(cx, move |p| {
+        let main = p.steps[0].path.clone();
+        p.steps = fake::hot_loop(&main, 6, "App.Program.Main()", 0, 200);
+        p.output_at_start = kestrel_lines(port);
+    });
+    web_project(&d, &format!("http://127.0.0.1:{port}"), "");
+    let ts = web_root_files(&d);
+    let _engine = super::super::browser_tests::install_page_engine(&d.w);
+    let latest = install_js_debug_with(
+        &mut d,
+        FakeProgram {
+            steps: fake::hot_loop(&ts, 25, "button#add.onAdd", 0, 200),
+            ..FakeProgram::default()
+        },
+    );
+    d.w.open_solution();
+    d.set_attach_browser(true);
+    d.cmd(
+        cmds::TOGGLE_BREAKPOINT,
+        json!({"path": "src/App/Program.cs", "line": 6}),
+    )
+    .unwrap();
+    d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": ts, "line": 25}))
+        .unwrap();
+    d.cmd(cmds::START, json!({})).unwrap();
+    let (_, child) = d.wait_child_running();
+    let server = d
+        .sessions()
+        .into_iter()
+        .find(|s| s.name == "App")
+        .unwrap()
+        .id;
+    d.fake_of(server).trigger();
+    d.js(&latest).trigger();
+    d.wait_break_in(server, 1);
+    d.wait_break_in(child.id, 1);
+    let ids = [server, child.id];
+    let mut best = frames_while_stopping_by_turns(&mut d, &ids);
+    for _ in 0..2 {
+        if best.1 < Duration::from_millis(8) {
+            break;
+        }
+        let again = frames_while_stopping_by_turns(&mut d, &ids);
+        if again.1 < best.1 {
+            best = again;
+        }
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    eprintln!(
+        "timing: frame p99 (p50) with a server and its page's child stopping alternately 10/s {:.2} ({:.2}) ms, share \
+         p99 {:.3} ms, {} stops",
+        ms(best.0),
+        ms(best.3),
+        ms(best.1),
+        best.2
+    );
+    assert!(best.2 >= 38, "{} stops", best.2);
+    assert_budget(
+        "a server and its page's share of a frame at p99",
+        best.1,
+        Duration::from_millis(8),
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
+
+// ---- Brief 0038 against the real vscode-js-debug ----
+
+/// The real vscode-js-debug and Node.js, when `ELUDITE_JS_DEBUG` names the server (tools/js-debug/fetch.sh prints it)
+/// and a Node.js 18 or later is found; else why the real tests skip.
+fn real_js_debug() -> Result<super::JsSetup, String> {
+    let js = std::env::var_os("ELUDITE_JS_DEBUG")
+        .filter(|v| !v.is_empty())
+        .ok_or(
+            "ELUDITE_JS_DEBUG is not set (tools/js-debug/fetch.sh prints vscode-js-debug's server)",
+        )?;
+    let mut setup = super::JsSetup::from_env();
+    setup.search.configured = Some(PathBuf::from(js));
+    setup.node.configured = std::env::var_os("ELUDITE_NODE").map(PathBuf::from);
+    setup.search.find()?;
+    let (node, _) = setup.node.find()?;
+    eludite_dap::discovery::check_node_version(
+        &node,
+        eludite_dap::discovery::node_version_output(&node).as_deref(),
+    )?;
+    Ok(setup)
+}
+
+/// The page's "Add" button in `tab`, clicked through `eludite.browser.input` (by its ref from `read_page`).
+fn click_add(d: &mut Dbg, tab: &str, name: &str) -> Value {
+    let read = browser_call(d, eludite_commands::browser::READ_PAGE, json!({"tab": tab}));
+    let r = read["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|n| n["role"] == "button" && n["name"].as_str().is_some_and(|s| s.starts_with(name)))
+        .and_then(|n| n["ref"].as_str())
+        .unwrap_or_else(|| panic!("no {name} button: {read}"))
+        .to_owned();
+    browser_call(
+        d,
+        eludite_commands::browser::INPUT,
+        json!({"tab": tab, "action": "click", "ref": r, "wait_ms": 0}),
+    )
+}
+
+/// After the page is open in tab `t1`: vscode-js-debug attached by tab (timed, budget 1.5 s), a breakpoint at
+/// `path`:`line` stops on a click on `button` sent through `eludite.browser.input`, `wait` on the browser session
+/// answers the child's stop at that line, and the handler's `locals` are in `variables`. Returns the stop's summary.
+fn real_js_stop(d: &mut Dbg, path: &str, line: u32, button: &str, locals: &[&str]) -> Value {
+    d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": path, "line": line}))
+        .unwrap();
+    let t0 = Instant::now();
+    let out = agent_call(d, cmds::ATTACH, json!({"tab": "t1", "wait_ms": 20000}));
+    assert_eq!(out["mode"], "running", "{out}\n{:?}", debug_output(d));
+    let browser = out["session"].as_u64().unwrap() as u32;
+    d.w.wait("the page's child session", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.debugger()
+                .sessions_info()
+                .iter()
+                .any(|r| r.parent == Some(browser) && r.mode == "running")
+        })
+    });
+    let attach = t0.elapsed();
+    eprintln!(
+        "timing: attach to the tab to running with vscode-js-debug {:.0} ms",
+        attach.as_secs_f64() * 1e3
+    );
+    assert_budget(
+        "attach with vscode-js-debug to running",
+        attach,
+        Duration::from_millis(1500),
+    );
+    d.w.wait("the breakpoint bound", |w| {
+        let s = w.shell.read_with(&w.vcx, |s, _| {
+            serde_json::to_value(s.debugger().state()).unwrap()
+        });
+        s["breakpoints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|b| b["verified"] == true)
+    });
+    let click = click_add(d, "t1", button);
+    // The handler stops in the debugger: the input answers `paused` instead of waiting on the page.
+    assert_eq!(click["paused"], true, "{click}");
+    let stop = agent_call(
+        d,
+        cmds::WAIT,
+        json!({"session": browser, "until": "stopped", "wait_ms": 15000}),
+    );
+    assert_eq!(
+        stop["satisfied"],
+        "stopped",
+        "{stop}\n{:?}",
+        debug_output(d)
+    );
+    assert_eq!(stop["stopped"]["reason"], "breakpoint", "{stop}");
+    let top = &stop["frames"]["rows"][0];
+    assert_eq!(
+        (
+            normalize_path(Path::new(top["path"].as_str().unwrap())),
+            top["line"].as_u64()
+        ),
+        (normalize_path(Path::new(path)), Some(u64::from(line))),
+        "{stop}"
+    );
+    let child = stop["session"].as_u64().unwrap();
+    let vars = agent_call(d, cmds::VARIABLES, json!({"session": child}));
+    let names: Vec<&str> = vars["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r["name"].as_str())
+        .collect();
+    for n in locals {
+        assert!(names.contains(n), "{n} not in {names:?}");
+    }
+    agent_call(d, cmds::CONTINUE, json!({"session": child}));
+    d.cmd(cmds::STOP, json!({"session": browser})).unwrap();
+    d.w.wait("the browser session ended", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            !s.debugger()
+                .sessions_info()
+                .iter()
+                .any(|r| r.runtime.as_deref() == Some("javascript"))
+        })
+    });
+    stop
+}
+
+/// Brief 0038's real run: Ctrl+F5 on the corpus web project (the real `dotnet`, the real embedded engine), then
+/// vscode-js-debug attached to its tab: a breakpoint in wwwroot/app.ts (the Add button's handler) stops at the mapped
+/// line on a click sent by `eludite.browser.input`, the frame names app.js's place, and Locals show the handler's
+/// variables. Skips without `ELUDITE_JS_DEBUG`, Node.js, `dotnet` or the engine.
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn ctrl_f5_on_the_corpus_web_project_then_js_debug_stops_in_app_ts(cx: &mut TestAppContext) {
+    let js = match (embedded_engine(), real_js_debug()) {
+        (Ok(()), Ok(js)) => js,
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let mut d = setup(cx);
+    let Some(port) = corpus_web(&d) else { return };
+    d.w.shell.update(&mut d.w.vcx, |s, _| s.debug.setup.js = js);
+    d.w.open_solution();
+    d.cmd(cmds::START, json!({"debug": false})).unwrap();
+    d.w.wait("the page", |w| page_of(w)["state"] == "opened");
+    assert_eq!(page_of(&d.w)["url"], format!("http://127.0.0.1:{port}/"));
+    let ts = normalize_path(&d.w.path("src/App/wwwroot/app.ts"))
+        .to_string_lossy()
+        .into_owned();
+    let stop = real_js_stop(&mut d, &ts, 25, "Add", &["input", "price", "item"]);
+    let source = &stop["frames"]["rows"][0]["source"];
+    assert_eq!(source["generated_line"], 18, "{stop}");
+    assert!(
+        source["generated"]
+            .as_str()
+            .unwrap()
+            .ends_with("wwwroot/app.js"),
+        "{stop}"
+    );
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_mode(Mode::Design);
+    let closed = d.w.shell.read_with(&d.w.vcx, |s, _| s.browser().shutdown());
+    let _ = closed.recv_timeout(Duration::from_secs(10));
+}
+
+/// Brief 0038's compound with the real adapters: F5 on the corpus web project under netcoredbg opens the page and
+/// attaches vscode-js-debug to it once it is up; the start's answer names both sessions. Skips unless netcoredbg is
+/// found, and as the test above.
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn f5_on_the_corpus_web_project_under_netcoredbg_debugs_its_page_too(cx: &mut TestAppContext) {
+    let search = eludite_dap::discovery::AdapterSearch::from_env();
+    if let Err(e) = search.find_netcoredbg() {
+        eprintln!("skipped: {e}");
+        return;
+    }
+    let js = match (embedded_engine(), real_js_debug()) {
+        (Ok(()), Ok(js)) => js,
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let store = tempfile::tempdir().unwrap().keep();
+    let setup = DebugSetup {
+        connect: None,
+        search,
+        mono: eludite_dap::discovery::MonoSearch::default(),
+        mono_adapter: eludite_dap::discovery::MonoAdapterSearch::default(),
+        platform: eludite_dap::launch::Platform::current(),
+        store_dir: Some(store),
+        dotnet: "dotnet".into(),
+        js,
+    };
+    let w = setup_debug(cx, |_| {}, None, Some(setup));
+    let mut d = Dbg {
+        w,
+        fake: Arc::default(),
+        fakes: Arc::default(),
+        store: PathBuf::new(),
+    };
+    d.set_build_before_run(false);
+    let Some(_) = corpus_web(&d) else { return };
+    d.set_attach_browser(true);
+    d.w.open_solution();
+    let out = agent_call(&mut d, cmds::START, json!({"wait_ms": 30000}));
+    let names: Vec<&str> = out["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    assert!(names.len() >= 2 && names[0] == "App", "{out}");
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+}
+
+/// Brief 0038's Vite project with the real adapter: `npm ci` and the Vite dev server for corpus/web/vite-counter, its
+/// page in the embedded engine, vscode-js-debug attached by tab, a breakpoint in src/counter.ts stopping on a click
+/// through the dev server's inline source map. Skips like the test above, and without npm or the registry.
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn the_vite_counter_stops_through_the_dev_servers_source_maps(cx: &mut TestAppContext) {
+    let js = match (embedded_engine(), real_js_debug()) {
+        (Ok(()), Ok(js)) => js,
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("skipped: {e}");
+            return;
+        }
+    };
+    let mut d = setup(cx);
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/web/vite-counter");
+    let app = d.w.path("vite-counter");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    for f in [
+        "package.json",
+        "package-lock.json",
+        "index.html",
+        "tsconfig.json",
+        "src/main.ts",
+        "src/counter.ts",
+    ] {
+        std::fs::copy(corpus.join(f), app.join(f)).unwrap();
+    }
+    let npm = |args: &[&str]| {
+        std::process::Command::new("npm")
+            .args(args)
+            .current_dir(&app)
+            .output()
+    };
+    match npm(&["ci", "--no-audit", "--no-fund"]) {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            eprintln!(
+                "skipped: npm ci failed: {}",
+                String::from_utf8_lossy(&o.stderr)
+            );
+            return;
+        }
+        Err(e) => {
+            eprintln!("skipped: npm: {e}");
+            return;
+        }
+    }
+    let port = closed_port();
+    let mut vite = std::process::Command::new("npm")
+        .args(["run", "dev", "--", "--port", &port.to_string()])
+        .current_dir(&app)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let url = format!("http://127.0.0.1:{port}/");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+        assert!(
+            Instant::now() < deadline,
+            "the Vite dev server did not start"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    d.w.shell.update(&mut d.w.vcx, |s, _| s.debug.setup.js = js);
+    let opened = browser_call(
+        &mut d,
+        eludite_commands::browser::TAB_OPEN,
+        json!({"url": url}),
+    );
+    assert_eq!(opened["id"], "t1", "{opened}");
+    let counter = normalize_path(&app.join("src/counter.ts"))
+        .to_string_lossy()
+        .into_owned();
+    // The web root is the project folder: Vite serves /src/counter.ts from it.
+    d.cmd(cmds::TOGGLE_BREAKPOINT, json!({"path": counter, "line": 5}))
+        .unwrap();
+    let out = agent_call(
+        &mut d,
+        cmds::ATTACH,
+        json!({"tab": "t1", "web_root": app, "wait_ms": 20000}),
+    );
+    assert_eq!(out["mode"], "running", "{out}");
+    let browser = out["session"].as_u64().unwrap() as u32;
+    d.w.wait("the breakpoint bound", |w| {
+        let s = w.shell.read_with(&w.vcx, |s, _| {
+            serde_json::to_value(s.debugger().state()).unwrap()
+        });
+        s["breakpoints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|b| b["verified"] == true)
+    });
+    let click = click_add(&mut d, "t1", "count is");
+    assert_eq!(click["paused"], true, "{click}");
+    let stop = agent_call(
+        &mut d,
+        cmds::WAIT,
+        json!({"session": browser, "until": "stopped", "wait_ms": 15000}),
+    );
+    assert_eq!(stop["satisfied"], "stopped", "{stop}");
+    let top = &stop["frames"]["rows"][0];
+    assert_eq!(top["line"], 5, "{stop}");
+    assert!(
+        top["path"].as_str().unwrap().ends_with("src/counter.ts"),
+        "{stop}"
+    );
+    let child = stop["session"].as_u64().unwrap();
+    agent_call(&mut d, cmds::CONTINUE, json!({"session": child}));
+    d.cmd(cmds::STOP, json!({})).unwrap();
+    d.wait_sessions("ended", |s| s.is_empty());
+    let _ = vite.kill();
+    let _ = vite.wait();
+    let closed = d.w.shell.read_with(&d.w.vcx, |s, _| s.browser().shutdown());
+    let _ = closed.recv_timeout(Duration::from_secs(10));
 }

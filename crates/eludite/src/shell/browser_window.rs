@@ -340,6 +340,35 @@ impl BrowserWindow {
         out
     }
 
+    /// Whether the window (its page, its address bar or a prompt) has the keyboard focus (brief 0038's test that a
+    /// launch leaves it with the editor).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn has_focus(&self, window: &Window, cx: &App) -> bool {
+        self.focus.contains_focused(window, cx)
+            || self.address_focus.is_focused(window)
+            || self.prompt_focus.is_focused(window)
+            || self
+                .surfaces
+                .values()
+                .any(|s| s.read(cx).focus_handle().is_focused(window))
+    }
+
+    /// The command tabs with their titles, in the strip's order (brief 0038: a browser session is named after its
+    /// tab's title and ends when the tab closes).
+    pub fn tab_titles(&self) -> Vec<(String, Option<String>)> {
+        self.tabs
+            .iter()
+            .map(|(id, target)| {
+                let title = self
+                    .info
+                    .get(target)
+                    .map(|i| i.title.clone())
+                    .filter(|t| !t.is_empty());
+                (id.clone(), title)
+            })
+            .collect()
+    }
+
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn driving(&self) -> &[String] {
         &self.driving
@@ -512,7 +541,11 @@ impl BrowserWindow {
             })
             .detach();
         }
-        self.focus_page(window, cx);
+        // A debugging session's launch opens the window without taking the keys from the editor (brief 0038): F5
+        // there still continues, and F5 in the window reloads the page once the person clicks into it.
+        if !self.bus.quiet() {
+            self.focus_page(window, cx);
+        }
         cx.notify();
     }
 
@@ -602,7 +635,7 @@ impl BrowserWindow {
                 if self.shown_target() != shown_before {
                     self.address_edited = false;
                     self.sync_address();
-                    if self.open {
+                    if self.open && !self.bus.quiet() {
                         self.focus_page(window, cx);
                     }
                 }

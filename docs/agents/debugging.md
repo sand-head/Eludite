@@ -3,8 +3,7 @@
 Eludite's debugger is a set of sessions (one per started project or attached process, usually one) that you and the person at the keyboard drive together, through the same commands.
 Each `eludite.debug.<name>` command is the MCP tool `eludite-debug-<name>` (Claude Code shows it as
 `mcp__eludite__eludite-debug-<name>`). Every answer is budgeted: lists say `total` and `truncated`, values are cut at
-`max_value_chars`, and the commands that run the program answer with the compact stop summary. Read this once per
-session; the tool descriptions say the rest.
+`max_value_chars`, and the commands that run the program answer with the compact stop summary.
 
 The person's solution or folder is already open, and it is where you work. Do not call `eludite.solution.open` or
 `eludite.workspace.open_folder` to debug: they replace what the person has open. `eludite.debug.start` takes a project
@@ -21,7 +20,7 @@ When you are asked which statement is wrong, show it stopped there, with the loc
    `condition` for the case that goes wrong (`coin == MissingCase.Coin.Quarter`, `parent == null`). A breakpoint on a
    `for` header stops once, at its initializer: for the last iteration, put the condition on the body's first
    statement (`i == count - 2` there is the last pass of `for (var i = 0; i < count - 1; i++)`) and leave the header
-   unconditional. Qualify type names (Eludite's Mono adapter and netcoredbg also resolve `Coin.Quarter`). If the
+   unconditional. Qualify type names. If the
    program is already at a break, `eludite.debug.run_until` with that line and `condition` sets it and runs there in
    one call (skip steps 3 and 4).
 3. `eludite.debug.start` with the `project` (or `eludite.debug.restart` when a session is already running). It answers
@@ -34,7 +33,6 @@ When you are asked which statement is wrong, show it stopped there, with the loc
    rejected, never stops: the summary lists it in `breakpoints_failed` with the adapter's reason (`run_until`: in
    `points_failed`); fix it first. Do not name a statement you never stopped on.
 
-That is three debug calls when the source shows the suspect, five when you first run the program to see how it fails.
 A stop after the statement, or at the exception it causes, shows the symptom: stop on the statement itself before you
 name it.
 
@@ -45,7 +43,7 @@ can see what you saw; call `eludite.debug.stop` only when the person asks.
 ## 1. Read `snapshot` before acting
 
 Call `eludite.debug.snapshot` first when a session may already be running, and again whenever you are unsure what
-state the debugger is in (a stop summary you just received is as good). It never runs program code and never moves
+state the debugger is in. It never runs program code and never moves
 the person's windows. It answers:
 
 - `mode`: `design` (no session), `building`, `launching`, `running`, `break`, `stopping` or `running_without_debugging`;
@@ -71,7 +69,7 @@ values; use `evaluate` when you need a computed expression.
 
 ## 2. Prefer `run_until` and `trace` over single steps
 
-Each command costs a round trip. Get to where you need to be in one call:
+Get to where you need to be in one call:
 
 - **`eludite.debug.run_until`** with `points` (`path`, `line`, optional `condition`): sets one-shot breakpoints, resumes,
   and answers the summary of the first stop. The points are removed at that stop (`remove_after`, default true).
@@ -169,12 +167,16 @@ The person stays in charge of what you may do to a session.
 - **The permission class.** Debug commands that run the program are class execute: depending on the policy the person
   may be asked before each. A refusal with `the user denied it` means they said no.
 
-Everything you do is audited, and the Agents window shows each of your debug commands as the person would read it in
-the Debug toolbar, for example `Step Over → stopped at Program.cs:42 (breakpoint)`, with the summary you received.
+Everything you do is audited and shown in the Agents window.
 
 ## 7. More than one session
 
 - Every started project and every attached process is a session with an `id`. `eludite.debug.sessions` lists them (id, name, mode, active); `eludite.debug.state` and the stop summaries carry `session`.
 - Every command that acts on a session takes `session`; without it, the active session (the one the windows show) is used. Name the session when more than one is live: the active one changes when another session breaks.
 - `start` with `compound: "startup"` starts the solution's startup projects together; a compound answer is the first session to break, or every session's mode on a timeout. Naming a project that is already being debugged starts another instance.
+- A web page's JavaScript: `eludite.debug.attach` with `tab` (`eludite.browser.tabs` lists them), or a web project's
+  start with `debugger.attachBrowser` on, attaches vscode-js-debug; the page's scripts run in a child session
+  (`parent` set). A breakpoint goes only to sessions whose adapter takes its file (`.ts` to the page, `.cs` to .NET):
+  name `session` by adapter. Frames keep the source-mapped `.ts` path (`source.generated`: the served `.js`). A click
+  that hits a breakpoint answers `paused`; read the stop with `wait`.
 - `stop` without `session` ends every session; with one, that session only. Breakpoints, exception settings and watch expressions are shared by all sessions; the stop counter, `allow_agents` and `interrupted_by` are per session.

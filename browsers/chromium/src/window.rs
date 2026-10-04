@@ -1,6 +1,7 @@
 //! What the Web Browser window's methods need that is not CEF itself (brief 0032), kept here so it is tested without
 //! CEF: the `<select>` popup drawn over the view, the names the protocol uses for CEF's cursor types, permissions and
-//! window dispositions, where a download goes, and base64 for favicons.
+//! window dispositions, where a download goes, and base64 for favicons; and the remote debugging port's choice and
+//! readiness probe (brief 0038).
 
 use std::path::{Path, PathBuf};
 
@@ -218,6 +219,36 @@ pub fn default_download_dir(profile: &Path) -> PathBuf {
 /// Downloads larger than this are refused unless `initialize` says otherwise: 100 MB.
 pub const MAX_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024;
 
+// ---- the remote debugging port (brief 0038) ----
+
+/// A free port on 127.0.0.1 for CEF's remote debugging (CEF takes 1024 to 65534): the system's choice for a socket
+/// bound and closed at once. Another process could take it before CEF binds it; `engine/ready` is only sent once the
+/// port answers as DevTools does.
+pub fn free_debug_port() -> Option<u16> {
+    (0..20).find_map(|_| {
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).ok()?;
+        let port = l.local_addr().ok()?.port();
+        (1024..65535).contains(&port).then_some(port)
+    })
+}
+
+/// Whether DevTools answers on `127.0.0.1:port`: `GET /json/version` with a status line `HTTP/1.1 200`.
+pub fn devtools_answers(port: u16, timeout: std::time::Duration) -> bool {
+    use std::io::{Read as _, Write as _};
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut s) = std::net::TcpStream::connect_timeout(&addr, timeout) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(timeout));
+    if s.write_all(b"GET /json/version HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut head = [0u8; 12];
+    s.read_exact(&mut head).is_ok() && head.starts_with(b"HTTP/1.1 200")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +306,40 @@ mod tests {
             default_download_dir(Path::new("/w/.eludite/browser/profile")),
             Path::new("/w/.eludite/browser/downloads")
         );
+    }
+
+    /// Brief 0038: a free port to give CEF, and the probe that says DevTools answers there.
+    #[test]
+    fn a_free_debug_port_and_the_devtools_probe() {
+        let port = free_debug_port().unwrap();
+        assert!(port >= 1024);
+        // Nothing listens there yet.
+        assert!(!devtools_answers(
+            port,
+            std::time::Duration::from_millis(200)
+        ));
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = l.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            use std::io::{Read as _, Write as _};
+            for (i, s) in l.incoming().enumerate() {
+                let mut s = s.unwrap();
+                let mut req = [0u8; 256];
+                let n = s.read(&mut req).unwrap();
+                assert!(
+                    std::str::from_utf8(&req[..n])
+                        .unwrap()
+                        .starts_with("GET /json/version")
+                );
+                let status: &[u8] = if i == 0 {
+                    b"HTTP/1.1 404 Not Found\r\n\r\n"
+                } else {
+                    b"HTTP/1.1 200 OK\r\n\r\n{}"
+                };
+                s.write_all(status).unwrap();
+            }
+        });
+        assert!(!devtools_answers(port, std::time::Duration::from_secs(1)));
+        assert!(devtools_answers(port, std::time::Duration::from_secs(1)));
     }
 }

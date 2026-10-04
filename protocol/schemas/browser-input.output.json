@@ -187,6 +187,11 @@
           "type": "string"
         }
       }
+    },
+    "paused": {
+      "description": "Present (true) when the page stopped in the debugger during the action: a breakpoint, a `debugger` statement or an exception in a browser debugging session (brief 0038). The action's events were delivered up to the stop and the page runs no script until the session continues; read the stop with eludite.debug.wait or eludite.debug.state.",
+      "type": "boolean",
+      "const": true
     }
   }
 }

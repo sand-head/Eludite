@@ -86,6 +86,28 @@ pub struct TabHistory {
     pub favicon: String,
 }
 
+/// Where a debugger reaches the browser's pages (brief 0038): its Chrome DevTools remote debugging endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DebugEndpoint {
+    /// `127.0.0.1` for the engines Eludite starts.
+    pub address: String,
+    pub port: u16,
+}
+
+/// The host and port of a DevTools websocket url (`ws://127.0.0.1:41235/devtools/browser/...`).
+pub fn endpoint_of(ws: &str) -> Option<DebugEndpoint> {
+    let rest = ws.strip_prefix("ws://")?;
+    let authority = rest.split('/').next()?;
+    let (host, port) = authority.rsplit_once(':')?;
+    Some(DebugEndpoint {
+        address: host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .to_owned(),
+        port: port.parse().ok()?,
+    })
+}
+
 /// A page target.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TargetInfo {
@@ -298,6 +320,19 @@ pub trait Engine: Send {
             .ok_or_else(|| EngineError::Launch("Page.captureScreenshot answered no data".into()))
     }
 
+    /// The browser's Chrome DevTools remote debugging endpoint, where a debugger attaches to its pages (brief 0038):
+    /// the external Chrome's `--remote-debugging-port`, the embedded engine's (`engine/ready`). `None` while it does
+    /// not run or has none. May wait briefly for an engine that just started to report it.
+    fn debug_endpoint(&self) -> Option<DebugEndpoint> {
+        None
+    }
+
+    /// The tab's target id as the debug endpoint lists it (`/json/list`'s `id`): the engine's own id unless the engine
+    /// numbers its tabs itself (the embedded engine asks the page, `Target.getTargetInfo`). Brief 0038.
+    fn cdp_target_id(&self, target_id: &str) -> Option<String> {
+        Some(target_id.to_owned())
+    }
+
     /// Close the browser (and its processes).
     fn shutdown(&mut self);
 }
@@ -305,6 +340,19 @@ pub trait Engine: Send {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn devtools_endpoints() {
+        assert_eq!(
+            endpoint_of("ws://127.0.0.1:41235/devtools/browser/3c1b-77"),
+            Some(DebugEndpoint {
+                address: "127.0.0.1".into(),
+                port: 41235
+            })
+        );
+        assert_eq!(endpoint_of("stdio (pid 4)"), None);
+        assert_eq!(endpoint_of("ws://127.0.0.1/devtools/browser/x"), None);
+    }
 
     #[test]
     fn viewports() {

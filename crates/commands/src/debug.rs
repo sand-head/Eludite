@@ -762,6 +762,29 @@ pub struct CompoundEntry {
     pub profile: Option<String>,
 }
 
+/// A compound's `browser` entry (brief 0038): attach vscode-js-debug to a server entry's page once it is up.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserEntry {
+    /// The server entry it waits for (its `project`); `None`: the compound's first debugged web project.
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub tab: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub web_root: Option<String>,
+}
+
+/// One item of `compound`'s list: a project, or a `browser` entry.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CompoundItem {
+    Browser { browser: BrowserEntry },
+    Project(CompoundEntry),
+}
+
 /// `start`'s `compound` (brief 0028).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Compound {
@@ -771,12 +794,16 @@ pub enum Compound {
     Projects(Vec<CompoundEntry>),
 }
 
-/// Which process `attach` names.
+/// Which process (or page) `attach` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachTarget {
     Pid(u32),
     /// A unique process name (compared without regard to case, the extension optional).
     Name(String),
+    /// A tab of Eludite's browser, debugged with vscode-js-debug (brief 0038).
+    Tab(String),
+    /// A page url of Eludite's browser, or a Chrome DevTools websocket url (brief 0038).
+    Url(String),
     /// Neither: from the UI, the Attach to Process dialog opens.
     Dialog,
 }
@@ -794,6 +821,8 @@ pub enum DebugRequest {
         cargo: CargoOptions,
         /// Several projects, each in its own session (brief 0028).
         compound: Option<Compound>,
+        /// The compound's `browser` entries (brief 0038).
+        browsers: Vec<BrowserEntry>,
         /// Where a web project's page opens (brief 0037); `None`: its launch profile and the settings decide.
         browser: Option<BrowserChoice>,
         wait_ms: Option<u64>,
@@ -942,6 +971,8 @@ pub enum DebugRequest {
         transport: Option<(String, u16)>,
         /// A Mono program's debugger agent: (address, port).
         mono: Option<(String, u16)>,
+        /// A page's web root for vscode-js-debug (brief 0038).
+        web_root: Option<String>,
         wait_ms: Option<u64>,
         budget: Budget,
     },
@@ -1106,6 +1137,14 @@ pub struct SessionRow {
     /// Attached to a running process (brief 0027): Stop detaches.
     #[serde(default, skip_serializing_if = "is_false")]
     pub attached: bool,
+    /// A child session's parent (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u32>,
+    /// A browser session's tab and page url (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// The web project's page (brief 0037).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser: Option<SessionBrowser>,
@@ -1157,6 +1196,23 @@ pub struct FrameRow {
     pub end_line: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_column: Option<u32>,
+    /// Through a source map: the original and generated places (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FrameSourceRow>,
+}
+
+/// A frame's `source` when a source map applies (brief 0038): the original file (the frame's `path`) and the generated
+/// script's place.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FrameSourceRow {
+    pub original: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_column: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -1273,12 +1329,23 @@ pub struct SessionInfo {
     pub runtime: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+    /// The adapter's and its runtime's versions (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_id: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub attached: bool,
+    /// A child session's parent (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<u32>,
+    /// A browser session's tab and page url (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     #[serde(default = "yes")]
     pub agents_allowed: bool,
     /// In break mode: the stop's reason.
@@ -1456,6 +1523,9 @@ pub struct StackFrameRow {
     /// A frame without source (Visual Studio's [External Code]).
     #[serde(default, skip_serializing_if = "is_false")]
     pub external: bool,
+    /// Through a source map: the original and generated places (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<FrameSourceRow>,
 }
 
 /// A variable as `eludite.debug.variables` and the stop summary list it.
@@ -1664,11 +1734,15 @@ pub struct FailedBreakpointRow {
 
 /// Whether an adapter's message for a breakpoint it has not bound says it is still pending (its code has not loaded,
 /// the session has not started) rather than refused: netcoredbg's "pending", eludite-dbg-mono's "will not currently be
-/// hit", "could not yet be bound" and "will bind when its code loads" (brief 0036). Anything else is a refusal.
+/// hit", "could not yet be bound" and "will bind when its code loads" (brief 0036); vscode-js-debug's
+/// "breakpoint.provisionalBreakpoint" (set before the page's script loaded) and "Unbound breakpoint" (no loaded script
+/// has the line yet; brief 0038). Anything else is a refusal.
 pub fn pending_message(message: &str) -> bool {
     let m = message.to_ascii_lowercase();
     [
         "pending",
+        "provisional",
+        "unbound breakpoint",
         "not currently be hit",
         "not yet",
         "will bind",
@@ -1866,6 +1940,21 @@ pub struct ProcessesOutput {
     pub processes: Vec<ProcessRow>,
     pub total: usize,
     pub truncated: bool,
+    /// The browser's tabs, attachable by `tab` (brief 0038); absent while no browser runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tabs: Option<Vec<AttachTabRow>>,
+}
+
+/// A tab `eludite.debug.processes` lists (brief 0038).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttachTabRow {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    /// The debugging session attached to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<u32>,
 }
 
 /// `debug-allow-agents.output.json`.
@@ -2178,6 +2267,9 @@ struct MonoIn {
 struct AttachIn {
     pid: Option<u32>,
     process_name: Option<String>,
+    tab: Option<String>,
+    url: Option<String>,
+    web_root: Option<String>,
     adapter: Option<String>,
     transport: Option<TransportIn>,
     mono: Option<MonoIn>,
@@ -2284,6 +2376,22 @@ fn take_budget(value: &mut Value) -> Result<Budget, CommandError> {
     })
 }
 
+/// A tab id (`t1`), when given (brief 0038).
+fn check_tab(tab: Option<&str>) -> Result<(), CommandError> {
+    match tab {
+        Some(t)
+            if !(t.len() > 1
+                && t.starts_with('t')
+                && t[1..].bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            Err(invalid(format!(
+                "`tab` is a tab id as eludite.browser.tabs lists it (`t1`), not `{t}`"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn check_wait(w: Option<u64>) -> Result<Option<u64>, CommandError> {
     match w {
         Some(ms) if ms > MAX_WAIT_MS => Err(invalid(format!("`wait_ms` is at most {MAX_WAIT_MS}"))),
@@ -2355,6 +2463,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
             if i.args.as_ref().is_some_and(|a| a.len() > 100) {
                 return Err(invalid("`args` takes at most 100 arguments"));
             }
+            let mut browsers = Vec::new();
             let compound = match i.compound {
                 None | Some(Value::Null) => None,
                 Some(Value::String(s)) if s == "startup" => Some(Compound::Startup),
@@ -2364,12 +2473,34 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
                     )));
                 }
                 Some(v @ Value::Array(_)) => {
-                    let entries: Vec<CompoundEntry> = serde_json::from_value(v)
-                        .map_err(|e| invalid(format!("`compound`: {e}")))?;
-                    if entries.is_empty() || entries.len() > MAX_COMPOUND {
+                    let items: Vec<CompoundItem> = serde_json::from_value(v).map_err(|_| {
+                        invalid(
+                            "`compound` lists `{ project, debug?, profile? }` and `{ browser: { project?, tab?, \
+                             url?, web_root? } }` entries",
+                        )
+                    })?;
+                    if items.is_empty() || items.len() > MAX_COMPOUND {
                         return Err(invalid(format!(
                             "`compound` lists 1 to {MAX_COMPOUND} projects"
                         )));
+                    }
+                    let mut entries = Vec::new();
+                    for item in items {
+                        match item {
+                            CompoundItem::Project(e) => entries.push(e),
+                            CompoundItem::Browser { browser } => {
+                                check_tab(browser.tab.as_deref())?;
+                                non_empty("browser.project", browser.project.clone())?;
+                                non_empty("browser.url", browser.url.clone())?;
+                                non_empty("browser.web_root", browser.web_root.clone())?;
+                                browsers.push(browser);
+                            }
+                        }
+                    }
+                    if entries.is_empty() {
+                        return Err(invalid(
+                            "`compound` needs a project to start; a `browser` entry attaches to a project's page",
+                        ));
                     }
                     for e in &entries {
                         if e.project.trim().is_empty() {
@@ -2398,6 +2529,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
             }
             DebugRequest::Start {
                 compound,
+                browsers,
                 project: non_empty("project", i.project)?,
                 debug: i.debug.unwrap_or(true),
                 profile: non_empty("profile", i.profile)?,
@@ -2783,21 +2915,60 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
         }
         ATTACH => {
             let i: AttachIn = input(value)?;
-            let target = match (i.pid, non_empty("process_name", i.process_name)?) {
-                (Some(0), _) => return Err(invalid("`pid` is at least 1")),
-                (Some(pid), _) => AttachTarget::Pid(pid),
-                (None, Some(name)) => AttachTarget::Name(name.trim().to_owned()),
-                (None, None) => AttachTarget::Dialog,
+            let tab = i.tab.clone();
+            check_tab(tab.as_deref())?;
+            let url = non_empty("url", i.url.clone())?;
+            if url.as_ref().is_some_and(|u| u.chars().count() > 2048) {
+                return Err(invalid("`url` is at most 2048 characters"));
+            }
+            let process = i.pid.is_some() || i.process_name.is_some();
+            let page = tab.is_some() || url.is_some();
+            if process && page || tab.is_some() && url.is_some() {
+                return Err(invalid(
+                    "name one target: `pid`, `process_name`, `tab` or `url`",
+                ));
+            }
+            let target = match (i.pid, non_empty("process_name", i.process_name)?, tab, url) {
+                (Some(0), ..) => return Err(invalid("`pid` is at least 1")),
+                (Some(pid), ..) => AttachTarget::Pid(pid),
+                (None, Some(name), ..) => AttachTarget::Name(name.trim().to_owned()),
+                (None, None, Some(tab), _) => AttachTarget::Tab(tab),
+                (None, None, None, Some(url)) => AttachTarget::Url(url),
+                (None, None, None, None) => AttachTarget::Dialog,
             };
             let adapter = match i.adapter.as_deref() {
+                None if page => Some("javascript".to_owned()),
                 None => i.mono.as_ref().map(|_| "mono".to_owned()),
-                Some(a @ ("coreclr" | "mono" | "netfx" | "lldb")) => Some(a.to_owned()),
+                Some("javascript") if process => {
+                    return Err(invalid(
+                        "a browser is attached by tab or url, not by process: pass `tab` (eludite.browser.tabs' \
+                         id) or `url` with adapter `javascript`",
+                    ));
+                }
+                Some(a) if page && a != "javascript" => {
+                    return Err(invalid(format!(
+                        "a page (`tab` or `url`) is debugged with adapter `javascript`, not `{a}`"
+                    )));
+                }
+                Some(a @ ("coreclr" | "mono" | "netfx" | "lldb" | "javascript")) => {
+                    Some(a.to_owned())
+                }
                 Some(other) => {
                     return Err(invalid(format!(
-                        "`adapter` is coreclr, mono, netfx or lldb, not `{other}`"
+                        "`adapter` is coreclr, mono, netfx, lldb or javascript, not `{other}`"
                     )));
                 }
             };
+            let js = adapter.as_deref() == Some("javascript");
+            if js && (i.mono.is_some() || i.transport.is_some()) {
+                return Err(invalid(
+                    "`mono` and `transport` are for a process; a page needs `tab` or `url`",
+                ));
+            }
+            if i.web_root.is_some() && !js {
+                return Err(invalid("`web_root` is for a page (`tab` or `url`)"));
+            }
+            let web_root = non_empty("web_root", i.web_root)?;
             if i.mono.is_some() && adapter.as_deref() != Some("mono") {
                 return Err(invalid("`mono` is for adapter `mono`"));
             }
@@ -2829,6 +3000,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
                 adapter,
                 transport,
                 mono,
+                web_root,
                 wait_ms: check_wait(i.wait_ms)?,
                 budget,
             }
@@ -2932,6 +3104,17 @@ pub fn debug_call(id: &str, input: &Value, view: &PolicyView) -> Option<DebugCal
                 attach: None,
             }
         }
+        // A tab of the browser Eludite runs is Eludite's; a url may be any browser's (brief 0038).
+        ATTACH if input.get("tab").is_some_and(Value::is_string) => DebugCall {
+            drive: true,
+            evaluate: false,
+            attach: Some(false),
+        },
+        ATTACH if input.get("url").is_some_and(Value::is_string) => DebugCall {
+            drive: true,
+            evaluate: false,
+            attach: Some(true),
+        },
         ATTACH => {
             let pid = input
                 .get("pid")
@@ -3105,6 +3288,7 @@ mod tests {
             parse(START, json!({})).unwrap(),
             DebugRequest::Start {
                 compound: None,
+                browsers: Vec::new(),
                 project: None,
                 debug: true,
                 profile: None,
@@ -3124,6 +3308,7 @@ mod tests {
             .unwrap(),
             DebugRequest::Start {
                 compound: None,
+                browsers: Vec::new(),
                 project: Some("app".into()),
                 debug: true,
                 profile: None,
@@ -3148,6 +3333,7 @@ mod tests {
             .unwrap(),
             DebugRequest::Start {
                 compound: None,
+                browsers: Vec::new(),
                 project: Some("App".into()),
                 debug: false,
                 profile: Some("App".into()),
@@ -3375,6 +3561,9 @@ mod tests {
                 runtime: Some("coreclr".into()),
                 process_id: Some(7),
                 attached: true,
+                parent: None,
+                tab: None,
+                url: None,
                 // Brief 0037: the web project's page.
                 browser: Some(SessionBrowser {
                     tab: Some("t1".into()),
@@ -3998,6 +4187,8 @@ mod tests {
             "The breakpoint could not yet be bound to a valid location",
             "The breakpoint will bind when its code loads.",
             "The breakpoint is pending and will be resolved when debugging starts.",
+            "breakpoint.provisionalBreakpoint",
+            "Unbound breakpoint",
         ] {
             assert!(pending_message(pending), "{pending}");
         }
@@ -4040,6 +4231,7 @@ mod tests {
             end_line: Some(5),
             end_column: Some(20),
             external: false,
+            source: None,
         };
         let native = StackFrameRow {
             index: 1,
@@ -4629,6 +4821,7 @@ mod tests {
                 adapter: None,
                 transport: None,
                 mono: None,
+                web_root: None,
                 wait_ms: None,
                 budget: b
             }
@@ -4645,6 +4838,7 @@ mod tests {
                 adapter: Some("coreclr".into()),
                 transport: Some(("winbox".into(), 4711)),
                 mono: None,
+                web_root: None,
                 wait_ms: Some(100),
                 budget: Budget {
                     max_frames: 3,
@@ -4660,6 +4854,7 @@ mod tests {
                 adapter: Some("mono".into()),
                 transport: None,
                 mono: Some(("127.0.0.1".into(), 55555)),
+                web_root: None,
                 wait_ms: None,
                 budget: b
             }
@@ -4785,6 +4980,21 @@ mod tests {
             ],
             total: 2,
             truncated: false,
+            // Brief 0038: the browser's tabs.
+            tabs: Some(vec![
+                AttachTabRow {
+                    id: "t1".into(),
+                    title: "Minimal API".into(),
+                    url: "http://localhost:5180/".into(),
+                    session: Some(2),
+                },
+                AttachTabRow {
+                    id: "t2".into(),
+                    title: "".into(),
+                    url: "about:blank".into(),
+                    session: None,
+                },
+            ]),
         })
         .to_json();
         conforms(
@@ -5145,9 +5355,13 @@ mod tests {
                 stop: 2,
                 runtime: Some("coreclr".into()),
                 adapter: Some("fake (stdio)".into()),
+                adapter_version: None,
                 process_id: Some(4242),
                 project: Some("/s/App/App.csproj".into()),
                 attached: false,
+                parent: None,
+                tab: None,
+                url: None,
                 agents_allowed: true,
                 stopped: Some("breakpoint".into()),
             },
@@ -5244,5 +5458,229 @@ mod tests {
             "agent_driving": false, "truncated": false}))
         .unwrap();
         assert_eq!(old.session, None);
+    }
+
+    /// Brief 0038: `attach` by `tab` or `url` (vscode-js-debug), the compound's `browser` entries, the permission
+    /// class of each, and the outputs' new members against their schemas.
+    #[test]
+    fn browser_attach_compound_entries_and_outputs() {
+        use crate::Escalation;
+        use crate::policy::PolicySnapshot;
+        let b = Budget::default();
+        assert_eq!(
+            parse(
+                ATTACH,
+                json!({"tab": "t1", "web_root": "/w/wwwroot", "wait_ms": 100})
+            )
+            .unwrap(),
+            DebugRequest::Attach {
+                target: AttachTarget::Tab("t1".into()),
+                adapter: Some("javascript".into()),
+                transport: None,
+                mono: None,
+                web_root: Some("/w/wwwroot".into()),
+                wait_ms: Some(100),
+                budget: b
+            }
+        );
+        assert!(matches!(
+            parse(ATTACH, json!({"url": "ws://127.0.0.1:9222/devtools/page/AB", "adapter": "javascript"})).unwrap(),
+            DebugRequest::Attach { target: AttachTarget::Url(u), adapter: Some(a), .. }
+                if u == "ws://127.0.0.1:9222/devtools/page/AB" && a == "javascript"
+        ));
+        // `adapter: javascript` alone is the dialog filtered to the tabs (from the UI).
+        assert!(matches!(
+            parse(ATTACH, json!({"adapter": "javascript"})).unwrap(),
+            DebugRequest::Attach { target: AttachTarget::Dialog, adapter: Some(a), .. } if a == "javascript"
+        ));
+        let refused = |v: Value| {
+            parse(ATTACH, v.clone())
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| panic!("{v}"))
+        };
+        assert!(refused(json!({"pid": 42, "adapter": "javascript"})).contains("by tab or url"));
+        for bad in [
+            json!({"tab": "1"}),
+            json!({"tab": "t"}),
+            json!({"tab": "t1", "pid": 4}),
+            json!({"tab": "t1", "url": "http://x/"}),
+            json!({"url": ""}),
+            json!({"url": "x".repeat(2049)}),
+            json!({"tab": "t1", "adapter": "coreclr"}),
+            json!({"tab": "t1", "mono": {"port": 1}}),
+            json!({"tab": "t1", "transport": {"kind": "tcp", "host": "h", "port": 1}}),
+            json!({"pid": 4, "web_root": "/w"}),
+        ] {
+            assert!(parse(ATTACH, bad.clone()).is_err(), "{bad}");
+        }
+        // The compound's browser entries.
+        match parse(
+            START,
+            json!({"compound": [{"project": "Web"}, {"browser": {"project": "Web", "web_root": "/w/Web/wwwroot"}},
+                                {"browser": {"tab": "t3"}}]}),
+        )
+        .unwrap()
+        {
+            DebugRequest::Start { compound, browsers, .. } => {
+                assert_eq!(
+                    compound,
+                    Some(Compound::Projects(vec![CompoundEntry {
+                        project: "Web".into(),
+                        debug: true,
+                        profile: None
+                    }]))
+                );
+                assert_eq!(
+                    browsers,
+                    vec![
+                        BrowserEntry {
+                            project: Some("Web".into()),
+                            web_root: Some("/w/Web/wwwroot".into()),
+                            ..Default::default()
+                        },
+                        BrowserEntry { tab: Some("t3".into()), ..Default::default() },
+                    ]
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        for bad in [
+            json!({"compound": [{"browser": {}}]}),
+            json!({"compound": [{"project": "Web"}, {"browser": {"tab": "x1"}}]}),
+            json!({"compound": [{"project": "Web"}, {"browser": {"bogus": 1}}]}),
+            json!({"compound": [{"project": "Web"}, {"browser": {"url": ""}}]}),
+            json!({"compound": [{"project": "Web", "browser": {}}]}),
+        ] {
+            assert!(parse(START, bad.clone()).is_err(), "{bad}");
+        }
+        // A tab of Eludite's browser is Eludite's; a url may be any browser's.
+        let defaults = PolicyView::of(PolicySnapshot {
+            policy: serde_json::from_value(json!({"version": 1})).unwrap(),
+            ..Default::default()
+        });
+        let hook = |input: Value| escalation(ATTACH).and_then(|h| h(&input, &defaults));
+        assert_eq!(hook(json!({"tab": "t1"})), None);
+        assert!(matches!(
+            hook(json!({"url": "ws://127.0.0.1:9222/devtools/page/AB"})),
+            Some(Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                ..
+            })
+        ));
+        // Outputs.
+        let source = FrameSourceRow {
+            original: "/w/wwwroot/app.ts".into(),
+            generated: Some("/w/wwwroot/app.js".into()),
+            generated_line: Some(18),
+            generated_column: Some(5),
+        };
+        let frame = StackFrameRow {
+            index: 0,
+            name: "button#add.onAdd".into(),
+            path: Some("/w/wwwroot/app.ts".into()),
+            line: Some(25),
+            column: Some(3),
+            external: false,
+            source: Some(source.clone()),
+            ..Default::default()
+        };
+        let stack = DebugOutput::Stack(StackOutput {
+            threads: vec![StackThread {
+                id: 0,
+                name: "Minimal API".into(),
+                frames: vec![frame.clone()],
+                total: 1,
+                truncated: false,
+                next: None,
+            }],
+            stop: 1,
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-stack.output.json"),
+            &stack,
+        );
+        let summary = DebugOutput::Summary(Box::new(StopSummary {
+            session: Some(3),
+            mode: "break".into(),
+            frames: Some(FramesBlock {
+                thread: 0,
+                rows: vec![frame],
+                total: 1,
+                truncated: false,
+            }),
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-stop-summary.output.json"),
+            &summary,
+        );
+        let browser = SessionInfo {
+            id: 2,
+            name: "Minimal API".into(),
+            mode: "running".into(),
+            generation: 5,
+            runtime: Some("javascript".into()),
+            adapter: Some(
+                "vscode-js-debug 1.140.0 under node v22.12.0 (tcp 127.0.0.1:41234)".into(),
+            ),
+            adapter_version: Some("vscode-js-debug 1.140.0, node v22.12.0".into()),
+            project: Some("Minimal API".into()),
+            attached: true,
+            tab: Some("t1".into()),
+            url: Some("http://localhost:5180/".into()),
+            agents_allowed: true,
+            ..Default::default()
+        };
+        let child = SessionInfo {
+            id: 3,
+            parent: Some(2),
+            mode: "break".into(),
+            stopped: Some("breakpoint".into()),
+            ..browser.clone()
+        };
+        let sessions = DebugOutput::Sessions(SessionsOutput {
+            sessions: vec![browser.clone(), child.clone()],
+            active: Some(3),
+        })
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-sessions.output.json"),
+            &sessions,
+        );
+        let state = DebugOutput::State(Box::new(DebugState {
+            mode: "break".into(),
+            session: Some(SessionRow {
+                id: Some(3),
+                project: "Minimal API".into(),
+                program: "http://localhost:5180/".into(),
+                debug: true,
+                runtime: Some("javascript".into()),
+                attached: true,
+                parent: Some(2),
+                tab: Some("t1".into()),
+                url: Some("http://localhost:5180/".into()),
+                ..Default::default()
+            }),
+            frames: vec![FrameRow {
+                index: 0,
+                name: "total".into(),
+                path: Some("/w/wwwroot/app.ts".into()),
+                line: Some(15),
+                source: Some(source),
+                ..Default::default()
+            }],
+            sessions: vec![browser, child],
+            ..Default::default()
+        }))
+        .to_json();
+        conforms(
+            include_str!("../../../protocol/schemas/debug-state.output.json"),
+            &state,
+        );
+        assert_eq!(state["sessions"][1]["parent"], 2);
+        assert_eq!(state["frames"][0]["source"]["generated_line"], 18);
     }
 }

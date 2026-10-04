@@ -3,7 +3,8 @@
 //! input, close and shutdown. Brief 0032: no request on `about:blank` (a net log), popups as tabs, `<select>`
 //! popups in the frames, cursors, the context menu, JavaScript dialogs, file choosers, permission and
 //! authentication prompts answered by the shell, downloads and their limit, DevTools as a tab, IME, history and the
-//! favicon. Needs the `cef` feature (CEF fetched by tools/cef/fetch.sh and CEF_PATH set); skips
+//! favicon. Brief 0038: the remote debugging port, reported in `engine/ready`, answering on 127.0.0.1 only, listing
+//! the tab under the target id `Target.getTargetInfo` gives on the tab's channel. Needs the `cef` feature (CEF fetched by tools/cef/fetch.sh and CEF_PATH set); skips
 //! with a message otherwise. Runs as root only with ELUDITE_CHROME_NO_SANDBOX=1, which this test sets when the
 //! effective user is root (as brief 0023's Chrome tests do), saying so.
 
@@ -1040,4 +1041,107 @@ fn ime_composition_commits_text_and_state_carries_history_and_favicon() {
             && m["params"]["loading"] == false
     });
     e.request("shutdown", json!({})).unwrap();
+}
+
+/// `GET path` on 127.0.0.1:`port` (HTTP/1.1; the body read by its length, as DevTools keeps the connection).
+fn devtools_get(port: u16, path: &str) -> Value {
+    use std::io::{BufRead as _, Read as _};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    write!(s, "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").unwrap();
+    let mut r = BufReader::new(s);
+    let mut length = 0usize;
+    loop {
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        let line = line.trim_end();
+        if line.is_empty() {
+            break;
+        }
+        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+            length = v.trim().parse().unwrap();
+        }
+    }
+    let mut body = vec![0u8; length];
+    r.read_exact(&mut body).unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
+/// This machine's address on its default route, when it has one other than loopback.
+fn non_loopback_ip() -> Option<std::net::IpAddr> {
+    let s = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    s.connect("10.255.255.255:9").ok()?;
+    let ip = s.local_addr().ok()?.ip();
+    (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
+/// Brief 0038: after `initialize` the engine reports its remote debugging port in `engine/ready`; DevTools answers
+/// there on 127.0.0.1, lists the tab as a page under the target id `Target.getTargetInfo` answers on the tab's own
+/// channel, and refuses a connection to the machine's other address.
+#[test]
+fn the_remote_debugging_port_is_reported_and_answers_on_loopback_only() {
+    let Some((mut e, _)) = spawn_engine() else {
+        return;
+    };
+    let ready = e.wait("engine/ready", |m| m["method"] == "engine/ready");
+    let port = ready["params"]["remoteDebuggingPort"].as_u64().unwrap() as u16;
+    assert!(port >= 1024, "{ready}");
+    assert_eq!(ready["params"]["address"], "127.0.0.1");
+    let version = devtools_get(port, "/json/version");
+    assert!(
+        version["Browser"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("154.0.8037.58"),
+        "{version}"
+    );
+    let tab = e
+        .request(
+            "tab/create",
+            json!({"url": data_url(QUADRANTS), "width": 200, "height": 100}),
+        )
+        .unwrap()["tab"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    e.wait_for_pixels(&tab, &[(10, 10, RED)]);
+    e.notify(
+        "tab/cdp",
+        json!({"tab": tab, "message": {"id": 7, "method": "Target.getTargetInfo", "params": {}}}),
+    );
+    let info = e.wait("Target.getTargetInfo", |m| {
+        m["method"] == "tab/cdpEvent" && m["params"]["message"]["id"] == 7
+    });
+    let target = info["params"]["message"]["result"]["targetInfo"]["targetId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{info}"))
+        .to_owned();
+    let list = devtools_get(port, "/json/list");
+    let page = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == target.as_str())
+        .unwrap_or_else(|| panic!("{target} not in {list}"));
+    assert_eq!(page["type"], "page");
+    let ws = page["webSocketDebuggerUrl"].as_str().unwrap_or_default();
+    assert_eq!(
+        ws,
+        format!("ws://127.0.0.1:{port}/devtools/page/{target}"),
+        "{page}"
+    );
+    match non_loopback_ip() {
+        Some(ip) => {
+            let r = std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::new(ip, port),
+                Duration::from_secs(2),
+            );
+            assert!(r.is_err(), "the port answered on {ip}");
+        }
+        None => {
+            eprintln!("no address other than loopback here: the loopback-only check is skipped")
+        }
+    }
+    let _ = e.request("shutdown", json!({}));
+    let _ = e.child.wait();
 }

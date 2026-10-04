@@ -1,6 +1,6 @@
 # Brief 0038: JavaScript debugging in the Web Browser window with vscode-js-debug
 
-Status: open
+Status: done on Linux (Windows and macOS not run; netcoredbg not run); [report](0038-report.md)
 Phase: 2 and 4 (proposal 0002, brief D; proposal 0001 E3)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 6, 12), 4.5 (adapters: vscode-js-debug for JavaScript and browsers), 4.9 (a tab is a debug target), 5.5, 7 (web row: the embedded Web Browser window's tabs as the js-debug target, compound launch), 10 (Phase 4: full-stack breakpoints), 11; proposal 0002 sections 4.4, 8 (D), 9 (the Rust DAP adapter over CDP, named as the fallback); proposal 0001 sections 8 (E3), 11
 Related ADRs: ADR-0003, ADR-0008

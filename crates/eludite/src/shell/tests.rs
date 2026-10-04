@@ -129,6 +129,7 @@ pub(super) fn setup_debug(
             platform: eludite_dap::launch::Platform::current(),
             store_dir: None,
             dotnet: "dotnet".into(),
+            js: Default::default(),
         });
     }
     let opened: Arc<std::sync::Mutex<Vec<PathBuf>>> = Arc::default();

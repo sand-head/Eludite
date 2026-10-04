@@ -15,6 +15,14 @@
 //! - **The end.** When the recording ended with the adapter closing its output, the replayer closes the connection
 //!   after its last message; otherwise when the client hangs up.
 //!
+//! - **Marks.** A recorded mark (a test's action outside DAP, such as a click in a page; brief 0038) holds the
+//!   adapter's later messages until the test passes it with [`ReplayHandle::mark`].
+//! - **Connections.** The connections of one adapter server recorded with one counter (vscode-js-debug's sessions,
+//!   `crate::record::record_ordered`) replay as a [`ReplayGroup`] ([`serve_in_group`]): an adapter message also
+//!   waits for the client's messages of the other connections recorded before it.
+//! - **Tokens.** [`ReplayOptions::tokens`] are the run's own values for the recording's token placeholders (a page's
+//!   origin, a DevTools port, a target id), scrubbed from requests and substituted into the adapter's messages.
+//!
 //! [`ReplayHandle::waiting_for`] says what a stalled replay waits for (the recorded request the client has not
 //! sent), for a test's timeout message.
 
@@ -39,6 +47,8 @@ pub struct ReplayOptions {
     pub pid: i64,
     /// Keep the recorded gaps between the adapter's messages (`--real-time`); otherwise they are zero.
     pub real_time: bool,
+    /// (placeholder, this run's text) for the recording's tokens (`crate::record::RecordHandle::add_token`).
+    pub tokens: Vec<(String, String)>,
 }
 
 enum Kind {
@@ -52,6 +62,11 @@ enum Kind {
     Adapter {
         message: Value,
     },
+    /// A test's action outside DAP: what follows waits until the test passes it.
+    Mark {
+        label: String,
+        passed: bool,
+    },
     /// The client's answers to reverse requests: not matched.
     Other,
 }
@@ -59,6 +74,62 @@ enum Kind {
 struct Entry {
     t_ms: u64,
     kind: Kind,
+    /// The message's order across the group's connections.
+    order: Option<u64>,
+}
+
+/// The replays of one adapter server's connections (brief 0038): the client messages (requests and marks) of every
+/// connection that have not arrived, by their recorded order, so an adapter message plays only once all those
+/// recorded before it, on any connection, have.
+pub struct ReplayGroup {
+    pending: Mutex<std::collections::BTreeSet<u64>>,
+    members: Mutex<Vec<std::sync::Weak<Shared>>>,
+}
+
+impl ReplayGroup {
+    /// The group of `recordings` (each connection's, recorded with one counter).
+    pub fn new(recordings: &[Recording]) -> Arc<Self> {
+        let pending = recordings
+            .iter()
+            .flat_map(|r| &r.messages)
+            .filter(|m| {
+                m.dir == crate::record::Dir::Client
+                    && matches!(
+                        m.message["type"].as_str(),
+                        Some("request" | crate::record::MARK)
+                    )
+            })
+            .filter_map(|m| m.order)
+            .collect();
+        Arc::new(Self {
+            pending: Mutex::new(pending),
+            members: Mutex::default(),
+        })
+    }
+
+    /// Whether every client message recorded before `order` has arrived.
+    fn ready(&self, order: u64) -> bool {
+        lock(&self.pending)
+            .first()
+            .is_none_or(|first| *first > order)
+    }
+
+    fn first_pending(&self) -> Option<u64> {
+        lock(&self.pending).first().copied()
+    }
+
+    /// The client message recorded as `order` arrived: the members may play on.
+    fn arrived(&self, order: u64) {
+        lock(&self.pending).remove(&order);
+        let members: Vec<Arc<Shared>> = lock(&self.members)
+            .iter()
+            .filter_map(std::sync::Weak::upgrade)
+            .collect();
+        for m in members {
+            drop(lock(&m.state));
+            m.wake.notify_all();
+        }
+    }
 }
 
 struct State {
@@ -83,7 +154,7 @@ impl State {
     fn advance_unmatched(&mut self) {
         while self.first_unmatched < self.entries.len() {
             match &self.entries[self.first_unmatched].kind {
-                Kind::Request { matched: None, .. } => break,
+                Kind::Request { matched: None, .. } | Kind::Mark { passed: false, .. } => break,
                 _ => self.first_unmatched += 1,
             }
         }
@@ -98,6 +169,7 @@ struct Shared {
     real_time: bool,
     ended: Option<Ended>,
     name: String,
+    group: Option<Arc<ReplayGroup>>,
 }
 
 /// Observes a replay from the test.
@@ -126,6 +198,32 @@ impl ReplayHandle {
         }
     }
 
+    /// The test did `label` (a mark the recording has): the adapter's messages recorded after it may play. False
+    /// when the recording has no such mark left.
+    pub fn mark(&self, label: &str) -> bool {
+        let mut s = lock(&self.shared.state);
+        let found = s.entries.iter_mut().find_map(|e| match &mut e.kind {
+            Kind::Mark { label: l, passed } if l == label && !*passed => Some(passed),
+            _ => None,
+        });
+        let Some(passed) = found else {
+            return false;
+        };
+        *passed = true;
+        let order = s
+            .entries
+            .iter()
+            .find(|e| matches!(&e.kind, Kind::Mark { label: l, passed: true } if l == label))
+            .and_then(|e| e.order);
+        s.advance_unmatched();
+        drop(s);
+        self.shared.wake.notify_all();
+        if let (Some(g), Some(o)) = (&self.shared.group, order) {
+            g.arrived(o);
+        }
+        true
+    }
+
     /// How many adapter messages were played.
     pub fn played(&self) -> usize {
         lock(&self.shared.state).played
@@ -143,14 +241,33 @@ impl ReplayHandle {
         let s = lock(&self.shared.state);
         let next = (s.cursor..s.entries.len())
             .find(|&i| matches!(s.entries[i].kind, Kind::Adapter { .. }))?;
-        if s.first_unmatched > next {
-            return None;
-        }
         let Kind::Adapter { message } = &s.entries[next].kind else {
             return None;
         };
-        let Kind::Request { command, key, .. } = &s.entries[s.first_unmatched].kind else {
-            return None;
+        if s.first_unmatched > next {
+            let (Some(g), Some(o)) = (&self.shared.group, s.entries[next].order) else {
+                return None;
+            };
+            if g.ready(o) {
+                return None;
+            }
+            return Some(format!(
+                "the recording's message #{} ({}) waits for another connection's message recorded before it (order {})",
+                next + 1,
+                label(message),
+                g.first_pending().unwrap_or_default()
+            ));
+        }
+        let (command, key) = match &s.entries[s.first_unmatched].kind {
+            Kind::Request { command, key, .. } => (command, key),
+            Kind::Mark { label: mark, .. } => {
+                return Some(format!(
+                    "the recording's message #{} ({}) waits for the test's mark `{mark}` (an action outside DAP), which it has not passed",
+                    next + 1,
+                    label(message),
+                ));
+            }
+            _ => return None,
         };
         Some(format!(
             "the recording's message #{} ({}) waits for the client's `{command}` {} (recorded as message #{}), which it has not sent",
@@ -173,6 +290,10 @@ impl ReplayHandle {
                     matched: None,
                     ..
                 } => Some(format!("{command} {}", key["arguments"])),
+                Kind::Mark {
+                    label,
+                    passed: false,
+                } => Some(format!("mark {label}")),
                 _ => None,
             })
             .collect()
@@ -205,6 +326,23 @@ fn key_of(command: &str, arguments: Option<&Value>) -> Value {
 /// Serve `recording` on an in-process connection. Requests are matched and messages played on the replayer's own
 /// threads; the handle observes it.
 pub fn serve(recording: &Recording, options: ReplayOptions) -> (Connection, ReplayHandle) {
+    serve_with(recording, options, None)
+}
+
+/// [`serve`] one connection of `group` (one adapter server's connections, recorded with one counter).
+pub fn serve_in_group(
+    recording: &Recording,
+    options: ReplayOptions,
+    group: Arc<ReplayGroup>,
+) -> (Connection, ReplayHandle) {
+    serve_with(recording, options, Some(group))
+}
+
+fn serve_with(
+    recording: &Recording,
+    options: ReplayOptions,
+    group: Option<Arc<ReplayGroup>>,
+) -> (Connection, ReplayHandle) {
     let entries: Vec<Entry> = recording
         .messages
         .iter()
@@ -219,6 +357,10 @@ pub fn serve(recording: &Recording, options: ReplayOptions) -> (Connection, Repl
                         matched: None,
                     }
                 }
+                (crate::record::Dir::Client, Some(crate::record::MARK)) => Kind::Mark {
+                    label: m.message["label"].as_str().unwrap_or_default().to_owned(),
+                    passed: false,
+                },
                 (crate::record::Dir::Client, _) => Kind::Other,
                 (crate::record::Dir::Adapter, _) => {
                     let mut message = m.message.clone();
@@ -228,11 +370,18 @@ pub fn serve(recording: &Recording, options: ReplayOptions) -> (Connection, Repl
                     Kind::Adapter { message }
                 }
             };
-            Entry { t_ms: m.t_ms, kind }
+            Entry {
+                t_ms: m.t_ms,
+                kind,
+                order: m.order,
+            }
         })
         .collect();
     let mut scrubber = Scrubber::new(&options.roots);
     scrubber.add_pid(options.pid);
+    for (placeholder, text) in &options.tokens {
+        scrubber.add_token(placeholder, text);
+    }
     let mut state = State {
         entries,
         cursor: 0,
@@ -254,11 +403,16 @@ pub fn serve(recording: &Recording, options: ReplayOptions) -> (Connection, Repl
         substitution: Substitution {
             roots: options.roots.clone(),
             pid: options.pid,
+            tokens: options.tokens.clone(),
         },
         real_time: options.real_time,
         ended: recording.ended,
         name: name.clone(),
+        group: group.clone(),
     });
+    if let Some(g) = &group {
+        lock(&g.members).push(Arc::downgrade(&shared));
+    }
     let (client_reader, adapter_writer) = std::io::pipe().expect("pipe");
     let (adapter_reader, client_writer) = std::io::pipe().expect("pipe");
     let reader_shared = shared.clone();
@@ -308,6 +462,7 @@ fn on_client(shared: &Shared, msg: Value) {
         .entries
         .iter()
         .position(|e| matches!(&e.kind, Kind::Request { key: k, matched: None, .. } if *k == key));
+    let order = found.and_then(|i| s.entries[i].order);
     match found {
         Some(i) => {
             let t = s.entries[i].t_ms;
@@ -339,6 +494,9 @@ fn on_client(shared: &Shared, msg: Value) {
     }
     drop(s);
     shared.wake.notify_all();
+    if let (Some(g), Some(o)) = (&shared.group, order) {
+        g.arrived(o);
+    }
 }
 
 /// Why `key` matched nothing: the nearest recorded request of that command (the next unmatched one first, then the
@@ -437,7 +595,11 @@ fn play(shared: &Shared, mut writer: std::io::PipeWriter) {
                 // Every request recorded before it has arrived, and a response's own request too.
                 let ready = s.cursor < s.entries.len()
                     && s.first_unmatched > s.cursor
-                    && answered_request_arrived(&s, s.cursor);
+                    && answered_request_arrived(&s, s.cursor)
+                    && match (&shared.group, s.entries[s.cursor].order) {
+                        (Some(g), Some(o)) => g.ready(o),
+                        _ => true,
+                    };
                 if ready {
                     let i = s.cursor;
                     let t = s.entries[i].t_ms;

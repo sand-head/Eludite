@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Re-record brief 0033's DAP conformance corpus (corpus/dap/) from every real adapter on this machine, through the
 # shell's conformance tests (crates/eludite/src/shell/debug/conformance_tests.rs): eludite-dbg-mono under Mono,
-# lldb-dap, netcoredbg. Prints which adapters it records and which it skips, and why.
+# lldb-dap, netcoredbg, vscode-js-debug (brief 0038). Prints which adapters it records and which it skips, and why.
 #
-#   tools/dap-corpus/record.sh [--check] [mono] [lldb] [netcoredbg]
+#   tools/dap-corpus/record.sh [--check] [mono] [lldb] [netcoredbg] [js-debug]
 #
 # With no adapter named, every one found is recorded. Without --check the recordings and goldens are written into
 # corpus/dap/ (review `git diff corpus/dap` and commit them). With --check they go to a temporary folder (or
@@ -14,7 +14,10 @@
 # Needs: Mono and the .NET SDK (eludite-dbg-mono and the TestApp are built here with `dotnet build`), lldb-dap
 # (ELUDITE_LLDB_DAP or on PATH) and cargo, netcoredbg (ELUDITE_NETCOREDBG, from tools/netcoredbg/fetch.sh) and the
 # .NET SDK. lldb/attach-detach attaches lldb-dap to a process it did not start: on Linux with Yama, that needs
-# `sysctl kernel.yama.ptrace_scope=0` (as CI sets it).
+# `sysctl kernel.yama.ptrace_scope=0` (as CI sets it). js-debug (Linux): vscode-js-debug (ELUDITE_JS_DEBUG, from
+# tools/js-debug/fetch.sh), Node.js 18 or later (ELUDITE_NODE or on PATH), CEF (CEF_PATH, from tools/cef/fetch.sh:
+# eludite-chromium is built here with its `cef` feature) and a display (DISPLAY, e.g. Xvfb); as root, also
+# ELUDITE_CHROME_NO_SANDBOX=1.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
@@ -24,13 +27,13 @@ wanted=()
 for a in "$@"; do
   case "$a" in
     --check) check=1 ;;
-    mono | lldb | netcoredbg) wanted+=("$a") ;;
-    *) echo "usage: $0 [--check] [mono] [lldb] [netcoredbg]" >&2; exit 2 ;;
+    mono | lldb | netcoredbg | js-debug) wanted+=("$a") ;;
+    *) echo "usage: $0 [--check] [mono] [lldb] [netcoredbg] [js-debug]" >&2; exit 2 ;;
   esac
 done
 required=0
 if [ ${#wanted[@]} -eq 0 ]; then
-  wanted=(mono lldb netcoredbg)
+  wanted=(mono lldb netcoredbg js-debug)
 else
   required=1
 fi
@@ -52,6 +55,13 @@ for a in "${wanted[@]}"; do
     netcoredbg)
       if [ -z "${ELUDITE_NETCOREDBG:-}" ] && ! have netcoredbg; then why="netcoredbg is not found (tools/netcoredbg/fetch.sh prints the path for ELUDITE_NETCOREDBG)"
       elif ! have dotnet; then why="the .NET SDK (dotnet) is not on PATH"
+      fi ;;
+    js-debug)
+      if [ "$(uname -s)" != Linux ]; then why="the embedded engine runs on Linux only so far"
+      elif [ -z "${ELUDITE_JS_DEBUG:-}" ]; then why="ELUDITE_JS_DEBUG is not set (tools/js-debug/fetch.sh prints it)"
+      elif [ -z "${ELUDITE_NODE:-}" ] && ! have node; then why="Node.js is not on PATH (or set ELUDITE_NODE)"
+      elif [ -z "${CEF_PATH:-}" ]; then why="CEF_PATH is not set (tools/cef/fetch.sh prints it)"
+      elif [ -z "${DISPLAY:-}" ]; then why="no DISPLAY (run under Xvfb)"
       fi ;;
   esac
   if [ -n "$why" ]; then
@@ -75,8 +85,14 @@ for a in "${found[@]}"; do
   fi
 done
 
+for a in "${found[@]}"; do
+  if [ "$a" = js-debug ]; then
+    cargo build -p eludite-chromium --features cef
+  fi
+done
+
 filters=()
-for a in "${found[@]}"; do filters+=("conformance_tests::${a}_"); done
+for a in "${found[@]}"; do filters+=("conformance_tests::${a//-/_}_"); done
 if [ $check -eq 1 ]; then
   out=${RECORD_DAP:-$(mktemp -d)}
   export RECORD_DAP="$out" DAP_CORPUS_CHECK=1

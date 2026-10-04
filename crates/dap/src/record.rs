@@ -10,7 +10,18 @@
 //! - every process id the session named (the `process` event's `systemProcessId`, `attach`'s `processId` or `pid`,
 //!   ids the caller adds) becomes `${PID}`, as a number anywhere and as a word in text (ids of 1000 and over);
 //! - timestamps in text (`2026-10-03T12:34:56.789Z`, `2026-10-03 12:34:56`) become `${TIME}`;
-//! - a `variables` answer keeps its first [`MAX_RECORDED_VARIABLES`] rows and says `"truncated_by_recorder": true`.
+//! - a `variables` answer keeps its first [`MAX_RECORDED_VARIABLES`] rows and says `"truncated_by_recorder": true`;
+//! - the run's own tokens the caller adds ([`RecordHandle::add_token`]: a page's origin, a browser's DevTools port and
+//!   target id; brief 0038) become their placeholders: a token of digits as a number, any other in text.
+//!
+//! The connections of one adapter server (vscode-js-debug's: one per debugging session, brief 0038) are recorded with
+//! one counter ([`record_ordered`]): each message carries its `order` across them, and the replayer holds an adapter
+//! message until the client's messages of every connection that came before it have arrived
+//! (`replay::ReplayGroup`).
+//!
+//! A test's action outside DAP that the adapter's next messages follow (a click in a page, brief 0038) is a mark,
+//! [`RecordHandle::mark`]: a client-side entry `{"type": "mark", "label": ...}` that the replayer holds the adapter's
+//! later messages behind until the test passes the same mark.
 //!
 //! The replayer (`replay`, feature `replay`) substitutes the test's own values back ([`Substitution`]), and scrubs
 //! the client's requests with the same rules before it matches them ([`Scrubber`]). [`compare`] is the re-record
@@ -21,6 +32,7 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -35,6 +47,8 @@ pub const MAX_RECORDED_VARIABLES: usize = 50;
 pub const MAX_RECORDING_BYTES: usize = 2 * 1024 * 1024;
 /// Process ids below this are not replaced in text (too likely to be some other number).
 const MIN_TEXT_PID: i64 = 1000;
+/// The `type` of a mark: a test's action outside DAP, recorded where it happened ([`RecordHandle::mark`]).
+pub const MARK: &str = "mark";
 
 /// Who sent a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,6 +66,9 @@ pub struct RecordedMessage {
     pub dir: Dir,
     /// The DAP message as sent (scrubbed).
     pub message: Value,
+    /// Its place among the messages of every connection recorded with the same counter ([`record_ordered`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u64>,
 }
 
 /// Which side closed the connection first.
@@ -191,6 +208,13 @@ struct Root {
 pub struct Scrubber {
     roots: Vec<Root>,
     pids: Vec<i64>,
+    /// (placeholder, text): the run's own values (brief 0038).
+    tokens: Vec<(String, String)>,
+}
+
+/// Whether a token is a number (replaced as a JSON number, never inside text).
+fn numeric(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// The spellings of `path`: as given, canonical, and on Windows with either separator.
@@ -238,6 +262,17 @@ impl Scrubber {
         &self.pids
     }
 
+    /// Also replace `text` by `placeholder` (a token of digits as a number value, any other wherever it stands
+    /// alone in text).
+    pub fn add_token(&mut self, placeholder: &str, text: &str) {
+        let t = (placeholder.to_owned(), text.to_owned());
+        if !text.is_empty() && !self.tokens.contains(&t) {
+            self.tokens.push(t);
+            self.tokens
+                .sort_by_key(|(_, text)| std::cmp::Reverse(text.len()));
+        }
+    }
+
     /// Scrub every string and number of `v` in place.
     pub fn scrub(&self, v: &mut Value) {
         match v {
@@ -249,6 +284,12 @@ impl Scrubber {
             Value::Number(n) => {
                 if n.as_i64().is_some_and(|n| self.pids.contains(&n)) {
                     *v = Value::String("${PID}".into());
+                } else if let Some((placeholder, _)) = self
+                    .tokens
+                    .iter()
+                    .find(|(_, t)| numeric(t) && *t == n.to_string())
+                {
+                    *v = Value::String(placeholder.clone());
                 }
             }
             Value::Array(a) => a.iter_mut().for_each(|x| self.scrub(x)),
@@ -283,6 +324,14 @@ impl Scrubber {
         for pid in &self.pids {
             if *pid >= MIN_TEXT_PID
                 && let Some(t) = replace_word(&out, &pid.to_string(), "${PID}")
+            {
+                out = t;
+                changed = true;
+            }
+        }
+        for (placeholder, text) in &self.tokens {
+            if !numeric(text)
+                && let Some(t) = replace_word(&out, text, placeholder)
             {
                 out = t;
                 changed = true;
@@ -445,12 +494,17 @@ pub struct Substitution {
     pub roots: Vec<(String, PathBuf)>,
     /// What `${PID}` becomes.
     pub pid: i64,
+    /// (placeholder, this run's text) for the tokens the recording has.
+    pub tokens: Vec<(String, String)>,
 }
 
 impl Substitution {
     pub fn apply(&self, v: &mut Value) {
         match v {
             Value::String(s) if s == "${PID}" => *v = json!(self.pid),
+            Value::String(s) if self.number_of(s).is_some() => {
+                *v = json!(self.number_of(s).unwrap_or_default());
+            }
             Value::String(s) => {
                 if let Some(t) = self.apply_text(s) {
                     *s = t;
@@ -460,6 +514,14 @@ impl Substitution {
             Value::Object(o) => o.values_mut().for_each(|x| self.apply(x)),
             _ => {}
         }
+    }
+
+    /// The number a numeric token's placeholder stands for.
+    fn number_of(&self, s: &str) -> Option<i64> {
+        self.tokens
+            .iter()
+            .find(|(p, t)| p == s && numeric(t))
+            .and_then(|(_, t)| t.parse().ok())
     }
 
     /// `s` with the placeholders replaced (the path after one with this platform's separator), or `None`.
@@ -498,6 +560,11 @@ impl Substitution {
         if out.contains("${PID}") {
             out = out.replace("${PID}", &self.pid.to_string());
         }
+        for (placeholder, text) in &self.tokens {
+            if out.contains(placeholder.as_str()) {
+                out = out.replace(placeholder.as_str(), text);
+            }
+        }
         (out != s).then_some(out)
     }
 }
@@ -515,9 +582,23 @@ pub struct RecordOptions {
 
 #[derive(Default)]
 struct Log {
-    messages: Vec<(u64, Dir, Value)>,
+    messages: Vec<(u64, Dir, Value, Option<u64>)>,
     ended: Option<Ended>,
     pids: Vec<i64>,
+    tokens: Vec<(String, String)>,
+}
+
+impl Log {
+    fn scrubber(&self, roots: &[(String, PathBuf)]) -> Scrubber {
+        let mut s = Scrubber::new(roots);
+        for p in &self.pids {
+            s.add_pid(*p);
+        }
+        for (placeholder, text) in &self.tokens {
+            s.add_token(placeholder, text);
+        }
+        s
+    }
 }
 
 struct Shared {
@@ -525,6 +606,16 @@ struct Shared {
     description: String,
     start: Instant,
     log: Mutex<Log>,
+    /// The counter shared by the connections of one server.
+    order: Option<Arc<AtomicU64>>,
+}
+
+impl Shared {
+    fn next_order(&self) -> Option<u64> {
+        self.order
+            .as_ref()
+            .map(|o| o.fetch_add(1, Ordering::SeqCst))
+    }
 }
 
 impl Shared {
@@ -551,7 +642,8 @@ impl Shared {
         {
             log.pids.push(p);
         }
-        log.messages.push((t, dir, message));
+        let order = self.next_order();
+        log.messages.push((t, dir, message, order));
     }
 
     /// One side ended the session: write the file now (it is written again when both halves are gone).
@@ -573,14 +665,11 @@ impl Shared {
 
     fn recording(&self) -> Recording {
         let log = self.log.lock().unwrap_or_else(|e| e.into_inner());
-        let mut scrubber = Scrubber::new(&self.options.roots);
-        for p in &log.pids {
-            scrubber.add_pid(*p);
-        }
+        let scrubber = log.scrubber(&self.options.roots);
         let messages = log
             .messages
             .iter()
-            .map(|(t, dir, m)| {
+            .map(|(t, dir, m, order)| {
                 let mut message = m.clone();
                 truncate_variables(&mut message);
                 scrubber.scrub(&mut message);
@@ -588,6 +677,7 @@ impl Shared {
                     t_ms: *t,
                     dir: *dir,
                     message,
+                    order: *order,
                 }
             })
             .collect();
@@ -656,15 +746,30 @@ impl RecordHandle {
         }
     }
 
-    /// The scrubber as it stands (the roots and the process ids seen so far), for scrubbing what else the test
-    /// records (its goldens) by the same rules.
+    /// Scrub `text` as `placeholder` too (the run's own value: a page's origin, a DevTools port, a target id).
+    pub fn add_token(&self, placeholder: &str, text: &str) {
+        let mut log = self.shared.log.lock().unwrap_or_else(|e| e.into_inner());
+        let t = (placeholder.to_owned(), text.to_owned());
+        if !log.tokens.contains(&t) {
+            log.tokens.push(t);
+        }
+    }
+
+    /// Record the test's action `label` outside DAP (a click in the page) here, between the messages before and
+    /// after it: the replayer holds the adapter's later messages until the test passes the same mark.
+    pub fn mark(&self, label: &str) {
+        let t = self.shared.start.elapsed().as_millis() as u64;
+        let mut log = self.shared.log.lock().unwrap_or_else(|e| e.into_inner());
+        let order = self.shared.next_order();
+        log.messages
+            .push((t, Dir::Client, json!({"type": MARK, "label": label}), order));
+    }
+
+    /// The scrubber as it stands (the roots, the process ids seen so far and the tokens), for scrubbing what else
+    /// the test records (its goldens) by the same rules.
     pub fn scrubber(&self) -> Scrubber {
         let log = self.shared.log.lock().unwrap_or_else(|e| e.into_inner());
-        let mut s = Scrubber::new(&self.shared.options.roots);
-        for p in &log.pids {
-            s.add_pid(*p);
-        }
-        s
+        log.scrubber(&self.shared.options.roots)
     }
 
     /// Write the file with everything so far and return what was written.
@@ -787,6 +892,24 @@ impl Drop for RecordingWriter {
 /// either side ends the session (the adapter closes its output, the client hangs up), again when both halves of the
 /// connection are dropped (the client's threads end), and whenever [`RecordHandle::write`] is called. The adapter's stderr, child process and shutdown pass through untouched.
 pub fn record(connection: Connection, options: RecordOptions) -> (Connection, RecordHandle) {
+    record_with(connection, options, None)
+}
+
+/// [`record`], numbering the messages with `order`, the counter every connection of one adapter server shares (a
+/// vscode-js-debug server's sessions, brief 0038): the replay keeps their order across connections.
+pub fn record_ordered(
+    connection: Connection,
+    options: RecordOptions,
+    order: Arc<AtomicU64>,
+) -> (Connection, RecordHandle) {
+    record_with(connection, options, Some(order))
+}
+
+fn record_with(
+    connection: Connection,
+    options: RecordOptions,
+    order: Option<Arc<AtomicU64>>,
+) -> (Connection, RecordHandle) {
     let Connection {
         reader,
         writer,
@@ -800,6 +923,7 @@ pub fn record(connection: Connection, options: RecordOptions) -> (Connection, Re
         description: description.clone(),
         start: Instant::now(),
         log: Mutex::default(),
+        order,
     });
     if let Some(c) = &child {
         // The adapter's own process id, should it appear.
@@ -865,7 +989,14 @@ fn groups(r: &Recording) -> BTreeMap<String, Vec<Value>> {
         }
         let group = match m.dir {
             Dir::Client => "client",
-            Dir::Adapter if is_event && msg["event"] == "continued" => continue,
+            // A script's load is reported as it is parsed, in no fixed order with the stop (vscode-js-debug's
+            // `loadedSource`; the shell does not use it): timing.
+            Dir::Adapter
+                if is_event
+                    && matches!(msg["event"].as_str(), Some("continued" | "loadedSource")) =>
+            {
+                continue;
+            }
             Dir::Adapter if ending && is_event && msg["event"] == "output" => continue,
             Dir::Adapter if ending => "adapter at the end",
             Dir::Adapter if is_event && msg["event"] == "output" => {
@@ -959,8 +1090,9 @@ pub fn differences(expected: &Value, actual: &Value, max: usize) -> Vec<String> 
 
 /// The re-record check: `rerecorded` reproduces `checked_in` when each group of messages (see `groups`: the
 /// client's requests, the adapter's responses, its events, its output text by category, the session's end) agrees,
-/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq` and lldb-dap's `statistics`: how the directions, the
-/// adapter's events and the debuggee's streams interleave is timing. `Err` names the first difference of each group
+/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, `continued` events and
+/// vscode-js-debug's `loadedSource` events: how the directions, the adapter's events and the debuggee's streams
+/// interleave is timing. `Err` names the first difference of each group
 /// that differs.
 pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), String> {
     let mut problems = Vec::new();
@@ -1078,6 +1210,7 @@ mod tests {
                 ("${TMP}".into(), PathBuf::from("/t/s")),
             ],
             pid: 77,
+            tokens: Vec::new(),
         };
         sub.apply(&mut v);
         let sep = std::path::MAIN_SEPARATOR;
@@ -1090,6 +1223,49 @@ mod tests {
             v["output"],
             format!("[77] exited at ${{TIME}} in /t/s{sep}bin 143210\n")
         );
+    }
+
+    /// Brief 0038: a page's origin and target id are scrubbed in text, a DevTools port as a number only (never
+    /// inside text), and substituted back with the replay's own values.
+    #[test]
+    fn tokens_are_scrubbed_and_substituted_back() {
+        let mut s = Scrubber::default();
+        s.add_token("${ORIGIN}", "127.0.0.1:43123");
+        s.add_token("${TARGET}", "6A1F9E0C2B7D");
+        s.add_token("${DEVTOOLS_PORT}", "40211");
+        let mut v = json!({
+            "url": "http://127.0.0.1:43123/app.js",
+            "longer": "http://127.0.0.1:431234/",
+            "port": 40211,
+            "text": "port 40211 and line 40211",
+            "targetId": "6A1F9E0C2B7D",
+            "line": 25,
+        });
+        s.scrub(&mut v);
+        assert_eq!(v["url"], "http://${ORIGIN}/app.js");
+        assert_eq!(
+            v["longer"], "http://127.0.0.1:431234/",
+            "a longer port is another"
+        );
+        assert_eq!(v["port"], "${DEVTOOLS_PORT}");
+        assert_eq!(
+            v["text"], "port 40211 and line 40211",
+            "a number token never in text"
+        );
+        assert_eq!(v["targetId"], "${TARGET}");
+        assert_eq!(v["line"], 25);
+        let sub = Substitution {
+            tokens: vec![
+                ("${ORIGIN}".into(), "127.0.0.1:5180".into()),
+                ("${TARGET}".into(), "TARGET-P1".into()),
+                ("${DEVTOOLS_PORT}".into(), "9".into()),
+            ],
+            ..Substitution::default()
+        };
+        sub.apply(&mut v);
+        assert_eq!(v["url"], "http://127.0.0.1:5180/app.js");
+        assert_eq!(v["port"], 9);
+        assert_eq!(v["targetId"], "TARGET-P1");
     }
 
     #[test]
@@ -1136,11 +1312,13 @@ mod tests {
                     t_ms: 0,
                     dir: Dir::Client,
                     message: json!({"seq": 1, "type": "request", "command": "initialize"}),
+                    order: None,
                 },
                 RecordedMessage {
                     t_ms: 2,
                     dir: Dir::Adapter,
                     message: json!({"seq": 1, "type": "response", "request_seq": 1, "command": "initialize", "success": true}),
+                    order: None,
                 },
             ],
         };
@@ -1173,6 +1351,7 @@ mod tests {
             t_ms: t,
             dir,
             message,
+            order: None,
         };
         let out = |text: &str| json!({"type": "event", "event": "output", "body": {"category": "stdout", "output": text}});
         let base = |outputs: Vec<Value>, end: Vec<Value>| {
@@ -1216,6 +1395,7 @@ mod tests {
             vec![
                 out("hello world\n"),
                 json!({"type": "event", "event": "continued"}),
+                json!({"type": "event", "event": "loadedSource", "body": {"reason": "new", "source": {"name": "app.js"}}}),
             ],
             vec![
                 exited.clone(),
@@ -1227,7 +1407,7 @@ mod tests {
         assert_eq!(
             compare(&a, &b),
             Ok(()),
-            "how output is cut, the end's order and the crash are timing"
+            "how output is cut, the end's order, a script's load and the crash are timing"
         );
         let c = base(
             vec![out("hello there\n")],

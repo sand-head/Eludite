@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 use crate::LogSink;
 use crate::connection::{CdpEvent, Connection, DEFAULT_TIMEOUT};
 use crate::discovery::ChromeSearch;
-use crate::engine::{Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
+use crate::engine::{DebugEndpoint, Engine, EngineConfig, EngineError, LaunchInfo, TargetInfo};
 
 /// How long Chrome may take to print its DevTools endpoint.
 pub const LAUNCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -392,6 +392,11 @@ impl Engine for ExternalChrome {
 
     fn info(&self) -> Option<LaunchInfo> {
         self.conn().ok().map(|r| r.info.clone())
+    }
+
+    /// The `--remote-debugging-port=0` Chrome chose, from the endpoint it printed (brief 0038).
+    fn debug_endpoint(&self) -> Option<DebugEndpoint> {
+        crate::engine::endpoint_of(&self.info()?.endpoint)
     }
 
     fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {

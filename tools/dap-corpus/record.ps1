@@ -1,7 +1,8 @@
 # Re-record brief 0033's DAP conformance corpus (corpus\dap\) on Windows from every real adapter on this machine,
 # through the shell's conformance tests (crates\eludite\src\shell\debug\conformance_tests.rs): lldb-dap and
 # netcoredbg (.NET Framework under Mono is not debugged on Windows, so Mono is always skipped here). Prints which
-# adapters it records and which it skips, and why. The checked-in Mono and lldb-dap recordings are made on Linux
+# adapters it records and which it skips, and why. vscode-js-debug's scenarios (brief 0038) are recorded on Linux
+# only (tools/dap-corpus/record.sh js-debug): they need the embedded engine, which runs on Linux so far. The checked-in Mono and lldb-dap recordings are made on Linux
 # (tools/dap-corpus/record.sh); a Windows recording is for comparing, not for checking in over them.
 #
 #   tools\dap-corpus\record.ps1 [-Check] [lldb] [netcoredbg]

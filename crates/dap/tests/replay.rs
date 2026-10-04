@@ -2,7 +2,8 @@
 //! back scrubbed (paths under `${ROOT}`, the process id `${PID}`), replays to a client with the same client-visible
 //! events (this run's paths and process id substituted back), answers a request the recording did not see with
 //! `success: false` naming the nearest recorded one and the difference, and holds each answer and the events after it
-//! until the requests recorded before them have arrived.
+//! until the requests recorded before them have arrived; a mark (a test's action outside DAP) holds what followed it,
+//! and the connections of one server replay as a group in their recorded order (brief 0038).
 
 mod common;
 
@@ -187,6 +188,7 @@ fn a_fake_session_round_trips_through_a_file_and_replays_with_the_same_events() 
             roots: vec![("${ROOT}".into(), root.clone())],
             pid: 48_213,
             real_time: false,
+            tokens: Vec::new(),
         },
     );
     let clock = Instant::now();
@@ -210,6 +212,7 @@ fn a_fake_session_round_trips_through_a_file_and_replays_with_the_same_events() 
             roots: vec![("${ROOT}".into(), other.clone())],
             pid: 7777,
             real_time: false,
+            tokens: Vec::new(),
         },
     );
     let (moved, _) = drive(conn, &other);
@@ -241,6 +244,7 @@ fn an_unknown_request_fails_with_the_nearest_recorded_one_and_the_difference() {
             roots: vec![("${ROOT}".into(), root.clone())],
             pid: 1,
             real_time: false,
+            tokens: Vec::new(),
         },
     );
     let rec = Recorder::default();
@@ -315,6 +319,7 @@ fn answers_and_their_events_wait_for_the_requests_recorded_before_them() {
             roots: vec![("${ROOT}".into(), root.clone())],
             pid: 1,
             real_time: false,
+            tokens: Vec::new(),
         },
     );
     let rec = Recorder::default();
@@ -411,16 +416,19 @@ fn real_time_keeps_the_recorded_gaps() {
                 t_ms: 0,
                 dir: Dir::Client,
                 message: json!({"seq": 1, "type": "request", "command": "threads"}),
+                order: None,
             },
             record::RecordedMessage {
                 t_ms: 1,
                 dir: Dir::Adapter,
                 message: json!({"seq": 1, "type": "response", "request_seq": 1, "command": "threads", "success": true, "body": {"threads": []}}),
+                order: None,
             },
             record::RecordedMessage {
                 t_ms: 301,
                 dir: Dir::Adapter,
                 message: json!({"seq": 2, "type": "event", "event": "output", "body": {"category": "stdout", "output": "late\n"}}),
+                order: None,
             },
         ],
     };
@@ -447,4 +455,163 @@ fn real_time_keeps_the_recorded_gaps() {
         rec.closed();
         assert!(handle.finished());
     }
+}
+
+/// Brief 0038: a mark (a test's action outside DAP, here a click in a page) holds the adapter's later messages until
+/// the test passes it, and a token placeholder (the page's origin) comes back as the replay's own value.
+#[test]
+fn a_mark_holds_what_followed_it_until_the_test_passes_it() {
+    let at = |t_ms, dir, message| record::RecordedMessage {
+        t_ms,
+        dir,
+        message,
+        order: None,
+    };
+    let recording = Recording {
+        adapter: "js-debug".into(),
+        version: "test".into(),
+        recorded_at: String::new(),
+        platform: record::platform(),
+        description: String::new(),
+        ended: None,
+        messages: vec![
+            at(
+                0,
+                Dir::Client,
+                json!({"seq": 1, "type": "request", "command": "initialize", "arguments": {"adapterID": "pwa-chrome"}}),
+            ),
+            at(
+                1,
+                Dir::Adapter,
+                json!({"seq": 1, "type": "response", "request_seq": 1, "command": "initialize", "success": true, "body": {}}),
+            ),
+            at(
+                2,
+                Dir::Client,
+                json!({"type": record::MARK, "label": "click"}),
+            ),
+            at(
+                3,
+                Dir::Adapter,
+                json!({"seq": 2, "type": "event", "event": "output", "body": {"category": "stdout", "output": "clicked at http://${ORIGIN}/app.js\n"}}),
+            ),
+        ],
+    };
+    let (conn, handle) = replay::serve(
+        &recording,
+        ReplayOptions {
+            tokens: vec![("${ORIGIN}".into(), "127.0.0.1:5180".into())],
+            ..ReplayOptions::default()
+        },
+    );
+    let rec = Recorder::default();
+    let client = DapClient::start(conn, rec.sink());
+    client
+        .request_wait("initialize", json!({"adapterID": "pwa-chrome"}), T)
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let output = |rec: &Recorder| {
+        rec.events().iter().find_map(|e| match e {
+            ClientEvent::Event(Event::Output(o)) => Some(o.output.clone()),
+            _ => None,
+        })
+    };
+    assert_eq!(output(&rec), None, "the output came before the click");
+    let waiting = handle.waiting_for().unwrap();
+    assert!(waiting.contains("the test's mark `click`"), "{waiting}");
+    assert_eq!(handle.unsent(), ["mark click"]);
+    assert!(handle.mark("click"));
+    assert!(!handle.mark("click"), "a mark is passed once");
+    let deadline = Instant::now() + T;
+    while output(&rec).is_none() {
+        assert!(Instant::now() < deadline, "the output never came");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        output(&rec).unwrap(),
+        "clicked at http://127.0.0.1:5180/app.js\n"
+    );
+    assert!(handle.finished());
+    client.kill();
+}
+
+/// Brief 0038: two connections of one server recorded with one counter replay as a group: an adapter message of one
+/// waits for the client's request the other connection sent before it (vscode-js-debug's parent hears its child
+/// went away only after the child's `disconnect`).
+#[test]
+fn a_group_keeps_the_order_across_connections() {
+    let at = |order, dir, message| record::RecordedMessage {
+        t_ms: 0,
+        dir,
+        message,
+        order: Some(order),
+    };
+    let recording = |messages| Recording {
+        adapter: "js-debug".into(),
+        version: "test".into(),
+        recorded_at: String::new(),
+        platform: record::platform(),
+        description: String::new(),
+        ended: None,
+        messages,
+    };
+    let parent = recording(vec![
+        at(
+            0,
+            Dir::Client,
+            json!({"seq": 1, "type": "request", "command": "threads"}),
+        ),
+        at(
+            1,
+            Dir::Adapter,
+            json!({"seq": 1, "type": "response", "request_seq": 1, "command": "threads", "success": true, "body": {"threads": []}}),
+        ),
+        at(
+            4,
+            Dir::Adapter,
+            json!({"seq": 2, "type": "event", "event": "terminated", "body": {}}),
+        ),
+    ]);
+    let child = recording(vec![
+        at(
+            2,
+            Dir::Client,
+            json!({"seq": 1, "type": "request", "command": "disconnect", "arguments": {"terminateDebuggee": false}}),
+        ),
+        at(
+            3,
+            Dir::Adapter,
+            json!({"seq": 1, "type": "response", "request_seq": 1, "command": "disconnect", "success": true}),
+        ),
+    ]);
+    let group = replay::ReplayGroup::new(&[parent.clone(), child.clone()]);
+    let (conn, parent_handle) =
+        replay::serve_in_group(&parent, ReplayOptions::default(), group.clone());
+    let rec = Recorder::default();
+    let client = DapClient::start(conn, rec.sink());
+    client.request_wait("threads", Value::Null, T).unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let terminated = |rec: &Recorder| {
+        rec.events()
+            .iter()
+            .any(|e| matches!(e, ClientEvent::Event(Event::Terminated)))
+    };
+    assert!(!terminated(&rec), "the parent ended before its child left");
+    let waiting = parent_handle.waiting_for().unwrap();
+    assert!(
+        waiting.contains("another connection's message"),
+        "{waiting}"
+    );
+    let (conn, _) = replay::serve_in_group(&child, ReplayOptions::default(), group);
+    let child_client = DapClient::start(conn, Recorder::default().sink());
+    child_client
+        .request_wait("disconnect", json!({"terminateDebuggee": false}), T)
+        .unwrap();
+    let deadline = Instant::now() + T;
+    while !terminated(&rec) {
+        assert!(Instant::now() < deadline, "the parent never heard");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    client.kill();
+    child_client.kill();
 }

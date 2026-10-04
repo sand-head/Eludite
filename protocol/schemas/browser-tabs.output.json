@@ -61,6 +61,10 @@
             "type": "string",
             "pattern": "^t[0-9]+$"
           },
+          "target_id": {
+            "description": "The page's Chrome DevTools Protocol target id, as the browser's remote debugging port lists it (`/json/list`): what a debugger attaches to (eludite.debug.attach with `tab`; brief 0038). Absent when the engine does not say.",
+            "type": "string"
+          },
           "url": {
             "type": "string"
           },

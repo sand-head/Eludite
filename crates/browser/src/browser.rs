@@ -21,7 +21,7 @@ mod window;
 
 pub use self::act::SET_JS;
 pub use self::data::{OPENER_ENV, base64_decode, base64_encode, opener};
-pub use self::window::{Interrupt, Marks, stopped_error};
+pub use self::window::{DebuggerPauses, Interrupt, Marks, stopped_error};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -115,6 +115,19 @@ impl Tab {
     }
 }
 
+/// Where a debugger reaches a tab (brief 0038): the browser's remote debugging endpoint and the page there.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DebugTarget {
+    /// `t1`.
+    pub tab: String,
+    pub address: String,
+    pub port: u16,
+    /// The page's Chrome DevTools target id, when the engine says.
+    pub target_id: Option<String>,
+    pub url: String,
+    pub title: String,
+}
+
 /// The browser commands' state: the engine and the tabs.
 pub struct Browser {
     engine: Box<dyn Engine>,
@@ -132,6 +145,8 @@ pub struct Browser {
     /// The person's hand (brief 0032), and its counters when the current call began.
     interrupt: Arc<Interrupt>,
     marks: Marks,
+    /// The tabs stopped in the debugger (brief 0038).
+    pauses: Arc<DebuggerPauses>,
     /// `record` in progress.
     recording: Option<record::Recording>,
 }
@@ -222,6 +237,7 @@ impl Browser {
             opener: None,
             interrupt: Arc::default(),
             marks: Marks::default(),
+            pauses: Arc::default(),
             recording: None,
         }
     }
@@ -234,6 +250,16 @@ impl Browser {
     /// Share `interrupt` (the shell's, which outlives engines).
     pub fn set_interrupt(&mut self, interrupt: Arc<Interrupt>) {
         self.interrupt = interrupt;
+    }
+
+    /// Share `pauses` (the shell debugger's, brief 0038).
+    pub fn set_pauses(&mut self, pauses: Arc<DebuggerPauses>) {
+        self.pauses = pauses;
+    }
+
+    /// Whether `tab`'s page is stopped in the debugger.
+    fn paused(&self, tab: &Tab) -> bool {
+        self.pauses.is_paused(&tab.id)
     }
 
     /// The engine's tab ids by command tab id (`t1`): the Web Browser window draws the engine's tabs.
@@ -668,8 +694,54 @@ impl Browser {
             can_go_forward: history.as_ref().map(|h| h.can_go_forward),
             // The shell names the debugging session that opened the tab (brief 0037).
             session: None,
+            // `tabs` names the page's target id for a debugger (brief 0038; `tabs_output`).
+            target_id: None,
             target: tab.target.clone(),
         }
+    }
+
+    /// Where a debugger reaches tab `tab` (brief 0038; `eludite.debug.attach` with `tab`): the browser's remote
+    /// debugging endpoint and the tab's target id there, with its url and title. Never starts the browser.
+    pub fn debug_target(&mut self, tab: &str) -> Result<DebugTarget, CommandError> {
+        if !self.engine.is_running() {
+            return Err(failed(format!(
+                "no tab `{tab}`: the browser is not running (eludite.browser.tabs lists the open tabs)"
+            )));
+        }
+        let t = self.resolve(Some(tab))?;
+        let endpoint = self.engine.debug_endpoint().ok_or_else(|| {
+            failed(format!(
+                "the browser ({}) has no remote debugging port to attach a debugger to",
+                self.engine.name()
+            ))
+        })?;
+        let targets = self.engine.targets().map_err(engine_err)?;
+        let row = self.row(&t, &targets);
+        Ok(DebugTarget {
+            tab: row.id,
+            address: endpoint.address,
+            port: endpoint.port,
+            target_id: self.engine.cdp_target_id(&t.target),
+            url: row.url,
+            title: row.title,
+        })
+    }
+
+    /// The tab whose url is `url` (the active one first, else the first opened), for `eludite.debug.attach` with a
+    /// page url (brief 0038).
+    pub fn tab_with_url(&mut self, url: &str) -> Result<String, CommandError> {
+        let out = self.tabs_output()?;
+        let same = |u: &str| u.trim_end_matches('/') == url.trim_end_matches('/');
+        out.tabs
+            .iter()
+            .filter(|r| same(&r.url))
+            .max_by_key(|r| r.active)
+            .map(|r| r.id.clone())
+            .ok_or_else(|| {
+                failed(format!(
+                    "no tab of the browser shows {url} (eludite.browser.tabs lists the open tabs)"
+                ))
+            })
     }
 
     fn tabs_output(&mut self) -> Result<TabsOutput, CommandError> {
@@ -692,6 +764,9 @@ impl Browser {
             engine.executable = Some(info.executable);
         }
         let mut rows: Vec<TabRow> = self.tabs.iter().map(|t| self.row(t, &targets)).collect();
+        for (row, tab) in rows.iter_mut().zip(&self.tabs) {
+            row.target_id = self.engine.cdp_target_id(&tab.target);
+        }
         // An engine that does not track history: ask each page (one call per tab, pipelined per tab).
         for (row, tab) in rows.iter_mut().zip(&self.tabs) {
             if row.can_go_back.is_none()
