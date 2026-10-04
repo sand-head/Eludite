@@ -400,6 +400,7 @@ fn eludite_dbg_mono_recording_replays_with_the_same_events() {
             roots,
             pid: 4_000_001,
             real_time: false,
+            tokens: Vec::new(),
         },
     );
     let clock = Instant::now();
