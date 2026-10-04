@@ -3695,10 +3695,10 @@ mod tests {
         ));
         // A file outside the workspace makes `dialog` dangerous, as upload.
         let hook = escalation(DIALOG).unwrap();
-        let v = view(json!({"version": 1}), Some("/w"));
-        assert!(hook(&json!({"action": "accept", "files": ["/w/a.txt"]}), &v).is_none());
+        let v = view(json!({"version": 1}), Some(W));
+        assert!(hook(&json!({"action": "accept", "files": [W_A]}), &v).is_none());
         assert!(matches!(
-            hook(&json!({"action": "accept", "files": ["/etc/passwd"]}), &v),
+            hook(&json!({"action": "accept", "files": [OUTSIDE]}), &v),
             Some(Escalation::Raise {
                 class: PermissionClass::Dangerous,
                 ..

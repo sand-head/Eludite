@@ -122,7 +122,8 @@ fn p95(mut v: Vec<Duration>) -> Duration {
 
 /// The temporary package, built, and what the launches need.
 struct Program {
-    dir: tempfile::TempDir,
+    /// Kept for its removal at the end; the paths are `start.root`, canonical.
+    _dir: tempfile::TempDir,
     adapter: LldbAdapter,
     cargo: PathBuf,
     start: CargoStart,
@@ -178,7 +179,9 @@ fn setup() -> Option<Program> {
         .prefix("eludite-lldb-test")
         .tempdir()
         .unwrap();
-    let root = dir.path().to_path_buf();
+    // Canonical: cargo reports the executable under the real path, and lldb matches a breakpoint's file to the
+    // debug information's path, which is `/private/var/...` on macOS where the temporary folder is `/var/...`.
+    let root = dir.path().canonicalize().unwrap();
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::write(root.join("Cargo.toml"), CARGO_TOML).unwrap();
     std::fs::write(root.join("src/main.rs"), MAIN_RS).unwrap();
@@ -241,7 +244,7 @@ fn setup() -> Option<Program> {
     );
     let source = root.join("src/main.rs").to_string_lossy().into_owned();
     Some(Program {
-        dir,
+        _dir: dir,
         adapter,
         cargo,
         start,
@@ -266,7 +269,7 @@ impl Program {
                 transport::connect(&self.adapter.transport()).unwrap(),
                 "lldb",
                 &self.adapter.describe(self.adapter.version().as_deref()),
-                Some(self.dir.path()),
+                Some(&self.start.root),
             ),
             rec.sink(),
         );
@@ -376,7 +379,7 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
     // The executable from the build's artifact message; the run table's arguments and environment.
     assert_eq!(
         launch.program,
-        p.dir.path().join(format!(
+        p.start.root.join(format!(
             "target/debug/lldbtest{}",
             std::env::consts::EXE_SUFFIX
         )),
@@ -384,7 +387,7 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
         p.artifacts
     );
     assert_eq!(launch.args, ["--from-metadata"]);
-    assert_eq!(launch.cwd, p.dir.path());
+    assert_eq!(launch.cwd, p.start.root);
 
     // Launch to the first stop (cold: the first lldb-dap of the test), at the call of `add` in main.
     let clock = Instant::now();
@@ -392,7 +395,9 @@ fn lldb_dap_debugs_a_cargo_program_with_rust_values() {
     let caps = &started.capabilities;
     assert!(caps.supports_hit_conditional_breakpoints && caps.supports_log_points);
     assert!(caps.supports_function_breakpoints && caps.supports_set_variable);
-    assert!(caps.supports_restart_request && caps.supports_delayed_stack_trace_loading);
+    // Apple's lldb-dap (Xcode's) does not support `restart`; the shell then restarts by stopping and launching.
+    assert!(caps.supports_delayed_stack_trace_loading);
+    eprintln!("capabilities: restart {}", caps.supports_restart_request);
     eprintln!(
         "capabilities: gotoTargets {}, terminate {}, exceptionInfo {}, filters {:?}",
         caps.supports_goto_targets_request,
@@ -749,7 +754,7 @@ fn lldb_dap_debugs_the_package_test_executable_with_a_filter() {
     assert!(
         launch
             .program
-            .starts_with(p.dir.path().join("target/debug/deps"))
+            .starts_with(p.start.root.join("target/debug/deps"))
     );
     assert_eq!(launch.args, ["my_test", "--nocapture"]);
     let (client, rec, _) = p.launch(&launch, &p.init, &["my-test"], &[]);
@@ -856,7 +861,10 @@ fn lldb_dap_attaches_to_a_running_process_by_pid_and_detaches() {
         "timing: lldb-dap attach to a running process: {:.0} ms",
         ms(clock.elapsed())
     );
-    assert!(started.capabilities.supports_restart_request);
+    eprintln!(
+        "capabilities: restart {}",
+        started.capabilities.supports_restart_request
+    );
     // lldb-dap stops the process to attach and resumes it after `configurationDone`; a pause that arrives before the
     // resume is lost, so pause until a stop is reported.
     let deadline = Instant::now() + T;

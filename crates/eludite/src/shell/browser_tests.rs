@@ -709,14 +709,14 @@ fn a_screenshot_in_a_tool_result_is_a_thumbnail_that_opens_the_image(
     let path = url.trim_start_matches("file://");
     let saved = image::open(path).unwrap();
     assert_eq!((saved.width(), saved.height()), (640, 400));
-    assert!(
+    // The open is a command, audited: its entry completes once the opener has exited, after its write.
+    w.wait("the open audited", |w| {
         w.commands
             .audit_log()
             .entries()
             .iter()
-            .any(|e| e.command == cmds::OPEN_EXTERNAL && e.is_ok()),
-        "the open is a command, audited"
-    );
+            .any(|e| e.command == cmds::OPEN_EXTERNAL && e.is_ok())
+    });
 }
 
 // ---- A fake embedded engine for the launch tests (brief 0037) ----
