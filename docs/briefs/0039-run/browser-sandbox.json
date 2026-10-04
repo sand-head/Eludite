@@ -1,0 +1,19 @@
+{
+ "refused": "eludite: web browser: the sandbox cannot start: Chromium's sandbox cannot start on this machine: Eludite runs as root, and Chromium does not sandbox root. Run Eludite as a normal user, or let this workspace run the browser without the sandbox (the Web Browser window offers it; the setting browser.allowNoSandbox; ELUDITE_CHROME_NO_SANDBOX=1 for tests), which starts the engine with --allow-no-sandbox.",
+ "refused_after_s": 1.74,
+ "shot_dialog": "OUT/browser-sandbox-dialog.png",
+ "taken": true,
+ "started": "eludite: web browser: running without Chromium's sandbox (browser.allowNoSandbox)",
+ "first_pixel": "eludite: web browser: first page pixel 3408.6 ms after the window opened (engine cold)",
+ "shot_strip": "OUT/browser-sandbox-strip.png",
+ "workspace_settings": {
+  "browser.allowNoSandbox": true
+ },
+ "lines": [
+  "eludite: web browser: the sandbox cannot start: Chromium's sandbox cannot start on this machine: Eludite runs as root, and Chromium does not sandbox root. Run Eludite as a normal user, or let this workspace run the browser without the sandbox (the Web Browser window offers it; the setting browser.allowNoSandbox; ELUDITE_CHROME_NO_SANDBOX=1 for tests), which starts the engine with --allow-no-sandbox.",
+  "eludite: web browser: eludite.browser.tab_open: command failed: Chromium's sandbox cannot start on this machine: Eludite runs as root, and Chromium does not sandbox root. Run Eludite as a normal user, or let this workspace run the browser without the sandbox (the Web Browser window offers it; the setting browser.allowNoSandbox; ELUDITE_CHROME_NO_SANDBOX=1 for tests), which starts the engine with --allow-no-sandbox.",
+  "eludite: web browser: the sandbox opt-in was taken for this workspace",
+  "eludite: web browser: running without Chromium's sandbox (browser.allowNoSandbox)",
+  "eludite: web browser: first page pixel 3408.6 ms after the window opened (engine cold)"
+ ]
+}
