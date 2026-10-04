@@ -55,7 +55,8 @@ Date: 2026-10-04. Brief: [0041-integrated-terminal.md](0041-integrated-terminal.
   the undrawn time, and keystroke to echo was 2.34 ms p95. `assert_budget` does not assert timings when the load
   average exceeds the core count, so these runs pass without proving the 8 ms; the 1.18 ms figure is from the quiet
   run. Under that load the I/O thread is most likely descheduled while it holds the grid's lock for a parse chunk,
-  and the frame waits for it.
+  and the frame waits for it. A last run as the load fell (5.5 on 4 cores) gave a `cat` frame p99 of 5.56 ms over
+  2,947 frames (1.12x the undrawn time) and keystroke to echo 1.53 ms p95.
 
 - **Tests**: section 6; counts in section 11.
 
