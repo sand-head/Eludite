@@ -23,6 +23,11 @@
 //!   [`GitPolicy::decide_for`]: `prompt` makes a call dangerous (Always Allow writes a tool rule), `deny` refuses it for
 //!   an agent with the policy named; tool rules are checked first. A `force` is refused for agents whatever the policy
 //!   and the rules say ([`GitCall::force`]).
+//! - **`terminal`** (brief 0041): `run` (agents opening terminals and typing into them, resizing, clearing and
+//!   closing them), applied by the terminal commands' escalation hooks through [`TerminalPolicy::decide`]: `prompt`
+//!   (the default) makes the first such call of an agent session dangerous, and its "Allow for this session"
+//!   ([`AlwaysAllow::Session`]) grants the rest of the session without writing anything ([`PolicySnapshot::session_grants`]);
+//!   `allow` lets them run ([`AlwaysAllow::Granted`]); `deny` refuses them. Reading terminals is always allowed.
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -339,6 +344,66 @@ impl GitPolicy {
             Escalation::Refuse(why) => Escalation::raise(PermissionClass::Dangerous, why),
             raise => raise,
         })
+    }
+}
+
+/// `terminal.run`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunPolicy {
+    #[default]
+    Prompt,
+    Allow,
+    Deny,
+}
+
+/// `agents-policy.json`'s `terminal` object (brief 0041).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunPolicy>,
+}
+
+/// The session grant "Allow for this session" gives for `terminal.run`.
+pub const TERMINAL_RUN_GRANT: &str = "terminal.run";
+
+impl TerminalPolicy {
+    /// What the policy makes of an agent's call that runs something in a terminal: a refusal (`deny`), a raise to
+    /// dangerous asked once per agent session (`prompt` until `granted`), or a call that runs without asking
+    /// (`allow`, or `prompt` once granted). A `kill` is dangerous whatever the grant (it ends what runs).
+    pub fn decide(&self, granted: bool, kill: bool) -> crate::Escalation {
+        use crate::Escalation;
+        let run = self.run.unwrap_or_default();
+        if run == RunPolicy::Deny {
+            return Escalation::Refuse("the solution's policy sets terminal.run to deny".into());
+        }
+        if kill {
+            return Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "`kill` ends whatever runs in the terminal".into(),
+                always_allow: AlwaysAllow::Never,
+            };
+        }
+        match (run, granted) {
+            (RunPolicy::Allow, _) => Escalation::Raise {
+                class: PermissionClass::Execute,
+                reason: "the solution's policy lets agents run commands in a terminal (terminal.run: allow)".into(),
+                always_allow: AlwaysAllow::Granted,
+            },
+            (_, true) => Escalation::Raise {
+                class: PermissionClass::Execute,
+                reason: "allowed for this agent session (terminal.run: prompt)".into(),
+                always_allow: AlwaysAllow::Granted,
+            },
+            _ => Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                reason: "the solution's policy asks before an agent runs commands in a terminal (terminal.run: \
+                         prompt); Allow for this session holds until the agent's session ends"
+                    .into(),
+                always_allow: AlwaysAllow::Session(TERMINAL_RUN_GRANT.into()),
+            },
+        }
     }
 }
 
@@ -716,6 +781,8 @@ pub struct PolicySnapshot {
     pub launch_urls: Vec<String>,
     /// Which processes Eludite started (the debug commands' `attach` hook; brief 0027).
     pub launched: LaunchedProcesses,
+    /// What "Allow for this session" granted the running agent session ([`AlwaysAllow::Session`]; brief 0041).
+    pub session_grants: Vec<String>,
 }
 
 /// Makes the [`PolicySnapshot`] of the moment (the shell's: the open solution's policy file).
@@ -784,6 +851,16 @@ impl PolicyView {
         self.policy().git.clone().unwrap_or_default()
     }
 
+    /// The `terminal` object (its defaults when absent).
+    pub fn terminal(&self) -> TerminalPolicy {
+        self.policy().terminal.clone().unwrap_or_default()
+    }
+
+    /// Whether "Allow for this session" granted `key` to the running agent session.
+    pub fn session_granted(&self, key: &str) -> bool {
+        self.get().session_grants.iter().any(|g| g == key)
+    }
+
     /// Which processes Eludite started.
     pub fn launched(&self) -> &LaunchedProcesses {
         &self.get().launched
@@ -816,6 +893,12 @@ pub enum AlwaysAllow {
     Never,
     /// Set these keys of the `debug` object to `allow` (brief 0027). Allow rules do not apply to the call.
     Debug(Vec<DebugKnob>),
+    /// "Allow for this session" (brief 0041): grant this key to the running agent session; nothing is written.
+    /// Allow rules do not apply to the call.
+    Session(String),
+    /// The policy (or a session grant) allows the call already: it runs without asking unless a deny rule matches
+    /// (brief 0041). Its hook may give it at its declared class.
+    Granted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -878,6 +961,8 @@ pub struct AgentPolicy {
     pub debug: Option<DebugPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<GitPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -891,6 +976,7 @@ impl Default for AgentPolicy {
             browser: None,
             debug: None,
             git: None,
+            terminal: None,
         }
     }
 }
@@ -957,6 +1043,20 @@ impl AgentPolicy {
     pub fn decide_call(&self, call: &CallClass, tool: &str, input: &Value) -> Verdict {
         if let Some(why) = &call.refused {
             return Verdict::Deny(why.clone());
+        }
+        if call.always_allow == AlwaysAllow::Granted {
+            if let Some(r) = self
+                .rules
+                .iter()
+                .find(|r| r.decision == RuleDecision::Deny && r.matches(tool, input))
+            {
+                return Verdict::Deny(format!("the solution's policy rule for {}", r.tool));
+            }
+            return Verdict::Allow(
+                call.reason
+                    .clone()
+                    .unwrap_or_else(|| "the solution's policy allows it".into()),
+            );
         }
         self.decide_with(
             call.class,
@@ -1062,7 +1162,8 @@ impl AgentPolicy {
                         .join(", "),
                 )
             }
-            AlwaysAllow::Never => None,
+            // A session grant is the shell's to keep; nothing is written.
+            AlwaysAllow::Never | AlwaysAllow::Session(_) | AlwaysAllow::Granted => None,
         }
     }
 

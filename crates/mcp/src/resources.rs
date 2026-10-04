@@ -2,6 +2,8 @@
 //! lists them, `resources/read` serves one by its uri, and `resources/templates/list` is empty. The texts are compiled
 //! in from `docs/agents/`, so a guide always matches the commands of the build that serves it.
 //!
+//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040) and [`TERMINAL`] (brief 0041).
+//!
 //! Besides the guides, [`GIT_STATUS_URI`] (brief 0040) is live: the repository's status as `eludite.git.status`
 //! answers it, read through the command bus as the agent on each `resources/read`, and listed while that command is
 //! registered.
@@ -43,8 +45,20 @@ pub const GIT: Guide = Guide {
     text: include_str!("../../../docs/agents/git.md"),
 };
 
+/// How an agent runs commands in the integrated terminal and what needs permission (`docs/agents/terminal.md`,
+/// brief 0041).
+pub const TERMINAL: Guide = Guide {
+    uri: "eludite://guides/terminal",
+    name: "terminal",
+    title: "The terminal in Eludite: a guide for agents",
+    description: "Read before using eludite.terminal.*: send a command and wait for its prompt with the mark, read the \
+                  screen or the output since a mark, what `interrupted_by: \"user\"` means, and what the terminal policy \
+                  (terminal.run) asks about.",
+    text: include_str!("../../../docs/agents/terminal.md"),
+};
+
 /// Every guide, in the order `resources/list` gives them.
-pub const GUIDES: [Guide; 2] = [DEBUGGING, GIT];
+pub const GUIDES: [Guide; 3] = [DEBUGGING, GIT, TERMINAL];
 
 /// The MIME type of every guide.
 pub const MIME: &str = "text/markdown";
