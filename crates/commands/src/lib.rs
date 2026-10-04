@@ -28,7 +28,9 @@
 //! [`test::TestCommands`]. [`git`] holds `eludite.git.*` (brief 0040), registered by the shell through a
 //! [`git::GitCommands`], with the policy's `git` object applied by their escalation hooks. [`terminal`] holds the
 //! integrated terminal's `eludite.terminal.*` (brief 0041), registered by the shell through a
-//! [`terminal::TerminalCommands`], with the policy's `terminal` object applied by their escalation hooks.
+//! [`terminal::TerminalCommands`], with the policy's `terminal` object applied by their escalation hooks. [`search`]
+//! holds Find in Files and Replace in Files, `eludite.search.*` (brief 0042), registered by the shell through a
+//! [`search::SearchCommands`].
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -48,6 +50,7 @@ mod id;
 pub mod policy;
 pub mod project;
 mod registry;
+pub mod search;
 pub mod settings;
 pub mod solution;
 pub mod terminal;

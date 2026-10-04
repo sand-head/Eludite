@@ -1215,3 +1215,82 @@ fn the_terminal_guide_is_short_served_and_names_real_commands() {
     assert_eq!(read["contents"][0]["text"].as_str().unwrap(), text);
     assert_eq!(read["contents"][0]["mimeType"], "text/markdown");
 }
+
+/// Find in Files' tools (brief 0042): listed with their classes (find, cancel and results read; replace held for
+/// review, `preview: false` execute), answered in their schema, and named in the instructions.
+#[test]
+fn the_search_tools_are_listed_with_their_classes_and_answer() {
+    use eludite_commands::search::{self, SearchCommands, SearchOutput, SearchRequest};
+    struct FakeSearch;
+    impl SearchCommands for FakeSearch {
+        fn apply(
+            &self,
+            request: SearchRequest,
+        ) -> Result<SearchOutput, eludite_commands::CommandError> {
+            let SearchRequest::Find(args) = request else {
+                return Ok(SearchOutput::Cancel(Default::default()));
+            };
+            Ok(SearchOutput::Find(search::FindOutput {
+                search_id: Some(1),
+                files: vec![search::FileOut {
+                    path: "src/A.cs".into(),
+                    open: false,
+                    matches: vec![search::MatchOut {
+                        line: 1,
+                        column: 7,
+                        text: "class Order { }".into(),
+                        ranges: vec![search::CharRange { start: 6, end: 11 }],
+                        before: vec![],
+                        after: vec![],
+                    }],
+                }],
+                total: 1,
+                matching_lines: 1,
+                matching_files: 1,
+                files_searched: args.max_results as u64,
+                ..Default::default()
+            }))
+        }
+    }
+    let r = eludite_commands::CommandRegistry::new();
+    search::register(&r, Arc::new(FakeSearch));
+    let s = McpServer::new(Arc::new(r));
+    let list = result(call(&s, "tools/list", json!({})));
+    let tools = list["tools"].as_array().unwrap();
+    let permission = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"))["_meta"]["eludite/permission"]
+            .clone()
+    };
+    assert_eq!(permission("eludite-search-find"), "read");
+    assert_eq!(permission("eludite-search-cancel"), "read");
+    assert_eq!(permission("eludite-search-results"), "read");
+    assert_eq!(permission("eludite-search-replace"), "edit_buffer");
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-search-find", "arguments": {"query": "Order", "max_results": 20000}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let answer = &out["structuredContent"];
+    assert_eq!(answer["files"][0]["path"], "src/A.cs");
+    assert_eq!(answer["files_searched"], 10_000, "max_results is capped");
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/search-find.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, answer);
+    assert!(errors.is_empty(), "{errors:?}");
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18"}),
+    ));
+    let instructions = init["instructions"].as_str().unwrap();
+    assert!(
+        instructions.contains("eludite.search.find")
+            && instructions.contains("eludite.search.replace")
+    );
+}
