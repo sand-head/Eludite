@@ -629,9 +629,14 @@ impl Render for GutterMarkers {
                     .debug_selector(move || sel)
                     .absolute()
                     .left_0()
-                    .top(lh * row as f32 - top)
+                    // Placed by the editor's layout, which counts CodeLens rows (brief 0052).
+                    .top(v.row_top(row) - top)
                     .w(px(4.))
-                    .h(if len == 0 { lh * 0.35 } else { lh * len as f32 })
+                    .h(if len == 0 {
+                        lh * 0.35
+                    } else {
+                        v.row_bottom(row + len - 1) - v.row_top(row)
+                    })
                     .bg(rgb(PENDING_MARK))
             }))
     }

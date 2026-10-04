@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/code-lens-refresh.json",
+  "title": "eludite/codeLens/refresh (host to shell)",
+  "description": "Brief 0052: the language server sent workspace/codeLens/refresh (its lenses changed, for example reference counts after an edit in another document). The host answers the server null at once and tells the shell with this notification; the shell requests textDocument/codeLens again for its open documents' visible ranges. eluditeGeneration is the generation current when the refresh arrived; the shell ignores one for another generation.",
+  "x-eludite-method": "eludite/codeLens/refresh",
+  "x-eludite-kind": "notification",
+  "x-eludite-direction": "hostToShell",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "eluditeGeneration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

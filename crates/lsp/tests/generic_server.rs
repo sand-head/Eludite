@@ -434,3 +434,85 @@ fn pulled_and_pushed_diagnostics_merge_per_document() {
     // Open, the edit, and possibly the pull of every open document when the server turned quiescent.
     assert!(fake.received_params("textDocument/diagnostic").len() >= 2);
 }
+
+/// Brief 0052: the client advertises lenses (with the refresh and rust-analyzer's client commands), types
+/// `textDocument/codeLens` and `codeLens/resolve`, and turns the server's `workspace/codeLens/refresh` into an event
+/// that moves the lens generation.
+#[test]
+fn code_lens_requests_and_the_refresh_move_the_lens_generation() {
+    let fake = FakeServer::new();
+    let range = json!({"start": {"line": 3, "character": 3}, "end": {"line": 3, "character": 8}});
+    let r2 = range.clone();
+    fake.respond("textDocument/codeLens", move |_| {
+        FakeReply::Result(json!([
+            {"range": r2, "command": {"title": "\u{25b6}\u{fe0e} Run Test", "command": "rust-analyzer.runSingle",
+              "arguments": [{"label": "test tests::adds", "kind": "cargo",
+                             "args": {"cargoArgs": ["test", "--lib"], "executableArgs": ["tests::adds", "--exact"]}}]}},
+            {"range": r2, "data": {"impls": 1}}
+        ]))
+    });
+    let r3 = range.clone();
+    fake.respond("codeLens/resolve", move |p| {
+        FakeReply::Result(json!({"range": r3, "data": p["data"],
+            "command": {"title": "1 implementation", "command": "rust-analyzer.showReferences",
+                        "arguments": ["file:///ws/src/lib.rs", {"line": 3, "character": 3},
+                                      [{"uri": "file:///ws/src/b.rs", "range": r3}]]}}))
+    });
+    let (client, rx) = start(&fake, 0);
+    let init = fake.wait_for("initialize", T, |_| true).unwrap();
+    let caps = &init.params["capabilities"];
+    assert_eq!(caps["workspace"]["codeLens"]["refreshSupport"], true);
+    assert!(caps["textDocument"]["codeLens"].is_object());
+    assert_eq!(
+        caps["experimental"]["commands"]["commands"],
+        json!([
+            "rust-analyzer.runSingle",
+            "rust-analyzer.debugSingle",
+            "rust-analyzer.showReferences"
+        ])
+    );
+    fake.wait_for("initialized", T, |_| true).unwrap();
+    let lenses = client
+        .request::<lsp::CodeLensRequest>(lsp::CodeLensParams {
+            text_document: lsp::TextDocumentIdentifier {
+                uri: "file:///ws/src/lib.rs".into(),
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("lenses");
+    assert_eq!(lenses.len(), 2);
+    let run = eludite_lsp::codelens::classify(lenses[0].command.as_ref().unwrap()).unwrap();
+    assert_eq!(run.kind, eludite_lsp::codelens::LensKind::RunTest);
+    assert!(lenses[1].command.is_none());
+    let resolved = client
+        .request::<lsp::ResolveCodeLens>(lenses[1].clone())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(
+        fake.received_params("codeLens/resolve")[0]["data"]["impls"],
+        1
+    );
+    let imps = eludite_lsp::codelens::classify(resolved.command.as_ref().unwrap()).unwrap();
+    assert_eq!(imps.kind, eludite_lsp::codelens::LensKind::Implementations);
+
+    assert_eq!(client.connection().code_lens_generation(), 0);
+    let answer = fake
+        .request_client("workspace/codeLens/refresh", Value::Null, T)
+        .unwrap();
+    assert_eq!(answer["result"], Value::Null);
+    let Event::CodeLensRefresh {
+        generation,
+        lens_generation,
+    } = next(&rx, "lens refresh", |e| {
+        matches!(e, Event::CodeLensRefresh { .. })
+    })
+    else {
+        unreachable!()
+    };
+    assert_eq!(generation, client.generation());
+    assert_eq!(lens_generation, 1);
+    assert_eq!(client.connection().code_lens_generation(), 1);
+}

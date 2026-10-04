@@ -910,3 +910,68 @@ fn project_property_messages_are_typed_and_writes_follow_the_generation() {
     assert_eq!(selected.generation, generation + 2);
     assert_eq!(selected.active.platform, "x64");
 }
+
+/// Brief 0052: typed `textDocument/codeLens` and `codeLens/resolve` carry the generation through the fake host, and
+/// the host's `eludite/codeLens/refresh` becomes an event (one for an older generation is dropped).
+#[test]
+fn typed_code_lens_and_the_relayed_refresh() {
+    use eludite_lsp::fake::FakeReply;
+    let fake = FakeHost::new();
+    let range = json!({"start": {"line": 2, "character": 13}, "end": {"line": 2, "character": 28}});
+    let r = range.clone();
+    fake.respond("textDocument/codeLens", move |_| {
+        FakeReply::Result(json!([{"range": r, "data": {"listIndex": 0}}]))
+    });
+    let r = range.clone();
+    fake.respond("codeLens/resolve", move |p| {
+        FakeReply::Result(json!({"range": r, "data": p["data"], "command": {"title": "3 references",
+            "command": "eludite.editor.find_references",
+            "arguments": [{"uri": "file:///a.cs", "path": "/a.cs", "position": {"line": 2, "character": 13}}]}}))
+    });
+    let (client, rx) = start(&fake, 0);
+    let generation = client.open_solution("/src/App.slnx", T).unwrap();
+    let lenses = client
+        .request::<lsp::CodeLensRequest>(lsp::CodeLensParams {
+            text_document: lsp::TextDocumentIdentifier {
+                uri: "file:///a.cs".into(),
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .expect("lenses");
+    let resolved = client
+        .request::<lsp::ResolveCodeLens>(lenses[0].clone())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(resolved.command.as_ref().unwrap().title, "3 references");
+    for method in ["textDocument/codeLens", "codeLens/resolve"] {
+        assert_eq!(
+            fake.received_params(method)[0]["eluditeGeneration"],
+            generation
+        );
+    }
+    assert_eq!(
+        fake.received_params("codeLens/resolve")[0]["data"]["listIndex"],
+        0
+    );
+
+    fake.notify(
+        host::methods::CODE_LENS_REFRESH,
+        json!({"eluditeGeneration": generation - 1}),
+    );
+    fake.notify(
+        host::methods::CODE_LENS_REFRESH,
+        json!({"eluditeGeneration": generation}),
+    );
+    let Event::CodeLensRefresh {
+        generation: g,
+        lens_generation,
+    } = next(&rx, |e| matches!(e, Event::CodeLensRefresh { .. }))
+    else {
+        unreachable!()
+    };
+    assert_eq!((g, lens_generation), (generation, 1));
+    assert_eq!(client.connection().code_lens_generation(), 1);
+}

@@ -147,7 +147,7 @@ impl EditorView {
     /// click toggles a breakpoint.
     pub fn breakpoint_margin_point(&self, row: u32) -> Option<Point<Pixels>> {
         let l = self.layout.as_ref()?;
-        let y = l.bounds.top() + l.line_height * row as f32 - l.scroll.y + l.line_height / 2.;
+        let y = l.bounds.top() + px(l.vertical.line_top(row)) - l.scroll.y + l.line_height / 2.;
         (y >= l.bounds.top() && y <= l.bounds.bottom())
             .then(|| point(l.bounds.left() + BREAKPOINT_MARGIN / 2., y))
     }
@@ -159,8 +159,8 @@ impl EditorView {
             return None;
         }
         let y = position.y - l.bounds.top() + l.scroll.y;
-        let row = (y / l.line_height).floor().max(0.) as u32;
-        (row < self.editor.buffer().line_count()).then_some(row)
+        let hit = l.vertical.hit(f32::from(y));
+        (!hit.in_lens && hit.row < self.editor.buffer().line_count()).then_some(hit.row)
     }
 
     /// The expression a data tip shows for the identifier at `offset`: the identifier with the member accesses

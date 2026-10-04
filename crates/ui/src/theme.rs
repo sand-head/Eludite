@@ -41,6 +41,8 @@ pub struct Theme {
     pub guide: Rgba,
     pub status_bar: Rgba,
     pub status_bar_text: Rgba,
+    /// CodeLens indicators above members in the editor (brief 0052): a quiet grey, as Visual Studio draws them.
+    pub code_lens: Rgba,
     pub typography: Typography,
 }
 
@@ -71,6 +73,7 @@ impl Theme {
             guide: rgb(0x1C97EA),
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
+            code_lens: rgb(0x999999),
             typography: Typography::default(),
         }
     }
@@ -101,6 +104,7 @@ impl Theme {
             guide: rgb(0x007ACC),
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
+            code_lens: rgb(0x6D6D6D),
             typography: Typography::default(),
         }
     }
@@ -131,6 +135,7 @@ impl Theme {
             guide: rgb(0x3399FF),
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
+            code_lens: rgb(0x6D6D6D),
             typography: Typography::default(),
         }
     }
@@ -243,6 +248,7 @@ mod tests {
                 ),
                 ("on accent", t.text_on_accent, t.accent),
                 ("status", t.status_bar_text, t.status_bar),
+                ("code lens/background", t.code_lens, t.background),
             ];
             for (what, fg, bg) in pairs {
                 assert!(

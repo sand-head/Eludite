@@ -89,6 +89,19 @@ impl Dialect for HostDialect {
             methods::NUGET_UPDATE => {
                 typed_or_untyped::<host::NuGetUpdate>(n, |u| Event::NuGetUpdate(Box::new(u)))
             }
+            // Brief 0052: Roslyn's `workspace/codeLens/refresh`, relayed. One for an older generation is moot.
+            methods::CODE_LENS_REFRESH => {
+                match serde_json::from_value::<host::CodeLensRefreshParams>(
+                    n.params.clone().unwrap_or(Value::Null),
+                ) {
+                    Ok(p) if p.generation >= conn.generation() => {
+                        conn.code_lens_refresh(p.generation);
+                        return None;
+                    }
+                    Ok(_) => return None,
+                    Err(_) => Event::Notification(n),
+                }
+            }
             _ => Event::Notification(n),
         })
     }

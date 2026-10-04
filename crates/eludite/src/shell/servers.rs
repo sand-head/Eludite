@@ -453,6 +453,8 @@ impl Shell {
                 server.status = Some(s);
                 if server.ready() && !was_ready {
                     self.refresh_fallback_lists(cx);
+                    // Lenses asked for while it indexed are partial (brief 0052).
+                    self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx);
                 }
             }
             SessionEvent::ServerModules(modules) => {
@@ -493,6 +495,10 @@ impl Shell {
             SessionEvent::HostLog(line) => self.output.update(cx, |o, cx| {
                 o.append(OutputSource::LanguageServers, &format!("{line}\n"), cx)
             }),
+            // `workspace/codeLens/refresh` (brief 0052).
+            SessionEvent::CodeLensRefresh { .. } => {
+                self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx)
+            }
             // Host-only events never come from a generic session.
             _ => {}
         }
@@ -516,6 +522,7 @@ impl Shell {
         if let Some(info) = status.server_info {
             server.version = info.version;
         }
+        let features_known = status.capabilities.is_some();
         if let Some(caps) = &status.capabilities {
             server.features = ServerFeatures::from_capabilities(caps);
         }
@@ -525,6 +532,10 @@ impl Shell {
         if server.down() {
             // IntelliSense falls back to the syntax tree for its documents.
             self.refresh_fallback_lists(cx);
+        }
+        if features_known {
+            // Whether it serves lenses is known now (brief 0052).
+            self.code_lens_server_changed(&ServerKey::Generic(key.to_owned()), cx);
         }
     }
 
@@ -567,6 +578,8 @@ impl Shell {
             }
         }
         self.update_error_list(cx);
+        // Lenses from the old instance are stale (brief 0052).
+        self.code_lens_server_changed(&generic, cx);
     }
 
     /// The generation of the servers document `id` belongs to (the solution generation for the host; the sum of its

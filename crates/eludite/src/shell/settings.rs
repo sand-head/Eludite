@@ -18,6 +18,7 @@
 //! | `browser.useBuiltIn`, `debugger.launchBrowser` | where (and whether) the next start opens a web project's page (brief 0037) |
 //! | `debugger.attachBrowser`, `debugger.nodePath`, `debugger.jsDebugPath` | whether the next start debugs its page, and the next browser session's Node.js and vscode-js-debug (brief 0038) |
 //! | `test.parallel`, `test.runSettings`, `test.vstestConsolePath` | the next test discovery and run (`test_runs`, brief 0035) |
+//! | `editor.codeLens`, `editor.codeLens.references`, `editor.codeLens.tests`, `editor.languages.<id>.codeLens` | the open editors' CodeLens rows, asked for again (`codelens`, brief 0052) |
 //!
 //! The environment variables that used to be the only switches (`ELUDITE_BUILD_ON_SAVE`, `ELUDITE_CARGO`,
 //! `ELUDITE_NETCOREDBG`, `ELUDITE_RUST_ANALYZER`, `ELUDITE_CLAUDE_ACP`, `ELUDITE_CHROME`; brief 0022's `ELUDITE_MONO_PREFIX`
@@ -278,6 +279,7 @@ impl Shell {
         self.git_apply_settings(cx);
         self.terminal_apply_settings(cx);
         self.search_apply_settings();
+        self.code_lens_apply_settings(cx);
         self.forge_apply_settings(cx);
         let agents_changed = self
             .applied_settings

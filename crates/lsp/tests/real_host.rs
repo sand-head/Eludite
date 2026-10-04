@@ -826,3 +826,187 @@ fn real_host_edits_a_property_and_a_launch_profile() {
     client.shutdown(T).unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Brief 0052: the real Roslyn's lenses through the real host, on the test corpus's xunit.v3 project (corpus/tests,
+/// built in place by `corpus/tests/build.sh`): the references lens of `Calculator` (used from CalculatorTests.cs)
+/// resolves to a count above 1 that `textDocument/references` without the declaration matches, and the test lenses
+/// arrive with the host's mapping (`eludite.test.run` and `eludite.test.debug` with the member). Skips when the host,
+/// the language server (tools/roslyn-pin) or the built corpus is missing.
+#[test]
+fn real_host_code_lens_on_the_corpus() {
+    use eludite_lsp::codelens::{self, LensKind, LensTarget};
+    let Some(dll) = host_dll() else {
+        eprintln!(
+            "skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx) and ELUDITE_HOST_DLL unset"
+        );
+        return;
+    };
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
+        return;
+    }
+    let corpus =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/tests/Corpus.XunitV3");
+    if !corpus.join("obj/project.assets.json").exists() {
+        eprintln!("skipped: corpus/tests is not restored (corpus/tests/build.sh)");
+        return;
+    }
+    let corpus = std::fs::canonicalize(corpus).unwrap();
+    let (client, rx) = HostClient::start(
+        HostCommand::dotnet_host(&dll).stderr(StderrMode::Discard),
+        ClientInfo {
+            name: "eludite-lsp-test".into(),
+            version: "0".into(),
+        },
+        RestartPolicy {
+            max_restarts: 0,
+            backoff: Duration::ZERO,
+        },
+    )
+    .expect("start eludite-host");
+    let status = next(&rx, |e| match e {
+        Event::LanguageServerStatus(s) if s.state != LanguageServerState::Starting => Some(s),
+        _ => None,
+    });
+    if status.state != LanguageServerState::Running {
+        eprintln!(
+            "skipped: the Roslyn language server is not located (tools/roslyn-pin/build.sh, or ELUDITE_ROSLYN_LS): {:?}",
+            status.message
+        );
+        let _ = client.shutdown(T);
+        return;
+    }
+    let caps = status.capabilities.unwrap_or_default();
+    assert!(caps["codeLensProvider"].is_object(), "{caps}");
+    let project = corpus.join("Corpus.XunitV3.csproj");
+    client.open_solution(project.to_str().unwrap(), T).unwrap();
+    let open = |name: &str| {
+        let path = corpus.join(name);
+        let uri = eludite_lsp::path_to_uri(&path);
+        client
+            .connection()
+            .did_open(lsp::DidOpenTextDocumentParams {
+                text_document: lsp::TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "csharp".into(),
+                    version: 1,
+                    text: std::fs::read_to_string(&path).unwrap(),
+                },
+            })
+            .unwrap();
+        (uri, std::fs::read_to_string(&path).unwrap())
+    };
+    let (calculator, text) = open("Calculator.cs");
+    let (tests, _) = open("CalculatorTests.cs");
+    let deadline = Instant::now() + Duration::from_secs(300);
+    loop {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Event::SolutionStatus(s)) if s.state == SolutionState::Loaded => break,
+            Ok(Event::SolutionStatus(s)) if s.state == SolutionState::Failed => {
+                panic!("the corpus did not load: {:?}", s.diagnostics)
+            }
+            Ok(_) => {}
+            Err(e) => panic!("the corpus did not load: {e}"),
+        }
+    }
+    let lenses_of = |uri: &str| {
+        client
+            .request::<lsp::CodeLensRequest>(lsp::CodeLensParams {
+                text_document: TextDocumentIdentifier { uri: uri.into() },
+            })
+            .unwrap()
+            .wait_timeout(T)
+            .unwrap()
+            .unwrap_or_default()
+    };
+    let class_line = text
+        .lines()
+        .position(|l| l.contains("class Calculator"))
+        .unwrap() as u32;
+    let started = Instant::now();
+    let lenses = lenses_of(&calculator);
+    let request_ms = started.elapsed().as_secs_f64() * 1e3;
+    let lens = lenses
+        .iter()
+        .find(|l| l.range.start.line == class_line)
+        .unwrap_or_else(|| panic!("no lens on line {class_line}: {lenses:?}"))
+        .clone();
+    assert!(
+        lens.command.is_none(),
+        "Roslyn's references lens is resolved lazily"
+    );
+    let mut attempt = 0;
+    let started = Instant::now();
+    let resolved = loop {
+        match client
+            .request::<lsp::ResolveCodeLens>(lens.clone())
+            .unwrap()
+            .wait_timeout(T)
+        {
+            Ok(r) => break r,
+            // ContentModified while the syntax version settles: ask again, as the shell does.
+            Err(Error::Stale { .. }) if attempt < 5 => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            Err(e) => panic!("codeLens/resolve: {e:?}"),
+        }
+    };
+    let resolve_ms = started.elapsed().as_secs_f64() * 1e3;
+    let command = codelens::classify(resolved.command.as_ref().expect("a resolved lens"))
+        .expect("the host maps Roslyn's references command");
+    assert_eq!(command.kind, LensKind::References);
+    let (count, _) = codelens::title_count(&command.title).expect("a count");
+    assert!(count > 1, "{}", command.title);
+    let LensTarget::References { position, .. } = command.target else {
+        panic!("{command:?}")
+    };
+    let refs = client
+        .request::<lsp::References>(lsp::ReferenceParams {
+            text_document: TextDocumentIdentifier {
+                uri: calculator.clone(),
+            },
+            position,
+            context: lsp::ReferenceContext {
+                include_declaration: false,
+            },
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap()
+        .unwrap_or_default();
+    assert_eq!(refs.len() as u32, count, "{refs:?}");
+    // The test lenses of CalculatorTests.cs, mapped by the host.
+    let tests_lenses = lenses_of(&tests);
+    let kinds: Vec<(LensKind, String)> = tests_lenses
+        .iter()
+        .filter_map(|l| codelens::classify(l.command.as_ref()?))
+        .filter_map(|c| match c.target {
+            LensTarget::Test { member, .. } => Some((c.kind, member)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        kinds.contains(&(LensKind::RunTest, "Adds".into())),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&(LensKind::DebugTest, "Adds".into())),
+        "{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&(LensKind::RunTest, "CalculatorTests".into())),
+        "{kinds:?}"
+    );
+    eprintln!(
+        "timing: real Roslyn codeLens {request_ms:.1} ms ({} lenses), resolve {resolve_ms:.1} ms ({}); {} test lenses",
+        lenses.len(),
+        command.title,
+        kinds.len()
+    );
+    assert_eq!(client.shutdown(T).unwrap(), Some(0));
+}

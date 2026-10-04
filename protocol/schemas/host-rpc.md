@@ -537,13 +537,16 @@ requests additionally carry `eluditeGeneration`.
 | `textDocument/rename` | request | [rename](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename) | Typed since brief 0015; schema [rename.json](host/rename.json). Result `WorkspaceEdit` or `null` |
 | `textDocument/codeAction` | request | [codeAction](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeAction) | Typed since brief 0015; schema [code-action.json](host/code-action.json). Result `(Command \| CodeAction)[]` or `null` |
 | `codeAction/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeAction_resolve) | Typed since brief 0015; schema [code-action-resolve.json](host/code-action-resolve.json). Params are a `CodeAction` plus `eluditeGeneration` |
+| `textDocument/codeLens` | request | [codeLens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeLens) | Typed since brief 0052; schema [code-lens.json](host/code-lens.json). Result `CodeLens[]` or `null`, with the Roslyn lens commands mapped by the host (see "CodeLens" below) |
+| `codeLens/resolve` | request | [resolve](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeLens_resolve) | Typed since brief 0052; schema [code-lens-resolve.json](host/code-lens-resolve.json). Params are a `CodeLens` plus `eluditeGeneration`; the result's command is mapped as for `textDocument/codeLens` |
 | `textDocument/documentSymbol` | request | [documentSymbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol) | Hierarchical `DocumentSymbol[]` (the host advertises hierarchical support) |
 | `workspace/symbol` | request | [workspace symbol](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol) | |
 | `textDocument/diagnostic` | request | [pull diagnostics](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_diagnostic) | The shell may pull itself; it usually relies on the host's published diagnostics |
 | `$/cancelRequest` | notification | [cancel](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#cancelRequest) | Handled by the host; see Cancellation |
 
 The typed requests are validated before forwarding: a missing `textDocument.uri` (or `query` for
-`workspace/symbol`, `label` for `completionItem/resolve`, `title` for `codeAction/resolve`) is -32602.
+`workspace/symbol`, `label` for `completionItem/resolve`, `title` for `codeAction/resolve`, a `range` object for `codeLens/resolve`) is
+-32602.
 
 Typed requests have no schema file of their own except where Eludite reads members LSP leaves loose:
 [`host/signature-help.json`](host/signature-help.json) for `textDocument/signatureHelp` (brief 0013), and the rename and
@@ -593,6 +596,43 @@ How the shell uses rename and code actions (brief 0015), sent after a pending `d
   current, is refused as a whole: nothing is applied. Completion's `additionalTextEdits` (from the item or its
   `completionItem/resolve`) and the server's `workspace/applyEdit` use the same applier.
 
+**CodeLens** (brief 0052). The shell sends `textDocument/codeLens` after a pending `didChange` like the other requests:
+when the document opens, 150 ms after the last edit, and when the host sends `eludite/codeLens/refresh`; a newer request
+for a document cancels the older one. LSP has no range parameter, so the answer covers the whole document; the shell
+places a lens row for every lens (so the layout does not move as the person scrolls) and resolves, with
+`codeLens/resolve`, only the unresolved lenses whose line is within the visible range plus 50 lines each side, as they
+come into it. An answer is dropped when its generation or the document version it was computed for is no longer
+current, and a resolve is dropped when the document's lenses were replaced since. The host advertises
+`textDocument.codeLens` and `workspace.codeLens.refreshSupport` (below).
+
+What the pinned Roslyn answers (`CodeLensHandler`, `CodeLensResolveHandler`):
+
+- **References.** For every class, struct, record, interface, enum, enum member, method, constructor, destructor,
+  property, field, event and delegate: a lens whose `range` is the declaration's identifier, with no `command` and
+  opaque `data` (`{ syntaxVersion, listIndex, textDocument }`). `codeLens/resolve` gives it the title `"N references"`
+  (`"1 reference"`; `"99+ references"`, since Roslyn stops counting at 99; `"- references"` when it could not count)
+  and the client command `roslyn.client.peekReferences` with the arguments `[uri, position]`. The count excludes the
+  declaration, so it is `textDocument/references` with `context.includeDeclaration: false`. A lens resolved for an
+  older syntax version of its document is answered ContentModified (-32801); the shell asks again.
+- **Tests.** For every test method (recognized by its attributes, syntactically), two resolved lenses with the
+  command `dotnet.test.run`, titled `"Run Test"` and `"Debug Test"`, whose one argument is
+  `{ textDocument, range, attachDebugger, runSettingsPath }` (`attachDebugger` false and true; `runSettingsPath`
+  null); and for the class that holds them, `"Run All Tests"` and `"Debug All Tests"`. Roslyn's lens names no test,
+  only the document and the member's identifier range.
+
+The host maps those commands to Eludite's in both answers before the shell sees them ([code-lens.json](host/code-lens.json)):
+
+| Roslyn command | Eludite command | Arguments |
+|---|---|---|
+| `roslyn.client.peekReferences` | `eludite.editor.find_references` | `[{ uri, path, position }]`: the symbol's position (UTF-16), for the References popup and Find All References |
+| `dotnet.test.run` with `attachDebugger: false` | `eludite.test.run` | `[{ uri, path, range, member }]`: `member` is the identifier at `range` in the host's copy of the document |
+| `dotnet.test.run` with `attachDebugger: true` | `eludite.test.debug` | the same |
+
+Titles are unchanged, and any other command passes through unchanged. Since the lens carries a member name rather
+than a test id, the shell resolves it through the Test Explorer's model (brief 0035): the discovered tests of the
+lens's file whose method (or, for Run All Tests, class) is `member`, run by id with `eludite.test.run` or
+`eludite.test.debug` (`ids`). Before discovery has run, the lens reads "Discovering..." while the shell discovers.
+
 **Metadata as source.** For a symbol defined in a referenced assembly (no source in the solution), the pinned
 Roslyn language server decompiles the type with ICSharpCode.Decompiler into a real file under its own temporary
 directory and answers `textDocument/definition` with a plain `file://` URI to it:
@@ -639,6 +679,7 @@ Any other method returns -32601 (MethodNotFound) and is not forwarded.
 | `eludite/build/progress` | notification | [build-progress.json](host/build-progress.json) | `{ buildId, elapsedMs, projectsTotal, projectsCompleted, errors, warnings, currentProject? }` |
 | `eludite/build/finished` | notification | [build-finished.json](host/build-finished.json) | `{ buildId, generation, target, path, result, exitCode, elapsedMs, summary, projects, diagnostics, binlog?, message? }` |
 | `eludite/test/update` | notification | [test-update.json](host/test-update.json) | `{ runId, generation, seq, kind, container?, tests?, results?, text?, launch?, processId?, state?, count?, summary?, elapsedMs?, message? }` |
+| `eludite/codeLens/refresh` | notification | [code-lens-refresh.json](host/code-lens-refresh.json) | `{ eluditeGeneration }`: the language server sent `workspace/codeLens/refresh` (brief 0052) |
 | `eludite/nuget/update` | notification | [nuget-update.json](host/nuget-update.json) | `{ operation, generation, seq, kind, text?, message?, packages? }` |
 | `eludite/nuget/credentials` | request | [nuget-credentials.json](host/nuget-credentials.json) | `{ operation?, source, url, host, proxy, isRetry, message? }`; result `{ username?, password?, remember?, canceled? }` or `null` |
 
@@ -719,7 +760,8 @@ Answered by the host, never relayed:
 | `window/workDoneProgress/create` | `null` |
 | `window/showMessageRequest` | `null` (no modal UI) |
 | `workspace/diagnostic/refresh` | `null`, and the host re-pulls diagnostics for every open document |
-| `workspace/semanticTokens/refresh`, `workspace/codeLens/refresh`, `workspace/inlayHint/refresh` | `null`; not relayed (no consumer yet) |
+| `workspace/codeLens/refresh` | `null` at once, and the host sends the shell `eludite/codeLens/refresh` with the current generation (brief 0052) |
+| `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null`; not relayed (no consumer yet) |
 
 `workspace/applyEdit` is not answered by the host: it is relayed to the shell (see "Messages the host sends").
 
@@ -739,7 +781,8 @@ plaintext, `signatureHelp`, `definition`, `references`, `publishDiagnostics`, pu
 `documentChanges`, `resourceOperations` (`create`, `rename`, `delete`) and `failureHandling` `abort`;
 `textDocument.codeAction` with `codeActionLiteralSupport` (the kinds `quickfix`, `refactor`, `refactor.extract`,
 `refactor.inline`, `refactor.rewrite`, `source`, `source.organizeImports`), `resolveSupport` for `edit`,
-`dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
+`dataSupport`, `isPreferredSupport` and `disabledSupport`; and `textDocument.rename` with `prepareSupport`. Since brief 0052 also: `textDocument.codeLens` and
+`workspace.codeLens.refreshSupport`. The server's resulting capabilities reach the shell in `eludite/languageServer/status`.
 
 ## Generic language servers and Cargo (brief 0019)
 
@@ -778,13 +821,23 @@ renders a result from a previous server instance (CLAUDE.md invariant 12).
 |---|---|
 | Lifecycle | `initialize`, `initialized`, `shutdown`, `exit` |
 | Document sync | `textDocument/didOpen`, `didChange` (incremental, UTF-16), `didSave`, `didClose`, `workspace/didChangeWatchedFiles` |
-| Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve` |
+| Requests | `textDocument/completion`, `completionItem/resolve`, `textDocument/hover`, `textDocument/signatureHelp`, `textDocument/definition`, `textDocument/references`, `textDocument/prepareRename`, `textDocument/rename`, `textDocument/codeAction`, `codeAction/resolve`, `textDocument/codeLens`, `codeLens/resolve` |
 | Pull diagnostics | `textDocument/diagnostic`, sent by the client itself (below), never by the editor features |
 | Cancellation | `$/cancelRequest` |
 
 **Client capabilities** are the set the host advertises to Roslyn (section above), so the editor features need no
 per-server branch, plus `workspace.diagnostics.refreshSupport: true` and `experimental.serverStatusNotification:
-true`.
+true`, and (brief 0052) `experimental.commands.commands`: `rust-analyzer.runSingle`, `rust-analyzer.debugSingle` and
+`rust-analyzer.showReferences`, the client commands rust-analyzer requires before it offers its run, debug,
+implementations and references lenses ([lsp-extensions.md](https://github.com/rust-lang/rust-analyzer/blob/master/docs/book/src/contributing/lsp-extensions.md)).
+
+**CodeLens from a generic server** (brief 0052) is requested and resolved as from the host (section "CodeLens" above),
+without the generation. The shell recognizes these lens commands; a lens with any other command is not shown:
+
+| Command | Arguments | Lens |
+|---|---|---|
+| `rust-analyzer.runSingle`, `rust-analyzer.debugSingle` | `[runnable]`: a Cargo runnable whose `args.cargoArgs` start with `test` (not `--doc`); `args.executableArgs[0]` is the libtest name (a single test with `--exact`, else a module) | Run Test or Debug Test: the Test Explorer's Cargo tests of that name (or under that module) in the package that holds the file. A runnable that is not a test (`cargo run`, a doctest) is not shown |
+| `rust-analyzer.showReferences`, `editor.action.showReferences` | `[uri, position, locations]` | References (or implementations, by the title): the References popup lists `locations` as given |
 
 **What the server sends, and the shell's answer:**
 
@@ -798,7 +851,8 @@ true`.
 | request | `workspace/configuration` | The registration's `settings` for each item's `section` (`null` when absent) |
 | request | `window/workDoneProgress/create`, `client/registerCapability`, `client/unregisterCapability` | `null` (accepted) |
 | request | `workspace/diagnostic/refresh` | `null`, and every open document is pulled again |
-| request | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh`, `workspace/codeLens/refresh` | `null` |
+| request | `workspace/codeLens/refresh` | `null`, and the shell requests the lenses of the server's open documents again (brief 0052) |
+| request | `workspace/semanticTokens/refresh`, `workspace/inlayHint/refresh` | `null` |
 | request | anything else | -32601 (MethodNotFound) |
 
 **Push and pull.** The editor features take one diagnostics list per document, as the host delivers them. The

@@ -204,7 +204,8 @@ impl Render for ThreadMarks {
         let v = self.view.read(cx);
         let lh = v.line_height();
         let top = v.scroll_position().y;
-        let y = |line: u64| lh * (line.saturating_sub(1)) as f32 - top;
+        // Placed by the editor's layout, which counts CodeLens rows (brief 0052).
+        let y = |line: u64| v.row_top(line.saturating_sub(1) as u32) - top;
         let mut root = div().absolute().top_0().left_0().size_full();
         for (ix, (line, thread, _)) in self.marks.iter().enumerate() {
             let color = if thread.resolved {

@@ -308,8 +308,9 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
         w.applied(|a| a.build_on_save) == Some(false)
     });
 
-    // A text box: Agents, Default agent (after Test > General, brief 0035).
-    w.click(&section_selector(5));
+    // A text box: Agents, Default agent (its page found by name: pages keep being added before it).
+    let agents = schema.sections.iter().position(|s| s == "Agents").unwrap();
+    w.click(&section_selector(agents));
     w.click(&setting_selector("agents.default"));
     w.vcx.simulate_keystrokes("G e m i n i enter");
     w.wait("the default agent", |w| {

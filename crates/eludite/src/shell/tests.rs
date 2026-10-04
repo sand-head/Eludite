@@ -74,6 +74,17 @@ pub(super) fn setup_debug(
     agents: Option<super::agents::AgentsSetup>,
     debug: Option<super::debug::DebugSetup>,
 ) -> Ws {
+    setup_services(cx, script, agents, debug, |_| {})
+}
+
+/// As [`setup_debug`], adjusting the shell's services before it starts (servers in this process, brief 0052).
+pub(super) fn setup_services(
+    cx: &mut TestAppContext,
+    script: impl FnOnce(&FakeHost),
+    agents: Option<super::agents::AgentsSetup>,
+    debug: Option<super::debug::DebugSetup>,
+    customize: impl FnOnce(&mut super::Services),
+) -> Ws {
     cx.executor().allow_parking();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
@@ -131,6 +142,9 @@ pub(super) fn setup_debug(
             dotnet: "dotnet".into(),
             js: Default::default(),
         });
+    }
+    if let Some(s) = services.as_mut() {
+        customize(s);
     }
     let opened: Arc<std::sync::Mutex<Vec<PathBuf>>> = Arc::default();
     if let Some(s) = services.as_mut() {

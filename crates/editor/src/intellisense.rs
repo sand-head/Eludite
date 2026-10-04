@@ -84,6 +84,162 @@ pub enum EditorEvent {
     BreakpointMarginClicked {
         row: u32,
     },
+    /// The document's lenses are wanted (brief 0052): it was opened, edited [`CODE_LENS_DEBOUNCE`] ago, or refreshed.
+    /// The owner asks its server(s) and answers with [`crate::EditorView::set_code_lenses`] quoting `id`; an answer
+    /// for another id, or computed on text the person has changed since, is dropped.
+    CodeLensRequested {
+        id: u64,
+    },
+    /// These unresolved lenses came within [`CODE_LENS_MARGIN`] lines of the visible range: resolve them and update
+    /// them with [`crate::EditorView::update_code_lens`].
+    CodeLensResolve {
+        ids: Vec<u64>,
+    },
+    /// Lens `id` was clicked, or chosen from the keyboard (Ctrl+K, Ctrl+Q): the owner does what it says (the References
+    /// popup, Run Test, Debug Test). Its bounds are [`crate::EditorView::code_lens_bounds`].
+    CodeLensActivated {
+        id: u64,
+        keyboard: bool,
+    },
+}
+
+/// How long after the last edit the lenses are asked for again (brief 0052).
+pub const CODE_LENS_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Lines beyond the visible range, on each side, whose lenses are resolved (brief 0052).
+pub const CODE_LENS_MARGIN: u32 = 50;
+
+/// One CodeLens indicator as the owner hands it to the editor (brief 0052).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeLens {
+    /// The owner's id, quoted back in [`EditorEvent::CodeLensResolve`] and [`EditorEvent::CodeLensActivated`].
+    pub id: u64,
+    /// Where the member starts: the lens shows on the lens row above its line, and follows it as the text changes.
+    pub offset: usize,
+    /// What the indicator reads (`3 references`, `Run Test`).
+    pub title: String,
+    /// False until resolved: the editor asks for it when its line comes near the visible range.
+    pub resolved: bool,
+    /// A test's last outcome, drawn before the title in its color.
+    pub glyph: Option<eludite_ui::TestGlyph>,
+}
+
+/// A lens as the editor shows it (for tests and commands).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeLensSnapshot {
+    pub id: u64,
+    /// The buffer row the lens row is above (0-based).
+    pub row: u32,
+    pub title: String,
+    pub resolved: bool,
+    pub glyph: Option<eludite_ui::TestGlyph>,
+}
+
+/// The rows whose lenses are resolved: `visible` and [`CODE_LENS_MARGIN`] lines on each side, within the document.
+pub fn code_lens_window(visible: Range<u32>, line_count: u32) -> Range<u32> {
+    visible.start.saturating_sub(CODE_LENS_MARGIN)
+        ..visible
+            .end
+            .saturating_add(CODE_LENS_MARGIN)
+            .min(line_count.max(1))
+}
+
+/// The editor's side of the lens requests (brief 0052): when the document's lenses are wanted, whether an answer is
+/// current, and which lenses to resolve. Time is the view's: it starts a [`CODE_LENS_DEBOUNCE`] timer on every edit
+/// and asks [`CodeLensPipeline::debounced`] when it fires.
+#[derive(Debug, Default)]
+pub struct CodeLensPipeline {
+    enabled: bool,
+    next_id: u64,
+    /// The request in flight: its id and the buffer version it was made on.
+    pending: Option<(u64, clock::Global)>,
+    /// The text changed since the last request.
+    stale: bool,
+    /// Lenses whose resolve was asked for.
+    asked: std::collections::HashSet<u64>,
+}
+
+impl CodeLensPipeline {
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Turn lenses on or off; returns whether it changed. Off forgets the request in flight.
+    pub fn set_enabled(&mut self, enabled: bool) -> bool {
+        if self.enabled == enabled {
+            return false;
+        }
+        self.enabled = enabled;
+        if !enabled {
+            self.pending = None;
+            self.asked.clear();
+        }
+        true
+    }
+
+    /// Ask for the lenses now (the document opened, a refresh): the id to quote, or `None` while lenses are off. A
+    /// newer request supersedes the one in flight.
+    pub fn request(&mut self, version: &clock::Global) -> Option<u64> {
+        if !self.enabled {
+            return None;
+        }
+        self.next_id += 1;
+        self.pending = Some((self.next_id, version.clone()));
+        self.stale = false;
+        Some(self.next_id)
+    }
+
+    /// The text changed: the lenses are asked for again [`CODE_LENS_DEBOUNCE`] after the last edit.
+    pub fn edited(&mut self) {
+        if self.enabled {
+            self.stale = true;
+        }
+    }
+
+    /// The debounce after an edit ran out without another edit: the request to make, if any.
+    pub fn debounced(&mut self, version: &clock::Global) -> Option<u64> {
+        if self.stale {
+            self.request(version)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the answer to request `id` is current: it is the newest request's, and the text is the one it was
+    /// made on (`version`). A stale answer is dropped (CLAUDE.md invariant 12); the debounce asks again.
+    pub fn accept(&mut self, id: u64, version: &clock::Global) -> bool {
+        match &self.pending {
+            Some((pending, made_on)) if *pending == id && made_on == version => {
+                self.pending = None;
+                self.asked.clear();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The unresolved lenses (`(id, row, resolved)`) inside `window` not asked for yet; they are marked asked.
+    pub fn to_resolve(
+        &mut self,
+        lenses: impl IntoIterator<Item = (u64, u32, bool)>,
+        window: Range<u32>,
+    ) -> Vec<u64> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        lenses
+            .into_iter()
+            .filter(|(id, row, resolved)| {
+                !resolved && window.contains(row) && self.asked.insert(*id)
+            })
+            .map(|(id, _, _)| id)
+            .collect()
+    }
+
+    /// Ask for lens `id` again next time it is in the window (its resolve failed).
+    pub fn retry(&mut self, id: u64) {
+        self.asked.remove(&id);
+    }
 }
 
 /// Where the shown completion items come from.
@@ -471,6 +627,33 @@ impl Rendered {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lens_window_and_pipeline() {
+        assert_eq!(code_lens_window(100..140, 1000), 50..190);
+        assert_eq!(code_lens_window(10..40, 60), 0..60);
+        let mut p = CodeLensPipeline::default();
+        let v1 = clock::Global::new();
+        assert_eq!(p.request(&v1), None, "off asks for nothing");
+        assert!(p.set_enabled(true));
+        assert!(!p.set_enabled(true));
+        let a = p.request(&v1).unwrap();
+        assert!(p.accept(a, &v1));
+        assert!(!p.accept(a, &v1), "an answer is applied once");
+        assert_eq!(p.debounced(&v1), None, "no edit, no request");
+        p.edited();
+        let b = p.debounced(&v1).unwrap();
+        let mut clock = clock::Lamport::new(clock::ReplicaId::new(1));
+        let v2: clock::Global = [clock.tick()].into_iter().collect();
+        assert!(!p.accept(b, &v2), "the text changed since the request");
+        let rows = [(1, 5, false), (2, 60, false), (3, 7, true)];
+        assert_eq!(p.to_resolve(rows, 0..50), [1]);
+        assert!(p.to_resolve(rows, 0..50).is_empty());
+        p.retry(1);
+        assert_eq!(p.to_resolve(rows, 0..100), [1, 2]);
+        assert!(p.set_enabled(false));
+        assert!(p.to_resolve(rows, 0..100).is_empty());
+    }
 
     #[test]
     fn word_starts() {

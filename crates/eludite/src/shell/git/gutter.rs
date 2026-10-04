@@ -161,7 +161,6 @@ impl ChangeMarks {
 impl Render for ChangeMarks {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let v = self.view.read(cx);
-        let lh = v.line_height();
         let top = v.scroll_position().y;
         div()
             .absolute()
@@ -175,12 +174,16 @@ impl Render for ChangeMarks {
                     .absolute()
                     .left(px(1.))
                     .bg(rgb(m.kind.color()));
+                // Rows are placed by the editor's layout, which counts CodeLens rows (brief 0052).
                 if m.kind == MarkKind::Deleted {
-                    el.top(lh * m.row as f32 - top - px(2.)).w(px(6.)).h(px(4.))
+                    el.top(v.row_top(m.row) - top - px(2.)).w(px(6.)).h(px(4.))
                 } else {
-                    el.top(lh * m.row as f32 - top)
-                        .w(px(3.))
-                        .h(lh * m.len as f32)
+                    let end = m.row + m.len.max(1) - 1;
+                    el.top(v.row_top(m.row) - top).w(px(3.)).h(if m.len == 0 {
+                        px(0.)
+                    } else {
+                        v.row_bottom(end) - v.row_top(m.row)
+                    })
                 }
             }))
     }

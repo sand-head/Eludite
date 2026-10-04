@@ -994,7 +994,11 @@ impl EditorView {
             return None;
         }
         let y = position.y - l.bounds.top() + l.scroll.y;
-        let row = (y / l.line_height).floor().max(0.) as u32;
+        let hit = l.vertical.hit(f32::from(y));
+        if hit.in_lens {
+            return None;
+        }
+        let row = hit.row;
         let (_, text, shaped) = l.rows.iter().find(|(r, _, _)| *r == row)?;
         let x = position.x - l.text_left + l.scroll.x;
         let col = from_display(text, shaped.index_for_x(x)?);
@@ -1071,7 +1075,7 @@ impl EditorView {
         let l = self.layout.as_ref()?;
         let buffer = self.editor.buffer();
         let p = buffer.offset_to_point(offset);
-        let y = l.bounds.top() + l.line_height * p.row as f32 - self.scroll_position().y;
+        let y = l.bounds.top() + self.row_top(p.row) - self.scroll_position().y;
         if y + l.line_height < l.bounds.top() || y > l.bounds.bottom() {
             return None;
         }

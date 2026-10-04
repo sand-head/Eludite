@@ -75,7 +75,12 @@ In-process loading was tried and rejected; see `docs/briefs/0002-report.md`.
 - Server-to-client requests (`workspace/configuration`, `client/registerCapability`, the refresh requests, ...) are
   answered by the host; `workspace/configuration` turns `projects.dotnet_enable_file_based_programs` off.
   `workspace/applyEdit` is the exception: it is relayed to the shell, whose answer goes back to the server (a shell
-  error or a lost connection is `applied: false`; the server's cancellation is passed on).
+  error or a lost connection is `applied: false`; the server's cancellation is passed on). `workspace/codeLens/refresh`
+  is answered and told to the shell as `eludite/codeLens/refresh` (brief 0052).
+- CodeLens (brief 0052, `Lsp/CodeLensCommands.cs`): in the answers to `textDocument/codeLens` and `codeLens/resolve`,
+  Roslyn's client commands become Eludite's: `roslyn.client.peekReferences` becomes `eludite.editor.find_references`
+  with the symbol's position, and `dotnet.test.run` becomes `eludite.test.run` or `eludite.test.debug` (by
+  `attachDebugger`) with the member's name read from the host's copy of the document.
 
 ## Semantics warming (brief 0002 finding)
 

@@ -28,6 +28,9 @@ mod build_tests;
 pub mod cargo_build;
 pub mod cargo_tests;
 pub mod code_actions;
+pub mod codelens;
+#[cfg(test)]
+mod codelens_tests;
 pub mod configuration_manager;
 pub mod debug;
 pub mod documents;
@@ -428,6 +431,8 @@ pub struct Shell {
     navigation: Navigation,
     /// Find All References in flight (brief 0014).
     references: References,
+    /// CodeLens: the documents' lenses, their requests and the References popup (brief 0052).
+    code_lens: codelens::CodeLensState,
     /// Rename and its dialog (brief 0015).
     rename: rename::Rename,
     /// The light bulb and its menu (brief 0015).
@@ -1066,6 +1071,7 @@ impl Shell {
             intellisense_waiters: Vec::new(),
             navigation: Navigation::default(),
             references: References::default(),
+            code_lens: codelens::CodeLensState::default(),
             rename: rename::Rename::default(),
             code_actions: code_actions::CodeActions::default(),
             formatting: format::Formatting::default(),
@@ -1684,6 +1690,8 @@ impl Shell {
                 self.ls_state = Some(s.state);
                 if let Some(caps) = &s.capabilities {
                     self.features = intellisense::ServerFeatures::from_capabilities(caps);
+                    // Whether Roslyn serves lenses is known now (brief 0052).
+                    self.code_lens_server_changed(&ServerKey::Host, cx);
                 }
                 let text = match s.state {
                     LanguageServerState::Starting => "C#: starting\u{2026}".to_owned(),
@@ -1741,6 +1749,8 @@ impl Shell {
                     (status.state != SolutionState::Closed).then_some(status.state);
                 if status.state == SolutionState::Loaded && !was_loaded {
                     self.refresh_fallback_lists(cx);
+                    // Reference counts and test lenses need the loaded projects (brief 0052).
+                    self.code_lens_server_changed(&ServerKey::Host, cx);
                 }
                 let name = Path::new(&status.path)
                     .file_name()
@@ -1888,6 +1898,12 @@ impl Shell {
                 self.update_error_list(cx);
             }
             // Generic servers' events arrive through their own sessions (`servers`).
+            // Roslyn's `workspace/codeLens/refresh`, relayed (brief 0052).
+            SessionEvent::CodeLensRefresh { generation } => {
+                if generation == self.generation {
+                    self.code_lens_server_changed(&ServerKey::Host, cx);
+                }
+            }
             SessionEvent::Progress(_)
             | SessionEvent::ServerStatus(_)
             | SessionEvent::ServerGeneration(_)
@@ -2220,6 +2236,7 @@ impl Render for Shell {
             .child(self.dock.clone())
             .child(self.status.render_with(&t, self.debug_status_controls(cx)))
             .children(self.navigation.picker.clone())
+            .children(self.code_lens.popup.clone())
             .children(self.rename.dialog.clone())
             .children(self.git.prompt.clone())
             .children(self.options.clone())

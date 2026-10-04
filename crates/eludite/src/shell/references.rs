@@ -684,7 +684,7 @@ impl Shell {
 
     /// Each location with its path and project, and where each file's text comes from.
     #[allow(clippy::type_complexity)]
-    fn reference_inputs(
+    pub(super) fn reference_inputs(
         &self,
         locations: Vec<lsp::Location>,
         cx: &gpui::App,
