@@ -1,12 +1,13 @@
 # vscode-js-debug (https://github.com/microsoft/vscode-js-debug, MIT, SPDX: MIT), the DAP server Eludite debugs web pages
 # with (brief 0038): the release's standalone server `js-debug-dap-v<version>.tar.gz`, run as
 # `node js-debug/src/dapDebugServer.js PORT HOST`. Fetched by fetch.sh and fetch.ps1, never vendored and never downloaded
-# at startup. The version was taken from Open VSX's listing of ms-vscode.js-debug when brief 0038 was written; the
-# release is published on GitHub only, which that agent's machine could not reach, so the checksum line is the owner's
-# to add: run `JS_DEBUG_PIN_FROM_DOWNLOAD=1 tools/js-debug/fetch.sh` on a machine that reaches GitHub, check the
-# download, and put the `sha256` line it prints below. Until then fetch.sh refuses.
+# at startup. The version is the one Open VSX listed for ms-vscode.js-debug when brief 0038 was written; the SHA-256 was
+# computed from the GitHub release's download on 2026-10-03 (`JS_DEBUG_PIN_FROM_DOWNLOAD=1 tools/js-debug/fetch.sh`
+# prints it; a PIN without a `sha256` line makes fetch.sh refuse). The archive unpacks to js-debug/ (no package.json:
+# the version is this file's, and the cache folder's name).
 version 1.140.0
 base https://github.com/microsoft/vscode-js-debug/releases/download/v1.140.0
 file js-debug-dap-v1.140.0.tar.gz
+sha256 27dab92937ec1ab35821ae955aac867544fe06a1b6307229049f2d789af10968
 # The oldest Node.js the release runs on (major version); crates/dap/src/discovery.rs checks `node --version` against it.
 node 18
