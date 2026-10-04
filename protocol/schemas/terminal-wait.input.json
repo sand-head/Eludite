@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-wait.input.json",
+  "title": "eludite.terminal.wait input",
+  "description": "Wait until a terminal shows something, up to `timeout_ms` (default 10000, at most 60000): its next prompt (`prompt: true`, the default when neither `pattern` nor `exit` is given: the command you sent finished; with shell integration the answer has its exit code), output matching `pattern` (a regular expression, Rust syntax, searched in what was printed after `mark`), or the shell's end (`exit: true`). Answers which happened (`matched`), the text printed after `mark` (the command's output, without the prompt when the shell's integration marks them) and the `mark` to pass next time. Use it after eludite.terminal.send instead of sleeping. Not satisfied in time answers `matched: \"timeout\"`, not a failure. When the person types into the terminal while you wait, the wait ends at once with `interrupted_by: \"user\"`, and your next eludite.terminal.send is refused until you call eludite.terminal.read. Always allowed for agents (class read).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "mark": {
+      "description": "Wait for what comes after this mark. Default: your last eludite.terminal.send's mark, else the output's current end.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "prompt": {
+      "description": "Wait for the next prompt after `mark`.",
+      "type": "boolean"
+    },
+    "pattern": {
+      "description": "Wait for output after `mark` matching this regular expression (Rust regex syntax; `(?i)` for case-insensitive).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "exit": {
+      "description": "Wait for the shell to end.",
+      "type": "boolean"
+    },
+    "timeout_ms": {
+      "description": "How long to wait, in milliseconds (default 10000).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60000
+    }
+  }
+}

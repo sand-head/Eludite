@@ -13,7 +13,8 @@
     "Test > General",
     "Agents",
     "Web Browser",
-    "Source Control > Git Global Settings"
+    "Source Control > Git Global Settings",
+    "Terminal"
   ],
   "properties": {
     "keyboard.preset": {
@@ -342,6 +343,112 @@
       "x-eludite-editor": "text",
       "x-eludite-section": "Web Browser",
       "x-eludite-label": "Window size"
+    },
+    "terminal.defaultProfile": {
+      "description": "The profile New Terminal (Ctrl+Shift+`), View > Terminal (Ctrl+`) and eludite.terminal.open without a `profile` start: a name from the Terminal window's dropdown (`bash`, `zsh`, `fish`, `sh`; `Developer PowerShell`, `PowerShell`, `Command Prompt` on Windows; or one of terminal.profiles). Empty: the platform's default, $SHELL on Linux and macOS (else `sh`) and Developer PowerShell on Windows (PowerShell when no Build Tools are located).",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Default profile"
+    },
+    "terminal.profiles": {
+      "description": "Profiles added to the Terminal window's dropdown after the built-in ones; one with a built-in's name replaces it. Each runs `command` (a path, or a name looked up on PATH) with `args` and extra `env`, in the workspace's folder unless `cwd` (absolute, or relative to the workspace) says otherwise. Edited in the file (the Options dialog shows the count).",
+      "type": "array",
+      "default": [],
+      "maxItems": 50,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Additional profiles",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "command": {
+            "description": "The shell's executable (a path, or a name looked up on PATH).",
+            "type": "string",
+            "minLength": 1
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "env": {
+            "description": "Extra environment variables.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "description": "The starting folder, absolute or relative to the workspace's folder.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "terminal.fontSize": {
+      "description": "The terminal's font size in pixels (Visual Studio's 10 points at 96 DPI is 13). The font is Cascadia Mono where installed, else the editor's monospace font.",
+      "type": "integer",
+      "minimum": 6,
+      "maximum": 72,
+      "default": 13,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Font size (pixels)"
+    },
+    "terminal.scrollback": {
+      "description": "Lines each terminal keeps above its screen. 10,000 lines take under 20 MB per terminal. Applies to terminals opened after the change.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100000,
+      "default": 10000,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Scrollback lines"
+    },
+    "terminal.copyOnSelect": {
+      "description": "Copy the selection to the clipboard as soon as the mouse button is released. Off (Visual Studio's default): Ctrl+C with a selection, Ctrl+Shift+C or Ctrl+Insert copies.",
+      "type": "boolean",
+      "default": false,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Copy on select"
+    },
+    "terminal.bell": {
+      "description": "What a terminal's bell (BEL) does: `visual` flashes the terminal's frame (the default; Visual Studio makes no sound), `none` ignores it.",
+      "enum": [
+        "visual",
+        "none"
+      ],
+      "default": "visual",
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Bell",
+      "x-eludite-enum-labels": [
+        "Flash the terminal",
+        "None"
+      ]
+    },
+    "terminal.inheritToolPaths": {
+      "description": "Put the folders of the tools Eludite located first on the terminal's PATH, once each: the `dotnet` it builds with (and DOTNET_ROOT), Cargo's bin folder, and Node.js when located, so `dotnet --version` in the terminal prints the SDK Eludite uses (Visual Studio's Developer PowerShell does the same with its own tools). Off: the terminal inherits Eludite's environment unchanged. Applies to terminals opened after the change.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Add Eludite's located tools to PATH"
+    },
+    "terminal.shellIntegration": {
+      "description": "Source a small script into bash, zsh, fish and PowerShell that marks each prompt and each command's start, end and exit code (OSC 133) and reports the current folder (OSC 7): agents' eludite.terminal.wait with `prompt` then answers the command's exit code, and links resolve against the folder you `cd` into. It never changes your dotfiles: the script is passed through the shell's startup options (`--rcfile`, `ZDOTDIR`, fish's `--init-command`, PowerShell's `-NoExit -Command`) and then runs your own startup files. Off, or with another shell: a prompt is recognized by a heuristic. Applies to terminals opened after the change.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Terminal",
+      "x-eludite-label": "Shell integration"
     }
   }
 }

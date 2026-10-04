@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-read.output.json",
+  "title": "eludite.terminal.read output",
+  "description": "The text, the cursor and where the output stands.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "text",
+    "cursor",
+    "cols",
+    "rows",
+    "running",
+    "busy",
+    "integration",
+    "truncated",
+    "mark"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "text": {
+      "description": "The text read. `since` answers at most the last 256 KB (`truncated` says when more was cut from its start).",
+      "type": "string"
+    },
+    "cursor": {
+      "description": "The cursor on the screen, 1-based.",
+      "type": "object",
+      "required": [
+        "line",
+        "column"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "cols": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "running": {
+      "description": "The shell still runs.",
+      "type": "boolean"
+    },
+    "exit_code": {
+      "description": "The shell's exit code, once it ended.",
+      "type": "integer"
+    },
+    "busy": {
+      "description": "A command is running in it (Linux and macOS).",
+      "type": "boolean"
+    },
+    "integration": {
+      "description": "Whether the shell reports its prompts and each command's exit code (shell integration: OSC 133 marks from a small script Eludite sources for bash, zsh, fish and PowerShell when the setting terminal.shellIntegration is on). Without it (`sh`, a shell that declined, or the setting off) a prompt is recognized by a heuristic: the cursor's line ends in `$ `, `> ` or `# ` after 300 ms without output, and exit codes per command are unknown.",
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "mark": {
+      "description": "A position in the terminal's output stream: the number of bytes of plain text (UTF-8, escape sequences removed) the terminal has printed since it started. Pass it to eludite.terminal.read (`mode: since`) or eludite.terminal.wait to see only what came after it.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

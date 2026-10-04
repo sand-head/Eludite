@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-resize.input.json",
+  "title": "eludite.terminal.resize input",
+  "description": "Resize a terminal's grid to `cols` columns and `rows` rows: the PTY's size changes, so programs (and `tput cols`, `$COLUMNS` after the next prompt) see it. The Terminal window sets each visible terminal's size from its own; a resize the window then overrides holds only while the terminal is not shown. For agents, class execute decided by the solution policy's `terminal.run`.",
+  "type": "object",
+  "required": [
+    "cols",
+    "rows"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "cols": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 1000
+    },
+    "rows": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-clear.output.json",
+  "title": "eludite.terminal.clear output",
+  "description": "What was cleared.",
+  "type": "object",
+  "required": [
+    "terminal",
+    "mark"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal's id.",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "mark": {
+      "description": "A position in the terminal's output stream: the number of bytes of plain text (UTF-8, escape sequences removed) the terminal has printed since it started. Pass it to eludite.terminal.read (`mode: since`) or eludite.terminal.wait to see only what came after it.",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

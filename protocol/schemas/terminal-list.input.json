@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-list.input.json",
+  "title": "eludite.terminal.list input",
+  "description": "List the terminals of the Terminal window, which the person and agents share: each one's id, name, profile, process id, folder, size, whether its shell still runs and whether a command (a foreground process other than the shell) is running in it, and which is active. Also the profiles a terminal can be opened with. Cheap and safe: it starts nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

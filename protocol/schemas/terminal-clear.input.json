@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-clear.input.json",
+  "title": "eludite.terminal.clear input",
+  "description": "Clear a terminal (the window's Clear): its screen and scrollback are erased and the cursor goes to the top; the shell and its command keep running. Marks stay valid: output printed later is still read with eludite.terminal.read `mode: since`. For agents, class execute decided by the solution policy's `terminal.run`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    }
+  }
+}

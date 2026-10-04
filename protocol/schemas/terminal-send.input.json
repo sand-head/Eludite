@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/terminal-send.input.json",
+  "title": "eludite.terminal.send input",
+  "description": "Type text into a terminal, as if the person typed it: it goes to the same PTY the person types into, and shows in the Terminal window in real time (the tab says \"Agent <name> is typing\"). With `newline` (default true) Enter follows, so a command runs. Answers the `mark` before the text: pass it to eludite.terminal.wait (`prompt: true` waits for the command to finish and answers its output and exit code) or eludite.terminal.read (`mode: since`). For agents, class execute decided by the solution policy's `terminal.run` (`prompt` by default: the first send of an agent session asks; \"Allow for this session\" holds). Refused after the person typed during your eludite.terminal.wait (it answered `interrupted_by: \"user\"`) until you call eludite.terminal.read: look at what the person did first. Control characters work as text: `\\u0003` is Ctrl+C (interrupt), `\\u0004` Ctrl+D (end of input).",
+  "type": "object",
+  "required": [
+    "text"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "terminal": {
+      "description": "The terminal: its id from eludite.terminal.open or eludite.terminal.list (`term1`, `term2`, ...). Default: the active terminal of the Terminal window (the one last opened or selected).",
+      "type": "string",
+      "pattern": "^term[0-9]+$"
+    },
+    "text": {
+      "description": "What to type. With `newline`, do not end it with a newline yourself.",
+      "type": "string",
+      "maxLength": 65536
+    },
+    "newline": {
+      "description": "Press Enter after the text (default true). False types the text only (an answer to a prompt that reads single keys, or control characters).",
+      "type": "boolean"
+    }
+  }
+}
