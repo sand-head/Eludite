@@ -1,10 +1,18 @@
 // The web corpus's minimal ASP.NET Core project (brief 0037): a page with a form that posts back to itself, and a
 // JSON endpoint the page's button reads. F5 (or Ctrl+F5) in Eludite runs it with its launch profile and opens the
-// page in the Web Browser window once Kestrel says "Now listening on:".
+// page in the Web Browser window once Kestrel says "Now listening on:". Brief 0038 adds the page's script,
+// wwwroot/app.ts compiled to app.js with its source map, whose "Add" button has a bug for the JavaScript debugger.
 using System.Net;
+using Microsoft.AspNetCore.StaticFiles;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
+
+// wwwroot: app.js, its map and its TypeScript source (the map and the source with types the defaults do not know).
+var types = new FileExtensionContentTypeProvider();
+types.Mappings[".map"] = "application/json";
+types.Mappings[".ts"] = "text/plain";
+app.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = types });
 
 app.MapGet("/", () => Results.Content(Page.Render(null), "text/html; charset=utf-8"));
 app.MapPost("/", async (HttpRequest request) =>
@@ -45,6 +53,13 @@ static class Page
               </form>
               {{greeting}}
               <p><button id="time" type="button">What time is it?</button> <span id="now"></span></p>
+              <p>
+                <label for="price">Price</label>
+                <input id="price" type="number" value="5">
+                <button id="add" type="button">Add</button>
+                Total: <span id="total">0</span>
+              </p>
+              <script src="/app.js"></script>
               <script>
                 document.getElementById("time").addEventListener("click", async () => {
                   const r = await fetch("/api/time");
