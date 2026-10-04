@@ -39,7 +39,8 @@ Date: 2026-10-04. Brief: [0041-integrated-terminal.md](0041-integrated-terminal.
   no dotfile is touched. `wait` with `prompt` answers the command's exit code and its output without prompt or command
   line; without integration a heuristic applies (`integration: false`).
 - **Budgets** (Ubuntu container, 4 cores, debug build with optimized dependencies; the other worktree's agent built
-  and tested beside this one):
+  and tested beside this one; the figures below are from a run at a load average under the core count, and the last
+  runs, at load averages of 10 to 15 on 4 cores, are in the notes under the table):
 
   | Budget | Result |
   |---|---|
@@ -48,6 +49,13 @@ Date: 2026-10-04. Brief: [0041-integrated-terminal.md](0041-integrated-terminal.
   | The output finishes within 2x the plain terminal's time | **0.95x**: 11.16 s drawn vs 11.70 s for the same PTY and emulator with nothing drawn. Pass |
   | 10,000 lines of scrollback under 20 MB per terminal | **19.2 MB at 80 columns; 28.8 MB at 120** (28.3 MB at the test window's 118). `alacritty_terminal` keeps 24 bytes per cell for every column of every line, so the budget holds up to 83 columns and grows with the width. **Over budget for wide terminals**: section 7.2 |
   | One new dependency | `alacritty_terminal` 0.26.0, Apache-2.0 (section 8). Pass |
+
+  At load averages of 10 to 15 on 4 cores (the other worktree building), after the `cat` test's race was fixed: the
+  `cat` frame p99 was 12.3 to 16.1 ms (p50 0.54 to 0.73 ms) over 1,005 to 1,774 frames, finished in 0.86x to 1.07x
+  the undrawn time, and keystroke to echo was 2.34 ms p95. `assert_budget` does not assert timings when the load
+  average exceeds the core count, so these runs pass without proving the 8 ms; the 1.18 ms figure is from the quiet
+  run. Under that load the I/O thread is most likely descheduled while it holds the grid's lock for a parse chunk,
+  and the frame waits for it.
 
 - **Tests**: section 6; counts in section 11.
 
@@ -80,7 +88,14 @@ Commits on top of `a5cbf32`, in order:
     and `CLAUDE.md`.
 15. `c6ed4e6` Ctrl+click on a link to a folder shows the Workspace with that folder's node selected and expanded (the
     shell only showed the window before: the Workspace's reveal matched files only).
-16. This report's final numbers.
+16. `69dad38` This report: the rebased commits, the folder links, the Node.js note.
+17. `beb5b36`, `c8ebf98`, `46feb55` Three test races the full suite found under load, fixed in the tests: the
+    interruption test sent its next command before `sh` had printed the prompt after Ctrl+C (the text was typed ahead
+    and landed after the prompt, so the line was `$ again-ok`); the large `cat` test matched `cat-done` in its own
+    echoed command line and stopped measuring before `cat` printed anything (it failed with "0 lines of history"; the
+    marker is now typed as `"cat""-done"`); the scrollback-setting and Clear tests waited for `2000` and `after`, which
+    the echoed command also holds (they now wait for the output line).
+18. This report's final numbers.
 
 ## 3. `crates/terminal`
 
@@ -296,7 +311,12 @@ While a terminal has focus:
 This machine, `DISPLAY=:99`, `CEF_PATH`, `ELUDITE_CHROME`, `ELUDITE_CHROME_NO_SANDBOX=1` and `ELUDITE_DBG_MONO` set,
 `dotnet build dotnet/Eludite.slnx` and `bash corpus/tests/build.sh` first:
 
-- `cargo test --workspace --no-fail-fast --features eludite-chromium/cef`: COUNTS
+- `cargo test --workspace --no-fail-fast --features eludite-chromium/cef`: exit 0; 942 passed, 0 failed, 1 ignored
+  (the editor's doc example) over 71 test targets, nothing skipped (Mono, Chrome, CEF and the corpus present). Earlier
+  full runs under load failed once each in `shell::browser_window_tests::the_window_opens_from_the_view_menu_with_a_tab_and_navigates_through_the_bus`
+  and `shell::git_tests::a_thousand_changed_files_draw_in_a_frame` (not this brief's; both pass alone, and the second
+  fails as often on `main` at a load average just under the core count, where `assert_budget` still asserts), and in
+  two terminal tests, whose races are fixed (section 2, item 17).
 - `cargo fmt --check`: clean. `cargo clippy --workspace --all-targets --features eludite-chromium/cef -- -D warnings`:
   clean. `dotnet build dotnet/Eludite.slnx`: 0 warnings, 0 errors.
 
