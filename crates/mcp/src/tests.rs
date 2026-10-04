@@ -951,10 +951,11 @@ fn the_debugging_guide_is_a_resource() {
     let resources = list["resources"].as_array().unwrap();
     assert_eq!(
         resources.len(),
-        3,
-        "the debugging, git and terminal guides (no git status without its command)"
+        4,
+        "the debugging, git, terminal and forge guides (no git status without its command)"
     );
     assert_eq!(resources[2]["uri"], "eludite://guides/terminal");
+    assert_eq!(resources[3]["uri"], "eludite://guides/forge");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1108,9 +1109,9 @@ fn the_git_status_is_a_live_resource_read_as_the_agent() {
     );
     let list = result(call(&s, "resources/list", json!({})));
     let resources = list["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 4);
-    assert_eq!(resources[3]["uri"], crate::resources::GIT_STATUS_URI);
-    assert_eq!(resources[3]["mimeType"], "application/json");
+    assert_eq!(resources.len(), 5);
+    assert_eq!(resources[4]["uri"], crate::resources::GIT_STATUS_URI);
+    assert_eq!(resources[4]["mimeType"], "application/json");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1293,4 +1294,141 @@ fn the_search_tools_are_listed_with_their_classes_and_answer() {
         instructions.contains("eludite.search.find")
             && instructions.contains("eludite.search.replace")
     );
+}
+
+/// The forge commands (brief 0046) as agents see them: the guide (under 800 words, naming real commands), the live
+/// resource `eludite://forge/pull/current` read through the bus as the agent, the tools' classes, and the default
+/// policy refusing an agent's merge and sign-in.
+#[test]
+fn the_forge_guide_resource_and_tools() {
+    use eludite_commands::forge::{self, ForgeCommands};
+    struct FakeForge;
+    impl ForgeCommands for FakeForge {
+        fn apply(
+            &self,
+            id: &'static str,
+            input: Value,
+        ) -> Result<Value, eludite_commands::CommandError> {
+            Ok(match id {
+                forge::PULLS => json!({"items": [
+                    {"number": 3, "id": "3", "title": "Other", "state": "open", "author": "a", "head": "other", "base": "main", "url": "u"},
+                    {"number": 4, "id": "4", "title": "Mine", "state": "open", "author": "claude", "head": "main", "base": "dev", "url": "u"}
+                ], "stale": false}),
+                forge::PULL => {
+                    assert_eq!(input["threads"], "unresolved");
+                    json!({"number": input["number"], "id": "4", "title": "Mine", "state": "open", "author": "claude", "head": "main",
+                        "base": "dev", "url": "u", "stale": false, "threads": [{"id": "t1", "path": "src/a.rs", "line": 3, "resolved": false,
+                        "comments": [{"id": "c1", "author": "reviewer", "body": "Fix this"}]}]})
+                }
+                _ => json!({}),
+            })
+        }
+        fn audit_arguments(&self, _id: &str, input: &Value) -> Value {
+            input.clone()
+        }
+    }
+    let r = eludite_commands::CommandRegistry::new();
+    eludite_commands::git::register(&r, std::sync::Arc::new(FakeGit));
+    forge::register(&r, std::sync::Arc::new(FakeForge));
+    let s = McpServer::new(std::sync::Arc::new(r)).with_agent("claude");
+    let schema: Value = serde_json::from_str(RESOURCE_SCHEMA).unwrap();
+    let list = result(call(&s, "resources/list", json!({})));
+    let resources = list["resources"].as_array().unwrap();
+    assert_eq!(
+        resources.last().unwrap()["uri"],
+        crate::resources::FORGE_PULL_URI
+    );
+    for r in resources {
+        assert!(validate(&schema, r).is_empty(), "{r}");
+    }
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://forge/pull/current"}),
+    ));
+    assert!(validate(&schema["$defs"]["read_result"], &read).is_empty());
+    let pull: Value = serde_json::from_str(read["contents"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        pull["number"], 4,
+        "the pull request whose head is the current branch"
+    );
+    assert_eq!(pull["threads"][0]["comments"][0]["body"], "Fix this");
+    let calls: Vec<_> = s
+        .registry()
+        .audit_log()
+        .entries()
+        .into_iter()
+        .map(|e| (e.command.clone(), e.caller.is_agent()))
+        .collect();
+    assert_eq!(
+        calls,
+        [
+            ("eludite.git.status".to_owned(), true),
+            ("eludite.forge.pulls".to_owned(), true),
+            ("eludite.forge.pull".to_owned(), true)
+        ]
+    );
+    // The tools and their classes.
+    let tools = result(call(&s, "tools/list", json!({})));
+    let tools = tools["tools"].as_array().unwrap();
+    let permission = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"))["_meta"]["eludite/permission"]
+            .clone()
+    };
+    assert_eq!(permission("eludite-forge-pull"), "read");
+    assert_eq!(permission("eludite-forge-pull_comment"), "execute");
+    assert_eq!(permission("eludite-forge-pull_merge"), "dangerous");
+    // The default policy: a merge and a sign-in are refused for the agent before the handler.
+    let merge = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-forge-pull_merge", "arguments": {"number": 4, "method": "merge"}}),
+    ));
+    assert_eq!(merge["isError"], true);
+    let sign = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-forge-auth", "arguments": {"action": "sign_in", "method": "token", "token": "ghp_x"}}),
+    ));
+    assert_eq!(sign["isError"], true);
+    assert!(sign.to_string().contains("never signs in"), "{sign}");
+    // The guide.
+    let text = crate::resources::FORGE.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 800, "{words} words");
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.forge.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        if id == "eludite.forge" {
+            continue;
+        }
+        assert!(
+            forge::ALL.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named >= 8, "{named}");
+    for word in [
+        "forge.write",
+        "forge.merge",
+        "Allow for this session",
+        "eludite://forge/pull/current",
+        "sign_in_required",
+    ] {
+        assert!(text.contains(word), "{word}");
+    }
+    let guide = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/forge"}),
+    ));
+    assert_eq!(guide["contents"][0]["text"].as_str().unwrap(), text);
 }

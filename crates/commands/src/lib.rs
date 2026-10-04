@@ -30,7 +30,9 @@
 //! integrated terminal's `eludite.terminal.*` (brief 0041), registered by the shell through a
 //! [`terminal::TerminalCommands`], with the policy's `terminal` object applied by their escalation hooks. [`search`]
 //! holds Find in Files and Replace in Files, `eludite.search.*` (brief 0042), registered by the shell through a
-//! [`search::SearchCommands`].
+//! [`search::SearchCommands`]. [`forge`] holds the forge commands `eludite.forge.*` (brief 0046), registered by the
+//! shell through a [`forge::ForgeCommands`], with the policy's `forge` object applied by their escalation hooks and
+//! an agent's arguments audited through their redaction ([`AuditRedaction`]).
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -45,6 +47,7 @@ pub mod builtins;
 mod caller;
 pub mod debug;
 pub mod diagnostics;
+pub mod forge;
 pub mod git;
 mod id;
 pub mod policy;
@@ -63,6 +66,6 @@ pub use audit::{AuditEntry, AuditLog, EditRecord, EditState, Outcome};
 pub use caller::{Caller, current_caller, next_call_id, with_caller};
 pub use id::{CommandId, InvalidCommandId};
 pub use registry::{
-    CallClass, CommandError, CommandRegistry, CommandSpec, ESCALATES_KEY, Escalation,
-    EscalationHook, Handler, PermissionClass,
+    AuditRedaction, CallClass, CommandError, CommandRegistry, CommandSpec, ESCALATES_KEY,
+    Escalation, EscalationHook, Handler, PermissionClass,
 };

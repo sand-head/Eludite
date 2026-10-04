@@ -176,7 +176,7 @@ pub struct SettingLayers<'a> {
     pub solution: Option<&'a Value>,
 }
 
-/// A small check of an object against an object schema: `required`, `additionalProperties: false`, and string,
+/// A small check of an object against an object schema: `required`, `additionalProperties: false`, enums, and string,
 /// array-of-strings and string-map members.
 /// A list entry: a string (search.excludes' globs, brief 0042) or an object.
 fn check_item(schema: &Value, value: &Value) -> Result<(), String> {
@@ -213,6 +213,14 @@ fn check_object(schema: &Value, value: &Value) -> Result<(), String> {
             }
             continue;
         };
+        if let Some(values) = p["enum"].as_array()
+            && !values.contains(v)
+        {
+            return Err(format!(
+                "{k} is not one of {}",
+                Value::Array(values.clone())
+            ));
+        }
         let ok = match p["type"].as_str() {
             Some("string") => v
                 .as_str()
@@ -691,13 +699,40 @@ mod tests {
                 "search.useGitignore",
                 "search.maxFileSize",
                 "search.followSymlinks",
+                "forge.refreshSeconds",
+                "forge.hosts",
+                "forge.githubClientId",
+                "forge.gitlabApplicationId",
+                "forge.azureApplicationId",
             ]
+        );
+        // Brief 0046: the forges' page, last.
+        assert_eq!(
+            s.sections.last().map(String::as_str),
+            Some("Source Control > Forges")
+        );
+        assert_eq!(s.section("Source Control > Forges").count(), 5);
+        let hosts = s.get("forge.hosts").unwrap();
+        assert_eq!(hosts.kind, SettingKind::List);
+        assert!(
+            hosts
+                .validate(&json!([{"host": "git.corp.example", "family": "github"}]))
+                .is_ok()
+        );
+        assert!(
+            hosts
+                .validate(&json!([{"host": "git.corp.example", "family": "bitbucket"}]))
+                .is_err()
+        );
+        assert_eq!(
+            s.get("forge.refreshSeconds").unwrap().kind,
+            SettingKind::Integer { min: 0, max: 3600 }
         );
         // Brief 0041: the Terminal page, after the earlier ones, so they keep their places.
         assert_eq!(s.section("Terminal").count(), 8);
-        // Brief 0042: Find and Replace, last.
+        // Brief 0042: Find and Replace, after the earlier pages.
         assert_eq!(
-            s.sections.last().map(String::as_str),
+            s.sections.iter().rev().nth(1).map(String::as_str),
             Some("Environment > Find and Replace")
         );
         assert_eq!(s.section("Environment > Find and Replace").count(), 4);

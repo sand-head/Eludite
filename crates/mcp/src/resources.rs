@@ -2,11 +2,13 @@
 //! lists them, `resources/read` serves one by its uri, and `resources/templates/list` is empty. The texts are compiled
 //! in from `docs/agents/`, so a guide always matches the commands of the build that serves it.
 //!
-//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040) and [`TERMINAL`] (brief 0041).
+//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040), [`TERMINAL`] (brief 0041) and [`FORGE`] (brief
+//! 0046).
 //!
 //! Besides the guides, [`GIT_STATUS_URI`] (brief 0040) is live: the repository's status as `eludite.git.status`
 //! answers it, read through the command bus as the agent on each `resources/read`, and listed while that command is
-//! registered.
+//! registered. So is [`FORGE_PULL_URI`] (brief 0046): the current branch's pull request with its unresolved review
+//! threads, read as the agent through `eludite.git.status`, `eludite.forge.pulls` and `eludite.forge.pull`.
 
 use eludite_commands::{Caller, CommandRegistry, with_caller};
 use serde_json::{Value, json};
@@ -57,8 +59,20 @@ pub const TERMINAL: Guide = Guide {
     text: include_str!("../../../docs/agents/terminal.md"),
 };
 
+/// How an agent reads and answers the review comments on its pull request, and what needs permission
+/// (`docs/agents/forge.md`, brief 0046).
+pub const FORGE: Guide = Guide {
+    uri: "eludite://guides/forge",
+    name: "forge",
+    title: "Pull requests and issues in Eludite: a guide for agents",
+    description: "Read before using eludite.forge.*: the review loop in four calls (read eludite://forge/pull/current, \
+                  fix, reply to each thread and resolve it, request a re-review), reading from the cache, and what the \
+                  forge policy asks about (writes), refuses (merges by default) and never allows (signing in).",
+    text: include_str!("../../../docs/agents/forge.md"),
+};
+
 /// Every guide, in the order `resources/list` gives them.
-pub const GUIDES: [Guide; 3] = [DEBUGGING, GIT, TERMINAL];
+pub const GUIDES: [Guide; 4] = [DEBUGGING, GIT, TERMINAL, FORGE];
 
 /// The MIME type of every guide.
 pub const MIME: &str = "text/markdown";
@@ -69,6 +83,70 @@ pub const GIT_STATUS_URI: &str = "eludite://git/status";
 pub const JSON_MIME: &str = "application/json";
 /// The command that answers it.
 const GIT_STATUS_COMMAND: &str = "eludite.git.status";
+
+/// The current branch's pull request (brief 0046), live.
+pub const FORGE_PULL_URI: &str = "eludite://forge/pull/current";
+const FORGE_PULLS_COMMAND: &str = "eludite.forge.pulls";
+const FORGE_PULL_COMMAND: &str = "eludite.forge.pull";
+
+/// The pull request resource's `resources/list` entry.
+pub fn forge_pull_descriptor() -> Value {
+    json!({
+        "uri": FORGE_PULL_URI,
+        "name": "forge-pull-current",
+        "title": "The current branch's pull request",
+        "description": "The open pull request (merge request on GitLab) whose head is the checked-out branch, as \
+                        eludite.forge.pull answers it with `threads: unresolved`: the review threads you must still \
+                        answer, with their file, line and comments. `{\"pull\": null, \"branch\": ...}` when the \
+                        branch has none.",
+        "mimeType": JSON_MIME,
+    })
+}
+
+/// The current branch's pull request, read through `registry` as the caller in effect.
+fn current_pull(registry: &CommandRegistry) -> Result<Value, String> {
+    let status = registry
+        .invoke(GIT_STATUS_COMMAND, json!({}))
+        .map_err(|e| e.to_string())?;
+    let Some(branch) = status
+        .get("branch")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+    else {
+        return Ok(
+            json!({"pull": null, "message": "HEAD is detached: no branch, no pull request"}),
+        );
+    };
+    let mut cursor: Option<String> = None;
+    for _ in 0..5 {
+        let mut input = json!({"state": "open", "max": 100});
+        if let Some(c) = &cursor {
+            input["cursor"] = json!(c);
+        }
+        let page = registry
+            .invoke(FORGE_PULLS_COMMAND, input)
+            .map_err(|e| e.to_string())?;
+        if let Some(p) = page["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|p| p["head"] == branch.as_str())
+        {
+            let item = match p["number"].as_u64() {
+                Some(n) => json!({"number": n, "threads": "unresolved"}),
+                None => json!({"id": p["id"], "threads": "unresolved"}),
+            };
+            return registry
+                .invoke(FORGE_PULL_COMMAND, item)
+                .map_err(|e| e.to_string());
+        }
+        match page["next_cursor"].as_str() {
+            Some(c) => cursor = Some(c.to_owned()),
+            None => break,
+        }
+    }
+    Ok(json!({"pull": null, "branch": branch}))
+}
 
 /// The status resource's `resources/list` entry.
 pub fn git_status_descriptor() -> Value {
@@ -107,6 +185,9 @@ pub fn list(registry: &CommandRegistry) -> Value {
     let mut resources: Vec<Value> = GUIDES.iter().map(Guide::descriptor).collect();
     if registry.lookup(GIT_STATUS_COMMAND).is_some() {
         resources.push(git_status_descriptor());
+        if registry.lookup(FORGE_PULL_COMMAND).is_some() {
+            resources.push(forge_pull_descriptor());
+        }
     }
     json!({ "resources": resources })
 }
@@ -128,6 +209,19 @@ pub fn read(
             }] })),
             Err(e) => Err(e.to_string()),
         });
+    }
+    if uri == FORGE_PULL_URI
+        && registry.lookup(FORGE_PULL_COMMAND).is_some()
+        && registry.lookup(GIT_STATUS_COMMAND).is_some()
+    {
+        let pull = with_caller(caller, || current_pull(registry));
+        return Some(pull.map(|v| {
+            json!({ "contents": [{
+                "uri": FORGE_PULL_URI,
+                "mimeType": JSON_MIME,
+                "text": serde_json::to_string_pretty(&v).expect("serializes"),
+            }] })
+        }));
     }
     let g = find(uri)?;
     Some(Ok(
