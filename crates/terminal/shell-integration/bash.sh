@@ -42,7 +42,14 @@ if [ -z "$__ELUDITE_INTEGRATED" ] && [[ $- == *i* ]]; then
     if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
         PS0="${PS0}"'${__eludite_none[__eludite_ran=1]}\033]133;C\007'
     else
-        trap '__eludite_ran=1' DEBUG
+        __eludite_debug() {
+            case "$BASH_COMMAND" in __eludite_*) return ;; esac
+            if [ -z "$__eludite_ran" ]; then
+                __eludite_ran=1
+                printf '\033]133;C\007'
+            fi
+        }
+        trap '__eludite_debug' DEBUG
     fi
     if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
         PROMPT_COMMAND=(__eludite_end "${PROMPT_COMMAND[@]}" __eludite_start)

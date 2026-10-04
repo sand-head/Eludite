@@ -422,7 +422,9 @@ fn the_status_bar_shows_the_branch_and_counts_and_the_glyphs_follow_the_file(
     assert_eq!(explorer_glyph(&g), Some(eludite_git::FileGlyph::Modified));
     assert_eq!(
         badge(&g),
-        Some(("\u{2713}".into(), eludite_git::FileGlyph::Modified.color()))
+        Some(("\u{2713}".into(), eludite_git::FileGlyph::Modified.color())),
+        "badges: {:?}",
+        g.w.controller.snapshot().badges.keys().collect::<Vec<_>>()
     );
     assert_eq!(g.slot(PENDING_SLOT), "\u{270E} 1");
     // A new file shows the untracked glyph; staging it, the added one.
@@ -539,6 +541,29 @@ fn compare_with_unmodified_opens_two_panes_with_the_hunks_and_f8_moves(cx: &mut 
     );
 }
 
+/// Run the UI until document `id`'s change margin satisfies `pred`; a timeout names the margins there were.
+fn wait_margin(g: &mut G, what: &str, id: &str, pred: impl Fn(&[gutter::Mark]) -> bool) {
+    let deadline = Instant::now() + super::tests::T;
+    loop {
+        g.w.vcx.run_until_parked();
+        let (ok, keys) = g.w.shell.read_with(&g.w.vcx, |s, cx| {
+            let margins = s.git().margins.borrow();
+            (
+                margins.get(id).is_some_and(|m| pred(&m.read(cx).marks)),
+                margins.keys().cloned().collect::<Vec<_>>(),
+            )
+        });
+        if ok {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}: margins for {keys:?}, wanted {id}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// `measured` under `limit`, unless the machine is overloaded (other agents build beside these tests).
 pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
@@ -650,15 +675,7 @@ fn the_change_margin_follows_edits_and_clears_after_a_stage(cx: &mut TestAppCont
     assert!(marks(&g).is_empty(), "not before the editor is idle");
     let started = Instant::now();
     g.w.vcx.executor().advance_clock(gutter::IDLE);
-    g.w.wait("the margin", |w| {
-        w.shell.read_with(&w.vcx, |s, cx| {
-            s.git()
-                .margins
-                .borrow()
-                .get(&id)
-                .is_some_and(|m| !m.read(cx).marks.is_empty())
-        })
-    });
+    wait_margin(&mut g, "the margin", &id, |marks| !marks.is_empty());
     let compute = started.elapsed();
     eprintln!(
         "timing: change margin {:.0} ms idle + {:.1} ms to read the index and diff",
@@ -792,13 +809,9 @@ fn a_merge_conflict_opens_the_file_with_markers_and_staging_resolves_it(cx: &mut
     // The margin shows the sides.
     g.w.vcx.executor().advance_clock(gutter::IDLE);
     let id = program.to_string_lossy().into_owned();
-    g.w.wait("the conflict's sides", |w| {
-        w.shell.read_with(&w.vcx, |s, cx| {
-            s.git().margins.borrow().get(&id).is_some_and(|m| {
-                let k: Vec<_> = m.read(cx).marks.iter().map(|m| m.kind).collect();
-                k == [gutter::MarkKind::Ours, gutter::MarkKind::Theirs]
-            })
-        })
+    wait_margin(&mut g, "the conflict's sides", &id, |marks| {
+        let k: Vec<_> = marks.iter().map(|m| m.kind).collect();
+        k == [gutter::MarkKind::Ours, gutter::MarkKind::Theirs]
     });
     // Resolve in the editor, save, stage: resolved; commit ends the merge.
     view.update(&mut g.w.vcx, |v, cx| {

@@ -405,9 +405,10 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
     assert_eq!(
         p.shown("LangVersion"),
         "13.0",
-        "choice 2 at {:?}, override at {:?}",
+        "choice 2 at {:?}, override at {:?}, dirty {}",
         p.w.bounds(&pages::choice_selector("LangVersion", 2)),
-        p.w.bounds(&pages::override_selector("LangVersion"))
+        p.w.bounds(&pages::override_selector("LangVersion")),
+        p.pages().unwrap().read_with(&p.w.vcx, |v, _| v.is_dirty())
     );
     p.w.vcx.simulate_keystrokes("ctrl-s");
     p.wait_set_properties(3);

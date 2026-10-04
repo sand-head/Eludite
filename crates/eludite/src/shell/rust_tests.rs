@@ -272,8 +272,18 @@ impl Rs {
         })
     }
 
+    /// The cargo to run: in the workspace's settings file (`build.cargoPath`), which the store reads when the folder
+    /// opens, so the startup settings pass applies the same value instead of putting `cargo` back over one poked into
+    /// the shell; and in the shell now, for a build before the folder opens.
     fn set_cargo(&mut self, program: impl Into<std::ffi::OsString>) {
         let program = program.into();
+        let settings = self.dir.path().join(".eludite");
+        std::fs::create_dir_all(&settings).unwrap();
+        std::fs::write(
+            settings.join("settings.json"),
+            json!({"build.cargoPath": program.to_string_lossy()}).to_string(),
+        )
+        .unwrap();
         self.shell
             .update(&mut self.vcx, |s, _| s.builds.cargo_program = program);
     }
