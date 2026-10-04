@@ -446,6 +446,26 @@ fn browse_searches_after_the_debounce_with_results_the_detail_pane_prerelease_an
                 .contains("High severity vulnerability: https://github.com/advisories/GHSA-0048")),
         "{details:?}"
     );
+    // The advisory is a link: a click opens it in the system's browser.
+    let advisory = details
+        .iter()
+        .skip(1)
+        .position(|l| l.contains("GHSA-0048"))
+        .unwrap();
+    n.w.click(&window::detail_link_selector(advisory));
+    assert_eq!(
+        n.w.vcx.opened_url().as_deref(),
+        Some("https://github.com/advisories/GHSA-0048")
+    );
+    assert_eq!(
+        window::detail_link("License: MIT").as_deref(),
+        Some("https://licenses.nuget.org/MIT")
+    );
+    assert_eq!(
+        window::detail_link("License: https://example.com/eula").as_deref(),
+        Some("https://example.com/eula")
+    );
+    assert_eq!(window::detail_link("Author(s): The Eludite Authors"), None);
     // Include prerelease: searched again at once, the beta first.
     n.w.click(window::PRERELEASE);
     n.w.wait("the prerelease search", |w| {

@@ -1116,16 +1116,51 @@ impl NuGetWindow {
                 );
             }
         }
-        for line in self.details().into_iter().skip(1) {
+        for (ix, line) in self.details().into_iter().skip(1).enumerate() {
             let warning = line.starts_with('\u{26A0}');
-            pane = pane.child(
-                div()
-                    .text_color(if warning { rgb(0xFF_CC_00) } else { t.text })
-                    .child(line),
-            );
+            let row = div().id(("nuget-detail", ix)).text_color(if warning {
+                rgb(0xFF_CC_00)
+            } else {
+                t.text
+            });
+            // The license, the project's page and an advisory open in the system's browser.
+            pane = pane.child(match detail_link(&line) {
+                Some(url) => {
+                    let sel = detail_link_selector(ix);
+                    row.debug_selector(move || sel)
+                        .cursor_pointer()
+                        .underline()
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .child(line)
+                }
+                None => row.child(line),
+            });
         }
         pane
     }
+}
+
+/// Debug selector of the detail pane's line `ix` (after the package's name) when it is a link.
+pub fn detail_link_selector(ix: usize) -> String {
+    format!("nuget-detail-link-{ix}")
+}
+
+/// Where a detail pane line links to: the license (an SPDX expression on licenses.nuget.org, as Visual Studio links
+/// it, or the package's license address), the project's page, or a vulnerability's advisory.
+pub fn detail_link(line: &str) -> Option<String> {
+    let web =
+        |u: &str| (u.starts_with("https://") || u.starts_with("http://")).then(|| u.to_owned());
+    if let Some(l) = line.strip_prefix("License: ") {
+        return web(l).or_else(|| Some(format!("https://licenses.nuget.org/{l}")));
+    }
+    if let Some(u) = line.strip_prefix("Project URL: ") {
+        return web(u);
+    }
+    line.starts_with('\u{26A0}')
+        .then(|| line.split_once(": "))
+        .flatten()
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .and_then(web)
 }
 
 /// A vulnerability as the detail pane shows it.
