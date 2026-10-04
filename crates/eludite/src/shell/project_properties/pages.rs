@@ -17,13 +17,28 @@ use eludite_lsp::host::{
     LaunchProfile, LaunchProfilesResult, ProjectPropertiesResult, ProjectProperty, PropertySource,
     PropertyType,
 };
-use eludite_ui::{Theme, check_box, push_button, text_box, toggle_button};
+use eludite_ui::{BoundsMap, Theme, check_box, push_button, text_box, toggle_button};
 use gpui::{
     App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
     KeyDownEvent, ParentElement, PromptLevel, Render, SharedString, StatefulInteractiveElement,
     Styled, Window, div, px,
 };
 use serde_json::{Map, Value, json};
+
+/// `el` recording its bounds under `key` while `--bounds-out` probes (the Xvfb run clicks them).
+pub fn probed<E: ParentElement + Styled + IntoElement>(
+    map: Option<&BoundsMap>,
+    el: E,
+    key: String,
+) -> gpui::AnyElement {
+    match map {
+        None => el.into_any_element(),
+        Some(_) => el
+            .relative()
+            .children(eludite_ui::bounds_canvas(map, key))
+            .into_any_element(),
+    }
+}
 
 /// Debug selectors.
 pub fn page_selector(id: &str) -> String {
@@ -137,6 +152,8 @@ pub struct PropertyPages {
     pub launch: Option<LaunchProfilesResult>,
     /// The profile shown on the Debug page.
     pub profile: Option<String>,
+    /// Where the controls are drawn, while `--bounds-out` probes.
+    pub probe: Option<BoundsMap>,
     focus: FocusHandle,
 }
 
@@ -183,6 +200,7 @@ impl PropertyPages {
             message: None,
             launch: None,
             profile: None,
+            probe: None,
             focus: cx.focus_handle(),
         }
     }
@@ -577,14 +595,21 @@ impl PropertyPages {
         } else {
             property_selector(&key)
         };
-        let el = text_box(selector, &text, "", editing.is_some() && focused, &t).w(px(380.));
+        let el = text_box(
+            selector.clone(),
+            &text,
+            "",
+            editing.is_some() && focused,
+            &t,
+        )
+        .w(px(380.));
         if !enabled {
             return el.text_color(t.text_disabled).into_any_element();
         }
-        el.on_click(cx.listener(move |this, _, window, cx| {
+        let el = el.on_click(cx.listener(move |this, _, window, cx| {
             this.start_editing(key.clone(), shown.clone(), window, cx)
-        }))
-        .into_any_element()
+        }));
+        probed(self.probe.as_ref(), el, selector)
     }
 
     fn property_row(
@@ -607,15 +632,16 @@ impl PropertyPages {
                 let on = shown.eq_ignore_ascii_case(&on_value);
                 let el = check_box(property_selector(&name), p.label.clone(), on, &t);
                 if enabled {
-                    el.on_click(cx.listener(move |this, _, window, cx| {
+                    let key = property_selector(&name);
+                    let el = el.on_click(cx.listener(move |this, _, window, cx| {
                         let v = if on {
                             off_value.clone()
                         } else {
                             on_value.clone()
                         };
                         this.edit(&name, Some(v), window, cx)
-                    }))
-                    .into_any_element()
+                    }));
+                    probed(self.probe.as_ref(), el, key)
                 } else {
                     el.text_color(t.text_disabled).into_any_element()
                 }
@@ -631,17 +657,20 @@ impl PropertyPages {
                 {
                     values.push((shown.clone(), shown.clone()));
                 }
+                let probe = self.probe.clone();
                 let choices = values.into_iter().enumerate().map(|(ix, (v, label))| {
                     let selected = v.eq_ignore_ascii_case(&shown);
                     let el = toggle_button(choice_selector(&name, ix), label, selected, &t);
                     let name = name.clone();
-                    if enabled {
+                    let key = choice_selector(&name, ix);
+                    let el = if enabled {
                         el.on_click(cx.listener(move |this, _, window, cx| {
                             this.edit(&name, Some(v.clone()), window, cx)
                         }))
                     } else {
                         el
-                    }
+                    };
+                    probed(probe.as_ref(), el, key)
                 });
                 div()
                     .flex()
@@ -753,14 +782,16 @@ impl PropertyPages {
         let config_buttons = configs.into_iter().enumerate().map(|(ix, c)| {
             let label = c.clone().unwrap_or_else(|| ALL_CONFIGURATIONS.into());
             let on = c == self.configuration;
-            toggle_button(configuration_selector(ix), label, on, &t).on_click(
+            let el = toggle_button(configuration_selector(ix), label, on, &t).on_click(
                 cx.listener(move |this, _, _, cx| this.choose_configuration(c.clone(), cx)),
-            )
+            );
+            probed(self.probe.as_ref(), el, configuration_selector(ix))
         });
         let platform_buttons = r.platforms.iter().cloned().enumerate().map(|(ix, p)| {
             let on = self.platform.as_deref() == Some(p.as_str());
-            toggle_button(platform_selector(ix), p.clone(), on, &t)
-                .on_click(cx.listener(move |this, _, _, cx| this.choose_platform(p.clone(), cx)))
+            let el = toggle_button(platform_selector(ix), p.clone(), on, &t)
+                .on_click(cx.listener(move |this, _, _, cx| this.choose_platform(p.clone(), cx)));
+            probed(self.probe.as_ref(), el, platform_selector(ix))
         });
         Some(
             div()
@@ -794,13 +825,14 @@ impl PropertyPages {
             .enumerate()
             .map(|(ix, p)| {
                 let name = p.name.clone();
-                toggle_button(
+                let el = toggle_button(
                     profile_selector(ix),
                     p.name.clone(),
                     self.profile.as_ref() == Some(&p.name),
                     &t,
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.select_profile(&name, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| this.select_profile(&name, cx)));
+                probed(self.probe.as_ref(), el, profile_selector(ix))
             })
             .collect::<Vec<_>>();
         let next_name = (1..)
@@ -932,7 +964,8 @@ impl PropertyPages {
                 form.push(if read_only {
                     el.into_any_element()
                 } else {
-                    el.on_click(cx.listener(move |_, _, _, cx| {
+                    let key = profile_field_selector(member);
+                    let el = el.on_click(cx.listener(move |_, _, _, cx| {
                         let mut values = Map::new();
                         values.insert(member.to_owned(), Value::Bool(!on));
                         cx.emit(PagesEvent::Profile {
@@ -941,8 +974,8 @@ impl PropertyPages {
                             new_name: None,
                             values: Some(values),
                         })
-                    }))
-                    .into_any_element()
+                    }));
+                    probed(self.probe.as_ref(), el, key)
                 });
             }
             let rows: Vec<_> = p
@@ -1046,9 +1079,12 @@ impl Render for PropertyPages {
                 let sel = page_selector(id);
                 let selected = *id == self.page;
                 let id = id.clone();
+                let probe = eludite_ui::bounds_canvas(self.probe.as_ref(), sel.clone());
                 let item = div()
                     .id(SharedString::from(sel.clone()))
                     .debug_selector(move || sel)
+                    .relative()
+                    .children(probe)
                     .px_2()
                     .h(px(22.))
                     .flex()
@@ -1135,10 +1171,12 @@ impl Render for PropertyPages {
                 self.loading
                     .then(|| div().text_color(t.text_muted).child("Evaluating\u{2026}")),
             )
-            .child(
+            .child(probed(
+                self.probe.as_ref(),
                 push_button(SAVE, "Save (Ctrl+S)", false, self.is_dirty(), &t)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PagesEvent::Save))),
-            );
+                SAVE.into(),
+            ));
         div()
             .id(SharedString::from(format!("pp-{}", self.tab)))
             .track_focus(&self.focus)

@@ -932,3 +932,50 @@ fn an_agents_properties_and_set_property_match_the_pages(cx: &mut TestAppContext
     assert!(audit.contains(&props::PROPERTIES.to_owned()));
     let _ = Duration::ZERO;
 }
+
+/// While `--bounds-out` probes, the pages, the toolbar's lists and Configuration Manager record where their controls
+/// are drawn (the Xvfb run, `crates/eludite/tools/project-properties-linux.sh`, clicks them there).
+#[gpui::test]
+fn probed_controls_record_their_bounds_for_the_xvfb_run(cx: &mut TestAppContext) {
+    let mut p = start(cx);
+    p.open();
+    let probe: eludite_docking::Probe = Default::default();
+    p.w.shell
+        .update(&mut p.w.vcx, |s, cx| s.set_probe(Some(probe), cx));
+    p.w.double_click(&row_selector(&p.project));
+    p.wait_values(Some("Debug"));
+    p.w.click(&pages::page_selector("build"));
+    p.w.click(CONFIGURATION_BUTTON);
+    p.w.vcx.run_until_parked();
+    let drawn = |p: &mut Pw| {
+        p.w.vcx.update(|window, _| window.refresh());
+        p.w.vcx.run_until_parked();
+        p.w.shell.read_with(&p.w.vcx, |s, _| {
+            s.ui_bounds()
+                .unwrap()
+                .borrow()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+    };
+    let keys = drawn(&mut p);
+    for k in [
+        pages::SAVE.to_owned(),
+        pages::page_selector("debug"),
+        pages::property_selector("TreatWarningsAsErrors"),
+        pages::property_selector("DefineConstants"),
+        pages::configuration_selector(0),
+        CONFIGURATION_BUTTON.to_owned(),
+        PLATFORM_BUTTON.to_owned(),
+        toolbar_item_selector("configuration", 0),
+    ] {
+        assert!(keys.contains(&k), "{k} not probed: {keys:?}");
+    }
+    // Configuration Manager... is the list's last entry.
+    p.w.click(&toolbar_item_selector("configuration", 3));
+    let keys = drawn(&mut p);
+    for k in [cm::CLOSE.to_owned(), cm::build_selector(0)] {
+        assert!(keys.contains(&k), "{k} not probed: {keys:?}");
+    }
+}

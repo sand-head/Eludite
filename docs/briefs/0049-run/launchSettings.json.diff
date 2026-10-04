@@ -1,0 +1,11 @@
+--- original/Console/Properties/launchSettings.json
++++ projects/Console/Properties/launchSettings.json
+@@ -2,7 +2,7 @@
+   "profiles": {
+     "Console": {
+       "commandName": "Project",
+-      "commandLineArgs": "--verbose first",
++      "commandLineArgs": "--verbose first --trace",
+       "environmentVariables": {
+         "ZETA": "last",
+         "ALPHA": "first",

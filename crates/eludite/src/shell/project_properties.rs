@@ -878,7 +878,12 @@ impl Shell {
             None => {
                 let theme = self.theme;
                 let (p, t) = (project.to_owned(), tab.clone());
-                let view = cx.new(|cx| pages::PropertyPages::new(theme, p, t, cx));
+                let probe = self.ui_bounds.clone();
+                let view = cx.new(|cx| {
+                    let mut v = pages::PropertyPages::new(theme, p, t, cx);
+                    v.probe = probe;
+                    v
+                });
                 cx.subscribe_in(&view, window, Self::on_pages_event)
                     .detach();
                 cx.observe(&view, |_, _, cx| cx.notify()).detach();

@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use super::Shell;
 use super::build::{CONFIGURATION_BUTTON, PLATFORM_BUTTON, toolbar_item_selector};
 use super::project_properties::ToolbarList;
+use super::project_properties::pages::probed;
 
 /// Debug selectors of the Target Framework list, the profile list and Start.
 pub const FRAMEWORK_BUTTON: &str = "build-framework";
@@ -151,6 +152,7 @@ impl Shell {
         if let Some(p) = &profile {
             buttons.push((ToolbarList::Profile, PROFILE_BUTTON, p.clone()));
         }
+        let probe = self.ui_bounds.clone();
         let open = self.properties.toolbar_menu;
         let open_at = open.and_then(|o| buttons.iter().position(|(l, ..)| *l == o));
         let dropdowns: Vec<_> = buttons
@@ -159,30 +161,38 @@ impl Shell {
             .map(|(ix, (list, id, label))| {
                 let list = *list;
                 let start = (ix == profile_at).then(|| {
-                    toggle_button(START_BUTTON, "\u{25B6}", false, &t).on_click(cx.listener(
-                        |this, _, window, cx| {
+                    let el = toggle_button(START_BUTTON, "\u{25B6}", false, &t).on_click(
+                        cx.listener(|this, _, window, cx| {
                             this.run(eludite_commands::debug::START, json!({}), window, cx)
-                        },
-                    ))
+                        }),
+                    );
+                    probed(probe.as_ref(), el, START_BUTTON.into())
                 });
-                div().flex().flex_row().children(start).child(
+                let button =
                     toggle_button(*id, format!("{label} \u{25BE}"), open == Some(list), &t)
                         .min_w(px(96.))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.properties.toolbar_menu =
                                 (this.properties.toolbar_menu != Some(list)).then_some(list);
                             cx.notify();
-                        })),
-                )
+                        }));
+                div().flex().flex_row().children(start).child(probed(
+                    probe.as_ref(),
+                    button,
+                    (*id).into(),
+                ))
             })
             .collect();
         let menu = open.zip(open_at).map(|(list, at)| {
             let items = self.toolbar_entries(list).into_iter().enumerate().map(
                 |(ix, (label, command, args))| {
                     let sel = toolbar_item_selector(list.kind(), ix);
+                    let probe = eludite_ui::bounds_canvas(probe.as_ref(), sel.clone());
                     div()
                         .id(SharedString::from(sel.clone()))
                         .debug_selector(move || sel)
+                        .relative()
+                        .children(probe)
                         .px_2()
                         .h(px(20.))
                         .flex()

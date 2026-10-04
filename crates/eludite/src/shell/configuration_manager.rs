@@ -5,7 +5,7 @@
 //! formatting kept) and reloads the solution. Close (or Escape) closes it.
 
 use eludite_commands::project::properties::ProjectConfigurationsRow;
-use eludite_ui::{Theme, check_box, dialog_panel, push_button, toggle_button};
+use eludite_ui::{BoundsMap, Theme, check_box, dialog_panel, push_button, toggle_button};
 use gpui::{
     App, AppContext as _, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Render, StatefulInteractiveElement, Styled, Window,
@@ -14,6 +14,7 @@ use gpui::{
 use serde_json::{Value, json};
 
 use super::Shell;
+use super::project_properties::pages::probed;
 
 pub const DIALOG: &str = "cm-dialog";
 pub const CLOSE: &str = "cm-close";
@@ -56,6 +57,8 @@ pub struct ConfigurationManager {
     platforms: Vec<String>,
     configuration: String,
     platform: String,
+    /// Where the controls are drawn, while `--bounds-out` probes.
+    pub probe: Option<BoundsMap>,
     focus: FocusHandle,
 }
 
@@ -81,6 +84,7 @@ impl ConfigurationManager {
             platform: platforms.first().cloned().unwrap_or_default(),
             configurations,
             platforms,
+            probe: None,
             focus: cx.focus_handle(),
         }
     }
@@ -142,7 +146,7 @@ impl Render for ConfigurationManager {
         let t = self.theme;
         let configs = self.configurations.iter().enumerate().map(|(ix, c)| {
             let c = c.clone();
-            toggle_button(
+            let el = toggle_button(
                 configuration_selector(ix),
                 c.clone(),
                 c == self.configuration,
@@ -153,7 +157,8 @@ impl Render for ConfigurationManager {
                     command: eludite_commands::solution::SELECT_CONFIGURATION,
                     args: json!({ "configuration": c }),
                 })
-            }))
+            }));
+            probed(self.probe.as_ref(), el, configuration_selector(ix))
         });
         let platforms = self.platforms.iter().enumerate().map(|(ix, p)| {
             let p = p.clone();
@@ -184,13 +189,18 @@ impl Render for ConfigurationManager {
             let (configuration, platform, build) = self.cell(row).unwrap_or_default();
             let cfg_choices = r.configurations.iter().enumerate().map(|(ix, c)| {
                 let ev = self.cell_event(row, "configuration", json!(c));
-                toggle_button(
+                let el = toggle_button(
                     cell_configuration_selector(row, ix),
                     c.clone(),
                     *c == configuration,
                     &t,
                 )
-                .on_click(cx.listener(move |_, _, _, cx| cx.emit(ev.clone())))
+                .on_click(cx.listener(move |_, _, _, cx| cx.emit(ev.clone())));
+                probed(
+                    self.probe.as_ref(),
+                    el,
+                    cell_configuration_selector(row, ix),
+                )
             });
             let plat_choices = r.platforms.iter().enumerate().map(|(ix, p)| {
                 let ev = self.cell_event(row, "platform", json!(p));
@@ -230,13 +240,15 @@ impl Render for ConfigurationManager {
                             .gap_1()
                             .children(plat_choices),
                     )
-                    .child(
-                        div().w(px(60.)).child(
+                    .child(div().w(px(60.)).child(
+                        probed(
+                            self.probe.as_ref(),
                             check_box(build_selector(row), "", build, &t).on_click(
                                 cx.listener(move |_, _, _, cx| cx.emit(build_ev.clone())),
                             ),
+                            build_selector(row),
                         ),
-                    ),
+                    )),
             );
         }
         let panel = dialog_panel(&t, "Configuration Manager")
@@ -291,10 +303,12 @@ impl Render for ConfigurationManager {
                     ),
             )
             .child(
-                div().flex().flex_row().justify_end().p_3().child(
+                div().flex().flex_row().justify_end().p_3().child(probed(
+                    self.probe.as_ref(),
                     push_button(CLOSE, "Close", true, true, &t)
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ManagerEvent::Close))),
-                ),
+                    CLOSE.into(),
+                )),
             );
         let viewport = window.viewport_size();
         let at = point(
@@ -318,7 +332,12 @@ impl Shell {
             None => {
                 let theme = self.theme;
                 let (c, p) = (configurations.clone(), platforms.clone());
-                let m = cx.new(|cx| ConfigurationManager::new(theme, c, p, cx));
+                let probe = self.ui_bounds.clone();
+                let m = cx.new(|cx| {
+                    let mut m = ConfigurationManager::new(theme, c, p, cx);
+                    m.probe = probe;
+                    m
+                });
                 cx.subscribe_in(&m, window, Self::on_manager_event).detach();
                 self.properties.manager = Some(m.clone());
                 m
