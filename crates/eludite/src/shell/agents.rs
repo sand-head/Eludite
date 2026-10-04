@@ -195,6 +195,8 @@ pub struct PolicyStore {
     policy: Mutex<Option<AgentPolicy>>,
     /// The workspace's launch urls (`browser.origins`' `$launch_urls`), read on first use.
     launch_urls: std::sync::OnceLock<Vec<String>>,
+    /// What "Allow for this session" granted this agent session (brief 0041); a new session starts a new store.
+    grants: Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl PolicyStore {
@@ -203,6 +205,7 @@ impl PolicyStore {
             path,
             policy: Mutex::new(None),
             launch_urls: std::sync::OnceLock::new(),
+            grants: Mutex::new(Default::default()),
         }
     }
 
@@ -232,8 +235,23 @@ impl PolicyStore {
             policy: self.get(),
             workspace,
             launch_urls,
+            session_grants: self
+                .grants
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .cloned()
+                .collect(),
             ..Default::default()
         }
+    }
+
+    /// "Allow for this session": grant `key` until the agent session ends (brief 0041).
+    pub fn grant(&self, key: &str) {
+        self.grants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.to_owned());
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -784,9 +802,17 @@ impl Shell {
         let mut persisted = false;
         let mut remembered = None;
         let store = current_policy(&self.agents.policy);
+        // "Allow for this session" (brief 0041): the grant holds until the agent session ends; nothing is written.
+        if decision == Decision::AlwaysAllow
+            && let AlwaysAllow::Session(key) = &waiting.call.always_allow
+        {
+            store.grant(key);
+            remembered = Some(format!("{key} for this session"));
+        }
         // Always Allow remembers what the call's escalation names (a rule, an origin), or nothing (ADR-0009).
         if decision == Decision::AlwaysAllow
             && waiting.call.always_allow != AlwaysAllow::Never
+            && !matches!(waiting.call.always_allow, AlwaysAllow::Session(_))
             && let Some((path, policy)) = store
                 .update(|p| remembered = p.remember(&waiting.call, &waiting.tool, &waiting.input))
         {
@@ -802,6 +828,7 @@ impl Shell {
             (Decision::AlwaysAllow, Some(what)) if persisted => {
                 format!("{label}, and always for this solution ({what})")
             }
+            (Decision::AlwaysAllow, Some(what)) => format!("{label} ({what})"),
             _ => label,
         };
         self.agents.window.update(cx, |w, cx| {
@@ -863,6 +890,9 @@ impl Shell {
                     Some(Permission::Asked { class, .. }) => class,
                     _ => PermissionClass::Execute,
                 };
+                // "Allow for this session" (brief 0041) needs no policy file.
+                let session =
+                    call.is_some_and(|c| matches!(c.always_allow, AlwaysAllow::Session(_)));
                 Some(window::Prompt {
                     request: key,
                     tool: row.name(),
@@ -873,8 +903,10 @@ impl Shell {
                         .as_ref()
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
-                    can_persist: can_persist
-                        && call.is_none_or(|c| c.always_allow != AlwaysAllow::Never),
+                    can_persist: (can_persist
+                        && call.is_none_or(|c| c.always_allow != AlwaysAllow::Never))
+                        || session,
+                    session,
                     reason: call.and_then(|c| c.reason.clone()),
                 })
             });
@@ -882,7 +914,7 @@ impl Shell {
         });
     }
 
-    fn endpoint_hooks(&self) -> EndpointHooks {
+    pub(super) fn endpoint_hooks(&self) -> EndpointHooks {
         let current = self.agents.current.clone();
         let tx = self.agents.tx.clone();
         let gate_tx = tx.clone();
