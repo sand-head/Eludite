@@ -1,6 +1,6 @@
 # Brief 0041: The integrated terminal
 
-Status: open
+Status: in progress
 Phase: 1 close-out (PLAN.md section 10: "terminal")
 Plan reference: PLAN.md sections 2 (principles 1, 3, 4, 5, 7), 3 (D1: our own GPUI view, not Zed's `terminal_view`), 4.11 (integrated terminal), 5.1, 5.4, 8 (Visual Studio names: Developer PowerShell, Terminal window, Ctrl+`), 9, 10 (Phase 1 exit), 12 (`crates/terminal`)
 Related ADRs: ADR-0001, ADR-0002
