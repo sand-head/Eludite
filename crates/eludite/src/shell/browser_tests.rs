@@ -809,9 +809,24 @@ impl Engine for PageEngine {
             .map(|(t, u)| TargetInfo {
                 target_id: t.clone(),
                 url: u.clone(),
-                title: String::new(),
+                // A web project's page has the corpus page's title (brief 0038 names a browser session after it).
+                title: if u.starts_with("http") {
+                    "Minimal API".into()
+                } else {
+                    String::new()
+                },
             })
             .collect())
+    }
+    /// A port the fake js-debug never connects to (brief 0038): the shell only passes it on.
+    fn debug_endpoint(&self) -> Option<eludite_browser::DebugEndpoint> {
+        self.running.then(|| eludite_browser::DebugEndpoint {
+            address: "127.0.0.1".into(),
+            port: 9,
+        })
+    }
+    fn cdp_target_id(&self, target_id: &str) -> Option<String> {
+        Some(format!("TARGET-{target_id}"))
     }
     fn open_tab(&mut self, url: &str) -> Result<String, EngineError> {
         let id = format!("P{}", self.seen.next.fetch_add(1, Ordering::SeqCst) + 1);

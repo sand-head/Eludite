@@ -35,6 +35,8 @@ static FRAME_SOCKET: AtomicI32 = AtomicI32::new(-1);
 static NEXT_REGION: AtomicU64 = AtomicU64::new(1);
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static SANDBOXED: AtomicBool = AtomicBool::new(true);
+/// The remote debugging port CEF listens on (127.0.0.1; brief 0038), 0 before `main` chose it.
+static DEBUG_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 /// `--profile`: the download folder's default is beside it.
 static PROFILE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -1526,6 +1528,9 @@ fn handle(m: Incoming) {
     let r = match m.method.as_str() {
         "initialize" => {
             initialize_downloads(p);
+            // `engine/ready` once the remote debugging port answers, after this answer (the writer keeps the order).
+            let port = DEBUG_PORT.load(Ordering::Relaxed);
+            on_ui_after(0, move || announce_debug_port(port));
             Ok(json!({
                 "engineName": NAME,
                 "engineVersion": env!("CARGO_PKG_VERSION"),
@@ -1590,6 +1595,30 @@ fn handle(m: Incoming) {
         other => Err((rpc::METHOD_NOT_FOUND, format!("unknown method {other}"))),
     };
     reply(&m.id, r);
+}
+
+/// Send `engine/ready` once CEF's remote debugging port on 127.0.0.1 answers `GET /json/version` (brief 0038), on a
+/// thread of its own: at most 10 s, every 50 ms. The engine logs it when the port never answers.
+fn announce_debug_port(port: u16) {
+    if port == 0 {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("debug-port".into())
+        .spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if crate::window::devtools_answers(port, std::time::Duration::from_millis(500)) {
+                    out().notify(
+                        "engine/ready",
+                        json!({"remoteDebuggingPort": port, "address": "127.0.0.1"}),
+                    );
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            eprintln!("{NAME}: the remote debugging port {port} did not answer within 10 s");
+        });
 }
 
 /// `initialize`'s download folder and limit (default: `downloads` beside the profile, 100 MB).
@@ -2242,7 +2271,11 @@ pub fn main() -> ExitCode {
     }
     let path = |p: &Path| CefString::from(p.to_string_lossy().as_ref());
     let exe = std::env::current_exe().unwrap_or_default();
+    // Chrome DevTools on a free loopback port (CEF binds 127.0.0.1 only), reported in `engine/ready` (brief 0038).
+    let debug_port = crate::window::free_debug_port().unwrap_or(0);
+    DEBUG_PORT.store(debug_port, Ordering::Relaxed);
     let settings = Settings {
+        remote_debugging_port: i32::from(debug_port),
         no_sandbox: no_sandbox as i32,
         browser_subprocess_path: path(&exe),
         windowless_rendering_enabled: 1,

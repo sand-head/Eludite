@@ -801,6 +801,9 @@ pub struct TabRow {
     /// The debugging session whose launch opened the tab (brief 0037): `tabs` only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<TabSession>,
+    /// The page's Chrome DevTools target id at the browser's remote debugging port (brief 0038).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
     /// The engine's target id of the tab: for the Web Browser window, which draws the engine's tabs. Not in the
     /// command's output.
     #[serde(skip)]
@@ -3170,9 +3173,10 @@ mod tests {
             can_go_back: Some(true),
             can_go_forward: Some(false),
             session: None,
+            target_id: None,
             target: "1".into(),
         };
-        // A tab a debugging session's launch opened (brief 0037).
+        // A tab a debugging session's launch opened (brief 0037), with its DevTools target id (brief 0038).
         let launched = TabRow {
             id: "t2".into(),
             active: false,
@@ -3180,6 +3184,7 @@ mod tests {
                 id: 1,
                 name: "MinimalApi".into(),
             }),
+            target_id: Some("C1A1645D5649ECB8E7FE646FE0AED20C".into()),
             ..tab.clone()
         };
         assert!(
