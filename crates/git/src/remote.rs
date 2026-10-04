@@ -325,6 +325,47 @@ impl Repo {
         })
     }
 
+    /// Fetch `refspec` (`+refs/pull/12/head:refs/remotes/origin/pr/12`) from `remote`, or from `url` when given (a
+    /// fork's repository, brief 0046's pull request checkout), with the same credentials, proxy and certificate rules
+    /// as [`Repo::fetch`]. Answers the commit the refspec's destination points at.
+    pub fn fetch_refspec(
+        &self,
+        remote: Option<&str>,
+        url: Option<&str>,
+        refspec: &str,
+        cancel: &Cancel,
+    ) -> Result<git2::Oid> {
+        cancel.check()?;
+        let repo = self.repository()?;
+        let mut r = match url {
+            Some(u) => repo.remote_anonymous(u)?,
+            None => {
+                let name = self.default_remote(remote)?;
+                repo.find_remote(&name).map_err(|_| {
+                    GitError::new(ErrorKind::NotFound, format!("there is no remote `{name}`"))
+                })?
+            }
+        };
+        let remote_url = r.url().unwrap_or_default().to_owned();
+        let setup = Setup::of(self);
+        let state = RefCell::new(CredentialState::new());
+        let mut ignore = |_: Progress| {};
+        let progress: RefCell<&mut dyn FnMut(Progress)> = RefCell::new(&mut ignore);
+        let result = {
+            let cb = callbacks(&setup, &state, cancel, &progress, None);
+            let mut fo = FetchOptions::new();
+            fo.remote_callbacks(cb);
+            fo.proxy_options(setup.proxy(&remote_url));
+            fo.download_tags(git2::AutotagOption::None);
+            r.fetch(&[refspec], Some(&mut fo), None)
+        };
+        result.map_err(|e| transfer_error(e, cancel, &remote_url, &mut state.borrow_mut()))?;
+        let dest = refspec.rsplit_once(':').map(|(_, d)| d).ok_or_else(|| {
+            GitError::new(ErrorKind::Git, format!("`{refspec}` names no destination"))
+        })?;
+        Ok(repo.refname_to_id(dest)?)
+    }
+
     /// Pull: fetch, then fast-forward or merge the upstream (or rebase onto it with `rebase`).
     pub fn pull(
         &self,
