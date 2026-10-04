@@ -28,7 +28,9 @@ use super::debug::state::Mode;
 use super::documents::normalize_path;
 use super::test_runs::{Phase, RunState, TESTS_SLOT};
 use super::tests::{Ws, setup_debug};
-use super::tests_window::{self, RowKind};
+use super::tests_window;
+#[cfg(target_os = "linux")]
+use super::tests_window::RowKind;
 
 const CALCULATOR_CS: &str = "namespace Corpus.Tests\n{\n    public class CalculatorTests\n    {\n        [Fact]\n        public void Adds()\n        {\n            Assert.Equal(5, 2 + 3);\n        }\n\n        [Fact]\n        public void Subtracts()\n        {\n            Assert.Equal(1, 2 - 3);\n        }\n    }\n}\n";
 

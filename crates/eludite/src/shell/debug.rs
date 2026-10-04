@@ -6319,17 +6319,15 @@ impl Shell {
         if wait_for_children {
             // Detached when the last child ends (`end_session`).
         } else if d.client.is_some() {
-            // An attached session detaches: the process keeps running, and the session ends with the answer (an
-            // adapter may stay up after detaching; brief 0027).
+            // The session ends with the answer: an attached one detaches and the process keeps running (an adapter may
+            // stay up after detaching; brief 0027); a launched one's adapter is asked to end the debuggee, and is killed
+            // if still up (netcoredbg can take long to exit after answering on a loaded machine, and the headless
+            // tests' stop timer never fires).
             let attached = d.model.attached();
             let _ = d.send(
                 "disconnect",
                 json!({ "terminateDebuggee": !attached }),
-                if attached {
-                    Pending::Detach { generation }
-                } else {
-                    Pending::Other
-                },
+                Pending::Detach { generation },
             );
         } else if was == Mode::Launching {
             // Connected or LaunchFailed will see Stopping and end the session.
