@@ -15,6 +15,7 @@ members = [
     "crates/git",
     "crates/terminal",
     "crates/search",
+    "crates/forge",
     "crates/extensions",
     "protocol/rust",
     "protocol/cdp/generator",
