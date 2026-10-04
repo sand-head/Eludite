@@ -1,0 +1,52 @@
+Eludite @VERSION@ for Linux (@ARCH@)
+====================================
+
+Run it from this folder:
+
+    ./eludite --folder ~/src/my-project        (or --solution path/to/App.slnx)
+
+Nothing here needs installing, and Eludite needs no environment variables: the shell finds its browser engine
+(eludite-chromium) beside itself, and the engine finds CEF in cef/ beside itself. Eludite makes no network call at
+startup; the engine starts when the Web Browser window (View > Other Windows > Web Browser) or a browser tool first
+needs it.
+
+To add Eludite to your desktop's menus, put this folder where it will stay (for example ~/.local/opt/eludite), then:
+
+    sed "s|^Exec=eludite|Exec=$PWD/eludite|; s|^TryExec=eludite|TryExec=$PWD/eludite|" eludite.desktop \
+      > ~/.local/share/applications/eludite.desktop
+    cp -r icons/hicolor ~/.local/share/icons/
+
+The sandbox
+-----------
+
+The embedded browser runs web pages in Chromium's sandbox. On Linux that needs one of:
+
+1. Unprivileged user namespaces, which most distributions allow (nothing to do). Debian-style kernels can turn them
+   off with kernel.unprivileged_userns_clone=0; Ubuntu 23.10 and later restrict them through AppArmor unless a
+   profile permits them for eludite-chromium.
+2. Otherwise, Chromium's setuid helper, installed once by root:
+
+       sudo chown root:root cef/chrome-sandbox && sudo chmod 4755 cef/chrome-sandbox
+
+   Chromium uses a helper outside the engine's own folder only when eludite-chromium belongs to the user running
+   it, as it does when you unpack this archive yourself. If root unpacked it (for example into /opt), install the
+   helper beside the engine instead: copy cef/chrome-sandbox to ./chrome-sandbox, then run the two commands on it.
+
+With neither (or when Eludite runs as root, which Chromium never sandboxes), the engine refuses to start and the Web
+Browser window says why. Its dialog offers "Run without the sandbox for this workspace", which stores
+browser.allowNoSandbox in the workspace's .eludite/settings.json; Tools > Options > Web Browser turns it off again.
+While the engine runs without the sandbox, the window shows a strip saying so.
+
+Files
+-----
+
+    eludite                  the IDE (it never loads CEF)
+    eludite-chromium         the browser engine, CEF's browser process
+    cef/                     CEF 154 (Chromium 154) runtime files and the sandbox helper
+    eludite.desktop, icons/  the desktop launcher and icons
+    LICENSE                  GNU General Public License, version 3 (Eludite is GPL-3.0-or-later)
+    cef/LICENSE.txt          CEF's license (BSD-3-Clause)
+    cef/CREDITS.html         Chromium's third-party licenses
+    THIRD-PARTY-CRATES.txt   the Rust crates linked into the two executables, with their licenses
+
+H.264 and AAC media do not play (CEF's build without proprietary codecs).
