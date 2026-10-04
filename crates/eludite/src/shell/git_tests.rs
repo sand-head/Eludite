@@ -1,7 +1,10 @@
 //! Headless tests of brief 0040: the Git Changes and Git Repository windows over a temporary repository (built with
 //! git2, its identity in its own config, never this checkout), the status bar, the Workspace and tab glyphs, Compare
 //! with Unmodified, the change margin, the confirmations, branches, a merge conflict, Fetch and Push against a bare
-//! repository on disk, the generation rule, agents' calls and the drafts.
+//! repository on disk, the generation rule, agents' calls and the drafts. Brief 0045: the credential prompt against
+//! `git http-backend` behind basic authentication (the test server of `crates/git/tests/support/server.rs`), its
+//! refusal for agents, the session's memory, the warning line while `http.sslVerify` is off and a refused
+//! certificate naming its host.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -17,7 +20,8 @@ use serde_json::{Value, json};
 
 use super::explorer::row_selector;
 use super::git::changes::{self, Group};
-use super::git::service::GitSetup;
+use super::git::credentials;
+use super::git::service::{AGENT_CANNOT_ANSWER, GitSetup};
 use super::git::{INCOMING_SLOT, OUTGOING_SLOT, PENDING_SLOT, compare, gutter, repository};
 use super::tests::{Ws, setup};
 
@@ -1359,4 +1363,224 @@ fn the_repository_window_cherry_picks_and_resets(cx: &mut TestAppContext) {
     g.wait_status("reset", |s| {
         s.untracked == ["src/App/Main.cs", "src/App/Picked.cs"] && s.head == Some(head.id())
     });
+}
+
+// ----- Brief 0045: credentials and certificates -----
+
+#[path = "../../../git/tests/support/server.rs"]
+mod git_server;
+
+/// The workspace's `main` on `remote.git` (see [`with_remote`]), now served over http by `git http-backend`
+/// demanding alice / s3cret; `None` (the test skips) without `git` on PATH.
+fn with_http_remote(g: &mut G) -> Option<git_server::GitHttp> {
+    with_remote(g);
+    let server = git_server::GitHttp::start(g.w.dir.path(), "alice", "s3cret")?;
+    g.repo()
+        .remote_set_url("origin", &server.url("remote.git"))
+        .unwrap();
+    Some(server)
+}
+
+impl G {
+    /// The open credential prompt's host and whether it says the last answer was refused.
+    fn prompt(&self) -> Option<(String, bool)> {
+        self.w.shell.read_with(&self.w.vcx, |s, cx| {
+            s.git().prompt.as_ref().map(|p| {
+                let p = p.read(cx);
+                (p.host().to_owned(), p.refused())
+            })
+        })
+    }
+
+    fn wait_prompt(&mut self, refused: bool) -> String {
+        self.w.wait("the credential prompt", |w| {
+            w.shell.read_with(&w.vcx, |s, cx| {
+                s.git()
+                    .prompt
+                    .as_ref()
+                    .is_some_and(|p| p.read(cx).refused() == refused)
+            })
+        });
+        self.prompt().unwrap().0
+    }
+
+    /// Type a user name and a password into the prompt, tick "Remember for this session" if asked, then OK.
+    fn answer(&mut self, user: &str, password: &str, remember: bool) {
+        let keys = |t: &str| {
+            t.chars()
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        self.w
+            .vcx
+            .simulate_keystrokes(&format!("{} tab {}", keys(user), keys(password)));
+        self.w.vcx.run_until_parked();
+        if remember {
+            self.w.click(credentials::REMEMBER);
+        }
+        self.w.click(credentials::OK);
+    }
+
+    fn wait_info(&mut self, what: &str, f: impl Fn(&str) -> bool) {
+        self.w.wait(what, |w| {
+            w.shell.read_with(&w.vcx, |s, cx| {
+                s.git()
+                    .changes
+                    .read(cx)
+                    .info()
+                    .is_some_and(|(text, _)| f(text))
+            })
+        });
+    }
+
+    fn kept_hosts(&self) -> Vec<String> {
+        self.w
+            .shell
+            .read_with(&self.w.vcx, |s, _| s.git().service.credentials().hosts())
+    }
+}
+
+#[gpui::test]
+fn the_credential_prompt_asks_the_user_and_an_agent_is_refused(cx: &mut TestAppContext) {
+    let mut g = setup_git(cx);
+    let Some(server) = with_http_remote(&mut g) else {
+        return;
+    };
+    let host = server.host();
+    // An agent's fetch: refused with credentials_required and the host, and no prompt for anyone.
+    let e = g.agent(cmds::FETCH, json!({})).unwrap_err();
+    assert!(
+        e.contains(&format!("credentials_required: {host} asks")),
+        "{e}"
+    );
+    assert!(e.contains(AGENT_CANNOT_ANSWER), "{e}");
+    g.w.vcx.run_until_parked();
+    assert_eq!(g.prompt(), None, "an agent never gets the prompt");
+    // The person's Fetch: the prompt for the host.
+    g.show("git_changes");
+    g.w.click(changes::FETCH);
+    assert_eq!(g.wait_prompt(false), host);
+    let message = g.w.shell.read_with(&g.w.vcx, |s, cx| {
+        s.git().prompt.as_ref().unwrap().read(cx).message()
+    });
+    assert!(
+        message.starts_with(&format!("{host} asks for a user name")),
+        "{message}"
+    );
+    // A wrong password: asked again, saying it was refused.
+    g.answer("alice", "wrong", false);
+    assert_eq!(g.wait_prompt(true), host);
+    // The right one, for this transfer only: the fetch runs, then the answer is forgotten.
+    g.answer("alice", "s3cret", false);
+    g.wait_info("fetched", |t| t.starts_with("Fetched from origin"));
+    assert_eq!(g.prompt(), None);
+    assert!(g.kept_hosts().is_empty(), "a one-time answer is not kept");
+    assert!(
+        server
+            .requests()
+            .iter()
+            .any(|r| r.user.as_deref() == Some("alice") && r.status == 200)
+    );
+    // Cancel: nothing runs, and the window says why.
+    g.w.click(changes::FETCH);
+    g.wait_prompt(false);
+    g.w.click(credentials::CANCEL);
+    assert_eq!(g.prompt(), None);
+    g.wait_info("canceled", |t| {
+        t == format!("Fetch canceled: no credentials for {host}")
+    });
+}
+
+#[gpui::test]
+fn a_remembered_credential_is_reused_in_the_session_and_forgotten_at_close(
+    cx: &mut TestAppContext,
+) {
+    let mut g = setup_git(cx);
+    let Some(server) = with_http_remote(&mut g) else {
+        return;
+    };
+    let host = server.host();
+    g.show("git_changes");
+    g.w.click(changes::FETCH);
+    g.wait_prompt(false);
+    g.answer("alice", "s3cret", true);
+    g.wait_info("fetched", |t| t.starts_with("Fetched from origin"));
+    assert_eq!(g.kept_hosts(), [host.clone()]);
+    // Reused within the session: the person's Push and an agent's fetch run without asking.
+    g.write("src/App/Program.cs", "class Remembered { }\n");
+    g.agent(
+        cmds::COMMIT,
+        json!({ "message": "remembered", "all": true }),
+    )
+    .unwrap();
+    g.wait_status("one outgoing", |s| s.ahead == 1);
+    g.w.click(changes::PUSH);
+    g.wait_status("pushed", |s| s.ahead == 0);
+    assert_eq!(
+        g.prompt(),
+        None,
+        "no prompt while the credential is remembered"
+    );
+    g.agent(cmds::FETCH, json!({}))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        server
+            .requests()
+            .iter()
+            .any(|r| r.status == 200 && r.target.contains("git-receive-pack"))
+    );
+    // Closing the workspace forgets it; opened again, Fetch asks again.
+    g.w.commands
+        .invoke(eludite_commands::workspace::SOLUTION_CLOSE, json!({}))
+        .unwrap();
+    g.w.wait("closed", |w| {
+        w.shell.read_with(&w.vcx, |s, _| s.git().root.is_none())
+    });
+    assert!(g.kept_hosts().is_empty(), "forgotten at close");
+    g.w.open_solution();
+    g.wait_ready();
+    g.show("git_changes");
+    g.w.click(changes::FETCH);
+    assert_eq!(g.wait_prompt(false), host);
+}
+
+#[gpui::test]
+fn the_warning_line_follows_ssl_verify_and_a_refused_certificate_names_its_host(
+    cx: &mut TestAppContext,
+) {
+    let mut g = setup_git(cx);
+    g.show("git_changes");
+    let warning_shown = |g: &mut G| g.w.vcx.debug_bounds(changes::SSL_WARNING).is_some();
+    assert!(!warning_shown(&mut g));
+    // A self-signed https remote while sslVerify is on: refused, naming the host, with no prompt.
+    with_remote(&mut g);
+    if let Some(server) = git_server::GitHttp::start_tls(g.w.dir.path(), "alice", "s3cret") {
+        g.repo()
+            .remote_set_url("origin", &server.url("remote.git"))
+            .unwrap();
+        g.w.click(changes::FETCH);
+        let host = server.host();
+        g.wait_info("the refusal", |t| {
+            t.starts_with(&format!("The certificate of {host} could not be verified"))
+        });
+        assert_eq!(g.prompt(), None);
+        assert!(g.slot(eludite_ui::slots::STATE).contains(&host));
+    }
+    // http.sslVerify false in the repository's config: the warning line, until it is set back.
+    g.repo()
+        .config()
+        .unwrap()
+        .set_bool("http.sslVerify", false)
+        .unwrap();
+    g.wait_status("sslVerify off", |s| s.ssl_verify_off);
+    g.w.vcx.run_until_parked();
+    assert!(warning_shown(&mut g));
+    assert!(g.w.shell.read_with(&g.w.vcx, |s, cx| {
+        s.git().changes.read(cx).model.ssl_verify_off
+    }));
+    g.repo().config().unwrap().remove("http.sslVerify").unwrap();
+    g.wait_status("sslVerify on", |s| !s.ssl_verify_off);
+    g.w.vcx.run_until_parked();
+    assert!(!warning_shown(&mut g));
 }
