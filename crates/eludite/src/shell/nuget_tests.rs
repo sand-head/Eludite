@@ -522,6 +522,12 @@ fn install_edits_restores_and_updates_the_output_and_the_tree(cx: &mut TestAppCo
     );
     assert!(output.contains("Restore succeeded"), "{output}");
     assert!(output.contains("========== Finished =========="));
+    assert_eq!(
+        n.w.shell
+            .read_with(&n.w.vcx, |s, cx| s.output.read(cx).selected()),
+        eludite_commands::build::OutputSource::PackageManager,
+        "the Output window shows Package Manager"
+    );
     // The tree follows under the new generation: Lib's Packages node lists Logging.
     let lib = n.lib.clone();
     n.w.wait("the refreshed tree", |w| {
@@ -1005,14 +1011,16 @@ fn five_hundred_results_are_drawn_virtualized_within_the_frame_budget(cx: &mut T
     assert_eq!(n.rows().len(), 500);
     let mut frames = Vec::new();
     for i in 0..60 {
-        let drawn_before = n.read(|w| w.rows_drawn());
-        let started = Instant::now();
+        // A selection somewhere down the list (it scrolls there), then the frame that draws it.
         n.update(|w, cx| w.select(Some(format!("Package.{:03}", i * 8)), cx));
-        n.w.vcx.update(|window, cx| {
+        let drawn_before = n.read(|w| w.rows_drawn());
+        let took = n.w.vcx.update(|window, cx| {
             window.refresh();
+            let started = Instant::now();
             let _ = window.draw(cx);
+            started.elapsed()
         });
-        frames.push(started.elapsed());
+        frames.push(took);
         let drawn = n.read(|w| w.rows_drawn()) - drawn_before;
         assert!(drawn < 60, "only the rows that show are drawn ({drawn})");
     }

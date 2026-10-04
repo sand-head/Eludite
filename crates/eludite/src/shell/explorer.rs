@@ -124,7 +124,15 @@ pub struct SolutionExplorer {
     git: Option<(PathBuf, Rc<GlyphIndex>)>,
     /// `id/version` (id lowercase) of packages the sources say are vulnerable or deprecated (brief 0048).
     package_warnings: HashSet<String>,
+    /// Where the rows were drawn, while `--bounds-out` probes (brief 0048's Xvfb run clicks them).
+    probe: Option<eludite_ui::BoundsMap>,
     focus: FocusHandle,
+}
+
+impl SolutionExplorer {
+    pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
+        self.probe = probe;
+    }
 }
 
 /// Debug selector of the row for node `id` (tests and the real-input driver).
@@ -162,6 +170,7 @@ impl SolutionExplorer {
             menu: None,
             git: None,
             package_warnings: HashSet::new(),
+            probe: None,
             focus: cx.focus_handle(),
         }
     }
@@ -651,6 +660,11 @@ impl Render for SolutionExplorer {
                                         style,
                                         cx.listener(move |this, _, _, cx| this.toggle(&id, cx)),
                                     )
+                                    .relative()
+                                    .children(eludite_ui::bounds_canvas(
+                                        this.probe.as_ref(),
+                                        row_selector(&row.id),
+                                    ))
                                     .on_click(cx.listener(move |this, e, window, cx| {
                                         this.click(ix, e, window, cx)
                                     }))

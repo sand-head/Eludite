@@ -1199,6 +1199,9 @@ impl Shell {
         let ui = self.ui_bounds.clone();
         self.git.changes.update(cx, |c, _| c.set_probe(ui.clone()));
         self.forge_set_probe(ui.clone(), cx);
+        // The NuGet window's and the Workspace window's rows (brief 0048's Xvfb run).
+        self.nuget.window.update(cx, |w, _| w.set_probe(ui.clone()));
+        self.explorer.update(cx, |e, _| e.set_probe(ui.clone()));
         self.menu.update(cx, |m, _| m.set_probe(ui));
         self.dock.update(cx, |d, _| d.set_probe(probe));
     }

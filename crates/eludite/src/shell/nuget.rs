@@ -781,6 +781,8 @@ pub struct NuGetUi {
     debounce: Option<Task<()>>,
     /// The window was opened at least once (its data is loaded on the first open).
     opened: bool,
+    /// The operation whose output the Output window last switched to Package Manager for.
+    output_operation: Option<u64>,
 }
 
 impl NuGetUi {
@@ -800,6 +802,7 @@ impl NuGetUi {
             events,
             debounce: None,
             opened: false,
+            output_operation: None,
         }
     }
 }
@@ -1461,8 +1464,15 @@ impl Shell {
         match update.kind {
             host::NuGetUpdateKind::Output => {
                 if let Some(text) = &update.text {
-                    self.output
-                        .update(cx, |o, cx| o.append(OutputSource::PackageManager, text, cx));
+                    // As Visual Studio, the Output window shows Package Manager when an operation starts writing.
+                    let first = self.nuget.output_operation.replace(update.operation)
+                        != Some(update.operation);
+                    self.output.update(cx, |o, cx| {
+                        o.append(OutputSource::PackageManager, text, cx);
+                        if first {
+                            o.select(OutputSource::PackageManager, cx);
+                        }
+                    });
                 }
             }
             host::NuGetUpdateKind::Progress => {

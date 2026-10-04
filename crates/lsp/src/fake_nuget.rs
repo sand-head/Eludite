@@ -528,20 +528,27 @@ pub(crate) fn host_of(url: &str) -> String {
     rest.split('/').next().unwrap_or(rest).to_owned()
 }
 
-/// The `eludite/nuget/update` notifications for `lines`, from `seq` on.
+/// The `eludite/nuget/update` notifications for `lines`, from `seq` on; an operation starts with a progress update,
+/// as the host's do.
 pub(crate) fn output_updates(
     operation: u64,
     generation: u64,
     seq: &mut u64,
     lines: &[String],
 ) -> Vec<Value> {
-    lines
-        .iter()
-        .map(|l| {
-            let u = json!({"operation": operation, "generation": generation, "seq": *seq, "kind": "output",
-                           "text": format!("{l}\n")});
-            *seq += 1;
-            u
-        })
-        .collect()
+    let mut out = Vec::new();
+    if *seq == 0 && !lines.is_empty() {
+        out.push(
+            json!({"operation": operation, "generation": generation, "seq": 0, "kind": "progress",
+                        "message": "Working"}),
+        );
+        *seq += 1;
+    }
+    out.extend(lines.iter().map(|l| {
+        let u = json!({"operation": operation, "generation": generation, "seq": *seq, "kind": "output",
+                       "text": format!("{l}\n")});
+        *seq += 1;
+        u
+    }));
+    out
 }

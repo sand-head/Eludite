@@ -203,6 +203,9 @@ pub struct NuGetWindow {
     message: Option<String>,
     search_focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    /// Where the search box, the tabs, the rows, the buttons and the project check boxes were drawn, while
+    /// `--bounds-out` probes (the Xvfb run clicks them).
+    probe: Option<eludite_ui::BoundsMap>,
     /// Renders of the list rows (tests read it: the list draws only what shows).
     rows_drawn: usize,
 }
@@ -235,8 +238,17 @@ impl NuGetWindow {
             message: None,
             search_focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            probe: None,
             rows_drawn: 0,
         }
+    }
+
+    pub fn set_probe(&mut self, probe: Option<eludite_ui::BoundsMap>) {
+        self.probe = probe;
+    }
+
+    fn probed(&self, key: impl Into<String>) -> Option<gpui::AnyElement> {
+        eludite_ui::bounds_canvas(self.probe.as_ref(), key)
     }
 
     // ------------------------------------------------------------------ what the shell sets and reads
@@ -876,6 +888,8 @@ impl NuGetWindow {
                 let el = div()
                     .id(SharedString::from(row_selector(ix)))
                     .debug_selector(move || row_selector(ix))
+                    .relative()
+                    .children(self.probed(row_selector(ix)))
                     .h(px(ROW_HEIGHT))
                     .w_full()
                     .flex()
@@ -1003,9 +1017,12 @@ impl NuGetWindow {
         let versions = self.versions(&id);
         let chosen = self.chosen_version().unwrap_or_default();
         let (install, update, uninstall, consolidate) = self.actions();
+        let probe = self.probe.clone();
         let button =
             |sel: &'static str, label: &'static str, enabled: bool, cx: &mut Context<Self>| {
-                let b = push_button(sel, label, false, enabled, &t);
+                let b = push_button(sel, label, false, enabled, &t)
+                    .relative()
+                    .children(eludite_ui::bounds_canvas(probe.as_ref(), sel));
                 if enabled {
                     b.on_click(cx.listener(move |this, _, _, cx| this.act(sel, cx)))
                 } else {
@@ -1093,6 +1110,8 @@ impl NuGetWindow {
                         self.checked_projects.contains(&p.path),
                         &t,
                     )
+                    .relative()
+                    .children(self.probed(project_check_selector(&p.project)))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&path, cx))),
                 );
             }
@@ -1155,16 +1174,17 @@ impl Render for NuGetWindow {
             .gap_1()
             .children(
                 [Tab::Browse, Tab::Installed, Tab::Updates, Tab::Consolidate].map(|tab| {
-                    toggle_button(tab_selector(tab), tab_label(tab), self.tab == tab, &t).on_click(
-                        cx.listener(move |this, _, _, cx| {
+                    toggle_button(tab_selector(tab), tab_label(tab), self.tab == tab, &t)
+                        .relative()
+                        .children(self.probed(tab_selector(tab)))
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             this.set_tab(tab, cx);
                             cx.emit(if tab == Tab::Browse {
                                 WindowEvent::Search
                             } else {
                                 WindowEvent::Refresh
                             });
-                        }),
-                    )
+                        }))
                 }),
             )
             .child(div().flex_1())
@@ -1174,6 +1194,8 @@ impl Render for NuGetWindow {
             }));
         let focused = self.search_focus.is_focused(window);
         let search = text_box(SEARCH_BOX, &self.query, "Search (Ctrl+L)", focused, &t)
+            .relative()
+            .children(self.probed(SEARCH_BOX))
             .w(px(260.))
             .track_focus(&self.search_focus)
             .key_context("NuGetSearch")
