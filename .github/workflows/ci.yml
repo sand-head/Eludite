@@ -130,6 +130,28 @@ jobs:
           echo "ELUDITE_CHROME_NO_SANDBOX=1" >> "$GITHUB_ENV"
           "$chrome" --version
 
+      # JavaScript debugging (brief 0038) runs vscode-js-debug under Node.js; the js-debug corpus recordings carry the
+      # Node version they were made with, so CI pins it rather than re-recording on every runner image change.
+      - name: Set up Node.js for vscode-js-debug
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+
+      - name: Cache vscode-js-debug
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/js-debug
+          key: js-debug-${{ runner.os }}-${{ hashFiles('tools/js-debug/PIN') }}
+
+      - name: Fetch vscode-js-debug
+        if: runner.os == 'Linux'
+        run: |
+          server="$(tools/js-debug/fetch.sh)"
+          echo "ELUDITE_JS_DEBUG=$server" >> "$GITHUB_ENV"
+          node --version
+
       # On Linux the engine tests (browsers/chromium/tests, crates/browser/tests/embedded.rs) run CEF under Xvfb;
       # ELUDITE_CHROME_NO_SANDBOX=1 (set above) also covers CEF, whose sandbox meets the same AppArmor policy.
       - name: Test (Linux)
@@ -155,7 +177,7 @@ jobs:
       # The corpus is kept honest: Linux re-records the Mono and lldb-dap sessions from the real adapters and fails
       # when one differs from the checked-in recording beyond timing (an adapter upgrade or a shell change). Re-record
       # with tools/dap-corpus/record.sh and review the diff.
-      - name: Re-record the DAP corpus (Mono, lldb-dap)
+      - name: Re-record the DAP corpus (Mono, lldb-dap, js-debug)
         if: runner.os == 'Linux'
         env:
           RECORD_DAP: ${{ runner.temp }}/dap-corpus
@@ -163,7 +185,7 @@ jobs:
           # lldb-dap attaches to a process it did not start (lldb/attach-detach); Ubuntu's Yama policy lets only a
           # process's ancestors attach unless ptrace_scope is 0.
           sudo sysctl -w kernel.yama.ptrace_scope=0
-          tools/dap-corpus/record.sh --check mono lldb
+          tools/dap-corpus/record.sh --check mono lldb js-debug
 
       # netcoredbg cannot be downloaded where the corpus was first recorded: Linux records its sessions here and
       # uploads them (artifact dap-corpus-netcoredbg) to be reviewed and checked in under corpus/dap/netcoredbg.
