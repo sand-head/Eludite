@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v4/projects/45049979/jobs/16914440454/retry"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 16914449999,
+      "status": "pending"
+    }
+  }
+}

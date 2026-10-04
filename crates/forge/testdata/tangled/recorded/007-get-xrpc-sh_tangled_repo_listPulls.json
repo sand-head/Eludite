@@ -1,0 +1,124 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.listPulls",
+    "query": {
+      "cursor": "00065c7d39c2d08000028d07",
+      "limit": "3",
+      "status": "open",
+      "subject": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cursor": "00065b1c21a5f48000025dfc",
+      "items": [
+        {
+          "cid": "bafyreicbnb6nnb3vfaqbmsy4hidgnr2my4lif6ffqkjnup36jyojio7euq",
+          "commentCount": 2,
+          "state": "open",
+          "uri": "at://did:plc:dfl62fgb7wtjj3fcbb72naae/sh.tangled.repo.pull/3mwbdctwiysbo",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "i believe this should help with the OOMs perhaps possibly, at least some of the OOMs had this burst behaviour",
+            "createdAt": "2026-09-24T13:10:08.574Z",
+            "rounds": [],
+            "source": {
+              "branch": "dwn/k2-resolver-fix",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "target": {
+              "branch": "master",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "knot2/pack: unpack one object at a time instead of the whole pack at once",
+            "versions": [
+              {
+                "base": "7fcec78848bfd98f3f6a05411efaca1958da0e8f",
+                "createdAt": "2026-09-24T13:10:08.574Z",
+                "head": "65f14430470af85ae3f9c3d5e40c5b2608462f50"
+              }
+            ]
+          }
+        },
+        {
+          "cid": "bafyreihx6itq75aijd2uirobepiu6uvepyuc5l7sa2iifbpieoagjoieum",
+          "commentCount": 1,
+          "state": "open",
+          "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull/3mvurezcs327v",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "Small UX improvement. Maybe me consistently resizing the discussion bar means the default value should be adjust.",
+            "createdAt": "2026-09-19T13:17:17.943Z",
+            "rounds": [],
+            "source": {
+              "branch": "sl/vqnrzytpvwst",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "target": {
+              "branch": "sv-fe",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "web: remember resize per-tab",
+            "versions": [
+              {
+                "base": "9116ebfd095f85b47398322ef0c9cc5cb4f9963a",
+                "createdAt": "2026-09-19T13:17:17.943Z",
+                "head": "83e50363bb59b7f37b7284e82e8df3269b4426c3"
+              }
+            ]
+          }
+        },
+        {
+          "cid": "bafyreiarrizhstgmnqvqcyjtftprqpmxvvu4qhg7qir4oykxiq3vezw5ai",
+          "commentCount": 0,
+          "state": "open",
+          "uri": "at://did:plc:xbtmt2zjwlrfegqvch7fboei/sh.tangled.repo.pull/3mv5kkt7d5522",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "hey i want a cool punchcard!\n\n<details>\n\na wobbly punchcard for zzstoatzz.io. wanted to keep the original dots and make them feel a little alive: waves roll through the green, busy days catch more of the light, and you can stir it around with your mouse or click to send out a ripple.\n</details>\n\n![bufo-gets-downloaded-from-the-cloud](https://all-the.bufo.zone/bufo-gets-downloaded-from-the-cloud.gif)\n\ngenerated with Codex (GPT-6)",
+            "createdAt": "2026-09-10T07:44:02Z",
+            "rounds": [
+              {
+                "createdAt": "2026-09-10T07:44:02Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreicadh7fvnfy7nzbhkwy2hoktm262baxzuok5hm6me24j3a4rn22mq"
+                  },
+                  "size": 3038
+                }
+              },
+              {
+                "createdAt": "2026-09-10T07:47:10Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreifq3oc7pklv6gepbwsangc7453c342mkbx7prhsb643kj6ke42xte"
+                  },
+                  "size": 3062
+                }
+              }
+            ],
+            "source": {
+              "branch": "nate/fluid-punchcard",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "target": {
+              "branch": "master",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "appview: add fluid punchcard for zzstoatzz.io"
+          }
+        }
+      ]
+    }
+  }
+}

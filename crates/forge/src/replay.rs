@@ -117,6 +117,8 @@ pub struct Seen {
 struct Slot {
     exchange: Exchange,
     left: Option<u32>,
+    /// A test's override: it wins over every loaded fixture its request matches.
+    first: bool,
 }
 
 /// A fixture set, with what it answered.
@@ -182,16 +184,24 @@ impl Fixtures {
         self.slots
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .push(Slot { exchange, left });
+            .push(Slot {
+                exchange,
+                left,
+                first: false,
+            });
     }
 
     /// Add a fixture that wins over the others for its requests (a test's override: a 401, a rate limit).
     pub fn push_front(&self, exchange: Exchange) {
         let left = exchange.times;
-        self.slots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(0, Slot { exchange, left });
+        self.slots.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            0,
+            Slot {
+                exchange,
+                left,
+                first: true,
+            },
+        );
     }
 
     /// Remove every fixture for `method path`.
@@ -263,7 +273,10 @@ impl Fixtures {
             if !r.body_contains.iter().all(|p| body_text.contains(p)) {
                 continue;
             }
-            let score = r.query.len() + r.body_contains.len() + usize::from(!r.path.contains('*'));
+            let score = r.query.len()
+                + r.body_contains.len()
+                + usize::from(!r.path.contains('*'))
+                + if s.first { 1000 } else { 0 };
             if best.is_none_or(|(_, b)| score > b) {
                 best = Some((i, score));
             }
@@ -463,6 +476,7 @@ impl Drop for FixtureServer {
 
 fn serve(conn: TcpStream, fixtures: &Fixtures, stop: &AtomicBool, delay_ms: &AtomicU64) {
     let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = conn.set_nodelay(true);
     let mut reader = BufReader::new(match conn.try_clone() {
         Ok(c) => c,
         Err(_) => return,
@@ -511,6 +525,12 @@ fn serve(conn: TcpStream, fixtures: &Fixtures, stop: &AtomicBool, delay_ms: &Ato
                 headers.push((k, v));
             }
         }
+        if headers.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case("expect") && v.eq_ignore_ascii_case("100-continue")
+        }) && writer.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").is_err()
+        {
+            return;
+        }
         let mut body = vec![0; length];
         if length > 0 && reader.read_exact(&mut body).is_err() {
             return;
@@ -536,7 +556,9 @@ fn serve(conn: TcpStream, fixtures: &Fixtures, stop: &AtomicBool, delay_ms: &Ato
             out.push_str("Content-Type: application/json\r\n");
         }
         out.push_str(&format!("Content-Length: {}\r\n\r\n", r.body.len()));
-        if writer.write_all(out.as_bytes()).is_err() || writer.write_all(&r.body).is_err() {
+        let mut bytes = out.into_bytes();
+        bytes.extend_from_slice(&r.body);
+        if writer.write_all(&bytes).is_err() {
             return;
         }
         let _ = writer.flush();
@@ -563,6 +585,311 @@ fn reason(status: u16) -> &'static str {
         429 => "Too Many Requests",
         _ => "Status",
     }
+}
+
+/// A transport that sends through another and writes each exchange as a fixture file (the recorder,
+/// `tools/forge-corpus/record.sh`): request headers are never written (so no token is), response headers are cut to
+/// the validators and paging, and [`scrub`] removes personal data and anything shaped like a token from the body.
+/// `hosts` maps a host other than the API's to a path prefix (`plc.directory` → `/plc`), as the replay expects it.
+pub struct RecordingTransport {
+    pub inner: Arc<dyn Transport>,
+    pub dir: std::path::PathBuf,
+    pub source: String,
+    pub hosts: Vec<(String, String)>,
+    /// The API's host: any other host not in `hosts` is recorded under `/didweb/<host>` (a `did:web` document).
+    pub api_host: Option<String>,
+    seq: AtomicU64,
+    written: Mutex<std::collections::HashSet<String>>,
+}
+
+impl RecordingTransport {
+    pub fn new(
+        inner: Arc<dyn Transport>,
+        dir: impl Into<std::path::PathBuf>,
+        source: impl Into<String>,
+    ) -> Self {
+        Self {
+            inner,
+            dir: dir.into(),
+            source: source.into(),
+            hosts: Vec::new(),
+            api_host: None,
+            seq: AtomicU64::new(0),
+            written: Mutex::new(std::collections::HashSet::new()),
+        }
+    }
+
+    pub fn api_host(mut self, host: &str) -> Self {
+        self.api_host = Some(host.to_owned());
+        self
+    }
+
+    pub fn map_host(mut self, host: &str, prefix: &str) -> Self {
+        self.hosts.push((host.to_owned(), prefix.to_owned()));
+        self
+    }
+}
+
+/// Response headers a fixture keeps.
+const KEPT_HEADERS: [&str; 6] = [
+    "content-type",
+    "etag",
+    "link",
+    "x-total-count",
+    "x-total",
+    "x-next-page",
+];
+
+/// The longest array a fixture keeps.
+pub const MAX_FIXTURE_ARRAY: usize = 50;
+
+/// The largest string a fixture keeps (logs and patches are cut).
+pub const MAX_FIXTURE_STRING: usize = 4000;
+
+impl Transport for RecordingTransport {
+    fn send(&self, request: &Request, cancel: &Cancel) -> Result<Response> {
+        let response = self.inner.send(request, cancel)?;
+        let rest = request.url.split("://").nth(1).unwrap_or(&request.url);
+        let (host, target) = match rest.find('/') {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, "/"),
+        };
+        let prefix = match self.hosts.iter().find(|(h, _)| h == host) {
+            Some((_, p)) => p.clone(),
+            None if self.api_host.as_deref().is_some_and(|a| a != host) => {
+                format!("/didweb/{host}")
+            }
+            None => String::new(),
+        };
+        let prefix = prefix.as_str();
+        let target = format!("{prefix}{target}");
+        let (path, query) = split_target(&target);
+        let body_text = request
+            .body
+            .as_ref()
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .unwrap_or_default();
+        if matches!(response.status, 203 | 401 | 403) {
+            // An anonymous recording's refusals are not fixtures: the signed-in runs' answers are.
+            eprintln!(
+                "not recorded (needs a token): {} {target} answered {}",
+                request.method.as_str(),
+                response.status
+            );
+            return Ok(response);
+        }
+        let key = format!("{} {target} {body_text}", request.method.as_str());
+        if !self
+            .written
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key)
+        {
+            return Ok(response);
+        }
+        let origin = format!(
+            "{}://{host}",
+            request.url.split("://").next().unwrap_or("https")
+        );
+        let headers: BTreeMap<String, String> = response
+            .headers
+            .iter()
+            .filter(|(k, _)| KEPT_HEADERS.contains(&k.to_ascii_lowercase().as_str()))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    v.replace(&origin, &format!("{{{{base}}}}{prefix}")),
+                )
+            })
+            .collect();
+        let (body, body_text_out) = match serde_json::from_slice::<Value>(&response.body) {
+            Ok(v) => (scrub(v), None),
+            Err(_) if response.body.is_empty() => (Value::Null, None),
+            Err(_) => {
+                let t = String::from_utf8_lossy(&response.body).into_owned();
+                (
+                    Value::Null,
+                    Some(cut(
+                        &scrub_text(&t),
+                        if t.trim_start().starts_with('<') {
+                            2_000
+                        } else {
+                            20_000
+                        },
+                    )),
+                )
+            }
+        };
+        let mut body_contains = Vec::new();
+        if let Ok(Value::Object(o)) = serde_json::from_str::<Value>(&body_text) {
+            // A write's fixture names its body's first members, so a different write does not match it.
+            for (k, v) in o.iter().take(2) {
+                if let Some(s) = v
+                    .as_str()
+                    .filter(|s| s.len() < 80 && !k.contains("password"))
+                {
+                    body_contains.push(format!(
+                        "\"{k}\":{}",
+                        serde_json::to_string(s).unwrap_or_default()
+                    ));
+                }
+            }
+        }
+        let ex = Exchange {
+            source: Some(self.source.clone()),
+            request: FixtureRequest {
+                method: request.method.as_str().to_owned(),
+                path,
+                query,
+                body_contains,
+            },
+            response: FixtureResponse {
+                status: response.status,
+                headers,
+                body,
+                body_text: body_text_out,
+            },
+            times: None,
+        };
+        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let slug: String = target
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .rsplit('/')
+            .take(2)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("-")
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .take(48)
+            .collect();
+        let _ = std::fs::create_dir_all(&self.dir);
+        let file = self.dir.join(format!(
+            "{n:03}-{}-{slug}.json",
+            request.method.as_str().to_ascii_lowercase()
+        ));
+        let text = serde_json::to_string_pretty(&ex).expect("serializes");
+        let _ = std::fs::write(file, text + "\n");
+        Ok(response)
+    }
+}
+
+fn cut(s: &str, n: usize) -> String {
+    if s.len() <= n {
+        return s.to_owned();
+    }
+    let mut end = n;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
+}
+
+/// Members of a user object blanked in fixtures.
+const PERSONAL: [&str; 12] = [
+    "email",
+    "full_name",
+    "location",
+    "website",
+    "description",
+    "avatar_url",
+    "pronouns",
+    "last_login",
+    "public_email",
+    "imageUrl",
+    "skype",
+    "linkedin",
+];
+
+/// Remove personal data and token-shaped strings from a recorded body; cut long strings.
+pub fn scrub(v: Value) -> Value {
+    match v {
+        Value::Object(o) => Value::Object(
+            o.into_iter()
+                .map(|(k, v)| {
+                    let blank = PERSONAL.contains(&k.as_str())
+                        || k.to_ascii_lowercase().contains("email")
+                        || k == "avatar";
+                    if blank && v.is_string() {
+                        let replacement = if k.to_ascii_lowercase().contains("email") {
+                            "user@example.invalid"
+                        } else {
+                            ""
+                        };
+                        (k, Value::String(replacement.into()))
+                    } else if k == "event_payload" || k == "Raw" || k == "BodyAppendix" {
+                        (k, Value::String(String::new()))
+                    } else if k == "Lines" && v.is_array() {
+                        // Tangled's compare: the patch line by line, of which Eludite reads only the counts.
+                        (k, Value::Array(Vec::new()))
+                    } else {
+                        (k, scrub(v))
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.into_iter().take(MAX_FIXTURE_ARRAY).map(scrub).collect()),
+        Value::String(s) => Value::String(cut(&scrub_text(&s), MAX_FIXTURE_STRING)),
+        other => other,
+    }
+}
+
+/// Token shapes (`ghp_`, `gho_`, `github_pat_`, `glpat-`, JWTs) and email addresses in text replaced.
+pub fn scrub_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for word in s.split_inclusive(|c: char| {
+        c.is_whitespace() || c == '"' || c == '\'' || c == '<' || c == '>' || c == '(' || c == ')'
+    }) {
+        let trimmed = word.trim_end_matches(|c: char| {
+            c.is_whitespace()
+                || c == '"'
+                || c == '\''
+                || c == '<'
+                || c == '>'
+                || c == '('
+                || c == ')'
+        });
+        let tail = &word[trimmed.len()..];
+        let secret = [
+            "ghp_",
+            "gho_",
+            "ghu_",
+            "ghs_",
+            "github_pat_",
+            "glpat-",
+            "gloas-",
+        ]
+        .iter()
+        .any(|p| trimmed.starts_with(p))
+            || (trimmed.starts_with("eyJ") && trimmed.len() > 40);
+        let email = trimmed.contains('@')
+            && trimmed
+                .rsplit_once('@')
+                .is_some_and(|(u, d)| !u.is_empty() && d.contains('.') && !d.starts_with('.'))
+            && !trimmed.contains("://")
+            && trimmed
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "@._+-".contains(c));
+        if secret {
+            out.push_str("<scrubbed>");
+        } else if email {
+            out.push_str("user@example.invalid");
+        } else {
+            out.push_str(trimmed);
+        }
+        out.push_str(tail);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -609,6 +936,20 @@ mod tests {
         assert_eq!(f.answer("GET", "/nothing", &[], b"").status, 404);
         assert_eq!(f.misses(), 1);
         assert_eq!(f.count(), 6);
+    }
+
+    #[test]
+    fn scrubbing_removes_personal_data_and_tokens() {
+        let v = json!({
+            "user": {"login": "alice", "email": "alice@corp.example", "full_name": "Alice A", "avatar_url": "https://x/a.png"},
+            "body": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 and mail bob@corp.example here",
+            "commit": {"author": {"name": "Alice", "email": "alice@corp.example"}},
+        });
+        let s = scrub(v).to_string();
+        assert!(!s.contains("corp.example"), "{s}");
+        assert!(!s.contains("ghp_"), "{s}");
+        assert!(!s.contains("Alice A"), "{s}");
+        assert!(s.contains("\"login\":\"alice\""), "{s}");
     }
 
     #[test]

@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Family {
+    #[serde(rename = "github")]
     GitHub,
     #[serde(rename = "gitlab")]
     GitLab,
+    #[serde(rename = "azure_devops")]
     AzureDevOps,
     Forgejo,
     Gitea,
@@ -956,6 +958,22 @@ pub fn issue_branch_name(label: &str, title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn families_serialize_by_their_schema_names() {
+        for f in [
+            Family::GitHub,
+            Family::GitLab,
+            Family::AzureDevOps,
+            Family::Forgejo,
+            Family::Gitea,
+            Family::Tangled,
+            Family::None,
+        ] {
+            assert_eq!(serde_json::to_value(f).unwrap(), f.as_str());
+            assert_eq!(Family::parse(f.as_str()), Some(f));
+        }
+    }
 
     #[test]
     fn branch_names_from_issue_titles() {

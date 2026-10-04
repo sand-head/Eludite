@@ -1,0 +1,23 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/issues/42/comments"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 4001,
+        "user": {
+          "login": "hubot",
+          "id": 1,
+          "html_url": "https://github.com/hubot",
+          "type": "User"
+        },
+        "body": "Reproduced on `main`.",
+        "created_at": "2026-10-01T09:00:00Z"
+      }
+    ]
+  }
+}

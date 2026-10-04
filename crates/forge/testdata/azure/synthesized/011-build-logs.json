@@ -1,0 +1,18 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/build/builds/4242/logs"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "count": 1,
+      "value": [
+        {
+          "id": 7
+        }
+      ]
+    }
+  }
+}

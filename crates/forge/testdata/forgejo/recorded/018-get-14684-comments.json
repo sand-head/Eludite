@@ -1,0 +1,18 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/issues/14684/comments",
+    "query": {
+      "limit": "50"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8",
+      "x-total-count": "0"
+    },
+    "body": []
+  }
+}

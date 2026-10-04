@@ -1,0 +1,23 @@
+{
+  "source": "synthesized from the sh.tangled.* and com.atproto.* lexicons in protocol/forge/tangled (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/plc/did:plc:testuser"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "did:plc:testuser",
+      "alsoKnownAs": [
+        "at://octocat.example"
+      ],
+      "service": [
+        {
+          "id": "#atproto_pds",
+          "type": "AtprotoPersonalDataServer",
+          "serviceEndpoint": "{{base}}/pds"
+        }
+      ]
+    }
+  }
+}

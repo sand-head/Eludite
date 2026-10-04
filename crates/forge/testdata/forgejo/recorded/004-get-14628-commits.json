@@ -1,0 +1,112 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/14628/commits",
+    "query": {
+      "files": "false",
+      "limit": "50",
+      "verification": "false"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8",
+      "x-total-count": "1"
+    },
+    "body": [
+      {
+        "author": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2024-10-16T15:50:37+02:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 19,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/mfenniak",
+          "id": 222642,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "mfenniak",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 4,
+          "username": "mfenniak",
+          "visibility": "public",
+          "website": ""
+        },
+        "commit": {
+          "author": {
+            "date": "2026-09-30T13:49:47-06:00",
+            "email": "user@example.invalid",
+            "name": "Mathieu Fenniak"
+          },
+          "committer": {
+            "date": "2026-10-03T10:03:47-06:00",
+            "email": "user@example.invalid",
+            "name": "Mathieu Fenniak"
+          },
+          "message": "fix: prevent in-db branch state rollback from concurrent pushes\n",
+          "tree": {
+            "created": "2026-10-03T10:03:47-06:00",
+            "sha": "fff1d9ba04a48301714e7efb6804b467bb9eae02",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/git/trees/fff1d9ba04a48301714e7efb6804b467bb9eae02"
+          },
+          "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/git/commits/fff1d9ba04a48301714e7efb6804b467bb9eae02",
+          "verification": null
+        },
+        "committer": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2024-10-16T15:50:37+02:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 19,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/mfenniak",
+          "id": 222642,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "mfenniak",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 4,
+          "username": "mfenniak",
+          "visibility": "public",
+          "website": ""
+        },
+        "created": "2026-10-03T10:03:47-06:00",
+        "files": null,
+        "html_url": "https://codeberg.org/forgejo/forgejo/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02",
+        "parents": [
+          {
+            "created": "0001-01-01T00:00:00Z",
+            "sha": "de404702a4723eb193bb99c284043d426d40e24c",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/git/commits/de404702a4723eb193bb99c284043d426d40e24c"
+          }
+        ],
+        "sha": "fff1d9ba04a48301714e7efb6804b467bb9eae02",
+        "stats": {
+          "additions": 175,
+          "deletions": 52,
+          "total": 227
+        },
+        "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/git/commits/fff1d9ba04a48301714e7efb6804b467bb9eae02"
+      }
+    ]
+  }
+}

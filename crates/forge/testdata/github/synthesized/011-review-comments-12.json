@@ -1,0 +1,61 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/pulls/12/comments"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 100,
+        "path": "src/login.rs",
+        "line": 14,
+        "original_line": 14,
+        "side": "RIGHT",
+        "body": "This accepts an empty password; reject it here.",
+        "user": {
+          "login": "hubot",
+          "id": 1,
+          "html_url": "https://github.com/hubot",
+          "type": "User"
+        },
+        "created_at": "2026-10-02T11:00:00Z",
+        "html_url": "https://github.com/octo-org/hello-world/pull/12#discussion_r100"
+      },
+      {
+        "id": 101,
+        "path": "src/login.rs",
+        "line": 14,
+        "original_line": 14,
+        "side": "RIGHT",
+        "body": "Good catch, will fix.",
+        "user": {
+          "login": "octocat",
+          "id": 1,
+          "html_url": "https://github.com/octocat",
+          "type": "User"
+        },
+        "created_at": "2026-10-02T11:00:00Z",
+        "html_url": "https://github.com/octo-org/hello-world/pull/12#discussion_r101",
+        "in_reply_to_id": 100
+      },
+      {
+        "id": 102,
+        "path": "src/main.rs",
+        "line": 3,
+        "original_line": 3,
+        "side": "RIGHT",
+        "body": "Nit: keep the imports sorted.",
+        "user": {
+          "login": "hubot",
+          "id": 1,
+          "html_url": "https://github.com/hubot",
+          "type": "User"
+        },
+        "created_at": "2026-10-02T11:00:00Z",
+        "html_url": "https://github.com/octo-org/hello-world/pull/12#discussion_r102"
+      }
+    ]
+  }
+}

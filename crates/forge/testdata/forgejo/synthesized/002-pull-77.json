@@ -1,0 +1,48 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/77"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "number": 77,
+      "title": "fix: reject an empty password",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "mergeable": true,
+      "user": {
+        "id": 1,
+        "login": "octocat",
+        "username": "octocat",
+        "html_url": "https://codeberg.org/octocat"
+      },
+      "head": {
+        "ref": "feature/login",
+        "sha": "1111111111111111111111111111111111111111",
+        "repo": {
+          "full_name": "forgejo/forgejo",
+          "clone_url": "https://codeberg.org/forgejo/forgejo.git"
+        }
+      },
+      "base": {
+        "ref": "forgejo",
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "repo": {
+          "full_name": "forgejo/forgejo",
+          "clone_url": "https://codeberg.org/forgejo/forgejo.git"
+        }
+      },
+      "html_url": "https://codeberg.org/forgejo/forgejo/pulls/77",
+      "labels": [],
+      "requested_reviewers": [],
+      "comments": 0,
+      "body": "Fixes #14684.",
+      "created_at": "2026-10-04T07:00:00+02:00",
+      "updated_at": "2026-10-04T07:00:00+02:00",
+      "merge_base": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  }
+}

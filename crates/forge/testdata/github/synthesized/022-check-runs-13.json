@@ -1,0 +1,25 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world/commits/cccccccccccccccccccccccccccccccccccccccc/check-runs"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "total_count": 1,
+      "check_runs": [
+        {
+          "id": 5113,
+          "name": "build",
+          "status": "completed",
+          "conclusion": "success",
+          "app": {
+            "slug": "github-actions"
+          },
+          "html_url": "https://github.com/octo-org/hello-world/actions/runs/2/job/5113"
+        }
+      ]
+    }
+  }
+}

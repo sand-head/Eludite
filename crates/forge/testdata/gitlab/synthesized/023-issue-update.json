@@ -1,0 +1,26 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v4/projects/gitlab-org/cli/issues/8577"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "iid": 8577,
+      "title": "Issue",
+      "state": "closed",
+      "author": {
+        "id": 1,
+        "username": "octocat",
+        "name": "Octocat",
+        "web_url": "https://gitlab.com/octocat"
+      },
+      "web_url": "https://gitlab.com/gitlab-org/cli/-/issues/8577",
+      "labels": [
+        "bug"
+      ],
+      "assignees": []
+    }
+  }
+}

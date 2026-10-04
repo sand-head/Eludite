@@ -1,0 +1,24 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/repos/octo-org/hello-world/pulls/12/reviews",
+    "body_contains": [
+      "\"event\":\"COMMENT\""
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 902,
+      "user": {
+        "login": "octocat",
+        "id": 1,
+        "html_url": "https://github.com/octocat",
+        "type": "User"
+      },
+      "state": "COMMENTED",
+      "submitted_at": "2026-10-04T08:00:00Z"
+    }
+  }
+}

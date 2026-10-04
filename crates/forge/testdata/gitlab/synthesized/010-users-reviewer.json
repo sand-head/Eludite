@@ -1,0 +1,19 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/users",
+    "query": {
+      "username": "reviewer"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 55,
+        "username": "reviewer"
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/wit/workitemtypes/Bug/states"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "name": "New",
+          "category": "Proposed"
+        },
+        {
+          "name": "Active",
+          "category": "InProgress"
+        },
+        {
+          "name": "Closed",
+          "category": "Completed"
+        }
+      ]
+    }
+  }
+}

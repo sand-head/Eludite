@@ -1,0 +1,67 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PATCH",
+    "path": "/repos/octo-org/hello-world/pulls/12",
+    "body_contains": [
+      "\"state\":\"open\""
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "number": 12,
+      "node_id": "PR_kwDO12",
+      "title": "Add the login form",
+      "state": "open",
+      "draft": false,
+      "merged": false,
+      "merged_at": null,
+      "user": {
+        "login": "octocat",
+        "id": 1,
+        "html_url": "https://github.com/octocat",
+        "type": "User"
+      },
+      "head": {
+        "ref": "feature/login",
+        "sha": "1111111111111111111111111111111111111111",
+        "repo": {
+          "full_name": "octo-org/hello-world",
+          "clone_url": "https://github.com/octo-org/hello-world.git",
+          "node_id": "R_kgDOtest"
+        }
+      },
+      "base": {
+        "ref": "main",
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "repo": {
+          "full_name": "octo-org/hello-world",
+          "clone_url": "https://github.com/octo-org/hello-world.git",
+          "node_id": "R_kgDOtest"
+        }
+      },
+      "body": "Adds the login form.\n\n- posts to `/session`\n- **validates** the password",
+      "html_url": "https://github.com/octo-org/hello-world/pull/12",
+      "labels": [
+        {
+          "name": "enhancement"
+        }
+      ],
+      "comments": 1,
+      "requested_reviewers": [
+        {
+          "login": "hubot",
+          "id": 1,
+          "html_url": "https://github.com/hubot",
+          "type": "User"
+        }
+      ],
+      "mergeable": true,
+      "mergeable_state": "unstable",
+      "auto_merge": null,
+      "created_at": "2026-10-01T09:00:00Z",
+      "updated_at": "2026-10-04T10:00:00Z"
+    }
+  }
+}

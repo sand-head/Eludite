@@ -408,7 +408,7 @@ impl Forge for GitLab {
             }
         }
         let check_items = match &head_sha {
-            Some(sha) => self.checks(sha, None).unwrap_or_default(),
+            Some(sha) => self.checks(sha, Some(item)).unwrap_or_default(),
             None => Vec::new(),
         };
         let state = match v["detailed_merge_status"].as_str().unwrap_or("") {
@@ -884,16 +884,31 @@ impl Forge for GitLab {
         Ok(true)
     }
 
-    fn checks(&self, commit: &str, _pull: Option<&ItemRef>) -> Result<Vec<Check>> {
-        let pipelines = self
-            .client
-            .get(&self.p(&format!("/pipelines?sha={commit}&per_page=5")))?;
-        let Some(p) = pipelines.as_array().and_then(|a| a.first()).cloned() else {
+    fn checks(&self, commit: &str, pull: Option<&ItemRef>) -> Result<Vec<Check>> {
+        // A merge request's pipeline may run in the source project (a fork): its `head_pipeline` names it.
+        let mut pipeline = None;
+        if let Some(item) = pull {
+            let mr = self
+                .client
+                .get(&self.p(&format!("/merge_requests/{}", self.iid(item)?)))?;
+            pipeline = mr.get("head_pipeline").filter(|p| !p.is_null()).cloned();
+        }
+        if pipeline.is_none() {
+            let list = self
+                .client
+                .get(&self.p(&format!("/pipelines?sha={commit}&per_page=5")))?;
+            pipeline = list.as_array().and_then(|a| a.first()).cloned();
+        }
+        let Some(p) = pipeline else {
             return Ok(Vec::new());
         };
+        let project = p["project_id"]
+            .as_u64()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| encode(&format!("{}/{}", self.repo.owner, self.repo.name)));
         let (s, c) = job_status(p["status"].as_str().unwrap_or(""));
         let mut out = vec![Check {
-            id: format!("pipeline:{}", p["id"]),
+            id: format!("pipeline:{project}:{}", p["id"]),
             name: format!("pipeline #{}", p["id"]),
             kind: CheckKind::Pipeline,
             status: s,
@@ -906,23 +921,26 @@ impl Forge for GitLab {
             required: false,
         }];
         let (jobs, _) = self.client.get_all(
-            &self.p(&format!("/pipelines/{}/jobs?per_page=100", p["id"])),
+            &format!(
+                "/projects/{project}/pipelines/{}/jobs?per_page=100",
+                p["id"]
+            ),
             300,
         )?;
-        out.extend(
-            jobs.iter()
-                .map(|j| Self::job_check(j, j["allow_failure"] != true)),
-        );
+        out.extend(jobs.iter().map(|j| {
+            let mut c = Self::job_check(j, j["allow_failure"] != true);
+            c.id = format!("job:{project}:{}", j["id"]);
+            c
+        }));
         Ok(out)
     }
 
     fn check_log(&self, id: &str) -> Result<LogText> {
-        let job = id
-            .strip_prefix("job:")
+        let (project, job) = split_check(id, "job:")
             .ok_or_else(|| self.unsupported("a pipeline's log (open one of its jobs)"))?;
         let text = self
             .client
-            .get_text(&self.p(&format!("/jobs/{job}/trace")))?;
+            .get_text(&format!("/projects/{project}/jobs/{job}/trace"))?;
         Ok(LogText {
             text,
             url: Some(format!("{}/-/jobs/{job}", self.repo.web_url)),
@@ -930,17 +948,24 @@ impl Forge for GitLab {
     }
 
     fn rerun(&self, id: &str) -> Result<String> {
-        if let Some(job) = id.strip_prefix("job:") {
+        if let Some((project, job)) = split_check(id, "job:") {
             let v = self
                 .client
-                .post(&self.p(&format!("/jobs/{job}/retry")), &json!({}))?;
+                .post(&format!("/projects/{project}/jobs/{job}/retry"), &json!({}))?;
             return Ok(format!("job {job} retried as job {}", v["id"]));
         }
-        if let Some(p) = id.strip_prefix("pipeline:") {
-            self.client
-                .post(&self.p(&format!("/pipelines/{p}/retry")), &json!({}))?;
+        if let Some((project, p)) = split_check(id, "pipeline:") {
+            self.client.post(
+                &format!("/projects/{project}/pipelines/{p}/retry"),
+                &json!({}),
+            )?;
             return Ok(format!("pipeline {p}'s failed jobs retried"));
         }
         Err(self.unsupported("rerunning this check"))
     }
+}
+
+/// `job:<project>:<id>` → (project, id).
+fn split_check<'a>(id: &'a str, prefix: &str) -> Option<(&'a str, &'a str)> {
+    id.strip_prefix(prefix)?.rsplit_once(':')
 }

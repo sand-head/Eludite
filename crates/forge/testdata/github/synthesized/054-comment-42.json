@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/repos/octo-org/hello-world/issues/42/comments"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 4002,
+      "html_url": "https://github.com/octo-org/hello-world/issues/42#issuecomment-4002"
+    }
+  }
+}

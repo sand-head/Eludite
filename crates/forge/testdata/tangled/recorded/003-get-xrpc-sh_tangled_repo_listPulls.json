@@ -1,0 +1,172 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.listPulls",
+    "query": {
+      "limit": "3",
+      "status": "open",
+      "subject": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cursor": "00065c7d39c2d08000028d07",
+      "items": [
+        {
+          "cid": "bafyreiavaoyc74x26w6ygujqxztvyba66h6cqjhtykdlygw6hb7mfi2fve",
+          "commentCount": 2,
+          "state": "open",
+          "uri": "at://did:plc:pzywyr3ji56pinuglmm4t7xj/sh.tangled.repo.pull/3mwq55xakxq22",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "A fetch from a client that announced shallow boundaries treated the\nclient's haves as complete history: the send set excluded everything\nreachable from the haves, including ancestors the client does not\nhold. A want that peels to such an ancestor (an annotated tag on an\nolder commit) then produced a pack that failed the client's\nconnectivity check. This broke every GOPROXY=direct go get, since the\ngo tool fetches shallowly first.\n\nRoute client-side shallow boundaries into pack selection and stop the\nhave-closure ascent at them: the client has a shallow commit and its\ntree, but nothing above it. Server grafts already cut the ascent the\nsame way.\n\nFixes #769\n\nSigned-off-by: Mads R. Havmand <user@example.invalid>",
+            "createdAt": "2026-09-30T10:29:57Z",
+            "rounds": [
+              {
+                "createdAt": "2026-09-30T10:29:57Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreihvos4nlfoaak3w47d34g33kkevt45rn5dvum4lrppi3yvtwwifze"
+                  },
+                  "size": 3632
+                }
+              },
+              {
+                "createdAt": "2026-10-01T06:51:42Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreicpho47eic7k4ffjw6a7bxrmieftso3q3fkt5ztneeonppnu3ou6m"
+                  },
+                  "size": 3632
+                }
+              },
+              {
+                "createdAt": "2026-10-01T06:57:25Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreiebjxqzpnb26ndz3dftu7gfbbh4dpt3haliwdntxygaozbqeh2bua"
+                  },
+                  "size": 3100
+                }
+              },
+              {
+                "createdAt": "2026-10-01T09:58:57+03:00",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreihqg4vy5k4pg5tsbnb7s6i3wcxhiljmkfh3c55idjg7cv2li7n4ey"
+                  },
+                  "size": 3066
+                }
+              }
+            ],
+            "source": {
+              "branch": "shallow-client-pack-fix",
+              "repo": "did:plc:lra3pvdgknyttshim7w2i76y",
+              "repoDid": "did:plc:lra3pvdgknyttshim7w2i76y"
+            },
+            "target": {
+              "branch": "master",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+              "repoDid": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "knot2: pack objects behind client shallow boundaries"
+          }
+        },
+        {
+          "cid": "bafyreihm4boixav6wwgxbgxyirzadjl3jurvtcolyrlzwt3d34gdr7guwq",
+          "commentCount": 1,
+          "state": "open",
+          "uri": "at://did:plc:xvghuc6s526qpb2vlgiucw36/sh.tangled.repo.pull/3mwk6n2li2a22",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "systemd-volatile-root uses only 25% of RAM for the rootfs, which is\nbelow the tmpfs default of 50% and makes it hard to do anything useful.\nThere is no way to change this, so instead, we use a simple custom\nscript to set up the rootfs before the initrd exits, with a better size\nused.",
+            "createdAt": "2026-09-28T04:40:18+03:00",
+            "rounds": [
+              {
+                "createdAt": "2026-09-28T04:40:18+03:00",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreih55dk36esbto3jwbwcdkeifojpnvtk5e3bgee5jifvicumponf54"
+                  },
+                  "size": 1513
+                }
+              }
+            ],
+            "source": {
+              "branch": "push-yxzuqzovxxuu",
+              "repo": "did:plc:fewnqo77lf57axdiclls3uq3",
+              "repoDid": "did:plc:fewnqo77lf57axdiclls3uq3"
+            },
+            "target": {
+              "branch": "master",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+              "repoDid": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "nix/spindle: fix almalinux10 images having an undersized rootfs"
+          }
+        },
+        {
+          "cid": "bafyreifsvsppgesgydftbsrklhfc6nllm4vzesuikrb4nzmj4z3vg4zxuy",
+          "commentCount": 2,
+          "state": "open",
+          "uri": "at://did:plc:lmwjdpgf3exmg63regtsopv6/sh.tangled.repo.pull/3mwjowv6h2h22",
+          "value": {
+            "$type": "sh.tangled.repo.pull",
+            "body": "Removes the `tnum` feature from `input.css`. Makes the docs pages’ hyphenation look correct. The `tnum` feature widens hypens so that they can be properly used in tables of numbers, which is unnecessary in documentation prose. \n\n![Image](blob+at://did:plc:lmwjdpgf3exmg63regtsopv6/bafkreicrt2czkrexaizuvzccbbacfox4hy5bq5mphiup4rhxtjqjvwrxna)\n\nSigned-off-by: cosmo <user@example.invalid>",
+            "createdAt": "2026-09-27T20:59:30Z",
+            "rounds": [
+              {
+                "createdAt": "2026-09-27T20:59:30Z",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreia4n3tdxx7vffyk3ju6h4o2f3d7et2wdlroxcch3jt4smnuz5xsmy"
+                  },
+                  "size": 427
+                }
+              },
+              {
+                "createdAt": "2026-09-28T00:19:45+03:00",
+                "patchBlob": {
+                  "$type": "blob",
+                  "mimeType": "application/gzip",
+                  "ref": {
+                    "$link": "bafkreigy44nabgxca5h7ofoessxatd6dyxcztssw2oxf3u36wvphvp256q"
+                  },
+                  "size": 429
+                }
+              }
+            ],
+            "source": {
+              "branch": "remove-tabular-nums",
+              "repo": "did:plc:d6hrc7uqajiompp35qsihtpk",
+              "repoDid": "did:plc:d6hrc7uqajiompp35qsihtpk"
+            },
+            "target": {
+              "branch": "master",
+              "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+              "repoDid": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+            },
+            "title": "Remove default tabular nums font feature."
+          }
+        }
+      ]
+    }
+  }
+}

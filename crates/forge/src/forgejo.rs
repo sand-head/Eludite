@@ -186,7 +186,7 @@ impl Forgejo {
         json!({"path": c.path, "body": c.body, "new_position": new, "old_position": old})
     }
 
-    fn status_check(sha: &str, v: &Value, web: &str) -> Check {
+    fn status_check(v: &Value, web: &str) -> Check {
         let (status, conclusion) = match v["status"].as_str().or_else(|| v["state"].as_str()) {
             Some("success") => (CheckStatus::Completed, Conclusion::Success),
             Some("failure") | Some("error") => (CheckStatus::Completed, Conclusion::Failure),
@@ -212,7 +212,7 @@ impl Forgejo {
         };
         Check {
             id: match job {
-                Some((run, j)) => format!("job:{sha}:{run}:{j}"),
+                Some((run, j)) => format!("job:{run}:{j}"),
                 None => format!("status:{}", v["id"]),
             },
             name: str_of(v, "context").unwrap_or_default(),
@@ -239,9 +239,7 @@ impl Forge for Forgejo {
     }
 
     fn capabilities(&self) -> Capabilities {
-        let mut c = capabilities(self.repo.family);
-        c.thread_resolution = false;
-        c
+        capabilities(self.repo.family)
     }
 
     fn pending_mode(&self) -> PendingMode {
@@ -793,7 +791,7 @@ impl Forge for Forgejo {
         for s in sorted {
             let ctx = str_of(s, "context").unwrap_or_default();
             if seen.insert(ctx) {
-                out.push(Self::status_check(commit, s, &self.repo.web_url));
+                out.push(Self::status_check(s, &self.repo.web_url));
             }
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -805,14 +803,12 @@ impl Forge for Forgejo {
             .strip_prefix("job:")
             .ok_or_else(|| self.unsupported("logs of this status (open its page)"))?
             .split(':');
-        let (sha, run, job) = (
-            p.next().unwrap_or(""),
-            p.next().and_then(|x| x.parse::<u64>().ok()).unwrap_or(0),
-            p.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0),
-        );
+        let run = p.next().and_then(|x| x.parse::<u64>().ok()).unwrap_or(0);
+        let job = p.next().and_then(|x| x.parse::<usize>().ok()).unwrap_or(0);
+        // The status names the run by its number in the repository; the jobs and logs take global ids.
         let runs =
             self.client
-                .get(&self.r(&format!("/actions/runs?head_sha={sha}&limit=50")))
+                .get(&self.r(&format!("/actions/runs?run_number={run}&limit=1")))
                 .map_err(|e| match e.kind {
                     ErrorKind::NotFound => self
                         .unsupported("Actions logs in this version's API (open the status's page)"),
@@ -824,12 +820,7 @@ impl Forge for Forgejo {
             .flatten()
             .find(|r| u64_of(r, "index_in_repo") == Some(run))
             .and_then(|r| u64_of(r, "id"))
-            .ok_or_else(|| {
-                ForgeError::new(
-                    ErrorKind::NotFound,
-                    format!("no Actions run {run} for {sha}"),
-                )
-            })?;
+            .ok_or_else(|| ForgeError::new(ErrorKind::NotFound, format!("no Actions run {run}")))?;
         let jobs = self
             .client
             .get(&self.r(&format!("/actions/runs/{run_id}/jobs")))?;

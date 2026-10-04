@@ -1,0 +1,15 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PUT",
+    "path": "/repos/octo-org/hello-world/pulls/13/merge"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "merged": true,
+      "sha": "9999999999999999999999999999999999999999",
+      "message": "Pull Request successfully merged"
+    }
+  }
+}

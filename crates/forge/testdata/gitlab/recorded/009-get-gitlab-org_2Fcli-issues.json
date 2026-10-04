@@ -1,0 +1,290 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/issues",
+    "query": {
+      "order_by": "updated_at",
+      "per_page": "3",
+      "state": "opened"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"64043110c9f2ea793c9346e234a958cc\"",
+      "link": "<{{base}}/api/v4/projects/gitlab-org%2Fcli/issues?id=gitlab-org%2Fcli&order_by=updated_at&page=2&per_page=3&sort=desc&state=opened&with_labels_details=false>; rel=\"next\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/issues?id=gitlab-org%2Fcli&order_by=updated_at&page=1&per_page=3&sort=desc&state=opened&with_labels_details=false>; rel=\"first\", <{{base}}/api/v4/projects/gitlab-org%2Fcli/issues?id=gitlab-org%2Fcli&order_by=updated_at&page=85&per_page=3&sort=desc&state=opened&with_labels_details=false>; rel=\"last\"",
+      "x-next-page": "2",
+      "x-total": "254"
+    },
+    "body": [
+      {
+        "_links": {
+          "award_emoji": "https://gitlab.com/api/v4/projects/34675721/issues/8577/award_emoji",
+          "closed_as_duplicate_of": null,
+          "notes": "https://gitlab.com/api/v4/projects/34675721/issues/8577/notes",
+          "project": "https://gitlab.com/api/v4/projects/34675721",
+          "self": "https://gitlab.com/api/v4/projects/34675721/issues/8577"
+        },
+        "assignee": null,
+        "assignees": [],
+        "author": {
+          "avatar_url": "",
+          "id": 1727873,
+          "locked": false,
+          "name": "Chris Adams",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "acdha",
+          "web_url": "https://gitlab.com/acdha"
+        },
+        "blocking_issues_count": 0,
+        "closed_at": null,
+        "closed_by": null,
+        "confidential": false,
+        "created_at": "2026-10-03T14:01:22.720Z",
+        "description": "",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "due_date": null,
+        "epic": null,
+        "epic_iid": null,
+        "has_tasks": true,
+        "health_status": null,
+        "id": 205320455,
+        "iid": 8577,
+        "imported": false,
+        "imported_from": "none",
+        "issue_type": "issue",
+        "iteration": null,
+        "labels": [
+          "automation:ml",
+          "feature::enhancement",
+          "type::feature"
+        ],
+        "merge_requests_count": 0,
+        "milestone": null,
+        "moved_to_id": null,
+        "project_id": 34675721,
+        "references": {
+          "full": "gitlab-org/cli#8577",
+          "relative": "#8577",
+          "short": "#8577"
+        },
+        "service_desk_reply_to": null,
+        "severity": "UNKNOWN",
+        "start_date": null,
+        "state": "opened",
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "task_status": "0 of 0 checklist items completed",
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "Improved UI to support SSH key management",
+        "type": "ISSUE",
+        "updated_at": "2026-10-03T15:27:57.240Z",
+        "upvotes": 0,
+        "user_notes_count": 2,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/work_items/8577",
+        "weight": null
+      },
+      {
+        "_links": {
+          "award_emoji": "https://gitlab.com/api/v4/projects/34675721/issues/8576/award_emoji",
+          "closed_as_duplicate_of": null,
+          "notes": "https://gitlab.com/api/v4/projects/34675721/issues/8576/notes",
+          "project": "https://gitlab.com/api/v4/projects/34675721",
+          "self": "https://gitlab.com/api/v4/projects/34675721/issues/8576"
+        },
+        "assignee": null,
+        "assignees": [],
+        "author": {
+          "avatar_url": "",
+          "id": 19233073,
+          "locked": false,
+          "name": "Romain R.",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "romarindotdev",
+          "web_url": "https://gitlab.com/romarindotdev"
+        },
+        "blocking_issues_count": 0,
+        "closed_at": null,
+        "closed_by": null,
+        "confidential": false,
+        "created_at": "2026-10-03T11:59:24.802Z",
+        "description": "",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "due_date": null,
+        "epic": null,
+        "epic_iid": null,
+        "has_tasks": true,
+        "health_status": null,
+        "id": 205314842,
+        "iid": 8576,
+        "imported": false,
+        "imported_from": "none",
+        "issue_type": "issue",
+        "iteration": null,
+        "labels": [
+          "automation:ml",
+          "backend",
+          "feature::addition",
+          "type::feature"
+        ],
+        "merge_requests_count": 0,
+        "milestone": null,
+        "moved_to_id": null,
+        "project_id": 34675721,
+        "references": {
+          "full": "gitlab-org/cli#8576",
+          "relative": "#8576",
+          "short": "#8576"
+        },
+        "service_desk_reply_to": null,
+        "severity": "UNKNOWN",
+        "start_date": null,
+        "state": "opened",
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "task_status": "0 of 0 checklist items completed",
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "Add JSON output to `glab auth status`",
+        "type": "ISSUE",
+        "updated_at": "2026-10-03T12:19:20.077Z",
+        "upvotes": 0,
+        "user_notes_count": 2,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/work_items/8576",
+        "weight": null
+      },
+      {
+        "_links": {
+          "award_emoji": "https://gitlab.com/api/v4/projects/34675721/issues/8558/award_emoji",
+          "closed_as_duplicate_of": null,
+          "notes": "https://gitlab.com/api/v4/projects/34675721/issues/8558/notes",
+          "project": "https://gitlab.com/api/v4/projects/34675721",
+          "self": "https://gitlab.com/api/v4/projects/34675721/issues/8558"
+        },
+        "assignee": {
+          "avatar_url": "",
+          "id": 25134515,
+          "locked": false,
+          "name": "Uma Chandran",
+          "public_email": "user@example.invalid",
+          "state": "active",
+          "username": "uchandran",
+          "web_url": "https://gitlab.com/uchandran"
+        },
+        "assignees": [
+          {
+            "avatar_url": "",
+            "id": 25134515,
+            "locked": false,
+            "name": "Uma Chandran",
+            "public_email": "user@example.invalid",
+            "state": "active",
+            "username": "uchandran",
+            "web_url": "https://gitlab.com/uchandran"
+          }
+        ],
+        "author": {
+          "avatar_url": "",
+          "id": 32742183,
+          "locked": false,
+          "name": "Duo Developer",
+          "public_email": null,
+          "state": "active",
+          "username": "duo-developer-gitlab-org",
+          "web_url": "https://gitlab.com/duo-developer-gitlab-org"
+        },
+        "blocking_issues_count": 0,
+        "closed_at": null,
+        "closed_by": null,
+        "confidential": false,
+        "created_at": "2026-09-17T13:18:52.414Z",
+        "description": "",
+        "discussion_locked": null,
+        "downvotes": 0,
+        "due_date": null,
+        "epic": null,
+        "epic_iid": null,
+        "has_tasks": true,
+        "health_status": null,
+        "id": 203368198,
+        "iid": 8558,
+        "imported": false,
+        "imported_from": "none",
+        "issue_type": "issue",
+        "iteration": null,
+        "labels": [
+          "Category:GitLab CLI",
+          "devops::ai coding",
+          "documentation",
+          "group::code review",
+          "section::ai",
+          "type::maintenance",
+          "workflow::in dev"
+        ],
+        "merge_requests_count": 0,
+        "milestone": {
+          "created_at": "2025-12-12T14:56:03.951Z",
+          "description": "",
+          "due_date": "2026-10-09",
+          "expired": false,
+          "group_id": 9970,
+          "id": 6239396,
+          "iid": 139,
+          "start_date": "2026-09-12",
+          "state": "active",
+          "title": "19.5",
+          "updated_at": "2025-12-12T14:56:03.951Z",
+          "web_url": "https://gitlab.com/groups/gitlab-org/-/milestones/139"
+        },
+        "moved_to_id": null,
+        "project_id": 34675721,
+        "references": {
+          "full": "gitlab-org/cli#8558",
+          "relative": "#8558",
+          "short": "#8558"
+        },
+        "service_desk_reply_to": null,
+        "severity": "UNKNOWN",
+        "start_date": null,
+        "state": "opened",
+        "task_completion_status": {
+          "completed_count": 0,
+          "count": 0
+        },
+        "task_status": "0 of 0 checklist items completed",
+        "time_stats": {
+          "human_time_estimate": null,
+          "human_total_time_spent": null,
+          "time_estimate": 0,
+          "total_time_spent": 0
+        },
+        "title": "Docs: clarify stacked diffs vs stacked MRs, and glab stack move/switch behavior",
+        "type": "ISSUE",
+        "updated_at": "2026-10-02T18:06:21.512Z",
+        "upvotes": 0,
+        "user_notes_count": 1,
+        "web_url": "https://gitlab.com/gitlab-org/cli/-/work_items/8558",
+        "weight": null
+      }
+    ]
+  }
+}

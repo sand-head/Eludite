@@ -1,0 +1,40 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/plc/did:plc:xvghuc6s526qpb2vlgiucw36"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/did+ld+json; charset=utf-8",
+      "etag": "W/\"211-bxYc/FRExgw2it+ruB0oOFnhrzQ\""
+    },
+    "body": {
+      "@context": [
+        "https://www.w3.org/ns/did/v1",
+        "https://w3id.org/security/multikey/v1",
+        "https://w3id.org/security/suites/secp256k1-2019/v1"
+      ],
+      "alsoKnownAs": [
+        "at://refi64.dev"
+      ],
+      "id": "did:plc:xvghuc6s526qpb2vlgiucw36",
+      "service": [
+        {
+          "id": "#atproto_pds",
+          "serviceEndpoint": "https://tngl.sh",
+          "type": "AtprotoPersonalDataServer"
+        }
+      ],
+      "verificationMethod": [
+        {
+          "controller": "did:plc:xvghuc6s526qpb2vlgiucw36",
+          "id": "did:plc:xvghuc6s526qpb2vlgiucw36#atproto",
+          "publicKeyMultibase": "zQ3shvazzfe9ctWbSEAYnpzV5EWYSRx7BVjHkRs6KrnNBMPQ4",
+          "type": "Multikey"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,3693 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.compare",
+    "query": {
+      "repo": "at://did:plc:wshs7t2adsemcrrd4snkeqli/sh.tangled.repo/core",
+      "rev1": "031fa80a402e9f5127ac9100c5b12ff7474f030e",
+      "rev2": "f8a0d0576deff7fd3bf216b3dc68ed87de703a0e"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "combined_patch": [
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "docker-compose.mill.yml",
+          "NewOIDPrefix": "d36de3a05280601a14f32602f826c764719cacff",
+          "OldMode": 33188,
+          "OldName": "docker-compose.mill.yml",
+          "OldOIDPrefix": "06c6d319e53dc4420005df602c5d1005b8da3b21",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 74,
+              "OldLines": 7,
+              "OldPosition": 74,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "docker-compose.yml",
+          "NewOIDPrefix": "f9a6e6c6485228fb9a9aee28049c1d6ee0c9c617",
+          "OldMode": 33188,
+          "OldName": "docker-compose.yml",
+          "OldOIDPrefix": "b7d42611157a0c286db83b501aa9209457329dad",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 8,
+              "LinesDeleted": 5,
+              "NewLines": 33,
+              "NewPosition": 129,
+              "OldLines": 30,
+              "OldPosition": 129,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 22,
+              "NewLines": 6,
+              "NewPosition": 163,
+              "OldLines": 28,
+              "OldPosition": 160,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 0,
+              "NewLines": 7,
+              "NewPosition": 197,
+              "OldLines": 6,
+              "OldPosition": 216,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 2,
+              "NewLines": 6,
+              "NewPosition": 235,
+              "OldLines": 8,
+              "OldPosition": 253,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 0,
+              "NewLines": 7,
+              "NewPosition": 276,
+              "OldLines": 6,
+              "OldPosition": 296,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 2,
+              "NewLines": 6,
+              "NewPosition": 348,
+              "OldLines": 8,
+              "OldPosition": 367,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 523,
+              "OldLines": 7,
+              "OldPosition": 544,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 566,
+              "OldLines": 7,
+              "OldPosition": 587,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 578,
+              "OldLines": 7,
+              "OldPosition": 599,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 622,
+              "OldLines": 7,
+              "OldPosition": 643,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "localinfra/appview.Dockerfile",
+          "NewOIDPrefix": "1111329404c7dc5ecc4c5af74c4eb9f81775554d",
+          "OldMode": 33188,
+          "OldName": "localinfra/appview.Dockerfile",
+          "OldOIDPrefix": "28794e46cfb4c8bf4984a29235680eed71db4c51",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 37,
+              "OldLines": 7,
+              "OldPosition": 37,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "localinfra/seed.Dockerfile",
+          "NewOIDPrefix": "95a9fd587eb08e7076ec5af9eda0b74a21743849",
+          "OldMode": 33188,
+          "OldName": "localinfra/seed.Dockerfile",
+          "OldOIDPrefix": "78ae190c156d7c948c473d23195b6e6531bb4036",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 19,
+              "LinesDeleted": 0,
+              "NewLines": 21,
+              "NewPosition": 1,
+              "OldLines": 2,
+              "OldPosition": 1,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "lexicons/repo/create.json",
+          "NewOIDPrefix": "3dd8c0a650d11897df74930bab2a1f8931cc0126",
+          "OldMode": 33188,
+          "OldName": "lexicons/repo/create.json",
+          "OldOIDPrefix": "fa10be44b95222d29df4453f3857cf890bc49878",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 35,
+              "OldLines": 7,
+              "OldPosition": 35,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "lexicons/repo/reserveKey.json",
+          "NewOIDPrefix": "ea6d0afd7cd6521fa0c37ed0f0c837aeae571665",
+          "OldMode": 33188,
+          "OldName": "lexicons/repo/reserveKey.json",
+          "OldOIDPrefix": "26c8c1e72ecc56cf9f1fa0631c25f457a6630c27",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 4,
+              "OldLines": 7,
+              "OldPosition": 4,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 16,
+              "OldLines": 7,
+              "OldPosition": 16,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 36,
+              "OldLines": 7,
+              "OldPosition": 36,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": true,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "",
+          "NewOIDPrefix": "0000000000000000000000000000000000000000",
+          "OldMode": 33188,
+          "OldName": "localinfra/scripts/init-accounts.sh",
+          "OldOIDPrefix": "7682a6d9556d0cafc621c34e28d02b99738cfd58",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 158,
+              "NewLines": 0,
+              "NewPosition": 0,
+              "OldLines": 158,
+              "OldPosition": 1,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "localinfra/scripts/init-data.sh",
+          "NewOIDPrefix": "e7ac6e4dc1193154eead5f71b558c7ba78355371",
+          "OldMode": 33188,
+          "OldName": "localinfra/scripts/init-data.sh",
+          "OldOIDPrefix": "3fc6329cc381d00ecbb349bf941ad89756c0d0a9",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 1,
+              "Lines": [],
+              "LinesAdded": 93,
+              "LinesDeleted": 269,
+              "NewLines": 120,
+              "NewPosition": 1,
+              "OldLines": 296,
+              "OldPosition": 1,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 114,
+              "LinesDeleted": 357,
+              "NewLines": 145,
+              "NewPosition": 130,
+              "OldLines": 388,
+              "OldPosition": 306,
+              "TrailingContext": 2
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "localinfra/scripts/lib.sh",
+          "NewOIDPrefix": "bf1494f61f27a5e84041fca7dd25ccc43409ad17",
+          "OldMode": 33188,
+          "OldName": "localinfra/scripts/lib.sh",
+          "OldOIDPrefix": "69122c6f50c5aa6237980da1abe21d9bd983ff15",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 27,
+              "OldLines": 7,
+              "OldPosition": 27,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 2,
+              "LinesDeleted": 3,
+              "NewLines": 8,
+              "NewPosition": 49,
+              "OldLines": 9,
+              "OldPosition": 49,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 62,
+              "OldLines": 7,
+              "OldPosition": 63,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 14,
+              "LinesDeleted": 1,
+              "NewLines": 18,
+              "NewPosition": 81,
+              "OldLines": 5,
+              "OldPosition": 82,
+              "TrailingContext": 1
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "localinfra/scripts/test-tranquil-gate.py",
+          "NewOIDPrefix": "f71a0d63c074113a09d224699814ff884b9e1363",
+          "OldMode": 33188,
+          "OldName": "localinfra/scripts/test-tranquil-gate.py",
+          "OldOIDPrefix": "8063bff24b17ff753d0a0090cc0d54437c412d66",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 6,
+              "OldLines": 7,
+              "OldPosition": 6,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/cmd/seed/main.go",
+          "NewOIDPrefix": "0adb7c13b42c2d2156d741e4d7eb4df2aaa20800",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 344,
+              "LinesDeleted": 0,
+              "NewLines": 344,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": true,
+          "IsCopy": false,
+          "IsDelete": true,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "",
+          "NewOIDPrefix": "0000000000000000000000000000000000000000",
+          "OldMode": 33188,
+          "OldName": "localinfra/scripts/fixtures/legacy-pr.patch.gz",
+          "OldOIDPrefix": "e9d158835aa60536b1dafcac7d64782669177be7",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": null
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "knot2/crates/knot-atproto/src/lib.rs",
+          "NewOIDPrefix": "9e9354bc1dc39ffdd635f56f609f396155bdfaea",
+          "OldMode": 33188,
+          "OldName": "knot2/crates/knot-atproto/src/lib.rs",
+          "OldOIDPrefix": "2b2f1e7bd577ba2f41fc43a3a98e48de566de39e",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 2,
+              "LinesDeleted": 2,
+              "NewLines": 13,
+              "NewPosition": 840,
+              "OldLines": 13,
+              "OldPosition": 840,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 2438,
+              "OldLines": 7,
+              "OldPosition": 2438,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 2458,
+              "OldLines": 7,
+              "OldPosition": 2458,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 2483,
+              "OldLines": 7,
+              "OldPosition": 2483,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 2498,
+              "OldLines": 7,
+              "OldPosition": 2498,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "knot2/crates/knot-atproto/src/resolve.rs",
+          "NewOIDPrefix": "ea4f310bec5836ff03292b54cd9efb7f49974fdb",
+          "OldMode": 33188,
+          "OldName": "knot2/crates/knot-atproto/src/resolve.rs",
+          "OldOIDPrefix": "0b22f87b1722d0fe0237e28bb31e0a211617835f",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 12,
+              "NewLines": 6,
+              "NewPosition": 238,
+              "OldLines": 18,
+              "OldPosition": 238,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": false,
+          "IsRename": false,
+          "NewMode": 0,
+          "NewName": "knot2/crates/knot-xrpc/src/repos.rs",
+          "NewOIDPrefix": "20ceda214e47cddb5bfe17eb7a932d779331bafe",
+          "OldMode": 33188,
+          "OldName": "knot2/crates/knot-xrpc/src/repos.rs",
+          "OldOIDPrefix": "16f71facbc548a730eab0c2e716170a9afbcffb8",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 0,
+              "LinesDeleted": 5,
+              "NewLines": 6,
+              "NewPosition": 91,
+              "OldLines": 11,
+              "OldPosition": 91,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 1,
+              "LinesDeleted": 1,
+              "NewLines": 7,
+              "NewPosition": 530,
+              "OldLines": 7,
+              "OldPosition": 535,
+              "TrailingContext": 3
+            },
+            {
+              "Comment": "",
+              "LeadingContext": 3,
+              "Lines": [],
+              "LinesAdded": 3,
+              "LinesDeleted": 6,
+              "NewLines": 23,
+              "NewPosition": 546,
+              "OldLines": 26,
+              "OldPosition": 551,
+              "TrailingContext": 3
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": true,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/blobs/did:plc:igzuueb63dytyy3tpaweofuu/bafkreih55dk36esbto3jwbwcdkeifojpnvtk5e3bgee5jifvicumponf54",
+          "NewOIDPrefix": "e9d158835aa60536b1dafcac7d64782669177be7",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": null
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3lzg6teywa222/bafyreiavvwzko6g7trdtcrj2bjrbkp32elmvbm6cn653cbwimwpphg7ehy.json",
+          "NewOIDPrefix": "399368bf2b626e8a2a1bbfdf1fcbc11f6d608c26",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 16,
+              "LinesDeleted": 0,
+              "NewLines": 16,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3lzg6wxgzq222/bafyreihnkoebjcdoozio4myhpamjxc6yudnrvhnl3ebvnovky5ochnrr5m.json",
+          "NewOIDPrefix": "beccc8b00c7915cd23d1f2953b65457ac1094f97",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 16,
+              "LinesDeleted": 0,
+              "NewLines": 16,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3mszlqm7b6d22/bafyreigw7o5yhualgauzbfvnl2zziu7eokml2vgwhourfbmuxml6kurefq.json",
+          "NewOIDPrefix": "0cbc1e7f234ee39af6ddf0d02383dfb6002d3c66",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 25,
+              "LinesDeleted": 0,
+              "NewLines": 25,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3mszlqp3c5e22/bafyreidzsdpsyiziwe5a5whn3i4qydofe4qqxkkkl56mmrpezrrnaki2zi.json",
+          "NewOIDPrefix": "8e26805d9fe4bb27b73c0b52ed89d3b95c949519",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 21,
+              "LinesDeleted": 0,
+              "NewLines": 21,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg72jv5a222/bafyreifcja6oh5wqx5qv7sxftflgafssle4hd3idmveqzvyd5nekzidk7a.json",
+          "NewOIDPrefix": "f531feb2afe1c3155e97f7833bfce874d8f98ea4",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg74d46y222/bafyreihp4ize3beva55bp5m3hk5v6x4zc7mexh5xv3xpjlepnjczfd6d3e.json",
+          "NewOIDPrefix": "a846b71ef775464f827bde5e520fdfb951635e7e",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg764daq222/bafyreiavt45r66ifajkqi7hweogxpxctqsv4iisomc5fvhtiirmbnigl4u.json",
+          "NewOIDPrefix": "2506db6d083f28e47e5d8412efbef1c8349fc96c",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.follow/3lzg77vkci222/bafyreifxt4uklvj2ktzpvdvqea7don63ds2txurjfm7a32kgwe3gtcgpfi.json",
+          "NewOIDPrefix": "6abef2da29c9e4399cc758b658b748f2a2b2fd3d",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 4,
+              "LinesDeleted": 0,
+              "NewLines": 4,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.follow/3lzg7borea222/bafyreibapl2wjihcrnbuciak3bmnxxb4oflcnm5qlaf4blyrpel3ekrw2i.json",
+          "NewOIDPrefix": "cd9bf1775f59611e4598a3d115ce6f352f5652c0",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 4,
+              "LinesDeleted": 0,
+              "NewLines": 4,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.vouch/did:plc:xbserj4jfuhzkbl3mszkvvrb/bafyreidoae6qpcdmrxfmv6uaqdvrx6g6gtqmqmgliwvfbl32zyyxedbmla.json",
+          "NewOIDPrefix": "d1f8a646fccf5a12e76e2463101ab06046f166b8",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 8,
+              "LinesDeleted": 0,
+              "NewLines": 8,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.knot/knot2.tngl.boltless.dev/bafyreicy6lcrx7rt5gdc2mwyhfumry5khsiiebnukhesrnazy36qeqtq7i.json",
+          "NewOIDPrefix": "525aab959d013ac1632dd3488c8fc48fae9c5e43",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 3,
+              "LinesDeleted": 0,
+              "NewLines": 3,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/assignee/bafyreicik7y5r3x3f7mheyxjnf4m5c3sbznjwqcogoyjy3mgvwv76sfzaa.json",
+          "NewOIDPrefix": "a93bf9819382c9a50c7ed3cd4d9d386848fac8df",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 14,
+              "LinesDeleted": 0,
+              "NewLines": 14,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/documentation/bafyreibaquqsypbwunsq6ny2r4jelcok6emf4zf4nok3y6jt6ovmorgwlu.json",
+          "NewOIDPrefix": "b5456890fd9ffc2c1bed5dadfe87b96c119be5c2",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 13,
+              "LinesDeleted": 0,
+              "NewLines": 13,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/duplicate/bafyreihfl7w6kd5furzznbfyn4latxbdcjiolgofwtutgueldhozk6l43i.json",
+          "NewOIDPrefix": "bce321387afb38d3e60d83a45a68fd6bc84ebdbf",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 13,
+              "LinesDeleted": 0,
+              "NewLines": 13,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/good-first-issue/bafyreiavrw3gzde6brpwpv4cvppbhc2oo44oir2qkua2cws5dohvacucie.json",
+          "NewOIDPrefix": "eafdc66cb22eddd98c68fd342cb0427e7b25d3b6",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 13,
+              "LinesDeleted": 0,
+              "NewLines": 13,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/wontfix/bafyreiebo64gaznprwa5dupobn5g6jq4mnkqfpokkyrwnjr3g5c3nv5p4a.json",
+          "NewOIDPrefix": "2713c786a734f39a361ffae1f1f86b66af8814c7",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 13,
+              "LinesDeleted": 0,
+              "NewLines": 13,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue.state/3lzg6kgvni222/bafyreigmrwrjccic6k464n22agnpbzzc3bqy4arxuyu4d2brzi3fiuyjku.json",
+          "NewOIDPrefix": "f9c5f573bf4cd80adc6b1026eca24311df84019b",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6f3aia222/bafyreic2r74d7erf73vdtmjmrrviboaszl4qiw4qbmqephx2rppzddgqiq.json",
+          "NewOIDPrefix": "aec6c0323236e0e278c4928cb1b83e490adcc670",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 6,
+              "LinesDeleted": 0,
+              "NewLines": 6,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6guhjy222/bafyreidtwqsnnrtllse275hpiuqam2ohd7adxqbndhdw4sarfate7cni6y.json",
+          "NewOIDPrefix": "a14e225dd6c629653a1310c824a7ca11ace2c5fb",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 6,
+              "LinesDeleted": 0,
+              "NewLines": 6,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6inolq222/bafyreigm56yy34tcteb4krkjcjcjokq4dhy53ppojggedhmuco2dy7bufm.json",
+          "NewOIDPrefix": "7897197fda8c9f8a73c9959b5089904edcbb9629",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 6,
+              "LinesDeleted": 0,
+              "NewLines": 6,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3lzg7tkxvq222/bafyreihownu2va6k5hu64weeicrtqchqpoc4s4wp57riyfwutpiavq4fhm.json",
+          "NewOIDPrefix": "f21908b84b9ab3c72070aee4ff2f224f1502b68b",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 26,
+              "LinesDeleted": 0,
+              "NewLines": 26,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3ms6rk5d6gk22/bafyreibiyipy4pt2hwayqvsfkdsabtkt5sdwswyhgce5jt353m5ftnqa7q.json",
+          "NewOIDPrefix": "1206f4e98da027ffd9220673bc7076b4cf898312",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 26,
+              "LinesDeleted": 0,
+              "NewLines": 26,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3ms6rk5d6gk33/bafyreidrrgnjp2rvallhvclrz6c3626znofcdzki32rqpwxoniokntflqe.json",
+          "NewOIDPrefix": "cd54afd3853a72c68fdc62616471cb1ece43b407",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 21,
+              "LinesDeleted": 0,
+              "NewLines": 21,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3mszlqgjlzsdn/bafyreifcpins77qs5cnfhuntlp5azeg7o23mzkkb6v5zghgxw56fag6kyi.json",
+          "NewOIDPrefix": "4cb8d2b6b25ab0a80ed7bcb39d29b177c1a1afd7",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 36,
+              "LinesDeleted": 0,
+              "NewLines": 36,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo/core/bafyreia3swut4gudvwrf5rsil4fwbpbpodgimfpc6cwteunb7jjs3flmgq.json",
+          "NewOIDPrefix": "a849864958f3dee50fc7834c3af016542bea015d",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 7,
+              "LinesDeleted": 0,
+              "NewLines": 7,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.spindle/spindle.tngl.boltless.dev/bafyreiaoll33yuqxs462lewsglm5dxer6lrzmwmolpplb5kklqakcjcwlq.json",
+          "NewOIDPrefix": "525aab959d013ac1632dd3488c8fc48fae9c5e43",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 3,
+              "LinesDeleted": 0,
+              "NewLines": 3,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.string/3lzg6ma4pa222/bafyreihx3o6ivwpztaatrjyvg2ht7ia4fnnd75uxosaskxfhoxyb36jufq.json",
+          "NewOIDPrefix": "f98ac00134d4c4670cc0dce0339e849318bafc1a",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 6,
+              "LinesDeleted": 0,
+              "NewLines": 6,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.string/3lzg6nzdqy222/bafyreib2p2xozo6vyjzkugfddguiz5eilhloqt6nljpojkv6ddxvw7wrp4.json",
+          "NewOIDPrefix": "b7fb08189d882a66a22c0e2d302544afc03108fe",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 6,
+              "LinesDeleted": 0,
+              "NewLines": 6,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:pgkgoz6rpvmgynswviohltpx/sh.tangled.graph.follow/3lzg7fb7hq222/bafyreidwfs3somf3c7272shoyaqufgkge25umlkhux3hh734mvfbsz32ym.json",
+          "NewOIDPrefix": "c955a77c5f2b629481bce295aaad8c928c9b654a",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 4,
+              "LinesDeleted": 0,
+              "NewLines": 4,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:pgkgoz6rpvmgynswviohltpx/sh.tangled.graph.vouch/did:plc:ryxq2u2b6sadhhjflpwiefg4/bafyreibnbcgbixxodftgl7p3nuy3c4zkwuy6wwqkiu5ffapdnqib7xvay4.json",
+          "NewOIDPrefix": "9a0803f90d27e5e4a1e749d031a1965daf66ce02",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.follow/3lzg7h2gji222/bafyreicf3kg2po673jitncs7acx5xn55do6uea5rjcqc6rtctwksjs7tdu.json",
+          "NewOIDPrefix": "4583d8efc365146b8ceced188ced8cb8b2e540d0",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 4,
+              "LinesDeleted": 0,
+              "NewLines": 4,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.follow/3lzg7itnla222/bafyreiamrcxx3thilb7527adx7l52jmxtbo4emnkygto3zwxuhz7nbhsk4.json",
+          "NewOIDPrefix": "a2c3a92c8c4337e7f4b65cc1f882f3d3610065de",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 4,
+              "LinesDeleted": 0,
+              "NewLines": 4,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.vouch/did:plc:igzuueb63dytyy3tpaweofuu/bafyreidehdrafmu6ulwdwvch6w72txasuej2balv536pruclzufssrmiyy.json",
+          "NewOIDPrefix": "e39cc891e2c6c9cdbd21c7ccea0dbbddb29f857d",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 5,
+              "LinesDeleted": 0,
+              "NewLines": 5,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        },
+        {
+          "BinaryFragment": null,
+          "IsBinary": false,
+          "IsCopy": false,
+          "IsDelete": false,
+          "IsNew": true,
+          "IsRename": false,
+          "NewMode": 33188,
+          "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3lzg6rlrui222/bafyreifzt4umgdji32zla3ygrgau2bkabufexs4gch7lkzkpbhed37wyxa.json",
+          "NewOIDPrefix": "6197e92853ed35281fe94d2fd8f972fa6e576345",
+          "OldMode": 0,
+          "OldName": "",
+          "OldOIDPrefix": "0000000000000000000000000000000000000000",
+          "ReverseBinaryFragment": null,
+          "Score": 0,
+          "TextFragments": [
+            {
+              "Comment": "",
+              "LeadingContext": 0,
+              "Lines": [],
+              "LinesAdded": 12,
+              "LinesDeleted": 0,
+              "NewLines": 12,
+              "NewPosition": 1,
+              "OldLines": 0,
+              "OldPosition": 0,
+              "TrailingContext": 0
+            }
+          ]
+        }
+      ],
+      "combined_patch_raw": "diff --git a/docker-compose.mill.yml b/docker-compose.mill.yml\nindex 06c6d319e53dc4420005df602c5d1005b8da3b21..d36de3a05280601a14f32602f826c764719cacff 100644\n--- a/docker-compose.mill.yml\n+++ b/docker-compose.mill.yml\n@@ -74,7 +74,7 @@\n       condition: service_started\n     hydrant:\n       condition: service_healthy\n-    init-accounts:\n+    init-data:\n       condition: service_completed_successfully\n     ncps:\n       condition: service_started\ndiff --git a/docker-compose.yml b/docker-compose.yml\nindex b7d42611157a0c286db83b501aa9209457329dad..f9a6e6c6485228fb9a9aee28049c1d6ee0c9c617 100644\n--- a/docker-compose.yml\n+++ b/docker-compose.yml\n@@ -129,30 +129,33 @@\n         condition: service_healthy\n       deliberi:\n         condition: service_healthy\n-      init-accounts:\n+      init-data:\n         condition: service_completed_successfully\n       caddy:\n         condition: service_started\n     networks: [tngl]\n \n-  init-accounts:\n+  init-data:\n     dns: [11.0.0.254]\n     build:\n-      context: localinfra\n-      dockerfile: seed.Dockerfile\n+      context: .\n+      dockerfile: localinfra/seed.Dockerfile\n     restart: \"no\"\n     env_file: localinfra/pds.env\n     environment:\n       PDS_URL: http://pds:3000\n+      PLC_URL: http://plc:8080\n       OWNER_USER: alice\n+      KNOT_URL: http://knot2:5555\n       KNOT_HOSTNAME: knot2.tngl.boltless.dev\n       SPINDLE_HOSTNAME: spindle.tngl.boltless.dev\n       TRANQUIL_URL: http://tranquil:3000\n       TRANQUIL_HOSTNAME: tranquil.tngl.boltless.dev\n     volumes:\n       - ./localinfra/scripts:/scripts:ro\n+      - ./localinfra/fixtures:/fixtures:ro\n       - init-state:/shared\n-    command: sh /scripts/init-accounts.sh\n+    command: sh /scripts/init-data.sh\n     depends_on:\n       dns:\n         condition: service_started\n@@ -160,28 +163,6 @@\n         condition: service_healthy\n       tranquil:\n         condition: service_healthy\n-    networks: [tngl]\n-\n-  init-data:\n-    dns: [11.0.0.254]\n-    build:\n-      context: localinfra\n-      dockerfile: seed.Dockerfile\n-    restart: \"no\"\n-    env_file: localinfra/pds.env\n-    environment:\n-      PDS_URL: http://pds:3000\n-      KNOT_URL: http://knot2:5555\n-      KNOT_HOSTNAME: knot2.tngl.boltless.dev\n-    volumes:\n-      - ./localinfra/scripts:/scripts:ro\n-      - init-state:/shared:ro\n-    command: sh /scripts/init-data.sh\n-    depends_on:\n-      dns:\n-        condition: service_started\n-      init-accounts:\n-        condition: service_completed_successfully\n       knot2:\n         condition: service_healthy\n     networks: [tngl]\n@@ -216,6 +197,7 @@\n     restart: unless-stopped\n     environment:\n       KNOT_HOSTNAME: knot2.tngl.boltless.dev\n+      KNOT_ADMINS: did:plc:igzuueb63dytyy3tpaweofuu\n       KNOT_SCAN_PATH: /home/git/repositories\n       KNOT_SSH_HOST_KEY_FILE: /home/git/keys/host_key\n       KNOT_SEALED_KEY_FILE: /home/git/keys/sealed.bin\n@@ -253,8 +235,6 @@\n         condition: service_healthy\n       caddy:\n         condition: service_started\n-      init-accounts:\n-        condition: service_completed_successfully\n     networks: [tngl, upstream-cache]\n \n   ncps-migrate:\n@@ -296,6 +276,7 @@\n     restart: unless-stopped\n     environment:\n       SPINDLE_SERVER_HOSTNAME: spindle.tngl.boltless.dev\n+      SPINDLE_SERVER_OWNER: did:plc:igzuueb63dytyy3tpaweofuu\n       SPINDLE_SERVER_LISTEN_ADDR: 0.0.0.0:6555\n       SPINDLE_SERVER_METRICS_LISTEN_ADDR: 0.0.0.0:9091\n       SPINDLE_SERVER_DB_PATH: /var/lib/spindle/spindle.db\n@@ -367,8 +348,6 @@\n         condition: service_started\n       hydrant:\n         condition: service_healthy\n-      init-accounts:\n-        condition: service_completed_successfully\n       ncps:\n         condition: service_started\n     networks: [tngl, upstream-cache]\n@@ -544,7 +523,7 @@\n         condition: service_healthy\n       hydrant:\n         condition: service_healthy\n-      init-accounts:\n+      init-data:\n         condition: service_completed_successfully\n     networks: [tngl]\n \n@@ -587,7 +566,7 @@\n         condition: service_healthy\n …",
+      "format_patch": [
+        {
+          "Author": {
+            "Email": "user@example.invalid",
+            "Name": "Seongmin Lee"
+          },
+          "AuthorDate": "2026-09-29T22:21:23+09:00",
+          "Body": "Signed-off-by: Seongmin Lee <user@example.invalid>",
+          "BodyAppendix": "",
+          "Committer": null,
+          "CommitterDate": "0001-01-01T00:00:00Z",
+          "Files": [
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "lexicons/repo/create.json",
+              "NewOIDPrefix": "3dd8c0a650d11897df74930bab2a1f8931cc0126",
+              "OldMode": 33188,
+              "OldName": "lexicons/repo/create.json",
+              "OldOIDPrefix": "fa10be44b95222d29df4453f3857cf890bc49878",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 35,
+                  "OldLines": 7,
+                  "OldPosition": 35,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "lexicons/repo/reserveKey.json",
+              "NewOIDPrefix": "ea6d0afd7cd6521fa0c37ed0f0c837aeae571665",
+              "OldMode": 33188,
+              "OldName": "lexicons/repo/reserveKey.json",
+              "OldOIDPrefix": "26c8c1e72ecc56cf9f1fa0631c25f457a6630c27",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 4,
+                  "OldLines": 7,
+                  "OldPosition": 4,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 16,
+                  "OldLines": 7,
+                  "OldPosition": 16,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 36,
+                  "OldLines": 7,
+                  "OldPosition": 36,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "knot2/crates/knot-atproto/src/lib.rs",
+              "NewOIDPrefix": "9e9354bc1dc39ffdd635f56f609f396155bdfaea",
+              "OldMode": 33188,
+              "OldName": "knot2/crates/knot-atproto/src/lib.rs",
+              "OldOIDPrefix": "2b2f1e7bd577ba2f41fc43a3a98e48de566de39e",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 2,
+                  "LinesDeleted": 2,
+                  "NewLines": 13,
+                  "NewPosition": 840,
+                  "OldLines": 13,
+                  "OldPosition": 840,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 2438,
+                  "OldLines": 7,
+                  "OldPosition": 2438,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 2458,
+                  "OldLines": 7,
+                  "OldPosition": 2458,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 2483,
+                  "OldLines": 7,
+                  "OldPosition": 2483,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 2498,
+                  "OldLines": 7,
+                  "OldPosition": 2498,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "knot2/crates/knot-atproto/src/resolve.rs",
+              "NewOIDPrefix": "ea4f310bec5836ff03292b54cd9efb7f49974fdb",
+              "OldMode": 33188,
+              "OldName": "knot2/crates/knot-atproto/src/resolve.rs",
+              "OldOIDPrefix": "0b22f87b1722d0fe0237e28bb31e0a211617835f",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 12,
+                  "NewLines": 6,
+                  "NewPosition": 238,
+                  "OldLines": 18,
+                  "OldPosition": 238,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "knot2/crates/knot-xrpc/src/repos.rs",
+              "NewOIDPrefix": "20ceda214e47cddb5bfe17eb7a932d779331bafe",
+              "OldMode": 33188,
+              "OldName": "knot2/crates/knot-xrpc/src/repos.rs",
+              "OldOIDPrefix": "16f71facbc548a730eab0c2e716170a9afbcffb8",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 5,
+                  "NewLines": 6,
+                  "NewPosition": 91,
+                  "OldLines": 11,
+                  "OldPosition": 91,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 530,
+                  "OldLines": 7,
+                  "OldPosition": 535,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 3,
+                  "LinesDeleted": 6,
+                  "NewLines": 23,
+                  "NewPosition": 546,
+                  "OldLines": 26,
+                  "OldPosition": 551,
+                  "TrailingContext": 3
+                }
+              ]
+            }
+          ],
+          "Raw": "",
+          "RawHeaders": {
+            "Change-Id": [
+              "utnmyryrpswuzornywymloktsyqxwlwm"
+            ],
+            "Date": [
+              "Tue, 29 Sep 2026 22:21:23 +0900"
+            ],
+            "From": [
+              "Seongmin Lee <user@example.invalid>"
+            ],
+            "Subject": [
+              "[PATCH] knot-atproto,knot-xrpc,lexicons: accept user-provided did:plc identities"
+            ]
+          },
+          "SHA": "495dd8faf034fe5e2291fc1057ecddfd9a5ba5d4",
+          "SubjectPrefix": "[PATCH] ",
+          "Title": "knot-atproto,knot-xrpc,lexicons: accept user-provided did:plc identities"
+        },
+        {
+          "Author": {
+            "Email": "user@example.invalid",
+            "Name": "Seongmin Lee"
+          },
+          "AuthorDate": "2026-09-29T23:05:56+09:00",
+          "Body": "split records & blobs into separate files\n\nSigned-off-by: Seongmin Lee <user@example.invalid>",
+          "BodyAppendix": "",
+          "Committer": null,
+          "CommitterDate": "0001-01-01T00:00:00Z",
+          "Files": [
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "docker-compose.mill.yml",
+              "NewOIDPrefix": "d36de3a05280601a14f32602f826c764719cacff",
+              "OldMode": 33188,
+              "OldName": "docker-compose.mill.yml",
+              "OldOIDPrefix": "06c6d319e53dc4420005df602c5d1005b8da3b21",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 74,
+                  "OldLines": 7,
+                  "OldPosition": 74,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "docker-compose.yml",
+              "NewOIDPrefix": "f9a6e6c6485228fb9a9aee28049c1d6ee0c9c617",
+              "OldMode": 33188,
+              "OldName": "docker-compose.yml",
+              "OldOIDPrefix": "b7d42611157a0c286db83b501aa9209457329dad",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 8,
+                  "LinesDeleted": 5,
+                  "NewLines": 33,
+                  "NewPosition": 129,
+                  "OldLines": 30,
+                  "OldPosition": 129,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 22,
+                  "NewLines": 6,
+                  "NewPosition": 163,
+                  "OldLines": 28,
+                  "OldPosition": 160,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 0,
+                  "NewLines": 7,
+                  "NewPosition": 197,
+                  "OldLines": 6,
+                  "OldPosition": 216,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 2,
+                  "NewLines": 6,
+                  "NewPosition": 235,
+                  "OldLines": 8,
+                  "OldPosition": 253,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 0,
+                  "NewLines": 7,
+                  "NewPosition": 276,
+                  "OldLines": 6,
+                  "OldPosition": 296,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 2,
+                  "NewLines": 6,
+                  "NewPosition": 348,
+                  "OldLines": 8,
+                  "OldPosition": 367,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 523,
+                  "OldLines": 7,
+                  "OldPosition": 544,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 566,
+                  "OldLines": 7,
+                  "OldPosition": 587,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 578,
+                  "OldLines": 7,
+                  "OldPosition": 599,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 622,
+                  "OldLines": 7,
+                  "OldPosition": 643,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "localinfra/appview.Dockerfile",
+              "NewOIDPrefix": "1111329404c7dc5ecc4c5af74c4eb9f81775554d",
+              "OldMode": 33188,
+              "OldName": "localinfra/appview.Dockerfile",
+              "OldOIDPrefix": "28794e46cfb4c8bf4984a29235680eed71db4c51",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 37,
+                  "OldLines": 7,
+                  "OldPosition": 37,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "localinfra/seed.Dockerfile",
+              "NewOIDPrefix": "95a9fd587eb08e7076ec5af9eda0b74a21743849",
+              "OldMode": 33188,
+              "OldName": "localinfra/seed.Dockerfile",
+              "OldOIDPrefix": "78ae190c156d7c948c473d23195b6e6531bb4036",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 19,
+                  "LinesDeleted": 0,
+                  "NewLines": 21,
+                  "NewPosition": 1,
+                  "OldLines": 2,
+                  "OldPosition": 1,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": true,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "",
+              "NewOIDPrefix": "0000000000000000000000000000000000000000",
+              "OldMode": 33188,
+              "OldName": "localinfra/scripts/init-accounts.sh",
+              "OldOIDPrefix": "7682a6d9556d0cafc621c34e28d02b99738cfd58",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 0,
+                  "LinesDeleted": 158,
+                  "NewLines": 0,
+                  "NewPosition": 0,
+                  "OldLines": 158,
+                  "OldPosition": 1,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "localinfra/scripts/init-data.sh",
+              "NewOIDPrefix": "e7ac6e4dc1193154eead5f71b558c7ba78355371",
+              "OldMode": 33188,
+              "OldName": "localinfra/scripts/init-data.sh",
+              "OldOIDPrefix": "3fc6329cc381d00ecbb349bf941ad89756c0d0a9",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 1,
+                  "Lines": [],
+                  "LinesAdded": 93,
+                  "LinesDeleted": 269,
+                  "NewLines": 120,
+                  "NewPosition": 1,
+                  "OldLines": 296,
+                  "OldPosition": 1,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 114,
+                  "LinesDeleted": 357,
+                  "NewLines": 145,
+                  "NewPosition": 130,
+                  "OldLines": 388,
+                  "OldPosition": 306,
+                  "TrailingContext": 2
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "localinfra/scripts/lib.sh",
+              "NewOIDPrefix": "bf1494f61f27a5e84041fca7dd25ccc43409ad17",
+              "OldMode": 33188,
+              "OldName": "localinfra/scripts/lib.sh",
+              "OldOIDPrefix": "69122c6f50c5aa6237980da1abe21d9bd983ff15",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 27,
+                  "OldLines": 7,
+                  "OldPosition": 27,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 2,
+                  "LinesDeleted": 3,
+                  "NewLines": 8,
+                  "NewPosition": 49,
+                  "OldLines": 9,
+                  "OldPosition": 49,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 62,
+                  "OldLines": 7,
+                  "OldPosition": 63,
+                  "TrailingContext": 3
+                },
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 14,
+                  "LinesDeleted": 1,
+                  "NewLines": 18,
+                  "NewPosition": 81,
+                  "OldLines": 5,
+                  "OldPosition": 82,
+                  "TrailingContext": 1
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "localinfra/scripts/test-tranquil-gate.py",
+              "NewOIDPrefix": "f71a0d63c074113a09d224699814ff884b9e1363",
+              "OldMode": 33188,
+              "OldName": "localinfra/scripts/test-tranquil-gate.py",
+              "OldOIDPrefix": "8063bff24b17ff753d0a0090cc0d54437c412d66",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 3,
+                  "Lines": [],
+                  "LinesAdded": 1,
+                  "LinesDeleted": 1,
+                  "NewLines": 7,
+                  "NewPosition": 6,
+                  "OldLines": 7,
+                  "OldPosition": 6,
+                  "TrailingContext": 3
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/cmd/seed/main.go",
+              "NewOIDPrefix": "0adb7c13b42c2d2156d741e4d7eb4df2aaa20800",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 344,
+                  "LinesDeleted": 0,
+                  "NewLines": 344,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": true,
+              "IsCopy": false,
+              "IsDelete": true,
+              "IsNew": false,
+              "IsRename": false,
+              "NewMode": 0,
+              "NewName": "",
+              "NewOIDPrefix": "0000000000000000000000000000000000000000",
+              "OldMode": 33188,
+              "OldName": "localinfra/scripts/fixtures/legacy-pr.patch.gz",
+              "OldOIDPrefix": "e9d158835aa60536b1dafcac7d64782669177be7",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": null
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": true,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/blobs/did:plc:igzuueb63dytyy3tpaweofuu/bafkreih55dk36esbto3jwbwcdkeifojpnvtk5e3bgee5jifvicumponf54",
+              "NewOIDPrefix": "e9d158835aa60536b1dafcac7d64782669177be7",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": null
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3lzg6teywa222/bafyreiavvwzko6g7trdtcrj2bjrbkp32elmvbm6cn653cbwimwpphg7ehy.json",
+              "NewOIDPrefix": "399368bf2b626e8a2a1bbfdf1fcbc11f6d608c26",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 16,
+                  "LinesDeleted": 0,
+                  "NewLines": 16,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3lzg6wxgzq222/bafyreihnkoebjcdoozio4myhpamjxc6yudnrvhnl3ebvnovky5ochnrr5m.json",
+              "NewOIDPrefix": "beccc8b00c7915cd23d1f2953b65457ac1094f97",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 16,
+                  "LinesDeleted": 0,
+                  "NewLines": 16,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3mszlqm7b6d22/bafyreigw7o5yhualgauzbfvnl2zziu7eokml2vgwhourfbmuxml6kurefq.json",
+              "NewOIDPrefix": "0cbc1e7f234ee39af6ddf0d02383dfb6002d3c66",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 25,
+                  "LinesDeleted": 0,
+                  "NewLines": 25,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.comment/3mszlqp3c5e22/bafyreidzsdpsyiziwe5a5whn3i4qydofe4qqxkkkl56mmrpezrrnaki2zi.json",
+              "NewOIDPrefix": "8e26805d9fe4bb27b73c0b52ed89d3b95c949519",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 21,
+                  "LinesDeleted": 0,
+                  "NewLines": 21,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg72jv5a222/bafyreifcja6oh5wqx5qv7sxftflgafssle4hd3idmveqzvyd5nekzidk7a.json",
+              "NewOIDPrefix": "f531feb2afe1c3155e97f7833bfce874d8f98ea4",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg74d46y222/bafyreihp4ize3beva55bp5m3hk5v6x4zc7mexh5xv3xpjlepnjczfd6d3e.json",
+              "NewOIDPrefix": "a846b71ef775464f827bde5e520fdfb951635e7e",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.feed.reaction/3lzg764daq222/bafyreiavt45r66ifajkqi7hweogxpxctqsv4iisomc5fvhtiirmbnigl4u.json",
+              "NewOIDPrefix": "2506db6d083f28e47e5d8412efbef1c8349fc96c",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.follow/3lzg77vkci222/bafyreifxt4uklvj2ktzpvdvqea7don63ds2txurjfm7a32kgwe3gtcgpfi.json",
+              "NewOIDPrefix": "6abef2da29c9e4399cc758b658b748f2a2b2fd3d",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 4,
+                  "LinesDeleted": 0,
+                  "NewLines": 4,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.follow/3lzg7borea222/bafyreibapl2wjihcrnbuciak3bmnxxb4oflcnm5qlaf4blyrpel3ekrw2i.json",
+              "NewOIDPrefix": "cd9bf1775f59611e4598a3d115ce6f352f5652c0",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 4,
+                  "LinesDeleted": 0,
+                  "NewLines": 4,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.graph.vouch/did:plc:xbserj4jfuhzkbl3mszkvvrb/bafyreidoae6qpcdmrxfmv6uaqdvrx6g6gtqmqmgliwvfbl32zyyxedbmla.json",
+              "NewOIDPrefix": "d1f8a646fccf5a12e76e2463101ab06046f166b8",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 8,
+                  "LinesDeleted": 0,
+                  "NewLines": 8,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.knot/knot2.tngl.boltless.dev/bafyreicy6lcrx7rt5gdc2mwyhfumry5khsiiebnukhesrnazy36qeqtq7i.json",
+              "NewOIDPrefix": "525aab959d013ac1632dd3488c8fc48fae9c5e43",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 3,
+                  "LinesDeleted": 0,
+                  "NewLines": 3,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/assignee/bafyreicik7y5r3x3f7mheyxjnf4m5c3sbznjwqcogoyjy3mgvwv76sfzaa.json",
+              "NewOIDPrefix": "a93bf9819382c9a50c7ed3cd4d9d386848fac8df",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 14,
+                  "LinesDeleted": 0,
+                  "NewLines": 14,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/documentation/bafyreibaquqsypbwunsq6ny2r4jelcok6emf4zf4nok3y6jt6ovmorgwlu.json",
+              "NewOIDPrefix": "b5456890fd9ffc2c1bed5dadfe87b96c119be5c2",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 13,
+                  "LinesDeleted": 0,
+                  "NewLines": 13,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/duplicate/bafyreihfl7w6kd5furzznbfyn4latxbdcjiolgofwtutgueldhozk6l43i.json",
+              "NewOIDPrefix": "bce321387afb38d3e60d83a45a68fd6bc84ebdbf",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 13,
+                  "LinesDeleted": 0,
+                  "NewLines": 13,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/good-first-issue/bafyreiavrw3gzde6brpwpv4cvppbhc2oo44oir2qkua2cws5dohvacucie.json",
+              "NewOIDPrefix": "eafdc66cb22eddd98c68fd342cb0427e7b25d3b6",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 13,
+                  "LinesDeleted": 0,
+                  "NewLines": 13,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.label.definition/wontfix/bafyreiebo64gaznprwa5dupobn5g6jq4mnkqfpokkyrwnjr3g5c3nv5p4a.json",
+              "NewOIDPrefix": "2713c786a734f39a361ffae1f1f86b66af8814c7",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 13,
+                  "LinesDeleted": 0,
+                  "NewLines": 13,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue.state/3lzg6kgvni222/bafyreigmrwrjccic6k464n22agnpbzzc3bqy4arxuyu4d2brzi3fiuyjku.json",
+              "NewOIDPrefix": "f9c5f573bf4cd80adc6b1026eca24311df84019b",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6f3aia222/bafyreic2r74d7erf73vdtmjmrrviboaszl4qiw4qbmqephx2rppzddgqiq.json",
+              "NewOIDPrefix": "aec6c0323236e0e278c4928cb1b83e490adcc670",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 6,
+                  "LinesDeleted": 0,
+                  "NewLines": 6,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6guhjy222/bafyreidtwqsnnrtllse275hpiuqam2ohd7adxqbndhdw4sarfate7cni6y.json",
+              "NewOIDPrefix": "a14e225dd6c629653a1310c824a7ca11ace2c5fb",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 6,
+                  "LinesDeleted": 0,
+                  "NewLines": 6,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.issue/3lzg6inolq222/bafyreigm56yy34tcteb4krkjcjcjokq4dhy53ppojggedhmuco2dy7bufm.json",
+              "NewOIDPrefix": "7897197fda8c9f8a73c9959b5089904edcbb9629",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 6,
+                  "LinesDeleted": 0,
+                  "NewLines": 6,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3lzg7tkxvq222/bafyreihownu2va6k5hu64weeicrtqchqpoc4s4wp57riyfwutpiavq4fhm.json",
+              "NewOIDPrefix": "f21908b84b9ab3c72070aee4ff2f224f1502b68b",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 26,
+                  "LinesDeleted": 0,
+                  "NewLines": 26,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3ms6rk5d6gk22/bafyreibiyipy4pt2hwayqvsfkdsabtkt5sdwswyhgce5jt353m5ftnqa7q.json",
+              "NewOIDPrefix": "1206f4e98da027ffd9220673bc7076b4cf898312",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 26,
+                  "LinesDeleted": 0,
+                  "NewLines": 26,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3ms6rk5d6gk33/bafyreidrrgnjp2rvallhvclrz6c3626znofcdzki32rqpwxoniokntflqe.json",
+              "NewOIDPrefix": "cd54afd3853a72c68fdc62616471cb1ece43b407",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 21,
+                  "LinesDeleted": 0,
+                  "NewLines": 21,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo.pull/3mszlqgjlzsdn/bafyreifcpins77qs5cnfhuntlp5azeg7o23mzkkb6v5zghgxw56fag6kyi.json",
+              "NewOIDPrefix": "4cb8d2b6b25ab0a80ed7bcb39d29b177c1a1afd7",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 36,
+                  "LinesDeleted": 0,
+                  "NewLines": 36,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.repo/core/bafyreia3swut4gudvwrf5rsil4fwbpbpodgimfpc6cwteunb7jjs3flmgq.json",
+              "NewOIDPrefix": "a849864958f3dee50fc7834c3af016542bea015d",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 7,
+                  "LinesDeleted": 0,
+                  "NewLines": 7,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.spindle/spindle.tngl.boltless.dev/bafyreiaoll33yuqxs462lewsglm5dxer6lrzmwmolpplb5kklqakcjcwlq.json",
+              "NewOIDPrefix": "525aab959d013ac1632dd3488c8fc48fae9c5e43",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 3,
+                  "LinesDeleted": 0,
+                  "NewLines": 3,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.string/3lzg6ma4pa222/bafyreihx3o6ivwpztaatrjyvg2ht7ia4fnnd75uxosaskxfhoxyb36jufq.json",
+              "NewOIDPrefix": "f98ac00134d4c4670cc0dce0339e849318bafc1a",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 6,
+                  "LinesDeleted": 0,
+                  "NewLines": 6,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:igzuueb63dytyy3tpaweofuu/sh.tangled.string/3lzg6nzdqy222/bafyreib2p2xozo6vyjzkugfddguiz5eilhloqt6nljpojkv6ddxvw7wrp4.json",
+              "NewOIDPrefix": "b7fb08189d882a66a22c0e2d302544afc03108fe",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 6,
+                  "LinesDeleted": 0,
+                  "NewLines": 6,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:pgkgoz6rpvmgynswviohltpx/sh.tangled.graph.follow/3lzg7fb7hq222/bafyreidwfs3somf3c7272shoyaqufgkge25umlkhux3hh734mvfbsz32ym.json",
+              "NewOIDPrefix": "c955a77c5f2b629481bce295aaad8c928c9b654a",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 4,
+                  "LinesDeleted": 0,
+                  "NewLines": 4,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:pgkgoz6rpvmgynswviohltpx/sh.tangled.graph.vouch/did:plc:ryxq2u2b6sadhhjflpwiefg4/bafyreibnbcgbixxodftgl7p3nuy3c4zkwuy6wwqkiu5ffapdnqib7xvay4.json",
+              "NewOIDPrefix": "9a0803f90d27e5e4a1e749d031a1965daf66ce02",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.follow/3lzg7h2gji222/bafyreicf3kg2po673jitncs7acx5xn55do6uea5rjcqc6rtctwksjs7tdu.json",
+              "NewOIDPrefix": "4583d8efc365146b8ceced188ced8cb8b2e540d0",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 4,
+                  "LinesDeleted": 0,
+                  "NewLines": 4,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.follow/3lzg7itnla222/bafyreiamrcxx3thilb7527adx7l52jmxtbo4emnkygto3zwxuhz7nbhsk4.json",
+              "NewOIDPrefix": "a2c3a92c8c4337e7f4b65cc1f882f3d3610065de",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 4,
+                  "LinesDeleted": 0,
+                  "NewLines": 4,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:ryxq2u2b6sadhhjflpwiefg4/sh.tangled.graph.vouch/did:plc:igzuueb63dytyy3tpaweofuu/bafyreidehdrafmu6ulwdwvch6w72txasuej2balv536pruclzufssrmiyy.json",
+              "NewOIDPrefix": "e39cc891e2c6c9cdbd21c7ccea0dbbddb29f857d",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3lzg6rlrui222/bafyreifzt4umgdji32zla3ygrgau2bkabufexs4gch7lkzkpbhed37wyxa.json",
+              "NewOIDPrefix": "6197e92853ed35281fe94d2fd8f972fa6e576345",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 12,
+                  "LinesDeleted": 0,
+                  "NewLines": 12,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3lzg6v67xy222/bafyreidmwf3i6zcadgoogygafg5ypnzjvy2p5lrc6bk3m6lzxp3uue2uoy.json",
+              "NewOIDPrefix": "9d8778466aeb5dd383573e3481b6dba457ff6371",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 12,
+                  "LinesDeleted": 0,
+                  "NewLines": 12,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3mszlqk2a4c22/bafyreicjb7nx5kufbfkjl2e2rruwjcwycucsyanmo22or746quqk3ddrom.json",
+              "NewOIDPrefix": "d6529822d5b48bd16b38822c7951e8222d51d8e1",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 21,
+                  "LinesDeleted": 0,
+                  "NewLines": 21,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3mszlqr5d2f22/bafyreiasakgyfrwi26rh773jqrecrryu3n23ydrds7qjb46puvzty33n2i.json",
+              "NewOIDPrefix": "756304efc55997ab533377d789da401f0ff9d470",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 21,
+                  "LinesDeleted": 0,
+                  "NewLines": 21,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.comment/3mwkb2qu3gr22/bafyreiec3rgrrkh3pjqm364lab4aze23grwgjz5vjvhuvxb2sw5ip7ycyq.json",
+              "NewOIDPrefix": "7f7237ae08430cba21fcd29b999478a4df541cdd",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 13,
+                  "LinesDeleted": 0,
+                  "NewLines": 13,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            },
+            {
+              "BinaryFragment": null,
+              "IsBinary": false,
+              "IsCopy": false,
+              "IsDelete": false,
+              "IsNew": true,
+              "IsRename": false,
+              "NewMode": 33188,
+              "NewName": "localinfra/fixtures/records/did:plc:xbserj4jfuhzkbl3mszkvvrb/sh.tangled.feed.reaction/3lzg6yqo3i222/bafyreifiyyladojcg74vmjptormkfh6hudw3pya5icxij56y7mh7tvo2re.json",
+              "NewOIDPrefix": "66f6959fffe8d3cbb7a4e6dd61f55c61b1decd37",
+              "OldMode": 0,
+              "OldName": "",
+              "OldOIDPrefix": "0000000000000000000000000000000000000000",
+              "ReverseBinaryFragment": null,
+              "Score": 0,
+              "TextFragments": [
+                {
+                  "Comment": "",
+                  "LeadingContext": 0,
+                  "Lines": [],
+                  "LinesAdded": 5,
+                  "LinesDeleted": 0,
+                  "NewLines": 5,
+                  "NewPosition": 1,
+                  "OldLines": 0,
+                  "OldPosition": 0,
+                  "TrailingContext": 0
+                }
+              ]
+            }
+          ],
+          "Raw": "",
+          "RawHeaders": {
+            "Change-Id": [
+              "xulvmvnnqsqszvrpttnvlyqrnntnxknp"
+            ],
+            "Date": [
+              "Tue, 29 Sep 2026 23:05:56 +0900"
+            ],
+            "From": [
+              "Seongmin Lee <user@example.invalid>"
+            ],
+            "Subject": [
+              "[PATCH] localinfra: structured data seeder"
+            ]
+          },
+          "SHA": "f8a0d0576deff7fd3bf216b3dc68ed87de703a0e",
+          "SubjectPrefix": "[PATCH] ",
+          "Title": "localinfra: structured data seeder"
+        }
+      ],
+      "merge_base": "031fa80a402e9f5127ac9100c5b12ff7474f030e",
+      "patch": "From 495dd8faf034fe5e2291fc1057ecddfd9a5ba5d4 Mon Sep 17 00:00:00 2001\nFrom: Seongmin Lee <user@example.invalid>\nDate: Tue, 29 Sep 2026 22:21:23 +0900\nSubject: [PATCH] knot-atproto,knot-xrpc,lexicons: accept user-provided did:plc identities\nChange-Id: utnmyryrpswuzornywymloktsyqxwlwm\n\nSigned-off-by: Seongmin Lee <user@example.invalid>\n---\n lexicons/repo/create.json                | 2 +-\n lexicons/repo/reserveKey.json            | 6 +++---\n knot2/crates/knot-atproto/src/lib.rs     | 12 ++++++------\n knot2/crates/knot-atproto/src/resolve.rs | 12 ------------\n knot2/crates/knot-xrpc/src/repos.rs      | 16 ++++------------\n 5 files changed, 14 insertions(+), 34 deletions(-)\n\ndiff --git a/lexicons/repo/create.json b/lexicons/repo/create.json\nindex fa10be44b95222d29df4453f3857cf890bc49878..3dd8c0a650d11897df74930bab2a1f8931cc0126 100644\n--- a/lexicons/repo/create.json\n+++ b/lexicons/repo/create.json\n@@ -35,7 +35,7 @@\n             \"repoDid\": {\n               \"type\": \"string\",\n               \"format\": \"did\",\n-              \"description\": \"Optional user-provided did:web to use as the repo identity instead of minting a did:plc.\"\n+              \"description\": \"Optional user-provided DID to use as the repo identity instead of minting one.\"\n             }\n           }\n         }\ndiff --git a/lexicons/repo/reserveKey.json b/lexicons/repo/reserveKey.json\nindex 26c8c1e72ecc56cf9f1fa0631c25f457a6630c27..ea6d0afd7cd6521fa0c37ed0f0c837aeae571665 100644\n--- a/lexicons/repo/reserveKey.json\n+++ b/lexicons/repo/reserveKey.json\n@@ -4,7 +4,7 @@\n   \"defs\": {\n     \"main\": {\n       \"type\": \"procedure\",\n-      \"description\": \"Reserve a signing key for a bring-your-own did:web repository identity. The knot seals the key and returns its multibase encoding so the owner can publish it in their did:web document before calling sh.tangled.repo.create.\",\n+      \"description\": \"Reserve a signing key for a bring-your-own DID repository identity. The knot seals the key and returns its multibase encoding so the owner can publish it in their DID document before calling sh.tangled.repo.create.\",\n       \"input\": {\n         \"encoding\": \"application/json\",\n         \"schema\": {\n@@ -16,7 +16,7 @@\n             \"repoDid\": {\n               \"type\": \"string\",\n               \"format\": \"did\",\n-              \"description\": \"The did:web identity the repository will use.\"\n+              \"description\": \"The DID this repository will use.\"\n             }\n           }\n         }\n@@ -36,7 +36,7 @@\n             },\n             \"key\": {\n               \"type\": \"string\",\n-              \"description\": \"Multibase-encoded public key to publish in the did:web document.\"\n+              \"description\": \"Multibase-encoded public key to publish in the DID document.\"\n             }\n           }\n         }\ndiff --git a/knot2/crates/knot-atproto/src/lib.rs b/knot2/crates/knot-atproto/src/lib.rs\nindex 2b2f1e7bd577ba2f41fc43a3a98e48de566de39e..9e9354bc1dc39ffdd635f56f609f396155bdfaea 100644\n--- a/knot2/crates/knot-atproto/src/lib.rs\n+++ b/knot2/crates/knot-atproto/src/lib.rs\n@@ -840,13 +840,13 @@\n         pointer::receipt_from_response(&response.body)\n     }\n \n-    pub async fn verify_did_web_account_document(\n+    pub async fn verify_account_document(\n         &self,\n         did: &RepoDid,\n         expected: &PublicKeyBytes,\n         expected_pds: &knot_types::KnotServiceUrl,\n     ) -> Result<(), AtprotoError> {\n-        let url = resolve::web_document_url_for(did)?;\n+        let url = self.document_url(&AccountDid::from(did.clone()))?;\n         resolve::guard_fetch_url(&url)?;\n         let response = self\n             .http\n@@ -2438,7 +2438,7 @@\n         });\n         let atproto = Atproto::new(http, clock(), knot_did(KNOT), plc());\n         atproto\n-            .verify_did_web_account_document(\n+            .verify_account_document(\n                 &repo_did(\"did:web:limpet.olaren.dev\"),\n                 &PublicKeyBytes::from_bytes(sec1(&signing)),\n                 &expected_pds,\n@@ -2458,7 +2458,7 @@\n…",
+      "rev1": "031fa80a402e9f5127ac9100c5b12ff7474f030e",
+      "rev2": "f8a0d0576deff7fd3bf216b3dc68ed87de703a0e"
+    }
+  }
+}

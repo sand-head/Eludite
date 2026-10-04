@@ -1,0 +1,20 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/com.atproto.identity.resolveHandle",
+    "query": {
+      "handle": "tangled.org"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8",
+      "etag": "W/\"2a-adJraW8Wa84v7JKG/1iKDY6ghmo\""
+    },
+    "body": {
+      "did": "did:plc:wshs7t2adsemcrrd4snkeqli"
+    }
+  }
+}

@@ -155,7 +155,10 @@ pub fn detect(
     let Some(r) = parse_remote(url) else {
         return none(String::new());
     };
-    let (family, api) = match host_entry(&r.host, hosts) {
+    // A setting may name the web host an ssh or legacy host stands for (`tangled.sh` is `tangled.org`).
+    let entry = host_entry(&r.host, hosts)
+        .or_else(|| known_family(&r.host).and_then(|f| host_entry(&web_host(&r, f), hosts)));
+    let (family, api) = match entry {
         Some(e) => (e.family, e.api.clone()),
         None => match known_family(&r.host) {
             Some(f) => (f, None),

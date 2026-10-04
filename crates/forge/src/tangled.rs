@@ -62,6 +62,18 @@ fn handles() -> &'static Mutex<HashMap<String, String>> {
     H.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Where a `did:web` document is: on its domain, or under the loopback appview (the fixture server).
+fn did_web_url(appview: &str, domain: &str) -> String {
+    if is_loopback(appview) {
+        format!(
+            "{}/didweb/{domain}/.well-known/did.json",
+            appview.trim_end_matches('/')
+        )
+    } else {
+        format!("https://{domain}/.well-known/did.json")
+    }
+}
+
 /// Where identities resolve: a handle through `com.atproto.identity.resolveHandle`, a DID's document through the PLC
 /// directory. Against a loopback appview (the fixture server) both are the appview itself.
 fn resolver(appview: &str) -> (String, String) {
@@ -121,7 +133,7 @@ pub fn resolve_handle(t: &dyn Transport, appview: &str, handle: &str) -> Result<
 pub fn pds_of(t: &dyn Transport, appview: &str, did: &str) -> Result<String> {
     let (_, plc) = resolver(appview);
     let url = if let Some(domain) = did.strip_prefix("did:web:") {
-        format!("https://{domain}/.well-known/did.json")
+        did_web_url(appview, domain)
     } else {
         format!("{plc}/{did}")
     };
@@ -284,7 +296,11 @@ impl Tangled {
             return h.clone();
         }
         let (_, plc) = resolver(&self.client.base);
-        let h = get_json(&*self.client.transport, &format!("{plc}/{did}"))
+        let url = match did.strip_prefix("did:web:") {
+            Some(domain) => did_web_url(&self.client.base, domain),
+            None => format!("{plc}/{did}"),
+        };
+        let h = get_json(&*self.client.transport, &url)
             .ok()
             .and_then(|d| {
                 d["alsoKnownAs"]

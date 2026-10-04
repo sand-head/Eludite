@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PATCH",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/17/threads/31"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 31,
+      "status": "fixed"
+    }
+  }
+}

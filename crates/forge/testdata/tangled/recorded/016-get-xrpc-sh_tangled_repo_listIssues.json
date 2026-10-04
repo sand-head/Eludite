@@ -1,0 +1,72 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.listIssues",
+    "query": {
+      "limit": "3",
+      "state": "open",
+      "subject": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cursor": "00065cd7496f030000029691",
+      "items": [
+        {
+          "cid": "bafyreigxhsvcyxhdn7x7avxblovjxaka52hftbbsp2mxqowtcqc2uvpkku",
+          "commentCount": 0,
+          "state": "open",
+          "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.issue/3mwxz7tjlyc44",
+          "value": {
+            "$type": "sh.tangled.repo.issue",
+            "body": "Currently, the README on the repository index page is buried below the file tree and commit log. Having to scroll down 1.5 pages doesn't seem like a good UX.\n\nIdeally, I think we need a complete layout redesign for our repo index page, but there are a few easy fixes we can do in the meantime:\n\n- Reduce max commit count (3~5)\\\n  imo 3 is enough. Github & Codeberg show only one, and honestly I haven't had any issues with that. I can still see handful of recent commits from the file tree.\n- Set a max height for the file tree. Cut down long lists by default.\\\n  The file tree is less important than the README.",
+            "createdAt": "2026-10-03T13:40:42.926Z",
+            "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+            "title": "UI: make readme more accessible from repo index page."
+          }
+        },
+        {
+          "cid": "bafyreibkojmxggwwdiskt2cprpowbecnblxeqtiju4w3wu7x7on7hldiem",
+          "commentCount": 0,
+          "state": "open",
+          "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.issue/3mww5wydefkya",
+          "value": {
+            "$type": "sh.tangled.repo.issue",
+            "body": "Workable task for [#771](https://tangled.org/tangled.org/core/issues/771).\n\nrkey of `org.tangled.repo.declaration` should be normalized so same user cannot claim ownership with multiple names. We want to avoid this to happen:\n\n```\nat://boltless.me/org.tangled.repo.declaration/NativeVim\n{ \"repo\": \"did:plc:repo1\", \"createdAt\": \"2025-09-22T11:14:35+01:00\" }\nat://boltless.me/org.tangled.repo.declaration/nativevim\n{ \"repo\": \"did:plc:repo2\", \"createdAt\": \"2025-09-22T11:14:35+01:00\" }\n```\n\nSo rkey (slug) must be normalized. We should force them to be lowercased so only `/nativevim` here will be effective. But we also want to keep the original name with intended cases. We can keep that information under `org.tangled.repo.manifest/self` record owned by the repository itself.\n\n```\nat://did:plc:repo2/org.tangled.repo.manifest/self\n{\n  \"owner\": \"did:plc:boltless\",\n  \"name\": \"NativeVim\",\n  // ...\n}\n```\n\n`.name` will be used on two-way verification but only after the normalization. In this case, we expect `at://did:plc:boltless/org.tangled.repo.declaration/nativevim` to exist and its `.repo` value point to same DID.",
+            "createdAt": "2026-10-02T19:59:55.206Z",
+            "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+            "title": "lexicons: `org.tangled.repo.manifest` rename `.slug` to `.name`"
+          }
+        },
+        {
+          "cid": "bafyreibec2xlkp4z6t5v3mbqsg7tzsnf2fx2b3e63jkhbuyo42fhgosatq",
+          "commentCount": 1,
+          "state": "open",
+          "uri": "at://did:web:daroche.me/sh.tangled.repo.issue/3mwux6qyiwa22",
+          "value": {
+            "$type": "sh.tangled.repo.issue",
+            "blobs": [
+              {
+                "$type": "blob",
+                "mimeType": "image/png",
+                "ref": {
+                  "$link": "bafkreihpnahdgh5ss5ecrpe4orsohuiqowog6kstzu7amcz5y3gizvwatq"
+                },
+                "size": 37510
+              }
+            ],
+            "body": "Creating a repository with uppercase characters will cause the tangled ui (both current HTMX & next's svelte) to show the same name in the clone repository dropdown.\n\n![Image](blob+at://did:web:daroche.me/bafkreihpnahdgh5ss5ecrpe4orsohuiqowog6kstzu7amcz5y3gizvwatq)\n\nThis makes the webui's SSH clone url unusable unless lowercased by the user, as knot2 refers to repositories by their record id rather than their Name.\n\nReproducer :\n\n```\n$ git ls-remote git@tangled.org:daroche.me/UppercaseTest-tangled\nknot: repository not found\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n\n$ git ls-remote git@tangled.org:daroche.me/uppercasetest-tangled\n04e11257596fe699e6fdae15361f22364770fe99        HEAD\n04e11257596fe699e6fdae15361f22364770fe99        refs/heads/main\n```",
+            "createdAt": "2026-10-02T11:26:20+03:00",
+            "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is",
+            "title": "UI : Displayed SSH clone URL doesn't account for uppercase characters"
+          }
+        }
+      ]
+    }
+  }
+}

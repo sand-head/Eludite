@@ -1,0 +1,49 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/pulls/14628/files",
+    "query": {
+      "limit": "50"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8",
+      "x-total-count": "3"
+    },
+    "body": [
+      {
+        "additions": 11,
+        "changes": 17,
+        "contents_url": "https://codeberg.org/api/v1/repos/mfenniak/forgejo/contents/routers/private/hook_post_receive.go?ref=fff1d9ba04a48301714e7efb6804b467bb9eae02",
+        "deletions": 6,
+        "filename": "routers/private/hook_post_receive.go",
+        "html_url": "https://codeberg.org/mfenniak/forgejo/src/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/routers/private/hook_post_receive.go",
+        "raw_url": "https://codeberg.org/mfenniak/forgejo/raw/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/routers/private/hook_post_receive.go",
+        "status": "changed"
+      },
+      {
+        "additions": 64,
+        "changes": 111,
+        "contents_url": "https://codeberg.org/api/v1/repos/mfenniak/forgejo/contents/services/repository/branch.go?ref=fff1d9ba04a48301714e7efb6804b467bb9eae02",
+        "deletions": 47,
+        "filename": "services/repository/branch.go",
+        "html_url": "https://codeberg.org/mfenniak/forgejo/src/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/services/repository/branch.go",
+        "raw_url": "https://codeberg.org/mfenniak/forgejo/raw/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/services/repository/branch.go",
+        "status": "changed"
+      },
+      {
+        "additions": 101,
+        "changes": 101,
+        "contents_url": "https://codeberg.org/api/v1/repos/mfenniak/forgejo/contents/tests/integration/git_push_test.go?ref=fff1d9ba04a48301714e7efb6804b467bb9eae02",
+        "deletions": 0,
+        "filename": "tests/integration/git_push_test.go",
+        "html_url": "https://codeberg.org/mfenniak/forgejo/src/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/tests/integration/git_push_test.go",
+        "raw_url": "https://codeberg.org/mfenniak/forgejo/raw/commit/fff1d9ba04a48301714e7efb6804b467bb9eae02/tests/integration/git_push_test.go",
+        "status": "changed"
+      }
+    ]
+  }
+}

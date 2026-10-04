@@ -1,0 +1,20 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/discussions/d1a2b3"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "d1a2b3",
+      "notes": [
+        {
+          "id": 701,
+          "resolvable": true,
+          "resolved": true
+        }
+      ]
+    }
+  }
+}

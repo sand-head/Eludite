@@ -1,0 +1,33 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.pull.listStatuses",
+    "query": {
+      "limit": "1",
+      "order": "desc",
+      "subject": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull/3mwqc5pt6dc5d"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cursor": null,
+      "items": [
+        {
+          "cid": "bafyreibmb7n6ktkxjasbgd2wivskqx4yx5ed7lucymeg7cidmolldexgpe",
+          "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull.status/3mwqcvggnr2vw",
+          "value": {
+            "$type": "sh.tangled.repo.pull.status",
+            "createdAt": "2026-09-30T12:12:33.164Z",
+            "pull": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull/3mwqc5pt6dc5d",
+            "status": "sh.tangled.repo.pull.status.merged"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/actions/runs/7451709/jobs"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8"
+    },
+    "body": [
+      {
+        "attempt": 1,
+        "handle": "f3ba6fb7-bcb0-46f9-8528-6c4ecd61c8a5",
+        "id": 13661601,
+        "name": "backporting",
+        "needs": null,
+        "owner_id": 70422,
+        "repo_id": 73144,
+        "run_id": 7451709,
+        "runs_on": [
+          "docker"
+        ],
+        "status": "failure",
+        "task_id": 10082922
+      }
+    ]
+  }
+}

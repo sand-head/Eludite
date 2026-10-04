@@ -1,0 +1,16 @@
+{
+  "source": "synthesized from the sh.tangled.* and com.atproto.* lexicons in protocol/forge/tangled (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/com.atproto.identity.resolveHandle",
+    "query": {
+      "handle": "octocat.example"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "did": "did:plc:testuser"
+    }
+  }
+}

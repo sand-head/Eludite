@@ -1,0 +1,133 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/issues/14628/comments",
+    "query": {
+      "limit": "50"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8",
+      "x-total-count": "3"
+    },
+    "body": [
+      {
+        "assets": [],
+        "body": "\n<!-- create-or-update-comment -->\nPull request coverage report generated on Sat Oct  3 16:41:10 UTC 2026 for fff1d9ba04a48301714e7efb6804b467bb9eae02 by [0.2.15](https://codeberg.org/clouds666/unkai).\n<details>\n\n<pre>\n<span>file: forgejo.org/routers/private/hook_post_receive.go\n</span><span style=\"color: rgb(125, 125, 125)\">   8: </span><span style=\"color: rgb(125, 125, 125)\">    &#34;fmt&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">   9: </span><span style=\"color: rgb(125, 125, 125)\">    &#34;net/http&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">  10: </span><span style=\"color: rgb(125, 125, 125)\">    &#34;strconv&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">  11: </span><span>    &#34;testing&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">  12: </span><span style=\"color: rgb(125, 125, 125)\">    &#34;time&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">  13: </span><span style=\"color: rgb(125, 125, 125)\"></span>\n<span style=\"color: rgb(125, 125, 125)\">  14: </span><span style=\"color: rgb(125, 125, 125)\">    &#34;forgejo.org/models/db&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\"> ...\n</span><span style=\"color: rgb(125, 125, 125)\">  32: </span><span style=\"color: rgb(125, 125, 125)\">    repo_service &#34;forgejo.org/services/repository&#34;</span>\n<span style=\"color: rgb(125, 125, 125)\">  33: </span><span style=\"color: rgb(125, 125, 125)\">)</span>\n<span style=\"color: rgb(125, 125, 125)\">  34: </span><span style=\"color: rgb(125, 125, 125)\"></span>\n<span style=\"color: rgb(125, 125, 125)\">  35: </span><span>// TestSeamPostReceiveSync is a test seam (a place where you can alter behaviour without editing the code) that is</span>\n<span style=\"color: rgb(125, 125, 125)\">  36: </span><span>// invoked when post-receive hook is just about to sync branches to the database, but hasn&#39;t yet.  This should only be</span>\n<span style=\"color: rgb(125, 125, 125)\">  37: </span><span>// used in test code.</span>\n<span style=\"color: rgb(125, 125, 125)\">  38: </span><span>var TestSeamPostReceiveSync func(*repo_module.PushUpdateOptions)</span>\n<span style=\"color: rgb(125, 125, 125)\">  39: </span><span></span>\n<span style=\"color: rgb(125, 125, 125)\">  40: </span><span style=\"color: rgb(125, 125, 125)\">// HookPostReceive updates services and users</span>\n<span style=\"color: rgb(125, 125, 125)\">  41: </span><span style=\"color: rgb(125, 125, 125)\">func HookPostReceive(ctx *app_context.PrivateContext) {</span>\n<span style=\"color: rgb(125, 125, 125)\">  42: </span><span style=\"color: rgb(125, 125, 125)\">    </span><span style=\"color: rgb(125, 125, 125)\">opts := web.GetForm(ctx).(*private.HookOptions)</span>\n<span style=\"color: rgb(125, 125, 125)\"> ...\n</span><span style=\"color: rgb(125, 125, 125)\"> 132: </span><span style=\"color: rgb(125, 125, 125)\">                return</span>\n<span style=\"color: rgb(125, 125, 125)\"> 133: </span><span style=\"color: rgb(125, 125, 125)\"></span><span style=\"color: rgb(125, 125, 125)\">            }</span>\n<span style=\"color: rgb(125, 125, 125)\"> 134: </span><span style=\"color: rgb(125, 125, 125)\"></span>\n<span style=\"color: rgb(125, 125, 125)\"> 135: </span><span>            </span><span style=\"color: rgb(25, 196, 25)\">branchNames := make([]string, 0, len(branchesToSync))</span>\n<span style=\"color: rgb(125, 125, 125)\"> 136: </span><span style=\"color: rgb(125, 125, 125)\">            for _, update := range branchesToSync </span><span style=\"color: rgb(125, 125, 125)\">{</span>\n<span style=\"color: rgb(125, 125, 125)\"> 137: </span><span style=\"color: rgb(125, 125, 125)\">                </span><span style=\"color: rgb(125, 125, 125)\">branchNames = append(branchNames, update.RefFullName.BranchName())</span>\n<span style=\"color: rgb(125, 125, 125)\"> 138: </span><span style=\"color: rgb(25, 199, 25)\">                if TestSeamPostReceiveSync != nil &amp;&amp; testing.Testing() </span><span>{</span>\n<span style=\"color: rgb(125, 125, 125)\"> 139: </span><span>                    </span><span style=\"c…",
+        "created_at": "2026-10-01T00:02:15+02:00",
+        "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14628#issuecomment-24328701",
+        "id": 24328701,
+        "issue_url": "",
+        "original_author": "",
+        "original_author_id": 0,
+        "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14628",
+        "updated_at": "2026-10-03T18:41:11+02:00",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "1970-01-01T01:00:00+01:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 0,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/forgejo-actions",
+          "id": -2,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "forgejo-actions",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 0,
+          "username": "forgejo-actions",
+          "visibility": "public",
+          "website": ""
+        }
+      },
+      {
+        "assets": [],
+        "body": "The backport to `v15.0/forgejo` failed. Check the latest run for more details.\n\nReconstruction of the attempted steps (beware that escaping may be missing):\n```sh\ngit fetch origin v15.0/forgejo\ngit switch -c bp-v15.0/forgejo-2e3081b origin/v15.0/forgejo\ngit fetch origin pull/14628/head:pr/14628\n# the step below failed\ngit cherry-pick -m 1 --strategy=ort --strategy-option=find-renames -x 2e3081b4acededf5fa9eb15a6a8eb1550e22ab45\ngit push origin bp-v15.0/forgejo-2e3081b\n# codeberg.createPullRequest\n```",
+        "created_at": "2026-10-03T19:29:43+02:00",
+        "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14628#issuecomment-24617961",
+        "id": 24617961,
+        "issue_url": "",
+        "original_author": "",
+        "original_author_id": 0,
+        "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14628",
+        "updated_at": "2026-10-03T19:29:43+02:00",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2024-03-23T11:08:38+01:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 1,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/forgejo-backport-action",
+          "id": 165271,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "forgejo-backport-action",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 0,
+          "username": "forgejo-backport-action",
+          "visibility": "public",
+          "website": ""
+        }
+      },
+      {
+        "assets": [],
+        "body": "The backport to `v16.0/forgejo` failed. Check the latest run for more details.\n\nReconstruction of the attempted steps (beware that escaping may be missing):\n```sh\ngit fetch origin v16.0/forgejo\ngit switch -c bp-v16.0/forgejo-2e3081b origin/v16.0/forgejo\ngit fetch origin pull/14628/head:pr/14628\n# the step below failed\ngit cherry-pick -m 1 --strategy=ort --strategy-option=find-renames -x 2e3081b4acededf5fa9eb15a6a8eb1550e22ab45\ngit push origin bp-v16.0/forgejo-2e3081b\n# codeberg.createPullRequest\n```",
+        "created_at": "2026-10-03T19:29:48+02:00",
+        "html_url": "https://codeberg.org/forgejo/forgejo/pulls/14628#issuecomment-24617964",
+        "id": 24617964,
+        "issue_url": "",
+        "original_author": "",
+        "original_author_id": 0,
+        "pull_request_url": "https://codeberg.org/forgejo/forgejo/pulls/14628",
+        "updated_at": "2026-10-03T19:29:48+02:00",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2024-03-23T11:08:38+01:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 1,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/forgejo-backport-action",
+          "id": 165271,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "forgejo-backport-action",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 0,
+          "username": "forgejo-backport-action",
+          "visibility": "public",
+          "website": ""
+        }
+      }
+    ]
+  }
+}

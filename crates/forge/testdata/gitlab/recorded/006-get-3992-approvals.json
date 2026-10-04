@@ -1,0 +1,51 @@
+{
+  "source": "recorded from gitlab.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/approvals"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "etag": "W/\"6363dade18746735fd3380d8e2bebdb3\""
+    },
+    "body": {
+      "approval_rules_left": [
+        {
+          "id": 387559446,
+          "name": "/docs/",
+          "rule_type": "code_owner"
+        },
+        {
+          "id": 387559447,
+          "name": "*",
+          "rule_type": "code_owner"
+        }
+      ],
+      "approvals_left": 2,
+      "approvals_required": 2,
+      "approved": false,
+      "approved_by": [],
+      "approver_groups": [],
+      "approvers": [],
+      "created_at": "2026-10-02T11:42:57.436Z",
+      "description": "",
+      "has_approval_rules": true,
+      "id": 542136460,
+      "iid": 3992,
+      "invalid_approvers_rules": [],
+      "merge_request_approvers_available": true,
+      "merge_status": "can_be_merged",
+      "multiple_approval_rules_available": true,
+      "project_id": 34675721,
+      "require_password_to_approve": false,
+      "state": "opened",
+      "suggested_approvers": [],
+      "title": "feat(auth): set default host on login to a self-managed instance",
+      "updated_at": "2026-10-03T17:15:28.625Z",
+      "user_can_approve": false,
+      "user_has_approved": false
+    }
+  }
+}

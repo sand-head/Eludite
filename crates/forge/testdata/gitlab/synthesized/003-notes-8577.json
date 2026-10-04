@@ -1,0 +1,35 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v4/projects/gitlab-org/cli/issues/8577/notes"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 801,
+        "body": "Reproduced with glab 1.50.",
+        "author": {
+          "id": 1,
+          "username": "maintainer",
+          "name": "Maintainer",
+          "web_url": "https://gitlab.com/maintainer"
+        },
+        "created_at": "2026-10-01T09:00:00Z",
+        "system": false
+      },
+      {
+        "id": 802,
+        "body": "changed the description",
+        "author": {
+          "id": 1,
+          "username": "maintainer",
+          "name": "Maintainer",
+          "web_url": "https://gitlab.com/maintainer"
+        },
+        "system": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/dnceng-public/public/_apis/wit/wiql"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "workItems": [
+        {
+          "id": 101
+        },
+        {
+          "id": 102
+        }
+      ]
+    }
+  }
+}

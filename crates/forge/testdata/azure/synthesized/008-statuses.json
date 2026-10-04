@@ -1,0 +1,23 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/commits/1111111111111111111111111111111111111111/statuses"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "value": [
+        {
+          "id": 1,
+          "state": "succeeded",
+          "context": {
+            "genre": "continuous-integration",
+            "name": "build"
+          },
+          "targetUrl": "https://dev.azure.com/x/build/1"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/_apis/connectionData"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "authenticatedUser": {
+        "id": "6c8f3c5e-0000-4000-8000-000000000001",
+        "providerDisplayName": "Octo Cat",
+        "descriptor": "Microsoft.IdentityModel.Claims.ClaimsIdentity;x",
+        "properties": {
+          "Account": {
+            "$type": "System.String",
+            "$value": "octocat@example.invalid"
+          }
+        }
+      }
+    }
+  }
+}

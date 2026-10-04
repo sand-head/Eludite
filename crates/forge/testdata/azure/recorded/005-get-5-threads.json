@@ -1,0 +1,542 @@
+{
+  "source": "recorded from dev.azure.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/5/threads",
+    "query": {
+      "api-version": "7.1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8; api-version=7.1"
+    },
+    "body": {
+      "count": 7,
+      "value": [
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/8"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/8/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/8"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/s2s.MDAwMDAwMDItMDAwMC04ODg4LTgwMDAtMDAwMDAwMDAwMDAwQDJjODk1OTA4LTA0ZTAtNDk1Mi04OWZkLTU0YjAwNDZkNjI4OA"
+                  }
+                },
+                "descriptor": "s2s.MDAwMDAwMDItMDAwMC04ODg4LTgwMDAtMDAwMDAwMDAwMDAwQDJjODk1OTA4LTA0ZTAtNDk1Mi04OWZkLTU0YjAwNDZkNjI4OA",
+                "displayName": "Microsoft.VisualStudio.Services.TFS",
+                "id": "00000002-0000-8888-8000-000000000000",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/00000002-0000-8888-8000-000000000000"
+              },
+              "commentType": "system",
+              "content": "MerlinBot added 3 reviewers",
+              "id": 1,
+              "lastContentUpdatedDate": "2026-02-18T04:35:03.63Z",
+              "lastUpdatedDate": "2026-02-18T04:35:03.63Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:03.63Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 8,
+          "identities": {
+            "1": {
+              "_links": {
+                "avatar": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/aad.MDhjMzdjMGQtZGM2Yy03NjM1LTk2NjItMWZhOGRhZDkwODc4"
+                }
+              },
+              "descriptor": "aad.MDhjMzdjMGQtZGM2Yy03NjM1LTk2NjItMWZhOGRhZDkwODc4",
+              "displayName": "Mark Wilkie",
+              "id": "08c37c0d-dc6c-6635-9662-1fa8dad90878",
+              "imageUrl": null,
+              "uniqueName": null,
+              "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/08c37c0d-dc6c-6635-9662-1fa8dad90878"
+            },
+            "2": {
+              "_links": {
+                "avatar": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                }
+              },
+              "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+              "displayName": "MerlinBot",
+              "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+              "imageUrl": null,
+              "uniqueName": null,
+              "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+            }
+          },
+          "isDeleted": false,
+          "lastUpdatedDate": "2026-02-18T04:35:03.63Z",
+          "properties": {
+            "CodeReviewReviewersUpdatedAddedIdentity": {
+              "$type": "System.String",
+              "$value": "1"
+            },
+            "CodeReviewReviewersUpdatedByIdentity": {
+              "$type": "System.String",
+              "$value": "2"
+            },
+            "CodeReviewReviewersUpdatedNumAdded": {
+              "$type": "System.Int32",
+              "$value": 3
+            },
+            "CodeReviewReviewersUpdatedNumChanged": {
+              "$type": "System.Int32",
+              "$value": 0
+            },
+            "CodeReviewReviewersUpdatedNumDeclined": {
+              "$type": "System.Int32",
+              "$value": 0
+            },
+            "CodeReviewReviewersUpdatedNumRemoved": {
+              "$type": "System.Int32",
+              "$value": 0
+            },
+            "CodeReviewThreadType": {
+              "$type": "System.String",
+              "$value": "ReviewersUpdate"
+            }
+          },
+          "publishedDate": "2026-02-18T04:35:03.63Z",
+          "pullRequestThreadContext": null,
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/9"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/9/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/9"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/s2s.MDAwMDAwMDItMDAwMC04ODg4LTgwMDAtMDAwMDAwMDAwMDAwQDJjODk1OTA4LTA0ZTAtNDk1Mi04OWZkLTU0YjAwNDZkNjI4OA"
+                  }
+                },
+                "descriptor": "s2s.MDAwMDAwMDItMDAwMC04ODg4LTgwMDAtMDAwMDAwMDAwMDAwQDJjODk1OTA4LTA0ZTAtNDk1Mi04OWZkLTU0YjAwNDZkNjI4OA",
+                "displayName": "Microsoft.VisualStudio.Services.TFS",
+                "id": "00000002-0000-8888-8000-000000000000",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/00000002-0000-8888-8000-000000000000"
+              },
+              "commentType": "system",
+              "content": "MerlinBot set auto-complete",
+              "id": 1,
+              "lastContentUpdatedDate": "2026-02-18T04:35:04.08Z",
+              "lastUpdatedDate": "2026-02-18T04:35:04.08Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:04.08Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 9,
+          "identities": {
+            "1": {
+              "_links": {
+                "avatar": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                }
+              },
+              "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+              "displayName": "MerlinBot",
+              "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+              "imageUrl": null,
+              "uniqueName": null,
+              "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+            }
+          },
+          "isDeleted": false,
+          "lastUpdatedDate": "2026-02-18T04:35:04.08Z",
+          "properties": {
+            "CodeReviewAutoCompleteNowSet": {
+              "$type": "System.String",
+              "$value": "1"
+            },
+            "CodeReviewAutoCompleteUpdatedByIdentity": {
+              "$type": "System.String",
+              "$value": "1"
+            },
+            "CodeReviewThreadType": {
+              "$type": "System.String",
+              "$value": "AutoCompleteUpdate"
+            }
+          },
+          "publishedDate": "2026-02-18T04:35:04.08Z",
+          "pullRequestThreadContext": null,
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/10"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/10/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/10"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                  }
+                },
+                "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+                "displayName": "MerlinBot",
+                "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+              },
+              "commentType": "system",
+              "content": "MerlinBot updated the pull request status to Completed",
+              "id": 1,
+              "lastContentUpdatedDate": "2026-02-18T04:35:05.38Z",
+              "lastUpdatedDate": "2026-02-18T04:35:05.38Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:05.38Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 10,
+          "identities": {
+            "1": {
+              "_links": {
+                "avatar": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                }
+              },
+              "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+              "displayName": "MerlinBot",
+              "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+              "imageUrl": null,
+              "uniqueName": null,
+              "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+            }
+          },
+          "isDeleted": false,
+          "lastUpdatedDate": "2026-02-18T04:35:05.38Z",
+          "properties": {
+            "BypassPolicy": {
+              "$type": "System.String",
+              "$value": "False"
+            },
+            "CodeReviewStatus": {
+              "$type": "System.String",
+              "$value": "Completed"
+            },
+            "CodeReviewStatusUpdateAssociatedCommit": {
+              "$type": "System.String",
+              "$value": "af56d96fdbd7c26e9fc94336b6f50dcc6ceff484"
+            },
+            "CodeReviewStatusUpdatedByIdentity": {
+              "$type": "System.String",
+              "$value": "1"
+            },
+            "CodeReviewThreadType": {
+              "$type": "System.String",
+              "$value": "StatusUpdate"
+            }
+          },
+          "publishedDate": "2026-02-18T04:35:05.38Z",
+          "pullRequestThreadContext": null,
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/11"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/11/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/11"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                  }
+                },
+                "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+                "displayName": "MerlinBot",
+                "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+              },
+              "commentType": "text",
+              "id": 1,
+              "isDeleted": true,
+              "lastContentUpdatedDate": "2026-02-18T04:35:13.763Z",
+              "lastUpdatedDate": "2026-02-18T04:35:13.763Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:08.573Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 11,
+          "identities": null,
+          "isDeleted": true,
+          "lastUpdatedDate": "2026-02-18T04:35:13.763Z",
+          "properties": null,
+          "publishedDate": "2026-02-18T04:35:08.573Z",
+          "pullRequestThreadContext": null,
+          "status": "closed",
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/12"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/12/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/12"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                  }
+                },
+                "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+                "displayName": "MerlinBot",
+                "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+              },
+              "commentType": "text",
+              "content": "<img src=\"https://img.shields.io/static/v1?label=ES Metadata Validation&message=Information&color=green\">\n\n<p />\n\n\n## Valid\n---\n- /es-metadata.yml\n\n\n\n\n<p align=\"right\"><sub>Total execution time: 0.39 seconds</sub></p>\n\n<!-- Policy app identification https://img.shields.io/static/v1?label=EsMetadata. -->\n<!-- GitOpsUserAgent=GitOps.Outcome.Service.EsMetadata -->\n",
+              "id": 1,
+              "lastContentUpdatedDate": "2026-02-18T04:35:14.04Z",
+              "lastUpdatedDate": "2026-02-18T04:35:14.04Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:14.04Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 12,
+          "identities": null,
+          "isDeleted": false,
+          "lastUpdatedDate": "2026-02-18T04:35:14.04Z",
+          "properties": null,
+          "publishedDate": "2026-02-18T04:35:14.04Z",
+          "pullRequestThreadContext": null,
+          "status": "closed",
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/13"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/13/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/13"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                  }
+                },
+                "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+                "displayName": "MerlinBot",
+                "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+              },
+              "commentType": "text",
+              "id": 1,
+              "isDeleted": true,
+              "lastContentUpdatedDate": "2026-02-18T04:35:26.41Z",
+              "lastUpdatedDate": "2026-02-18T04:35:26.41Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:18.877Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 13,
+          "identities": null,
+          "isDeleted": true,
+          "lastUpdatedDate": "2026-02-18T04:35:26.41Z",
+          "properties": null,
+          "publishedDate": "2026-02-18T04:35:18.877Z",
+          "pullRequestThreadContext": null,
+          "status": "closed",
+          "threadContext": null
+        },
+        {
+          "_links": {
+            "repository": {
+              "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+            },
+            "self": {
+              "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/14"
+            }
+          },
+          "comments": [
+            {
+              "_links": {
+                "pullRequests": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/pullRequests/5"
+                },
+                "repository": {
+                  "href": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90"
+                },
+                "self": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/14/comments/1"
+                },
+                "threads": {
+                  "href": "https://dev.azure.com/dnceng-public/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/pullRequests/5/threads/14"
+                }
+              },
+              "author": {
+                "_links": {
+                  "avatar": {
+                    "href": "https://dev.azure.com/dnceng-public/_apis/GraphProfile/MemberAvatars/svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ"
+                  }
+                },
+                "descriptor": "svc.NmZjYzkyZTUtNzNhNy00Zjg4LThkMTMtZDkwNDViNDVmYjI3OkFwcGxpY2F0aW9uOjU2YjBmMDQyLWIwNWUtODZkOS1iMGY3LWM1ZGRiMWU3NjM4NQ",
+                "displayName": "MerlinBot",
+                "id": "56b0f042-b05e-86d9-b0f7-c5ddb1e76385",
+                "imageUrl": null,
+                "uniqueName": null,
+                "url": "https://spsprodcus4.vssps.visualstudio.com/A10a5dd58-16e3-41e8-b079-e25cb8111111/_apis/Identities/56b0f042-b05e-86d9-b0f7-c5ddb1e76385"
+              },
+              "commentType": "text",
+              "content": "<img src=\"https://img.shields.io/static/v1?label=1ES+Inventory+Policy&message=Information&color=green\">\n\n<p />\n\n\n# 1ES inventory check has PASSED.\n## Valid\n---\nTotal number of valid files: 1\n- /es-metadata.yml\n\n\n\n\n<p align=\"right\"><sub>Total execution time: 13.05 seconds</sub></p>\n\n<!-- Policy app identification https://img.shields.io/static/v1?label=SpaceCodeOwnership. -->\n<!-- GitOpsUserAgent=GitOps.Outcome.Service.SpaceCodeOwnership -->\n",
+              "id": 1,
+              "lastContentUpdatedDate": "2026-02-18T04:35:26.667Z",
+              "lastUpdatedDate": "2026-02-18T04:35:26.667Z",
+              "parentCommentId": 0,
+              "publishedDate": "2026-02-18T04:35:26.667Z",
+              "usersLiked": []
+            }
+          ],
+          "id": 14,
+          "identities": null,
+          "isDeleted": false,
+          "lastUpdatedDate": "2026-02-18T04:35:26.667Z",
+          "properties": null,
+          "publishedDate": "2026-02-18T04:35:26.667Z",
+          "pullRequestThreadContext": null,
+          "status": "closed",
+          "threadContext": null
+        }
+      ]
+    }
+  }
+}

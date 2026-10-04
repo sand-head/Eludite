@@ -103,7 +103,11 @@ pub struct DeviceStart {
 /// Where a host's OAuth endpoints are: `https://<host>`, or the fixture server's base in tests.
 fn oauth_base(repo: &Repository) -> String {
     if is_loopback(&repo.api) {
-        repo.api.trim_end_matches('/').to_owned()
+        let api = repo.api.trim_end_matches('/');
+        api.strip_suffix("/api/v4")
+            .or_else(|| api.strip_suffix("/api/v3"))
+            .unwrap_or(api)
+            .to_owned()
     } else {
         format!("https://{}", repo.host)
     }

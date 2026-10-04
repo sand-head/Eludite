@@ -1,0 +1,36 @@
+{
+  "source": "recorded from dev.azure.com on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/dnceng-public/public/_apis/git/repositories/dotnet-public-wiki/pullrequests/5/commits",
+    "query": {
+      "$top": "250",
+      "api-version": "7.1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json; charset=utf-8; api-version=7.1"
+    },
+    "body": {
+      "count": 1,
+      "value": [
+        {
+          "author": {
+            "date": "2026-02-18T04:35:00Z",
+            "email": null,
+            "name": "GitOps"
+          },
+          "comment": "Inventory bootstrapping onboarding",
+          "commitId": "3aae318f1661c50c34effbbf6882119ed161f2d6",
+          "committer": {
+            "date": "2026-02-18T04:35:01Z",
+            "name": "MerlinBot"
+          },
+          "url": "https://dev.azure.com/dnceng-public/cbb18261-c48f-4abb-8651-8cdcb5474649/_apis/git/repositories/2459d599-fdb2-4d28-9810-daeec061cf90/commits/3aae318f1661c50c34effbbf6882119ed161f2d6"
+        }
+      ]
+    }
+  }
+}

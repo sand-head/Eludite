@@ -1,0 +1,22 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/graphql",
+    "body_contains": [
+      "createLinkedBranch"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "createLinkedBranch": {
+          "linkedBranch": {
+            "id": "LB_1"
+          }
+        }
+      }
+    }
+  }
+}

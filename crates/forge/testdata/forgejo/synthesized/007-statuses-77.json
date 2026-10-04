@@ -1,0 +1,19 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/commits/1111111111111111111111111111111111111111/statuses"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "id": 9001,
+        "status": "success",
+        "context": "ci / build (pull_request)",
+        "target_url": "/forgejo/forgejo/actions/runs/9/jobs/0",
+        "created_at": "2026-10-04T07:01:00+02:00"
+      }
+    ]
+  }
+}

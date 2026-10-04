@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992/draft_notes"
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": 1001,
+      "note": "x"
+    }
+  }
+}

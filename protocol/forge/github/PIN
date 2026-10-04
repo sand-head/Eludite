@@ -1,0 +1,5 @@
+repository: https://github.com/github/rest-api-description
+commit: 836ce198db13a6fb194547e53eea99c6ddae495b
+file: descriptions/api.github.com/api.github.com.2022-11-28.json (stored gzipped: gzip -dc api.github.com.2022-11-28.json.gz)
+sha256 (uncompressed): 28b908e1fd554f785e31368e334a897fb01a0439b6988e669c0011c64c77efd9
+fetched: 2026-10-04

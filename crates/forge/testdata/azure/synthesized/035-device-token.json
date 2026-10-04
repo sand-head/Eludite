@@ -1,0 +1,14 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/dnceng-public/login/oauth2/v2.0/token"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJub25lIn0.e30.",
+      "refresh_token": "r"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/user"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": 7,
+      "login": "octocat",
+      "full_name": "",
+      "html_url": "https://codeberg.org/octocat"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "source": "synthesized from the Forgejo API description (v1) in protocol/forge/forgejo (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/repos/forgejo/forgejo/issues/14684"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "number": 14684,
+      "title": "Issue",
+      "state": "closed",
+      "user": {
+        "id": 1,
+        "login": "octocat",
+        "username": "octocat",
+        "html_url": "https://codeberg.org/octocat"
+      },
+      "html_url": "https://codeberg.org/forgejo/forgejo/issues/14684",
+      "labels": [
+        {
+          "name": "bug"
+        }
+      ],
+      "assignees": []
+    }
+  }
+}

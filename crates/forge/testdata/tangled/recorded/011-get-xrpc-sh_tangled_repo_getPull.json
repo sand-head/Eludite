@@ -1,0 +1,42 @@
+{
+  "source": "recorded from tangled.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/xrpc/sh.tangled.repo.getPull",
+    "query": {
+      "pull": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull/3mwqc5pt6dc5d"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "cid": "bafyreic7nl6qhulfsygiavckqsul4z72mrkrk4pek4ofv25ipf7y35r6hu",
+      "uri": "at://did:plc:xasnlahkri4ewmbuzly2rlc5/sh.tangled.repo.pull/3mwqc5pt6dc5d",
+      "value": {
+        "$type": "sh.tangled.repo.pull",
+        "body": "Make mock data seeded from static JSON files instead of dynamic script.\n\nAll DIDs will be minted in deterministic way.",
+        "createdAt": "2026-09-30T11:59:19.791Z",
+        "rounds": [],
+        "source": {
+          "branch": "sl/static-mock",
+          "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+        },
+        "target": {
+          "branch": "sv-fe",
+          "repo": "did:plc:j5hmlfdrwkvtxm7cjmu7j2is"
+        },
+        "title": "More static localinfra mock data",
+        "versions": [
+          {
+            "base": "031fa80a402e9f5127ac9100c5b12ff7474f030e",
+            "createdAt": "2026-09-30T11:59:19.791Z",
+            "head": "f8a0d0576deff7fd3bf216b3dc68ed87de703a0e"
+          }
+        ]
+      }
+    }
+  }
+}

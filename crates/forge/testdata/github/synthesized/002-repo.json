@@ -1,0 +1,19 @@
+{
+  "source": "synthesized from the GitHub REST API v3 (2022-11-28) and GraphQL descriptions in protocol/forge/github (the owner's recorder run replaces it)",
+  "request": {
+    "method": "GET",
+    "path": "/repos/octo-org/hello-world"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "full_name": "octo-org/hello-world",
+      "clone_url": "https://github.com/octo-org/hello-world.git",
+      "node_id": "R_kgDOtest",
+      "allow_merge_commit": true,
+      "allow_squash_merge": true,
+      "allow_rebase_merge": false,
+      "default_branch": "main"
+    }
+  }
+}

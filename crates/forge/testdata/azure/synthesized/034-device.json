@@ -1,0 +1,17 @@
+{
+  "source": "synthesized from the Azure DevOps REST API 7.1 specification in protocol/forge/azure-devops (the owner's recorder run replaces it)",
+  "request": {
+    "method": "POST",
+    "path": "/dnceng-public/login/oauth2/v2.0/devicecode"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "device_code": "dc",
+      "user_code": "AZDO-5678",
+      "verification_uri": "https://microsoft.com/devicelogin",
+      "expires_in": 900,
+      "interval": 5
+    }
+  }
+}

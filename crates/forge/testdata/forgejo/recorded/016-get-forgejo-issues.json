@@ -1,0 +1,272 @@
+{
+  "source": "recorded from codeberg.org on 2026-10-04 by tools/forge-corpus/record.sh",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/repos/forgejo/forgejo/issues",
+    "query": {
+      "limit": "3",
+      "state": "open",
+      "type": "issues"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json;charset=utf-8",
+      "link": "<{{base}}/api/v1/repos/forgejo/forgejo/issues?limit=3&page=2&state=open&type=issues>; rel=\"next\",<{{base}}/api/v1/repos/forgejo/forgejo/issues?limit=3&page=517&state=open&type=issues>; rel=\"last\"",
+      "x-total-count": "1549"
+    },
+    "body": [
+      {
+        "assets": [
+          {
+            "browser_download_url": "https://codeberg.org/attachments/ac8fbc00-a6f2-425c-a782-79024f781d22",
+            "created_at": "2026-10-04T01:49:41+02:00",
+            "download_count": 0,
+            "id": 1992912,
+            "name": "image.png",
+            "size": 47936,
+            "type": "attachment",
+            "uuid": "ac8fbc00-a6f2-425c-a782-79024f781d22"
+          },
+          {
+            "browser_download_url": "https://codeberg.org/attachments/c6f52086-673f-4684-8463-38a768c6e428",
+            "created_at": "2026-10-04T01:57:09+02:00",
+            "download_count": 0,
+            "id": 1992927,
+            "name": "image.png",
+            "size": 29894,
+            "type": "attachment",
+            "uuid": "c6f52086-673f-4684-8463-38a768c6e428"
+          },
+          {
+            "browser_download_url": "https://codeberg.org/attachments/e9ac0778-f7b8-467b-9921-90ca334a8869",
+            "created_at": "2026-10-04T01:57:49+02:00",
+            "download_count": 0,
+            "id": 1992930,
+            "name": "image.png",
+            "size": 19702,
+            "type": "attachment",
+            "uuid": "e9ac0778-f7b8-467b-9921-90ca334a8869"
+          }
+        ],
+        "assignee": null,
+        "assignees": null,
+        "body": "### Can you reproduce the bug on the Forgejo test instance?\n\nNo, I can't try it on the test instance for some reason\n\n### Description\n\nConsider the following repository whose contents of the `.forgejo/workflows` directory are the following:\r\n\r\n## `ci.yml`\r\n\r\n```\r\non:\r\n    push:\r\n    pull_request:\r\n\r\nname: CI\r\n\r\njobs:\r\n    ci-rvformal:\r\n      name: Reusable Workflow Test\r\n      if: false\r\n      uses: ./.forgejo/workflows/dup.yaml\r\n      secrets:\r\n        read_repo: ${{ secrets.read_repo }}\r\n      with:\r\n        condition: ${{ forgejo.repository }}\r\n\r\n    print_bool_outer:\r\n      runs-on: codeberg-tiny\r\n      steps:\r\n        - run: echo ${{ (forgejo.repository == 'cr1901/reuse-test' && forgejo.event_name == 'push') && 'true' || 'false' }}\r\n```\r\n\r\nFor the bug report, I will be changing the `if: false` line.\r\n\r\n## dup.yml\r\n\r\n```\r\nname: formal\r\n\r\non:\r\n  workflow_dispatch:\r\n  workflow_call:\r\n    inputs:\r\n     condition:\r\n        type: string\r\n        required: true\r\n     filesets:\r\n        type: string\r\n        default: >-\r\n            '.forgejo/workflows/*.yaml',\r\n            '*.txt'\r\n  schedule:\r\n      - cron: '0 5 * * 0'\r\n\r\n\r\njobs:\r\n  print_bool:\r\n    runs-on: codeberg-tiny\r\n    steps:\r\n      - run: |\r\n          echo ${{ forgejo.event_name }}\r\n          echo ${{ forgejo.repository }}\r\n          echo ${{ inputs.condition }}\r\n          echo ${{ secrets.read_repo }} | base64\r\n\r\n  check-condition:\r\n    if: ${{ fromJSON(inputs.condition)  }}\r\n    runs-on: codeberg-tiny\r\n    steps:\r\n      - run: |\r\n          echo ${{ inputs.condition }}\r\n```\r\n\r\n_`dup.yaml` contains a deliberate error_ on the `if: ${{ fromJSON(inputs.condition)  }}` line.\r\n\r\n## Behavior\r\n\r\nWhen running the above workflows on Forgejo Actions, depending on how I change the `if: false` line in `ci.yaml`, several behaviors may happen.\r\n\r\n* Log an error complaining about the bad JSON in `dup.yaml`, _when the whole reusable workflow should have been skipped due to a false `if` condition._\r\n* Silently log an error on the server side _without_ showing an error in the UI, or even starting a CI run at all, when the reusable workflow should have been run to a true `if` condition.\r\n* _Correctly_ skip the reusable workflow due to a false  `if` condition.\r\n\r\nA repo which tests all 3 scenarios is [here](https://codeberg.org/cr1901/reuse-test/src/branch/reuse-bool).\r\n\r\n\r\n|Condition|Result|Expected|Actions Run|Commit|\r\n|-|-|-|-|-|\r\n|`if: false`|Reusable Workflow runs and then triggers error with bad JSON.|Reusable Workflow is skipped.|https://codeberg.org/cr1901/reuse-test/actions/runs/67/jobs/3/attempt/2#jobstep-0-3|https://codeberg.org/cr1901/reuse-test/src/commit/ab27825dce4b2b281ae7e374e295013bcdd1da18/.forgejo/workflows/ci.yaml|\r\n|`if: 1 == 1`|Forgejo Actions never triggers a run in the UI. The server reports an error<sup>1</sup>.|Reusable Workflow runs and then prints an error about the bad JSON.|N/A|https://codeberg.org/cr1901/reuse-test/src/commit/fe021a4c31c2ce99ca8cd9c7cc7db96a682e4140/.forgejo/workflows/ci.yaml|\r\n|`if: 1 == 2`|Reusable Workflow is skipped.|Reusable Workflow is skipped.|https://codeberg.org/cr1901/reuse-test/actions/runs/90/jobs/3/attempt/1|https://codeberg.org/cr1901/reuse-test/src/commit/307183bea3c31774d5d132348f1d9f4f72ae017b/.forgejo/workflows/ci.yaml|\r\n\r\n\r\n## Footnotes\r\n\r\n1. Per [discussion](https://matrix.to/#/!vlrIayscTbS45jAkv1ePIrZHzy7q-_CYJ6Wf_y7PJJs/$WQTcX2KT5PjKLjcC8fB4D0tEihJc4cRDSgCjDJx8Ic0?via=matrix.org&via=tchncs.de&via=fedora.im) on Matrix, the server logs an error about the invalid JSON:\r\n\r\n```\r\n[E] InsertRun: InsertRun: unable to evaluate job 'if' on server-side with unexpected error: Invalid JSON: invalid character 'm' looking for beginning of value Ah, you're providing the input condition with the value ${{ forgejo.repository }}, but then you're using if: ${{ fromJSON(inputs.condition)  }} Condition is not JSON, it's just the fully-qualified name of the repository.\r\n```\n\n### Screenshots\n\nPicture of run for https://codeberg.org/cr1901/reu…",
+        "closed_at": null,
+        "comments": 0,
+        "created_at": "2026-10-04T02:11:30+02:00",
+        "due_date": null,
+        "html_url": "https://codeberg.org/forgejo/forgejo/issues/14684",
+        "id": 7595559,
+        "is_locked": false,
+        "labels": [
+          {
+            "color": "e11d21",
+            "description": "",
+            "exclusive": true,
+            "id": 201022,
+            "is_archived": false,
+            "name": "bug/new-report",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/201022"
+          },
+          {
+            "color": "eb6420",
+            "description": "",
+            "exclusive": false,
+            "id": 87703,
+            "is_archived": false,
+            "name": "forgejo/ui",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/87703"
+          }
+        ],
+        "milestone": null,
+        "number": 14684,
+        "original_author": "",
+        "original_author_id": 0,
+        "pin_order": 0,
+        "pull_request": null,
+        "ref": "",
+        "repository": {
+          "full_name": "",
+          "id": 73144,
+          "name": "forgejo",
+          "owner": "forgejo"
+        },
+        "state": "open",
+        "title": "bug: Forgejo Actions may not log errors within reusable workflow, and attempt to run reusable workflow with `if: false` condition",
+        "updated_at": "2026-10-04T02:11:30+02:00",
+        "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/issues/14684",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2026-03-10T18:09:29+01:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 1,
+          "following_count": 1,
+          "full_name": "",
+          "html_url": "https://codeberg.org/cr1901",
+          "id": 921439,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "cr1901",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 2,
+          "username": "cr1901",
+          "visibility": "public",
+          "website": ""
+        }
+      },
+      {
+        "assets": [],
+        "assignee": null,
+        "assignees": null,
+        "body": "### Does your problem still exist on the latest Forgejo version?\n\nYes, the problem still exists (tested locally with the latest development version)\n\n### About your usage of Forgejo\n\nCodeberg Infrastructure\r\nSelf-hosted Instance\n\n### Problem description\n\nWe have some repositories (such as the global changelog and our upcomming Contributing Repo) or the forgejo Security announcments repo that are intended as follow/push based info tracker.\r\n\r\nCurrently it is possible for everyone to open issues and PRs there. This is not ideal.\r\n\r\nFor me it would be perfect to copy over the code from branch protection settings and to have two settings \"enable issue protection\" / \"enable PR protection\"\r\nwhich opens two more fields each with Teams and Persons that are allowed to open issues/PRs.\n\n### Potential workarounds\n\nManually close issues/PRs/ban user from repo\r\n\r\nIn case you happen to be using Forgejo actions, then I suppose you could implement your own auto-closing by creating a trigger workflow on \"issue open\" event and then calling Issue Edit (PATCH endpoint I think) api to close the issue if it matches your spam conditions.\r\n\r\nMore info:\r\nForgejo actions events (https://forgejo.org/docs/next/user/actions/reference/#onissues)\r\nIssue Edit API (https://v16.next.forgejo.org/api/swagger#/issue/issueEditIssue)\r\n\r\n(@oliverpool, @Omkar)\n\n### Forgejo Version\n\nCB current\n\n### Other details about your environment (software names and versions)\n\nCodeberg current running\n\n### Solutions\n\n*Accepted solutions to address this problem will go here*\n\n\n",
+        "closed_at": null,
+        "comments": 0,
+        "created_at": "2026-10-03T17:48:14+02:00",
+        "due_date": null,
+        "html_url": "https://codeberg.org/forgejo/forgejo/issues/14678",
+        "id": 7592949,
+        "is_locked": false,
+        "labels": [
+          {
+            "color": "545454",
+            "description": "",
+            "exclusive": true,
+            "id": 841833,
+            "is_archived": false,
+            "name": "impact/unknown",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/841833"
+          },
+          {
+            "color": "fbca04",
+            "description": "",
+            "exclusive": false,
+            "id": 841206,
+            "is_archived": false,
+            "name": "problem",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/841206"
+          }
+        ],
+        "milestone": null,
+        "number": 14678,
+        "original_author": "",
+        "original_author_id": 0,
+        "pin_order": 0,
+        "pull_request": null,
+        "ref": "",
+        "repository": {
+          "full_name": "",
+          "id": 73144,
+          "name": "forgejo",
+          "owner": "forgejo"
+        },
+        "state": "open",
+        "title": "problem: Limiting Teams to Issues/PRs",
+        "updated_at": "2026-10-03T17:48:14+02:00",
+        "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/issues/14678",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2025-08-26T22:35:15+02:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 9,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/zoe",
+          "id": 491131,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "zoe",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 0,
+          "username": "zoe",
+          "visibility": "public",
+          "website": ""
+        }
+      },
+      {
+        "assets": [],
+        "assignee": null,
+        "assignees": null,
+        "body": "### Can you reproduce the bug on the Forgejo test instance?\n\nNo, I can't try it on the test instance for some reason\n\n### Description\n\nI noticed the `dbfs_data` table is growing again, the same symptom as #9999. That issue was closed and the runner-side fix (runner >= 11.3.1 sends `NoMore` again) is in place, so I expected this to be gone, but it is not.\r\n\r\nLooking at the data in my instance, the pattern is very consistent: logs of failed and cancelled jobs get moved out of the database to disk right away, while logs of successful jobs mostly stay in the database. Right now I have about 130 successful job logs sitting in `dbfs_data` with `log_in_storage = 0`, and only a handful of successful jobs that got transferred immediately.\r\n\r\nI found #10008 which fixed this by transferring the logs when a task is done, and I also found that it was reverted in #11462. After the revert, the only thing that moves these logs out of the database is the `transfer_lingering_logs` cron, which runs once a day at midnight and only touches logs older than 24 hours. So a log can sit in the database for up to two days.\r\n\r\nMy guess at the reason: for a successful job the runner sends the final `UpdateLog` with `NoMore = true` but with an empty rows list (there is no final error message to append, unlike failed or cancelled jobs). In the `UpdateLog` handler there is an early return when the rows list is empty, and that return happens before the `NoMore` flag is handled, so the flag is effectively ignored in this case. That early return is still present in the current `HEAD`.\r\n\r\nI'm not sure what the right fix is, especially given why #11462 reverted the previous attempt, but it looks like the `NoMore` flag should be honoured even when the final update carries no rows.\n\n### Forgejo Version\n\n15.0.3\n\n### How are you running Forgejo?\n\nForgejo 15.0.3 (self-built, self-hosted, sqlite) with the Forgejo runner 12.7.0.\n\n### Logs\n\n_No response_\n\n### Database\n\nSQLite\n\n",
+        "closed_at": null,
+        "comments": 1,
+        "created_at": "2026-10-03T17:29:58+02:00",
+        "due_date": null,
+        "html_url": "https://codeberg.org/forgejo/forgejo/issues/14676",
+        "id": 7592820,
+        "is_locked": false,
+        "labels": [
+          {
+            "color": "e11d21",
+            "description": "",
+            "exclusive": true,
+            "id": 201022,
+            "is_archived": false,
+            "name": "bug/new-report",
+            "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/labels/201022"
+          }
+        ],
+        "milestone": null,
+        "number": 14676,
+        "original_author": "",
+        "original_author_id": 0,
+        "pin_order": 0,
+        "pull_request": null,
+        "ref": "",
+        "repository": {
+          "full_name": "",
+          "id": 73144,
+          "name": "forgejo",
+          "owner": "forgejo"
+        },
+        "state": "open",
+        "title": "bug: dbfs_data keeps growing: logs of successful jobs stay in the database (same symptom as #9999)",
+        "updated_at": "2026-10-04T04:01:19+02:00",
+        "url": "https://codeberg.org/api/v1/repos/forgejo/forgejo/issues/14676",
+        "user": {
+          "active": false,
+          "avatar_url": "",
+          "created": "2026-02-25T17:01:26+01:00",
+          "description": "",
+          "email": "user@example.invalid",
+          "followers_count": 0,
+          "following_count": 0,
+          "full_name": "",
+          "html_url": "https://codeberg.org/ov",
+          "id": 885992,
+          "is_admin": false,
+          "language": "",
+          "last_login": "",
+          "location": "",
+          "login": "ov",
+          "login_name": "",
+          "prohibit_login": false,
+          "pronouns": "",
+          "restricted": false,
+          "source_id": 0,
+          "starred_repos_count": 0,
+          "username": "ov",
+          "visibility": "public",
+          "website": ""
+        }
+      }
+    ]
+  }
+}

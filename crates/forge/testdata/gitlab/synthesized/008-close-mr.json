@@ -1,0 +1,42 @@
+{
+  "source": "synthesized from the GitLab REST API v4 description in protocol/forge/gitlab (the owner's recorder run replaces it)",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v4/projects/gitlab-org/cli/merge_requests/3992",
+    "body_contains": [
+      "\"state_event\":\"close\""
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "iid": 3992,
+      "title": "feat(auth)",
+      "state": "closed",
+      "draft": false,
+      "author": {
+        "id": 1,
+        "username": "octocat",
+        "name": "Octocat",
+        "web_url": "https://gitlab.com/octocat"
+      },
+      "source_branch": "feature/login",
+      "target_branch": "main",
+      "source_project_id": 34675721,
+      "target_project_id": 34675721,
+      "web_url": "https://gitlab.com/gitlab-org/cli/-/merge_requests/3992",
+      "labels": [],
+      "reviewers": [],
+      "user_notes_count": 0,
+      "created_at": "2026-10-04T09:00:00Z",
+      "updated_at": "2026-10-04T09:00:00Z",
+      "detailed_merge_status": "mergeable",
+      "sha": "1111111111111111111111111111111111111111",
+      "diff_refs": {
+        "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "head_sha": "1111111111111111111111111111111111111111",
+        "start_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  }
+}
