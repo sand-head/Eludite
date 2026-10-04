@@ -462,13 +462,14 @@ fn the_window_opens_from_the_view_menu_with_a_tab_and_navigates_through_the_bus(
     w.wait("the navigation", |w| {
         w.browser_window(|b| b.address() == "http://localhost:5000/orders" && b.can_go().0)
     });
-    assert!(
+    // The window's state updates on the bus's answer; the fake engine records the CDP message on its own thread.
+    w.wait("Page.navigate at the engine", |_| {
         seen.sent
             .lock()
             .unwrap()
             .iter()
             .any(|(m, p)| m == "Page.navigate" && p["url"] == "http://localhost:5000/orders")
-    );
+    });
     assert!(w.audit().iter().any(|c| c == cmds::NAVIGATE));
     assert_eq!(w.browser_window(|b| b.can_go()), (true, false));
     assert_eq!(

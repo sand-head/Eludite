@@ -577,7 +577,8 @@ public sealed class NuGetServiceTests
             var corpus = Assert.Single(list.GetProperty("sources").EnumerateArray());
             Assert.Equal("solution", corpus.GetProperty("scope").GetString());
             Assert.True(corpus.GetProperty("local").GetBoolean());
-            Assert.Equal(Path.Combine(root, "NuGet.config"), corpus.GetProperty("configFile").GetString());
+            // NuGet names the file by its canonical spelling (NuGet.Config) where the file system ignores case.
+            Assert.Equal(Path.Combine(root, "NuGet.config"), corpus.GetProperty("configFile").GetString(), ignoreCase: OperatingSystem.IsWindows());
             var user = host.Target.NuGet.Chain.UserConfig;
             Assert.Equal(user, list.GetProperty("userConfig").GetString());
             Assert.False(File.Exists(user));

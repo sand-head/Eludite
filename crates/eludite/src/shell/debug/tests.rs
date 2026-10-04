@@ -6928,6 +6928,7 @@ impl Dbg {
         page_of(&self.w)
     }
 
+    #[cfg(unix)]
     fn launch_browser(&mut self, f: impl FnOnce(&mut super::LaunchBrowserSettings)) {
         self.w.shell.update(&mut self.w.vcx, |s, _| {
             f(&mut s.debug.browser_launch);
@@ -7418,6 +7419,7 @@ fn the_debug_menus_browser_items_follow_the_session_and_the_engine(cx: &mut Test
     assert_eq!(menu_enabled(&d, "Start in External Browser"), Some(true));
 }
 
+#[cfg(target_os = "linux")]
 /// The corpus web project (`corpus/web/minimal-api`) as the test solution's project: copied into `src/App` (its
 /// project file as `App.csproj`), its launch profiles on free ports, and built with the real `dotnet`. `None` when
 /// `dotnet` is missing or the build fails (the test then skips).
@@ -7473,6 +7475,7 @@ fn corpus_web(d: &Dbg) -> Option<u16> {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// Whether the embedded engine (`eludite-chromium` with CEF) is found, else why not.
 fn embedded_engine() -> Result<(), String> {
     match eludite_browser::select_engine(
@@ -7484,6 +7487,7 @@ fn embedded_engine() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// The real run (brief 0037): the corpus web project started (`debug` false: Ctrl+F5 with the real `dotnet`; true:
 /// under the located netcoredbg), its page opened in the real embedded engine once Kestrel listens, `read_page` seeing
 /// the form, Stop leaving the tab.
@@ -8363,6 +8367,7 @@ fn a_server_and_its_page_stopping_by_turns_cost_the_frame_little(cx: &mut TestAp
 
 // ---- Brief 0038 against the real vscode-js-debug ----
 
+#[cfg(target_os = "linux")]
 /// The real vscode-js-debug and Node.js, when `ELUDITE_JS_DEBUG` names the server (tools/js-debug/fetch.sh prints it)
 /// and a Node.js 18 or later is found; else why the real tests skip.
 fn real_js_debug() -> Result<super::JsSetup, String> {
@@ -8383,6 +8388,7 @@ fn real_js_debug() -> Result<super::JsSetup, String> {
     Ok(setup)
 }
 
+#[cfg(target_os = "linux")]
 /// The page's "Add" button in `tab`, clicked through `eludite.browser.input` (by its ref from `read_page`).
 fn click_add(d: &mut Dbg, tab: &str, name: &str) -> Value {
     let read = browser_call(d, eludite_commands::browser::READ_PAGE, json!({"tab": tab}));
@@ -8401,6 +8407,7 @@ fn click_add(d: &mut Dbg, tab: &str, name: &str) -> Value {
     )
 }
 
+#[cfg(target_os = "linux")]
 /// After the page is open in tab `t1`: vscode-js-debug attached by tab (timed, budget 1.5 s), a breakpoint at
 /// `path`:`line` stops on a click on `button` sent through `eludite.browser.input`, `wait` on the browser session
 /// answers the child's stop at that line, and the handler's `locals` are in `variables`. Returns the stop's summary.

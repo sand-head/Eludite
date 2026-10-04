@@ -33,7 +33,7 @@ impl Drop for Kill {
 }
 
 /// A copy of `sleep` named `name` in a temporary folder.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn sleeper(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     let sleep = ["/bin/sleep", "/usr/bin/sleep"]
         .into_iter()

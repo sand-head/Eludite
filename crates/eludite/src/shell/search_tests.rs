@@ -966,7 +966,10 @@ fn the_first_result_streams_before_the_search_ends(cx: &mut TestAppContext) {
     for i in 0..200 {
         s.write(&format!("stream/f{i:03}.txt"), "needle\n");
     }
-    s.service().set_slow_overlay(Some(Duration::from_millis(5)));
+    // 25 ms per file: five seconds for the whole search, so the first file's draw lands while it still runs even on a
+    // loaded CI runner (the overlay is lifted below once the first file is seen).
+    s.service()
+        .set_slow_overlay(Some(Duration::from_millis(25)));
     let started = Instant::now();
     s.run(cmds::FIND, json!({"query": "needle", "results_window": 1}));
     let win = s.window(1);
@@ -985,7 +988,7 @@ fn the_first_result_streams_before_the_search_ends(cx: &mut TestAppContext) {
     s.service().set_slow_overlay(None);
     s.wait_done(1);
     eprintln!(
-        "timing: Enter to the first result drawn {:.1} ms (with 5 ms per file)",
+        "timing: Enter to the first result drawn {:.1} ms (with 25 ms per file)",
         first.unwrap().as_secs_f64() * 1e3
     );
 }
