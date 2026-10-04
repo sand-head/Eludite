@@ -199,3 +199,45 @@ fn serde_like(
         opt(load),
     )
 }
+
+/// The first result's budget (brief 0042): on this repository, the first matching file reaches the sink within 50 ms
+/// of the search's start (`target/` and the other build folders excluded, `.gitignore` honored).
+#[test]
+fn the_first_result_on_this_repository_comes_quickly() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let repo = std::fs::canonicalize(repo).unwrap();
+    let request = Request::new(Query::new("fn main"), Scope::Paths(vec![repo]));
+    let mut firsts = Vec::new();
+    let mut totals = Vec::new();
+    for _ in 0..5 {
+        let first: std::sync::Mutex<Option<Duration>> = std::sync::Mutex::new(None);
+        let started = Instant::now();
+        let summary = search(&request, &HashMap::new(), &CancelToken::new(), &|_| {
+            first
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| started.elapsed());
+        })
+        .unwrap();
+        totals.push(started.elapsed());
+        firsts.push(first.into_inner().unwrap().expect("a match"));
+        assert!(summary.matching_files > 5);
+    }
+    let first = median(firsts.clone());
+    let total = median(totals.clone());
+    let load = load_average();
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    println!(
+        "search-bench: first result on this repository median {:.1} ms (runs {:?}), whole search median {:.1} ms, \
+         load {load:?} on {cores} cores",
+        first.as_secs_f64() * 1e3,
+        firsts.iter().map(|d| d.as_micros()).collect::<Vec<_>>(),
+        total.as_secs_f64() * 1e3
+    );
+    if load.is_some_and(|l| l < cores as f64) {
+        assert!(
+            first < Duration::from_millis(50),
+            "first result after {first:?}"
+        );
+    }
+}

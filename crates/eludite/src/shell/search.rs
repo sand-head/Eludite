@@ -1392,10 +1392,14 @@ impl Shell {
             "{} replacements in {} files held for review as pending changes {}: accept them with eludite.agents.review",
             out.replacements,
             out.files.len(),
-            ids.iter()
-                .map(|i| format!("#{i}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            match ids.as_slice() {
+                [first, .., last] if ids.len() > 5 => format!("#{first} to #{last}"),
+                _ => ids
+                    .iter()
+                    .map(|i| format!("#{i}"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            }
         ));
         let _ = reply.send(Ok(out));
     }
