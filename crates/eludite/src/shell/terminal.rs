@@ -1552,7 +1552,9 @@ impl Shell {
                                 window,
                                 cx,
                             );
-                            shell.explorer.update(cx, |e, cx| e.reveal(&path, cx));
+                            shell
+                                .explorer
+                                .update(cx, |e, cx| e.reveal_folder(&path, cx));
                             shell
                                 .status
                                 .set(slots::STATE, format!("{}", path.display()));

@@ -394,6 +394,28 @@ impl SolutionExplorer {
         cx.notify();
     }
 
+    /// Expand the folders down to the folder `dir` and select its node (a terminal's link to a directory, brief 0041):
+    /// a project or package whose file is in `dir`, else the deepest folder node named like `dir` whose files all lie
+    /// under it. Nothing changes when the tree has no node for it.
+    pub fn reveal_folder(&mut self, dir: &Path, cx: &mut Context<Self>) {
+        let Some(model) = &self.model else { return };
+        let Some(trail) = folder_trail(&model.root, dir) else {
+            return;
+        };
+        let (id, above) = trail.split_last().expect("a trail names its node");
+        self.expanded.extend(above.iter().cloned());
+        self.expanded.insert(id.clone());
+        self.selected = Some(id.clone());
+        self.refresh_rows();
+        cx.notify();
+    }
+
+    /// The selected node's id.
+    #[cfg(test)]
+    pub fn selected_id(&self) -> Option<&str> {
+        self.selected.as_deref()
+    }
+
     fn refresh_rows(&mut self) {
         self.rows = self
             .model
@@ -522,4 +544,44 @@ impl Render for SolutionExplorer {
             .children(self.context_menu(cx))
             .into_any_element()
     }
+}
+
+/// The ids from `root` down to the node that stands for the folder `dir` ([`SolutionExplorer::reveal_folder`]).
+fn folder_trail(root: &eludite_workspace::explorer::Node, dir: &Path) -> Option<Vec<String>> {
+    use eludite_workspace::explorer::Node;
+    fn files<'a>(n: &'a Node, out: &mut Vec<&'a Path>) {
+        if let (NodeKind::File { .. }, Some(p)) = (&n.kind, &n.path) {
+            out.push(p);
+        }
+        for c in &n.children {
+            files(c, out);
+        }
+    }
+    fn stands_for(n: &Node, dir: &Path) -> bool {
+        match n.kind {
+            NodeKind::File { .. } | NodeKind::CargoTarget { .. } => false,
+            NodeKind::Folder => {
+                let mut under = Vec::new();
+                files(n, &mut under);
+                Some(n.label.as_str()) == dir.file_name().and_then(|f| f.to_str())
+                    && !under.is_empty()
+                    && under.iter().all(|f| f.starts_with(dir))
+            }
+            _ => n
+                .path
+                .as_deref()
+                .is_some_and(|p| p == dir || p.parent() == Some(dir)),
+        }
+    }
+    fn walk(n: &Node, dir: &Path, trail: &mut Vec<String>) -> bool {
+        trail.push(n.id.clone());
+        // The deepest match wins: a package's folder before the workspace whose manifest sits beside it.
+        if n.children.iter().any(|c| walk(c, dir, trail)) || stands_for(n, dir) {
+            return true;
+        }
+        trail.pop();
+        false
+    }
+    let mut trail = Vec::new();
+    walk(root, dir, &mut trail).then_some(trail)
 }

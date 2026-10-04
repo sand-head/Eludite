@@ -557,6 +557,45 @@ fn ctrl_click_on_a_path_printed_by_the_shell_opens_the_editor_at_the_line(cx: &m
         e.buffer().snapshot().offset_to_point(head).row
     });
     assert_eq!(line, 2, "line 3 (0-based 2)");
+
+    // Ctrl+click on a folder shows the Workspace at it: here the project in `src/App`.
+    t.terminal(&id).write("echo 'folder src/App here'\r");
+    t.wait_drawn(&id, "the folder", |s| {
+        s.lines().any(|l| l.starts_with("folder src/App"))
+    });
+    let at = view.read_with(&t.w.vcx, |v, _| {
+        let rows = v.visible_rows();
+        let r = rows
+            .iter()
+            .position(|l| l.starts_with("folder src/App"))
+            .unwrap();
+        v.cell_center(r, rows[r].find("App").unwrap())
+    });
+    t.w.vcx.simulate_event(MouseDownEvent {
+        position: at,
+        modifiers: Modifiers::control(),
+        button: MouseButton::Left,
+        click_count: 1,
+        first_mouse: false,
+    });
+    t.w.vcx.simulate_event(MouseUpEvent {
+        position: at,
+        modifiers: Modifiers::control(),
+        button: MouseButton::Left,
+        click_count: 1,
+    });
+    let project =
+        t.w.path("src/App/App.csproj")
+            .to_string_lossy()
+            .into_owned();
+    t.w.wait("the Workspace at the folder", |w| {
+        let shown =
+            w.controller.snapshot().layout.right.groups[0].active_id() == Some(ids::WORKSPACE);
+        let selected = w.shell.read_with(&w.vcx, |s, cx| {
+            s.explorer.read(cx).selected_id().map(str::to_owned)
+        });
+        shown && selected.as_deref() == Some(project.as_str())
+    });
 }
 
 #[gpui::test]
