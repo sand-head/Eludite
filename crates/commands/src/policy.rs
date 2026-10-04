@@ -1171,6 +1171,7 @@ pub struct AgentPolicy {
     pub terminal: Option<TerminalPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forge: Option<ForgePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nuget: Option<NuGetPolicy>,
 }
 
