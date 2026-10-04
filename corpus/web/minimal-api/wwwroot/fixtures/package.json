@@ -1,0 +1,6 @@
+{
+  "name": "eludite-json-fixture",
+  "version": "1.0.0",
+  "private": "yes",
+  "description": "Brief 0050's JSON schema fixture: SchemaStore's package.json schema says private is a boolean, so the JSON server reports the string."
+}

@@ -112,7 +112,6 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&Web)) -> Web {
         .prefix("eludite-web-cache-")
         .tempdir()
         .unwrap();
-    let config = tempfile::tempdir().unwrap();
     let root = dir.path();
     let write = |rel: &str, text: &str| {
         let p = root.join(rel);
@@ -153,7 +152,22 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&Web)) -> Web {
     write("site.css", SITE_CSS);
     write("Views/Home/Index.cshtml", INDEX_CSHTML);
     write("appsettings.json", "{\n  \"Logging\": {}\n}\n");
+    let cache_path = cache.path().to_path_buf();
+    launch(cx, dir, cache, Some(cache_path), true, script)
+}
 
+/// The shell on project `dir`, with the fake servers behind the registrations (`fakes`) or the real ones from the
+/// web servers' cache `servers` (the folder `tools/web-servers/fetch.sh` printed).
+fn launch(
+    cx: &mut TestAppContext,
+    dir: TempDir,
+    cache: TempDir,
+    servers: Option<PathBuf>,
+    fakes: bool,
+    script: impl FnOnce(&Web),
+) -> Web {
+    cx.executor().allow_parking();
+    let config = tempfile::tempdir().unwrap();
     let ts = FakeServer::new();
     ts.set_capabilities(ts_capabilities());
     let eslint = FakeServer::new();
@@ -176,19 +190,22 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&Web)) -> Web {
         registry: Some(Vec::new()),
         ..super::agents::AgentsSetup::from_env()
     };
-    for (id, fake) in [
-        ("typescript", &ts),
-        ("eslint", &eslint),
-        ("html", &html),
-        ("json", &json),
-    ] {
-        services
-            .launches
-            .in_process
-            .insert(id.into(), fake.connector());
+    if fakes {
+        for (id, fake) in [
+            ("typescript", &ts),
+            ("eslint", &eslint),
+            ("html", &html),
+            ("json", &json),
+        ] {
+            services
+                .launches
+                .in_process
+                .insert(id.into(), fake.connector());
+        }
     }
-    // The web servers' cache: an empty folder (the JSON schemas' URLs name it; the CSS server is not in it).
-    services.launches.cache = Some(Some(cache.path().to_path_buf()));
+    // The web servers' cache: with the fakes an empty folder (the JSON schemas' URLs name it; the CSS server is not
+    // in it), else the fetched one.
+    services.launches.cache = Some(servers);
     let mut services = Some(services);
     let commands = Arc::new(commands);
     let window = cx.update(|cx| {
@@ -1024,11 +1041,320 @@ fn a_crashed_eslint_restarts_and_typescripts_diagnostics_stay(cx: &mut TestAppCo
     w.wait("ESLint restarted", |w| w.eslint.connections() == 2);
     // Replayed: the document reaches the new ESLint process, and its diagnostics come back.
     w.eslint
-        .wait_for("textDocument/didOpen", T, |p| p["textDocument"]["uri"] == uri)
+        .wait_for("textDocument/didOpen", T, |p| {
+            p["textDocument"]["uri"] == uri
+        })
         .unwrap();
-    w.wait("the document's generation moved", |w| generation(w) > before);
+    w.wait("the document's generation moved", |w| {
+        generation(w) > before
+    });
     w.wait("both servers' diagnostics again", |w| {
         view.read_with(&w.vcx, |v, _| v.decorations(DIAGNOSTICS_LAYER).len()) == 2
     });
     assert_eq!(w.ts.connections(), 1, "TypeScript kept running");
+}
+
+/// Copy `from` into `to`, leaving out `node_modules`.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap().flatten() {
+        let name = e.file_name();
+        if name == "node_modules" {
+            continue;
+        }
+        let target = to.join(&name);
+        if e.file_type().unwrap().is_dir() {
+            copy_tree(&e.path(), &target);
+        } else {
+            std::fs::copy(e.path(), &target).unwrap();
+        }
+    }
+}
+
+impl Web {
+    /// Run `f` (an agent's bus call, which waits for the UI thread) on its own thread while the UI runs.
+    fn off_thread<R: Send + 'static>(&mut self, f: impl FnOnce() -> R + Send + 'static) -> R {
+        let t = std::thread::spawn(f);
+        let deadline = Instant::now() + T;
+        loop {
+            self.vcx.run_until_parked();
+            if t.is_finished() {
+                return t.join().unwrap();
+            }
+            assert!(Instant::now() < deadline, "the bus call did not answer");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    fn agent(&mut self, command: &'static str, args: Value) -> Value {
+        let c = self.commands.clone();
+        self.off_thread(move || c.invoke(command, args))
+            .unwrap_or_else(|e| panic!("{command}: {e}"))
+    }
+
+    fn rows_with(&self, code: &str) -> Vec<super::error_list::ErrorRow> {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            s.error_list()
+                .read(cx)
+                .rows()
+                .iter()
+                .filter(|r| r.code == code)
+                .cloned()
+                .collect()
+        })
+    }
+
+    /// A completion request through the document's session (fanned out to its servers), as the editor sends it:
+    /// the labels and how long the servers took.
+    fn complete(&mut self, rel: &str, line: u32, character: u32) -> (Vec<String>, Duration) {
+        let id = self.path(rel).to_string_lossy().into_owned();
+        let uri = self.uri(rel);
+        let session = self.shell.read_with(&self.vcx, |s, _| s.session_for(&id));
+        let (_, rx) =
+            session.request::<eludite_lsp::lsp::Completion>(eludite_lsp::lsp::CompletionParams {
+                text_document: eludite_lsp::lsp::TextDocumentIdentifier { uri },
+                position: eludite_lsp::lsp::Position { line, character },
+                context: Some(eludite_lsp::lsp::CompletionContext {
+                    trigger_kind: 1,
+                    trigger_character: None,
+                }),
+            });
+        let started = Instant::now();
+        let reply = self.off_thread(move || futures::executor::block_on(rx).unwrap());
+        let took = reply.sent.map_or(started.elapsed(), |s| reply.received - s);
+        let labels = reply
+            .result
+            .unwrap_or_else(|e| panic!("completion: {e:?}"))
+            .map(|r| r.items().iter().map(|i| i.label.clone()).collect())
+            .unwrap_or_default();
+        (labels, took)
+    }
+}
+
+/// Brief 0050 with the real servers from `tools/web-servers/fetch.sh` (`ELUDITE_WEB_SERVERS`; skipped without it):
+/// the Vite counter (corpus/web/vite-counter, `npm ci` for its own TypeScript, ESLint and Prettier) opened in the
+/// headless shell: completion in `main.ts` from typescript-language-server on the project's TypeScript (cold and
+/// warm), an agent fixing the type error (TS2552) and the ESLint violation (prefer-const) through `diagnostics.list`,
+/// `code_actions` and `apply_code_action`, ESLint's diagnostics after a save, Prettier formatting a file (and a
+/// 2,000-line one warm), the JSON server validating a `package.json` against the cached SchemaStore schema, and the
+/// HTML server's completion in `index.html`. The timings are printed for the report (`REAL-WEB`).
+#[gpui::test]
+fn real_web_servers_serve_the_vite_counter(cx: &mut TestAppContext) {
+    let Some(servers) = std::env::var_os("ELUDITE_WEB_SERVERS").map(PathBuf::from) else {
+        eprintln!("skipped: ELUDITE_WEB_SERVERS is not set (tools/web-servers/fetch.sh prints it)");
+        return;
+    };
+    let corpus = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/web");
+    let dir = tempfile::Builder::new()
+        .prefix("eludite-vite-")
+        .tempdir()
+        .unwrap();
+    copy_tree(&corpus.join("vite-counter"), dir.path());
+    copy_tree(
+        &corpus.join("minimal-api/wwwroot/fixtures"),
+        &dir.path().join("fixtures"),
+    );
+    // 2,000 lines for Prettier's warm budget.
+    let mut big = String::new();
+    for i in 0..1000 {
+        big.push_str(&format!(
+            "export   const   value{i}   =   {{ a:{i},b :'x' }}\n"
+        ));
+        big.push_str(&format!(
+            "export function   f{i}( n:number ){{ return n+{i} }}\n"
+        ));
+    }
+    std::fs::write(dir.path().join("src/big.ts"), &big).unwrap();
+    let npm = std::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
+        .args([
+            "ci",
+            "--no-audit",
+            "--no-fund",
+            "--ignore-scripts",
+            "--loglevel=error",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .expect("npm runs (Node.js on PATH)");
+    assert!(
+        npm.status.success(),
+        "npm ci: {}",
+        String::from_utf8_lossy(&npm.stderr)
+    );
+    let cache = tempfile::tempdir().unwrap();
+    let mut w = launch(cx, dir, cache, Some(servers), false, |_| {});
+    let mut report = Vec::new();
+
+    // TypeScript: completion in main.ts, on the project's TypeScript 5.9.3.
+    let opened = Instant::now();
+    w.open("src/main.ts");
+    let line = "setupCounter(document.querySelector<HTMLButtonElement>(\"#counter\")!);";
+    let at = line.find("querySelector").unwrap() as u32;
+    let (labels, _) = w.complete("src/main.ts", 4, at);
+    let cold = opened.elapsed();
+    assert!(labels.iter().any(|l| l == "querySelector"), "{labels:?}");
+    let mut warm = Vec::new();
+    for _ in 0..20 {
+        let (labels, took) = w.complete("src/main.ts", 4, at);
+        assert!(labels.iter().any(|l| l == "querySelector"));
+        warm.push(took);
+    }
+    warm.sort();
+    let warm_p95 = warm[warm.len() * 95 / 100];
+    report.push(format!(
+        "first completion {cold:?} cold from open, warm p95 {warm_p95:?}"
+    ));
+    w.wait("TypeScript on the project's TypeScript", |w| {
+        w.slot("typescript").contains("TypeScript 5.9.3, project")
+    });
+    report.push(w.slot("typescript"));
+    report.push(w.slot("eslint"));
+
+    // An agent fixes the type error: diagnostics.list, code_actions at the row, apply_code_action.
+    let type_error = w.path("src/typeError.ts").to_string_lossy().into_owned();
+    w.open("src/typeError.ts");
+    w.wait("TS2552", |w| !w.rows_with("2552").is_empty());
+    let listed = w.agent(eludite_commands::diagnostics::DIAGNOSTICS_LIST, json!({}));
+    let row = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["code"] == "2552")
+        .cloned()
+        .unwrap_or_else(|| panic!("{listed}"));
+    let actions = w.agent(
+        workspace::EDITOR_CODE_ACTIONS,
+        json!({"path": type_error, "line": row["line"], "column": row["column"]}),
+    );
+    let index = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| {
+            a["title"]
+                .as_str()
+                .is_some_and(|t| t.contains("Change spelling to 'count'"))
+        })
+        .map(|a| a["index"].clone())
+        .unwrap_or_else(|| panic!("{actions}"));
+    let applied = w.agent(workspace::EDITOR_APPLY_CODE_ACTION, json!({"index": index}));
+    assert_eq!(applied["state"], "applied", "{applied}");
+    let fixed = w.shell.read_with(&w.vcx, |s, cx| {
+        s.editor(&w.path("src/typeError.ts"))
+            .unwrap()
+            .read(cx)
+            .editor()
+            .text()
+    });
+    assert!(fixed.contains("= count * 2"), "{fixed}");
+
+    // ESLint: the violation in lint.js, fixed by an agent through ESLint's command.
+    let lint = w.path("src/lint.js").to_string_lossy().into_owned();
+    let lint_view = w.open("src/lint.js");
+    w.wait("ESLint's prefer-const", |w| {
+        !w.rows_with("prefer-const").is_empty()
+    });
+    let row = w.rows_with("prefer-const")[0].clone();
+    let actions = w.agent(
+        workspace::EDITOR_CODE_ACTIONS,
+        json!({"path": lint, "line": row.line, "column": row.column}),
+    );
+    let titles: Vec<String> = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["title"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        titles.iter().any(|t| t == "Fix all auto-fixable problems"),
+        "{titles:?}"
+    );
+    let index = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["title"] == "Fix this prefer-const problem")
+        .map(|a| a["index"].clone())
+        .unwrap_or_else(|| panic!("{titles:?}"));
+    let applied = w.agent(workspace::EDITOR_APPLY_CODE_ACTION, json!({"index": index}));
+    assert_eq!(applied["state"], "applied", "{applied}");
+    w.wait("the ESLint fix", |w| {
+        w.text(&lint_view).contains("const total = 1;")
+    });
+    w.wait("the violation gone", |w| {
+        w.rows_with("prefer-const").is_empty()
+    });
+    // A new violation, saved: ESLint's diagnostics after the save.
+    w.type_at_end_of_line(&lint_view, 3, "\nlet again = 2;\nconsole.log(again);");
+    w.run_cmd(workspace::EDITOR_SAVE, json!({"path": lint}));
+    let saved = Instant::now();
+    w.wait("ESLint's diagnostic after the save", |w| {
+        !w.rows_with("prefer-const").is_empty()
+    });
+    let eslint_after_save = saved.elapsed();
+    report.push(format!(
+        "ESLint diagnostics {eslint_after_save:?} after a save"
+    ));
+
+    // Prettier (the project's 3.9.9 through Node.js).
+    let unformatted = w.path("src/unformatted.ts").to_string_lossy().into_owned();
+    let view = w.open("src/unformatted.ts");
+    w.run_cmd(
+        workspace::EDITOR_FORMAT_DOCUMENT,
+        json!({"path": unformatted}),
+    );
+    let out = w.format_done("src/unformatted.ts");
+    assert_eq!(
+        (out.formatter.as_str(), out.version.as_deref(), out.applied),
+        ("prettier", Some("3.9.9"), true),
+        "{out:?}"
+    );
+    let text = w.text(&view);
+    assert!(
+        text.contains("export function label(name: string, count: number) {"),
+        "{text}"
+    );
+    assert!(text.contains("export const values = [1, 2, 3];"), "{text}");
+    // 2,000 lines, Prettier warm (it just ran): request to applied.
+    let big_path = w.path("src/big.ts").to_string_lossy().into_owned();
+    let big_view = w.open("src/big.ts");
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        w.run_cmd(workspace::EDITOR_FORMAT_DOCUMENT, json!({"path": big_path}));
+        let out = w.format_done("src/big.ts");
+        assert!(out.applied, "{out:?}");
+        times.push(
+            w.shell
+                .read_with(&w.vcx, |s, _| *s.formatting.timings.last().unwrap()),
+        );
+        w.run_cmd(workspace::EDITOR_UNDO, json!({"path": big_path}));
+        assert_eq!(w.text(&big_view), big);
+    }
+    report.push(format!(
+        "Format Document on 2,000 lines with Prettier: {times:?}"
+    ));
+
+    // JSON: SchemaStore's package.json schema, from the cache, flags `"private": "yes"`.
+    w.open("fixtures/package.json");
+    w.wait("the schema's diagnostic", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.error_list()
+                .read(cx)
+                .rows()
+                .iter()
+                .any(|r| r.file == "package.json" && r.message.contains("boolean"))
+        })
+    });
+    report.push(w.slot("json"));
+
+    // HTML: completion in index.html's body.
+    let html = w.open("index.html");
+    w.type_at_end_of_line(&html, 7, "\n    <");
+    let (labels, _) = w.complete("index.html", 8, 5);
+    assert!(labels.iter().any(|l| l == "div"), "{labels:?}");
+    report.push(w.slot("html"));
+    for line in &report {
+        eprintln!("REAL-WEB: {line}");
+    }
+    assert!(cold < Duration::from_secs(10), "cold completion {cold:?}");
 }
