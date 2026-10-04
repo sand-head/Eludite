@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-properties.input.json",
+  "title": "eludite.project.properties input",
+  "description": "Project > Properties (Alt+Enter on a project in the Workspace window, or a double-click on it): the project property pages as a document tab (`open`), or, for an agent, their values. Answers Visual Studio's ~30 properties people touch (the catalog in host-rpc.md, \"Project properties\": Application, Build, Package, Code Analysis) evaluated by eludite-host in one configuration and platform, each with where its value comes from: the project file (`project`), a conditioned property group (`conditioned`), an imported file such as Directory.Build.props (`inherited`, with `inherited_from`), or the SDK's default (`default`). Change one with eludite.project.set_property; launch profiles (the Debug page) are eludite.project.launch_profiles.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder). Default: the project selected in the Workspace window, else the active document's project, else the startup project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "configuration": {
+      "description": "The project configuration (`Debug`, `Release`, or the project's own). Default: the one the Solution Configurations list's selection maps the project to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "The project platform (`AnyCPU`, `x64`, `x86`, `ARM64`; `Any CPU` is read as `AnyCPU`). Default: the one the Solution Platforms list's selection maps the project to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "A target framework of a multi-targeted project (`net8.0`). Default: none (the outer evaluation; for `set_property`, no framework condition).",
+      "type": "string",
+      "minLength": 1
+    },
+    "page": {
+      "enum": [
+        "application",
+        "build",
+        "package",
+        "debug",
+        "code_analysis",
+        "resources",
+        "settings",
+        "signing"
+      ],
+      "description": "Only this page's properties (and, with `open`, the page shown)."
+    },
+    "open": {
+      "description": "Open (or activate) the project's Properties document tab, as Project > Properties does. Default false.",
+      "type": "boolean"
+    }
+  }
+}

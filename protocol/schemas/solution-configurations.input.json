@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-configurations.input.json",
+  "title": "eludite.solution.configurations input",
+  "description": "The Standard toolbar's Solution Configurations and Solution Platforms lists and Configuration Manager's grid: the solution's configurations and platforms, the active selection, and each project's mapping. A Cargo workspace lists Debug and Release (the `dev` and `release` profiles).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

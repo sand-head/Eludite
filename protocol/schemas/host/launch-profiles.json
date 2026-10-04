@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/launch-profiles.json",
+  "title": "eludite/project/launchProfiles",
+  "description": "A project's launch profiles from `Properties/launchSettings.json` (brief 0049; host-rpc.md, \"Project properties\"), for the Debug property page and the Debug toolbar's profile list. Read with System.Text.Json's nodes: the file's order and the members Eludite does not edit are kept. A missing file has no profiles (`exists` false). A file that is not JSON fails with -32602.",
+  "x-eludite-method": "eludite/project/launchProfiles",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "file",
+        "exists",
+        "profiles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the profiles were read under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "description": "Absolute path of `Properties/launchSettings.json` (it may not exist).",
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "description": "Whether the file exists.",
+          "type": "boolean"
+        },
+        "profiles": {
+          "description": "The profiles, in the file's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profile"
+          }
+        }
+      }
+    },
+    "profile": {
+      "description": "One launch profile of `Properties/launchSettings.json`, in the file's order.",
+      "type": "object",
+      "required": [
+        "name",
+        "commandName",
+        "environmentVariables"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The profile's name (its member name under `profiles`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "commandName": {
+          "description": "Project (run the project), Executable (run `executablePath`), IISExpress, IIS, Docker, or another tool's kind, as written.",
+          "type": "string"
+        },
+        "commandLineArgs": {
+          "description": "Command line arguments.",
+          "type": "string"
+        },
+        "workingDirectory": {
+          "description": "Working directory (may use `$(ProjectDir)`).",
+          "type": "string"
+        },
+        "environmentVariables": {
+          "description": "The environment variables table, in the file's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environmentVariable"
+          }
+        },
+        "launchBrowser": {
+          "description": "Open a browser on the site when the project starts.",
+          "type": "boolean"
+        },
+        "launchUrl": {
+          "description": "The page to open, relative to the application URL, or absolute.",
+          "type": "string"
+        },
+        "applicationUrl": {
+          "description": "The URLs the app listens on, `;`-separated.",
+          "type": "string"
+        },
+        "dotnetRunMessages": {
+          "description": "Show `dotnet run`'s messages.",
+          "type": "boolean"
+        },
+        "hotReloadEnabled": {
+          "description": "Hot Reload on.",
+          "type": "boolean"
+        },
+        "executablePath": {
+          "description": "Executable profiles: the program to run.",
+          "type": "string"
+        },
+        "readOnly": {
+          "description": "IIS Express (and IIS) profiles off Windows: listed read-only.",
+          "type": "boolean"
+        },
+        "unknown": {
+          "description": "The names of members Eludite does not edit; they are kept as they are on every write.",
+          "type": "array",
+          "items": {
+            "description": "A member name.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "environmentVariable": {
+      "description": "One environment variable, in the file's order.",
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The variable.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "Its value.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

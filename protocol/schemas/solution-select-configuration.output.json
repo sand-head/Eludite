@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-select-configuration.output.json",
+  "title": "eludite.solution.select_configuration output",
+  "description": "The selection after the change.",
+  "type": "object",
+  "required": [
+    "configuration",
+    "platform"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "configuration": {
+      "description": "The solution configuration.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "The solution platform.",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "With `framework`: the project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "With `framework`: the target framework chosen.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

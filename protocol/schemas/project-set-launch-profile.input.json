@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-set-launch-profile.input.json",
+  "title": "eludite.project.set_launch_profile input",
+  "description": "Edit a project's launch profiles as the Debug property page does, writing `Properties/launchSettings.json` through eludite-host (the profiles' order and every member Eludite does not edit are kept): `set` changes `values`; `create` (New) adds a Project profile with the project's defaults, then `values`; `rename`; `delete`. `select` writes nothing: it picks the profile F5 and Ctrl+F5 use for the project, as the Debug toolbar's profile list does (kept per solution; eludite.debug.start's `profile` still wins).",
+  "type": "object",
+  "required": [
+    "profile"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder). Default: the project selected in the Workspace window, else the active document's project, else the startup project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "description": "The profile's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "enum": [
+        "set",
+        "create",
+        "rename",
+        "delete",
+        "select"
+      ],
+      "description": "Default `set`."
+    },
+    "new_name": {
+      "description": "`rename`: the new name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The members to change; null removes one; members not named are kept (unknown ones too).",
+      "properties": {
+        "command_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Project or Executable."
+        },
+        "command_line_args": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Command line arguments."
+        },
+        "working_directory": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Working directory."
+        },
+        "environment_variables": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "description": "The variable.",
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "description": "Its value.",
+                "type": "string"
+              }
+            }
+          },
+          "description": "The whole table in order: existing variables keep their place, new ones are appended."
+        },
+        "launch_browser": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Open a browser on start."
+        },
+        "launch_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The page to open."
+        },
+        "application_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The URLs, `;`-separated."
+        },
+        "dotnet_run_messages": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Show `dotnet run`'s messages."
+        },
+        "hot_reload_enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Hot Reload on."
+        },
+        "executable_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Executable profiles: the program."
+        }
+      }
+    }
+  }
+}

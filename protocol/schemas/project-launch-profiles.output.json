@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-launch-profiles.output.json",
+  "title": "eludite.project.launch_profiles output",
+  "description": "The profiles in the file's order.",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "file",
+    "exists",
+    "profiles"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "file": {
+      "description": "`Properties/launchSettings.json`.",
+      "type": "string",
+      "minLength": 1
+    },
+    "exists": {
+      "description": "Whether the file exists.",
+      "type": "boolean"
+    },
+    "selected": {
+      "description": "The profile F5 uses for this project: the Debug toolbar's choice (eludite.project.set_launch_profile `select`), else the first Project profile.",
+      "type": "string"
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "command_name",
+          "environment_variables"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The profile's name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "command_name": {
+            "description": "Project, Executable, IISExpress, ...",
+            "type": "string"
+          },
+          "command_line_args": {
+            "description": "Command line arguments.",
+            "type": "string"
+          },
+          "working_directory": {
+            "description": "Working directory.",
+            "type": "string"
+          },
+          "environment_variables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "description": "The variable.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "value": {
+                  "description": "Its value.",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "In the file's order."
+          },
+          "launch_browser": {
+            "description": "Open a browser on start.",
+            "type": "boolean"
+          },
+          "launch_url": {
+            "description": "The page to open.",
+            "type": "string"
+          },
+          "application_url": {
+            "description": "The URLs, `;`-separated.",
+            "type": "string"
+          },
+          "dotnet_run_messages": {
+            "description": "Show `dotnet run`'s messages.",
+            "type": "boolean"
+          },
+          "hot_reload_enabled": {
+            "description": "Hot Reload on.",
+            "type": "boolean"
+          },
+          "executable_path": {
+            "description": "Executable profiles: the program.",
+            "type": "string"
+          },
+          "read_only": {
+            "description": "IIS Express off Windows: read-only.",
+            "type": "boolean"
+          },
+          "unknown": {
+            "type": "array",
+            "items": {
+              "description": "A member name.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Members Eludite keeps but does not edit."
+          }
+        }
+      },
+      "description": "In the file's order."
+    }
+  }
+}

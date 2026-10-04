@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-properties.output.json",
+  "title": "eludite.project.properties output",
+  "description": "The project's catalog with its values, as the property pages show them.",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "kind",
+    "configuration",
+    "platform",
+    "configurations",
+    "platforms",
+    "frameworks",
+    "pages",
+    "properties",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "sdk",
+        "legacy"
+      ],
+      "description": "legacy (non-SDK) projects are read-only."
+    },
+    "configuration": {
+      "description": "The configuration evaluated.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "The platform evaluated.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "The framework evaluated, when one was given.",
+      "type": "string",
+      "minLength": 1
+    },
+    "configurations": {
+      "type": "array",
+      "items": {
+        "description": "A configuration.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The project's configurations."
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "description": "A platform.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The project's platforms."
+    },
+    "frameworks": {
+      "type": "array",
+      "items": {
+        "description": "A target framework.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The project's target frameworks."
+    },
+    "pages": {
+      "type": "array",
+      "description": "The pages in order, with `not_yet` for Resources, Settings and Signing.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "state"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "application",
+              "build",
+              "package",
+              "debug",
+              "code_analysis",
+              "resources",
+              "settings",
+              "signing"
+            ]
+          },
+          "title": {
+            "description": "The page's title.",
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "ready",
+              "launch_profiles",
+              "not_yet"
+            ]
+          },
+          "note": {
+            "description": "Why it is not there yet.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "properties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "page",
+          "label",
+          "type",
+          "per_configuration",
+          "value",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The MSBuild property.",
+            "type": "string",
+            "minLength": 1
+          },
+          "page": {
+            "enum": [
+              "application",
+              "build",
+              "package",
+              "debug",
+              "code_analysis",
+              "resources",
+              "settings",
+              "signing"
+            ],
+            "description": "The page that shows it."
+          },
+          "section": {
+            "description": "The group on the page.",
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "description": "Visual Studio's label.",
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "enum": [
+              "string",
+              "bool",
+              "enum",
+              "list",
+              "path",
+              "multiline"
+            ],
+            "description": "How the page edits it; `set_property`'s `value` follows it (a bool takes true or false; an enum one of `values`; a list `;`-separated text)."
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "description": "An enum's MSBuild value.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "An enum's values, in Visual Studio's order."
+          },
+          "per_configuration": {
+            "description": "Edited per configuration and platform (the condition rule).",
+            "type": "boolean"
+          },
+          "value": {
+            "description": "The evaluated value; empty when not defined.",
+            "type": "string"
+          },
+          "raw": {
+            "description": "The unevaluated text of the defining element.",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "project",
+              "conditioned",
+              "inherited",
+              "default"
+            ],
+            "description": "Where the value comes from: the project's unconditioned group, a conditioned group, an inherited file (Directory.Build.props), or the SDK's default."
+          },
+          "file": {
+            "description": "The file that defines it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "line": {
+            "description": "The defining element's 1-based line.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "condition": {
+            "description": "The condition on the defining element or its group.",
+            "type": "string"
+          },
+          "inherited_from": {
+            "description": "The inherited file: `set_property` writes it only with `override`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "description": "A condition.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The project file's configuration conditions that define it (any configuration)."
+          },
+          "read_only": {
+            "description": "Read-only on the page (Win32 resources off Windows; a legacy project).",
+            "type": "boolean"
+          }
+        }
+      },
+      "description": "The catalog, in page order."
+    },
+    "generation": {
+      "description": "The solution generation the values were read under.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "opened": {
+      "description": "The Properties document tab was opened or activated (`open`).",
+      "type": "boolean"
+    }
+  }
+}

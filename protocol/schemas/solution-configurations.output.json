@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-configurations.output.json",
+  "title": "eludite.solution.configurations output",
+  "description": "The lists, the selection and the mapping.",
+  "type": "object",
+  "required": [
+    "configurations",
+    "platforms",
+    "active",
+    "projects"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The solution file (or the Cargo workspace's manifest).",
+      "type": "string"
+    },
+    "format": {
+      "enum": [
+        "sln",
+        "slnx",
+        "project",
+        "cargo"
+      ],
+      "description": "Where the lists come from."
+    },
+    "configurations": {
+      "type": "array",
+      "items": {
+        "description": "A configuration.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Solution Configurations."
+    },
+    "platforms": {
+      "type": "array",
+      "items": {
+        "description": "A platform.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Solution Platforms."
+    },
+    "active": {
+      "type": "object",
+      "required": [
+        "configuration",
+        "platform"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "description": "The solution configuration.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The solution platform.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "path",
+          "mappings"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The project's name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "description": "The project file.",
+            "type": "string",
+            "minLength": 1
+          },
+          "configurations": {
+            "type": "array",
+            "items": {
+              "description": "A configuration.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The project's own configurations."
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "description": "A platform.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The project's own platforms."
+          },
+          "frameworks": {
+            "type": "array",
+            "items": {
+              "description": "A framework.",
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Its target frameworks (several: the Target Framework list applies)."
+          },
+          "framework": {
+            "description": "The Target Framework list's choice for it (multi-targeted projects).",
+            "type": "string",
+            "minLength": 1
+          },
+          "profile": {
+            "description": "The launch profile F5 uses for it (the Debug toolbar's choice).",
+            "type": "string",
+            "minLength": 1
+          },
+          "mappings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "solution_configuration",
+                "solution_platform",
+                "configuration",
+                "platform",
+                "build"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "solution_configuration": {
+                  "description": "The solution configuration.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "solution_platform": {
+                  "description": "The solution platform.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "configuration": {
+                  "description": "The project configuration.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "platform": {
+                  "description": "The project platform.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "build": {
+                  "description": "Built in this solution configuration.",
+                  "type": "boolean"
+                },
+                "deploy": {
+                  "description": "Deploy checked.",
+                  "type": "boolean"
+                }
+              }
+            },
+            "description": "Configuration Manager's rows."
+          }
+        }
+      },
+      "description": "In solution order."
+    }
+  }
+}

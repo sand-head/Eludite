@@ -25,6 +25,11 @@
       "type": "string",
       "minLength": 1
     },
+    "framework": {
+      "description": "Only the containers of this target framework, for multi-targeted test projects (`net8.0`; brief 0049). Default: the Target Framework list's choice for a multi-targeted project when one was made (eludite.solution.select_configuration), else every framework.",
+      "type": "string",
+      "minLength": 1
+    },
     "failed_only": {
       "description": "Run Failed Tests: the tests that failed in the last run.",
       "type": "boolean"

@@ -115,6 +115,12 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/nuget/sources` | request | [nuget-sources.json](host/nuget-sources.json) | `{ generation, operation?, action?, name?, url? }` | `{ sources: [{ name, url, enabled, local, scope, configFile? }], configFiles, userConfig, changed }` |
 | `eludite/nuget/restore` | request | [nuget-restore.json](host/nuget-restore.json) | `{ generation, operation?, projects?, lockFiles?, force?, interactive? }` | `{ generation, result, exitCode, elapsedMs, commandLine, lockedMode, lockFiles, diagnostics }` |
 | `eludite/nuget/icon` | request | [nuget-icon.json](host/nuget-icon.json) | `{ url }` | `{ path }` (a cached file, or `null`) |
+| `eludite/project/properties` | request | [project-properties.json](host/project-properties.json) | `{ project, configuration?, platform?, framework? }` | `{ generation, project, kind, configuration, platform, framework?, configurations, platforms, frameworks, pages, properties: [{ name, page, label, type, perConfiguration, value, raw?, source, definedIn?, conditioned, inherited, inheritedFrom?, conditions?, readOnly? }] }` |
+| `eludite/project/setProperty` | request | [project-set-property.json](host/project-set-property.json) | `{ project, generation, edits: [{ name, value, configuration?, platform?, framework?, allConfigurations?, override? }] }` | `{ generation, project, written, results: [{ name, status, condition?, line?, inheritedFrom?, removedConditions? }] }` |
+| `eludite/project/launchProfiles` | request | [launch-profiles.json](host/launch-profiles.json) | `{ project }` | `{ generation, project, file, exists, profiles: [{ name, commandName, environmentVariables, ... }] }` |
+| `eludite/project/setLaunchProfile` | request | [launch-profile-set.json](host/launch-profile-set.json) | `{ project, generation, action, profile, newName?, values? }` | as `eludite/project/launchProfiles` |
+| `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
+| `eludite/solution/setConfiguration` | request | [solution-set-configuration.json](host/solution-set-configuration.json) | `{ generation, select?, mappings? }` | `{ generation, path, written, active }` |
 
 #### `eludite/host/initialize`
 
@@ -435,6 +441,81 @@ never talks to a package source itself.
   host's log (stderr) and to the `output` notifications.
 - **Errors:** -32002 before `eludite/host/initialize`; -32602 when no solution is open, a project is not one of the
   solution's, `packages` is empty, or an action's arguments are missing; -32014 as above.
+
+#### Project properties (brief 0049)
+
+The project property pages, launch profiles and the Solution Configurations and Solution Platforms lists (PLAN.md
+4.2, 4.5, 8). The host reads and writes the project file, `launchSettings.json` and the solution file; the shell never
+edits them itself.
+
+- **The catalog.** `eludite/project/properties` answers the properties Visual Studio's pages show that people touch,
+  each with its page, its type, whether it is per configuration, its evaluated value in the requested configuration,
+  platform and framework, its raw (unevaluated) text, and where it comes from. The table is
+  `Projects/PropertyCatalog.cs`; in order:
+
+  | Page | Section | Property (MSBuild) | Type | Per configuration |
+  |---|---|---|---|---|
+  | Application | General | `AssemblyName`, `RootNamespace` (Default namespace) | string | no |
+  | Application | General | `TargetFramework`; `TargetFrameworks` (multi-targeting) | string; list | no |
+  | Application | General | `OutputType` (`Exe` Console Application, `WinExe` Windows Application, `Library` Class Library) | enum | no |
+  | Application | General | `StartupObject` | string | no |
+  | Application | General | `Nullable` (`disable`, `enable`, `warnings`, `annotations`), `ImplicitUsings` (`enable` / `disable`) | enum; bool | no |
+  | Application | General | `LangVersion` (`default`, `latest`, `latestMajor`, `preview`, `14.0` ... `7.3`) | enum | no |
+  | Application | Win32 resources | `ApplicationIcon`, `ApplicationManifest`, `Win32Resource` (read-only off Windows) | path | no |
+  | Build | General | `DefineConstants` (Conditional compilation symbols) | list | yes |
+  | Build | General | `Optimize` | bool | yes |
+  | Build | Errors and warnings | `WarningLevel` (`0` to `9999`), `TreatWarningsAsErrors` | enum; bool | yes |
+  | Build | Errors and warnings | `WarningsAsErrors`, `NoWarn` (Suppress specific warnings) | list | yes |
+  | Build | Output | `GenerateDocumentationFile`, `DocumentationFile` | bool; path | yes; yes |
+  | Build | Output | `OutputPath`, `BaseOutputPath` | path | yes; no |
+  | Build | Events | `PreBuildEvent`, `PostBuildEvent` | multiline | no |
+  | Build | Strong naming | `SignAssembly`, `AssemblyOriginatorKeyFile` | bool; path | no |
+  | Build | Advanced | `Deterministic`, `DebugType` (`portable`, `embedded`, `full`, `pdbonly`, `none`) | bool; enum | no; yes |
+  | Package | General | `GeneratePackageOnBuild`, `PackageId`, `Version`, `Authors`, `Description`, `PackageProjectUrl`, `RepositoryUrl`, `PackageTags` | bool; string | no |
+  | Package | License | `PackageLicenseExpression`, `PackageReadmeFile` | string; path | no |
+  | Code Analysis | General | `EnforceCodeStyleInBuild`, `AnalysisLevel` (`latest`, `latest-minimum`, `latest-recommended`, `latest-all`, `preview`, `none`, `10.0` ... `5.0`) | bool; enum | no |
+
+  The Debug page is the launch profiles editor; Resources, Settings and Signing are listed with `notYet`. A legacy
+  (non-SDK) project answers the same catalog read-only. On an SDK-style project the build events are written as Visual
+  Studio writes them, an `<Exec Command="...">` in a `PreBuild` target (`BeforeTargets="PreBuildEvent"`) or a
+  `PostBuild` target (`AfterTargets="PostBuildEvent"`); a legacy project's are the properties.
+- **Evaluation.** The project's own evaluator (`Microsoft.Build.Evaluation.Project` on the SDK's MSBuild located by
+  `Microsoft.Build.Locator`, evaluation only), a second evaluation with `Configuration`, `Platform` (and
+  `TargetFramework` for a framework) as global properties, run on the thread pool and cached per generation,
+  project, configuration, platform and framework. A property's `source` is `project` (an unconditioned element of the
+  project file), `conditioned` (an element of the project file whose condition, or its group's, holds),
+  `inherited` (an element in a file the project imports that is not under the .NET SDK's or MSBuild's own folders:
+  `Directory.Build.props`, `Directory.Build.targets`, an imported `.props`), or `default`.
+- **The condition rule.** An edit without `configuration`, `platform` and `framework` writes the unconditioned value
+  in the first unconditioned `<PropertyGroup>` of the project file (one is created after the last unconditioned group,
+  else at the top, when there is none). An edit with them writes in the group whose condition is that configuration,
+  platform and framework (`'$(Configuration)|$(Platform)'=='Debug|AnyCPU'`, compared without spaces and case; also
+  `'$(Configuration)'=='Debug'` for a configuration alone), created after the last unconditioned group when there is
+  none, as Visual Studio does. A value equal to the default for that condition (what the project evaluates to without
+  its own element for the property under that condition) removes the element instead, and a conditioned group left
+  empty goes with it. `allConfigurations` writes the unconditioned value and removes every element of the property
+  under a configuration, platform or framework condition (the shell confirms first). Every edit changes one element
+  (and creates or removes at most its group); the rest of the file is byte-for-byte what it was (MSBuild's
+  construction model with `preserveFormatting`, written with the file's own encoding, byte order mark and line
+  endings).
+- **The inherited rule.** A property whose value comes from an inherited file is not written unless the edit says
+  `override`; its result is `inherited` with `inheritedFrom`, and the shell asks before overriding in the project.
+- **The generation rule.** Every write carries the `generation` its values were read under; another generation fails
+  with -32801 and writes nothing. A property or mapping write that changes the file reloads the solution (as
+  `eludite/solution/open` of the same path: the generation moves on, `eludite/solution/status` reports the load), so the
+  tree, IntelliSense, tests and builds see the change; the result carries the new generation. A launch profile write
+  does not reload (the file is not part of the evaluation). Every request takes `$/cancelRequest` (-32800), and a
+  request whose generation moves on while it evaluates fails with -32801.
+- **Launch profiles.** `eludite/project/launchProfiles` reads `Properties/launchSettings.json` with System.Text.Json's
+  nodes, and `eludite/project/setLaunchProfile` writes it the same way: the profiles' order and the members Eludite does
+  not edit are kept, the environment variables keep their order (new ones are appended), and the file keeps its
+  indentation, line endings and byte order mark. JSON comments are not kept.
+- **Solution configurations.** `eludite/solution/configurations` reads the `.sln`'s `SolutionConfigurationPlatforms`
+  and `ProjectConfigurationPlatforms` (`ActiveCfg`, `Build.0`, `Deploy.0`), or the `.slnx`'s `<Configurations>` and
+  its projects' `<BuildType>`, `<Platform>`, `<Build>` and `<Deploy>` rules (a project without rules maps every
+  solution configuration to itself and `Any CPU`, and builds); a project file opened alone maps to itself. The active
+  selection (`select`) is the host's default for `eludite/project/properties`; the shell keeps it per solution.
+  `mappings` rewrites only the lines (`.sln`) or the project's rule elements (`.slnx`) it changes.
 
 ### Forwarded LSP methods, typed
 

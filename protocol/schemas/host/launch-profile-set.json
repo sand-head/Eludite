@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/launch-profile-set.json",
+  "title": "eludite/project/setLaunchProfile",
+  "description": "Create, edit, rename or delete a launch profile in `Properties/launchSettings.json` (brief 0049; host-rpc.md, \"Project properties\"), writing the file with System.Text.Json's nodes: the profiles' order, every other member (unknown ones too) and the file's indentation, line endings and byte order mark are kept; members are written as Visual Studio writes them. `create` makes the file (and `Properties/`) when missing. The project is not reloaded (the file is not part of the evaluation): the generation does not move.",
+  "x-eludite-method": "eludite/project/setLaunchProfile",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project",
+        "generation",
+        "action",
+        "profile"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "description": "The generation the shell read the values under. A value that is not the current generation fails with -32801 (ContentModified) and writes nothing: the file may have changed since (another edit, a reload).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "description": "set: change `values` of an existing profile; create: add a profile named `profile` at the end, a Project profile with the project's defaults (`commandName` Project; a web project also gets `launchBrowser` true and `ASPNETCORE_ENVIRONMENT` Development) and then `values`; rename: to `newName`, in place; delete.",
+          "enum": [
+            "set",
+            "create",
+            "rename",
+            "delete"
+          ]
+        },
+        "profile": {
+          "description": "The profile's name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "newName": {
+          "description": "rename: the new name (not one the file has).",
+          "type": "string",
+          "minLength": 1
+        },
+        "values": {
+          "$ref": "#/$defs/values"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "file",
+        "exists",
+        "profiles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the profiles were read under.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "description": "Absolute path of `Properties/launchSettings.json` (it may not exist).",
+          "type": "string",
+          "minLength": 1
+        },
+        "exists": {
+          "description": "Whether the file exists.",
+          "type": "boolean"
+        },
+        "profiles": {
+          "description": "The profiles, in the file's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profile"
+          }
+        }
+      }
+    },
+    "values": {
+      "description": "The members to set; null removes one. Members not named are kept, and so are members Eludite does not know.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commandName": {
+          "description": "Project, Executable (IIS Express is read-only off Windows).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commandLineArgs": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Command line arguments."
+        },
+        "workingDirectory": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Working directory."
+        },
+        "environmentVariables": {
+          "description": "The whole table, in order: variables already in the file keep their place, new ones are appended, missing ones are removed. Empty or null removes the member.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/environmentVariable"
+          }
+        },
+        "launchBrowser": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Open a browser on start."
+        },
+        "launchUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The page to open."
+        },
+        "applicationUrl": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The URLs, `;`-separated."
+        },
+        "dotnetRunMessages": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Show `dotnet run`'s messages."
+        },
+        "hotReloadEnabled": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Hot Reload on."
+        },
+        "executablePath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Executable profiles: the program."
+        }
+      }
+    },
+    "profile": {
+      "description": "One launch profile of `Properties/launchSettings.json`, in the file's order.",
+      "type": "object",
+      "required": [
+        "name",
+        "commandName",
+        "environmentVariables"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The profile's name (its member name under `profiles`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "commandName": {
+          "description": "Project (run the project), Executable (run `executablePath`), IISExpress, IIS, Docker, or another tool's kind, as written.",
+          "type": "string"
+        },
+        "commandLineArgs": {
+          "description": "Command line arguments.",
+          "type": "string"
+        },
+        "workingDirectory": {
+          "description": "Working directory (may use `$(ProjectDir)`).",
+          "type": "string"
+        },
+        "environmentVariables": {
+          "description": "The environment variables table, in the file's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/environmentVariable"
+          }
+        },
+        "launchBrowser": {
+          "description": "Open a browser on the site when the project starts.",
+          "type": "boolean"
+        },
+        "launchUrl": {
+          "description": "The page to open, relative to the application URL, or absolute.",
+          "type": "string"
+        },
+        "applicationUrl": {
+          "description": "The URLs the app listens on, `;`-separated.",
+          "type": "string"
+        },
+        "dotnetRunMessages": {
+          "description": "Show `dotnet run`'s messages.",
+          "type": "boolean"
+        },
+        "hotReloadEnabled": {
+          "description": "Hot Reload on.",
+          "type": "boolean"
+        },
+        "executablePath": {
+          "description": "Executable profiles: the program to run.",
+          "type": "string"
+        },
+        "readOnly": {
+          "description": "IIS Express (and IIS) profiles off Windows: listed read-only.",
+          "type": "boolean"
+        },
+        "unknown": {
+          "description": "The names of members Eludite does not edit; they are kept as they are on every write.",
+          "type": "array",
+          "items": {
+            "description": "A member name.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "environmentVariable": {
+      "description": "One environment variable, in the file's order.",
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The variable.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "Its value.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}
