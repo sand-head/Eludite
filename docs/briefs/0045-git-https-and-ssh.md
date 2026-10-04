@@ -1,6 +1,6 @@
 # Brief 0045: Git over https and ssh
 
-Status: open
+Status: in progress
 Phase: 1 close-out (follow-up to brief 0040)
 Plan reference: PLAN.md sections 2 (principle 1), 4.8 (no shelling out to `git` on hot paths), 10 (Phase 1 exit); brief 0040's report (the "not done" item: https and ssh remotes are refused by this build)
 Related ADRs: ADR-0005 (licensing)
