@@ -8256,15 +8256,13 @@ fn the_browser_session_follows_its_tab_and_the_dialog_lists_tabs(cx: &mut TestAp
         dlg.visible_tabs()[0].id.clone()
     });
     assert_eq!(tab, "t2");
-    d.w.shell.update(&mut d.w.vcx, |s, cx| {
-        let dlg = s.debugger().attach_dialog.clone().unwrap();
-        dlg.update(cx, |dlg, cx| {
-            dlg.select_tab("t2", cx);
-            assert_eq!(
-                dlg.pick(),
-                Some(super::windows::AttachPick::Tab("t2".into()))
-            );
-        });
+    // Listing the tabs only, the first is selected: Enter attaches to it.
+    d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let dlg = s.debugger().attach_dialog.as_ref().unwrap().read(cx);
+        assert_eq!(
+            dlg.pick(),
+            Some(super::windows::AttachPick::Tab("t2".into()))
+        );
     });
     d.w.vcx.simulate_keystrokes("enter");
     d.wait_child_running();

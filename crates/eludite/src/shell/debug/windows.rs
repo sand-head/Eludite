@@ -1517,13 +1517,25 @@ impl AttachDialog {
         {
             self.selected_tab = None;
         }
+        self.preselect_tab();
         cx.notify();
     }
 
     /// Debug > Attach to Browser Tab... lists the tabs only (brief 0038).
     pub fn set_tabs_only(&mut self, on: bool, cx: &mut Context<Self>) {
         self.tabs_only = on;
+        self.preselect_tab();
         cx.notify();
+    }
+
+    /// Listing the tabs only, the first is selected until one is picked: Enter attaches to it.
+    fn preselect_tab(&mut self) {
+        if self.tabs_only && self.selected_tab.is_none() {
+            self.selected_tab = self.visible_tabs().first().map(|r| r.id.clone());
+            if self.selected_tab.is_some() {
+                self.selected = None;
+            }
+        }
     }
 
     /// The tabs the filter leaves (title or url containing it).
