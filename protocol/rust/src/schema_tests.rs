@@ -164,6 +164,7 @@ fn every_schema_file_names_a_documented_method() {
         methods::TEST_UPDATE,
         methods::NUGET_UPDATE,
         methods::NUGET_CREDENTIALS,
+        methods::CODE_LENS_REFRESH,
     ]) {
         assert!(seen.contains(*m), "no schema file for {m}");
     }
@@ -201,6 +202,7 @@ fn host_rpc_md_lists_exactly_the_rust_method_sets() {
         "window/showMessageRequest",
         "workspace/diagnostic/refresh",
         "workspace/semanticTokens/refresh",
+        "workspace/codeLens/refresh",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -535,6 +537,8 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<lsp::DocumentSymbolRequest>(),
         req::<lsp::WorkspaceSymbolRequest>(),
         req::<lsp::DocumentDiagnosticRequest>(),
+        req::<lsp::CodeLensRequest>(),
+        req::<lsp::ResolveCodeLens>(),
     ];
     let names: BTreeSet<_> = typed.iter().map(|(m, _)| *m).collect();
     let listed: BTreeSet<_> = methods::FORWARDED_TYPED_REQUESTS.iter().copied().collect();
@@ -913,6 +917,120 @@ fn sample_edit() -> lsp::WorkspaceEdit {
         ]),
         extra: Default::default(),
     }
+}
+
+#[test]
+fn code_lens_messages_conform_to_their_schemas() {
+    use crate::typed::{NotificationType, RequestType};
+    for (file, method) in [
+        ("code-lens.json", lsp::CodeLensRequest::METHOD),
+        ("code-lens-resolve.json", lsp::ResolveCodeLens::METHOD),
+    ] {
+        assert_eq!(load(file)["x-eludite-method"], method, "{file}");
+        assert!(methods::FORWARDED_TYPED_REQUESTS.contains(&method));
+        assert!(!methods::FORWARDED_UNTYPED_REQUESTS.contains(&method));
+    }
+    assert_eq!(
+        load("code-lens-refresh.json")["x-eludite-method"],
+        host::CodeLensRefreshNotification::METHOD
+    );
+    assert!(methods::HOST_TO_SHELL.contains(&host::CodeLensRefreshNotification::METHOD));
+    assert!(!methods::HOST_TO_SHELL_REQUESTS.contains(&host::CodeLensRefreshNotification::METHOD));
+    let uri = "file:///s/CalculatorTests.cs";
+    conforms(
+        "code-lens.json",
+        "params",
+        &host::WithGeneration {
+            params: lsp::CodeLensParams {
+                text_document: lsp::TextDocumentIdentifier { uri: uri.into() },
+            },
+            generation: 2,
+        },
+    );
+    rejects("code-lens.json", "params", json!({"eluditeGeneration": 2}));
+    let range = lsp::Range {
+        start: lsp::Position {
+            line: 4,
+            character: 23,
+        },
+        end: lsp::Position {
+            line: 4,
+            character: 27,
+        },
+    };
+    // Roslyn's unresolved references lens, and the mapped lenses the host answers.
+    let unresolved = lsp::CodeLens {
+        range,
+        command: None,
+        data: Some(json!({"syntaxVersion": "1", "listIndex": 1, "textDocument": {"uri": uri}})),
+        extra: Default::default(),
+    };
+    let run = lsp::CodeLens {
+        command: Some(lsp::Command {
+            title: "Run Test".into(),
+            command: "eludite.test.run".into(),
+            arguments: Some(vec![
+                json!({"uri": uri, "path": "/s/CalculatorTests.cs", "range": range, "member": "Adds"}),
+            ]),
+        }),
+        data: None,
+        ..unresolved.clone()
+    };
+    let references = lsp::CodeLens {
+        command: Some(lsp::Command {
+            title: "3 references".into(),
+            command: "eludite.editor.find_references".into(),
+            arguments: Some(vec![
+                json!({"uri": uri, "path": "/s/CalculatorTests.cs", "position": range.start}),
+            ]),
+        }),
+        ..unresolved.clone()
+    };
+    let answer: <lsp::CodeLensRequest as RequestType>::Result =
+        Some(vec![unresolved.clone(), run.clone(), references.clone()]);
+    conforms("code-lens.json", "result", &answer);
+    conforms("code-lens.json", "result", &Value::Null);
+    for lens in [&unresolved, &run, &references] {
+        conforms("code-lens.json", "codeLens", lens);
+    }
+    conforms("code-lens.json", "command", run.command.as_ref().unwrap());
+    let args = |l: &lsp::CodeLens| l.command.as_ref().unwrap().arguments.as_ref().unwrap()[0].clone();
+    conforms("code-lens.json", "testArguments", &args(&run));
+    conforms("code-lens.json", "referencesArguments", &args(&references));
+    rejects(
+        "code-lens.json",
+        "testArguments",
+        json!({"uri": uri, "path": "/s/a.cs", "range": range}),
+    );
+    rejects(
+        "code-lens.json",
+        "referencesArguments",
+        json!({"uri": uri, "path": "/s/a.cs", "position": range.start, "extra": 1}),
+    );
+    conforms(
+        "code-lens-resolve.json",
+        "params",
+        &host::WithGeneration {
+            params: unresolved.clone(),
+            generation: 2,
+        },
+    );
+    rejects(
+        "code-lens-resolve.json",
+        "params",
+        json!({"data": {}, "eluditeGeneration": 2}),
+    );
+    conforms("code-lens-resolve.json", "result", &references);
+    conforms(
+        "code-lens-refresh.json",
+        "params",
+        &host::CodeLensRefreshParams { generation: 3 },
+    );
+    rejects("code-lens-refresh.json", "params", json!({}));
+    // A lens survives a decode and re-encode unchanged, with members Eludite does not name.
+    let wire = json!({"range": range, "data": {"x": 1}, "isResolved": false});
+    let lens: lsp::CodeLens = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&lens).unwrap(), wire);
 }
 
 #[test]

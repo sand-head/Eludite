@@ -778,6 +778,42 @@ forwarded_request!(
     CodeAction
 );
 
+/// `textDocument/codeLens` params (brief 0052; schema `protocol/schemas/host/code-lens.json`). LSP has no range: the
+/// answer covers the whole document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeLensParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+/// LSP `CodeLens` (schema: `protocol/schemas/host/code-lens.json` `$defs.codeLens`). Without a command it is
+/// unresolved: `codeLens/resolve` gives it one. `data` is opaque and goes back unchanged.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodeLens {
+    pub range: Range,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<Command>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+forwarded_request!(
+    /// `textDocument/codeLens` (brief 0052).
+    CodeLensRequest,
+    "textDocument/codeLens",
+    CodeLensParams,
+    Option<Vec<CodeLens>>
+);
+forwarded_request!(
+    /// `codeLens/resolve` (brief 0052).
+    ResolveCodeLens,
+    "codeLens/resolve",
+    CodeLens,
+    CodeLens
+);
+
 /// `workspace/applyEdit`, the request the host sends the shell (host-rpc.md, "Messages the host sends"). Not
 /// generational in the forwarded sense: the host adds `eluditeGeneration` itself, and the shell answers it.
 #[derive(Debug)]

@@ -49,6 +49,15 @@ pub mod methods_generic {
     pub const WORKSPACE_FOLDERS: &str = "workspace/workspaceFolders";
     /// Answered `null`; every open document is pulled again.
     pub const DIAGNOSTIC_REFRESH: &str = "workspace/diagnostic/refresh";
+    /// Answered `null`; the lens generation moves and the shell asks for its documents' lenses again (brief 0052).
+    pub const CODE_LENS_REFRESH: &str = "workspace/codeLens/refresh";
+    /// The client commands rust-analyzer needs listed in `experimental.commands.commands` before it offers its run,
+    /// debug, implementations and references lenses (brief 0052).
+    pub const LENS_CLIENT_COMMANDS: &[&str] = &[
+        "rust-analyzer.runSingle",
+        "rust-analyzer.debugSingle",
+        "rust-analyzer.showReferences",
+    ];
     /// Server-to-client requests answered `null`.
     pub const ANSWERED_NULL: &[&str] = &[
         "window/workDoneProgress/create",
@@ -56,7 +65,6 @@ pub mod methods_generic {
         "client/unregisterCapability",
         "workspace/semanticTokens/refresh",
         "workspace/inlayHint/refresh",
-        "workspace/codeLens/refresh",
     ];
 }
 
@@ -87,6 +95,7 @@ pub fn client_capabilities() -> Value {
             "didChangeWatchedFiles": {"dynamicRegistration": false},
             "applyEdit": true,
             "diagnostics": {"refreshSupport": true},
+            "codeLens": {"refreshSupport": true},
             "workspaceEdit": {
                 "documentChanges": true,
                 "resourceOperations": ["create", "rename", "delete"],
@@ -123,11 +132,15 @@ pub fn client_capabilities() -> Value {
                 "disabledSupport": true
             },
             "rename": {"prepareSupport": true},
+            "codeLens": {},
             "publishDiagnostics": {},
             "diagnostic": {"dynamicRegistration": false}
         },
         "window": {"workDoneProgress": true},
-        "experimental": {"serverStatusNotification": true}
+        "experimental": {
+            "serverStatusNotification": true,
+            "commands": {"commands": methods_generic::LENS_CLIENT_COMMANDS}
+        }
     })
 }
 
@@ -257,7 +270,7 @@ impl Dialect for ServerDialect {
         })
     }
 
-    fn request(&self, _conn: &Connection, r: &Request) -> Result<Value, ErrorObject> {
+    fn request(&self, conn: &Connection, r: &Request) -> Result<Value, ErrorObject> {
         if r.method == methods_generic::CONFIGURATION {
             let items = r
                 .params
@@ -278,6 +291,10 @@ impl Dialect for ServerDialect {
         }
         if r.method == methods_generic::DIAGNOSTIC_REFRESH {
             self.diagnostics.pull_all();
+            return Ok(Value::Null);
+        }
+        if r.method == methods_generic::CODE_LENS_REFRESH {
+            conn.code_lens_refresh(conn.generation());
             return Ok(Value::Null);
         }
         if methods_generic::ANSWERED_NULL.contains(&r.method.as_str()) {
@@ -509,6 +526,9 @@ mod tests {
             DID_CHANGE_CONFIGURATION,
             WORKSPACE_FOLDERS,
             DIAGNOSTIC_REFRESH,
+            CODE_LENS_REFRESH,
+            "textDocument/codeLens",
+            "codeLens/resolve",
             "textDocument/diagnostic",
             "workspace/applyEdit",
             "textDocument/publishDiagnostics",

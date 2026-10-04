@@ -30,11 +30,17 @@
 //! Public API boundary: [`Connection`], [`HostClient`], [`ServerClient`], [`ServerSetup`], [`PendingRequest`],
 //! [`HostCommand`] (alias [`ServerCommand`]), [`Connector`] (a server running in this process), [`ClientInfo`],
 //! [`RestartPolicy`], [`StderrMode`], [`Event`], [`HostEvent`], [`Progress`], [`ServerStatus`], [`Error`], the
-//! [`registry`] types, [`fanout`], [`node`], plus the low-level [`Transport`] / [`FramedTransport`]. Message types live in
-//! `eludite-protocol`. With the `fake` feature, [`fake::FakeHost`] is a scripted in-process host and
-//! [`fake_server::FakeServer`] a scripted in-process generic server, for tests.
+//! [`registry`] types, [`fanout`], [`node`], [`codelens`] (what a lens's command does, brief 0052), plus the low-level
+//! [`Transport`] / [`FramedTransport`]. Message types live in `eludite-protocol`. With the `fake` feature,
+//! [`fake::FakeHost`] is a scripted in-process host and [`fake_server::FakeServer`] a scripted in-process generic
+//! server, for tests.
+//!
+//! CodeLens (brief 0052): a generic server's `workspace/codeLens/refresh` and the host's `eludite/codeLens/refresh`
+//! both arrive as [`Event::CodeLensRefresh`] and move the connection's lens generation
+//! ([`Connection::code_lens_generation`]).
 
 mod client;
+pub mod codelens;
 mod connection;
 #[cfg(feature = "fake")]
 pub mod fake;

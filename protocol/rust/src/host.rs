@@ -71,6 +71,8 @@ pub mod methods {
     pub const NUGET_ICON: &str = "eludite/nuget/icon";
     /// Host-to-shell notification: output, progress and metadata of a NuGet call.
     pub const NUGET_UPDATE: &str = "eludite/nuget/update";
+    /// Host-to-shell notification (brief 0052): the language server asked for fresh lenses.
+    pub const CODE_LENS_REFRESH: &str = "eludite/codeLens/refresh";
     /// Host-to-shell request: credentials for a private feed, during an interactive call.
     pub const NUGET_CREDENTIALS: &str = "eludite/nuget/credentials";
     /// The project property pages' catalog with its values (brief 0049).
@@ -134,6 +136,8 @@ pub mod methods {
         "textDocument/documentSymbol",
         "workspace/symbol",
         "textDocument/diagnostic",
+        "textDocument/codeLens",
+        "codeLens/resolve",
     ];
 
     /// Forwarded LSP notifications typed in [`crate::lsp`] (`$/cancelRequest` is handled by the host itself).
@@ -172,6 +176,7 @@ pub mod methods {
         TEST_UPDATE,
         NUGET_UPDATE,
         NUGET_CREDENTIALS,
+        CODE_LENS_REFRESH,
     ];
 
     /// The requests among [`HOST_TO_SHELL`]: the shell answers them.
@@ -624,6 +629,22 @@ pub enum LanguageServerStatusNotification {}
 impl NotificationType for LanguageServerStatusNotification {
     const METHOD: &'static str = methods::LANGUAGE_SERVER_STATUS;
     type Params = LanguageServerStatus;
+}
+
+/// `eludite/codeLens/refresh` (host to shell, brief 0052): the language server sent `workspace/codeLens/refresh`; the
+/// params are the generation current when it arrived.
+#[derive(Debug)]
+pub enum CodeLensRefreshNotification {}
+impl NotificationType for CodeLensRefreshNotification {
+    const METHOD: &'static str = methods::CODE_LENS_REFRESH;
+    type Params = CodeLensRefreshParams;
+}
+
+/// [`CodeLensRefreshNotification`]'s params.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeLensRefreshParams {
+    #[serde(rename = "eluditeGeneration")]
+    pub generation: Generation,
 }
 
 // Build (brief 0017): `eludite/build/*`, see host-rpc.md "Build".

@@ -237,6 +237,13 @@ pub enum Event {
     Host(HostEvent),
     /// A line of the server's stderr ([`StderrMode::Capture`]), or a generic server's `window/logMessage`.
     Log(String),
+    /// The server asked for fresh lenses (brief 0052): a generic server's `workspace/codeLens/refresh`, or the host's
+    /// `eludite/codeLens/refresh` (under `generation`). `lens_generation` is the connection's lens generation after
+    /// the refresh bumped it ([`Connection::code_lens_generation`]); lenses requested before it are out of date.
+    CodeLensRefresh {
+        generation: Generation,
+        lens_generation: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -356,6 +363,8 @@ struct Inner {
     pending: Mutex<HashMap<i64, Pending>>,
     next_id: AtomicI64,
     generation: AtomicU64,
+    /// Incremented on every lens refresh from the server (brief 0052).
+    lens_generation: AtomicU64,
     /// Incremented on every spawn; a reader only reports the exit of its own process.
     epoch: AtomicU64,
     restarts: AtomicU32,
@@ -402,6 +411,7 @@ impl Connection {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicI64::new(1),
             generation: AtomicU64::new(0),
+            lens_generation: AtomicU64::new(0),
             epoch: AtomicU64::new(0),
             restarts: AtomicU32::new(0),
             stopping: AtomicBool::new(false),
@@ -483,6 +493,21 @@ impl Connection {
         self.inner
             .generation
             .fetch_max(generation, Ordering::SeqCst);
+    }
+
+    /// The lens generation (brief 0052): one more for every `workspace/codeLens/refresh` the server sent. A lens
+    /// requested or resolved under an older one is out of date.
+    pub fn code_lens_generation(&self) -> u64 {
+        self.inner.lens_generation.load(Ordering::SeqCst)
+    }
+
+    /// The server asked for fresh lenses: bump the lens generation and tell the shell.
+    pub(crate) fn code_lens_refresh(&self, generation: Generation) {
+        let lens_generation = self.inner.lens_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.emit(Event::CodeLensRefresh {
+            generation,
+            lens_generation,
+        });
     }
 
     pub(crate) fn emit(&self, event: Event) {
