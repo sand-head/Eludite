@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/browser-rpc/engine-ready.json",
   "title": "engine/ready",
-  "description": "Engine-to-shell notification, sent once after the `initialize` answer (brief 0038): the engine's Chrome DevTools remote debugging port answers. The engine chose a free port on 127.0.0.1 before CefInitialize (CEF binds the DevTools HTTP and websocket server to 127.0.0.1 only) and sends this once `GET /json/version` on it answered. A debugger (vscode-js-debug's `pwa-chrome` attach) reaches the engine's tabs there; the shell never guesses the port. Absent when the port did not answer within 10 s (the engine logs why on stderr): the tabs then cannot be debugged.",
+  "description": "Engine-to-shell notification, sent once after the `initialize` answer (brief 0038): the engine's Chrome DevTools remote debugging port answers. The engine chose a free port on 127.0.0.1 before CefInitialize (CEF binds the DevTools HTTP and websocket server to 127.0.0.1 only) and sends this once `GET /json/version` on it answered. A debugger (vscode-js-debug's `pwa-chrome` attach) reaches the engine's tabs there; the shell never guesses the port. Absent when the port did not answer within 10 s (the engine logs why on stderr): the tabs then cannot be debugged, and the shell knows only `initialize`'s `sandbox`. Brief 0039 adds how the engine is sandboxed and which CEF it loaded.",
   "x-eludite-method": "engine/ready",
   "x-eludite-kind": "notification",
   "x-eludite-direction": "engineToShell",
@@ -11,7 +11,9 @@
       "type": "object",
       "required": [
         "remoteDebuggingPort",
-        "address"
+        "address",
+        "sandbox",
+        "cefDir"
       ],
       "properties": {
         "remoteDebuggingPort": {
@@ -23,6 +25,18 @@
         "address": {
           "description": "Where it listens: always the loopback address.",
           "const": "127.0.0.1"
+        },
+        "sandbox": {
+          "description": "How Chromium's sandbox runs (brief 0039, browsers/chromium/README.md): `namespaces`, unprivileged user namespaces (the kernel allows them; the engine probed `unshare(CLONE_NEWUSER)` in a forked child before CEF started); `helper`, the setuid `chrome-sandbox` beside `libcef.so` (owned by root, mode 4755) where namespaces are not available; `none`, `--no-sandbox`, only when the engine's command line carries `--allow-no-sandbox` (the workspace's opt-in or ELUDITE_CHROME_NO_SANDBOX=1 in the shell) and neither of the others can work or the engine runs as root.",
+          "enum": [
+            "namespaces",
+            "helper",
+            "none"
+          ]
+        },
+        "cefDir": {
+          "description": "The CEF folder the engine loaded its resources and locales from (`--cef-dir`, else `libcef.so`'s folder beside the engine: its own, or `cef/` in a package).",
+          "type": "string"
         }
       }
     }

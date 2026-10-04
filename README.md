@@ -65,6 +65,8 @@ export CEF_PATH="$(tools/cef/fetch.sh)"
 cargo build --workspace --features eludite-chromium/cef
 ```
 
+To run a built Eludite with the browser and no environment variables, package it: `tools/package/linux.sh` makes `target/package/eludite-<version>-linux-<arch>.tar.gz`, with the engine beside `eludite` and CEF in `cef/` beside the engine, which both find on their own ([tools/package/README.md](tools/package/README.md)). Chromium's sandbox needs unprivileged user namespaces or its setuid helper (`sudo chown root:root cef/chrome-sandbox && sudo chmod 4755 cef/chrome-sandbox`); where neither works, or as root, the Web Browser window offers to run without it for the workspace (`browser.allowNoSandbox`).
+
 Windows and macOS need no extra system packages beyond the Rust and .NET toolchains. `debuggers/netfx` compiles on every OS but only runs on Windows; `debuggers/mono` builds everywhere and runs under Mono on Linux and macOS.
 
 A machine with no display can still run the shell and its UI tests under Xvfb with Mesa's software Vulkan; see `crates/eludite/tools/xvfb-linux.sh`.

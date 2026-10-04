@@ -35,6 +35,8 @@ static FRAME_SOCKET: AtomicI32 = AtomicI32::new(-1);
 static NEXT_REGION: AtomicU64 = AtomicU64::new(1);
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 static SANDBOXED: AtomicBool = AtomicBool::new(true);
+/// How the sandbox runs and the CEF folder, for `engine/ready` (brief 0039).
+static SANDBOX_MODE: OnceLock<(&'static str, PathBuf)> = OnceLock::new();
 /// The remote debugging port CEF listens on (127.0.0.1; brief 0038), 0 before `main` chose it.
 static DEBUG_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
 /// `--profile`: the download folder's default is beside it.
@@ -1609,9 +1611,14 @@ fn announce_debug_port(port: u16) {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
             while std::time::Instant::now() < deadline {
                 if crate::window::devtools_answers(port, std::time::Duration::from_millis(500)) {
+                    let (mode, cef_dir) = SANDBOX_MODE
+                        .get()
+                        .cloned()
+                        .unwrap_or(("none", PathBuf::new()));
                     out().notify(
                         "engine/ready",
-                        json!({"remoteDebuggingPort": port, "address": "127.0.0.1"}),
+                        json!({"remoteDebuggingPort": port, "address": "127.0.0.1",
+                            "sandbox": mode, "cefDir": cef_dir}),
                     );
                     return;
                 }
@@ -2189,13 +2196,6 @@ fn take_stdout() -> std::fs::File {
     }
 }
 
-fn exe_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_default()
-}
-
 pub fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().collect();
     let gpu = std::env::var("ELUDITE_CHROMIUM_GPU").as_deref() == Ok("1");
@@ -2211,36 +2211,39 @@ pub fn main() -> ExitCode {
         );
         return ExitCode::from(code.clamp(0, 255) as u8);
     }
-    let opts = Options::parse(argv);
+    let opts = Options::parse(argv.clone());
     let Some(profile) = opts.profile.clone() else {
         eprintln!("{NAME}: --profile DIR is required (the workspace's .eludite/browser/profile)");
         return ExitCode::from(2);
     };
     let _ = PROFILE.set(profile.clone());
-    let cef_dir = opts.cef_dir.clone().unwrap_or_else(exe_dir);
+    let exe = std::env::current_exe().unwrap_or_default();
+    let cef_dir = opts
+        .cef_dir
+        .clone()
+        .unwrap_or_else(|| crate::cef_dir_beside(&exe));
+    // The sandbox rule (brief 0039): decided before CEF starts, from the probes and the command line.
     let decision = match sandbox::decide(
-        std::env::var(sandbox::NO_SANDBOX_ENV).ok().as_deref(),
-        &cef_dir,
+        &sandbox::Probes::probe(&exe, &cef_dir),
+        sandbox::Asked::from_args(&argv),
     ) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("{NAME}: {e}");
-            return ExitCode::from(3);
+            return ExitCode::from(sandbox::REFUSED_EXIT);
         }
     };
     let no_sandbox = decision == Decision::NoSandbox;
-    if let Decision::Sandboxed {
-        helper: Some(helper),
-    } = &decision
-    {
+    if let Decision::Helper(helper) = &decision {
         // SAFETY: no other thread exists yet.
         unsafe { std::env::set_var("CHROME_DEVEL_SANDBOX", helper) };
     }
     SANDBOXED.store(!no_sandbox, Ordering::Relaxed);
+    let _ = SANDBOX_MODE.set((decision.mode(), cef_dir.clone()));
     if no_sandbox {
         eprintln!(
-            "{NAME}: running without Chromium's sandbox ({}=1)",
-            sandbox::NO_SANDBOX_ENV
+            "{NAME}: running without Chromium's sandbox ({} on the command line)",
+            sandbox::ALLOW_NO_SANDBOX
         );
     }
     let code = execute_process(
@@ -2270,7 +2273,6 @@ pub fn main() -> ExitCode {
         );
     }
     let path = |p: &Path| CefString::from(p.to_string_lossy().as_ref());
-    let exe = std::env::current_exe().unwrap_or_default();
     // Chrome DevTools on a free loopback port (CEF binds 127.0.0.1 only), reported in `engine/ready` (brief 0038).
     let debug_port = crate::window::free_debug_port().unwrap_or(0);
     DEBUG_PORT.store(debug_port, Ordering::Relaxed);

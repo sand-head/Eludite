@@ -16,24 +16,27 @@ cargo build -p eludite-chromium --features eludite-chromium/cef
 ```
 
 Without the `cef` feature (the default, so a workspace build downloads nothing) the executable only prints how to
-build the real engine. Linux only so far; Windows and macOS are documented in `tools/cef/README.md` and the report of
-brief 0031. The build copies CEF's runtime files (`libcef.so`, the paks, `locales/`, `chrome-sandbox`) beside the
-executable in `target/<profile>/`; the executable finds `libcef.so` there through its `$ORIGIN` run path.
+build the real engine. Linux only so far; Windows and macOS are documented in `tools/cef/README.md`,
+`tools/package/README.md` and the report of brief 0031. The build copies CEF's runtime files (`libcef.so`, the paks,
+`locales/`, `chrome-sandbox`) beside the executable in `target/<profile>/`; the executable finds `libcef.so` there, or
+in `cef/` beside itself as `tools/package/linux.sh` lays it out (brief 0039), through its `$ORIGIN:$ORIGIN/cef` run
+path.
 
 ## Running it alone
 
 ```
-eludite-chromium --profile DIR [--cef-dir DIR] [--frame-socket FD]
+eludite-chromium --profile DIR [--cef-dir DIR] [--allow-no-sandbox] [--frame-socket FD]
 ```
 
 - `--profile`: the root cache path (cookies, storage, cache); the shell passes `<workspace>/.eludite/browser/profile`.
   One engine per profile at a time.
-- `--cef-dir`: CEF's resources and locales (default: the executable's folder).
+- `--cef-dir`: CEF's resources and locales (default: the executable's folder when `libcef.so` is there, else `cef/`
+  beside the executable when it holds `libcef.so`).
 - `--frame-socket`: the Unix socket (`SOCK_SEQPACKET`) the region descriptors are sent over, 3 by default. Run alone
   without it, the engine still works; frames just reach no one.
-- The sandbox: on Linux the engine starts only when `chrome-sandbox` in the CEF folder is owned by root with the
-  setuid bit, and otherwise says how to install it. `ELUDITE_CHROME_NO_SANDBOX=1` runs it with `--no-sandbox` (needed
-  as root, for example in a container).
+- `--allow-no-sandbox`: the engine may run with `--no-sandbox` where Chromium's sandbox cannot start (below). The
+  shell passes it only for the workspace's opt-in (`browser.allowNoSandbox`) or `ELUDITE_CHROME_NO_SANDBOX=1` in its
+  own environment; the engine reads no variable for it.
 - `ELUDITE_CHROMIUM_GPU=1` keeps Chromium's GPU process for compositing (default: `--disable-gpu
   --disable-gpu-compositing`, the software path). Without `DISPLAY` and `WAYLAND_DISPLAY`, the engine uses Chromium's
   headless Ozone platform (no display needed; no system clipboard).
@@ -48,6 +51,33 @@ A session by hand (each message framed with `Content-Length`, as LSP):
 {"jsonrpc":"2.0","method":"tab/cdp","params":{"tab":"1","message":{"id":1,"method":"Runtime.evaluate","params":{"expression":"document.title"}}}}
 {"jsonrpc":"2.0","id":3,"method":"shutdown","params":{}}
 ```
+
+## The sandbox (brief 0039)
+
+Before CEF starts, the engine decides how Chromium's sandbox runs (`src/sandbox.rs`), in Chromium's own order, and
+reports it in `engine/ready` (`sandbox`: `namespaces`, `helper` or `none`):
+
+| Probes | without `--allow-no-sandbox` | with `--allow-no-sandbox` |
+|---|---|---|
+| `--no-sandbox` on the command line | refused | `none` |
+| running as root (Chromium never sandboxes root) | refused | `none` |
+| unprivileged user namespaces available | `namespaces` | `namespaces` |
+| no namespaces; `chrome-sandbox` owned by root, mode 4755, where Chromium uses it | `helper` | `helper` |
+| no namespaces; the helper missing, not setuid root, or unusable | refused | `none` |
+
+- **User namespaces** count as available when `/proc/sys/kernel/unprivileged_userns_clone` is absent or 1,
+  `/proc/sys/user/max_user_namespaces` is above 0, and a forked child can `unshare(CLONE_NEWUSER | CLONE_NEWPID |
+  CLONE_NEWNET)`: the PID and network namespaces are what Chromium's zygote asks for, and Ubuntu's AppArmor
+  restriction (23.10 and later) lets the user namespace be created but not those.
+- **The helper** is looked for beside the engine first (Chromium always looks there), then beside `libcef.so` (passed
+  as `CHROME_DEVEL_SANDBOX`, which Chromium honors only for an engine owned by the user running it; otherwise the
+  helper there is "unusable" and the refusal says to put it beside the engine).
+- **A refusal** is one line on stderr naming both remedies (allowing user namespaces, `sudo chown root:root <path> &&
+  sudo chmod 4755 <path>`) and the opt-in, then exit code 5 before reading stdin; the shell shows its dialog for it.
+- Probed on this project's Linux machine (a Firecracker VM, kernel 6.18): as root, refused without the switch and
+  `none` with it; as an unprivileged user, `namespaces`; as an unprivileged user in a user namespace whose
+  `max_user_namespaces` is 0, refused with a plain helper and `helper` with the helper setuid root (brief 0039's
+  report).
 
 ## The Web Browser window's methods (brief 0032)
 
@@ -120,4 +150,8 @@ changing the page, errors, close, shutdown, and a closed stdin (brief 0031); the
 tabs keeping their opener, a `<select>` list flagged in the frames and picked with the keys, cursors, the context
 menu, `alert`, `confirm` and `prompt` answered by the shell, a file chooser, a geolocation prompt denied, an
 authentication challenge, downloads and their limit, DevTools as a tab closing with its page, IME composition and
-commit, history and the favicon (brief 0032). As root they set `ELUDITE_CHROME_NO_SANDBOX=1` and say so.
+commit, history and the favicon (brief 0032). As root, or with `ELUDITE_CHROME_NO_SANDBOX=1`, they pass
+`--allow-no-sandbox` and say so; `the_engine_refuses_no_sandbox_without_the_allow_switch` checks the refusals (brief
+0039). `tests/package.rs` is the package's smoke test: `tools/package/linux.sh` into a temporary folder, then the
+engine and `eludite --print-engine-discovery` from the layout with no CEF variable or cache (brief 0039,
+`tools/package/README.md`).

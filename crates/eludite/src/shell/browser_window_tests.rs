@@ -7,7 +7,10 @@
 //! while a fake agent's call is in flight, its Stop and the person's click interrupting the agent's `wait`, and the
 //! agent's next action refused until it reads `tabs`; a dialog and a permission request from the engine as shell
 //! dialogs whose answers reach the engine; the context menu; DevTools as a tab; downloads' Output line; closing the
-//! window (the engine lingers) and the workspace (the engine closes); and the engine-missing message.
+//! window (the engine lingers) and the workspace (the engine closes); and the engine-missing message. Brief 0039: the
+//! engine's sandbox refusal opens the opt-in dialog once per workspace; declining leaves the engine off with the
+//! message; accepting stores `browser.allowNoSandbox`, starts the engine with the opt-in, audits the start and shows
+//! the strip; the setting off again starts the next engine without it; nothing is searched for at startup.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -73,7 +76,21 @@ struct Seen {
     shutdowns: AtomicUsize,
     sink: Mutex<Option<WindowSink>>,
     events: Mutex<Vec<mpsc::Sender<CdpEvent>>>,
+    /// Brief 0039: the fake refuses to start without the opt-in, as `eludite-chromium` as root or with neither user
+    /// namespaces nor the setuid helper; each launch attempt's opt-in; running without the sandbox.
+    refuse_sandbox: std::sync::atomic::AtomicBool,
+    attempts: Mutex<Vec<bool>>,
+    unsandboxed: std::sync::atomic::AtomicBool,
 }
+
+/// The engine's refusal where neither user namespaces nor the helper work (brief 0039's wording).
+const REFUSAL: &str = "Chromium's sandbox cannot start on this machine: unprivileged user namespaces are not \
+    available, and the setuid helper /opt/eludite/cef/chrome-sandbox is missing. Either allow user namespaces (`sudo \
+    sysctl -w kernel.unprivileged_userns_clone=1`, or on Ubuntu 23.10 and later an AppArmor profile that permits them \
+    for eludite-chromium), or install the helper with `sudo chown root:root /opt/eludite/cef/chrome-sandbox && sudo \
+    chmod 4755 /opt/eludite/cef/chrome-sandbox`, or let this workspace run the browser without the sandbox (the Web \
+    Browser window offers it; the setting browser.allowNoSandbox; ELUDITE_CHROME_NO_SANDBOX=1 for tests), which \
+    starts the engine with --allow-no-sandbox.";
 
 impl Seen {
     fn tell(&self, e: WindowEvent) {
@@ -120,18 +137,25 @@ impl PageDriver for Driver {
     fn close(&self, target: &str) {
         self.0.closed.lock().unwrap().push(target.to_owned());
     }
+    fn sandboxed(&self) -> bool {
+        !self.0.unsandboxed.load(Ordering::SeqCst)
+    }
 }
 
 struct FakeEmbedded {
     seen: Arc<Seen>,
     running: bool,
+    /// The configuration's `allow_no_sandbox` (the shell's `--allow-no-sandbox`).
+    allow_no_sandbox: bool,
 }
 
 impl Engine for FakeEmbedded {
     fn name(&self) -> &'static str {
         "embedded-chromium"
     }
-    fn configure(&mut self, _config: EngineConfig) {}
+    fn configure(&mut self, config: EngineConfig) {
+        self.allow_no_sandbox = config.allow_no_sandbox;
+    }
     fn is_running(&self) -> bool {
         self.running
     }
@@ -139,6 +163,18 @@ impl Engine for FakeEmbedded {
         if self.running {
             return Ok(None);
         }
+        self.seen
+            .attempts
+            .lock()
+            .unwrap()
+            .push(self.allow_no_sandbox);
+        let refuse = self.seen.refuse_sandbox.load(Ordering::SeqCst);
+        if refuse && !self.allow_no_sandbox {
+            self.seen
+                .tell(WindowEvent::SandboxRefused(REFUSAL.to_owned()));
+            return Err(EngineError::Launch(REFUSAL.to_owned()));
+        }
+        self.seen.unsandboxed.store(refuse, Ordering::SeqCst);
         self.running = true;
         self.seen.launches.fetch_add(1, Ordering::SeqCst);
         self.seen
@@ -283,10 +319,11 @@ fn setup_window(cx: &mut gpui::TestAppContext) -> (Ws, Arc<Seen>) {
     w.shell.read_with(&w.vcx, |s, _| {
         *seen.sink.lock().unwrap() = Some(s.browser().window_sink());
         s.browser()
-            .set_engine_factory(Arc::new(move |_config, _log: LogSink| {
+            .set_engine_factory(Arc::new(move |config: EngineConfig, _log: LogSink| {
                 Box::new(FakeEmbedded {
                     seen: engines.clone(),
                     running: false,
+                    allow_no_sandbox: config.allow_no_sandbox,
                 })
             }))
     });
@@ -776,14 +813,8 @@ fn closing_the_window_lingers_and_closing_the_workspace_closes_the_engine(
 #[gpui::test]
 fn without_the_embedded_engine_the_window_says_what_to_run(cx: &mut gpui::TestAppContext) {
     let mut w = setup(cx);
-    let empty = tempfile::tempdir().unwrap();
     w.shell.read_with(&w.vcx, |s, _| {
-        s.browser().set_chromium_search(ChromiumSearch {
-            engine: None,
-            engine_dirs: vec![empty.path().to_path_buf()],
-            cef: Vec::new(),
-            cef_cache: None,
-        })
+        s.browser().set_chromium_search(ChromiumSearch::default())
     });
     w.open_web_browser();
     let message = w
@@ -815,4 +846,179 @@ fn without_the_embedded_engine_the_window_says_what_to_run(cx: &mut gpui::TestAp
         .browser_window(|b| b.message().map(str::to_owned))
         .unwrap();
     assert!(message.contains("browser.engine"), "{message}");
+}
+
+/// The workspace's `browser.allowNoSandbox`: its value and where it came from.
+fn allow_setting(w: &Ws) -> (Value, String) {
+    let out = w
+        .commands
+        .invoke(
+            eludite_commands::settings::GET,
+            json!({"key": "browser.allowNoSandbox"}),
+        )
+        .unwrap();
+    let row = &out["settings"][0];
+    (
+        row["value"].clone(),
+        row["source"].as_str().unwrap_or_default().to_owned(),
+    )
+}
+
+/// Brief 0039: the engine and CEF are searched for on first use, never at startup.
+#[gpui::test]
+fn nothing_is_searched_for_at_startup(cx: &mut gpui::TestAppContext) {
+    let w = setup(cx);
+    w.vcx.run_until_parked();
+    assert!(!w.shell.read_with(&w.vcx, |s, _| s.browser().searched()));
+    // The first question about the engine searches (a few file checks on this machine; nothing starts).
+    let t = Instant::now();
+    w.shell.read_with(&w.vcx, |s, _| s.browser().status());
+    eprintln!("the first engine search took {:?}", t.elapsed());
+    assert!(w.shell.read_with(&w.vcx, |s, _| s.browser().searched()));
+    assert!(!w.shell.read_with(&w.vcx, |s, _| s.browser().started()));
+}
+
+/// Brief 0039: the engine's refusal shows the opt-in dialog with both remedies; declining (Escape) leaves the engine
+/// off and the window showing the message; reopening the window is refused again without a second dialog (once per
+/// workspace), and nothing was stored.
+#[gpui::test]
+fn a_refused_sandbox_offers_the_opt_in_once_and_declining_leaves_the_engine_off(
+    cx: &mut gpui::TestAppContext,
+) {
+    let (mut w, seen) = setup_window(cx);
+    w.shell
+        .read_with(&w.vcx, |s, _| s.browser().set_no_sandbox_env(false));
+    w.open_solution();
+    seen.refuse_sandbox.store(true, Ordering::SeqCst);
+    w.open_web_browser();
+    w.wait("the sandbox dialog", |w| {
+        w.browser_window(|b| b.sandbox_prompt().is_some())
+    });
+    let p = w.browser_window(|b| b.sandbox_prompt().cloned()).unwrap();
+    assert!(!p.checked, "the opt-in is never preselected");
+    let remedies = p.remedies();
+    assert!(
+        remedies.iter().any(|r| r.contains(
+            "sudo chown root:root /opt/eludite/cef/chrome-sandbox && sudo chmod 4755 /opt/eludite/cef/chrome-sandbox"
+        )),
+        "{remedies:?}"
+    );
+    assert!(
+        remedies.iter().any(|r| r.contains("user namespaces")),
+        "{remedies:?}"
+    );
+    for id in [
+        "web-browser-sandbox",
+        "web-browser-sandbox-check",
+        "web-browser-sandbox-ok",
+        "web-browser-sandbox-cancel",
+    ] {
+        assert!(w.vcx.debug_bounds(id).is_some(), "{id} is drawn");
+    }
+    assert_eq!(*seen.attempts.lock().unwrap(), [false]);
+    assert_eq!(seen.launches.load(Ordering::SeqCst), 0);
+
+    // Escape is Cancel: the engine stays off, the window says why and how to change it.
+    w.vcx.simulate_keystrokes("escape");
+    w.vcx.run_until_parked();
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_none()));
+    let message = w
+        .browser_window(|b| b.message().map(str::to_owned))
+        .unwrap();
+    assert!(message.contains("sudo chmod 4755"), "{message}");
+    assert!(
+        message.contains("Tools > Options > Web Browser"),
+        "{message}"
+    );
+    assert!(w.vcx.debug_bounds("web-browser-message").is_some());
+    assert!(w.vcx.debug_bounds("web-browser-sandbox-strip").is_none());
+    assert_eq!(seen.launches.load(Ordering::SeqCst), 0);
+    assert_eq!(allow_setting(&w), (json!(false), "default".to_owned()));
+
+    // Reopening the window tries again and is refused again, without a second dialog.
+    w.controller.close_document(WEB_BROWSER);
+    w.vcx.run_until_parked();
+    w.open_web_browser();
+    w.wait("a second attempt", |_| {
+        seen.attempts.lock().unwrap().len() == 2
+    });
+    w.vcx.run_until_parked();
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_none()));
+    assert!(w.browser_window(|b| b.message().is_some()));
+    assert_eq!(*seen.attempts.lock().unwrap(), [false, false]);
+    assert_eq!(seen.launches.load(Ordering::SeqCst), 0);
+}
+
+/// Brief 0039: Space checks "Run without the sandbox for this workspace" and Enter is OK: the setting is stored in the
+/// workspace's file, the engine starts again with the opt-in, the start is audited with `sandbox: none` and the strip
+/// shows; turning the setting off again starts the next engine without the opt-in, which is refused again.
+#[gpui::test]
+fn taking_the_opt_in_stores_it_restarts_audits_and_shows_the_strip(cx: &mut gpui::TestAppContext) {
+    let (mut w, seen) = setup_window(cx);
+    w.shell
+        .read_with(&w.vcx, |s, _| s.browser().set_no_sandbox_env(false));
+    w.open_solution();
+    seen.refuse_sandbox.store(true, Ordering::SeqCst);
+    w.open_web_browser();
+    w.wait("the sandbox dialog", |w| {
+        w.browser_window(|b| b.sandbox_prompt().is_some())
+    });
+    w.vcx.simulate_keystrokes("space");
+    w.vcx.run_until_parked();
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_some_and(|p| p.checked)));
+    w.vcx.simulate_keystrokes("enter");
+    w.wait(
+        "the engine started without the sandbox, the strip and the tab",
+        |w| w.browser_window(|b| b.running_without_sandbox()) && w.strip().len() == 1,
+    );
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_none() && b.message().is_none()));
+    assert_eq!(*seen.attempts.lock().unwrap(), [false, true]);
+    assert_eq!(seen.launches.load(Ordering::SeqCst), 1);
+    assert!(w.vcx.debug_bounds("web-browser-sandbox-strip").is_some());
+    // Stored in the workspace's settings, as the person's audited command.
+    w.wait("the setting stored", |w| {
+        allow_setting(w) == (json!(true), "solution".to_owned())
+    });
+    let file = std::fs::read_to_string(w.path(".eludite/settings.json")).unwrap();
+    assert!(file.contains("\"browser.allowNoSandbox\": true"), "{file}");
+    assert!(
+        w.audit()
+            .iter()
+            .any(|c| c == eludite_commands::settings::SET)
+    );
+    let starts: Vec<Value> = w
+        .commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.command == super::browser_window::ENGINE_START)
+        .filter_map(|e| e.arguments)
+        .collect();
+    assert_eq!(
+        starts,
+        [json!({"sandbox": "none", "allowed_by": "browser.allowNoSandbox"})]
+    );
+
+    // The setting off again (as Tools > Options would write it): the next start carries no opt-in.
+    w.agent_invoke(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.allowNoSandbox", "value": false, "scope": "solution"}),
+    )
+    .unwrap();
+    w.wait("the setting applied", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| !s.browser().settings().allow_no_sandbox)
+    });
+    let closed = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
+    closed.recv_timeout(Duration::from_secs(10)).unwrap();
+    w.wait("the strip gone with the engine", |w| {
+        !w.browser_window(|b| b.running_without_sandbox())
+    });
+    assert!(w.vcx.debug_bounds("web-browser-sandbox-strip").is_none());
+    w.with_window(|b, cx| b.new_tab(cx));
+    w.wait("a third attempt", |_| {
+        seen.attempts.lock().unwrap().len() == 3
+    });
+    assert_eq!(*seen.attempts.lock().unwrap(), [false, true, false]);
+    assert_eq!(seen.launches.load(Ordering::SeqCst), 1, "refused again");
 }

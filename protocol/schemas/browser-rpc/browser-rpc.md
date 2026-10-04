@@ -22,9 +22,10 @@ Rust: the shell side is `crates/browser/src/embedded.rs` (`EmbeddedChromium`), t
 
 ## Lifecycle
 
-1. The shell starts `eludite-chromium --profile <dir> [--cef-dir <dir>] --frame-socket 3` with stdin and stdout piped
-   and, on Linux and macOS, one end of a `socketpair(AF_UNIX, SOCK_SEQPACKET)` as file descriptor 3. The engine runs
-   `CefExecuteProcess` and `CefInitialize` before it reads stdin.
+1. The shell starts `eludite-chromium --profile <dir> [--cef-dir <dir>] [--allow-no-sandbox] --frame-socket 3` with
+   stdin and stdout piped and, on Linux and macOS, one end of a `socketpair(AF_UNIX, SOCK_SEQPACKET)` as file
+   descriptor 3 (`--allow-no-sandbox`: below, brief 0039). The engine runs `CefExecuteProcess` and `CefInitialize`
+   before it reads stdin.
 2. `initialize`, then any number of `tab/*` requests and notifications.
    After its `initialize` answer the engine sends `engine/ready` (brief 0038) once its Chrome DevTools remote
    debugging port answers: a free port on 127.0.0.1 the engine chose before `CefInitialize` (CEF binds it to the
@@ -64,7 +65,7 @@ CEF's renderer, GPU and utility subprocesses are the same executable started by 
 | `tab/dialogClosed` | notification | engine to shell | [tab-dialog-closed.json](tab-dialog-closed.json) | `{ tab, id, accepted? }` | |
 | `tab/download` | notification | engine to shell | [tab-download.json](tab-download.json) | `{ tab, id, url, file, path?, state, receivedBytes?, totalBytes?, mime?, message? }` | |
 | `tab/contextMenu` | notification | engine to shell | [tab-context-menu.json](tab-context-menu.json) | `{ tab, x, y, pageUrl, linkUrl?, imageUrl?, selectionText?, editable, edit }` | |
-| `engine/ready` | notification | engine to shell | [engine-ready.json](engine-ready.json) | `{ remoteDebuggingPort, address: "127.0.0.1" }` | |
+| `engine/ready` | notification | engine to shell | [engine-ready.json](engine-ready.json) | `{ remoteDebuggingPort, address: "127.0.0.1", sandbox, cefDir }` | |
 
 Errors: JSON-RPC's codes (-32700, -32600, -32601 for every method not listed, -32602, -32603), and -32001
 (`NoSuchTab`) for a `tab` the engine does not know.
@@ -84,6 +85,28 @@ Notes:
   virtual-key codes on every platform, as CEF requires); IME composition maps to `ImeSetComposition`,
   `ImeCommitText`, `ImeFinishComposingText` and `ImeCancelComposition`. The Web Browser window (brief 0032) forwards
   mouse, wheel, keys and IME composition from GPUI's input handler.
+
+## The sandbox and the command line (brief 0039)
+
+Before CEF starts, the browser process decides how Chromium's sandbox runs (`browsers/chromium/src/sandbox.rs`):
+
+1. Running as root: Chromium cannot sandbox root, so the engine runs with `--no-sandbox` if its command line carries
+   `--allow-no-sandbox`, and otherwise refuses.
+2. Unprivileged user namespaces (on Linux: `/proc/sys/kernel/unprivileged_userns_clone` absent or 1,
+   `/proc/sys/user/max_user_namespaces` above 0, and `unshare(CLONE_NEWUSER)` succeeding in a forked child): sandboxed,
+   `sandbox: "namespaces"`.
+3. The setuid helper `chrome-sandbox` beside `libcef.so`, owned by root with mode 4755: sandboxed through it
+   (`CHROME_DEVEL_SANDBOX`), `sandbox: "helper"`.
+4. Neither: `--no-sandbox` with `--allow-no-sandbox` (`sandbox: "none"`), else a refusal.
+
+A refusal writes one line to stderr naming both remedies (`sudo chown root:root <cef>/chrome-sandbox && sudo chmod
+4755 <cef>/chrome-sandbox`, or allowing unprivileged user namespaces) and the opt-in, and exits with code 5 before
+reading stdin; the shell shows its opt-in dialog for that exit code. `--no-sandbox` on the engine's command line
+without `--allow-no-sandbox` is refused the same way (exit code 5): only `--allow-no-sandbox` lets the engine drop the
+sandbox, and the shell passes it only for the workspace's opt-in (`browser.allowNoSandbox`) or
+`ELUDITE_CHROME_NO_SANDBOX=1` in its own environment. Windows and macOS: the engine runs sandboxed and the rule is
+packaging's (brief 0039's report). `initialize`'s `sandbox` is false exactly when the engine runs with `--no-sandbox`;
+`engine/ready` names the mode and the CEF folder.
 
 ## The Web Browser window's methods (brief 0032)
 

@@ -25,9 +25,15 @@ cargo build -p eludite-chromium --features eludite-chromium/cef
   beside the executable (about 530 MB on Linux). Without `CEF_PATH` that build script downloads CEF by itself into
   `target/`, unchecked against `PIN`; set it. Without the feature (the default, so `cargo build --workspace` never
   downloads anything) the executable only explains how to get CEF, and the engine tests skip.
-- **Finding it at run time:** the shell (`crates/browser/src/embedded.rs`) looks for the engine in `ELUDITE_CHROMIUM`,
-  beside its own executable, then in the cargo target folder (development), and for CEF in `ELUDITE_CEF`, `CEF_PATH`,
-  this cache, then beside the engine. It starts the engine with `--cef-dir` and puts that folder on the library path.
+- **Finding it at run time** (brief 0039, `crates/browser/src/discovery.rs`), the first time the Web Browser window or
+  a browser command needs the engine, never at startup: the engine at the setting `browser.enginePath`, then
+  `ELUDITE_CHROMIUM`, then beside the `eludite` executable (a packaged Eludite), then cargo's build folder in a
+  development build; CEF beside the engine (`libcef.so` in the engine's folder, as cargo copies it, or in `cef/` beside
+  it, as `tools/package/linux.sh` lays it out), then `ELUDITE_CEF` and `CEF_PATH`, then this cache. The first found
+  wins and `eludite.browser.tabs` says which (`engine.found_by`). The shell starts the engine with `--cef-dir` and puts
+  that folder on the library path; the engine's `$ORIGIN:$ORIGIN/cef` run path finds it without either.
+- **Packaging:** `tools/package/linux.sh` builds the release layout and tarball from this cache (see
+  [`tools/package/README.md`](../package/README.md)).
 
 ## What the minimal distribution holds
 
@@ -46,15 +52,27 @@ No proprietary codecs: H.264 and AAC media do not play.
 ## The Linux sandbox
 
 Chromium's renderer sandbox on Linux uses unprivileged user namespaces when the kernel allows them, and falls back to
-the setuid `chrome-sandbox` helper (owned by root, mode 4755, beside `libcef.so`) otherwise; distributions that
-restrict user namespaces (Ubuntu 23.10 and later through AppArmor, some hardened kernels) need the helper. Running as
-root is refused by Chromium without `--no-sandbox`.
+the setuid `chrome-sandbox` helper (owned by root, mode 4755) otherwise; distributions that restrict user namespaces
+(Ubuntu 23.10 and later through AppArmor, Debian kernels with `kernel.unprivileged_userns_clone=0`, some hardened
+kernels) need the helper. Chromium never sandboxes root.
 
-`eludite-chromium` follows brief 0031's rule: it runs sandboxed when `chrome-sandbox` beside CEF is owned by root with
-the setuid bit, and otherwise refuses to start with a message naming the helper and the command that installs it
-(`sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`). `ELUDITE_CHROME_NO_SANDBOX=1` (brief
-0023's variable) is the only way to add `--no-sandbox`; nothing adds it silently. Installing the helper is packaging
-(proposal 0002, brief E).
+`eludite-chromium` follows the same rule (brief 0039; the table is in
+[`browsers/chromium/README.md`](../../browsers/chromium/README.md#the-sandbox-brief-0039)): user namespaces when they
+work, else the helper where Chromium will use it (beside the engine, or beside `libcef.so` for an engine owned by the
+user running it), else it refuses to start with a message naming both remedies (allowing user namespaces, or `sudo
+chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`) and the opt-in. Running as root is refused the same
+way. `--no-sandbox` happens only with `--allow-no-sandbox` on the engine's command line, which the shell passes only
+after the workspace's opt-in (the Web Browser window's dialog, stored as `browser.allowNoSandbox` in the workspace's
+settings) or with `ELUDITE_CHROME_NO_SANDBOX=1` in its environment (brief 0023's variable, for tests and CI). The
+package ships the helper in `cef/` as CEF does; installing it (root ownership and the setuid bit) is the user's or an
+installer's step (Phase 3).
+
+## Windows (brief E's other half; not built here)
+
+The engine is Linux-only so far. On Windows CEF's sandbox runs only inside CEF's `bootstrap.exe`/`bootstrapc.exe`,
+which loads the client as a DLL, so the engine becomes `eludite_chromium.dll` behind a renamed bootstrap, and
+`--no-sandbox` is never needed there; the frame ring uses named file mappings. `tools/package/README.md` lists the
+layout and `docs/briefs/windows-checklist.md` the steps for the owner's machine.
 
 ## The macOS bundle
 
@@ -77,8 +95,9 @@ Eludite.app/Contents/
 - With the sandbox, each helper calls `cef_sandbox_initialize` from
   `Chromium Embedded Framework.framework/Libraries/libcef_sandbox.dylib` first (`cef::sandbox::Sandbox`).
 - A development run from `cargo run` needs a bundling step (`bundle-cef-app` or a script doing the same), and a
-  notarized release needs every helper signed with the hardened runtime and CEF's entitlements. Brief E owns that;
-  brief 0031 had no macOS machine and ran none of it.
+  notarized release needs every helper signed with the hardened runtime and CEF's entitlements. That is brief E's
+  macOS half (`tools/package/README.md`, "macOS", and the macOS checklist in `docs/briefs/windows-checklist.md`); no
+  macOS machine has run any of it.
 
 ## The switches that keep it off the network (brief 0032)
 

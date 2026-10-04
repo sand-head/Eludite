@@ -1,6 +1,6 @@
 # Brief 0039: Packaging the browser engine: the Linux layout, the sandbox rule and the opt-in
 
-Status: open
+Status: done
 Phase: 2 (proposal 0002, brief E, the Linux half)
 Plan reference: PLAN.md sections 2 (principles 2, 3, 4), 4.9, 10 (Phase 2), 12 (`browsers/chromium`, `tools/cef`), 13 (installers are Phase 3; this brief lays the files out, it does not sign or install); proposal 0002 sections 3, 8 (E), 11 (download size and trust); brief 0031's report sections 1, 6 (finding 8), 10 (deviation 10) and 11 (packaging)
 Related ADRs: ADR-0008

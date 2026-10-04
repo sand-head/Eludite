@@ -17,7 +17,15 @@
 //!   `tab/permissionAnswer`; an agent's `dialog` answer closes them (`tab/dialogClosed`).
 //! - **Keys**, only while the window has the focus ([`CONTEXT`]): Ctrl+L the address bar, F5 Reload, Alt+Left and
 //!   Alt+Right Back and Forward, Ctrl+T a new tab, Ctrl+W close it, F12 DevTools, Escape Stop.
-//! - **Without the embedded engine** the window says why and what to run ([`super::browser::EngineStatus`]).
+//! - **Without the embedded engine** the window says why and what to run ([`super::browser::EngineStatus`]): the
+//!   fetch script, the build command, and the package layout (brief 0039).
+//! - **The sandbox** (brief 0039). When the engine refuses to start without Chromium's sandbox, the window shows a
+//!   Visual Studio-style dialog, "Chromium's sandbox cannot start on this machine", with the two remedies and a "Run
+//!   without the sandbox for this workspace" check box, once per workspace. OK with the box checked stores
+//!   `browser.allowNoSandbox: true` in the workspace's settings and opens the tab again (the engine starts with
+//!   `--allow-no-sandbox`); otherwise the engine stays off and the window shows the message. While the engine runs
+//!   without the sandbox, a strip reads "Browser running without Chromium's sandbox", and the start is audited
+//!   (`eludite.browser.engine_start`, `sandbox: none`).
 //! - Closing the window keeps the engine for a minute ([`super::browser::LINGER`]); the shell closes the engine with
 //!   the workspace.
 //! - **Tabs of debugging sessions** (brief 0037). F5 on a web project opens its page here as a tab of the session
@@ -31,7 +39,7 @@ use std::time::{Duration, Instant};
 
 use eludite_commands::CommandRegistry;
 use eludite_commands::browser as cmds;
-use eludite_ui::{Theme, dialog_panel, push_button, text_box};
+use eludite_ui::{Theme, check_box, dialog_panel, push_button, text_box};
 use gpui::{
     AnimationExt as _, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
     FontWeight, InteractiveElement as _, IntoElement, KeyBinding, KeyDownEvent, MouseButton,
@@ -156,6 +164,44 @@ pub const MENU_ITEMS: [&str; 10] = [
     "Inspect",
 ];
 
+/// The audit entry of an engine start without the sandbox (brief 0039).
+pub const ENGINE_START: &str = "eludite.browser.engine_start";
+
+/// The sandbox dialog's title (brief 0039).
+pub const SANDBOX_TITLE: &str = "Chromium's sandbox cannot start on this machine";
+
+/// The strip shown while the engine runs without the sandbox (brief 0039).
+pub const NO_SANDBOX_STRIP: &str = "Browser running without Chromium's sandbox";
+
+/// The dialog the engine's sandbox refusal opens (brief 0039).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SandboxPrompt {
+    /// The engine's message (both remedies and the opt-in).
+    pub message: String,
+    /// "Run without the sandbox for this workspace".
+    pub checked: bool,
+}
+
+impl SandboxPrompt {
+    /// The remedies, as the dialog lists them: from the engine's message, which names the helper's command.
+    pub fn remedies(&self) -> Vec<String> {
+        if self.message.contains("runs as root") {
+            return vec!["Run Eludite as a normal user: Chromium never sandboxes root.".into()];
+        }
+        let helper = self
+            .message
+            .split('`')
+            .find(|part| part.starts_with("sudo chown"))
+            .unwrap_or("sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox");
+        vec![
+            "Allow unprivileged user namespaces (sudo sysctl -w kernel.unprivileged_userns_clone=1, or on Ubuntu \
+             23.10 and later an AppArmor profile that permits them for eludite-chromium)."
+                .into(),
+            format!("Or install Chromium's sandbox helper: {helper}"),
+        ]
+    }
+}
+
 /// The Web Browser window.
 pub struct BrowserWindow {
     bus: BrowserBus,
@@ -197,6 +243,13 @@ pub struct BrowserWindow {
     status: String,
     /// Commands the window sent that have not answered.
     in_flight: usize,
+    /// The engine runs without Chromium's sandbox (brief 0039): the strip shows.
+    no_sandbox: bool,
+    /// The sandbox dialog, while it is open (brief 0039).
+    sandbox_prompt: Option<SandboxPrompt>,
+    sandbox_focus: FocusHandle,
+    /// The workspaces whose person declined the opt-in this session: the dialog is offered once per workspace.
+    sandbox_declined: Vec<Option<std::path::PathBuf>>,
     focus: FocusHandle,
     /// Window open to its first page pixel (the budget), and whether the engine was running then.
     opened_at: Option<(Instant, bool)>,
@@ -295,6 +348,10 @@ impl BrowserWindow {
             message: None,
             status: String::new(),
             in_flight: 0,
+            no_sandbox: false,
+            sandbox_prompt: None,
+            sandbox_focus: cx.focus_handle(),
+            sandbox_declined: Vec::new(),
             focus: cx.focus_handle(),
             opened_at: None,
             first_pixel: None,
@@ -382,6 +439,18 @@ impl BrowserWindow {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn context_menu(&self) -> Option<&ContextMenu> {
         self.menu.as_ref()
+    }
+
+    /// The sandbox dialog, while it is open (brief 0039).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn sandbox_prompt(&self) -> Option<&SandboxPrompt> {
+        self.sandbox_prompt.as_ref()
+    }
+
+    /// The engine runs without the sandbox: the strip shows (brief 0039).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn running_without_sandbox(&self) -> bool {
+        self.no_sandbox
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -588,11 +657,17 @@ impl BrowserWindow {
     pub fn on_event(&mut self, event: WindowEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             WindowEvent::Started(driver) => {
+                self.no_sandbox = !driver.sandboxed();
+                if self.no_sandbox {
+                    self.audit_no_sandbox();
+                }
                 self.driver = Some(driver);
                 self.surfaces.clear();
                 self.message = None;
+                self.sandbox_prompt = None;
             }
             WindowEvent::Stopped => self.forget(),
+            WindowEvent::SandboxRefused(message) => self.sandbox_refused(message, window, cx),
             WindowEvent::Notification { method, params } => {
                 self.on_notification(&method, &params, window, cx)
             }
@@ -655,8 +730,83 @@ impl BrowserWindow {
         cx.notify();
     }
 
+    /// The engine runs without the sandbox: the audit log says so, with what allowed it (brief 0039).
+    fn audit_no_sandbox(&self) {
+        let allowed_by = self
+            .bus
+            .allows_no_sandbox()
+            .unwrap_or("browser.allowNoSandbox");
+        self.commands.audit_log().record_call(
+            ENGINE_START,
+            None,
+            eludite_commands::Outcome::Ok,
+            eludite_commands::Caller::User,
+            Some(json!({"sandbox": "none", "allowed_by": allowed_by})),
+        );
+        // The Xvfb run (tools/browser-sandbox-linux.sh) reads this.
+        eprintln!("eludite: web browser: running without Chromium's sandbox ({allowed_by})");
+    }
+
+    /// The engine refused to start without the sandbox (brief 0039): the engine stays off and the window says why;
+    /// the dialog offers the opt-in once per workspace, while the window is open.
+    fn sandbox_refused(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
+        eprintln!("eludite: web browser: the sandbox cannot start: {message}");
+        self.message = Some(format!(
+            "{message}\n\nTo run the browser without the sandbox in this workspace, turn on \"Run without Chromium's \
+             sandbox for this workspace\" in Tools > Options > Web Browser."
+        ));
+        let workspace = self.bus.workspace();
+        if self.open && self.sandbox_prompt.is_none() && !self.sandbox_declined.contains(&workspace)
+        {
+            self.sandbox_prompt = Some(SandboxPrompt {
+                message,
+                checked: false,
+            });
+            window.focus(&self.sandbox_focus, cx);
+        }
+    }
+
+    /// The sandbox dialog's answer: OK (`accept`) with the box checked takes the opt-in; anything else declines it
+    /// for this workspace, leaving the engine off.
+    pub fn answer_sandbox(&mut self, accept: bool, cx: &mut Context<Self>) {
+        let Some(p) = self.sandbox_prompt.take() else {
+            return;
+        };
+        self.refocus = true;
+        if !(accept && p.checked) {
+            self.sandbox_declined.push(self.bus.workspace());
+            eprintln!("eludite: web browser: the sandbox opt-in was declined");
+            cx.notify();
+            return;
+        }
+        eprintln!("eludite: web browser: the sandbox opt-in was taken for this workspace");
+        self.bus.opt_in_no_sandbox();
+        self.message = None;
+        // The tab again: its launch passes --allow-no-sandbox now.
+        if self.tabs.is_empty() && self.in_flight == 0 {
+            self.new_tab(cx);
+        }
+        if self.bus.workspace().is_some() {
+            self.run(
+                eludite_commands::settings::SET,
+                json!({"key": "browser.allowNoSandbox", "value": true, "scope": "solution"}),
+                cx,
+            );
+        }
+        cx.notify();
+    }
+
+    /// The dialog's check box.
+    pub fn toggle_sandbox_check(&mut self, cx: &mut Context<Self>) {
+        if let Some(p) = self.sandbox_prompt.as_mut() {
+            p.checked = !p.checked;
+            cx.notify();
+        }
+    }
+
     /// The engine is gone: so are its tabs.
     fn forget(&mut self) {
+        self.no_sandbox = false;
         self.driver = None;
         self.tabs.clear();
         self.active = None;
@@ -1540,6 +1690,123 @@ impl BrowserWindow {
         )
     }
 
+    fn render_sandbox_strip(&self) -> Option<AnyElement> {
+        if !self.no_sandbox {
+            return None;
+        }
+        let t = self.theme;
+        Some(
+            div()
+                .id("web-browser-sandbox-strip")
+                .debug_selector(|| "web-browser-sandbox-strip".into())
+                .flex()
+                .flex_row()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .h(px(28.))
+                .px_2()
+                // Visual Studio's yellow info bar, as the agent strip's.
+                .bg(rgb(0xFFF29D))
+                .text_color(rgb(0x1E1E1E))
+                .text_size(t.typography.ui)
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("\u{26A0}"))
+                .child(div().flex_1().child(NO_SANDBOX_STRIP))
+                .child(
+                    div()
+                        .text_size(t.typography.small)
+                        .child("Tools > Options > Web Browser turns it off"),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn render_sandbox_prompt(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let p = self.sandbox_prompt.clone()?;
+        let t = self.theme;
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .p_3()
+            .max_w(px(560.))
+            .child(div().child(
+                "The Web Browser runs pages in Chromium's sandbox, which cannot start here. To run it sandboxed, do \
+                 one of these and open the Web Browser again:",
+            ));
+        for (i, r) in p.remedies().into_iter().enumerate() {
+            body = body.child(
+                div()
+                    .id(("web-browser-sandbox-remedy", i))
+                    .pl_2()
+                    .child(format!("\u{2022} {r}")),
+            );
+        }
+        body = body
+            .child(
+                div().flex().flex_row().child(
+                    check_box(
+                        "web-browser-sandbox-check",
+                        "Run without the sandbox for this workspace",
+                        p.checked,
+                        &t,
+                    )
+                    .on_click(cx.listener(|w, _, _, cx| w.toggle_sandbox_check(cx))),
+                ),
+            )
+            .child(
+                div()
+                    .text_size(t.typography.small)
+                    .text_color(t.text_muted)
+                    .child(
+                        "Pages then run without Chromium's protection. Eludite remembers this in the workspace's \
+                         settings; Tools > Options > Web Browser turns it off.",
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        push_button("web-browser-sandbox-ok", "OK", true, true, &t)
+                            .on_click(cx.listener(|w, _, _, cx| w.answer_sandbox(true, cx))),
+                    )
+                    .child(
+                        push_button("web-browser-sandbox-cancel", "Cancel", false, true, &t)
+                            .on_click(cx.listener(|w, _, _, cx| w.answer_sandbox(false, cx))),
+                    ),
+            );
+        let panel = dialog_panel(&t, SANDBOX_TITLE)
+            .id("web-browser-sandbox")
+            .debug_selector(|| "web-browser-sandbox".into())
+            .track_focus(&self.sandbox_focus)
+            .on_key_down(cx.listener(|w, e: &KeyDownEvent, _, cx| {
+                match e.keystroke.key.as_str() {
+                    "enter" => w.answer_sandbox(true, cx),
+                    "escape" => w.answer_sandbox(false, cx),
+                    // The check box, as Space toggles a focused one in Visual Studio's dialogs.
+                    "space" => w.toggle_sandbox_check(cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
+            .child(body);
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(gpui::hsla(0., 0., 0., 0.25))
+                .occlude()
+                .child(panel)
+                .into_any_element(),
+        )
+    }
+
     fn render_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
         let muted = |text: String| {
@@ -1845,8 +2112,10 @@ impl Render for BrowserWindow {
         let strip = self.render_strip(cx);
         let toolbar = self.render_toolbar(window, cx);
         let agent = self.render_agent_strip(cx);
+        let sandbox_strip = self.render_sandbox_strip();
         let content = self.render_content(cx);
         let prompt = self.render_prompt(window, cx);
+        let sandbox_prompt = self.render_sandbox_prompt(cx);
         let menu = self.render_menu(cx);
         let history = self.render_history(cx);
         div()
@@ -1863,7 +2132,10 @@ impl Render for BrowserWindow {
             .on_action(cx.listener(|w, _: &CloseTab, _, cx| w.close_shown(cx)))
             .on_action(cx.listener(|w, _: &OpenDevTools, _, cx| w.open_devtools(None, cx)))
             .on_action(cx.listener(|w, _: &StopLoading, window, cx| {
-                if w.address_focus.is_focused(window) {
+                // Escape is the sandbox dialog's Cancel while it shows (brief 0039).
+                if w.sandbox_prompt.is_some() {
+                    w.answer_sandbox(false, cx);
+                } else if w.address_focus.is_focused(window) {
                     w.address_edited = false;
                     w.sync_address();
                     w.focus_page(window, cx);
@@ -1894,6 +2166,7 @@ impl Render for BrowserWindow {
             .child(strip)
             .child(toolbar)
             .children(agent)
+            .children(sandbox_strip)
             .child(div().flex_1().min_h_0().child(content))
             .child(
                 div()
@@ -1914,6 +2187,7 @@ impl Render for BrowserWindow {
             .children(history)
             .children(menu)
             .children(prompt)
+            .children(sandbox_prompt)
     }
 }
 

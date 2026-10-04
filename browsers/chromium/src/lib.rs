@@ -13,8 +13,10 @@
 //!   making requests nobody asked for (brief 0032).
 //! - [`window`]: the Web Browser window's helpers that need no CEF (popup compositing, cursor and permission names,
 //!   download paths).
-//! - [`sandbox`]: whether the engine may start sandboxed, refuses, or runs with `--no-sandbox` because
-//!   `ELUDITE_CHROME_NO_SANDBOX=1` asked for it.
+//! - [`sandbox`]: the sandbox rule (brief 0039): user namespaces, else the setuid helper, else a refusal naming both
+//!   remedies; `--no-sandbox` only with `--allow-no-sandbox` on the command line.
+//! - [`cef_dir_beside`]: where the engine finds CEF when the shell names no `--cef-dir`: its own folder (cargo's
+//!   build layout), or `cef/` beside it (the package layout of `tools/package/linux.sh`).
 //! - `engine` (feature `cef`): CEF itself: the app, the tabs, the render handler, the DevTools pass-through.
 //!
 //! The process's stdout carries the control protocol only: the engine duplicates it for the protocol and points
@@ -32,6 +34,25 @@ pub mod engine;
 
 /// The executable's name.
 pub const NAME: &str = "eludite-chromium";
+
+/// The file whose presence makes a folder CEF's.
+pub const CEF_LIBRARY: &str = "libcef.so";
+
+/// CEF's folder for the engine at `exe` when no `--cef-dir` names it: the engine's own folder when `libcef.so` is
+/// there (cargo copies CEF's runtime files beside the executable), else `cef/` beside the engine when it holds
+/// `libcef.so` (the package layout), else the engine's folder.
+pub fn cef_dir_beside(exe: &std::path::Path) -> std::path::PathBuf {
+    let dir = exe
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    let packaged = dir.join("cef");
+    if !dir.join(CEF_LIBRARY).exists() && packaged.join(CEF_LIBRARY).exists() {
+        packaged
+    } else {
+        dir
+    }
+}
 
 /// The engine's options (its command line, beside CEF's own switches).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -76,6 +97,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cef_beside_the_engine_or_in_cef() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join(NAME);
+        assert_eq!(
+            cef_dir_beside(&exe),
+            dir.path(),
+            "nothing: the engine's folder"
+        );
+        std::fs::create_dir_all(dir.path().join("cef")).unwrap();
+        std::fs::write(dir.path().join("cef").join(CEF_LIBRARY), b"").unwrap();
+        assert_eq!(
+            cef_dir_beside(&exe),
+            dir.path().join("cef"),
+            "the package layout"
+        );
+        std::fs::write(dir.path().join(CEF_LIBRARY), b"").unwrap();
+        assert_eq!(cef_dir_beside(&exe), dir.path(), "cargo's layout first");
+    }
+
+    #[test]
     fn options() {
         let o = Options::parse(
             [
@@ -85,6 +126,7 @@ mod tests {
                 "--cef-dir=/c",
                 "--frame-socket",
                 "3",
+                "--allow-no-sandbox",
                 "--enable-logging=stderr",
             ]
             .map(String::from),

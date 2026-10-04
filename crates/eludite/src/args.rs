@@ -172,6 +172,9 @@ pub struct Args {
     pub spike_browser: Option<String>,
     /// `--bench-browser SECS` (brief 0031).
     pub bench_browser: Option<u64>,
+    /// `--print-engine-discovery` (brief 0039, hidden: the package smoke test): print where the embedded engine and
+    /// CEF are found, as JSON on stdout, and exit.
+    pub print_engine_discovery: bool,
 }
 
 impl Args {
@@ -250,6 +253,7 @@ impl Args {
                     a.bench_build = Some(n.parse().map_err(|_| format!("bad run count `{n}`"))?);
                 }
                 "--spike-browser" => a.spike_browser = Some(value("--spike-browser")?),
+                "--print-engine-discovery" => a.print_engine_discovery = true,
                 "--bench-browser" => {
                     let n = value("--bench-browser")?;
                     a.bench_browser = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);
@@ -374,6 +378,13 @@ mod tests {
         assert_eq!(a.bench_browser, Some(20));
         assert!(a.benching());
         assert!(parse(&["--bench-browser", "x"]).is_err());
+        // Brief 0039's hidden flag for the package smoke test; not in the usage text.
+        assert!(
+            parse(&["--print-engine-discovery"])
+                .unwrap()
+                .print_engine_discovery
+        );
+        assert!(!USAGE.contains("--print-engine-discovery"));
         let a = parse(&["--spike-browser", "https://example.com"]).unwrap();
         assert_eq!(a.spike_browser.as_deref(), Some("https://example.com"));
         assert!(!a.benching());

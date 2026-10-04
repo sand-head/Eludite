@@ -13,8 +13,13 @@
 //!   animation frames, so the page's last change is painted); `Page.captureScreenshot` otherwise.
 //! - **A crash** of the engine closes its stdout: pending requests fail, subscriptions end, the log says so, and the
 //!   next [`Engine::launch`] starts a new engine (the tabs are lost, the shell is not).
-//! - **Discovery** ([`ChromiumSearch`]): the engine in `ELUDITE_CHROMIUM`, beside this executable, then the cargo
-//!   target folder (development); CEF in `ELUDITE_CEF`, `CEF_PATH`, the fetch script's cache, then beside the engine.
+//! - **Discovery** ([`ChromiumSearch`], brief 0039, [`crate::discovery`]): the engine at `browser.enginePath`,
+//!   `ELUDITE_CHROMIUM`, beside this executable, then cargo's build layout (development); CEF beside the engine (its
+//!   folder or `cef/`), at `ELUDITE_CEF` or `CEF_PATH`, then in the fetch script's cache. On first use only.
+//! - **The sandbox** (brief 0039): the engine decides (`browsers/chromium/src/sandbox.rs`); the shell passes
+//!   `--allow-no-sandbox` only when [`EngineConfig::allow_no_sandbox`] says so (the workspace's opt-in, or
+//!   `ELUDITE_CHROME_NO_SANDBOX=1`). A refusal (exit code [`SANDBOX_REFUSED_EXIT`]) reaches the observer as
+//!   [`EngineEvent::SandboxRefused`], and the launch fails with the engine's message.
 //!
 //! - **The Web Browser window** (brief 0032). The engine's notifications for the window (state, cursors, popups,
 //!   dialogs, permission prompts, downloads, context menus, closed tabs) reach an [`EngineObserver`] the shell sets
@@ -42,8 +47,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::LogSink;
-use crate::chrome::{NO_SANDBOX_ENV, prepare_profile};
+use crate::chrome::prepare_profile;
 use crate::connection::{CdpError, CdpEvent, DEFAULT_TIMEOUT};
+use crate::discovery::{CefFound, CefSearch, EngineFound, EngineSearch};
 use crate::engine::{
     DebugEndpoint, DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog,
     TabHistory, TargetInfo,
@@ -57,6 +63,10 @@ pub const ENGINE_ENV: &str = "ELUDITE_CHROMIUM";
 pub const CEF_ENV: &str = "ELUDITE_CEF";
 /// The CEF version of `tools/cef/PIN`, the fetch script's cache folder name.
 pub const CEF_VERSION: &str = "154.0.32+g682c378+chromium-154.0.8037.58";
+/// The engine's exit code when it refuses to start without Chromium's sandbox (browser-rpc.md, brief 0039).
+pub const SANDBOX_REFUSED_EXIT: i32 = 5;
+/// The engine's switch that permits `--no-sandbox` where the sandbox cannot start (brief 0039).
+pub const ALLOW_NO_SANDBOX: &str = "--allow-no-sandbox";
 /// The protocol version of browser-rpc.md.
 pub const PROTOCOL_VERSION: u64 = 1;
 /// How long the engine may take to answer `initialize` (CEF initializes before it reads stdin).
@@ -70,128 +80,66 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 // ---- discovery ----
 
-/// Where to look for the engine and for CEF.
+/// Where to look for the engine and for CEF ([`crate::discovery`], brief 0039).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChromiumSearch {
-    /// `ELUDITE_CHROMIUM`.
-    pub engine: Option<PathBuf>,
-    /// Folders that may hold the engine, in order: beside the running executable, then the cargo target folder.
-    pub engine_dirs: Vec<PathBuf>,
-    /// `ELUDITE_CEF`, then `CEF_PATH`.
-    pub cef: Vec<PathBuf>,
-    /// The fetch script's cache: `~/.cache/eludite/cef/<version>`.
-    pub cef_cache: Option<PathBuf>,
+    pub engine: EngineSearch,
+    pub cef: CefSearch,
 }
 
-/// The file whose presence makes a folder a CEF folder.
+/// What [`ChromiumSearch::find`] found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discovered {
+    pub engine: PathBuf,
+    pub engine_found: EngineFound,
+    pub cef: PathBuf,
+    pub cef_found: CefFound,
+}
+
+#[cfg(test)]
 fn cef_library() -> &'static str {
-    if cfg!(windows) {
-        "libcef.dll"
-    } else if cfg!(target_os = "macos") {
-        "Chromium Embedded Framework.framework"
-    } else {
-        "libcef.so"
-    }
+    crate::discovery::cef_library()
 }
 
+#[cfg(test)]
 fn exe_name() -> String {
-    format!("{ENGINE_NAME}{}", std::env::consts::EXE_SUFFIX)
+    crate::discovery::engine_file_name()
 }
 
 impl ChromiumSearch {
-    /// From the environment and the running executable's location.
+    /// From the environment and the running executable's location, with no `browser.enginePath`.
     pub fn defaults() -> Self {
-        let mut engine_dirs = Vec::new();
-        if let Some(dir) = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(Path::to_path_buf))
-        {
-            // Installed: beside eludite. Development: target/<profile>/ (and a test binary in target/<profile>/deps).
-            engine_dirs.push(dir.clone());
-            if dir.file_name().is_some_and(|n| n == "deps")
-                && let Some(up) = dir.parent()
-            {
-                engine_dirs.push(up.to_path_buf());
-            }
-        }
-        if let Some(t) = std::env::var_os("CARGO_TARGET_DIR") {
-            engine_dirs.push(PathBuf::from(t).join("debug"));
-        }
-        let cef = [CEF_ENV, "CEF_PATH"]
-            .iter()
-            .filter_map(std::env::var_os)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .collect();
-        let cef_cache = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(|h| {
-                PathBuf::from(h)
-                    .join(".cache")
-                    .join("eludite")
-                    .join("cef")
-                    .join(CEF_VERSION)
-            });
+        Self::with_setting(None)
+    }
+
+    /// As [`ChromiumSearch::defaults`] with the setting `browser.enginePath`.
+    pub fn with_setting(engine_path: Option<PathBuf>) -> Self {
         Self {
-            engine: std::env::var_os(ENGINE_ENV)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from),
-            engine_dirs,
-            cef,
-            cef_cache,
+            engine: EngineSearch::from_env(engine_path),
+            cef: CefSearch::from_env(),
         }
     }
 
     /// The engine executable.
     pub fn find_engine(&self) -> Result<PathBuf, String> {
-        if let Some(p) = &self.engine {
-            return if p.is_file() {
-                Ok(p.clone())
-            } else {
-                Err(format!(
-                    "{ENGINE_ENV} names {}, which does not exist",
-                    p.display()
-                ))
-            };
-        }
-        let name = exe_name();
-        self.engine_dirs
-            .iter()
-            .map(|d| d.join(&name))
-            .find(|p| p.is_file())
-            .ok_or_else(|| {
-                format!(
-                    "{ENGINE_NAME} was not found ({ENGINE_ENV}, {}); build it with `cargo build -p eludite-chromium \
-                     --features eludite-chromium/cef` after tools/cef/fetch.sh",
-                    self.engine_dirs
-                        .iter()
-                        .map(|d| d.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })
+        self.engine.find().map(|(p, _)| p)
     }
 
     /// CEF's folder, for the engine at `engine`.
     pub fn find_cef(&self, engine: &Path) -> Result<PathBuf, String> {
-        let lib = cef_library();
-        let beside = engine.parent().map(Path::to_path_buf);
-        self.cef
-            .iter()
-            .chain(self.cef_cache.iter())
-            .chain(beside.iter())
-            .find(|d| d.join(lib).exists())
-            .cloned()
-            .ok_or_else(|| {
-                format!(
-                    "CEF {CEF_VERSION} was not found ({CEF_ENV}, CEF_PATH, {}, beside {}); run tools/cef/fetch.sh",
-                    self.cef_cache
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_default(),
-                    engine.display()
-                )
-            })
+        self.cef.find(engine).map(|(p, _)| p)
+    }
+
+    /// The engine and its CEF, and how each was found.
+    pub fn find(&self) -> Result<Discovered, String> {
+        let (engine, engine_found) = self.engine.find()?;
+        let (cef, cef_found) = self.cef.find(&engine)?;
+        Ok(Discovered {
+            engine,
+            engine_found,
+            cef,
+            cef_found,
+        })
     }
 }
 
@@ -209,6 +157,9 @@ pub enum EngineEvent {
     Notification { method: String, params: Value },
     /// DevTools opened for tab `page` as tab `devtools` (engine tab ids).
     DevtoolsOpened { page: String, devtools: String },
+    /// The engine refused to start without Chromium's sandbox (brief 0039): its message names both remedies and the
+    /// opt-in. The launch fails with the same message.
+    SandboxRefused { message: String },
 }
 
 /// Where [`EngineEvent`]s go; called on the engine's reader thread (or the thread that launched it), so it must
@@ -315,9 +266,7 @@ pub fn select_engine(
         Err(why) => (
             EngineChoice::External,
             Some(format!(
-                "{why}. Fetch CEF with `tools/cef/fetch.sh` and build the engine with `CEF_PATH=\"$(tools/cef/fetch.sh)\" \
-                 cargo build -p eludite-chromium --features eludite-chromium/cef`; meanwhile the browser tools use \
-                 the external Chrome"
+                "{why}. Meanwhile the browser tools use the external Chrome"
             )),
         ),
     }
@@ -710,6 +659,8 @@ struct Control {
     closed: AtomicBool,
     /// The remote debugging port `engine/ready` reported (0 before; brief 0038).
     debug_port: std::sync::atomic::AtomicU16,
+    /// How the sandbox runs (`initialize`'s `sandbox: false` is `none`; `engine/ready` names the mode; brief 0039).
+    sandbox: Mutex<Option<String>>,
 }
 
 impl Control {
@@ -914,6 +865,9 @@ impl Control {
                     .and_then(|v| u16::try_from(v).ok())
                     .unwrap_or(0);
                 self.debug_port.store(port, Ordering::Release);
+                if let Some(mode) = p["sandbox"].as_str() {
+                    *lock(&self.sandbox) = Some(mode.to_owned());
+                }
             }
             "tab/closed" => {
                 lock(&self.subscribers).remove(&tab);
@@ -1141,7 +1095,8 @@ impl std::fmt::Debug for EmbeddedChromium {
 }
 
 impl EmbeddedChromium {
-    /// An engine that starts nothing until [`Engine::launch`]. `--no-sandbox` follows `ELUDITE_CHROME_NO_SANDBOX`.
+    /// An engine that starts nothing until [`Engine::launch`]. `--allow-no-sandbox` follows
+    /// [`EngineConfig::allow_no_sandbox`] and `ELUDITE_CHROME_NO_SANDBOX=1` (brief 0039).
     pub fn new(config: EngineConfig, search: ChromiumSearch, log: LogSink) -> Self {
         Self {
             config,
@@ -1165,11 +1120,17 @@ impl EmbeddedChromium {
         self.stats.clone()
     }
 
-    /// Pass `ELUDITE_CHROME_NO_SANDBOX=1` to the engine (or not) regardless of this process's environment: for tests
-    /// running as root, which cannot set the variable for themselves without `unsafe`. The shell never calls it.
+    /// Permit `--no-sandbox` (pass `--allow-no-sandbox`) regardless of `ELUDITE_CHROME_NO_SANDBOX` in this process's
+    /// environment: for tests running as root, which cannot set the variable for themselves without `unsafe`. The
+    /// shell never calls it; it sets [`EngineConfig::allow_no_sandbox`].
     pub fn no_sandbox(mut self, on: bool) -> Self {
         self.no_sandbox = on;
         self
+    }
+
+    /// Whether the next launch passes `--allow-no-sandbox`: the configuration's opt-in, the variable, or a test.
+    pub fn allows_no_sandbox(&self) -> bool {
+        self.config.allow_no_sandbox || self.no_sandbox
     }
 
     fn control(&self) -> Result<&Arc<Control>, EngineError> {
@@ -1239,8 +1200,8 @@ impl EmbeddedChromium {
     fn start(&mut self) -> Result<LaunchInfo, EngineError> {
         use std::os::fd::AsRawFd;
         use std::os::unix::process::CommandExt;
-        let exe = self.search.find_engine().map_err(EngineError::Launch)?;
-        let cef = self.search.find_cef(&exe).map_err(EngineError::Launch)?;
+        let found = self.search.find().map_err(EngineError::Launch)?;
+        let (exe, cef) = (found.engine.clone(), found.cef.clone());
         prepare_profile(&self.config.profile_dir).map_err(|e| {
             EngineError::Launch(format!(
                 "cannot create the browser profile {}: {e}",
@@ -1256,6 +1217,7 @@ impl EmbeddedChromium {
             .arg("--cef-dir")
             .arg(&cef)
             .args(["--frame-socket", "3"])
+            .args(self.allows_no_sandbox().then_some(ALLOW_NO_SANDBOX))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1270,11 +1232,8 @@ impl EmbeddedChromium {
             lib_path.push(old);
         }
         cmd.env(lib_var, lib_path);
-        if self.no_sandbox {
-            cmd.env(NO_SANDBOX_ENV, "1");
-        } else {
-            cmd.env_remove(NO_SANDBOX_ENV);
-        }
+        // The engine reads no variable for the sandbox; only --allow-no-sandbox above (brief 0039).
+        cmd.env_remove(crate::chrome::NO_SANDBOX_ENV);
         // SAFETY: dup2 is async-signal-safe; it gives the child the socket as descriptor 3 (the copy is not
         // close-on-exec), which is all browser-rpc.md asks.
         unsafe {
@@ -1320,6 +1279,7 @@ impl EmbeddedChromium {
             tabs: Mutex::default(),
             closed: AtomicBool::new(false),
             debug_port: Default::default(),
+            sandbox: Mutex::default(),
         });
         let child = Arc::new(Mutex::new(Some(child)));
         let stopping = Arc::new(AtomicBool::new(false));
@@ -1370,14 +1330,47 @@ impl EmbeddedChromium {
                 ));
             })
             .map_err(|e| EngineError::Launch(e.to_string()))?;
+        let observer = self.observer.clone();
         let fail = |why: String| {
             stopping.store(true, Ordering::Release);
+            // An engine that refused has exited (or is exiting) on its own: its code says why.
+            let mut code = None;
             if let Some(c) = lock(&child).as_mut() {
-                let _ = c.kill();
-                let _ = c.wait();
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while code.is_none() && Instant::now() < deadline {
+                    match c.try_wait() {
+                        Ok(Some(s)) => code = Some(s.code()),
+                        Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                        Err(_) => break,
+                    }
+                }
+                if code.is_none() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
             }
             std::thread::sleep(Duration::from_millis(50));
             let tail: Vec<String> = lock(&tail).iter().cloned().collect();
+            if code == Some(Some(SANDBOX_REFUSED_EXIT)) {
+                // The engine's own line names both remedies and the opt-in (brief 0039).
+                let prefix = format!("{ENGINE_NAME}: ");
+                let message = tail
+                    .iter()
+                    .filter_map(|l| l.strip_prefix(&prefix))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let message = if message.is_empty() {
+                    "Chromium's sandbox cannot start on this machine".to_owned()
+                } else {
+                    message
+                };
+                if let Some(o) = &observer {
+                    o(EngineEvent::SandboxRefused {
+                        message: message.clone(),
+                    });
+                }
+                return EngineError::Launch(message);
+            }
             EngineError::Launch(format!(
                 "{why} ({}).{}",
                 exe.display(),
@@ -1427,7 +1420,16 @@ impl EmbeddedChromium {
                 init["cefVersion"].as_str().unwrap_or("?")
             ),
             endpoint: format!("stdio (pid {pid})"),
+            sandbox: None,
+            cef: Some(cef.display().to_string()),
+            found_by: Some((
+                found.engine_found.as_str().to_owned(),
+                found.cef_found.as_str().to_owned(),
+            )),
         };
+        if init["sandbox"] == json!(false) {
+            *lock(&control.sandbox) = Some("none".into());
+        }
         (self.log)(&format!(
             "Launched the embedded browser {} ({}) in {} ms; CEF {}; profile {}{}",
             info.executable,
@@ -1436,7 +1438,7 @@ impl EmbeddedChromium {
             cef.display(),
             self.config.profile_dir.display(),
             if init["sandbox"] == json!(false) {
-                "; no sandbox (ELUDITE_CHROME_NO_SANDBOX=1)"
+                "; without Chromium's sandbox (--allow-no-sandbox)"
             } else {
                 ""
             }
@@ -1712,6 +1714,11 @@ impl TabControl {
             });
     }
 
+    /// Whether the engine runs with Chromium's sandbox (brief 0039): false when it runs with `--no-sandbox`.
+    pub fn sandboxed(&self) -> bool {
+        lock(&self.0.sandbox).as_deref() != Some("none")
+    }
+
     /// The open tabs, in the engine's order.
     pub fn tabs(&self) -> Vec<String> {
         lock(&self.0.tabs)
@@ -1754,7 +1761,10 @@ impl Engine for EmbeddedChromium {
         self.running
             .as_ref()
             .filter(|r| !r.control.is_closed())
-            .map(|r| r.info.clone())
+            .map(|r| LaunchInfo {
+                sandbox: lock(&r.control.sandbox).clone(),
+                ..r.info.clone()
+            })
     }
 
     fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {
@@ -2069,50 +2079,29 @@ mod tests {
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
     }
 
+    /// The composed search finds the package layout (the engine beside eludite, CEF in `cef/` beside it) and says
+    /// how; the orders themselves are `discovery`'s tests.
     #[test]
-    fn discovery_order() {
+    fn the_package_layout_is_found_beside_the_executable() {
         let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a");
-        let b = dir.path().join("b");
-        let cef_env = dir.path().join("cef-env");
-        let cache = dir.path().join("cache");
-        for d in [&a, &b, &cef_env, &cache] {
-            std::fs::create_dir_all(d).unwrap();
-        }
-        let mut s = ChromiumSearch {
-            engine: None,
-            engine_dirs: vec![a.clone(), b.clone()],
-            cef: vec![cef_env.clone()],
-            cef_cache: Some(cache.clone()),
+        std::fs::write(dir.path().join(exe_name()), b"").unwrap();
+        std::fs::create_dir_all(dir.path().join("cef")).unwrap();
+        std::fs::write(dir.path().join("cef").join(cef_library()), b"").unwrap();
+        let s = ChromiumSearch {
+            engine: EngineSearch {
+                beside: Some(dir.path().to_path_buf()),
+                ..EngineSearch::default()
+            },
+            cef: CefSearch::default(),
         };
-        let e = s.find_engine().unwrap_err();
-        assert!(
-            e.contains("tools/cef/fetch.sh") && e.contains("--features"),
-            "{e}"
-        );
-        std::fs::write(b.join(exe_name()), b"").unwrap();
-        assert_eq!(s.find_engine().unwrap(), b.join(exe_name()));
-        std::fs::write(a.join(exe_name()), b"").unwrap();
         assert_eq!(
-            s.find_engine().unwrap(),
-            a.join(exe_name()),
-            "beside the shell first"
-        );
-        s.engine = Some(dir.path().join("nope"));
-        assert!(s.find_engine().unwrap_err().contains(ENGINE_ENV));
-
-        let engine = a.join(exe_name());
-        let e = s.find_cef(&engine).unwrap_err();
-        assert!(e.contains(CEF_VERSION) && e.contains("fetch.sh"), "{e}");
-        std::fs::write(a.join(cef_library()), b"").unwrap();
-        assert_eq!(s.find_cef(&engine).unwrap(), a, "beside the engine last");
-        std::fs::write(cache.join(cef_library()), b"").unwrap();
-        assert_eq!(s.find_cef(&engine).unwrap(), cache);
-        std::fs::write(cef_env.join(cef_library()), b"").unwrap();
-        assert_eq!(
-            s.find_cef(&engine).unwrap(),
-            cef_env,
-            "ELUDITE_CEF and CEF_PATH first"
+            s.find().unwrap(),
+            Discovered {
+                engine: dir.path().join(exe_name()),
+                engine_found: EngineFound::Beside,
+                cef: dir.path().join("cef"),
+                cef_found: CefFound::Beside,
+            }
         );
     }
 
@@ -2129,10 +2118,11 @@ mod tests {
         assert_eq!(EngineChoice::from_setting("??"), EngineChoice::Embedded);
         let dir = tempfile::tempdir().unwrap();
         let mut s = ChromiumSearch {
-            engine: None,
-            engine_dirs: vec![dir.path().to_path_buf()],
-            cef: vec![],
-            cef_cache: None,
+            engine: EngineSearch {
+                dev: vec![dir.path().to_path_buf()],
+                ..EngineSearch::default()
+            },
+            cef: CefSearch::default(),
         };
         assert_eq!(
             select_engine(EngineChoice::External, &s),
@@ -2144,11 +2134,14 @@ mod tests {
             EngineChoice::External,
             "nothing found: the external Chrome"
         );
-        assert!(why.unwrap().contains("tools/cef/fetch.sh"));
+        let why = why.unwrap();
+        assert!(why.contains("tools/cef/fetch.sh"), "{why}");
+        assert!(why.contains("tools/package/linux.sh"), "{why}");
         if cfg!(target_os = "linux") {
             std::fs::write(dir.path().join(exe_name()), b"").unwrap();
-            std::fs::write(dir.path().join(cef_library()), b"").unwrap();
-            s.cef = vec![dir.path().to_path_buf()];
+            let cef = tempfile::tempdir().unwrap();
+            std::fs::write(cef.path().join(cef_library()), b"").unwrap();
+            s.cef.variables = vec![cef.path().to_path_buf()];
             assert_eq!(
                 select_engine(EngineChoice::Embedded, &s),
                 (EngineChoice::Embedded, None)
@@ -2240,7 +2233,15 @@ mod tests {
             tabs: Mutex::new(vec![("1".into(), Arc::new(TabFrames::default()))]),
             closed: AtomicBool::new(false),
             debug_port: Default::default(),
+            sandbox: Mutex::default(),
         };
+        // engine/ready names the sandbox (brief 0039), which `info` reports.
+        c.dispatch(
+            json!({"method": "engine/ready", "params": {"remoteDebuggingPort": 40000, "address": "127.0.0.1",
+                "sandbox": "namespaces", "cefDir": "/c"}}),
+            None,
+        );
+        assert_eq!(lock(&c.sandbox).as_deref(), Some("namespaces"));
         let (tx, rx) = mpsc::channel();
         lock(&c.cdp_pending).insert(4, ("Runtime.evaluate".into(), tx));
         let (etx, erx) = mpsc::channel();

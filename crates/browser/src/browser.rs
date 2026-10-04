@@ -762,6 +762,12 @@ impl Browser {
         if let Some(info) = self.engine.info() {
             engine.version = Some(info.version);
             engine.executable = Some(info.executable);
+            // The embedded engine's sandbox, CEF and discovery (brief 0039).
+            engine.sandbox = info.sandbox;
+            engine.cef = info.cef;
+            engine.found_by = info
+                .found_by
+                .map(|(engine, cef)| eludite_commands::browser::EngineFoundBy { engine, cef });
         }
         let mut rows: Vec<TabRow> = self.tabs.iter().map(|t| self.row(t, &targets)).collect();
         for (row, tab) in rows.iter_mut().zip(&self.tabs) {

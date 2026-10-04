@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Eludite
+GenericName=Integrated Development Environment
+Comment=An agent-first IDE for .NET, the web stack and Rust
+Exec=eludite %F
+TryExec=eludite
+Icon=eludite
+Terminal=false
+Categories=Development;IDE;
+Keywords=dotnet;csharp;rust;web;debugger;
+StartupNotify=true
+StartupWMClass=eludite

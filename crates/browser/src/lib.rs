@@ -12,7 +12,8 @@
 //!   workspace's own profile ([`chrome`]), found by [`ChromeSearch`] ([`discovery`]).
 //! - [`EmbeddedChromium`]: the second engine (brief 0031), `eludite-chromium` (CEF) in its own process over JSON-RPC
 //!   on stdio, its tabs rendered into shared memory ([`FrameSource`], [`TabFrames`]), found by [`ChromiumSearch`]
-//!   ([`embedded`]). Nothing of CEF loads in this process.
+//!   ([`embedded`]): [`EngineSearch`] and [`CefSearch`] ([`discovery`], brief 0039: the package layout beside the
+//!   executable first, on first use only). Nothing of CEF loads in this process.
 //! - [`connection`]: the websocket CDP client (`tungstenite` over `std::net::TcpStream`, one reader thread per
 //!   connection, requests correlated by id with timeouts, events fanned out per session through channels).
 //! - [`ring`], [`tab`] and [`page`]: the console and network rings, a tab's state (page generations and refs), and
@@ -44,10 +45,10 @@ pub use browser::{Browser, DebugTarget};
 pub use browser::{DebuggerPauses, Interrupt, Marks};
 pub use chrome::ExternalChrome;
 pub use connection::{CdpError, CdpEvent, Connection};
-pub use discovery::ChromeSearch;
+pub use discovery::{CefFound, CefSearch, ChromeSearch, EngineFound, EngineSearch};
 pub use embedded::{
-    ChromiumSearch, EmbeddedChromium, EmbeddedStats, EngineChoice, EngineEvent, EngineObserver,
-    FrameSource, TabControl, TabFrames, TabInfo, select_engine,
+    ChromiumSearch, Discovered, EmbeddedChromium, EmbeddedStats, EngineChoice, EngineEvent,
+    EngineObserver, FrameSource, TabControl, TabFrames, TabInfo, select_engine,
 };
 pub use engine::{
     DebugEndpoint, DialogAnswer, Engine, EngineConfig, EngineError, LaunchInfo, PendingDialog,

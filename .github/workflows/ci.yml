@@ -153,7 +153,8 @@ jobs:
           node --version
 
       # On Linux the engine tests (browsers/chromium/tests, crates/browser/tests/embedded.rs) run CEF under Xvfb;
-      # ELUDITE_CHROME_NO_SANDBOX=1 (set above) also covers CEF, whose sandbox meets the same AppArmor policy.
+      # ELUDITE_CHROME_NO_SANDBOX=1 (set above) also covers CEF, whose sandbox meets the same AppArmor policy: the shell and
+      # the tests turn it into the engine's --allow-no-sandbox (brief 0039).
       - name: Test (Linux)
         if: runner.os == 'Linux'
         run: xvfb-run -a cargo test --workspace ${{ env.CEF_FEATURES }}
@@ -161,6 +162,22 @@ jobs:
       - name: Test
         if: runner.os != 'Linux'
         run: cargo test --workspace
+
+      # Brief 0039: the Linux package. tools/package/linux.sh makes the release tarball from the CEF fetched above (no
+      # download then), and the smoke test runs eludite and eludite-chromium from it with no CEF_PATH, ELUDITE_CEF,
+      # ELUDITE_CHROMIUM or CEF cache in their environment. Skipped with a notice when CEF is not there.
+      - name: Package (Linux)
+        if: runner.os == 'Linux' && env.CEF_PATH != ''
+        run: |
+          tarball="$(tools/package/linux.sh --out "${{ runner.temp }}/package")"
+          ls -l "$tarball"
+          xvfb-run -a env ELUDITE_PACKAGE_TARBALL="$tarball" \
+            cargo test -p eludite-chromium --features cef --test package -- --nocapture
+          rm -rf "${{ runner.temp }}/package"
+
+      - name: Package (Linux, skipped)
+        if: runner.os == 'Linux' && env.CEF_PATH == ''
+        run: echo "::notice::CEF is not cached, so the Linux package (tools/package/linux.sh) and its smoke test were skipped"
 
       # The scenario ran in the step above; this runs it again alone and prints its call lists, sizes and times. Same
       # features as the test step, so nothing is rebuilt.

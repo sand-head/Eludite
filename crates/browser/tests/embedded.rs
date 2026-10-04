@@ -9,7 +9,8 @@
 //!
 //! Skips with a message when the engine is not built with CEF (`tools/cef/fetch.sh`, then `CEF_PATH=...
 //! cargo build -p eludite-chromium --features eludite-chromium/cef`) or off Linux. As root the engine gets
-//! `ELUDITE_CHROME_NO_SANDBOX=1` (as brief 0023's Chrome tests do). Timings print with `-- --nocapture`.
+//! `--allow-no-sandbox` (brief 0039; Chromium does not sandbox root), and `tabs` then reports `engine.sandbox: none`.
+//! Timings print with `-- --nocapture`.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -151,6 +152,7 @@ fn the_commands_against_the_embedded_engine() {
             profile_dir: profile.path().join(".eludite/browser/profile"),
             headless: true,
             viewport: EngineConfig::VIEWPORT,
+            allow_no_sandbox: false,
         },
         search,
         Arc::new(move |l: &str| {
@@ -216,6 +218,34 @@ fn the_commands_against_the_embedded_engine() {
             .contains("Chromium/154.0.8037.58")
     );
     assert_eq!(tabs["tabs"][0]["title"], "Sign up");
+    // Brief 0039: how the sandbox runs (engine/ready, shortly after the start) and how the engine and CEF were found.
+    let mode = (0..100)
+        .find_map(|_| {
+            let t = run.ok(cmds::TABS, json!({}));
+            let m = t["engine"]["sandbox"].as_str().map(str::to_owned);
+            if m.is_none() {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            m
+        })
+        .expect("engine.sandbox");
+    if running_as_root() {
+        assert_eq!(mode, "none", "{tabs}");
+    } else {
+        assert!(
+            ["namespaces", "helper", "none"].contains(&mode.as_str()),
+            "{mode}"
+        );
+    }
+    assert!(tabs["engine"]["cef"].as_str().is_some(), "{tabs}");
+    assert!(
+        ["setting", "variable", "beside", "dev"].contains(
+            &tabs["engine"]["found_by"]["engine"]
+                .as_str()
+                .unwrap_or_default()
+        ),
+        "{tabs}"
+    );
 
     // navigate with load and network_idle.
     for page in ["list.html", "form.html"] {
@@ -391,6 +421,7 @@ fn window_run() -> Option<(Run, Handle, tempfile::TempDir)> {
             profile_dir: profile.path().join(".eludite/browser/profile"),
             headless: true,
             viewport: (800, 600),
+            allow_no_sandbox: false,
         },
         search,
         Arc::new(move |l: &str| {

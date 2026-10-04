@@ -72,7 +72,7 @@
           "minimum": 1
         },
         "sandbox": {
-          "description": "False when the engine runs with --no-sandbox (only ever because ELUDITE_CHROME_NO_SANDBOX=1).",
+          "description": "False when the engine runs with --no-sandbox (brief 0039): only when its command line carries --allow-no-sandbox (the shell passes it for the workspace's opt-in, browser.allowNoSandbox, or ELUDITE_CHROME_NO_SANDBOX=1) and neither user namespaces nor the setuid helper can sandbox it, or it runs as root. `engine/ready` says how it is sandboxed.",
           "type": "boolean"
         },
         "frameTransport": {

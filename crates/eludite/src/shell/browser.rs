@@ -14,6 +14,13 @@
 //!   "Agent is driving" strip offers Stop. The person's hand ([`BrowserBus::person_acted`], [`BrowserBus::stop`])
 //!   ends the agent's `wait` (`interrupted_by: "user"`) through the shared [`Interrupt`] and marks the agent stale:
 //!   its next action command is refused until it reads `eludite.browser.tabs` again.
+//! - **The sandbox** (brief 0039). The embedded engine decides how Chromium's sandbox runs and refuses where it cannot
+//!   start; its refusal reaches the window as [`WindowEvent::SandboxRefused`], whose dialog offers the workspace's
+//!   opt-in once. The next launch passes `--allow-no-sandbox` only for that opt-in (the setting
+//!   `browser.allowNoSandbox`, or [`BrowserBus::opt_in_no_sandbox`] until the setting applies) or
+//!   `ELUDITE_CHROME_NO_SANDBOX=1`; turning the setting off again removes it at the next start.
+//! - **Discovery on first use** (brief 0039). The engine and CEF are searched for ([`ChromiumSearch`], with the
+//!   setting `browser.enginePath`) the first time the window opens or a command needs the engine, never at startup.
 //! - **Lifetime with the window.** Closing the Web Browser window keeps the engine for [`LINGER`] (a reopen is
 //!   instant), then closes it; closing the workspace closes it at once.
 //! - **Nothing until the first command.** The worker thread and the engine are created by the first browser command,
@@ -77,6 +84,10 @@ pub struct BrowserSettings {
     pub home_page: String,
     /// `browser.showDevToolsTab`.
     pub show_devtools_tab: bool,
+    /// `browser.enginePath` (brief 0039).
+    pub engine_path: Option<PathBuf>,
+    /// `browser.allowNoSandbox`, the workspace's opt-in (brief 0039).
+    pub allow_no_sandbox: bool,
 }
 
 impl Default for BrowserSettings {
@@ -88,6 +99,8 @@ impl Default for BrowserSettings {
             engine: EngineChoice::Embedded,
             home_page: "about:blank".into(),
             show_devtools_tab: false,
+            engine_path: None,
+            allow_no_sandbox: false,
         }
     }
 }
@@ -105,6 +118,10 @@ pub trait PageDriver: Send + Sync {
     fn notify(&self, method: &str, params: Value);
     /// Close a tab no command closes (DevTools).
     fn close(&self, target: &str);
+    /// Whether the engine runs with Chromium's sandbox (brief 0039; false: `--no-sandbox`).
+    fn sandboxed(&self) -> bool {
+        true
+    }
 }
 
 impl PageDriver for TabControl {
@@ -123,6 +140,9 @@ impl PageDriver for TabControl {
     }
     fn close(&self, target: &str) {
         TabControl::close(self, target)
+    }
+    fn sandboxed(&self) -> bool {
+        TabControl::sandboxed(self)
     }
 }
 
@@ -147,6 +167,8 @@ pub enum WindowEvent {
     },
     /// The agents whose calls are in flight now (empty: nobody drives).
     Driving(Vec<String>),
+    /// The embedded engine refused to start without Chromium's sandbox (brief 0039), with its message.
+    SandboxRefused(String),
 }
 
 impl std::fmt::Debug for WindowEvent {
@@ -164,6 +186,7 @@ impl std::fmt::Debug for WindowEvent {
                 sessions,
             } => write!(f, "Tabs({tabs:?}, {active:?}, {sessions:?})"),
             WindowEvent::Driving(a) => write!(f, "Driving({a:?})"),
+            WindowEvent::SandboxRefused(_) => write!(f, "SandboxRefused"),
         }
     }
 }
@@ -208,8 +231,14 @@ struct Inner {
     ui_thread: std::thread::ThreadId,
     /// A test's engines; `None`: by the setting `browser.engine`.
     factory: Mutex<Option<EngineFactory>>,
-    /// Where the embedded engine and CEF are searched for.
-    search: Mutex<ChromiumSearch>,
+    /// Where the embedded engine and CEF are searched for: made on first use (brief 0039: nothing at startup), or a
+    /// test's.
+    search: Mutex<Option<ChromiumSearch>>,
+    /// The workspace whose opt-in the window's dialog took this session (brief 0039): it counts until the setting
+    /// it stored applies, and is forgotten when the setting is turned off.
+    opted_in: Mutex<Option<Option<PathBuf>>>,
+    /// `ELUDITE_CHROME_NO_SANDBOX=1` in the shell's environment (read once; tests replace it).
+    no_sandbox_env: AtomicBool,
     /// Where the window's events go, and the receiver until the window takes it.
     window: futures::channel::mpsc::UnboundedSender<WindowEvent>,
     window_rx: Mutex<Option<UnboundedReceiver<WindowEvent>>>,
@@ -255,7 +284,7 @@ impl Inner {
             };
         }
         let choice = lock(&self.settings).engine;
-        let (kind, why) = eludite_browser::select_engine(choice, &lock(&self.search));
+        let (kind, why) = eludite_browser::select_engine(choice, &self.search());
         let message = match (choice, kind) {
             (EngineChoice::External, _) => Some(
                 "The Web Browser window draws Eludite's embedded Chromium, and the setting browser.engine is \
@@ -272,6 +301,30 @@ impl Inner {
         }
     }
 
+    /// Where to look for the engine: the search (made on first use) with the setting `browser.enginePath`.
+    fn search(&self) -> ChromiumSearch {
+        let mut search = lock(&self.search)
+            .get_or_insert_with(ChromiumSearch::defaults)
+            .clone();
+        if let Some(p) = lock(&self.settings).engine_path.clone() {
+            search.engine.setting = Some(p);
+        }
+        search
+    }
+
+    /// What lets the next launch drop the sandbox where it cannot start, if anything (brief 0039).
+    fn allows_no_sandbox(&self) -> Option<&'static str> {
+        if self.no_sandbox_env.load(Ordering::SeqCst) {
+            return Some(eludite_browser::chrome::NO_SANDBOX_ENV);
+        }
+        if lock(&self.settings).allow_no_sandbox
+            || lock(&self.opted_in).as_ref() == Some(&*lock(&self.workspace))
+        {
+            return Some("browser.allowNoSandbox");
+        }
+        None
+    }
+
     /// The engine of `status`, telling the window what the embedded one says.
     fn make_engine(&self, embedded: bool, config: EngineConfig, log: LogSink) -> Box<dyn Engine> {
         if let Some(f) = lock(&self.factory).clone() {
@@ -280,7 +333,7 @@ impl Inner {
         if !embedded {
             return Box::new(ExternalChrome::new(config, ChromeSearch::defaults(), log));
         }
-        let mut engine = EmbeddedChromium::new(config, lock(&self.search).clone(), log);
+        let mut engine = EmbeddedChromium::new(config, self.search(), log);
         let sink = self.sink();
         engine.set_observer(Some(Arc::new(move |e: EngineEvent| {
             sink(match e {
@@ -292,6 +345,7 @@ impl Inner {
                 EngineEvent::DevtoolsOpened { page, devtools } => {
                     WindowEvent::DevtoolsOpened { page, devtools }
                 }
+                EngineEvent::SandboxRefused { message } => WindowEvent::SandboxRefused(message),
             })
         })));
         Box::new(engine)
@@ -313,11 +367,15 @@ impl Inner {
 
     fn config(&self) -> EngineConfig {
         let s = lock(&self.settings).clone();
+        // One lock at a time: `allows_no_sandbox` takes the settings, the opt-in and the workspace in that order.
+        let allow_no_sandbox = self.allows_no_sandbox().is_some();
+        let workspace = lock(&self.workspace).clone();
         EngineConfig {
             executable: s.chrome_path,
-            profile_dir: profile_dir(lock(&self.workspace).as_deref()),
+            profile_dir: profile_dir(workspace.as_deref()),
             headless: s.headless,
             viewport: s.viewport,
+            allow_no_sandbox,
         }
     }
 
@@ -576,7 +634,35 @@ impl BrowserBus {
     /// Search for the embedded engine and CEF here (tests).
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_chromium_search(&self, search: ChromiumSearch) {
-        *lock(&self.inner.search) = search;
+        *lock(&self.inner.search) = Some(search);
+    }
+
+    /// Whether the engine and CEF were searched for yet (brief 0039: never at startup; tests).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn searched(&self) -> bool {
+        lock(&self.inner.search).is_some()
+    }
+
+    /// The person took the opt-in of the Web Browser window's dialog for the current workspace (brief 0039): the next
+    /// launch may drop the sandbox, before the setting the window stores applies.
+    pub fn opt_in_no_sandbox(&self) {
+        *lock(&self.inner.opted_in) = Some(lock(&self.inner.workspace).clone());
+    }
+
+    /// Whether `ELUDITE_CHROME_NO_SANDBOX=1` counts (tests that prove the opt-in run with it set).
+    #[cfg(test)]
+    pub fn set_no_sandbox_env(&self, on: bool) {
+        self.inner.no_sandbox_env.store(on, Ordering::SeqCst);
+    }
+
+    /// What lets the next launch run without the sandbox: `browser.allowNoSandbox` or `ELUDITE_CHROME_NO_SANDBOX`.
+    pub fn allows_no_sandbox(&self) -> Option<&'static str> {
+        self.inner.allows_no_sandbox()
+    }
+
+    /// The workspace folder whose profile and settings the browser uses.
+    pub fn workspace(&self) -> Option<PathBuf> {
+        lock(&self.inner.workspace).clone()
     }
 
     /// Which engine runs, and why the window cannot draw tabs when it cannot.
@@ -699,9 +785,13 @@ impl BrowserBus {
         *lock(&self.inner.opener) = program;
     }
 
-    /// The settings of the next launch.
+    /// The settings of the next launch. `browser.allowNoSandbox` turned off forgets the dialog's opt-in too.
     pub fn set_settings(&self, settings: BrowserSettings) {
-        *lock(&self.inner.settings) = settings;
+        let mut s = lock(&self.inner.settings);
+        if s.allow_no_sandbox && !settings.allow_no_sandbox {
+            *lock(&self.inner.opted_in) = None;
+        }
+        *s = settings;
     }
 
     /// The settings of the next launch, as last applied.
@@ -769,7 +859,9 @@ pub fn register(commands: &CommandRegistry) -> (BrowserBus, UnboundedReceiver<St
         inner: Arc::new(Inner {
             ui_thread: std::thread::current().id(),
             factory: Mutex::new(None),
-            search: Mutex::new(ChromiumSearch::defaults()),
+            search: Mutex::new(None),
+            opted_in: Mutex::new(None),
+            no_sandbox_env: AtomicBool::new(eludite_browser::chrome::no_sandbox_from_env()),
             window,
             window_rx: Mutex::new(Some(window_rx)),
             interrupt: Arc::default(),

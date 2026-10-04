@@ -253,6 +253,7 @@ impl ExternalChrome {
             executable: exe.display().to_string(),
             version,
             endpoint,
+            ..LaunchInfo::default()
         };
         let child = Arc::new(Mutex::new(Some(child)));
         let stopping = Arc::new(AtomicBool::new(false));
@@ -565,6 +566,7 @@ mod tests {
             profile_dir: PathBuf::from("/w/.eludite/browser/profile"),
             headless: false,
             viewport: (1280, 800),
+            allow_no_sandbox: false,
         };
         let exe = Path::new("/opt/chrome/chrome");
         assert_eq!(
@@ -627,6 +629,7 @@ mod tests {
                 profile_dir: t.path().join("p"),
                 headless: true,
                 viewport: EngineConfig::VIEWPORT,
+                allow_no_sandbox: false,
             },
             ChromeSearch::default(),
             Arc::new(|_: &str| {}),

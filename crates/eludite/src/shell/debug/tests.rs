@@ -7359,15 +7359,9 @@ fn ctrl_f5_on_a_web_project_opens_its_page_when_the_program_listens(cx: &mut Tes
 fn the_debug_menus_browser_items_follow_the_session_and_the_engine(cx: &mut TestAppContext) {
     let mut d = setup(cx);
     // No engine: the check item is disabled (and still shows the setting).
-    let empty = tempfile::tempdir().unwrap();
     d.w.shell.read_with(&d.w.vcx, |s, _| {
         s.browser()
-            .set_chromium_search(eludite_browser::ChromiumSearch {
-                engine: None,
-                engine_dirs: vec![empty.path().to_path_buf()],
-                cef: Vec::new(),
-                cef_cache: None,
-            })
+            .set_chromium_search(eludite_browser::ChromiumSearch::default())
     });
     let checked = |d: &Dbg| {
         d.w.shell.read_with(&d.w.vcx, |s, cx| {

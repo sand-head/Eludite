@@ -14,6 +14,7 @@
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
+//! | `browser.enginePath`, `browser.allowNoSandbox` | the embedded engine's search and whether its next launch may drop the sandbox (brief 0039) |
 //! | `browser.useBuiltIn`, `debugger.launchBrowser` | where (and whether) the next start opens a web project's page (brief 0037) |
 //! | `debugger.attachBrowser`, `debugger.nodePath`, `debugger.jsDebugPath` | whether the next start debugs its page, and the next browser session's Node.js and vscode-js-debug (brief 0038) |
 //! | `test.parallel`, `test.runSettings`, `test.vstestConsolePath` | the next test discovery and run (`test_runs`, brief 0035) |
@@ -165,6 +166,8 @@ impl Shell {
                         .filter(|h| !h.trim().is_empty())
                         .unwrap_or_else(|| "about:blank".into()),
                     show_devtools_tab: s.bool("browser.showDevToolsTab"),
+                    engine_path: s.path("browser.enginePath"),
+                    allow_no_sandbox: s.bool("browser.allowNoSandbox"),
                 },
                 use_built_in: s.bool("browser.useBuiltIn"),
                 launch_browser: s.bool("debugger.launchBrowser"),
@@ -337,7 +340,8 @@ impl Shell {
         }
     }
 
-    /// `eludite.settings.set` from the UI, in the user file (Visual Studio's Options are per user).
+    /// `eludite.settings.set` from the UI, in the user file (Visual Studio's Options are per user), or in the
+    /// workspace's for a setting that belongs to the workspace (`x-eludite-scope`, brief 0039).
     fn set_setting(
         &mut self,
         key: &str,
@@ -345,9 +349,16 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let scope = self
+            .settings
+            .lock()
+            .schema()
+            .get(key)
+            .map(|spec| spec.scope)
+            .unwrap_or_default();
         self.run(
             eludite_commands::settings::SET,
-            json!({ "key": key, "value": value }),
+            json!({ "key": key, "value": value, "scope": scope }),
             window,
             cx,
         );
