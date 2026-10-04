@@ -372,3 +372,220 @@ fn real_host_discovers_and_runs_the_mtp_corpus_project() {
     );
     client.shutdown(Duration::from_secs(10)).unwrap();
 }
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if [".packages", "bin", "obj"].iter().any(|n| name == *n) {
+            continue;
+        }
+        let target = to.join(&name);
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+/// Brief 0048: the NuGet corpus (corpus/nuget, its local feed packed by `corpus/nuget/build.sh`) through the real
+/// host, typed end to end: the sources of its NuGet.config, a search of the local feed, the installed packages before
+/// a restore, an install into `Shared` that edits the project and restores it with ordered output updates and a new
+/// generation, the installed packages after, and the tree's Dependencies node. Skips when the host is not built,
+/// `dotnet` is not on PATH, or the feed cannot be packed.
+#[test]
+fn real_host_installs_a_package_from_the_nuget_corpus() {
+    let Some(dll) = host_dll() else {
+        eprintln!(
+            "skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx) and ELUDITE_HOST_DLL unset"
+        );
+        return;
+    };
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
+        return;
+    }
+    let corpus = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/nuget");
+    let dir = temp_dir().join(format!("eludite-lsp-real-nuget-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy_tree(&corpus, &dir);
+    if !dir.join("feed/Eludite.Corpus.Greeter.1.1.0.nupkg").exists() {
+        let packed = std::process::Command::new("bash")
+            .arg(corpus.join("build.sh"))
+            .arg(&dir)
+            .output();
+        if !packed.as_ref().is_ok_and(|o| o.status.success()) {
+            eprintln!(
+                "skipped: the NuGet corpus's feed did not pack (corpus/nuget/build.sh): {packed:?}"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+    }
+    let (client, rx) = HostClient::start(
+        HostCommand::dotnet_host(&dll)
+            .arg("--no-roslyn")
+            .stderr(StderrMode::Discard),
+        ClientInfo {
+            name: "eludite-lsp-test".into(),
+            version: "0".into(),
+        },
+        RestartPolicy {
+            max_restarts: 0,
+            backoff: Duration::ZERO,
+        },
+    )
+    .expect("start eludite-host");
+    let sln = dir.join("Corpus.slnx");
+    let generation = client.open_solution(sln.to_str().unwrap(), T).unwrap();
+
+    let sources = client
+        .request::<host::NuGetSources>(host::NuGetSourcesParams {
+            generation,
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let corpus_source = sources
+        .sources
+        .iter()
+        .find(|s| s.name == "corpus")
+        .unwrap_or_else(|| panic!("{sources:?}"));
+    assert!(corpus_source.enabled && corpus_source.local);
+    assert_eq!(corpus_source.scope, host::NuGetSourceScope::Solution);
+    assert!(!sources.changed);
+
+    let search = client
+        .request::<host::NuGetSearch>(host::NuGetSearchParams {
+            generation,
+            query: Some("Corpus".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    // A local feed answers in its own order.
+    let mut ids: Vec<_> = search
+        .results
+        .iter()
+        .map(|p| (p.id.as_str(), p.version.as_str()))
+        .collect();
+    ids.sort();
+    assert_eq!(
+        ids,
+        [
+            ("Eludite.Corpus.Greeter", "1.1.0"),
+            ("Eludite.Corpus.Logging", "1.0.0")
+        ]
+    );
+    assert_eq!(search.sources[0].name, "corpus");
+    assert_eq!(search.sources[0].error, None);
+
+    let before = client
+        .request::<host::NuGetInstalled>(host::NuGetInstalledParams {
+            generation,
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let app = before.projects.iter().find(|p| p.name == "App").unwrap();
+    assert_eq!(app.format, host::NuGetProjectFormat::PackageReference);
+    let greeter = app
+        .packages
+        .iter()
+        .find(|p| p.id == "Eludite.Corpus.Greeter")
+        .unwrap();
+    assert_eq!(greeter.requested.as_deref(), Some("1.0.0"));
+
+    let shared = dir.join("Shared").join("Shared.csproj");
+    let changed = client
+        .request::<host::NuGetChange>(host::NuGetChangeParams {
+            generation,
+            operation: Some(7),
+            action: host::NuGetAction::Install,
+            packages: vec![host::NuGetPackageArg {
+                id: "Eludite.Corpus.Logging".into(),
+                version: None,
+            }],
+            projects: Some(vec![shared.to_str().unwrap().to_owned()]),
+            prerelease: None,
+            source: None,
+            include_transitive: None,
+            restore: Some(true),
+            lock_files: None,
+            interactive: None,
+        })
+        .unwrap()
+        .wait_timeout(Duration::from_secs(180))
+        .unwrap();
+    assert!(changed.generation > generation, "{changed:?}");
+    assert_eq!(changed.packages[0].version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+        std::path::Path::new(&changed.edited[0].path),
+        shared.as_path()
+    );
+    let restore = changed.restore.as_ref().unwrap();
+    assert_eq!(
+        restore.result,
+        host::NuGetRestoreState::Succeeded,
+        "{restore:?}"
+    );
+    let text = std::fs::read_to_string(&shared).unwrap();
+    assert!(
+        text.contains(r#"<PackageReference Include="Eludite.Corpus.Logging" Version="1.0.0" />"#),
+        "{text}"
+    );
+    // The restore's output came as ordered updates of operation 7.
+    let mut seqs = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let Event::NuGetUpdate(u) = event
+            && u.operation == 7
+            && u.kind == host::NuGetUpdateKind::Output
+        {
+            seqs.push(u.seq);
+        }
+    }
+    assert!(!seqs.is_empty());
+    assert!(seqs.windows(2).all(|w| w[0] < w[1]), "{seqs:?}");
+
+    let generation = changed.generation;
+    let after = client
+        .request::<host::NuGetInstalled>(host::NuGetInstalledParams {
+            generation,
+            include_transitive: Some(true),
+            ..Default::default()
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let shared_after = after.projects.iter().find(|p| p.name == "Shared").unwrap();
+    assert!(shared_after.restored);
+    assert_eq!(shared_after.packages[0].id, "Eludite.Corpus.Logging");
+    assert_eq!(shared_after.packages[0].version.as_deref(), Some("1.0.0"));
+
+    // The tree's Dependencies node reads the same files.
+    let tree = client
+        .request::<host::SolutionTreeRequest>(())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    let shared_tree = tree.projects.iter().find(|p| p.name == "Shared").unwrap();
+    let deps = shared_tree.dependencies.as_ref().unwrap();
+    assert!(deps.restored);
+    assert_eq!(deps.packages[0].id, "Eludite.Corpus.Logging");
+    let app_tree = tree.projects.iter().find(|p| p.name == "App").unwrap();
+    let app_deps = app_tree.dependencies.as_ref().unwrap();
+    assert_eq!(app_deps.projects[0].name, "Shared");
+    assert_eq!(app_deps.frameworks[0].name, "Microsoft.NETCore.App");
+
+    assert_eq!(client.shutdown(T).unwrap(), Some(0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
