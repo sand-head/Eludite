@@ -10,7 +10,11 @@
 //! window (the engine lingers) and the workspace (the engine closes); and the engine-missing message. Brief 0039: the
 //! engine's sandbox refusal opens the opt-in dialog once per workspace; declining leaves the engine off with the
 //! message; accepting stores `browser.allowNoSandbox`, starts the engine with the opt-in, audits the start and shows
-//! the strip; the setting off again starts the next engine without it; nothing is searched for at startup.
+//! the strip; the setting off again starts the next engine without it; nothing is searched for at startup. Brief 0047:
+//! Accept writes the person's state for the workspace (mode 0600), never the workspace's `.eludite/settings.json`; a
+//! `true` in that file is ignored, with the warning in the window and the Output window, and the dialog still comes;
+//! a stored answer from an earlier session starts the engine with no dialog; the audit entry and `tabs` name what
+//! allowed the start (`dialog`, `options`, `variable`); `ELUDITE_CHROME_NO_SANDBOX=1` still works.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -179,10 +183,18 @@ impl Engine for FakeEmbedded {
         self.seen.launches.fetch_add(1, Ordering::SeqCst);
         self.seen
             .tell(WindowEvent::Started(Arc::new(Driver(self.seen.clone()))));
-        Ok(Some(LaunchInfo::default()))
+        Ok(self.info())
     }
     fn info(&self) -> Option<LaunchInfo> {
-        self.running.then(LaunchInfo::default)
+        // As `engine/ready` says it (brief 0039): `none` when it runs without the sandbox.
+        self.running.then(|| LaunchInfo {
+            sandbox: self
+                .seen
+                .unsandboxed
+                .load(Ordering::SeqCst)
+                .then(|| "none".to_owned()),
+            ..LaunchInfo::default()
+        })
     }
     fn targets(&self) -> Result<Vec<TargetInfo>, EngineError> {
         if !self.running {
@@ -850,18 +862,47 @@ fn without_the_embedded_engine_the_window_says_what_to_run(cx: &mut gpui::TestAp
 
 /// The workspace's `browser.allowNoSandbox`: its value and where it came from.
 fn allow_setting(w: &Ws) -> (Value, String) {
-    let out = w
-        .commands
-        .invoke(
-            eludite_commands::settings::GET,
-            json!({"key": "browser.allowNoSandbox"}),
-        )
-        .unwrap();
+    let out = settings_get(w);
     let row = &out["settings"][0];
     (
         row["value"].clone(),
         row["source"].as_str().unwrap_or_default().to_owned(),
     )
+}
+
+/// `eludite.settings.get` of `browser.allowNoSandbox`.
+fn settings_get(w: &Ws) -> Value {
+    w.commands
+        .invoke(
+            eludite_commands::settings::GET,
+            json!({"key": "browser.allowNoSandbox"}),
+        )
+        .unwrap()
+}
+
+/// The person's state file for the open workspace (brief 0047), as `eludite.settings.get` names it.
+fn state_file(w: &mut Ws) -> std::path::PathBuf {
+    w.wait("the workspace's state", |w| {
+        settings_get(w)["user_workspace_file"]["path"].is_string()
+    });
+    let out = settings_get(w);
+    std::path::PathBuf::from(out["user_workspace_file"]["path"].as_str().unwrap())
+}
+
+/// The audit entries of engine starts without the sandbox.
+fn engine_starts(w: &Ws) -> Vec<Value> {
+    w.commands
+        .audit_log()
+        .entries()
+        .into_iter()
+        .filter(|e| e.command == super::browser_window::ENGINE_START)
+        .filter_map(|e| e.arguments)
+        .collect()
+}
+
+/// `eludite.browser.tabs`' engine row, as an agent reads it.
+fn tabs_engine(w: &Ws) -> Value {
+    w.agent_call(cmds::TABS, json!({})).unwrap()["engine"].clone()
 }
 
 /// Brief 0039: the engine and CEF are searched for on first use, never at startup.
@@ -949,9 +990,11 @@ fn a_refused_sandbox_offers_the_opt_in_once_and_declining_leaves_the_engine_off(
     assert_eq!(seen.launches.load(Ordering::SeqCst), 0);
 }
 
-/// Brief 0039: Space checks "Run without the sandbox for this workspace" and Enter is OK: the setting is stored in the
-/// workspace's file, the engine starts again with the opt-in, the start is audited with `sandbox: none` and the strip
-/// shows; turning the setting off again starts the next engine without the opt-in, which is refused again.
+/// Brief 0039: Space checks "Run without the sandbox for this workspace" and Enter is OK: the setting is stored, the
+/// engine starts again with the opt-in, the start is audited with `sandbox: none` and the strip shows; turning the
+/// setting off again starts the next engine without the opt-in, which is refused again. Brief 0047: stored in the
+/// person's state for the workspace (mode 0600), never the workspace's `.eludite/settings.json`; `settings.get` names
+/// the source `user-workspace`; the audit entry and `tabs` say `allowed_by: dialog`.
 #[gpui::test]
 fn taking_the_opt_in_stores_it_restarts_audits_and_shows_the_strip(cx: &mut gpui::TestAppContext) {
     let (mut w, seen) = setup_window(cx);
@@ -975,34 +1018,52 @@ fn taking_the_opt_in_stores_it_restarts_audits_and_shows_the_strip(cx: &mut gpui
     assert_eq!(*seen.attempts.lock().unwrap(), [false, true]);
     assert_eq!(seen.launches.load(Ordering::SeqCst), 1);
     assert!(w.vcx.debug_bounds("web-browser-sandbox-strip").is_some());
-    // Stored in the workspace's settings, as the person's audited command.
+    // Stored in the person's state for the workspace, as the person's audited command; the workspace's file is not
+    // written.
     w.wait("the setting stored", |w| {
-        allow_setting(w) == (json!(true), "solution".to_owned())
+        allow_setting(w) == (json!(true), "user-workspace".to_owned())
     });
-    let file = std::fs::read_to_string(w.path(".eludite/settings.json")).unwrap();
-    assert!(file.contains("\"browser.allowNoSandbox\": true"), "{file}");
+    let state = state_file(&mut w);
+    assert!(
+        state.starts_with(w.path("user-config/workspaces")),
+        "{}",
+        state.display()
+    );
+    w.wait("the state file written", |_| {
+        std::fs::read_to_string(&state)
+            .is_ok_and(|t| t.contains("\"browser.allowNoSandbox\": true"))
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&state).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the state file is the person's alone");
+    }
+    assert!(
+        !w.path(".eludite/settings.json").exists(),
+        "the workspace's file is never written"
+    );
     assert!(
         w.audit()
             .iter()
             .any(|c| c == eludite_commands::settings::SET)
     );
-    let starts: Vec<Value> = w
-        .commands
-        .audit_log()
-        .entries()
-        .into_iter()
-        .filter(|e| e.command == super::browser_window::ENGINE_START)
-        .filter_map(|e| e.arguments)
-        .collect();
     assert_eq!(
-        starts,
-        [json!({"sandbox": "none", "allowed_by": "browser.allowNoSandbox"})]
+        engine_starts(&w),
+        [json!({"sandbox": "none", "allowed_by": "dialog"})]
+    );
+    let engine = tabs_engine(&w);
+    assert_eq!(
+        (&engine["sandbox"], &engine["allowed_by"]),
+        (&json!("none"), &json!("dialog")),
+        "{engine}"
     );
 
-    // The setting off again (as Tools > Options would write it): the next start carries no opt-in.
+    // The setting off again (as Tools > Options writes it, in the person's state by default): the next start
+    // carries no opt-in.
     w.agent_invoke(
         eludite_commands::settings::SET,
-        json!({"key": "browser.allowNoSandbox", "value": false, "scope": "solution"}),
+        json!({"key": "browser.allowNoSandbox", "value": false}),
     )
     .unwrap();
     w.wait("the setting applied", |w| {
@@ -1021,4 +1082,155 @@ fn taking_the_opt_in_stores_it_restarts_audits_and_shows_the_strip(cx: &mut gpui
     });
     assert_eq!(*seen.attempts.lock().unwrap(), [false, true, false]);
     assert_eq!(seen.launches.load(Ordering::SeqCst), 1, "refused again");
+}
+
+/// Brief 0047: a `true` in the workspace's `.eludite/settings.json` (a cloned repository's) is ignored: the engine
+/// starts without the opt-in and is refused, the dialog still comes, the window and the Output window warn, and
+/// `settings.get` reports the key ignored with the default as the value. Accept then writes the person's state, not
+/// the workspace's file, and the warning stays while that file carries the key; removing it there clears it.
+#[gpui::test]
+fn a_workspace_file_carrying_the_opt_in_is_ignored_with_a_warning_and_the_dialog_still_appears(
+    cx: &mut gpui::TestAppContext,
+) {
+    let (mut w, seen) = setup_window(cx);
+    w.shell
+        .read_with(&w.vcx, |s, _| s.browser().set_no_sandbox_env(false));
+    let workspace_file = w.path(".eludite/settings.json");
+    std::fs::create_dir_all(workspace_file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &workspace_file,
+        r#"{"browser.allowNoSandbox": true, "browser.homePage": "about:blank"}"#,
+    )
+    .unwrap();
+    w.open_solution();
+    w.wait("the warning", |w| w.browser_window(|b| b.opt_in_ignored()));
+    let out = settings_get(&w);
+    assert_eq!(out["ignored_keys"], json!(["browser.allowNoSandbox"]));
+    assert_eq!(allow_setting(&w), (json!(false), "default".to_owned()));
+    assert!(
+        !w.shell
+            .read_with(&w.vcx, |s, _| s.browser().settings().allow_no_sandbox)
+    );
+    assert!(
+        browser_output(&w).contains(super::browser_window::OPT_IN_IGNORED),
+        "{}",
+        browser_output(&w)
+    );
+    assert_eq!(
+        super::browser_window::OPT_IN_IGNORED,
+        "browser.allowNoSandbox in .eludite/settings.json is ignored: the sandbox opt-in is per person"
+    );
+
+    // The engine starts without the opt-in, is refused, and the dialog comes; the warning shows in the window.
+    seen.refuse_sandbox.store(true, Ordering::SeqCst);
+    w.open_web_browser();
+    w.wait("the sandbox dialog", |w| {
+        w.browser_window(|b| b.sandbox_prompt().is_some())
+    });
+    assert_eq!(*seen.attempts.lock().unwrap(), [false]);
+    assert!(w.vcx.debug_bounds("web-browser-opt-in-ignored").is_some());
+
+    // Accept: the person's state, not the workspace's file.
+    w.vcx.simulate_keystrokes("space enter");
+    w.wait("the engine started without the sandbox", |w| {
+        w.browser_window(|b| b.running_without_sandbox())
+    });
+    w.wait("the setting stored", |w| {
+        allow_setting(w) == (json!(true), "user-workspace".to_owned())
+    });
+    let state = state_file(&mut w);
+    w.wait("the state file written", |_| state.exists());
+    let workspace_text = std::fs::read_to_string(&workspace_file).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&workspace_text).unwrap(),
+        json!({"browser.allowNoSandbox": true, "browser.homePage": "about:blank"}),
+        "the workspace's file is untouched"
+    );
+    assert!(
+        w.browser_window(|b| b.opt_in_ignored()),
+        "the warning stays while the file carries the key"
+    );
+    assert_eq!(
+        engine_starts(&w),
+        [json!({"sandbox": "none", "allowed_by": "dialog"})]
+    );
+
+    // Removing the key from the workspace's file (null, the one write allowed there) clears the warning.
+    w.agent_invoke(
+        eludite_commands::settings::SET,
+        json!({"key": "browser.allowNoSandbox", "value": null, "scope": "solution"}),
+    )
+    .unwrap();
+    w.wait("the warning gone", |w| {
+        !w.browser_window(|b| b.opt_in_ignored())
+    });
+    assert!(w.vcx.debug_bounds("web-browser-opt-in-ignored").is_none());
+    assert!(settings_get(&w).get("ignored_keys").is_none());
+    // A value there is refused, as it would be ignored.
+    assert!(
+        w.agent_invoke(
+            eludite_commands::settings::SET,
+            json!({"key": "browser.allowNoSandbox", "value": true, "scope": "solution"}),
+        )
+        .is_err()
+    );
+}
+
+/// Brief 0047: the person's stored answer (their state for the workspace, from an earlier session) starts the engine
+/// without the sandbox and with no dialog; the audit entry and `tabs` say `allowed_by: options`.
+#[gpui::test]
+fn a_stored_answer_starts_the_engine_without_a_dialog_and_the_audit_names_options(
+    cx: &mut gpui::TestAppContext,
+) {
+    let (mut w, seen) = setup_window(cx);
+    w.shell
+        .read_with(&w.vcx, |s, _| s.browser().set_no_sandbox_env(false));
+    w.open_solution();
+    let state = state_file(&mut w);
+    std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+    std::fs::write(&state, r#"{"browser.allowNoSandbox": true}"#).unwrap();
+    w.wait("the stored answer read", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.browser().settings().allow_no_sandbox)
+    });
+    assert_eq!(
+        allow_setting(&w),
+        (json!(true), "user-workspace".to_owned())
+    );
+    seen.refuse_sandbox.store(true, Ordering::SeqCst);
+    w.open_web_browser();
+    w.wait("the engine started without the sandbox", |w| {
+        w.browser_window(|b| b.running_without_sandbox()) && w.strip().len() == 1
+    });
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_none()));
+    assert_eq!(*seen.attempts.lock().unwrap(), [true]);
+    assert_eq!(
+        engine_starts(&w),
+        [json!({"sandbox": "none", "allowed_by": "options"})]
+    );
+    assert_eq!(tabs_engine(&w)["allowed_by"], "options");
+}
+
+/// Brief 0047: `ELUDITE_CHROME_NO_SANDBOX=1` still lets the engine run without the sandbox, with no dialog and nothing
+/// stored; the audit entry and `tabs` say `allowed_by: variable`.
+#[gpui::test]
+fn the_variable_still_allows_it_and_the_audit_names_it(cx: &mut gpui::TestAppContext) {
+    let (mut w, seen) = setup_window(cx);
+    w.shell
+        .read_with(&w.vcx, |s, _| s.browser().set_no_sandbox_env(true));
+    w.open_solution();
+    seen.refuse_sandbox.store(true, Ordering::SeqCst);
+    w.open_web_browser();
+    w.wait("the engine started without the sandbox", |w| {
+        w.browser_window(|b| b.running_without_sandbox()) && w.strip().len() == 1
+    });
+    assert!(w.browser_window(|b| b.sandbox_prompt().is_none()));
+    assert_eq!(*seen.attempts.lock().unwrap(), [true]);
+    assert_eq!(
+        engine_starts(&w),
+        [json!({"sandbox": "none", "allowed_by": "variable"})]
+    );
+    assert_eq!(tabs_engine(&w)["allowed_by"], "variable");
+    assert_eq!(allow_setting(&w), (json!(false), "default".to_owned()));
+    assert!(!state_file(&mut w).exists());
 }

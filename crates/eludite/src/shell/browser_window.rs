@@ -22,10 +22,12 @@
 //! - **The sandbox** (brief 0039). When the engine refuses to start without Chromium's sandbox, the window shows a
 //!   Visual Studio-style dialog, "Chromium's sandbox cannot start on this machine", with the two remedies and a "Run
 //!   without the sandbox for this workspace" check box, once per workspace. OK with the box checked stores
-//!   `browser.allowNoSandbox: true` in the workspace's settings and opens the tab again (the engine starts with
-//!   `--allow-no-sandbox`); otherwise the engine stays off and the window shows the message. While the engine runs
-//!   without the sandbox, a strip reads "Browser running without Chromium's sandbox", and the start is audited
-//!   (`eludite.browser.engine_start`, `sandbox: none`).
+//!   `browser.allowNoSandbox: true` in the person's state for the workspace (never the workspace's
+//!   `.eludite/settings.json`, brief 0047) and opens the tab again (the engine starts with `--allow-no-sandbox`);
+//!   otherwise the engine stays off and the window shows the message. While the engine runs without the sandbox, a
+//!   strip reads "Browser running without Chromium's sandbox", and the start is audited
+//!   (`eludite.browser.engine_start`, `sandbox: none`, `allowed_by`: `dialog`, `options` or `variable`). While the
+//!   workspace's file carries the key, which is ignored, a strip says so ([`OPT_IN_IGNORED`]).
 //! - Closing the window keeps the engine for a minute ([`super::browser::LINGER`]); the shell closes the engine with
 //!   the workspace.
 //! - **Tabs of debugging sessions** (brief 0037). F5 on a web project opens its page here as a tab of the session
@@ -173,6 +175,11 @@ pub const SANDBOX_TITLE: &str = "Chromium's sandbox cannot start on this machine
 /// The strip shown while the engine runs without the sandbox (brief 0039).
 pub const NO_SANDBOX_STRIP: &str = "Browser running without Chromium's sandbox";
 
+/// The warning while the workspace's `.eludite/settings.json` carries the opt-in, which is ignored (brief 0047); the
+/// Output window's Browser pane gets the same line.
+pub const OPT_IN_IGNORED: &str =
+    "browser.allowNoSandbox in .eludite/settings.json is ignored: the sandbox opt-in is per person";
+
 /// The dialog the engine's sandbox refusal opens (brief 0039).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SandboxPrompt {
@@ -250,6 +257,8 @@ pub struct BrowserWindow {
     sandbox_focus: FocusHandle,
     /// The workspaces whose person declined the opt-in this session: the dialog is offered once per workspace.
     sandbox_declined: Vec<Option<std::path::PathBuf>>,
+    /// The workspace's file carries the opt-in, which is ignored: the warning strip shows (brief 0047).
+    opt_in_ignored: bool,
     focus: FocusHandle,
     /// Window open to its first page pixel (the budget), and whether the engine was running then.
     opened_at: Option<(Instant, bool)>,
@@ -352,6 +361,7 @@ impl BrowserWindow {
             sandbox_prompt: None,
             sandbox_focus: cx.focus_handle(),
             sandbox_declined: Vec::new(),
+            opt_in_ignored: false,
             focus: cx.focus_handle(),
             opened_at: None,
             first_pixel: None,
@@ -445,6 +455,20 @@ impl BrowserWindow {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn sandbox_prompt(&self) -> Option<&SandboxPrompt> {
         self.sandbox_prompt.as_ref()
+    }
+
+    /// The workspace's `.eludite/settings.json` carries the opt-in, which is ignored (brief 0047): the warning shows.
+    pub fn set_opt_in_ignored(&mut self, ignored: bool, cx: &mut Context<Self>) {
+        if self.opt_in_ignored != ignored {
+            self.opt_in_ignored = ignored;
+            cx.notify();
+        }
+    }
+
+    /// The warning about the workspace's ignored opt-in, while it shows (brief 0047).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn opt_in_ignored(&self) -> bool {
+        self.opt_in_ignored
     }
 
     /// The engine runs without the sandbox: the strip shows (brief 0039).
@@ -730,12 +754,13 @@ impl BrowserWindow {
         cx.notify();
     }
 
-    /// The engine runs without the sandbox: the audit log says so, with what allowed it (brief 0039).
+    /// The engine runs without the sandbox: the audit log says so, with what allowed it (brief 0039): `dialog`,
+    /// `options` or `variable`, as the worker recorded it before the launch (brief 0047).
     fn audit_no_sandbox(&self) {
         let allowed_by = self
             .bus
-            .allows_no_sandbox()
-            .unwrap_or("browser.allowNoSandbox");
+            .launch_allowed_by()
+            .unwrap_or(super::browser::ALLOWED_BY_OPTIONS);
         self.commands.audit_log().record_call(
             ENGINE_START,
             None,
@@ -786,10 +811,11 @@ impl BrowserWindow {
         if self.tabs.is_empty() && self.in_flight == 0 {
             self.new_tab(cx);
         }
+        // The person's answer, in their own state for the workspace (brief 0047), never the workspace's file.
         if self.bus.workspace().is_some() {
             self.run(
                 eludite_commands::settings::SET,
-                json!({"key": "browser.allowNoSandbox", "value": true, "scope": "solution"}),
+                json!({"key": "browser.allowNoSandbox", "value": true, "scope": "user-workspace"}),
                 cx,
             );
         }
@@ -1721,6 +1747,32 @@ impl BrowserWindow {
         )
     }
 
+    /// The workspace's file carries the opt-in, which is ignored (brief 0047).
+    fn render_opt_in_ignored(&self) -> Option<AnyElement> {
+        if !self.opt_in_ignored {
+            return None;
+        }
+        let t = self.theme;
+        Some(
+            div()
+                .id("web-browser-opt-in-ignored")
+                .debug_selector(|| "web-browser-opt-in-ignored".into())
+                .flex()
+                .flex_row()
+                .flex_none()
+                .items_center()
+                .gap_2()
+                .h(px(28.))
+                .px_2()
+                .bg(rgb(0xFFF29D))
+                .text_color(rgb(0x1E1E1E))
+                .text_size(t.typography.ui)
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("\u{26A0}"))
+                .child(div().flex_1().child(OPT_IN_IGNORED))
+                .into_any_element(),
+        )
+    }
+
     fn render_sandbox_prompt(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = self.sandbox_prompt.clone()?;
         let t = self.theme;
@@ -2113,6 +2165,7 @@ impl Render for BrowserWindow {
         let toolbar = self.render_toolbar(window, cx);
         let agent = self.render_agent_strip(cx);
         let sandbox_strip = self.render_sandbox_strip();
+        let opt_in_ignored = self.render_opt_in_ignored();
         let content = self.render_content(cx);
         let prompt = self.render_prompt(window, cx);
         let sandbox_prompt = self.render_sandbox_prompt(cx);
@@ -2167,6 +2220,7 @@ impl Render for BrowserWindow {
             .child(toolbar)
             .children(agent)
             .children(sandbox_strip)
+            .children(opt_in_ignored)
             .child(div().flex_1().min_h_0().child(content))
             .child(
                 div()

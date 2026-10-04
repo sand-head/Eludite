@@ -4,7 +4,9 @@
 //! button per choice for an enum, a text box for text, a text box with Browse... for a path, and a count for the
 //! agent list (edited in the file). Every change runs `eludite.settings.set` through the bus, as an agent's would,
 //! and applies at once; OK (or Escape) closes the dialog. The values come from `eludite.settings.get`'s rows, so the
-//! dialog shows where each value comes from (the solution's file, an environment variable that overrides it).
+//! dialog shows where each value comes from (the solution's file, an environment variable that overrides it, the
+//! person's state for the workspace) and when the solution's file sets a per-person setting, which is ignored there
+//! (brief 0047's `browser.allowNoSandbox`, whose label says "for this workspace, on this machine").
 
 use std::sync::Arc;
 
@@ -64,6 +66,8 @@ pub struct OptionsDialog {
     editing: Option<(String, String)>,
     user_file: String,
     solution_file: Option<String>,
+    /// Per-person keys the solution's file sets, ignored there (brief 0047).
+    ignored: Vec<String>,
     focus: FocusHandle,
     /// Records where the pages, editors and OK are drawn (`eludite --bounds-out`).
     probe: Option<eludite_ui::BoundsMap>,
@@ -87,6 +91,7 @@ impl OptionsDialog {
             editing: None,
             user_file: String::new(),
             solution_file: None,
+            ignored: Vec::new(),
             focus: cx.focus_handle(),
             probe: None,
         }
@@ -105,6 +110,7 @@ impl OptionsDialog {
         self.rows = out.settings;
         self.user_file = out.user_file.path;
         self.solution_file = out.solution_file.map(|f| f.path);
+        self.ignored = out.ignored_keys;
         cx.notify();
     }
 
@@ -185,8 +191,28 @@ impl OptionsDialog {
                 row.env.as_deref().unwrap_or("an environment variable")
             )),
             SettingSource::Solution => Some("Set in the solution's .eludite/settings.json.".into()),
+            SettingSource::UserWorkspace => Some(
+                "Your answer for this workspace, on this machine (kept in Eludite's state for the workspace, never \
+                 in .eludite/settings.json)."
+                    .into(),
+            ),
             SettingSource::User | SettingSource::Default => None,
         }
+    }
+
+    /// The notes under setting `key`: where its value comes from, and that the solution's file sets it in vain.
+    pub fn notes(&self, key: &str) -> Vec<String> {
+        let mut notes: Vec<String> = self
+            .row(key)
+            .and_then(Self::source_note)
+            .into_iter()
+            .collect();
+        if self.ignored.iter().any(|k| k == key) {
+            notes.push(format!(
+                "{key} in .eludite/settings.json is ignored: this setting is per person, so only your answer here counts."
+            ));
+        }
+        notes
     }
 
     fn setting_row(
@@ -320,7 +346,7 @@ impl OptionsDialog {
                     .into_any_element()
             }
         };
-        let note = row.and_then(Self::source_note);
+        let notes = self.notes(&spec.key);
         div()
             .flex()
             .flex_col()
@@ -334,7 +360,7 @@ impl OptionsDialog {
                     .text_color(t.text_muted)
                     .child(spec.description.clone()),
             )
-            .children(note.map(|n| {
+            .children(notes.into_iter().map(|n| {
                 div()
                     .text_size(t.typography.small)
                     .text_color(t.accent)

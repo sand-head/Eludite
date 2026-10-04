@@ -15,10 +15,12 @@
 //!   ends the agent's `wait` (`interrupted_by: "user"`) through the shared [`Interrupt`] and marks the agent stale:
 //!   its next action command is refused until it reads `eludite.browser.tabs` again.
 //! - **The sandbox** (brief 0039). The embedded engine decides how Chromium's sandbox runs and refuses where it cannot
-//!   start; its refusal reaches the window as [`WindowEvent::SandboxRefused`], whose dialog offers the workspace's
-//!   opt-in once. The next launch passes `--allow-no-sandbox` only for that opt-in (the setting
-//!   `browser.allowNoSandbox`, or [`BrowserBus::opt_in_no_sandbox`] until the setting applies) or
-//!   `ELUDITE_CHROME_NO_SANDBOX=1`; turning the setting off again removes it at the next start.
+//!   start; its refusal reaches the window as [`WindowEvent::SandboxRefused`], whose dialog offers the person's
+//!   opt-in for the workspace once. The next launch passes `--allow-no-sandbox` only for that opt-in (the setting
+//!   `browser.allowNoSandbox`, read from the person's state for the workspace and never from the workspace's
+//!   `.eludite/settings.json` (brief 0047), or [`BrowserBus::opt_in_no_sandbox`] until the setting applies) or
+//!   `ELUDITE_CHROME_NO_SANDBOX=1`; turning the setting off again removes it at the next start. What allowed it
+//!   (`dialog`, `options`, `variable`) is in `tabs`' `engine.allowed_by` and the audit entry.
 //! - **Discovery on first use** (brief 0039). The engine and CEF are searched for ([`ChromiumSearch`], with the
 //!   setting `browser.enginePath`) the first time the window opens or a command needs the engine, never at startup.
 //! - **Lifetime with the window.** Closing the Web Browser window keeps the engine for [`LINGER`] (a reopen is
@@ -62,6 +64,12 @@ use super::Shell;
 
 /// The worker thread's name.
 pub const THREAD: &str = "browser";
+/// What let the engine run without the sandbox (brief 0047, `tabs`' `engine.allowed_by` and the audit entry): the
+/// Web Browser window's dialog this session, the person's stored answer (Tools > Options, `eludite.settings.set`, or
+/// the dialog in an earlier session), or `ELUDITE_CHROME_NO_SANDBOX=1`.
+pub const ALLOWED_BY_DIALOG: &str = "dialog";
+pub const ALLOWED_BY_OPTIONS: &str = "options";
+pub const ALLOWED_BY_VARIABLE: &str = "variable";
 /// The longest a caller waits for the worker: above every command's own bound (`navigate` waits up to 120 s).
 const REPLY_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long shell exit waits for the browser to close.
@@ -86,8 +94,11 @@ pub struct BrowserSettings {
     pub show_devtools_tab: bool,
     /// `browser.enginePath` (brief 0039).
     pub engine_path: Option<PathBuf>,
-    /// `browser.allowNoSandbox`, the workspace's opt-in (brief 0039).
+    /// `browser.allowNoSandbox`, the person's opt-in for the workspace (brief 0039; read from their state for the
+    /// workspace only, brief 0047).
     pub allow_no_sandbox: bool,
+    /// The workspace's `.eludite/settings.json` carries `browser.allowNoSandbox`, which is ignored (brief 0047).
+    pub opt_in_ignored: bool,
 }
 
 impl Default for BrowserSettings {
@@ -101,6 +112,7 @@ impl Default for BrowserSettings {
             show_devtools_tab: false,
             engine_path: None,
             allow_no_sandbox: false,
+            opt_in_ignored: false,
         }
     }
 }
@@ -239,6 +251,9 @@ struct Inner {
     opted_in: Mutex<Option<Option<PathBuf>>>,
     /// `ELUDITE_CHROME_NO_SANDBOX=1` in the shell's environment (read once; tests replace it).
     no_sandbox_env: AtomicBool,
+    /// What allowed the engine's launch to drop the sandbox (brief 0047): set by the worker before each command that
+    /// may launch it, so it holds the launch's answer when the window hears of the start.
+    launch_allowed_by: Mutex<Option<&'static str>>,
     /// Where the window's events go, and the receiver until the window takes it.
     window: futures::channel::mpsc::UnboundedSender<WindowEvent>,
     window_rx: Mutex<Option<UnboundedReceiver<WindowEvent>>>,
@@ -312,17 +327,18 @@ impl Inner {
         search
     }
 
-    /// What lets the next launch drop the sandbox where it cannot start, if anything (brief 0039).
+    /// What lets the next launch drop the sandbox where it cannot start, if anything (brief 0039), as `tabs`'
+    /// `engine.allowed_by` names it (brief 0047): `variable` (`ELUDITE_CHROME_NO_SANDBOX=1`), `dialog` (the window's
+    /// opt-in taken this session for this workspace) or `options` (the person's stored answer, `browser.allowNoSandbox`).
     fn allows_no_sandbox(&self) -> Option<&'static str> {
         if self.no_sandbox_env.load(Ordering::SeqCst) {
-            return Some(eludite_browser::chrome::NO_SANDBOX_ENV);
+            return Some(ALLOWED_BY_VARIABLE);
         }
-        if lock(&self.settings).allow_no_sandbox
-            || lock(&self.opted_in).as_ref() == Some(&*lock(&self.workspace))
-        {
-            return Some("browser.allowNoSandbox");
+        let allow_setting = lock(&self.settings).allow_no_sandbox;
+        if lock(&self.opted_in).as_ref() == Some(&*lock(&self.workspace)) {
+            return Some(ALLOWED_BY_DIALOG);
         }
-        None
+        allow_setting.then_some(ALLOWED_BY_OPTIONS)
     }
 
     /// The engine of `status`, telling the window what the embedded one says.
@@ -427,6 +443,11 @@ impl Inner {
                         config = now;
                     }
                     browser.set_opener(lock(&self.opener).clone());
+                    if !browser.is_running() {
+                        // This command may launch the engine with `config`: remember what allowed it.
+                        let allowed = self.allows_no_sandbox();
+                        *lock(&self.launch_allowed_by) = allowed;
+                    }
                     // A session's page opens without taking the keys (brief 0038); anyone else's command may.
                     self.quiet
                         .store(matches!(*caller, Caller::Session { .. }), Ordering::SeqCst);
@@ -506,6 +527,10 @@ impl Inner {
                 sessions.remove(&o.closed);
             }
             (Ok(BrowserOutput::Tabs(o)), _) => {
+                // Brief 0047: what let the engine run without the sandbox.
+                if o.engine.sandbox.as_deref() == Some("none") {
+                    o.engine.allowed_by = lock(&self.launch_allowed_by).map(str::to_owned);
+                }
                 sessions.retain(|id, _| o.tabs.iter().any(|t| t.id == *id));
                 for t in &mut o.tabs {
                     t.session = sessions.get(&t.id).cloned();
@@ -655,9 +680,10 @@ impl BrowserBus {
         self.inner.no_sandbox_env.store(on, Ordering::SeqCst);
     }
 
-    /// What lets the next launch run without the sandbox: `browser.allowNoSandbox` or `ELUDITE_CHROME_NO_SANDBOX`.
-    pub fn allows_no_sandbox(&self) -> Option<&'static str> {
-        self.inner.allows_no_sandbox()
+    /// What allowed the running engine's launch to drop the sandbox (`dialog`, `options` or `variable`), as the
+    /// worker recorded it before the launch (brief 0047).
+    pub fn launch_allowed_by(&self) -> Option<&'static str> {
+        *lock(&self.inner.launch_allowed_by)
     }
 
     /// The workspace folder whose profile and settings the browser uses.
@@ -862,6 +888,7 @@ pub fn register(commands: &CommandRegistry) -> (BrowserBus, UnboundedReceiver<St
             search: Mutex::new(None),
             opted_in: Mutex::new(None),
             no_sandbox_env: AtomicBool::new(eludite_browser::chrome::no_sandbox_from_env()),
+            launch_allowed_by: Mutex::new(None),
             window,
             window_rx: Mutex::new(Some(window_rx)),
             interrupt: Arc::default(),
