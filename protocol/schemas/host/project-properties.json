@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-properties.json",
+  "title": "eludite/project/properties",
+  "description": "The project property pages' catalog with its values (brief 0049; host-rpc.md, \"Project properties\"): every catalog property's evaluated and raw value in one configuration, platform and framework, the file and element that define it, and the `conditioned` and `inherited` flags. The host evaluates the project with its own in-process MSBuild (a second evaluation with `Configuration`, `Platform` and `TargetFramework` as global properties), off the request thread, and keeps the answer per generation, configuration, platform and framework, so asking again is free until an edit or a reload moves the generation.",
+  "x-eludite-method": "eludite/project/properties",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "A project configuration (`Debug`, `Release`, or the project's own from its `Configurations` property). Omitted: the project configuration the active solution configuration maps it to (eludite/solution/setConfiguration's `select`), else `Debug`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "A project platform as MSBuild names it (`AnyCPU`, `x64`, `x86`, `ARM64`). The solution's `Any CPU` is accepted and read as `AnyCPU`. Omitted: the platform the active selection maps it to, else the project's first `Platforms` entry (`AnyCPU`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "description": "A target framework of a multi-targeted project (`net8.0`): the evaluation sets `TargetFramework` to it, as an inner build does. Omitted: the outer evaluation (the project's `TargetFrameworks`).",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "kind",
+        "configuration",
+        "platform",
+        "configurations",
+        "platforms",
+        "frameworks",
+        "pages",
+        "properties"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the values were evaluated under; an edit must carry it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "sdk, or legacy (non-SDK: every property is read-only, with a note).",
+          "enum": [
+            "sdk",
+            "legacy"
+          ]
+        },
+        "configuration": {
+          "description": "The configuration evaluated.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The platform evaluated (`AnyCPU`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "description": "The framework evaluated, when one was asked for.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configurations": {
+          "description": "The project's configurations (its `Configurations` property; `Debug`, `Release` by default), for the Configuration list.",
+          "type": "array",
+          "items": {
+            "description": "A configuration.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "platforms": {
+          "description": "The project's platforms (its `Platforms` property; `AnyCPU` by default), for the Platform list.",
+          "type": "array",
+          "items": {
+            "description": "A platform.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "frameworks": {
+          "description": "The target frameworks (`TargetFrameworks`, else `TargetFramework`).",
+          "type": "array",
+          "items": {
+            "description": "A target framework moniker.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "pages": {
+          "description": "The pages, in Visual Studio's order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/page"
+          }
+        },
+        "properties": {
+          "description": "The catalog, in page order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          }
+        }
+      }
+    },
+    "page": {
+      "description": "One property page, in Visual Studio's order.",
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "enum": [
+            "application",
+            "build",
+            "package",
+            "debug",
+            "codeAnalysis",
+            "resources",
+            "settings",
+            "signing"
+          ]
+        },
+        "title": {
+          "description": "`Application`, `Build`, `Package`, `Debug`, `Code Analysis`, `Resources`, `Settings`, `Signing`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "description": "ready: the catalog's properties of this page are listed; launchProfiles: the Debug page, the launch profiles editor (eludite/project/launchProfiles); notYet: listed with `note` (Resources, Settings, Signing).",
+          "enum": [
+            "ready",
+            "launchProfiles",
+            "notYet"
+          ]
+        },
+        "note": {
+          "description": "Why a page is not there yet.",
+          "type": "string"
+        }
+      }
+    },
+    "property": {
+      "description": "One property of the catalog (host-rpc.md, \"Project properties\") with its value in the evaluated configuration and where that value comes from.",
+      "type": "object",
+      "required": [
+        "name",
+        "page",
+        "label",
+        "type",
+        "perConfiguration",
+        "value",
+        "source",
+        "conditioned",
+        "inherited"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The MSBuild property (`AssemblyName`, `DefineConstants`), or for the build events the property a legacy project uses (`PreBuildEvent`, `PostBuildEvent`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "page": {
+          "description": "The property page that shows it, as Visual Studio groups them.",
+          "enum": [
+            "application",
+            "build",
+            "package",
+            "debug",
+            "codeAnalysis",
+            "resources",
+            "settings",
+            "signing"
+          ]
+        },
+        "section": {
+          "description": "The group on the page (`General`, `Output`, `Events`, `Strong naming`, `Advanced`, `Win32 resources`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Visual Studio's label (`Assembly name`, `Treat warnings as errors`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "Visual Studio's help text, one sentence.",
+          "type": "string"
+        },
+        "type": {
+          "description": "How the page edits it: string (a text box), bool (a check box writing `trueValue` or `falseValue`), enum (a choice list of `values`), list (a text box of `;`-separated entries, written as one property), path (a text box with Browse...), multiline (a multi-line text box: the build events).",
+          "enum": [
+            "string",
+            "bool",
+            "enum",
+            "list",
+            "path",
+            "multiline"
+          ]
+        },
+        "values": {
+          "description": "An enum's choices, in Visual Studio's order.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "value",
+              "label"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "description": "The MSBuild value.",
+                "type": "string"
+              },
+              "label": {
+                "description": "What the list shows.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "trueValue": {
+          "description": "What a bool writes when checked (`true`; `enable` for ImplicitUsings).",
+          "type": "string"
+        },
+        "falseValue": {
+          "description": "What a bool writes when cleared (`false`; `disable` for ImplicitUsings).",
+          "type": "string"
+        },
+        "perConfiguration": {
+          "description": "True when Visual Studio edits it per configuration and platform: the page shows the Configuration and Platform lists, and a value entered for one configuration goes to that configuration's conditioned property group (the condition rule).",
+          "type": "boolean"
+        },
+        "target": {
+          "description": "SDK-style projects only: the build event is written as Visual Studio writes it, an `<Exec>` in this target (`PreBuild`, `BeforeTargets=\"PreBuildEvent\"`; `PostBuild`, `AfterTargets=\"PostBuildEvent\"`), not as the property.",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "The evaluated value in the requested configuration, platform and framework; empty when the property is not defined.",
+          "type": "string"
+        },
+        "raw": {
+          "description": "The unevaluated text of the element that defines it (`$(DefineConstants);TRACE`); absent when the value is the SDK's default.",
+          "type": "string"
+        },
+        "source": {
+          "description": "project: an unconditioned element of the project file; conditioned: an element of the project file under a condition that holds for this configuration; inherited: a file the project imports that is not the .NET SDK's (Directory.Build.props, Directory.Build.targets, an imported .props): editing it asks to override in the project (`inheritedFrom`); default: not defined by the project or an inherited file (the SDK's default, or nothing).",
+          "enum": [
+            "project",
+            "conditioned",
+            "inherited",
+            "default"
+          ]
+        },
+        "definedIn": {
+          "description": "The element that defines the value: its file, its 1-based line, and the condition on it or its property group, if any.",
+          "type": "object",
+          "required": [
+            "file",
+            "line"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "description": "Absolute path of the file.",
+              "type": "string",
+              "minLength": 1
+            },
+            "line": {
+              "description": "1-based line of the element.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "condition": {
+              "description": "The condition of the element, else of its property group.",
+              "type": "string"
+            }
+          }
+        },
+        "conditioned": {
+          "description": "The defining element (or its group) has a condition.",
+          "type": "boolean"
+        },
+        "inherited": {
+          "description": "The value comes from an imported file other than the SDK's (`source` inherited).",
+          "type": "boolean"
+        },
+        "inheritedFrom": {
+          "description": "The file the inherited value comes from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "conditions": {
+          "description": "The conditions of every element of the project file itself that defines this property under a configuration condition (any configuration, not only the evaluated one): All Configurations removes them after confirmation.",
+          "type": "array",
+          "items": {
+            "description": "A condition, as written.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "readOnly": {
+          "description": "The page shows it read-only: Win32 resources off Windows, every property of a legacy (non-SDK) project (out of scope, shown with a note).",
+          "type": "boolean"
+        },
+        "readOnlyReason": {
+          "description": "Why it is read-only.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

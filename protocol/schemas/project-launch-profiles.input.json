@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-launch-profiles.input.json",
+  "title": "eludite.project.launch_profiles input",
+  "description": "A project's launch profiles (`Properties/launchSettings.json`), as the Debug property page and the Debug toolbar's profile list show them, with the one F5 uses (`selected`; eludite.debug.start's `profile` overrides it).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder). Default: the project selected in the Workspace window, else the active document's project, else the startup project.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/project-set-property.json",
+  "title": "eludite/project/setProperty",
+  "description": "Edit catalog properties of one project file (brief 0049; host-rpc.md, \"Project properties\"): the Save of the property pages, one call per project file with every dirty property. The host edits the file with MSBuild's construction model (Microsoft.Build.Construction), preserving formatting: every byte outside the changed elements stays as it was (the encoding, the byte order mark and the line endings too). The condition rule: an unconditioned value goes to the first unconditioned property group (created if none), a conditioned one to the group with the matching condition (created after the last unconditioned group if none), and a value equal to the default removes the element. The inherited rule: a property whose value comes from an imported file such as Directory.Build.props is written only with `override`. When anything was written the host reloads the solution: the generation moves on (the result carries the new one), eludite/solution/status reports the load, and the tree, IntelliSense and the build see the change.",
+  "x-eludite-method": "eludite/project/setProperty",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "project",
+        "generation",
+        "edits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "description": "The generation the shell read the values under. A value that is not the current generation fails with -32801 (ContentModified) and writes nothing: the file may have changed since (another edit, a reload).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "edits": {
+          "description": "The edits, applied in order to one in-memory model and written once.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "$ref": "#/$defs/edit"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "project",
+        "written",
+        "results"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the edit: one more than the request's when the file was written (the host reloaded), else the same.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "project": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "written": {
+          "description": "True when the file changed on disk.",
+          "type": "boolean"
+        },
+        "results": {
+          "description": "One per edit, in order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/editResult"
+          }
+        }
+      }
+    },
+    "edit": {
+      "description": "One property edit.",
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "A catalog property (`name` of eludite/project/properties).",
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "description": "The new value as MSBuild text (a bool's `trueValue` or `falseValue`, a list `;`-separated). A value equal to the default (what the project evaluates to without its own element for this property and condition) removes the element instead; so does null.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "configuration": {
+          "description": "The configuration of the conditioned property group to write to. Omitted (with `platform` and `framework` omitted): the unconditioned value (the first unconditioned property group, created after the project's last import of the SDK's props when the project has none).",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "With `configuration`: the group's platform (Visual Studio's `'$(Configuration)|$(Platform)'=='Debug|AnyCPU'`). Alone: a platform condition.",
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "description": "A target framework condition (`'$(TargetFramework)'=='net8.0'`), combined with the others as Visual Studio writes it (`'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net8.0|AnyCPU'`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "allConfigurations": {
+          "description": "All Configurations: write the unconditioned value and remove this property's elements under configuration, platform or framework conditions (the shell asks first). Not with `configuration`, `platform` or `framework`.",
+          "type": "boolean"
+        },
+        "override": {
+          "description": "The value is inherited (Directory.Build.props): write it in the project anyway. Without it, an inherited property is not written and its result says `inherited`.",
+          "type": "boolean"
+        }
+      }
+    },
+    "editResult": {
+      "description": "What one edit did.",
+      "type": "object",
+      "required": [
+        "name",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The property.",
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "description": "written: one element was added or changed; removed: the value equalled the default (or was null) and the element was removed (an empty conditioned property group with it); unchanged: the file already said so; inherited: the property is inherited and `override` was not given, nothing was written.",
+          "enum": [
+            "written",
+            "removed",
+            "unchanged",
+            "inherited"
+          ]
+        },
+        "condition": {
+          "description": "The condition of the group written to; absent for the unconditioned group.",
+          "type": "string"
+        },
+        "line": {
+          "description": "1-based line of the element written.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "inheritedFrom": {
+          "description": "With `inherited`: the file that defines it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "removedConditions": {
+          "description": "With `allConfigurations`: the conditions whose elements were removed.",
+          "type": "array",
+          "items": {
+            "description": "A condition.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

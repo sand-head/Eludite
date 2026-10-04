@@ -74,7 +74,7 @@ mod tests;
 pub mod windows;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -2680,6 +2680,11 @@ impl Debugger {
             .as_ref()
             .map(|d| eludite_docking::LayoutStore::new(d.clone()).solution_path(solution))
     }
+
+    /// Where per-solution state is kept (brief 0049 keeps the configuration selection beside the breakpoints).
+    pub(super) fn store_dir(&self) -> Option<PathBuf> {
+        self.setup.store_dir.clone()
+    }
 }
 
 /// A project's name as the sessions show it: the project file without its extension, a Cargo package by its folder.
@@ -2734,16 +2739,65 @@ fn eval_failed(expression: &str, stop: u64, message: impl Into<String>) -> Evalu
     }
 }
 
+/// What the toolbar chose for a launch (brief 0049): the configuration per project (the solution configuration's
+/// mapping), the Target Framework list's framework, the Debug toolbar's launch profile, and `eludite.debug.start`'s
+/// own `framework`.
+#[derive(Debug, Clone, Default)]
+pub(super) struct LaunchChoice {
+    /// The solution configuration, for a project the mapping does not name.
+    pub configuration: String,
+    pub configurations: BTreeMap<String, String>,
+    pub frameworks: BTreeMap<String, String>,
+    pub profiles: BTreeMap<String, String>,
+    pub framework: Option<String>,
+}
+
+impl LaunchChoice {
+    fn lookup<'a>(map: &'a BTreeMap<String, String>, project: &Path) -> Option<&'a String> {
+        let wanted = normalize_path(project);
+        map.iter()
+            .find(|(k, _)| normalize_path(Path::new(k)) == wanted)
+            .map(|(_, v)| v)
+    }
+
+    /// The configuration, framework and default profile of `project`.
+    fn for_project(&self, project: &Path) -> (String, Option<String>, Option<String>) {
+        (
+            Self::lookup(&self.configurations, project)
+                .cloned()
+                .unwrap_or_else(|| self.configuration.clone()),
+            self.framework
+                .clone()
+                .or_else(|| Self::lookup(&self.frameworks, project).cloned()),
+            Self::lookup(&self.profiles, project).cloned(),
+        )
+    }
+}
+
 /// Resolve the project to run and its launch configuration (on the launch thread: it reads files).
-fn resolve_launch(
+pub(super) fn resolve_launch(
     hint: Option<&str>,
     profile: Option<&str>,
     projects: &[PathBuf],
     solution_dir: Option<&Path>,
     startup: Option<&Path>,
+    choice: &LaunchChoice,
 ) -> Result<launch::LaunchConfig, String> {
     let project = resolve_project(hint, projects, solution_dir, startup)?;
-    launch::launch_config(&project, profile)
+    let (configuration, framework, selected) = choice.for_project(&project);
+    // The Debug toolbar's profile, while the file still has it.
+    let selected = selected.filter(|s| {
+        project
+            .parent()
+            .and_then(|d| launch::read_launch_settings(d).ok())
+            .is_some_and(|ps| ps.iter().any(|p| &p.name == s))
+    });
+    launch::launch_config_in(
+        &project,
+        profile.or(selected.as_deref()),
+        &configuration,
+        framework.as_deref(),
+    )
 }
 
 /// The project file to run: the hint (a path or a project name), else the startup project (Set as Startup
@@ -2818,6 +2872,8 @@ struct LaunchJob {
     config: Option<launch::LaunchConfig>,
     /// A web project's page (brief 0037).
     browser: BrowserStep,
+    /// The configuration, framework and profile the toolbar chose (brief 0049).
+    choice: LaunchChoice,
     tx: UnboundedSender<DebugMsg>,
 }
 
@@ -2837,6 +2893,7 @@ fn launch_thread(job: LaunchJob) {
         native,
         config: test_config,
         browser,
+        choice,
         tx,
     } = job;
     let fail = |message: String| {
@@ -2882,6 +2939,7 @@ fn launch_thread(job: LaunchJob) {
             &projects,
             solution_dir.as_deref(),
             startup.as_deref(),
+            &choice,
         ) {
             Ok(c) => c,
             Err(e) => return fail(e),
@@ -4332,6 +4390,7 @@ impl Shell {
                 project,
                 debug,
                 profile,
+                framework,
                 build,
                 cargo,
                 compound,
@@ -4339,6 +4398,8 @@ impl Shell {
                 browsers,
                 ..
             } => {
+                // `framework` applies to the launch this start makes (brief 0049).
+                self.properties.start_framework = framework;
                 let plain = project.is_none() && compound.is_none();
                 let entries = self.start_entries(project, debug, profile, compound);
                 self.check_start(&entries, plain)?;
@@ -6066,6 +6127,7 @@ impl Shell {
     ) {
         let solution_dir = self.solution_dir();
         let cargo = self.cargo_context();
+        let choice = self.launch_choice();
         let d = &mut self.debug;
         if after_build {
             // The session began with the build: same generation, its console lines kept.
@@ -6158,6 +6220,7 @@ impl Shell {
                 let reuse = d.model.browser_reuse.clone();
                 d.browser_step(watch, reuse)
             },
+            choice,
             tx: d.tx.clone(),
         };
         std::thread::Builder::new()

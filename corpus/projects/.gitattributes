@@ -1,0 +1,5 @@
+# These files keep their CRLF line endings: the tests check that an edit keeps them.
+Tabs/Tabs.csproj -text
+Corpus.sln -text
+Legacy.sln -text
+Legacy/Legacy.csproj -text

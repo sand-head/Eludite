@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-configurations.json",
+  "title": "eludite/solution/configurations",
+  "description": "The open solution's configurations and platforms, each project's mapping (Configuration Manager's grid), and the active selection (brief 0049; host-rpc.md, \"Project properties\"). `.sln`: `SolutionConfigurationPlatforms` and `ProjectConfigurationPlatforms` (`ActiveCfg`, `Build.0`, `Deploy.0`). `.slnx`: `<Configurations>` (`BuildType`, `Platform`; `Debug`, `Release` and `Any CPU` when it lists none) and each project's `<BuildType>`, `<Platform>`, `<Build>` and `<Deploy>` rules (`Solution=\"Release|*\"`). A project file opened as the solution maps each of its configurations to itself.",
+  "x-eludite-method": "eludite/solution/configurations",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "description": "No params: omitted, null, or an empty object/array.",
+      "type": [
+        "object",
+        "array",
+        "null"
+      ],
+      "maxProperties": 0,
+      "maxItems": 0
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "configurations",
+        "platforms",
+        "active",
+        "projects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation (host-rpc.md, \"Solution generation\").",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "The solution file; null when none is open.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "format": {
+          "description": "Which file the mapping comes from.",
+          "enum": [
+            "sln",
+            "slnx",
+            "project"
+          ]
+        },
+        "configurations": {
+          "description": "The solution configurations, in the file's order.",
+          "type": "array",
+          "items": {
+            "description": "A configuration.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "platforms": {
+          "description": "The solution platforms, in the file's order (the first is the default).",
+          "type": "array",
+          "items": {
+            "description": "A platform.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "active": {
+          "$ref": "#/$defs/selection"
+        },
+        "projects": {
+          "description": "The solution's projects, in solution order.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/project"
+          }
+        }
+      }
+    },
+    "selection": {
+      "description": "The active solution configuration and platform (eludite/solution/setConfiguration's `select`; the first configuration and platform until the shell selects).",
+      "type": "object",
+      "required": [
+        "configuration",
+        "platform"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "description": "The solution configuration.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The solution platform.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "configurations",
+        "platforms",
+        "mappings"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The project's name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "Absolute path of the project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configurations": {
+          "description": "The project's own configurations, for the grid's lists.",
+          "type": "array",
+          "items": {
+            "description": "A configuration.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "platforms": {
+          "description": "The project's own platforms, for the grid's lists.",
+          "type": "array",
+          "items": {
+            "description": "A platform.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "mappings": {
+          "description": "One per solution configuration and platform the project has a mapping for (a `.sln` without an `ActiveCfg` line for a pair has none: the project is skipped there).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mapping"
+          }
+        }
+      }
+    },
+    "mapping": {
+      "description": "One cell row of Configuration Manager: what a project builds in one solution configuration and platform.",
+      "type": "object",
+      "required": [
+        "solutionConfiguration",
+        "solutionPlatform",
+        "configuration",
+        "platform",
+        "build"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "solutionConfiguration": {
+          "description": "The solution configuration (`Debug`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "solutionPlatform": {
+          "description": "The solution platform (`Any CPU`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "The project configuration it maps to.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The project platform it maps to (`Any CPU` as the solution file writes it).",
+          "type": "string",
+          "minLength": 1
+        },
+        "build": {
+          "description": "Build checked: the project builds in this solution configuration. A project that does not is skipped, with Visual Studio's `Skipped Build` line in the Output window.",
+          "type": "boolean"
+        },
+        "deploy": {
+          "description": "Deploy checked (`.sln` `Deploy.0`).",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

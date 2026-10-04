@@ -94,7 +94,12 @@
       "type": "boolean"
     },
     "profile": {
-      "description": "The launchSettings.json profile to use. Default: the first profile whose commandName is Project.",
+      "description": "The launchSettings.json profile to use. Default: the Debug toolbar's profile list's choice for the project (eludite.project.set_launch_profile `select`), else the first profile whose commandName is Project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "The target framework to run for a multi-targeted project (`net8.0`; brief 0049): its build output under `bin/<configuration>/<framework>/`. Default: the Target Framework list's choice for the project (eludite.solution.select_configuration), else `ActiveDebugFramework` in its `.user` file, else its first framework.",
       "type": "string",
       "minLength": 1
     },

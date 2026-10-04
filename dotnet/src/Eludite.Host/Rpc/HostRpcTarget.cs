@@ -30,7 +30,9 @@ public sealed class HostRpcTarget
     /// <param name="build">Runs <c>eludite/build/*</c>; when null, one that locates the MSBuilds on its first build.</param>
     /// <param name="tests">Runs <c>eludite/test/*</c>; when null, one with the MTP and VSTest runners.</param>
     /// <param name="nuget">Runs <c>eludite/nuget/*</c>; when null, one on NuGet's own configuration.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null)
+    /// <param name="properties">Answers <c>eludite/project/*</c> and the solution configurations (brief 0049); when null, one on the
+    /// in-process MSBuild that reloads the solution through <paramref name="languageServer"/> after a write.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -39,11 +41,15 @@ public sealed class HostRpcTarget
         Tree = tree ?? new SolutionTreeProvider(new MsBuildProjectTreeEvaluator(), log);
         Build = build ?? new BuildService(LanguageServer.CurrentSolution, log);
         Tests = tests ?? new TestService(LanguageServer.CurrentSolution, log);
+        Properties = properties ?? new ProjectPropertiesService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
         NuGet = nuget ?? new NuGetService(LanguageServer.CurrentSolution, LanguageServer.AdvanceGeneration, log);
     }
 
     /// <summary>The <c>eludite/nuget/*</c> service (brief 0048).</summary>
     public NuGetService NuGet { get; }
+
+    /// <summary>The <c>eludite/project/*</c> and solution configuration service (brief 0049).</summary>
+    public ProjectPropertiesService Properties { get; }
 
     /// <summary>The <c>eludite/test/*</c> service (brief 0035).</summary>
     public TestService Tests { get; }
@@ -253,6 +259,48 @@ public sealed class HostRpcTarget
     {
         RequireInitialized();
         return NuGet.IconAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/project/properties", UseSingleObjectParameterDeserialization = true)]
+    public Task<ProjectPropertiesResult> ProjectPropertiesAsync(ProjectPropertiesParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Properties.PropertiesAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/project/setProperty", UseSingleObjectParameterDeserialization = true)]
+    public Task<ProjectSetPropertyResult> SetProjectPropertyAsync(ProjectSetPropertyParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Properties.SetPropertyAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/project/launchProfiles", UseSingleObjectParameterDeserialization = true)]
+    public LaunchProfilesResult LaunchProfiles(LaunchProfilesParams? parameters)
+    {
+        RequireInitialized();
+        return Properties.LaunchProfiles(parameters);
+    }
+
+    [JsonRpcMethod("eludite/project/setLaunchProfile", UseSingleObjectParameterDeserialization = true)]
+    public Task<LaunchProfilesResult> SetLaunchProfileAsync(SetLaunchProfileParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Properties.SetLaunchProfileAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/solution/configurations", UseSingleObjectParameterDeserialization = true)]
+    public SolutionConfigurationsResult SolutionConfigurations(object? parameters = null)
+    {
+        RequireInitialized();
+        return Properties.Configurations();
+    }
+
+    [JsonRpcMethod("eludite/solution/setConfiguration", UseSingleObjectParameterDeserialization = true)]
+    public Task<SolutionSetConfigurationResult> SetSolutionConfigurationAsync(SolutionSetConfigurationParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Properties.SetConfigurationAsync(parameters, cancellationToken);
     }
 
     [JsonRpcMethod("eludite/host/shutdown")]

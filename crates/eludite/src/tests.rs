@@ -222,7 +222,9 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
             "Clean Solution",
             "Build Project",
             "Rebuild Project",
-            "Clean Project"
+            "Clean Project",
+            // Brief 0049.
+            "Configuration Manager..."
         ]
     );
 

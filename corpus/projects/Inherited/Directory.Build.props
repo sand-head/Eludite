@@ -1,0 +1,9 @@
+<Project>
+  <!-- Inherited by every project below this folder. -->
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Authors>Corpus Authors</Authors>
+  </PropertyGroup>
+</Project>

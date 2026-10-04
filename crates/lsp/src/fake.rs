@@ -27,6 +27,9 @@
 //! running build, as a real host restart does, unless [`FakeHost::set_build_survives_restart`] keeps it (a host the
 //! shell reattaches to); [`FakeHost::build_output_unsent`] records a chunk without sending it (one sent while the
 //! shell was away).
+//!
+//! Project properties (brief 0049): `eludite/project/*` and the solution configurations are served from a scripted
+//! model by the child module `projects` (see its docs and [`FakeHost::set_project_properties`]).
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -40,6 +43,9 @@ use serde_json::{Value, json};
 
 use crate::connection::Connector;
 use crate::fake_nuget::{FakeNuGet, host_of, output_updates};
+
+/// `eludite/project/*` and the solution configurations (brief 0049).
+mod projects;
 
 /// One message the fake received from the shell.
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +109,8 @@ struct State {
     tests: FakeTests,
     /// `eludite/nuget/*` (brief 0048).
     nuget: FakeNuGet,
+    /// `eludite/project/*` and the solution configurations (brief 0049).
+    projects: projects::FakeProjects,
 }
 
 #[derive(Default)]
@@ -1139,6 +1147,14 @@ impl FakeHost {
                 let (this, out, id) = (self.clone(), out.clone(), id.clone());
                 let (method, params) = (method.to_owned(), params.clone());
                 thread::spawn(move || this.serve_nuget(&out, &id, &method, &params));
+            }
+            methods::PROJECT_PROPERTIES
+            | methods::PROJECT_SET_PROPERTY
+            | methods::PROJECT_LAUNCH_PROFILES
+            | methods::PROJECT_SET_LAUNCH_PROFILE
+            | methods::SOLUTION_CONFIGURATIONS
+            | methods::SOLUTION_SET_CONFIGURATION => {
+                self.answer_projects(method, params, &reply, &error, &notify)
             }
             m if methods::FORWARDED_TYPED_REQUESTS.contains(&m)
                 || methods::FORWARDED_UNTYPED_REQUESTS.contains(&m) =>

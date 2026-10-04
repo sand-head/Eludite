@@ -269,7 +269,8 @@ enum Cmd {
     RespondApplyEdit(Id, lsp::ApplyWorkspaceEditResult),
     /// Answer the host's `eludite/nuget/credentials` (brief 0048).
     RespondNuGetCredentials(Id, Option<host::NuGetCredentialsAnswer>),
-    /// Ask for the tree again (the projects changed under a new generation; brief 0048).
+    /// Ask for the tree again: the projects changed under a new generation (brief 0048's NuGet changes), or the host
+    /// reloaded the solution itself (brief 0049's property writes).
     RefreshTree,
     /// An untyped notification (`workspace/didChangeWatchedFiles`).
     Notify(String, serde_json::Value),
@@ -498,8 +499,9 @@ impl ServerSession {
         self.send(Cmd::RespondNuGetCredentials(id, answer));
     }
 
-    /// Ask the host for the solution tree again (a NuGet change advanced the generation; brief 0048). The answer
-    /// arrives as [`SessionEvent::Tree`] when it is still current.
+    /// Ask the host for the solution tree again (a NuGet change advanced the generation, brief 0048, or the host
+    /// reloaded the solution after a project or solution file write, brief 0049). The answer arrives as
+    /// [`SessionEvent::Tree`] when it is still current.
     pub fn refresh_tree(&self) {
         self.send(Cmd::RefreshTree);
     }

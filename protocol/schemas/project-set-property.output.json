@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-set-property.output.json",
+  "title": "eludite.project.set_property output",
+  "description": "What the edit did.",
+  "type": "object",
+  "required": [
+    "project",
+    "path",
+    "property",
+    "status",
+    "generation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project's name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "path": {
+      "description": "The project file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "property": {
+      "description": "The property.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "written",
+        "removed",
+        "unchanged",
+        "inherited",
+        "pending"
+      ],
+      "description": "written, removed (equal to the default), unchanged, inherited (not written: pass `override`), or pending (invoked on the UI thread, which never waits for the host: the edit was sent, and the property pages show its result)."
+    },
+    "condition": {
+      "description": "The condition of the group written to.",
+      "type": "string"
+    },
+    "line": {
+      "description": "The element's 1-based line.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "inherited_from": {
+      "description": "With `inherited`: the file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "removed_conditions": {
+      "type": "array",
+      "items": {
+        "description": "A condition.",
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "With `all_configurations`: the conditioned elements removed."
+    },
+    "value": {
+      "description": "The evaluated value after the edit in the same configuration (absent when nothing was written).",
+      "type": "string"
+    },
+    "generation": {
+      "description": "The solution generation after the edit (one more when the file was written).",
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

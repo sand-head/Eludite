@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/solution-set-configuration.json",
+  "title": "eludite/solution/setConfiguration",
+  "description": "Select the active solution configuration and platform, and edit Configuration Manager's mapping (brief 0049; host-rpc.md, \"Project properties\"). `select` is remembered by the host for its own defaults (eludite/project/properties); the shell keeps it per solution. `mappings` edits the solution file preserving its formatting: `.sln` lines of `ProjectConfigurationPlatforms` are changed, added or removed in place (tabs and line endings kept); `.slnx` gets or loses the project's `<BuildType>`, `<Platform>` and `<Build>` rules for that solution configuration and platform. A written mapping reloads the solution (the generation moves on); a selection alone does not.",
+  "x-eludite-method": "eludite/solution/setConfiguration",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation the shell read the values under. A value that is not the current generation fails with -32801 (ContentModified) and writes nothing: the file may have changed since (another edit, a reload).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "select": {
+          "$ref": "#/$defs/selection"
+        },
+        "mappings": {
+          "description": "Mapping edits, applied in order and written once.",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/mappingEdit"
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "written",
+        "active"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation after the call (one more when the file was written).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "description": "The solution file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "written": {
+          "description": "True when the solution file changed on disk.",
+          "type": "boolean"
+        },
+        "active": {
+          "$ref": "#/$defs/selection"
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "required": [
+        "configuration",
+        "platform"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "description": "A solution configuration the solution lists.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "A solution platform the solution lists.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mappingEdit": {
+      "description": "One cell of Configuration Manager's grid: a project in one solution configuration and platform.",
+      "type": "object",
+      "required": [
+        "project",
+        "solutionConfiguration",
+        "solutionPlatform"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "Absolute path of a project file of the open solution (`.csproj`, `.vbproj`, `.fsproj`), or the project file that is open as the solution.",
+          "type": "string",
+          "minLength": 1
+        },
+        "solutionConfiguration": {
+          "description": "The solution configuration.",
+          "type": "string",
+          "minLength": 1
+        },
+        "solutionPlatform": {
+          "description": "The solution platform.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "The project configuration to map to; omitted: unchanged.",
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "description": "The project platform to map to; omitted: unchanged.",
+          "type": "string",
+          "minLength": 1
+        },
+        "build": {
+          "description": "Build checked or cleared; omitted: unchanged.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

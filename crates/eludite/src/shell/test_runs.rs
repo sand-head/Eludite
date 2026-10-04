@@ -1787,7 +1787,7 @@ impl Shell {
             return;
         };
         let ids = match self.resolve(&selection, run, cx) {
-            Ok(ids) => ids,
+            Ok(ids) => self.for_framework(ids, selection.framework.as_deref()),
             Err(e) => return self.end_run(run, RunState::Failed, Some(e.to_string()), cx),
         };
         if ids.is_empty() {
@@ -1909,6 +1909,26 @@ impl Shell {
             ));
         }
         self.maybe_finish_run(run, cx);
+    }
+
+    /// Brief 0049: a multi-targeted project's tests run in one framework, the run's `framework` or the Target Framework
+    /// list's choice; with neither, every framework's container runs.
+    fn for_framework(&self, ids: Vec<String>, explicit: Option<&str>) -> Vec<String> {
+        ids.into_iter()
+            .filter(|id| {
+                let Some(t) = self.tests.test(id) else {
+                    return true;
+                };
+                if t.cargo.is_some() {
+                    return true;
+                }
+                let Some((project, tfm)) = t.project.rsplit_once('|') else {
+                    return true;
+                };
+                self.framework_for(project, explicit)
+                    .is_none_or(|f| f.eq_ignore_ascii_case(tfm))
+            })
+            .collect()
     }
 
     /// `eludite/test/run` for the host part of a run.

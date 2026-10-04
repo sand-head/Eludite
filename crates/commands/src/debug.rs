@@ -815,6 +815,8 @@ pub enum DebugRequest {
         project: Option<String>,
         debug: bool,
         profile: Option<String>,
+        /// A multi-targeted project's target framework (brief 0049); `None`: the Target Framework list's choice.
+        framework: Option<String>,
         /// Build the project first (brief 0020); `None`: the setting `build.beforeRun`.
         build: Option<bool>,
         /// A Cargo package's target, test executable and arguments (brief 0029).
@@ -2021,6 +2023,7 @@ struct StartIn {
     compound: Option<Value>,
     debug: Option<bool>,
     profile: Option<String>,
+    framework: Option<String>,
     build: Option<bool>,
     target: Option<String>,
     test: Option<bool>,
@@ -2519,6 +2522,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
             if compound.is_some()
                 && (i.project.is_some()
                     || i.profile.is_some()
+                    || i.framework.is_some()
                     || i.target.is_some()
                     || i.test.is_some()
                     || i.args.is_some())
@@ -2533,6 +2537,7 @@ fn parse_request(id: &str, mut value: Value) -> Result<DebugRequest, CommandErro
                 project: non_empty("project", i.project)?,
                 debug: i.debug.unwrap_or(true),
                 profile: non_empty("profile", i.profile)?,
+                framework: non_empty("framework", i.framework)?,
                 build: i.build,
                 cargo: CargoOptions {
                     target: non_empty("target", i.target)?,
@@ -3292,6 +3297,7 @@ mod tests {
                 project: None,
                 debug: true,
                 profile: None,
+                framework: None,
                 build: None,
                 cargo: CargoOptions::default(),
                 browser: None,
@@ -3312,6 +3318,7 @@ mod tests {
                 project: Some("app".into()),
                 debug: true,
                 profile: None,
+                framework: None,
                 build: None,
                 cargo: CargoOptions {
                     target: Some("app".into()),
@@ -3337,6 +3344,7 @@ mod tests {
                 project: Some("App".into()),
                 debug: false,
                 profile: Some("App".into()),
+                framework: None,
                 build: Some(false),
                 cargo: CargoOptions::default(),
                 browser: None,

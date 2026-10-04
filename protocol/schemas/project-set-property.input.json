@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/project-set-property.input.json",
+  "title": "eludite.project.set_property input",
+  "description": "Change one project property, as the property pages' Save does: eludite-host edits the project file with MSBuild's construction model, changing exactly one element and keeping every other byte (formatting, comments, conditions). The condition rule: without `configuration`, `platform` and `framework` the unconditioned value is written (the first unconditioned property group); with them, the property group with that condition (Visual Studio's `'$(Configuration)|$(Platform)'=='Debug|AnyCPU'`, created when missing); a value equal to the default removes the element. `all_configurations` writes the unconditioned value and removes this property's conditioned elements. The inherited rule: a property inherited from Directory.Build.props (`source` inherited) is not written unless `override` is true; the answer says `inherited` with the file. When the file changes the solution reloads: the generation moves on and the Workspace, IntelliSense and builds see the change.",
+  "type": "object",
+  "required": [
+    "property",
+    "value"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "description": "The project: its name as the Workspace window shows it, or the path of its project file (absolute, or relative to the solution folder). Default: the project selected in the Workspace window, else the active document's project, else the startup project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "property": {
+      "description": "A catalog property's `name` (eludite.project.properties).",
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "description": "The new value: text, true or false for a bool, null to remove the element (back to the default).",
+      "type": [
+        "string",
+        "boolean",
+        "null"
+      ]
+    },
+    "configuration": {
+      "description": "Write under this configuration's condition (a per-configuration property). Omitted: the unconditioned value.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "With `configuration`: the condition's platform (`AnyCPU`; `Any CPU` is read as `AnyCPU`). Omitted with `configuration`: the selection's platform for the project.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "A target framework of a multi-targeted project (`net8.0`). Default: none (the outer evaluation; for `set_property`, no framework condition).",
+      "type": "string",
+      "minLength": 1
+    },
+    "all_configurations": {
+      "description": "All Configurations: write the unconditioned value and remove the conditioned ones for this property. Not with `configuration`.",
+      "type": "boolean"
+    },
+    "override": {
+      "description": "Write an inherited property in the project anyway (the Override of the page's inherited banner).",
+      "type": "boolean"
+    }
+  }
+}

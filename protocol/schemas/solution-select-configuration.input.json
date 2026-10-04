@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/solution-select-configuration.input.json",
+  "title": "eludite.solution.select_configuration input",
+  "description": "Choose in the Standard toolbar's Solution Configurations or Solution Platforms list, or a multi-targeted project's Target Framework list: the selection is kept per solution (per user, beside the startup project) and Build, Debug and Test use it (a Cargo workspace builds `--release` for Release). A project the selection does not map to a build is skipped on build with Visual Studio's `Skipped Build` Output line.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "configuration": {
+      "description": "A solution configuration the solution lists.",
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "description": "A solution platform the solution lists.",
+      "type": "string",
+      "minLength": 1
+    },
+    "framework": {
+      "description": "The target framework F5 and Run Tests use for `project` (one of its frameworks).",
+      "type": "string",
+      "minLength": 1
+    },
+    "project": {
+      "description": "With `framework`: the multi-targeted project (name or path). Default: the startup project.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -589,3 +589,240 @@ fn real_host_installs_a_package_from_the_nuget_corpus() {
     assert_eq!(client.shutdown(T).unwrap(), Some(0));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Copies `corpus/projects` to a temporary folder (brief 0049): edits never touch the repository.
+fn corpus_projects_copy() -> PathBuf {
+    fn copy(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap() {
+            let e = e.unwrap();
+            let target = to.join(e.file_name());
+            if e.file_type().unwrap().is_dir() {
+                if e.file_name() != "bin" && e.file_name() != "obj" {
+                    copy(&e.path(), &target);
+                }
+            } else {
+                std::fs::copy(e.path(), target).unwrap();
+            }
+        }
+    }
+    let from = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../corpus/projects");
+    let to = temp_dir().join(format!("eludite-lsp-properties-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&to);
+    copy(&from, &to);
+    to
+}
+
+/// Brief 0049 through the real host: a property edit (the condition rule, one element changed, the reload moving the
+/// generation on) and a launch profile edit (order and unknown members kept) on a copy of `corpus/projects`.
+#[test]
+fn real_host_edits_a_property_and_a_launch_profile() {
+    let Some(dll) = host_dll() else {
+        eprintln!("skipped: eludite-host.dll not built (dotnet build dotnet/Eludite.slnx)");
+        return;
+    };
+    if std::process::Command::new("dotnet")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("skipped: dotnet not on PATH");
+        return;
+    }
+    let root = corpus_projects_copy();
+    let (client, rx) = HostClient::start(
+        HostCommand::dotnet_host(&dll)
+            .arg("--no-roslyn")
+            .stderr(StderrMode::Discard),
+        ClientInfo {
+            name: "eludite-lsp-test".into(),
+            version: "0".into(),
+        },
+        RestartPolicy {
+            max_restarts: 0,
+            backoff: Duration::ZERO,
+        },
+    )
+    .expect("start eludite-host");
+    let solution = root.join("Corpus.slnx");
+    let generation = client
+        .open_solution(&solution.to_string_lossy(), T)
+        .unwrap();
+    let console = root.join("Console/Console.csproj");
+    let project = console.to_string_lossy().into_owned();
+
+    let started = Instant::now();
+    let props = client
+        .request::<host::ProjectProperties>(host::ProjectPropertiesParams {
+            project: project.clone(),
+            configuration: Some("Release".into()),
+            platform: Some("AnyCPU".into()),
+            framework: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    eprintln!(
+        "timing: real host properties (cold) {:.1} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(props.generation, generation);
+    let define = props
+        .properties
+        .iter()
+        .find(|p| p.name == "DefineConstants")
+        .unwrap();
+    assert_eq!(define.source, host::PropertySource::Conditioned);
+    assert!(define.value.contains("RELEASE_ONLY"), "{}", define.value);
+    let started = Instant::now();
+    let again = client
+        .request::<host::ProjectProperties>(host::ProjectPropertiesParams {
+            project: project.clone(),
+            configuration: Some("Release".into()),
+            platform: Some("AnyCPU".into()),
+            framework: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    eprintln!(
+        "timing: real host properties (cached) {:.2} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(again, props);
+    // Another project once the host's MSBuild is warm (what the pages of a second project cost).
+    let started = Instant::now();
+    let tabs = client
+        .request::<host::ProjectProperties>(host::ProjectPropertiesParams {
+            project: root.join("Tabs/Tabs.csproj").to_string_lossy().into_owned(),
+            configuration: Some("Debug".into()),
+            platform: Some("AnyCPU".into()),
+            framework: None,
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    eprintln!(
+        "timing: real host properties (warm, another project) {:.1} ms",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert_eq!(
+        tabs.properties
+            .iter()
+            .find(|p| p.name == "AssemblyName")
+            .map(|p| p.value.as_str()),
+        Some("Tabs.Odd")
+    );
+
+    // A Debug value goes to a new Debug|AnyCPU group; nothing else in the file changes.
+    let before = std::fs::read_to_string(&console).unwrap();
+    let started = Instant::now();
+    let set = client
+        .request::<host::ProjectSetProperty>(host::ProjectSetPropertyParams {
+            project: project.clone(),
+            generation,
+            edits: vec![host::PropertyEdit {
+                name: "DefineConstants".into(),
+                value: Some("$(DefineConstants);DEBUG_ONLY".into()),
+                configuration: Some("Debug".into()),
+                platform: Some("AnyCPU".into()),
+                ..Default::default()
+            }],
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    eprintln!(
+        "timing: real host save {:.1} ms (the reload follows)",
+        started.elapsed().as_secs_f64() * 1e3
+    );
+    assert!(set.written);
+    assert_eq!(set.generation, generation + 1);
+    assert_eq!(set.results[0].status, host::EditStatus::Written);
+    let after = std::fs::read_to_string(&console).unwrap();
+    assert_eq!(
+        after,
+        before.replace(
+            "  </PropertyGroup>\n\n  <PropertyGroup Condition=\" '$(Configuration)",
+            "  </PropertyGroup>\n  <PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='Debug|AnyCPU'\">\n    <DefineConstants>$(DefineConstants);DEBUG_ONLY</DefineConstants>\n  </PropertyGroup>\n\n  <PropertyGroup Condition=\" '$(Configuration)",
+        )
+    );
+    // The reload's statuses come under the new generation, and the client follows it.
+    next(&rx, |e| match e {
+        Event::SolutionStatus(s) if s.generation == generation + 1 => Some(()),
+        _ => None,
+    });
+    assert_eq!(client.generation(), generation + 1);
+    // A write under the old generation is refused and writes nothing.
+    let stale = client
+        .request::<host::ProjectSetProperty>(host::ProjectSetPropertyParams {
+            project: project.clone(),
+            generation,
+            edits: vec![host::PropertyEdit {
+                name: "AssemblyName".into(),
+                value: Some("Stale".into()),
+                ..Default::default()
+            }],
+        })
+        .unwrap()
+        .wait_timeout(T);
+    assert!(matches!(stale, Err(Error::Stale { .. })), "{stale:?}");
+    assert_eq!(std::fs::read_to_string(&console).unwrap(), after);
+
+    // A launch profile edit keeps the file's order and its unknown member.
+    let set = client
+        .request::<host::ProjectSetLaunchProfile>(host::SetLaunchProfileParams {
+            project: project.clone(),
+            generation: generation + 1,
+            action: host::LaunchProfileAction::Set,
+            profile: "Console".into(),
+            new_name: None,
+            values: Some(serde_json::json!({"commandLineArgs": "--quiet",
+                "environmentVariables": [{"name": "ZETA", "value": "last"}, {"name": "ALPHA", "value": "first"},
+                                          {"name": "MIDDLE", "value": "2"}, {"name": "NEW", "value": "4"}]})),
+        })
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(
+        set.generation,
+        generation + 1,
+        "launch profiles do not reload"
+    );
+    assert_eq!(
+        set.profiles
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Console", "Tool"]
+    );
+    let names: Vec<&str> = set.profiles[0]
+        .environment_variables
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    assert_eq!(names, ["ZETA", "ALPHA", "MIDDLE", "NEW"]);
+    let file =
+        std::fs::read_to_string(root.join("Console/Properties/launchSettings.json")).unwrap();
+    assert!(file.contains("\"commandLineArgs\": \"--quiet\""), "{file}");
+    assert!(file.contains("\"x-corpus-note\": \"an unknown member Eludite keeps\""));
+
+    // The solution's configurations and mapping.
+    let c = client
+        .request::<host::SolutionConfigurations>(())
+        .unwrap()
+        .wait_timeout(T)
+        .unwrap();
+    assert_eq!(c.configurations, ["Debug", "Release"]);
+    assert_eq!(c.platforms, ["Any CPU", "x64"]);
+    let lib = c.projects.iter().find(|p| p.name == "Lib").unwrap();
+    assert!(
+        !lib.mappings
+            .iter()
+            .find(|m| m.solution_configuration == "Release")
+            .unwrap()
+            .build
+    );
+    client.shutdown(T).unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+}

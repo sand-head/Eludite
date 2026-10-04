@@ -128,6 +128,9 @@ pub struct Selection {
     /// A substring of the fully qualified name, or a trait `Name=Value`.
     pub filter: Option<String>,
     pub project: Option<String>,
+    /// Only this target framework's containers of multi-targeted projects (brief 0049); `None`: the Target Framework
+    /// list's choice for a multi-targeted project, else every framework.
+    pub framework: Option<String>,
     /// Run Failed Tests.
     pub failed_only: bool,
     /// Repeat Last Run.
@@ -403,6 +406,7 @@ struct RunIn {
     ids: Option<Vec<String>>,
     filter: Option<String>,
     project: Option<String>,
+    framework: Option<String>,
     failed_only: Option<bool>,
     repeat_last: Option<bool>,
     selection: Option<bool>,
@@ -415,6 +419,7 @@ struct DebugIn {
     ids: Option<Vec<String>>,
     filter: Option<String>,
     project: Option<String>,
+    framework: Option<String>,
     selection: Option<bool>,
     wait_ms: Option<u64>,
     depth: Option<u64>,
@@ -514,6 +519,7 @@ pub fn parse(id: &str, value: Value) -> Result<TestRequest, CommandError> {
                     ids: ids(i.ids)?,
                     filter: non_empty("filter", i.filter)?,
                     project: non_empty("project", i.project)?,
+                    framework: non_empty("framework", i.framework)?,
                     failed_only: i.failed_only.unwrap_or(false),
                     repeat_last: i.repeat_last.unwrap_or(false),
                     selection: i.selection.unwrap_or(false),
@@ -541,6 +547,7 @@ pub fn parse(id: &str, value: Value) -> Result<TestRequest, CommandError> {
                     ids: ids(i.ids)?,
                     filter: non_empty("filter", i.filter)?,
                     project: non_empty("project", i.project)?,
+                    framework: non_empty("framework", i.framework)?,
                     selection: i.selection.unwrap_or(false),
                     ..Selection::default()
                 },
