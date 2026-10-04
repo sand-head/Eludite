@@ -1,6 +1,6 @@
 # Brief 0052: CodeLens for references and tests
 
-Status: in progress
+Status: done
 Phase: 2 (PLAN.md section 10: "CodeLens"; sections 4.1 and 4.3)
 Plan reference: PLAN.md sections 2 (principles 1, 3, 5, 12), 4.1 (CodeLens in the editor core), 4.3 (CodeLens for references and tests from the Roslyn language server), 4.6 (the Test Explorer's run and debug at a test), 5.1, 8 (Visual Studio names: the CodeLens indicators above a member, "N references", "Run Test" and "Debug Test", the References popup), 9, 10 (Phase 2)
 Related ADRs: ADR-0001, ADR-0003
