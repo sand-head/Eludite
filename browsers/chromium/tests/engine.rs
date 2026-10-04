@@ -5,8 +5,8 @@
 //! authentication prompts answered by the shell, downloads and their limit, DevTools as a tab, IME, history and the
 //! favicon. Brief 0038: the remote debugging port, reported in `engine/ready`, answering on 127.0.0.1 only, listing
 //! the tab under the target id `Target.getTargetInfo` gives on the tab's channel. Needs the `cef` feature (CEF fetched by tools/cef/fetch.sh and CEF_PATH set); skips
-//! with a message otherwise. Runs as root only with ELUDITE_CHROME_NO_SANDBOX=1, which this test sets when the
-//! effective user is root (as brief 0023's Chrome tests do), saying so.
+//! with a message otherwise. Runs as root only with `--allow-no-sandbox` (brief 0039's sandbox rule: Chromium does not
+//! sandbox root), which this test passes when the effective user is root, saying so.
 
 #![cfg(target_os = "linux")]
 // Descriptor 3 for the child, the received descriptors and the effective user: system calls, each commented.
@@ -67,8 +67,8 @@ fn spawn_engine_with(extra: &[String], init_extra: Value) -> Option<(Engine, Dur
         .stderr(Stdio::piped());
     // SAFETY: geteuid has no preconditions.
     if unsafe { libc::geteuid() } == 0 {
-        eprintln!("running as root: setting ELUDITE_CHROME_NO_SANDBOX=1 for the engine");
-        cmd.env("ELUDITE_CHROME_NO_SANDBOX", "1");
+        eprintln!("running as root: passing --allow-no-sandbox to the engine");
+        cmd.arg("--allow-no-sandbox");
     }
     {
         use std::os::unix::process::CommandExt;
@@ -1087,6 +1087,26 @@ fn the_remote_debugging_port_is_reported_and_answers_on_loopback_only() {
     let port = ready["params"]["remoteDebuggingPort"].as_u64().unwrap() as u16;
     assert!(port >= 1024, "{ready}");
     assert_eq!(ready["params"]["address"], "127.0.0.1");
+    // Brief 0039: how the sandbox runs and which CEF loaded (cargo's copy beside the engine).
+    // SAFETY: geteuid has no preconditions.
+    let root = unsafe { libc::geteuid() } == 0;
+    let mode = ready["params"]["sandbox"].as_str().unwrap_or_default();
+    if root {
+        assert_eq!(mode, "none", "{ready}");
+    } else {
+        assert!(mode == "namespaces" || mode == "helper", "{ready}");
+    }
+    let exe_dir = std::path::Path::new(env!("CARGO_BIN_EXE_eludite-chromium"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    assert_eq!(
+        ready["params"]["cefDir"]
+            .as_str()
+            .map(std::path::PathBuf::from),
+        Some(exe_dir),
+        "{ready}"
+    );
     let version = devtools_get(port, "/json/version");
     assert!(
         version["Browser"]
@@ -1144,4 +1164,50 @@ fn the_remote_debugging_port_is_reported_and_answers_on_loopback_only() {
     }
     let _ = e.request("shutdown", json!({}));
     let _ = e.child.wait();
+}
+
+/// Brief 0039: `--no-sandbox` without `--allow-no-sandbox` is refused before CEF starts (exit code 5, one line naming
+/// the switch), and as root the engine refuses without `--allow-no-sandbox` too, naming both remedies.
+#[test]
+fn the_engine_refuses_no_sandbox_without_the_allow_switch() {
+    if !cfg!(feature = "cef") {
+        eprintln!("skipped: eludite-chromium was built without the cef feature");
+        return;
+    }
+    let exe = env!("CARGO_BIN_EXE_eludite-chromium");
+    let profile = tempfile::tempdir().unwrap();
+    let run = |extra: &[&str]| {
+        let out = Command::new(exe)
+            .arg("--profile")
+            .arg(profile.path())
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let (code, err) = run(&["--no-sandbox"]);
+    assert_eq!(code, Some(5), "{err}");
+    assert!(err.contains("--allow-no-sandbox"), "{err}");
+    assert!(
+        out_is_empty_of_cef(&err),
+        "refused before CEF started: {err}"
+    );
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        let (code, err) = run(&[]);
+        assert_eq!(code, Some(5), "{err}");
+        assert!(
+            err.contains("root") && err.contains("browser.allowNoSandbox"),
+            "{err}"
+        );
+    }
+}
+
+/// CEF logs with a `[pid:tid:...]` prefix; a refusal before CEF starts has none.
+fn out_is_empty_of_cef(stderr: &str) -> bool {
+    !stderr.lines().any(|l| l.starts_with('['))
 }
