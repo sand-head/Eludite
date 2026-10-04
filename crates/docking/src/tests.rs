@@ -207,7 +207,10 @@ fn tab_and_untab_by_dragging(cx: &mut TestAppContext) {
     h.drag("head-properties", "group-error_list");
     let l = h.layout();
     let g = l.group_of(ids::PROPERTIES).unwrap();
-    assert_eq!(g.tabs, [ids::ERROR_LIST, ids::OUTPUT, ids::PROPERTIES]);
+    assert_eq!(
+        g.tabs,
+        [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL, ids::PROPERTIES]
+    );
     assert_eq!(g.active_id(), Some(ids::PROPERTIES));
     assert_eq!(l.right.groups.len(), 1, "the emptied group is gone");
     // Clicking a tab activates it, through the bus.
@@ -221,7 +224,7 @@ fn tab_and_untab_by_dragging(cx: &mut TestAppContext) {
     assert_eq!(h.side(ids::PROPERTIES), Some(DockSide::Right));
     assert_eq!(
         h.layout().group_of(ids::OUTPUT).unwrap().tabs,
-        [ids::ERROR_LIST, ids::OUTPUT]
+        [ids::ERROR_LIST, ids::OUTPUT, ids::TERMINAL]
     );
     assert_eq!(h.audit(), [view::DOCK, view::SHOW, view::DOCK]);
 }

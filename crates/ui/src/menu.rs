@@ -103,6 +103,11 @@ pub const WORKSPACE_GIT_ITEMS: [(&str, &str, &str); 5] = [
     ("blame", "Blame (Annotate)", "eludite.git.blame"),
 ];
 
+/// The Workspace window's context menu item on a project or folder that opens a terminal there (brief 0041):
+/// (selector suffix, label, command). It runs the command with the item's path as `cwd` (a file's folder).
+pub const WORKSPACE_TERMINAL_ITEM: (&str, &str, &str) =
+    ("terminal", "Open in Terminal", "eludite.terminal.open");
+
 /// The menu titles, in Visual Studio's order (PLAN.md 8).
 pub const MENU_TITLES: [&str; 13] = [
     "File",
@@ -181,6 +186,8 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 show("Error List", "error_list"),
                 show("Output", "output"),
+                // View > Terminal, Ctrl+` (brief 0041).
+                show("Terminal", "terminal"),
                 show("Properties Window", "properties"),
                 show("Toolbox", "toolbox"),
                 // Visual Studio's View > Other Windows > Web Browser (brief 0032): a document tab.
@@ -348,7 +355,9 @@ pub fn vs_menus() -> Vec<Menu> {
         menu(
             "Tools",
             vec![
-                item("Command Line", "eludite.tools.terminal"),
+                // Visual Studio's Tools > Command Line opens the Developer PowerShell: a terminal of the default
+                // profile (brief 0041).
+                item("Command Line", "eludite.terminal.open"),
                 Separator,
                 item("Options...", "eludite.tools.options"),
             ],
@@ -749,6 +758,8 @@ mod tests {
         assert!(shortcuts.contains(&("Error List", Some("Ctrl+\\, Ctrl+E"))));
         assert!(shortcuts.contains(&("Command Palette", None)));
         assert!(shortcuts.contains(&("Other Windows > Web Browser", None)));
+        // Brief 0041.
+        assert!(shortcuts.contains(&("Terminal", Some("Ctrl+`"))));
         let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
         let shortcuts: Vec<_> = build
             .entries

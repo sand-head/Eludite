@@ -489,7 +489,7 @@ mod tests {
         assert_eq!(out["group"], json!(["output", "toolbox", "error_list"]));
 
         let out = r.invoke(view::RESET_LAYOUT, json!({})).unwrap();
-        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 16);
+        assert_eq!(out["tool_windows"].as_array().unwrap().len(), 17);
         assert_eq!(
             c.layout(),
             DockLayout::default_vs(&ToolWindowRegistry::vs_default())

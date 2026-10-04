@@ -61,6 +61,11 @@ pub fn vs_keymap() -> Vec<KeyBindingSpec> {
         show("ctrl-0 ctrl-r", "Ctrl+0, Ctrl+R", "git_repository"),
         // The Agents window (brief 0016), on Visual Studio's chat window chord (View.GitHub.Copilot.Chat).
         show("ctrl-\\ ctrl-c", "Ctrl+\\, Ctrl+C", "agents"),
+        // View.Terminal and View.NewTerminal (brief 0041): Ctrl+` shows the Terminal window (with a terminal), Ctrl+Shift+`
+        // opens a new one; `ctrl-~` is the same keys where the layout reports Shift+` as `~`.
+        show("ctrl-`", "Ctrl+`", "terminal"),
+        command("ctrl-shift-`", "Ctrl+Shift+`", "eludite.terminal.open"),
+        command("ctrl-~", "Ctrl+Shift+`", "eludite.terminal.open"),
         KeyBindingSpec {
             keystrokes: "shift-escape",
             display: "Shift+Esc",
@@ -333,6 +338,11 @@ mod tests {
         ] {
             assert_eq!(shortcut_for(&k, cmd, &json!({})), Some(key), "{cmd}");
         }
+        assert_eq!(find("terminal"), Some("Ctrl+`"));
+        assert_eq!(
+            shortcut_for(&k, "eludite.terminal.open", &json!({})),
+            Some("Ctrl+Shift+`")
+        );
         let mut keys: Vec<_> = k.iter().map(|b| b.keystrokes).collect();
         keys.sort_unstable();
         keys.dedup();
