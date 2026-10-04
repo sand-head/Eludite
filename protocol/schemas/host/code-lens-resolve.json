@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/code-lens-resolve.json",
+  "title": "codeLens/resolve",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::ResolveCodeLens, brief 0052). Params are a CodeLens as received from textDocument/codeLens (code-lens.json $defs.codeLens, data unchanged) plus eluditeGeneration; the result is the lens with its command. The pinned Roslyn resolves a references lens to the title \"N references\" and the command roslyn.client.peekReferences, which the host maps to eludite.editor.find_references (code-lens.json $defs.referencesArguments). A lens resolved for an older syntax version of its document is ContentModified (-32801). The host validates that params.range is an object.",
+  "x-eludite-method": "codeLens/resolve",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "range",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "range": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ]
+        },
+        "data": {
+          "description": "Opaque, as received."
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The lens with its command (code-lens.json $defs.codeLens).",
+      "type": "object",
+      "required": [
+        "range"
+      ],
+      "properties": {
+        "range": {
+          "type": "object"
+        },
+        "command": {
+          "type": "object",
+          "required": [
+            "title",
+            "command"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "arguments": {
+              "type": "array"
+            }
+          }
+        },
+        "data": {}
+      }
+    }
+  }
+}

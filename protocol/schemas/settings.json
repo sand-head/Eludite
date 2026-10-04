@@ -10,6 +10,7 @@
     "Projects and Solutions > Build and Run",
     "Debugging > General",
     "Text Editor > Rust",
+    "Text Editor > All Languages > CodeLens",
     "Test > General",
     "Agents",
     "Web Browser",
@@ -165,6 +166,107 @@
       "x-eludite-section": "Text Editor > Rust",
       "x-eludite-label": "rust-analyzer executable",
       "x-eludite-env": "ELUDITE_RUST_ANALYZER"
+    },
+    "editor.codeLens": {
+      "description": "Show CodeLens (brief 0052): a line above each class, method, property and test with Visual Studio's indicators, from the language server of the document (\"N references\", which opens the References popup; \"Run Test\" and \"Debug Test\" on a test, with the last outcome and its duration). Off removes the lines; editor.codeLens.references and editor.codeLens.tests choose the indicators while it is on, and editor.languages.<language>.codeLens overrides the choice for one language.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "Enable CodeLens"
+    },
+    "editor.codeLens.references": {
+      "description": "Show the references indicators (\"N references\"; rust-analyzer's \"N implementations\") while CodeLens is on.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "Show References"
+    },
+    "editor.codeLens.tests": {
+      "description": "Show the test indicators (\"Run Test\" and \"Debug Test\", with the last outcome) while CodeLens is on.",
+      "type": "boolean",
+      "default": true,
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "Show Test Status"
+    },
+    "editor.languages.csharp.codeLens": {
+      "description": "CodeLens in C# documents: `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "C#",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
+    },
+    "editor.languages.rust.codeLens": {
+      "description": "CodeLens in Rust documents: `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "Rust",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
+    },
+    "editor.languages.typescript.codeLens": {
+      "description": "CodeLens in TypeScript documents (also TSX files): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "TypeScript",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
+    },
+    "editor.languages.javascript.codeLens": {
+      "description": "CodeLens in JavaScript documents (also JSX files): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "enum": [
+        "default",
+        "on",
+        "references",
+        "tests",
+        "off"
+      ],
+      "default": "default",
+      "x-eludite-section": "Text Editor > All Languages > CodeLens",
+      "x-eludite-label": "JavaScript",
+      "x-eludite-enum-labels": [
+        "Use the All Languages setting",
+        "All indicators",
+        "References only",
+        "Tests only",
+        "Off"
+      ]
     },
     "test.runSettings": {
       "description": "A .runsettings file for .NET tests (Visual Studio's Test > Configure Run Settings): VSTest projects get its contents as the RunSettings of every discovery and run; Microsoft.Testing.Platform test applications get `--settings <path>`. A relative path is under the solution's folder. Empty: none.",

@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/code-lens.json",
+  "title": "textDocument/codeLens",
+  "description": "Forwarded LSP 3.17 request, typed in eludite-protocol (lsp::CodeLensRequest, brief 0052). Params carry eluditeGeneration like every forwarded request (forwarded-request.json); LSP has no range parameter, so the answer covers the whole document. The pinned Roslyn answers, for every type and member it shows CodeLens for, an unresolved references lens (no command, opaque data for codeLens/resolve), and for every test method two lenses with the command dotnet.test.run (titles \"Run Test\" and \"Debug Test\"; \"Run All Tests\" and \"Debug All Tests\" for the class that holds them). The host rewrites the lens commands it knows before answering (host-rpc.md, \"CodeLens\"): dotnet.test.run becomes eludite.test.run or eludite.test.debug with $defs.testArguments, roslyn.client.peekReferences becomes eludite.editor.find_references with $defs.referencesArguments. Any other command passes through unchanged.",
+  "x-eludite-method": "textDocument/codeLens",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "x-eludite-forwarded": true,
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "textDocument",
+        "eluditeGeneration"
+      ],
+      "properties": {
+        "textDocument": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "eluditeGeneration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "result": {
+      "description": "The document's lenses, or null.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/codeLens"
+      }
+    },
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "character"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "character": {
+          "description": "UTF-16 code units.",
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "codeLens": {
+      "description": "LSP CodeLens. The shell shows it above the line of range.start; without a command it is unresolved and the shell resolves it (codeLens/resolve) when its line comes near the visible range.",
+      "type": "object",
+      "required": [
+        "range"
+      ],
+      "properties": {
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "data": {
+          "description": "Opaque; sent back unchanged in codeLens/resolve. Roslyn's is { syntaxVersion, listIndex, textDocument }."
+        }
+      }
+    },
+    "command": {
+      "description": "LSP Command. After the host's mapping, command is one of eludite.editor.find_references (arguments [referencesArguments]), eludite.test.run or eludite.test.debug (arguments [testArguments]), or a command the host does not know, unchanged.",
+      "type": "object",
+      "required": [
+        "title",
+        "command"
+      ],
+      "properties": {
+        "title": {
+          "description": "What the lens shows, as the server wrote it: \"3 references\", \"1 reference\", \"99+ references\" (Roslyn stops counting at 99), \"- references\" (not counted), \"Run Test\", \"Debug Test\", \"Run All Tests\", \"Debug All Tests\".",
+          "type": "string"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arguments": {
+          "type": "array"
+        }
+      }
+    },
+    "referencesArguments": {
+      "description": "The one argument of a mapped references lens (Roslyn's roslyn.client.peekReferences [uri, position]): the symbol's position, for textDocument/references and eludite.editor.find_references.",
+      "type": "object",
+      "required": [
+        "uri",
+        "path",
+        "position"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "The document's absolute path (from uri).",
+          "type": "string",
+          "minLength": 1
+        },
+        "position": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "testArguments": {
+      "description": "The one argument of a mapped test lens (Roslyn's dotnet.test.run [{ textDocument, range, attachDebugger, runSettingsPath }]). Roslyn's lens names no test: only the document and the member's identifier range. The host adds member, the identifier's text in its copy of the document; the shell finds the discovered tests of that file whose method (or, for Run All Tests, class) is member in the Test Explorer's model and runs them by id with eludite.test.run or eludite.test.debug.",
+      "type": "object",
+      "required": [
+        "uri",
+        "path",
+        "range",
+        "member"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "member": {
+          "description": "The test method's (or class's) name as written at range.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}
