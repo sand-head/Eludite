@@ -6223,9 +6223,11 @@ impl Shell {
             }
             return;
         }
-        // A browser session's children detach first: vscode-js-debug answers the parent's `disconnect` once they have
-        // (brief 0038).
+        // A browser session's children detach first, and the session itself once they have ended (vscode-js-debug
+        // answers the parent's `disconnect` once its children are gone; brief 0038): the sessions end in one order.
         let children = d.children_of(d.session_id);
+        let wait_for_children = !children.is_empty() && d.client.is_some() && d.model.attached();
+        d.model.detach_after_children = wait_for_children;
         if !children.is_empty() {
             for c in children {
                 self.in_session(c, |s| {
@@ -6245,7 +6247,9 @@ impl Shell {
             }
         }
         let d = &mut self.debug;
-        if d.client.is_some() {
+        if wait_for_children {
+            // Detached when the last child ends (`end_session`).
+        } else if d.client.is_some() {
             // An attached session detaches: the process keeps running, and the session ends with the answer (an
             // adapter may stay up after detaching; brief 0027).
             let attached = d.model.attached();
@@ -7148,6 +7152,7 @@ impl Shell {
             d.console_line(m.clone());
         }
         let never_ran = d.model.capabilities.is_none();
+        let parent = d.model.session.as_ref().and_then(|s| s.parent);
         d.model.end();
         d.model.message = detached.or(message);
         // Brief 0038: a browser session's children end with it; a browser attach of a compound that failed says so in
@@ -7160,6 +7165,26 @@ impl Shell {
                     client.kill();
                 }
                 s.end_session(None, cx);
+            });
+        }
+        // The last child of a stopping browser session ended: the session detaches now.
+        if let Some(p) = parent
+            && self.debug.children_of(p).is_empty()
+        {
+            self.in_session(p, |s| {
+                let d = &mut s.debug;
+                if !std::mem::take(&mut d.model.detach_after_children)
+                    || d.model.mode != Mode::Stopping
+                    || d.session_id != p
+                {
+                    return;
+                }
+                let generation = d.generation();
+                let _ = d.send(
+                    "disconnect",
+                    json!({ "terminateDebuggee": false }),
+                    Pending::Detach { generation },
+                );
             });
         }
         if let (Some(server), true, Some(m)) = (attached_for, never_ran, message) {

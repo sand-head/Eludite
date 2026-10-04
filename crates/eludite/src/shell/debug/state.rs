@@ -1447,6 +1447,9 @@ pub struct DebugModel {
     pub browser_attach: Option<BrowserAttach>,
     /// A browser session started for a server session's page: that session (its answer and message say how it went).
     pub attached_for: Option<u32>,
+    /// Stop on a browser session waits for its children to end before it detaches the session itself
+    /// (vscode-js-debug answers the parent's `disconnect` once its children are gone; brief 0038).
+    pub detach_after_children: bool,
 }
 
 /// A server session's browser attach (brief 0038).
@@ -1503,6 +1506,7 @@ impl Default for DebugModel {
             browser_entry: None,
             browser_attach: None,
             attached_for: None,
+            detach_after_children: false,
         }
     }
 }
@@ -1700,6 +1704,7 @@ impl DebugModel {
         self.removed_points.clear();
         self.adapter_version = None;
         self.browser_attach = None;
+        self.detach_after_children = false;
         self.agents_allowed = self.agents_next.take().unwrap_or(self.agents_default);
     }
 
