@@ -290,7 +290,7 @@ fn new_terminal_split_kill_and_the_exit_line_with_restart(cx: &mut TestAppContex
     t.w.click(term::KILL);
     t.wait_terminals(3);
     assert!(t.service().handle(&fourth).is_none());
-    assert_eq!(t.tabs()[2], [third.clone()]);
+    assert_eq!(t.tabs()[2], std::slice::from_ref(&third));
     // A shell that ends shows the exit line; Restart starts a new one in its place.
     t.terminal(&second).write("exit 3\r");
     t.w.click(&term::tab_selector(&second));
@@ -670,7 +670,7 @@ fn closing_the_workspace_ends_the_shells_and_a_running_command_asks(cx: &mut Tes
     assert!(t.w.vcx.has_pending_prompt(), "a running command asks");
     t.w.vcx.simulate_prompt_answer("No");
     t.w.vcx.run_until_parked();
-    assert_eq!(t.service().ids(), [id.clone()]);
+    assert_eq!(t.service().ids(), std::slice::from_ref(&id));
     assert!(terminal.busy());
     // Yes closes the workspace and ends the shell.
     t.run_ui(workspace::WORKSPACE_CLOSE, json!({}));
@@ -994,4 +994,53 @@ fn marks_are_bytes_of_plain_text_and_clear_keeps_them(cx: &mut TestAppContext) {
         .unwrap_err();
     assert!(refused.contains("eludite.terminal.list"), "{refused}");
     let _ = PathBuf::new();
+}
+
+/// Tools > Options has the Terminal page from the schema, and its settings reach the views (font size, copy on
+/// select, the bell) and new terminals (the scrollback, the integration).
+#[gpui::test]
+fn the_options_page_and_the_terminal_settings_apply(cx: &mut TestAppContext) {
+    let mut t = setup_terminal(cx);
+    t.run_ui("eludite.view.show", json!({"id": ids::TERMINAL}));
+    let id = t.wait_terminals(1)[0].clone();
+    t.wait_screen(&id, "the prompt", |s| s.ends_with('$'));
+    t.run_ui("eludite.tools.options", json!({"section": "Terminal"}));
+    let section = t.w.shell.read_with(&t.w.vcx, |s, cx| {
+        s.options.as_ref().map(|o| o.read(cx).section().to_owned())
+    });
+    assert_eq!(section.as_deref(), Some("Terminal"));
+    for (key, value) in [
+        ("terminal.fontSize", json!(20)),
+        ("terminal.copyOnSelect", json!(true)),
+        ("terminal.bell", json!("none")),
+        ("terminal.scrollback", json!(500)),
+    ] {
+        t.w.commands
+            .invoke("eludite.settings.set", json!({"key": key, "value": value}))
+            .unwrap();
+    }
+    let view = t.view(&id);
+    t.w.wait("the view's settings", |w| {
+        view.read_with(&w.vcx, |v, _| v.grid_size().0 > 0)
+            && w.shell.read_with(&w.vcx, |s, _| {
+                s.terminal_ui().view_settings().is_some_and(|v| {
+                    v.copy_on_select && !v.visual_bell && v.font_size == gpui::px(20.)
+                })
+            })
+    });
+    // The bell rings without a flash now.
+    t.terminal(&id).write("printf '\\a'\r");
+    t.w.vcx.run_until_parked();
+    std::thread::sleep(Duration::from_millis(200));
+    t.w.vcx.run_until_parked();
+    assert!(!view.read_with(&t.w.vcx, |v, _| v.flashing()));
+    // A new terminal keeps 500 lines.
+    t.agent(cmds::OPEN, json!({})).unwrap();
+    let ids = t.wait_terminals(2);
+    let fresh = t.terminal(&ids[1]);
+    t.wait_screen(&ids[1], "its prompt", |s| s.ends_with('$'));
+    fresh.write("seq 1 2000\r");
+    t.wait_screen(&ids[1], "the numbers", |s| s.contains("2000"));
+    let (_, history) = fresh.all_lines();
+    assert!(history <= 500, "{history}");
 }

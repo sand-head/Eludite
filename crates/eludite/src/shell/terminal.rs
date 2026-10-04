@@ -134,11 +134,14 @@ impl Default for TermSettings {
     }
 }
 
+/// Reads a variable of Eludite's environment.
+pub type EnvLookup = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// How the service finds profiles and tools (tests give fixed ones).
 #[derive(Clone)]
 pub struct TerminalSetup {
     /// Reads Eludite's environment.
-    pub env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    pub env: EnvLookup,
     /// The built-in profiles; `None` for the platform's.
     pub builtin: Option<Vec<Profile>>,
     /// Where the integration scripts are written.
@@ -1378,7 +1381,7 @@ impl Shell {
         let window = self.terminal.window.clone();
         cx.spawn(async move |_, cx| {
             let names = work.await;
-            let _ = window.update(cx, |w, cx| w.set_profiles(names, cx));
+            window.update(cx, |w, cx| w.set_profiles(names, cx));
         })
         .detach();
     }
@@ -1468,7 +1471,7 @@ impl Shell {
                 let tid = id.clone();
                 let task = cx.spawn(async move |_, cx| {
                     cx.background_executor().timer(AGENT_LINGER).await;
-                    let _ = window_entity.update(cx, |w, cx| w.set_agent(&tid, None, cx));
+                    window_entity.update(cx, |w, cx| w.set_agent(&tid, None, cx));
                 });
                 self.terminal.linger.insert(id, task);
             }
@@ -1758,6 +1761,14 @@ impl Shell {
     #[cfg(test)]
     pub fn terminal_ui(&self) -> &TerminalUi {
         &self.terminal
+    }
+}
+
+impl TerminalUi {
+    /// The settings the views draw with.
+    #[cfg(test)]
+    pub fn view_settings(&self) -> Option<&ViewSettings> {
+        Some(&self.settings)
     }
 }
 
