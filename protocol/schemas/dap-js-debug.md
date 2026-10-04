@@ -7,10 +7,11 @@ vendored. This file records what Eludite sends, what it expects back, and what i
 pinned is in `tools/js-debug/PIN`.
 
 What ran where (brief 0038): the shell's behavior is proven against a fake js-debug (`crates/dap/src/fake.rs`,
-`fake::listen_js_debug`) that carries this contract; the real adapter's tests (`crates/dap/tests/js_debug.rs`, the
-shell's `*_js_debug_*` tests) and the two corpus scenarios (`corpus/dap/js-debug/`) need the release, which is
-published on GitHub only, and run where GitHub is reachable (CI's Linux job, the owner's machine). Anything below that
-the real adapter contradicts is a bug in this file.
+`fake::listen_js_debug`) that carries this contract, and against the real release 1.140.0 under Node.js 22 in brief
+0038's container: `crates/dap/tests/js_debug.rs` (the external Chrome), the shell's real tests (the embedded engine
+under Xvfb, the corpus web project and the Vite counter) and the two recorded scenarios (`corpus/dap/js-debug/`,
+replayed on every platform). The release is published on GitHub only; the tests that need it skip without
+`ELUDITE_JS_DEBUG`. Anything below that the real adapter contradicts is a bug in this file.
 
 ## Discovery
 
@@ -23,7 +24,7 @@ The DAP server script, `JsDebugSearch` (`crates/dap/src/discovery.rs`), first fo
    version folder there;
 3. `js-debug/src/dapDebugServer.js` beside the eludite executable.
 
-The version is the `version` of the release's `package.json` (beside `src/`), else the cache folder's name.
+The version is the cache folder's name (the release ships no `package.json`), else the one pinned.
 
 Node.js, `NodeSearch`: the setting `debugger.nodePath` (`ELUDITE_NODE`), `node` on `PATH`, Volta
 (`~/.volta/bin/node`), nvm's default (`~/.nvm/alias/default` names the version under `~/.nvm/versions/node/`), fnm's
@@ -43,8 +44,8 @@ the first line naming `listening`), within 10 s, and connects to `127.0.0.1:PORT
 `TcpServer`). The first connection owns the Node process: closing it (Stop, the session ending) kills the server and
 with it every child connection. The server's later stdout and stderr lines go to the session's `adapter` output.
 
-`session.adapter` reads `vscode-js-debug 1.140.0 under node v22.12.0 (tcp 127.0.0.1:PORT)`, `adapter_version`
-`vscode-js-debug 1.140.0, node v22.12.0`, `session.runtime` `javascript`, `capabilities.adapter` `javascript`.
+`session.adapter` reads `vscode-js-debug 1.140.0 under node v22.22.0 (tcp 127.0.0.1:PORT)`, `adapter_version`
+`vscode-js-debug 1.140.0, node v22.22.0`, `session.runtime` `javascript`, `capabilities.adapter` `javascript`.
 
 ## The browser session: initialize and attach
 
@@ -81,7 +82,13 @@ client to start with the reverse request `startDebugging` on the parent's connec
 
 Eludite answers it at once (`success: true`), opens a second connection to the same server, and runs the handshake
 there with `adapterID` `pwa-chrome`, `request` from the arguments and the configuration as the `attach` (or `launch`)
-arguments, unchanged. The child is a session with `parent` (the browser session's id), `attached`, named after
+arguments, unchanged. What the real adapter does then (recorded in `corpus/dap/js-debug/`): on the parent, `attach`
+is answered after `configurationDone`, right after the reverse request; on the child, `initialized` comes at once, the
+breakpoints set before the page's script is bound are answered `verified: false` with the message
+`breakpoint.provisionalBreakpoint` (pending, not refused), and once the child's `configurationDone` is answered the
+child's `attach` is answered, a second `initialized` comes, `thread` `started` with `threadId` 0 (named after the
+tab's title), and `breakpoint` `changed` events bind them through the source map. The parent sends `output` events of
+category `telemetry` (Eludite shows none). The child is a session with `parent` (the browser session's id), `attached`, named after
 `configuration.name`, listed under its parent by `eludite.debug.sessions` and the Call Stack's selector. A child may
 start children of its own the same way.
 
@@ -89,7 +96,9 @@ start children of its own the same way.
   gets none, so `breakpoints[].sessions` lists the children only.
 - Commands addressed to the parent act on the parent only. `wait` on a parent ends at the first stop of the parent or
   any of its children and answers that session's summary (brief 0028's compound rule).
-- Stop on the parent stops its children: each is ended as the parent's `disconnect` is answered.
+- Stop on the parent detaches its children first (`disconnect`, `terminateDebuggee: false`; each answers with
+  `thread` `exited` and `terminated`), then, once the last has ended, the parent itself (js-debug sends the parent
+  `terminated` when its last child goes, and answers the parent's `disconnect` only then).
 
 ## Breakpoints by file kind
 
@@ -104,8 +113,9 @@ adapter claims goes to every session, as before brief 0038.
 
 A breakpoint in `app.ts` is set with its own path: js-debug binds it through the page's source maps (`setBreakpoints`
 on the original path, `verified` once the generated script loaded). js-debug's `verified: false` with a message counts
-as a refusal in `breakpoints_failed` (brief 0036) unless the message says it is pending; js-debug's own unbound note
-(`Unbound breakpoint`) is pending until the page loads the script.
+as a refusal in `breakpoints_failed` (brief 0036) unless the message says it is pending; js-debug's own notes
+(`breakpoint.provisionalBreakpoint`, `Unbound breakpoint`) are pending until the page loads the script
+(`eludite_commands::debug::pending_message`).
 
 ## Exceptions
 
@@ -123,7 +133,11 @@ browser session is live. `exceptionInfo` answers `exception_info` as for the oth
 ## Source maps and frames
 
 js-debug answers `stackTrace` with the original location when a source map applies (`source.path` is the `.ts` file
-under `webRoot`). Eludite keeps that path as the frame's `path`: the execution point, the Call Stack and the
+under `webRoot`; its scopes are `Block: f` and `Local: f`, then `Script` and `Global`, the last `expensive`: the Locals
+window shows `Local: f`, else the first one not expensive). A stop has `allThreadsStopped: false` and, on a
+breakpoint, `hitBreakpointIds`. A script with no file under `webRoot` (an inline handler) is named after its url
+(`127.0.0.1꞉PORT/(index)꞉10:64`, with modifier letter colons) and mapped to the page's file when one matches
+(`index.html`). Eludite keeps that path as the frame's `path`: the execution point, the Call Stack and the
 Breakpoints window all work on the original file. It then looks for the map beside the original file (`<stem>.js.map`,
 `<stem>.map`, or a `*.map` in the same folder listing it in `sources`; read on the client's reader thread, cached by
 modification time) and, when one maps the frame's line, adds `source: { original, generated, generated_line,
@@ -134,7 +148,8 @@ the frame still carries the original path js-debug resolved.
 ## DAP features used
 
 `initialize`, `attach`, `configurationDone`, `setBreakpoints` (with `condition`, `hitCondition`, `logMessage`: js-debug
-has log points, so tracepoints are the adapter's), `setExceptionBreakpoints`, `threads`, `stackTrace` (with
+has log points, so tracepoints are the adapter's; a log point prints an `output` event of category `stdout` with the
+`source` and `line` of the tracepoint), `setExceptionBreakpoints`, `threads`, `stackTrace` (with
 `startFrame` and `levels`), `scopes`, `variables` (paged), `evaluate`, `setVariable`, `exceptionInfo`, `continue`,
 `next`, `stepIn`, `stepOut`, `pause`, `disconnect`; events `initialized`, `stopped`, `continued`, `thread`, `output`,
 `breakpoint`, `loadedSource` (ignored), `terminated`; the reverse request `startDebugging`. `run_until`, `trace`,
@@ -142,9 +157,8 @@ has log points, so tracepoints are the adapter's), `setExceptionBreakpoints`, `t
 
 ## Known not to work, or not verified
 
-- **Not run against the real adapter in brief 0038's container** (GitHub releases unreachable): the attach arguments
-  above, the `startDebugging` shape, the first stdout line and the exception filter ids follow js-debug's sources and
-  nvim-dap's integration; the recording of `corpus/dap/js-debug/` will confirm or correct them.
+- **A page stopped in the debugger answers no input**: `eludite.browser.input` stops waiting for its events' answers
+  once the shell's debugger marks the tab stopped and answers `paused: true` (brief 0038).
 - **`targetId`** is honored only by js-debug versions that read it; with one that does not, `urlFilter` picks every
   tab showing the same url.
 - Exception types, function breakpoints (js-debug has none), Set Next Statement (no `gotoTargets`), restart of a
