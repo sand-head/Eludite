@@ -1,0 +1,46 @@
+debuggee wine pid 336
+eludite-dbg-netfx: listening on 127.0.0.1:47110
+<- initialize: success=True 3.2 ms body={"exceptionBreakpointFilters": [], "supportTerminateDebuggee": true, "supportsConditionalBreakpoints": false, "supportsConfigurationDoneRequest": true, "supportsEvaluateForHovers": false, "supportsSetVariable": false, "supportsStepBack": false, "supportsTerminateRequest": false} 
+<- attach: success=True 47.1 ms body=null 
+<- event initialized after 0.5 ms: null
+RESULT attach->initialized 47.8 ms
+<- setBreakpoints: success=True 9.0 ms body={"breakpoints": [{"id": 1, "line": 30, "message": "No loaded module has symbols for this line yet", "source": {"path": "Z:\\tmp\\claude-0\\-home-user-Eludite\\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\\scratchpad\\wine\\build\\counter\\Program.cs"}, "verified": false}]} 
+<- configurationDone: success=True 0.9 ms body=null 
+   event: {"body": {"breakpoint": {"id": 1, "line": 30, "source": {"path": "Z:\\tmp\\claude-0\\-home-user-Eludite\\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\\scratchpad\\wine\\build\\counter\\Program.cs"}, "verified": true}, "reason": "changed"}, "event": "breakpoint", "seq": 6, "type": "event"}
+<- event stopped after 26.8 ms: {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 340}
+<- threads: success=True 0.7 ms body={"threads": [{"id": 340, "name": "Thread 340"}, {"id": 348, "name": "Thread 348"}]} 
+<- stackTrace: success=True 68.5 ms body={"stackFrames": [{"column": 13, "id": 1, "line": 30, "name": "Eludite.Fixtures.Counter.Program.Tick", "source": {"name": "Program.cs", "path": "Z:\\tmp\\claude-0\\-home-user-Eludite\\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\\scratchpad\\wine\\build\\counter\\Program.cs"}}, {"column": 17, "id": 2, "line" 
+   frame: Eludite.Fixtures.Counter.Program.Tick 30 Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs
+   frame: Eludite.Fixtures.Counter.Program.Main 22 Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs
+<- scopes: success=True 0.8 ms body={"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}]} 
+<- variables: success=True 1.1 ms body={"variables": [{"name": "counter", "type": "int", "value": "194", "variablesReference": 0}]} 
+RESULT stop 0: locals [('counter', '194')]
+<- continue: success=True 1.6 ms body={"allThreadsContinued": true} 
+<- event stopped after 54.0 ms: {"allThreadsStopped": true, "hitBreakpointIds": [1], "reason": "breakpoint", "threadId": 340}
+<- threads: success=True 0.7 ms body={"threads": [{"id": 340, "name": "Thread 340"}, {"id": 348, "name": "Thread 348"}]} 
+<- stackTrace: success=True 50.2 ms body={"stackFrames": [{"column": 13, "id": 1, "line": 30, "name": "Eludite.Fixtures.Counter.Program.Tick", "source": {"name": "Program.cs", "path": "Z:\\tmp\\claude-0\\-home-user-Eludite\\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\\scratchpad\\wine\\build\\counter\\Program.cs"}}, {"column": 17, "id": 2, "line" 
+   frame: Eludite.Fixtures.Counter.Program.Tick 30 Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs
+   frame: Eludite.Fixtures.Counter.Program.Main 22 Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs
+<- scopes: success=True 0.6 ms body={"scopes": [{"expensive": false, "name": "Locals", "presentationHint": "locals", "variablesReference": 1}]} 
+<- variables: success=True 0.7 ms body={"variables": [{"name": "counter", "type": "int", "value": "196", "variablesReference": 0}]} 
+RESULT stop 1: locals [('counter', '196')]
+<- continue: success=True 1.5 ms body={"allThreadsContinued": true} 
+   event: {"event": "terminated", "seq": 19, "type": "event"}
+<- disconnect: success=True 32.6 ms body=null 
+RESULT done
+exit 0
+tick 116 12063873925
+tick 117 12064376236
+tick 118 12064878348
+--- adapter stderr
+eludite-dbg-netfx: listening on 127.0.0.1:47110
+eludite-dbg-netfx: client connected from 127.0.0.1:39466
+eludite-dbg-netfx: process 336 runs CLR v4.0.30319
+eludite-dbg-netfx: attach: ICorDebug created in 21.1 ms, DebugActiveProcess 24.1 ms, total 46.1 ms
+eludite-dbg-netfx: attached to 336; attach request to initialized event 47.5 ms
+eludite-dbg-netfx: symbols: Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Counter.pdb (1 documents)
+eludite-dbg-netfx: bound Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs:30 to 0x06000002+IL_0005 (line 30) in Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Counter.exe
+eludite-dbg-netfx: stopped (breakpoint) on thread 340; callback to stopped event 0.539 ms
+eludite-dbg-netfx: stopped (breakpoint) on thread 340; callback to stopped event 0.630 ms
+eludite-dbg-netfx: detached; the debuggee keeps running
+eludite-dbg-netfx: session ended

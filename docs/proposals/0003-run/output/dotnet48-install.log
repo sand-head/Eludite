@@ -1,0 +1,7 @@
+Sun Oct  4 13:59:56 UTC 2026
+Executing wine C:\windows\syswow64\regedit.exe /S C:\windows\Temp\_dotnet48\override-dll.reg
+Executing wine C:\windows\regedit.exe /S C:\windows\Temp\_dotnet48\override-dll.reg
+Executing touch /tmp/claude-0/-home-user-Eludite/8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb/scratchpad/wine/prefix/dosdevices/c:/windows/dotnet48.installed.workaround
+real	7m20.133s
+Sun Oct  4 14:07:17 UTC 2026
+DOTNET48-DONE

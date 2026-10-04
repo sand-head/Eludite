@@ -1,0 +1,11 @@
+eludite-dbg-netfx: listening on 127.0.0.1:47110
+eludite-dbg-netfx: client connected from 127.0.0.1:39466
+eludite-dbg-netfx: process 336 runs CLR v4.0.30319
+eludite-dbg-netfx: attach: ICorDebug created in 21.1 ms, DebugActiveProcess 24.1 ms, total 46.1 ms
+eludite-dbg-netfx: attached to 336; attach request to initialized event 47.5 ms
+eludite-dbg-netfx: symbols: Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Counter.pdb (1 documents)
+eludite-dbg-netfx: bound Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Program.cs:30 to 0x06000002+IL_0005 (line 30) in Z:\tmp\claude-0\-home-user-Eludite\8bc6aa0b-87e9-546a-83f0-8b8e9770ebdb\scratchpad\wine\build\counter\Counter.exe
+eludite-dbg-netfx: stopped (breakpoint) on thread 340; callback to stopped event 0.539 ms
+eludite-dbg-netfx: stopped (breakpoint) on thread 340; callback to stopped event 0.630 ms
+eludite-dbg-netfx: detached; the debuggee keeps running
+eludite-dbg-netfx: session ended
