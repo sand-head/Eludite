@@ -2705,6 +2705,12 @@ fn driver_of(caller: &Caller) -> String {
     }
 }
 
+/// A session's mode as the Call Stack and Threads windows' selector says it: `running without debugging` for the
+/// state's `running_without_debugging` (a Ctrl+F5 program listed beside a browser session, brief 0038).
+fn mode_words(mode: &str) -> String {
+    mode.replace('_', " ")
+}
+
 fn file_name(path: &str) -> String {
     Path::new(path)
         .file_name()
@@ -6971,7 +6977,11 @@ impl Shell {
                 .into_iter()
                 .map(|(id, name, mode, _)| windows::SessionChoice {
                     id: *id,
-                    label: format!("{}{id}: {name} ({mode})", "    ".repeat(depth(*id))),
+                    label: format!(
+                        "{}{id}: {name} ({})",
+                        "    ".repeat(depth(*id)),
+                        mode_words(mode)
+                    ),
                     active: *id == d.active,
                 })
                 .collect()

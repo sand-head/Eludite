@@ -7878,6 +7878,22 @@ fn attach_to_a_tab_debugs_the_page_through_a_child_session(cx: &mut TestAppConte
     // The execution point is in app.ts.
     let view = d.w.editor(&d.w.path("src/App/wwwroot/app.ts"));
     assert_eq!(d.exec(&view).map(|e| e.0), Some(24));
+    // The Call Stack's selector lists the child under its parent, indented, with readable modes.
+    let labels: Vec<String> = d.w.shell.read_with(&d.w.vcx, |s, cx| {
+        let w = s.debugger().windows.call_stack.read(cx);
+        w.sessions().iter().map(|c| c.label.clone()).collect()
+    });
+    assert_eq!(
+        labels,
+        [
+            format!("{}: Minimal API (running)", parent.id),
+            format!("    {}: Minimal API (break)", child.id)
+        ]
+    );
+    assert_eq!(
+        super::mode_words("running_without_debugging"),
+        "running without debugging"
+    );
     // Stop on the browser session: the child detaches first, then the browser session; the page keeps running.
     d.cmd(cmds::STOP, json!({"session": parent.id})).unwrap();
     d.wait_sessions("both ended", |s| s.is_empty());
