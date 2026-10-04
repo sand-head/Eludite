@@ -47,12 +47,31 @@ pub const SCRIPTS: [(&str, &str); 7] = [
 
 /// Where the scripts go: `<temp>/eludite-shell-integration-<user>/<version>`.
 pub fn default_dir() -> PathBuf {
-    let user = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "user".into());
-    std::env::temp_dir()
-        .join(format!("eludite-shell-integration-{user}"))
-        .join(env!("CARGO_PKG_VERSION"))
+    default_dir_in(&|k| std::env::var(k).ok())
+}
+
+/// [`default_dir`] from the environment `env`: Eludite's cache folder (`$XDG_CACHE_HOME/eludite`, else
+/// `~/.cache/eludite`; `%LOCALAPPDATA%\eludite` on Windows), never a folder other users can write to; the temporary
+/// folder only when neither is known.
+pub fn default_dir_in(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
+    let cache = if cfg!(windows) {
+        env("LOCALAPPDATA").map(PathBuf::from)
+    } else {
+        env("XDG_CACHE_HOME")
+            .filter(|d| !d.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| env("HOME").map(|h| Path::new(&h).join(".cache")))
+    };
+    match cache {
+        Some(c) => c.join("eludite").join("shell-integration"),
+        None => {
+            let user = env("USER")
+                .or_else(|| env("USERNAME"))
+                .unwrap_or_else(|| "user".into());
+            std::env::temp_dir().join(format!("eludite-shell-integration-{user}"))
+        }
+    }
+    .join(env!("CARGO_PKG_VERSION"))
 }
 
 /// Write the scripts under `dir`, rewriting any that differ. Called off the UI thread (when a terminal opens).
@@ -194,6 +213,22 @@ mod tests {
         assert!(!launch(ShellKind::Cmd, &[]).0);
         // A shell told to run a command is left alone.
         assert!(!launch(ShellKind::Bash, &["-c", "true"]).0);
+    }
+
+    #[test]
+    fn the_scripts_live_in_eludites_cache_folder() {
+        let env = |k: &str| (k == "HOME").then(|| "/home/me".to_owned());
+        let dir = default_dir_in(&env);
+        if !cfg!(windows) {
+            assert!(
+                dir.starts_with("/home/me/.cache/eludite/shell-integration"),
+                "{dir:?}"
+            );
+        }
+        let xdg = |k: &str| (k == "XDG_CACHE_HOME").then(|| "/c".to_owned());
+        if !cfg!(windows) {
+            assert!(default_dir_in(&xdg).starts_with("/c/eludite"));
+        }
     }
 
     #[test]

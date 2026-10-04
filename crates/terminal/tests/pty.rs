@@ -486,7 +486,12 @@ fn the_persons_input_interrupts_a_wait_and_kill_ends_a_busy_terminal() {
     s.t.interrupt_waits();
     let r = waiter.join().unwrap();
     assert_eq!(r.matched, Matched::Interrupted);
-    assert!(s.t.busy());
+    // The wait may end before bash hands the terminal to `sleep`.
+    let deadline = Instant::now() + T;
+    while !s.t.busy() {
+        assert!(Instant::now() < deadline, "sleep never took the foreground");
+        std::thread::sleep(Duration::from_millis(2));
+    }
     s.t.close(true);
     assert!(s.exit().is_some_and(|c| c != 0));
 }
