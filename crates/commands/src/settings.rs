@@ -6,6 +6,12 @@
 //! it. Defaults come from there and nowhere else, and the Options dialog is generated from it. The store itself (the
 //! files, their merge and live reload) lives in the shell, which implements [`SettingsTarget`]; this module parses
 //! the commands' input, validates a value against its setting, and serializes the outputs.
+//!
+//! Where a setting's effective value comes from is decided here too ([`SettingSpec::resolve`]), so the rule is in one
+//! place: the environment variable, then the solution's file, then the user file, then the default; except that a
+//! `user-workspace` setting (brief 0047's [`SettingScope::UserWorkspace`], `browser.allowNoSandbox`) is read from the
+//! person's own state for the workspace instead of the solution's file, whose value of it is ignored and reported
+//! ([`SettingsSchema::ignored_in_solution`]), so a committed file can never set it.
 
 use std::sync::Arc;
 
@@ -57,8 +63,8 @@ pub struct SettingSpec {
     pub label: String,
     /// The environment variable that overrides the files.
     pub env: Option<String>,
-    /// Which file the Options dialog writes it in (`x-eludite-scope`): the user's, or the workspace's for a setting
-    /// that belongs to the workspace (brief 0039's `browser.allowNoSandbox`).
+    /// Which file the Options dialog writes it in (`x-eludite-scope`): the user's, the workspace's for a setting that
+    /// belongs to the workspace, or the person's own state for the workspace (brief 0047's `browser.allowNoSandbox`).
     pub scope: SettingScope,
     /// The item schema of a list (to validate entries).
     items: Option<Value>,
@@ -113,6 +119,26 @@ impl SettingSpec {
         }
     }
 
+    /// The effective value and where it came from, given the setting's value in each place (each already read from
+    /// its file; a value of the wrong type counts as absent). The environment variable wins, then the person's state
+    /// for the workspace (only for a `user-workspace` setting) or the solution's file (for every other one), then
+    /// the user file, then the default. A `user-workspace` setting never takes the solution file's value, and no other
+    /// setting takes a value from the person's state for the workspace.
+    pub fn resolve(&self, layers: SettingLayers<'_>) -> (Value, SettingSource) {
+        if let Some(v) = layers.env.and_then(|t| self.parse_env(t)) {
+            return (v, SettingSource::Environment);
+        }
+        let valid = |v: Option<&Value>| v.filter(|v| self.validate(v).is_ok()).cloned();
+        let workspace = if self.scope == SettingScope::UserWorkspace {
+            valid(layers.user_workspace).map(|v| (v, SettingSource::UserWorkspace))
+        } else {
+            valid(layers.solution).map(|v| (v, SettingSource::Solution))
+        };
+        workspace
+            .or_else(|| valid(layers.user).map(|v| (v, SettingSource::User)))
+            .unwrap_or_else(|| (self.default.clone(), SettingSource::Default))
+    }
+
     /// The value from an environment variable's text (`1`/`true`/`0`/`false` for a switch), or `None` when it does
     /// not parse.
     pub fn parse_env(&self, text: &str) -> Option<Value> {
@@ -138,6 +164,16 @@ impl SettingSpec {
                 .filter(|v| self.validate(v).is_ok()),
         }
     }
+}
+
+/// One setting's raw value in each place, for [`SettingSpec::resolve`]: the override variable's text and the
+/// value in each file (absent: `None`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SettingLayers<'a> {
+    pub env: Option<&'a str>,
+    pub user: Option<&'a Value>,
+    pub user_workspace: Option<&'a Value>,
+    pub solution: Option<&'a Value>,
 }
 
 /// A small check of an object against an object schema: `required`, `additionalProperties: false`, and string,
@@ -264,6 +300,7 @@ impl SettingsSchema {
                 scope: match p["x-eludite-scope"].as_str() {
                     None | Some("user") => SettingScope::User,
                     Some("solution") => SettingScope::Solution,
+                    Some("user-workspace") => SettingScope::UserWorkspace,
                     Some(other) => return Err(format!("{key}: unknown scope {other}")),
                 },
                 items: p.get("items").cloned(),
@@ -290,6 +327,25 @@ impl SettingsSchema {
         self.settings.iter().find(|s| s.key == key)
     }
 
+    /// The keys among `keys` (those of the solution's `.eludite/settings.json`) that are the person's own
+    /// (`user-workspace`): ignored in that file and reported, sorted.
+    pub fn ignored_in_solution<'a>(
+        &self,
+        keys: impl IntoIterator<Item = &'a String>,
+    ) -> Vec<String> {
+        let mut ignored: Vec<String> = keys
+            .into_iter()
+            .filter(|k| {
+                self.get(k)
+                    .is_some_and(|s| s.scope == SettingScope::UserWorkspace)
+            })
+            .cloned()
+            .collect();
+        ignored.sort();
+        ignored.dedup();
+        ignored
+    }
+
     /// The settings of one section, in file order.
     pub fn section<'a>(&'a self, section: &'a str) -> impl Iterator<Item = &'a SettingSpec> + 'a {
         self.settings.iter().filter(move |s| s.section == section)
@@ -303,6 +359,9 @@ pub enum SettingSource {
     Default,
     User,
     Solution,
+    /// The person's own state for the workspace (brief 0047).
+    #[serde(rename = "user-workspace")]
+    UserWorkspace,
     Environment,
 }
 
@@ -313,6 +372,10 @@ pub enum SettingScope {
     #[default]
     User,
     Solution,
+    /// The person's own state for the open workspace (`<config dir>/eludite/workspaces/<folder>-<hash>/settings.json`,
+    /// brief 0047), for the settings whose `x-eludite-scope` is `user-workspace` only.
+    #[serde(rename = "user-workspace")]
+    UserWorkspace,
 }
 
 /// `settings-get.output.json`'s file members.
@@ -347,7 +410,13 @@ pub struct SettingsGetOutput {
     pub user_file: SettingsFileInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solution_file: Option<SettingsFileInfo>,
+    /// The person's state for the open workspace (brief 0047).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_workspace_file: Option<SettingsFileInfo>,
     pub settings: Vec<SettingRow>,
+    /// `user-workspace` keys found in the solution's file: ignored there (brief 0047).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_keys: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unknown_keys: Vec<String>,
 }
@@ -420,8 +489,8 @@ struct GetInput {
 struct SetInput {
     key: String,
     value: Value,
-    #[serde(default)]
-    scope: SettingScope,
+    /// Omitted: the setting's own scope (`x-eludite-scope`).
+    scope: Option<SettingScope>,
 }
 
 #[derive(Deserialize)]
@@ -439,7 +508,10 @@ fn input<T: for<'de> Deserialize<'de>>(input: Value) -> Result<T, CommandError> 
     serde_json::from_value(input).map_err(|e| CommandError::InvalidInput(e.to_string()))
 }
 
-/// Parse a settings command's input. A `set` must name a known key with a value of its type (or null).
+/// Parse a settings command's input. A `set` must name a known key with a value of its type (or null), in a file
+/// that may hold it: without a scope, the setting's own; a `user-workspace` setting is never written in the solution's
+/// file, where it would be ignored (null, which removes it from there, is allowed), and nothing else is written in
+/// the person's state for the workspace.
 pub fn parse(
     id: &str,
     value: Value,
@@ -465,10 +537,25 @@ pub fn parse(
                 spec.validate(&i.value)
                     .map_err(CommandError::InvalidInput)?;
             }
+            let scope = i.scope.unwrap_or(spec.scope);
+            let per_person = spec.scope == SettingScope::UserWorkspace;
+            if per_person && scope == SettingScope::Solution && !i.value.is_null() {
+                return Err(CommandError::InvalidInput(format!(
+                    "{} is the person's own, kept in their state for the workspace (scope user-workspace, the \
+                     default for it): a value in the workspace's .eludite/settings.json is ignored",
+                    i.key
+                )));
+            }
+            if !per_person && scope == SettingScope::UserWorkspace {
+                return Err(CommandError::InvalidInput(format!(
+                    "{} is not kept in the person's state for the workspace (scope user or solution)",
+                    i.key
+                )));
+            }
             Ok(SettingsRequest::Set {
                 key: i.key,
                 value: i.value,
-                scope: i.scope,
+                scope,
             })
         }
         OPTIONS => {
@@ -651,12 +738,18 @@ mod tests {
         assert_eq!(s.get("terminal.profiles").unwrap().kind, SettingKind::List);
         assert_eq!(s.get("build.onSave").unwrap().default, json!(false));
         assert_eq!(s.get("build.beforeRun").unwrap().default, json!(true));
-        // Brief 0039: the opt-in is off by default and kept in the workspace's file; the engine's path in the user's.
+        // Brief 0039: the opt-in is off by default; brief 0047: it is the person's, kept in their state for the
+        // workspace, and its label says so. The engine's path is in the user's file.
         let allow = s.get("browser.allowNoSandbox").unwrap();
         assert_eq!(allow.default, json!(false));
         assert_eq!(allow.kind, SettingKind::Bool);
-        assert_eq!(allow.scope, SettingScope::Solution);
+        assert_eq!(allow.scope, SettingScope::UserWorkspace);
         assert_eq!(allow.section, "Web Browser");
+        assert!(
+            allow.label.contains("for this workspace, on this machine"),
+            "{}",
+            allow.label
+        );
         let engine_path = s.get("browser.enginePath").unwrap();
         assert_eq!(engine_path.kind, SettingKind::Path);
         assert_eq!(engine_path.scope, SettingScope::User);
@@ -830,6 +923,11 @@ mod tests {
                 error: None,
             },
             solution_file: None,
+            user_workspace_file: Some(SettingsFileInfo {
+                path: "/c/workspaces/App-0123456789abcdef/settings.json".into(),
+                exists: true,
+                error: None,
+            }),
             settings: vec![SettingRow {
                 key: "build.onSave".into(),
                 value: json!(true),
@@ -840,6 +938,7 @@ mod tests {
                 label: "l".into(),
                 description: "d".into(),
             }],
+            ignored_keys: vec!["browser.allowNoSandbox".into()],
             unknown_keys: vec![],
         };
         let v = SettingsOutput::Get(Box::new(out)).to_json();
@@ -855,5 +954,158 @@ mod tests {
             assert!(row_props.get(k).is_some(), "{k}");
         }
         assert_eq!(v["settings"][0]["source"], "environment");
+        // Brief 0047: the new scope and source spell as the schemas do.
+        let enum_of = |schema: &Value| -> Vec<String> {
+            schema["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_str().unwrap().to_owned())
+                .collect()
+        };
+        assert!(
+            enum_of(&row_props["source"]).contains(&"user-workspace".to_owned()),
+            "settings-get's source"
+        );
+        assert_eq!(
+            serde_json::to_value(SettingSource::UserWorkspace).unwrap(),
+            "user-workspace"
+        );
+        let set_out: Value = serde_json::from_str(include_str!(
+            "../../../protocol/schemas/settings-set.output.json"
+        ))
+        .unwrap();
+        let set_in: Value = serde_json::from_str(include_str!(
+            "../../../protocol/schemas/settings-set.input.json"
+        ))
+        .unwrap();
+        for scope in [
+            SettingScope::User,
+            SettingScope::Solution,
+            SettingScope::UserWorkspace,
+        ] {
+            let name = serde_json::to_value(scope).unwrap();
+            let name = name.as_str().unwrap().to_owned();
+            assert!(
+                enum_of(&set_out["properties"]["scope"]).contains(&name),
+                "{name}"
+            );
+            assert!(
+                enum_of(&set_in["properties"]["scope"]).contains(&name),
+                "{name}"
+            );
+        }
+        assert!(enum_of(&set_out["properties"]["source"]).contains(&"user-workspace".to_owned()));
+    }
+
+    /// Brief 0047: a `user-workspace` setting is read from the person's state for the workspace, then the user file,
+    /// then its default; the solution's file never sets it (its value there is reported ignored). Every other setting
+    /// keeps brief 0020's order (environment, solution, user, default) and never reads the person's workspace state.
+    #[test]
+    fn a_user_workspace_setting_ignores_the_solution_file_and_merges_after_the_user_file() {
+        let s = SettingsSchema::builtin();
+        let allow = s.get("browser.allowNoSandbox").unwrap();
+        let (t, f, yes) = (json!(true), json!(false), json!("yes"));
+        let layers = |user, user_workspace, solution| SettingLayers {
+            env: None,
+            user,
+            user_workspace,
+            solution,
+        };
+        // The workspace's file alone: ignored, the default applies.
+        assert_eq!(
+            allow.resolve(layers(None, None, Some(&t))),
+            (json!(false), SettingSource::Default)
+        );
+        // The user file under the person's workspace state; the solution file never counts.
+        assert_eq!(
+            allow.resolve(layers(Some(&t), None, Some(&f))),
+            (json!(true), SettingSource::User)
+        );
+        assert_eq!(
+            allow.resolve(layers(Some(&f), None, Some(&t))),
+            (json!(false), SettingSource::User)
+        );
+        assert_eq!(
+            allow.resolve(layers(Some(&f), Some(&t), Some(&f))),
+            (json!(true), SettingSource::UserWorkspace)
+        );
+        assert_eq!(
+            allow.resolve(layers(Some(&t), Some(&f), Some(&t))),
+            (json!(false), SettingSource::UserWorkspace)
+        );
+        // A value of the wrong type in the state counts as absent.
+        assert_eq!(
+            allow.resolve(layers(None, Some(&yes), None)),
+            (json!(false), SettingSource::Default)
+        );
+        // Another setting: the solution file wins over the user's, and the person's workspace state is not read.
+        let on_save = s.get("build.onSave").unwrap();
+        assert_eq!(
+            on_save.resolve(layers(Some(&f), Some(&f), Some(&t))),
+            (json!(true), SettingSource::Solution)
+        );
+        assert_eq!(
+            on_save.resolve(layers(None, Some(&t), None)),
+            (json!(false), SettingSource::Default)
+        );
+        assert_eq!(
+            on_save.resolve(SettingLayers {
+                env: Some("0"),
+                ..layers(Some(&t), None, Some(&t))
+            }),
+            (json!(false), SettingSource::Environment)
+        );
+        // The report: only the per-person keys of the solution file, sorted, once each.
+        let keys: Vec<String> = [
+            "build.onSave",
+            "browser.allowNoSandbox",
+            "nope",
+            "browser.allowNoSandbox",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert_eq!(s.ignored_in_solution(&keys), ["browser.allowNoSandbox"]);
+        assert!(s.ignored_in_solution(&keys[..1]).is_empty());
+    }
+
+    /// Brief 0047: `eludite.settings.set` without a scope writes a setting in its own file; the per-person opt-in is
+    /// never written in the solution's file (removing it from there is allowed), and nothing else goes in the person's
+    /// workspace state.
+    #[test]
+    fn set_writes_a_user_workspace_setting_only_in_the_persons_state() {
+        let s = SettingsSchema::builtin();
+        let set = |v: Value| parse(SET, v, &s);
+        assert_eq!(
+            set(json!({"key": "browser.allowNoSandbox", "value": true})).unwrap(),
+            SettingsRequest::Set {
+                key: "browser.allowNoSandbox".into(),
+                value: json!(true),
+                scope: SettingScope::UserWorkspace
+            }
+        );
+        assert!(
+            set(json!({"key": "browser.allowNoSandbox", "value": true, "scope": "user-workspace"}))
+                .is_ok()
+        );
+        let refused =
+            set(json!({"key": "browser.allowNoSandbox", "value": true, "scope": "solution"}))
+                .unwrap_err()
+                .to_string();
+        assert!(refused.contains("ignored"), "{refused}");
+        assert!(
+            set(json!({"key": "browser.allowNoSandbox", "value": null, "scope": "solution"}))
+                .is_ok(),
+            "removing the ignored key from the workspace's file"
+        );
+        assert!(
+            set(json!({"key": "browser.allowNoSandbox", "value": true, "scope": "user"})).is_ok()
+        );
+        assert!(
+            set(json!({"key": "build.onSave", "value": true, "scope": "user-workspace"})).is_err()
+        );
+        assert!(
+            set(json!({"key": "build.onSave", "value": true, "scope": "userWorkspace"})).is_err()
+        );
     }
 }

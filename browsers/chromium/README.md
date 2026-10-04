@@ -35,8 +35,11 @@ eludite-chromium --profile DIR [--cef-dir DIR] [--allow-no-sandbox] [--frame-soc
 - `--frame-socket`: the Unix socket (`SOCK_SEQPACKET`) the region descriptors are sent over, 3 by default. Run alone
   without it, the engine still works; frames just reach no one.
 - `--allow-no-sandbox`: the engine may run with `--no-sandbox` where Chromium's sandbox cannot start (below). The
-  shell passes it only for the workspace's opt-in (`browser.allowNoSandbox`) or `ELUDITE_CHROME_NO_SANDBOX=1` in its
-  own environment; the engine reads no variable for it.
+  shell passes it only for the person's opt-in for the workspace (`browser.allowNoSandbox`) or
+  `ELUDITE_CHROME_NO_SANDBOX=1` in its own environment; the engine reads no variable for it. The opt-in is kept in the
+  person's state for the workspace (`<config dir>/eludite/workspaces/<folder name>-<hash>/settings.json`, mode 0600),
+  never in the workspace's `.eludite/settings.json`, whose value of it the shell ignores with a warning (brief 0047), so
+  a repository can never opt a machine out of the sandbox.
 - `ELUDITE_CHROMIUM_GPU=1` keeps Chromium's GPU process for compositing (default: `--disable-gpu
   --disable-gpu-compositing`, the software path). Without `DISPLAY` and `WAYLAND_DISPLAY`, the engine uses Chromium's
   headless Ozone platform (no display needed; no system clipboard).

@@ -225,6 +225,8 @@ The lists are in [windows-checklist.md](windows-checklist.md) ("Brief 0039" and 
    runs the engine unsandboxed on a machine where the sandbox cannot start, without the dialog (the strip and the
    audit entry still show it). Suggested follow-up: keep the opt-in in the user's own state keyed by the workspace's
    path, or honor the workspace file's value only after the person confirmed it once.
+   **Resolved by [brief 0047](0047-report.md):** the opt-in now lives in the person's state for the workspace and a
+   value in `.eludite/settings.json` is ignored with a warning.
 2. **Ubuntu's AppArmor restriction** is handled by the probe in theory, untested here (section 3).
 3. **The helper's location**: the brief puts it beside `libcef.so`; Chromium prefers it beside the executable. Shipped
    as the brief says, with the "unusable" case detected and explained; an installer (Phase 3) should put it beside the

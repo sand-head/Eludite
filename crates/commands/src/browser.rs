@@ -835,6 +835,10 @@ pub struct EngineRow {
     /// How the embedded engine and its CEF were found (brief 0039).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub found_by: Option<EngineFoundBy>,
+    /// What let the engine run without the sandbox (`dialog`, `options` or `variable`; brief 0047), with `sandbox:
+    /// none`. The shell fills it in, as it decides the opt-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_by: Option<String>,
 }
 
 /// `browser-tabs.output.json`'s `engine.found_by` (brief 0039).
@@ -3243,6 +3247,8 @@ mod tests {
                             engine: "beside".into(),
                             cef: "beside".into(),
                         }),
+                        // Brief 0047: what allowed it.
+                        allowed_by: Some("dialog".into()),
                     },
                     active: Some("t1".into()),
                     tabs: vec![tab.clone()],

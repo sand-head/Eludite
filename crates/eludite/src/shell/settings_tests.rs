@@ -329,12 +329,14 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
     assert!(page(&w).is_none());
 }
 
-/// Brief 0039: a setting that belongs to the workspace (`x-eludite-scope: solution`, `browser.allowNoSandbox`) is
-/// written by the Options dialog in the workspace's `.eludite/settings.json`, never the user's file, so the dialog
-/// can turn the Web Browser's opt-in off again. (The Web Browser page is taller than the test window, so its check box
-/// is toggled by the event its click emits.)
+/// Brief 0047: the per-person opt-in (`x-eludite-scope: user-workspace`, `browser.allowNoSandbox`) is on the Web
+/// Browser page with "for this workspace, on this machine" in its label, and the Options dialog writes it in the
+/// person's state for the workspace (mode 0600 on Unix), never the workspace's `.eludite/settings.json` or the user's
+/// file; `settings.get` names the source and the dialog says where the answer is kept. Turning it off writes the state
+/// again. (The Web Browser page is taller than the test window, so its check box is toggled by the event its click
+/// emits.)
 #[gpui::test]
-fn the_options_dialog_writes_a_workspace_setting_in_the_workspace_file(
+fn the_options_dialog_writes_the_opt_in_in_the_persons_workspace_state(
     cx: &mut gpui::TestAppContext,
 ) {
     use super::options::{OptionsEvent, section_selector, setting_selector};
@@ -350,6 +352,13 @@ fn the_options_dialog_writes_a_workspace_setting_in_the_workspace_file(
         .iter()
         .position(|s| s == "Web Browser")
         .unwrap();
+    let spec = schema.get("browser.allowNoSandbox").unwrap();
+    assert_eq!(spec.section, "Web Browser");
+    assert!(
+        spec.label.contains("for this workspace, on this machine"),
+        "{}",
+        spec.label
+    );
     w.click(&section_selector(page));
     w.bounds(&setting_selector("browser.allowNoSandbox"));
     w.bounds(&setting_selector("browser.enginePath"));
@@ -371,14 +380,76 @@ fn the_options_dialog_writes_a_workspace_setting_in_the_workspace_file(
         });
         w.vcx.run_until_parked();
     };
+    let get = |w: &Ws| {
+        w.agent_invoke(GET, json!({"key": "browser.allowNoSandbox"}))
+            .unwrap()
+    };
     toggle(&mut w, true);
     w.wait("the opt-in on", |w| allowed(w));
-    let text = std::fs::read_to_string(&workspace_file).unwrap();
-    assert!(text.contains("\"browser.allowNoSandbox\": true"), "{text}");
+    let out = get(&w);
+    assert_eq!(out["settings"][0]["value"], true);
+    assert_eq!(out["settings"][0]["source"], "user-workspace");
+    let state = std::path::PathBuf::from(out["user_workspace_file"]["path"].as_str().unwrap());
+    assert!(
+        state.starts_with(w.path("user-config/workspaces")),
+        "{}",
+        state.display()
+    );
+    w.wait("the state file", |_| {
+        std::fs::read_to_string(&state)
+            .is_ok_and(|t| t.contains("\"browser.allowNoSandbox\": true"))
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&state).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    assert!(
+        !workspace_file.exists(),
+        "the workspace's file is never written"
+    );
     let user = std::fs::read_to_string(w.path(USER_SETTINGS)).unwrap_or_default();
     assert!(!user.contains("browser.allowNoSandbox"), "{user}");
+    let notes = w.shell.read_with(&w.vcx, |s, cx| {
+        s.options_dialog()
+            .unwrap()
+            .read(cx)
+            .notes("browser.allowNoSandbox")
+    });
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("for this workspace, on this machine")),
+        "{notes:?}"
+    );
     toggle(&mut w, false);
     w.wait("the opt-in off", |w| !allowed(w));
-    let text = std::fs::read_to_string(&workspace_file).unwrap();
-    assert!(text.contains("\"browser.allowNoSandbox\": false"), "{text}");
+    w.wait("the state file off", |_| {
+        std::fs::read_to_string(&state)
+            .is_ok_and(|t| t.contains("\"browser.allowNoSandbox\": false"))
+    });
+    assert!(!workspace_file.exists());
+
+    // A workspace file carrying the key: the dialog says it is ignored there.
+    w.write_settings(
+        ".eludite/settings.json",
+        json!({"browser.allowNoSandbox": true}),
+    );
+    w.wait("the ignored key reported", |w| {
+        get(w)["ignored_keys"] == json!(["browser.allowNoSandbox"])
+    });
+    // The dialog hears of it when the shell applies the change, after the store has it.
+    let notes = |w: &Ws| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.options_dialog()
+                .unwrap()
+                .read(cx)
+                .notes("browser.allowNoSandbox")
+        })
+    };
+    w.wait("the dialog's note", |w| {
+        notes(w).iter().any(|n| n.contains("is ignored"))
+    });
+    assert!(!allowed(&w), "still the person's answer: off");
 }

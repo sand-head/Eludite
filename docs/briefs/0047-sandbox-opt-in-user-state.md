@@ -1,6 +1,6 @@
 # Brief 0047: Keep the no-sandbox opt-in in the person's state, not the workspace's settings file
 
-Status: open
+Status: done
 Phase: 2 (follow-up to brief 0039)
 Plan reference: PLAN.md sections 2 (principle 3), 4.12 (settings and state), 9; brief 0039's report section 8, item 1 (the security finding)
 Related ADRs: ADR-0008

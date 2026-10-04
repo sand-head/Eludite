@@ -50,7 +50,15 @@ cargo copies it, or in `cef/`, as here), then `ELUDITE_CEF` and `CEF_PATH`, then
 `cef/chrome-sandbox` owned by root with mode 4755 (`sudo chown root:root cef/chrome-sandbox && sudo chmod 4755
 cef/chrome-sandbox`), else a refusal naming both remedies; the Web Browser window then offers "Run without the sandbox
 for this workspace" (`browser.allowNoSandbox`), the only way besides `ELUDITE_CHROME_NO_SANDBOX=1` (tests, CI) that the
-shell passes `--allow-no-sandbox`. Running as root always needs that opt-in. Chromium reads `CHROME_DEVEL_SANDBOX`
+shell passes `--allow-no-sandbox`. Running as root always needs that opt-in.
+
+**Where the opt-in is kept** (brief 0047): in the person's own state for the workspace,
+`<config dir>/eludite/workspaces/<folder name>-<16 hex digits>/settings.json` (`~/.config/eludite/` on Linux,
+`ELUDITE_CONFIG_DIR` when set; the digits are the FNV-1a hash of the workspace folder's absolute path, as the layouts'
+file names), written with mode 0600 by the dialog, Tools > Options > Web Browser ("for this workspace, on this
+machine") and `eludite.settings.set` only. It is never kept in the workspace's `.eludite/settings.json`, which a team
+may commit: a value there is ignored, and the Web Browser window and the Output window say so, so a cloned repository
+cannot run the engine unsandboxed. An installer or a packager must not seed it. Chromium reads `CHROME_DEVEL_SANDBOX`
 (the helper outside its own folder) only for an engine owned by the user running it, so a root-owned install puts the
 helper beside `eludite-chromium` instead; the engine looks there first and says so when it refuses.
 

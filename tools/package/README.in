@@ -34,7 +34,8 @@ The embedded browser runs web pages in Chromium's sandbox. On Linux that needs o
 
 With neither (or when Eludite runs as root, which Chromium never sandboxes), the engine refuses to start and the Web
 Browser window says why. Its dialog offers "Run without the sandbox for this workspace", which stores
-browser.allowNoSandbox in the workspace's .eludite/settings.json; Tools > Options > Web Browser turns it off again.
+browser.allowNoSandbox in your own state for that workspace (~/.config/eludite/workspaces/, mode 0600), never in the
+workspace's .eludite/settings.json, where it is ignored; Tools > Options > Web Browser turns it off again.
 While the engine runs without the sandbox, the window shows a strip saying so.
 
 Files
