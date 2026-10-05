@@ -12,6 +12,15 @@
 //! while a turn is in progress, answer with the new state and notify
 //! `current_mode_update` or `config_option_update`.
 //!
+//! Resuming (brief 0060): `initialize` advertises `loadSession`, and
+//! `session/load` starts `claude --resume <sessionId>` (with the MCP config and
+//! the `initialize` control request as for `session/new`), replays the
+//! conversation from Claude Code's own session file
+//! ([`crate::process::session_file`], [`crate::translate::replay`]) as
+//! `session/update` notifications, then answers with the modes and config
+//! options. A `--resume` that `claude` refuses fails the load with its message;
+//! an id this adapter already has live is `invalid_params`.
+//!
 //! Each ACP session owns one `claude --print` child (see [`crate::process`]).
 //! Long-running work (`session/new`, each turn, each permission request) runs
 //! in tasks spawned on the connection, never in the dispatch loop, so a
@@ -26,11 +35,12 @@ use std::time::Duration;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodTerminal, AuthenticateRequest, AuthenticateResponse,
-    CancelNotification, Implementation, InitializeRequest, InitializeResponse, McpCapabilities,
-    NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, SessionConfigOption, SessionConfigOptionValue, SessionNotification,
-    SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
-    SetSessionModeRequest, SetSessionModeResponse, ToolCallUpdate, ToolCallUpdateFields,
+    CancelNotification, Implementation, InitializeRequest, InitializeResponse, LoadSessionRequest,
+    LoadSessionResponse, McpCapabilities, McpServer, NewSessionRequest, NewSessionResponse,
+    PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
+    SessionConfigOption, SessionConfigOptionValue, SessionNotification, SessionUpdate,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest,
+    SetSessionModeResponse, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Responder};
 use futures::StreamExt;
@@ -42,10 +52,12 @@ use crate::log;
 use crate::mapping::{
     mcp_config, permission_options, permission_response, prompt_content, tool_info, tool_meta,
 };
-use crate::process::{self, ClaudeProcess, Event, InitializeReply, Launch, write_mcp_config};
+use crate::process::{
+    self, ClaudeProcess, Event, InitializeReply, Launch, session_file, write_mcp_config,
+};
 use crate::translate::{
     DEFAULT_VALUE, EFFORT_OPTION, MODEL_OPTION, SessionOptions, Translator, TurnEnd,
-    available_commands_update, local_command,
+    available_commands_update, local_command, replay,
 };
 
 /// Environment variable choosing the model (`--model`) when the session does
@@ -168,7 +180,8 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
         config,
         ..State::default()
     });
-    let (s_init, s_auth, s_new, s_prompt, s_cancel, s_mode, s_option) = (
+    let (s_init, s_auth, s_new, s_load, s_prompt, s_cancel, s_mode, s_option) = (
+        state.clone(),
         state.clone(),
         state.clone(),
         state.clone(),
@@ -211,6 +224,29 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
                             responder.respond(r)?;
                             // ACP clients expect the slash commands before the first prompt (brief 0057): one
                             // `available_commands_update` right after the answer, from this task, so it follows it.
+                            task_cx.send_notification(session.commands_update())
+                        }
+                        Err(e) => responder.respond_with_error(e),
+                    }
+                })
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: LoadSessionRequest,
+                        responder: Responder<LoadSessionResponse>,
+                        cx: ConnectionTo<Client>| {
+                let state = s_load.clone();
+                let task_cx = cx.clone();
+                cx.spawn(async move {
+                    match load_session(&state, req).await {
+                        Ok((r, session, updates)) => {
+                            // ACP: the conversation is replayed before the answer (brief 0060), then the slash
+                            // commands follow it as after `session/new`.
+                            for u in updates {
+                                task_cx.send_notification(session.notification(u))?;
+                            }
+                            responder.respond(r)?;
                             task_cx.send_notification(session.commands_update())
                         }
                         Err(e) => responder.respond_with_error(e),
@@ -303,7 +339,7 @@ fn initialize(state: &State, req: InitializeRequest) -> InitializeResponse {
     state.auth_terminal.store(auth_terminal, Ordering::Relaxed);
     let version = req.protocol_version.min(ProtocolVersion::V1);
     let caps = AgentCapabilities::new()
-        .load_session(false)
+        .load_session(true)
         .mcp_capabilities(McpCapabilities::new().http(true).sse(false));
     let mut resp = InitializeResponse::new(version)
         .agent_capabilities(caps)
@@ -368,21 +404,73 @@ async fn new_session(
     state: &State,
     req: NewSessionRequest,
 ) -> Result<(NewSessionResponse, Arc<Session>), Error> {
+    let (session, options) =
+        open_session(state, &req.cwd, &req.mcp_servers, req.meta.as_ref(), None).await?;
+    let response = NewSessionResponse::new(session.id.clone())
+        .modes(options.modes())
+        .config_options(options.config_options());
+    Ok((response, session))
+}
+
+/// `session/load` (brief 0060): `claude --resume`, then the conversation from Claude Code's session file to replay.
+async fn load_session(
+    state: &State,
+    req: LoadSessionRequest,
+) -> Result<(LoadSessionResponse, Arc<Session>, Vec<SessionUpdate>), Error> {
+    let id = req.session_id.0.to_string();
+    if state.session(&id).is_ok() {
+        return Err(invalid(format!("session {id} is already live")));
+    }
+    let (session, options) =
+        open_session(state, &req.cwd, &req.mcp_servers, None, Some(id.clone())).await?;
+    // The file Claude Code wrote the session to; read while the client waits for the answer.
+    let replayed = session_file(&req.cwd, &id)
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .map(|text| replay(&text, &req.cwd))
+        .unwrap_or_default();
+    log::info(format_args!(
+        "session {id}: resumed, replaying {} updates ({} records skipped)",
+        replayed.updates.len(),
+        replayed.skipped
+    ));
+    let response = LoadSessionResponse::new()
+        .modes(options.modes())
+        .config_options(options.config_options());
+    Ok((response, session, replayed.updates))
+}
+
+/// A `claude` child for a new session, or (`resume`) for session `resume` with `--resume`, after its `initialize`
+/// control request; the session is live once this returns.
+async fn open_session(
+    state: &State,
+    cwd: &std::path::Path,
+    mcp_servers: &[McpServer],
+    meta: Option<&serde_json::Map<String, Value>>,
+    resume: Option<String>,
+) -> Result<(Arc<Session>, SessionOptions), Error> {
     let (claude, _version) = state.claude().map_err(failure)?;
-    if !req.cwd.is_absolute() {
+    if !cwd.is_absolute() {
         return Err(Error::invalid_params().data(json!("cwd must be an absolute path")));
     }
-    let id = uuid::Uuid::new_v4().to_string();
-    let config_path = std::env::temp_dir().join(format!("eludite-claude-acp-{id}.mcp.json"));
-    write_mcp_config(&config_path, &mcp_config(&req.mcp_servers))
+    let resuming = resume.is_some();
+    let id = resume.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    // A resumed id may have been loaded before by another adapter: its config file name is new each time.
+    let file = if resuming {
+        format!("eludite-claude-acp-{id}-{}.mcp.json", uuid::Uuid::new_v4())
+    } else {
+        format!("eludite-claude-acp-{id}.mcp.json")
+    };
+    let config_path = std::env::temp_dir().join(file);
+    write_mcp_config(&config_path, &mcp_config(mcp_servers))
         .map_err(|e| failure(format!("could not write the MCP config: {e}")))?;
     let launch = Launch {
         claude,
-        cwd: req.cwd.clone(),
+        cwd: cwd.to_path_buf(),
         session_id: id.clone(),
         mcp_config: config_path.clone(),
-        model: session_model(&state.config, req.meta.as_ref()),
-        effort: session_effort(&state.config, req.meta.as_ref()),
+        model: session_model(&state.config, meta),
+        effort: session_effort(&state.config, meta),
+        resume: resuming,
     };
     let (process, events) = match ClaudeProcess::spawn(&launch) {
         Ok(p) => p,
@@ -396,9 +484,9 @@ async fn new_session(
     };
     let mut session = Session {
         id: id.clone(),
-        cwd: req.cwd.clone(),
+        cwd: cwd.to_path_buf(),
         process: process.clone(),
-        turn: futures::lock::Mutex::new((events, Translator::new(req.cwd.clone()))),
+        turn: futures::lock::Mutex::new((events, Translator::new(cwd.to_path_buf()))),
         in_turn: AtomicBool::new(false),
         cancelled: AtomicBool::new(false),
         mcp_config: config_path,
@@ -408,12 +496,23 @@ async fn new_session(
     // The SDK handshake. Its reply carries the account; only whether one is
     // present is used (for the log), and nothing of it is logged or kept. Its
     // slash commands are kept for the client (brief 0057).
-    let reply = process
+    let answer = process
         .control(json!({"subtype": "initialize"}), CHILD_INIT_TIMEOUT)
         .map_err(|e| failure(format!("could not talk to claude: {e}")))?
-        .await
-        .map_err(|_| failure("claude exited during initialization"))?
-        .map_err(|e| failure(format!("claude initialization failed: {e}")))?;
+        .await;
+    let reply = match answer {
+        Ok(Ok(reply)) => reply,
+        failed => {
+            // A refused `--resume` (brief 0060): `claude` says why in a `result`'s `errors`, then exits.
+            if resuming && let Some(why) = refusal(&session).await {
+                return Err(failure(format!("claude could not resume {id}: {why}")));
+            }
+            return Err(match failed {
+                Ok(Err(e)) => failure(format!("claude initialization failed: {e}")),
+                _ => failure("claude exited during initialization"),
+            });
+        }
+    };
     // `claude` has read its MCP config by now (it keeps it in memory; checked
     // on 2.1.287 with an `mcp_status` request after deleting the file), so
     // the file, which may hold tokens, does not outlive this point even if
@@ -432,15 +531,43 @@ async fn new_session(
     ));
     session.commands = commands;
     let options = SessionOptions::new(models, launch.model.as_deref(), launch.effort.as_deref());
-    let response = NewSessionResponse::new(id.clone())
-        .modes(options.modes())
-        .config_options(options.config_options());
-    session.options = Mutex::new(options);
+    session.options = Mutex::new(options.clone());
     let session = Arc::new(session);
     if let Ok(mut s) = state.sessions.lock() {
         s.insert(id.clone(), session.clone());
     }
-    Ok((response, session))
+    Ok((session, options))
+}
+
+/// Why `claude` refused to start a session: the `errors` of the error `result` it wrote before exiting (2.1.289: "No
+/// conversation found with session ID: ..." for a `--resume` of a session with nothing in it).
+async fn refusal(session: &Session) -> Option<String> {
+    let mut turn = session.turn.lock().await;
+    while let Some(event) = turn.0.next().await {
+        match event {
+            Event::Message(m)
+                if m.get("type").and_then(Value::as_str) == Some("result")
+                    && m.get("is_error").and_then(Value::as_bool) == Some(true) =>
+            {
+                let errors: Vec<&str> = m
+                    .get("errors")
+                    .and_then(Value::as_array)
+                    .map(|e| e.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                return Some(if errors.is_empty() {
+                    m.get("subtype")
+                        .and_then(Value::as_str)
+                        .unwrap_or("error")
+                        .to_owned()
+                } else {
+                    errors.join("; ")
+                });
+            }
+            Event::Exited => return None,
+            _ => {}
+        }
+    }
+    None
 }
 
 /// `invalid_params` with a message for the client.

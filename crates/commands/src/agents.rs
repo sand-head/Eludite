@@ -4,6 +4,10 @@
 //! buttons, the prompt box, its keys and the pickers run them, and they are agent-visible too, so an outer agent could
 //! drive an inner one.
 //!
+//! Brief 0060 adds the sessions: `eludite.agents.sessions` (the history list), `switch` (show another session, a
+//! stored one resumed through ACP `session/load` when its agent can) and `new_session` (a new session made current,
+//! the previous one kept running); `start` gains `session`, and the state output names the session it describes.
+//!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4). This module parses
 //! input into a typed [`AgentsRequest`] and serializes the typed [`AgentsOutput`]; the shell implements
 //! [`AgentsTarget`].
@@ -26,8 +30,21 @@ pub const CANCEL: &str = "eludite.agents.cancel";
 pub const PERMISSION: &str = "eludite.agents.permission";
 pub const REVIEW: &str = "eludite.agents.review";
 pub const CONFIGURE: &str = "eludite.agents.configure";
+pub const SESSIONS: &str = "eludite.agents.sessions";
+pub const SWITCH: &str = "eludite.agents.switch";
+pub const NEW_SESSION: &str = "eludite.agents.new_session";
 
-pub const ALL: [&str; 6] = [START, PROMPT, CANCEL, PERMISSION, REVIEW, CONFIGURE];
+pub const ALL: [&str; 9] = [
+    START,
+    PROMPT,
+    CANCEL,
+    PERMISSION,
+    REVIEW,
+    CONFIGURE,
+    SESSIONS,
+    SWITCH,
+    NEW_SESSION,
+];
 
 /// `eludite.agents.configure`'s `option` for the session mode (any other value names a config option).
 pub const MODE_OPTION: &str = "mode";
@@ -88,6 +105,26 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             STATE_OUTPUT,
             Execute,
         ),
+        // Brief 0060: the history list reads; switching may start the agent that owns a stored session, and a new
+        // session starts one.
+        SESSIONS => (
+            "Agents: List Sessions",
+            include_str!("../../../protocol/schemas/agents-sessions.input.json"),
+            include_str!("../../../protocol/schemas/agents-sessions.output.json"),
+            Read,
+        ),
+        SWITCH => (
+            "Agents: Switch Session",
+            include_str!("../../../protocol/schemas/agents-switch.input.json"),
+            STATE_OUTPUT,
+            Execute,
+        ),
+        NEW_SESSION => (
+            "Agents: New Session",
+            include_str!("../../../protocol/schemas/agents-new-session.input.json"),
+            STATE_OUTPUT,
+            Execute,
+        ),
         // It stores a credential.
         PROVIDER_SET => (
             "Agents: Add or Change Server",
@@ -135,6 +172,8 @@ pub enum AgentsRequest {
     Start {
         agent: Option<String>,
         restart: bool,
+        /// Act on this session instead of the current one (brief 0060).
+        session: Option<String>,
     },
     Prompt {
         text: String,
@@ -154,6 +193,16 @@ pub enum AgentsRequest {
         option: String,
         value: String,
     },
+    /// List the sessions (brief 0060).
+    Sessions,
+    /// Show session `session`, resuming a stored one when its agent can.
+    Switch {
+        session: String,
+    },
+    /// A new session with `agent` (else the selected one), made current.
+    NewSession {
+        agent: Option<String>,
+    },
 }
 
 impl AgentsRequest {
@@ -165,6 +214,9 @@ impl AgentsRequest {
             AgentsRequest::Permission { .. } => PERMISSION,
             AgentsRequest::Review { .. } => REVIEW,
             AgentsRequest::Configure { .. } => CONFIGURE,
+            AgentsRequest::Sessions => SESSIONS,
+            AgentsRequest::Switch { .. } => SWITCH,
+            AgentsRequest::NewSession { .. } => NEW_SESSION,
         }
     }
 }
@@ -194,6 +246,9 @@ pub struct AgentRow {
 #[serde(deny_unknown_fields)]
 pub struct AgentsStateOutput {
     pub agent: String,
+    /// The session the window shows (brief 0060); absent when it shows none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionOutput>,
     /// `stopped`, `starting`, `ready`, `needs_login`, `running` or `error`.
     pub state: String,
     pub generation: u64,
@@ -225,6 +280,41 @@ pub struct AgentsStateOutput {
     /// absent before the first one, cleared by a restart.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<UsageOutput>,
+}
+
+/// `agents-state.output.json`'s `session` (brief 0061). The times are RFC 3339 in UTC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionOutput {
+    pub id: String,
+    pub title: String,
+    pub started: String,
+    pub last_activity: String,
+    pub live: bool,
+}
+
+/// One row of `agents-sessions.output.json` (brief 0061).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionRow {
+    pub id: String,
+    pub agent: String,
+    pub title: String,
+    pub started: String,
+    pub last_activity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub live: bool,
+    pub running: bool,
+    pub waiting: bool,
+}
+
+/// `agents-sessions.output.json`: newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionsOutput {
+    pub current: Option<String>,
+    pub sessions: Vec<SessionRow>,
 }
 
 /// `agents-state.output.json`'s `usage` (brief 0059).
@@ -349,6 +439,7 @@ pub enum AgentsOutput {
     State(AgentsStateOutput),
     Permission(PermissionOutput),
     Review(ReviewOutput),
+    Sessions(SessionsOutput),
 }
 
 impl AgentsOutput {
@@ -357,6 +448,7 @@ impl AgentsOutput {
             AgentsOutput::State(o) => serde_json::to_value(o),
             AgentsOutput::Permission(o) => serde_json::to_value(o),
             AgentsOutput::Review(o) => serde_json::to_value(o),
+            AgentsOutput::Sessions(o) => serde_json::to_value(o),
         }
         .expect("agents outputs serialize")
     }
@@ -373,6 +465,19 @@ struct StartIn {
     agent: Option<String>,
     #[serde(default)]
     restart: bool,
+    session: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SwitchIn {
+    session: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct NewSessionIn {
+    agent: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -436,10 +541,38 @@ pub fn parse(id: &str, value: Value) -> Result<AgentsRequest, CommandError> {
                     "`agent` must not be empty".into(),
                 ));
             }
+            if i.session.as_deref() == Some("") {
+                return Err(CommandError::InvalidInput(
+                    "`session` must not be empty".into(),
+                ));
+            }
             AgentsRequest::Start {
                 agent: i.agent,
                 restart: i.restart,
+                session: i.session,
             }
+        }
+        SESSIONS => {
+            let _: Empty = input(value)?;
+            AgentsRequest::Sessions
+        }
+        SWITCH => {
+            let i: SwitchIn = required(value)?;
+            if i.session.is_empty() {
+                return Err(CommandError::InvalidInput(
+                    "`session` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::Switch { session: i.session }
+        }
+        NEW_SESSION => {
+            let i: NewSessionIn = input(value)?;
+            if i.agent.as_deref() == Some("") {
+                return Err(CommandError::InvalidInput(
+                    "`agent` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::NewSession { agent: i.agent }
         }
         PROMPT => {
             let i: PromptIn = required(value)?;
@@ -839,14 +972,16 @@ mod tests {
             parse(START, json!({})).unwrap(),
             AgentsRequest::Start {
                 agent: None,
-                restart: false
+                restart: false,
+                session: None,
             }
         );
         assert_eq!(
             parse(START, json!({"agent": "Claude Code", "restart": true})).unwrap(),
             AgentsRequest::Start {
                 agent: Some("Claude Code".into()),
-                restart: true
+                restart: true,
+                session: None,
             }
         );
         assert!(parse(START, json!({"agent": ""})).is_err());
@@ -918,6 +1053,13 @@ mod tests {
         // Outputs serialize to their schemas' required members.
         let state = AgentsOutput::State(AgentsStateOutput {
             agent: "A".into(),
+            session: Some(SessionOutput {
+                id: "5f0c6d4e-8a1b-4c2d-9e3f-0a1b2c3d4e5f".into(),
+                title: "Fix the failing test".into(),
+                started: "2026-10-05T21:02:03.004Z".into(),
+                last_activity: "2026-10-05T21:04:00.000Z".into(),
+                live: true,
+            }),
             state: "ready".into(),
             generation: 1,
             session_id: None,
@@ -1051,6 +1193,137 @@ mod tests {
             );
         }
     }
+    /// Brief 0060: `sessions`, `switch` and `new_session` parse, validate and follow their schemas; `start` takes
+    /// `session`; the state's `session` and the sessions output serialize to the schemas' members.
+    #[test]
+    fn the_session_commands_parse_validate_and_follow_their_schemas() {
+        assert_eq!(parse(SESSIONS, json!({})).unwrap(), AgentsRequest::Sessions);
+        assert_eq!(
+            parse(SESSIONS, Value::Null).unwrap(),
+            AgentsRequest::Sessions
+        );
+        assert!(parse(SESSIONS, json!({"all": true})).is_err());
+        assert_eq!(
+            parse(SWITCH, json!({"session": "abc"})).unwrap(),
+            AgentsRequest::Switch {
+                session: "abc".into()
+            }
+        );
+        assert!(parse(SWITCH, json!({})).is_err());
+        assert!(parse(SWITCH, json!({"session": ""})).is_err());
+        assert!(parse(SWITCH, json!({"session": "a", "x": 1})).is_err());
+        assert_eq!(
+            parse(NEW_SESSION, json!({})).unwrap(),
+            AgentsRequest::NewSession { agent: None }
+        );
+        assert_eq!(
+            parse(NEW_SESSION, json!({"agent": "Claude Code"})).unwrap(),
+            AgentsRequest::NewSession {
+                agent: Some("Claude Code".into())
+            }
+        );
+        assert!(parse(NEW_SESSION, json!({"agent": ""})).is_err());
+        assert_eq!(
+            parse(START, json!({"session": "abc", "restart": true})).unwrap(),
+            AgentsRequest::Start {
+                agent: None,
+                restart: true,
+                session: Some("abc".into()),
+            }
+        );
+        assert!(parse(START, json!({"session": ""})).is_err());
+        for (id, permission) in [
+            (SESSIONS, PermissionClass::Read),
+            (SWITCH, PermissionClass::Execute),
+            (NEW_SESSION, PermissionClass::Execute),
+        ] {
+            assert!(ALL.contains(&id));
+            let s = spec(id);
+            assert!(s.agent_visible);
+            assert_eq!(s.permission, permission);
+            assert_eq!(s.input_schema["title"], format!("{id} input"));
+            assert_eq!(s.input_schema["type"], "object");
+            assert_eq!(s.input_schema["additionalProperties"], false);
+        }
+        assert_eq!(spec(SWITCH).input_schema["required"], json!(["session"]));
+        assert!(spec(START).input_schema["properties"]["session"].is_object());
+        assert_eq!(spec(SWITCH).output_schema, spec(START).output_schema);
+        assert_eq!(spec(NEW_SESSION).output_schema, spec(START).output_schema);
+        // The sessions output: every member the schema's, the model only when known, `current` null when none.
+        let out = AgentsOutput::Sessions(SessionsOutput {
+            current: Some("s1".into()),
+            sessions: vec![
+                SessionRow {
+                    id: "s1".into(),
+                    agent: "Claude Code".into(),
+                    title: "Fix the failing test".into(),
+                    started: "2026-10-05T21:02:03.004Z".into(),
+                    last_activity: "2026-10-05T21:04:00.000Z".into(),
+                    model: Some("Sonnet 5.5".into()),
+                    live: true,
+                    running: true,
+                    waiting: false,
+                },
+                SessionRow {
+                    id: "s0".into(),
+                    agent: "Claude Code".into(),
+                    title: "New session".into(),
+                    started: "2026-10-04T08:00:00.000Z".into(),
+                    last_activity: "2026-10-04T08:00:00.000Z".into(),
+                    model: None,
+                    live: false,
+                    running: false,
+                    waiting: false,
+                },
+            ],
+        })
+        .to_json();
+        let schema = spec(SESSIONS).output_schema;
+        conforms(&schema, &out);
+        let row = &schema["properties"]["sessions"]["items"];
+        for r in out["sessions"].as_array().unwrap() {
+            conforms(row, r);
+        }
+        assert!(out["sessions"][1].get("model").is_none());
+        let none = AgentsOutput::Sessions(SessionsOutput {
+            current: None,
+            sessions: Vec::new(),
+        })
+        .to_json();
+        assert_eq!(none, json!({"current": null, "sessions": []}));
+        conforms(&schema, &none);
+        // The state's session.
+        let state = AgentsOutput::State(AgentsStateOutput {
+            agent: "A".into(),
+            session: Some(SessionOutput {
+                id: "s1".into(),
+                title: "New session".into(),
+                started: "2026-10-05T21:02:03.004Z".into(),
+                last_activity: "2026-10-05T21:02:03.004Z".into(),
+                live: false,
+            }),
+            state: "stopped".into(),
+            generation: 0,
+            session_id: None,
+            agent_info: None,
+            protocol_version: None,
+            message: None,
+            login: Vec::new(),
+            last_stop_reason: None,
+            agents: Vec::new(),
+            pending_permissions: 0,
+            pending_changes: 0,
+            commands: Vec::new(),
+            mode: None,
+            options: Vec::new(),
+            usage: None,
+        })
+        .to_json();
+        let schema = spec(START).output_schema;
+        conforms(&schema, &state);
+        conforms(&schema["properties"]["session"], &state["session"]);
+    }
+
     struct Servers(std::sync::Mutex<Vec<ProviderRequest>>);
 
     impl ProviderTarget for Servers {

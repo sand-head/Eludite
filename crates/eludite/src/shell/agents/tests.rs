@@ -98,6 +98,7 @@ pub(in crate::shell) fn fake_agents(agents: Vec<(String, Vec<String>)>) -> Agent
         agents_file: None,
         credentials: memory_credentials(),
         openai_adapter: None,
+        sessions_root: None,
     }
 }
 
@@ -2599,6 +2600,7 @@ fn provider_setup(
         agents_file: Some(config.path().join("agents.json")),
         credentials: credentials.clone(),
         openai_adapter: adapter.map(|a| a.0.clone()),
+        sessions_root: None,
     };
     let mut w = setup_full(cx, |_| {}, Some(setup));
     w.open_solution();
@@ -3261,4 +3263,558 @@ impl FakeServerHandle {
         f.llama_models(&["qwen3-8b", "llama-3.1-8b"], 16_384);
         Self(f)
     }
+}
+
+// Brief 0060: sessions.
+
+/// The fake agents of the session tests, keeping their sessions under `root` (the per-workspace state folders): a
+/// streamer slow enough to switch away mid-stream (300 chunks at 100 a second), the shell asker, the editor, a quick
+/// streamer that resumes sessions (`--load`) and one that cannot.
+fn session_agents(root: &std::path::Path) -> AgentsSetup {
+    let args = |s: &str| s.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let mut setup = fake_agents(vec![
+        (
+            "Fake streamer".into(),
+            args("--scenario stream --chunks 300 --rate 100"),
+        ),
+        (
+            "Fake agent".into(),
+            args("--scenario diagnostics-then-shell"),
+        ),
+        ("Fake editor".into(), args("--scenario edit")),
+        (
+            "Fake loader".into(),
+            args("--scenario stream --chunks 20 --rate 2000 --load"),
+        ),
+        (
+            "Fake quick".into(),
+            args("--scenario stream --chunks 20 --rate 2000"),
+        ),
+    ]);
+    setup.sessions_root = Some(root.to_path_buf());
+    setup
+}
+
+impl Ws {
+    /// The session shown.
+    fn shown(&self) -> Option<String> {
+        self.shell
+            .read_with(&self.vcx, |s, _| s.agents().shown.clone())
+    }
+
+    /// Session `id`'s transcript rows, shown or not.
+    fn rows_of(&self, id: &str) -> usize {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            s.agents().session_rows(id, cx).unwrap_or(0)
+        })
+    }
+
+    /// How much agent text session `id` has, shown or not.
+    fn text_of(&self, id: &str) -> usize {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            s.agents().session_text(id, cx).map_or(0, |t| t.len())
+        })
+    }
+
+    /// Session `id`'s state and its last turn's end.
+    fn session_state(&self, id: &str) -> (StateKind, Option<String>) {
+        self.shell.read_with(&self.vcx, |s, _| {
+            s.agents()
+                .session_slot(id)
+                .map(|x| (x.state, x.last_stop.clone()))
+                .unwrap_or_default()
+        })
+    }
+
+    fn agents_bus(&mut self, command: &'static str, args: Value) -> Result<Value, String> {
+        let commands = self.commands.clone();
+        self.agent(move || commands.invoke(command, args).map_err(|e| e.to_string()))
+    }
+
+    /// `eludite.agents.sessions`.
+    fn sessions(&mut self) -> Value {
+        self.agents_bus(eludite_commands::agents::SESSIONS, json!({}))
+            .unwrap()
+    }
+
+    fn session_row(&mut self, id: &str) -> Value {
+        let all = self.sessions();
+        all["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    fn store_dir(&self) -> std::path::PathBuf {
+        self.shell.read_with(&self.vcx, |s, _| {
+            s.agents()
+                .store_dir()
+                .expect("a store folder")
+                .to_path_buf()
+        })
+    }
+
+    fn history_rows(&self) -> Vec<super::window::HistoryRow> {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            s.agents().window.read(cx).history_rows.clone()
+        })
+    }
+
+    /// Wait until session `id`'s turn has ended (shown or not).
+    fn wait_session_turn(&mut self, id: &str) {
+        let id = id.to_owned();
+        self.wait("the session's turn to end", |w| {
+            let (state, stop) = w.session_state(&id);
+            stop.is_some() && state != StateKind::Running
+        });
+    }
+
+    /// The record of session `id` once its file says the turn ended.
+    fn record(&mut self, id: &str) -> super::sessions::Record {
+        let dir = self.store_dir();
+        let id = id.to_owned();
+        self.wait("the session's record", |_| {
+            super::sessions::load(&dir, &id).is_some_and(|r| r.ended || r.meta.prompted())
+        });
+        super::sessions::load(&dir, &id).unwrap()
+    }
+}
+
+/// Brief 0060's proof, live sessions: a streaming session keeps streaming off screen while another is shown; that
+/// other session's permission request waits off screen with `?` in the history list and `waiting` in
+/// `eludite.agents.sessions`, and is answered after switching to it (with the keyboard in the history list); both are
+/// listed with their titles and flags, and each has its record (mode 0600) once its turn ended.
+#[gpui::test]
+fn two_live_sessions_stream_and_wait_off_screen_and_are_kept(cx: &mut TestAppContext) {
+    let state = tempfile::tempdir().unwrap();
+    let mut w = setup_full(cx, |_| {}, Some(session_agents(state.path())));
+    w.open_solution();
+    w.show_agents();
+    // The window opens on no session.
+    assert_eq!(w.shown(), None);
+    assert_eq!(w.state_json().get("session"), None);
+    assert_eq!(w.sessions(), json!({"current": null, "sessions": []}));
+
+    w.start_agent("Fake streamer");
+    let a = w.shown().expect("a session");
+    w.type_prompt("Stream the numbers");
+    w.wait("the stream to start", |w| {
+        w.agent_text().contains("chunk 00010")
+    });
+
+    // A second session, the first keeps running.
+    let state_b = w
+        .agents_bus(
+            eludite_commands::agents::NEW_SESSION,
+            json!({"agent": "Fake agent"}),
+        )
+        .unwrap();
+    let b = w.shown().unwrap();
+    assert_ne!(a, b);
+    assert_eq!(state_b["session"]["id"], b.as_str());
+    assert_eq!(state_b["session"]["title"], "New session");
+    w.wait("the second agent", |w| w.agents_state() == StateKind::Ready);
+    let off_screen = w.text_of(&a);
+    w.wait("the first session's text to grow off screen", |w| {
+        w.text_of(&a) > off_screen + 200
+    });
+    assert_eq!(w.session_state(&a).0, StateKind::Running);
+    w.type_prompt("List the errors");
+    let request = w.wait_for_prompt();
+
+    // Back to the stream: the request waits off screen.
+    w.click(super::window::HISTORY_BUTTON);
+    assert!(w.vcx.debug_bounds(super::window::HISTORY_MENU).is_some());
+    w.click(&super::window::session_item(&a));
+    assert_eq!(w.shown().as_deref(), Some(a.as_str()));
+    assert!(w.agent_text().contains("chunk 0"), "the stream shows");
+    let prompt = w
+        .shell
+        .read_with(&w.vcx, |s, cx| s.agents().window.read(cx).prompt.clone());
+    assert!(
+        prompt.is_none(),
+        "the other session's request is not shown here"
+    );
+    let shown_text = w.text_of(&a);
+    w.wait("the shown stream to grow", |w| w.text_of(&a) > shown_text);
+    let row_b = w.session_row(&b);
+    assert_eq!(row_b["waiting"], true, "{row_b}");
+    assert_eq!(row_b["live"], true);
+    assert_eq!(row_b["title"], "List the errors");
+    assert_eq!(row_b["agent"], "Fake agent");
+    let row_a = w.session_row(&a);
+    assert_eq!(row_a["running"], true, "{row_a}");
+    assert_eq!(row_a["title"], "Stream the numbers");
+    assert_eq!(w.sessions()["current"], a.as_str());
+    // The history list: b waits (`?`), a runs and is checked.
+    w.click(super::window::HISTORY_BUTTON);
+    let rows = w.history_rows();
+    let hb = rows.iter().find(|r| r.id == b).unwrap();
+    assert!(hb.waiting && !hb.current);
+    let ha = rows.iter().find(|r| r.id == a).unwrap();
+    assert!(ha.running && ha.current);
+    assert_eq!(ha.when, "just now");
+    // Down to b's row (the list is newest first and opens on the shown one), Enter.
+    let open_at = w
+        .shell
+        .read_with(&w.vcx, |s, cx| s.agents().window.read(cx).history_open());
+    let from = open_at.unwrap();
+    let to = rows.iter().position(|r| r.id == b).unwrap();
+    let key = if to > from { "down" } else { "up" };
+    for _ in 0..from.abs_diff(to) {
+        w.vcx.simulate_keystrokes(key);
+    }
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.shown().as_deref(), Some(b.as_str()));
+    assert_eq!(w.wait_for_prompt(), request);
+    w.click(&super::window::decision_button(
+        super::window::Decision::Deny,
+    ));
+    w.wait_session_turn(&b);
+    w.wait_session_turn(&a);
+    assert_eq!(w.session_row(&b)["waiting"], false);
+
+    // One record per session with a prompt, private.
+    let ra = w.record(&a);
+    let rb = w.record(&b);
+    assert_eq!(ra.meta.title, "Stream the numbers");
+    assert_eq!(rb.meta.title, "List the errors");
+    assert_eq!(rb.meta.agent, "Fake agent");
+    assert!(rb.meta.acp_session_id.is_some());
+    assert!(
+        ra.transcript
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["user"] == "Stream the numbers")
+    );
+    let dir = w.store_dir();
+    assert!(dir.starts_with(state.path()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert_eq!(mode(&dir.join(format!("{a}.json"))), 0o600);
+    }
+    let files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .collect();
+    assert_eq!(files.len(), 2);
+    // The status bar names the session.
+    let status = w.shell.read_with(&w.vcx, |s, _| {
+        s.status().get(super::AGENTS_SLOT).map(str::to_owned)
+    });
+    assert_eq!(
+        status.as_deref(),
+        Some("Fake agent: ready \u{b7} List the errors")
+    );
+}
+
+/// Brief 0060's proof, stored sessions: the edit scenario's transcript round-trips through its record; a new shell on
+/// the same state folder lists the stored sessions; switching to the `--load` agent's session shows Eludite's record
+/// and resumes it with `session/load` of the stored id (the agent's replay counted and discarded), and the next prompt
+/// continues it; the session of an agent without `loadSession` shows the notice and a disabled prompt box, and
+/// Restart begins a new session with that agent.
+#[gpui::test]
+fn stored_sessions_are_listed_rebuilt_and_resumed(cx: &mut TestAppContext) {
+    let state = tempfile::tempdir().unwrap();
+    let mut w = setup_full(cx, |_| {}, Some(session_agents(state.path())));
+    w.open_solution();
+    w.show_agents();
+    w.start_agent("Fake editor");
+    let edited = w.shown().unwrap();
+    w.type_prompt("Add a header comment");
+    w.wait("the pending changes", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.agents().changes.len() == 2)
+    });
+    w.agents_bus(
+        "eludite.agents.review",
+        json!({"all": true, "decision": "accept"}),
+    )
+    .unwrap();
+    w.wait_session_turn(&edited);
+    // The round trip: the record rebuilds into rows whose record is the same.
+    let record = w.transcript();
+    let rebuilt = super::transcript::Transcript::from_json(&record);
+    assert_eq!(rebuilt.to_json(), record);
+    let row = rebuilt
+        .tools()
+        .find(|t| !t.changes.is_empty())
+        .expect("a call with changes");
+    assert_eq!(row.status(), eludite_ui::transcript::ToolStatus::Completed);
+    assert!(
+        row.changes.iter().all(|(_, _, s)| s == "accepted"),
+        "{:?}",
+        row.changes
+    );
+    assert!(
+        rebuilt.unaudited().is_empty(),
+        "a rebuilt row is never audited again"
+    );
+    let shown_rows = w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents().window.read(cx).transcript.rows.len()
+    });
+    assert_eq!(rebuilt.rows.len(), shown_rows);
+
+    w.agents_bus(
+        eludite_commands::agents::NEW_SESSION,
+        json!({"agent": "Fake loader"}),
+    )
+    .unwrap();
+    let loader = w.shown().unwrap();
+    w.wait("the loader", |w| w.agents_state() == StateKind::Ready);
+    w.type_prompt("Hello loader");
+    w.wait_session_turn(&loader);
+    let acp_id = w
+        .record(&loader)
+        .meta
+        .acp_session_id
+        .expect("the agent's id");
+    w.agents_bus(
+        eludite_commands::agents::NEW_SESSION,
+        json!({"agent": "Fake quick"}),
+    )
+    .unwrap();
+    let quick = w.shown().unwrap();
+    w.wait("the quick agent", |w| w.agents_state() == StateKind::Ready);
+    w.type_prompt("Hello quick");
+    w.wait_session_turn(&quick);
+    for id in [&edited, &loader, &quick] {
+        let r = w.record(id);
+        assert!(r.meta.prompted());
+    }
+    let loader_rows = w.rows_of(&loader);
+
+    // A new shell on the same state folder and the same workspace.
+    let sln = w.path("App.slnx");
+    let mut w2 = setup_full(cx, |_| {}, Some(session_agents(state.path())));
+    w2.commands
+        .invoke(
+            eludite_commands::workspace::SOLUTION_OPEN,
+            json!({"path": sln.to_string_lossy()}),
+        )
+        .unwrap();
+    w2.show_agents();
+    w2.wait("the stored sessions", |w| {
+        w.sessions()["sessions"].as_array().unwrap().len() == 3
+    });
+    let listed = w2.sessions();
+    assert_eq!(listed["current"], Value::Null);
+    let titles: Vec<&str> = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        titles,
+        ["Hello quick", "Hello loader", "Add a header comment"]
+    );
+    assert!(
+        listed["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|r| r["live"] == false)
+    );
+
+    // The loader's session: the record shows, the agent resumes it, its replay is discarded.
+    let state_json = w2
+        .agents_bus(eludite_commands::agents::SWITCH, json!({"session": loader}))
+        .unwrap();
+    assert_eq!(state_json["session"]["id"], loader.as_str());
+    w2.wait("the resumed session", |w| {
+        w.agents_state() == StateKind::Ready
+    });
+    let (replayed, from_record) = w2.shell.read_with(&w2.vcx, |s, _| {
+        let slot = s.agents().session_slot(&loader).unwrap();
+        (slot.replayed, slot.from_record)
+    });
+    assert_eq!(replayed, fake_agent::LOAD_REPLAY.len());
+    assert!(from_record);
+    assert_eq!(w2.state_json()["session_id"], acp_id.as_str());
+    assert!(w2.user_rows().contains(&"Hello loader".to_owned()));
+    let rows = w2.transcript();
+    assert!(
+        !rows.to_string().contains("An earlier answer"),
+        "the replay is discarded"
+    );
+    // The rebuilt rows, the resume notice, nothing of the replay.
+    assert_eq!(w2.rows_of(&loader), loader_rows + 1);
+    assert!(
+        w2.agents_output()
+            .iter()
+            .any(|l| l.contains("replayed 2 updates (discarded"))
+    );
+    w2.type_prompt("Continue");
+    w2.wait_session_turn(&loader);
+    assert_eq!(w2.user_rows(), ["Hello loader", "Continue"]);
+    assert!(w2.agent_text().contains("chunk 00019"));
+    let continued = w2.record(&loader);
+    assert_eq!(
+        continued.meta.acp_session_id.as_deref(),
+        Some(acp_id.as_str())
+    );
+
+    // The quick agent cannot resume: the notice, a disabled box, no prompt.
+    w2.click(super::window::HISTORY_BUTTON);
+    w2.click(&super::window::session_item(&quick));
+    assert_eq!(w2.shown().as_deref(), Some(quick.as_str()));
+    w2.wait("the notice", |w| {
+        w.notices().iter().any(|n| n == super::CANNOT_RESUME)
+    });
+    let disabled = w2
+        .shell
+        .read_with(&w2.vcx, |s, cx| s.agents().window.read(cx).disabled.clone());
+    assert_eq!(disabled.as_deref(), Some(super::CANNOT_RESUME));
+    assert!(w2.vcx.debug_bounds("agents-prompt-disabled").is_some());
+    assert!(w2.user_rows().contains(&"Hello quick".to_owned()));
+    let refused = w2
+        .agents_bus(eludite_commands::agents::PROMPT, json!({"text": "more"}))
+        .unwrap_err();
+    assert!(refused.contains("cannot resume"), "{refused}");
+    assert_eq!(w2.agents_state(), StateKind::Stopped);
+    // Restart begins a new session with the same agent.
+    w2.agents_bus(eludite_commands::agents::START, json!({"restart": true}))
+        .unwrap();
+    let fresh = w2.shown().unwrap();
+    assert_ne!(fresh, quick);
+    w2.wait("the new session", |w| w.agents_state() == StateKind::Ready);
+    assert_eq!(w2.state_json()["agent"], "Fake quick");
+    let disabled = w2
+        .shell
+        .read_with(&w2.vcx, |s, cx| s.agents().window.read(cx).disabled.clone());
+    assert_eq!(disabled, None);
+}
+
+/// Brief 0060: the store keeps the 100 most recent records (the 101st deletes the oldest file), and a ninth live
+/// session stops the oldest idle one, whose record stays.
+#[gpui::test]
+fn the_store_keeps_a_hundred_and_eight_sessions_stay_live(cx: &mut TestAppContext) {
+    let state = tempfile::tempdir().unwrap();
+    let mut w = setup_full(cx, |_| {}, Some(session_agents(state.path())));
+    let dir = super::sessions::dir_for(state.path(), w.path("App.slnx").parent().unwrap());
+    for i in 0..super::sessions::KEEP {
+        let r = super::sessions::Record {
+            version: super::sessions::RECORD_VERSION,
+            meta: super::sessions::SessionMeta {
+                id: format!("old-{i:03}"),
+                agent: "Fake quick".into(),
+                acp_session_id: None,
+                title: format!("Old {i}"),
+                started: format!("2026-01-01T00:00:00.{i:03}Z"),
+                last_activity: format!("2026-01-01T00:00:00.{i:03}Z"),
+                model: None,
+            },
+            ended: true,
+            usage: None,
+            transcript: json!([{"user": format!("Old {i}"), "time": "09:00"}]),
+        };
+        super::sessions::write(&dir, &r).unwrap();
+    }
+    w.open_solution();
+    w.show_agents();
+    w.wait("the stored sessions", |w| {
+        w.sessions()["sessions"].as_array().unwrap().len() == super::sessions::KEEP
+    });
+    assert_eq!(w.store_dir(), dir);
+    // The history list shows 50 and says there are more.
+    w.click(super::window::HISTORY_BUTTON);
+    assert_eq!(w.history_rows().len(), super::sessions::HISTORY_ROWS);
+    assert!(w.vcx.debug_bounds(super::window::HISTORY_MENU).is_some());
+    w.vcx.simulate_keystrokes("escape");
+    w.vcx.run_until_parked();
+
+    w.start_agent("Fake quick");
+    let first = w.shown().unwrap();
+    w.type_prompt("The hundred and first");
+    w.wait_session_turn(&first);
+    w.wait("the oldest record deleted", |_| {
+        !dir.join("old-000.json").exists()
+    });
+    assert!(dir.join("old-001.json").exists());
+    assert!(dir.join(format!("{first}.json")).exists());
+    assert_eq!(
+        w.sessions()["sessions"].as_array().unwrap().len(),
+        super::sessions::KEEP
+    );
+
+    // Seven more live sessions, idle: eight live.
+    let mut ids = vec![first.clone()];
+    for _ in 0..7 {
+        w.agents_bus(eludite_commands::agents::NEW_SESSION, json!({}))
+            .unwrap();
+        w.wait("ready", |w| w.agents_state() == StateKind::Ready);
+        ids.push(w.shown().unwrap());
+    }
+    let live = |w: &Ws| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            ids.iter()
+                .filter(|id| s.agents().session_slot(id).is_some_and(|x| x.live()))
+                .count()
+        })
+    };
+    assert_eq!(live(&w), 8);
+    // The ninth stops the oldest idle one, the first.
+    w.agents_bus(eludite_commands::agents::NEW_SESSION, json!({}))
+        .unwrap();
+    w.wait("ready", |w| w.agents_state() == StateKind::Ready);
+    let ninth = w.shown().unwrap();
+    assert!(!ids.contains(&ninth));
+    assert_eq!(w.session_state(&first).0, StateKind::Stopped);
+    assert_eq!(live(&w), 7);
+    assert!(w.session_row(&first)["live"] == false);
+    assert!(dir.join(format!("{first}.json")).exists());
+    assert!(w.record(&first).ended);
+}
+
+/// Brief 0060: the header's `+` starts a new session with the shown session's agent and the agent picker's other
+/// agent starts a new session with it, the earlier ones running on; each new session's prompt box is empty and the
+/// earlier one's text comes back with it.
+#[gpui::test]
+fn new_session_from_the_header_and_the_agent_picker(cx: &mut TestAppContext) {
+    let state = tempfile::tempdir().unwrap();
+    let mut w = setup_full(cx, |_| {}, Some(session_agents(state.path())));
+    w.open_solution();
+    w.show_agents();
+    w.click(super::window::NEW_BUTTON);
+    let first = w.shown().expect("a session");
+    w.wait("ready", |w| w.agents_state() == StateKind::Ready);
+    assert_eq!(w.state_json()["agent"], "Fake streamer");
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("draft one");
+    w.click(super::window::NEW_BUTTON);
+    let second = w.shown().unwrap();
+    assert_ne!(first, second);
+    assert_eq!(w.prompt_box().0, "");
+    w.wait("ready", |w| w.agents_state() == StateKind::Ready);
+    assert!(w.session_row(&first)["live"] == true);
+    // Another agent in the picker: a new session with it.
+    w.click(super::window::AGENT_PICKER);
+    w.click(&super::window::agent_item(2));
+    let third = w.shown().unwrap();
+    assert!(third != first && third != second);
+    w.wait("ready", |w| w.agents_state() == StateKind::Ready);
+    assert_eq!(w.state_json()["agent"], "Fake editor");
+    for id in [&first, &second] {
+        assert!(w.session_row(id)["live"] == true);
+    }
+    // Back to the first: its draft comes back, its list at the end.
+    w.agents_bus(eludite_commands::agents::SWITCH, json!({"session": first}))
+        .unwrap();
+    assert_eq!(w.prompt_box().0, "draft one");
+    assert_eq!(w.state_json()["agent"], "Fake streamer");
+    // Unknown sessions are refused.
+    let e = w
+        .agents_bus(eludite_commands::agents::SWITCH, json!({"session": "nope"}))
+        .unwrap_err();
+    assert!(e.contains("no session"), "{e}");
 }

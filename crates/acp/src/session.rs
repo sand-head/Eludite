@@ -19,10 +19,16 @@
 //!   [`AgentSession::set_mode`] and [`AgentSession::set_option`] run their request on `acp-driver`, after the turn in
 //!   progress if any (the owner refuses them during a turn), and report the answer as `Options` or
 //!   [`SessionEvent::OptionFailed`].
+//! - **Resuming** (brief 0060). [`AgentSession::resume`] runs `session/load` with a session id the agent gave
+//!   earlier instead of `session/new`, when the agent's `initialize` advertises `loadSession`
+//!   ([`SessionEvent::LoadUnsupported`] otherwise, and the session goes no further). The conversation the agent
+//!   replays before it answers arrives as [`SessionEvent::Replay`] (its message chunks, thoughts, tool calls and plans;
+//!   anything else it sends then, such as its slash commands, stays a [`SessionEvent::Update`]); the owner decides
+//!   whether the replay builds a transcript or is only counted.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -77,6 +83,11 @@ pub enum SessionEvent {
         ms: f64,
     },
     Update(SessionUpdate),
+    /// A part of the conversation the agent replays during `session/load` ([`AgentSession::resume`]; brief 0060).
+    Replay(SessionUpdate),
+    /// The agent does not advertise `loadSession`, so [`AgentSession::resume`] cannot resume the session; nothing
+    /// else follows.
+    LoadUnsupported,
     /// A permission request the owner must answer with [`AgentSession::answer`].
     Permission {
         key: u64,
@@ -217,6 +228,28 @@ impl AgentSession {
         generation: u64,
         sink: SessionSink,
     ) -> Self {
+        Self::launch(config, meta, None, generation, sink)
+    }
+
+    /// Spawn the agent and resume `acp_session_id` with `session/load` (brief 0060), with the same `cwd` and MCP
+    /// servers as `session/new`. Its replay arrives as [`SessionEvent::Replay`], then [`SessionEvent::Ready`] with
+    /// that id; an agent without `loadSession` reports [`SessionEvent::LoadUnsupported`] instead.
+    pub fn resume(
+        config: SessionConfig,
+        acp_session_id: impl Into<String>,
+        generation: u64,
+        sink: SessionSink,
+    ) -> Self {
+        Self::launch(config, None, Some(acp_session_id.into()), generation, sink)
+    }
+
+    fn launch(
+        config: SessionConfig,
+        meta: Option<Value>,
+        load: Option<String>,
+        generation: u64,
+        sink: SessionSink,
+    ) -> Self {
         let (jobs, job_rx) = mpsc::channel();
         let (writes, write_rx) = mpsc::channel();
         let session = Self {
@@ -241,7 +274,7 @@ impl AgentSession {
             .name("acp-driver".into())
             .spawn(move || {
                 drive(
-                    config, meta, generation, sink, job_rx, client, sid, pending, writes,
+                    config, meta, load, generation, sink, job_rx, client, sid, pending, writes,
                 )
             })
             .expect("spawn acp driver thread");
@@ -431,10 +464,23 @@ fn apply_option_update(state: &OptionsState, update: &SessionUpdate) -> bool {
     false
 }
 
+/// Whether `update` is part of the conversation a `session/load` replays (brief 0060).
+fn is_replayed(update: &SessionUpdate) -> bool {
+    match update {
+        SessionUpdate::UserMessageChunk(_)
+        | SessionUpdate::AgentMessageChunk(_)
+        | SessionUpdate::AgentThoughtChunk(_)
+        | SessionUpdate::ToolCall(_)
+        | SessionUpdate::ToolCallUpdate(_) => true,
+        SessionUpdate::Other { .. } => update.plan_entries().is_some(),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn drive(
     config: SessionConfig,
     meta: Option<Value>,
+    load: Option<String>,
     generation: u64,
     sink: SessionSink,
     jobs: mpsc::Receiver<Job>,
@@ -454,15 +500,23 @@ fn drive(
     // Methods from `initialize`, for a login state reported before or after the handshake.
     let auth_methods: Arc<Mutex<Vec<AuthMethod>>> = Arc::default();
     let options: OptionsState = Arc::default();
+    // While `session/load` runs, the conversation the agent replays (brief 0060).
+    let replaying = Arc::new(AtomicBool::new(false));
     let events: crate::EventSink = {
         let sink = sink.clone();
         let policy = config.policy.clone();
         let agent = config.agent.clone();
         let auth_methods = auth_methods.clone();
         let options = options.clone();
+        let replaying = replaying.clone();
         Arc::new(move |ev| {
             let send = |e| sink(generation, e);
             match ev {
+                ClientEvent::Update(n)
+                    if replaying.load(Ordering::Acquire) && is_replayed(&n.update) =>
+                {
+                    send(SessionEvent::Replay(n.update));
+                }
                 ClientEvent::Update(n) => {
                     let changed = apply_option_update(&options, &n.update);
                     send(SessionEvent::Update(n.update));
@@ -568,12 +622,31 @@ fn drive(
         label,
         methods: login_methods(&config.agent, &init.auth_methods),
     };
-    let session = match client.new_session_with_meta(
-        &config.cwd,
-        config.mcp_servers.clone(),
-        meta,
-        timeout,
-    ) {
+    let opened = match &load {
+        // Brief 0060: resume the session the agent gave earlier, when it can.
+        Some(_) if !init.agent_capabilities.load_session => {
+            return emit(SessionEvent::LoadUnsupported);
+        }
+        Some(id) => {
+            replaying.store(true, Ordering::Release);
+            let loaded = client.load_session(id, &config.cwd, config.mcp_servers.clone(), timeout);
+            replaying.store(false, Ordering::Release);
+            loaded.map(|r| crate::protocol::NewSessionResponse {
+                session_id: id.clone(),
+                modes: r.modes,
+                config_options: r.config_options,
+            })
+        }
+        None => {
+            client.new_session_with_meta(&config.cwd, config.mcp_servers.clone(), meta, timeout)
+        }
+    };
+    let method = if load.is_some() {
+        "session/load"
+    } else {
+        "session/new"
+    };
+    let session = match opened {
         Ok(s) => s,
         Err(e) if e.is_auth_required() => {
             return emit(SessionEvent::State(needs_login(
@@ -582,7 +655,7 @@ fn drive(
         }
         Err(e) => {
             return emit(SessionEvent::State(AgentState::Error(format!(
-                "session/new: {e}"
+                "{method}: {e}"
             ))));
         }
     };

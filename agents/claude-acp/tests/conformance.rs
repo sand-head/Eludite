@@ -14,6 +14,14 @@
 //! local command is not a turn. The ACP side is pinned in
 //! `claude-2.1.289-options.acp.jsonl` (`UPDATE_GOLDEN=1` rewrites it).
 //!
+//! Brief 0060: `claude-2.1.289-resume.jsonl` holds three `claude` processes
+//! (no model call): a new session that runs the local command `/effort low`
+//! (which writes Claude Code's session file), `--resume` of that session (its
+//! own `initialize`), and `--resume` of an id no session has (refused). With
+//! `claude-2.1.289-session-file.jsonl` as Claude Code's session file, it
+//! proves `session/load`: the replay before the answer, `--resume` in the
+//! child's argv, an id already live refused, and the refusal's message.
+//!
 //! The recorded session has three turns: the diagnostics question (ToolSearch,
 //! then the Eludite MCP tool, allowed), a Write (denied), and a long answer
 //! interrupted by the client.
@@ -253,7 +261,8 @@ fn recorded_session_full_mapping_permissions_and_cancel() {
     assert_eq!(agent.name, "eludite-claude-acp");
     assert!(init.agent_capabilities.mcp_capabilities.http);
     assert!(!init.agent_capabilities.mcp_capabilities.sse);
-    assert!(!init.agent_capabilities.load_session);
+    // Brief 0060: the adapter resumes sessions (`session/load` over `claude --resume`).
+    assert!(init.agent_capabilities.load_session);
     let login = &init.auth_methods[0];
     assert_eq!(login.kind.as_deref(), Some("terminal"));
     assert_eq!(login.args, ["auth", "login"]);
@@ -1119,4 +1128,144 @@ fn a_typed_local_command_keeps_its_reply_and_moves_the_option() {
     assert_eq!(config_option(options, "model")["currentValue"], "opus");
     h.client.shutdown();
     assert!(!fake_log(&h.log).iter().any(|e| e["event"] == "mismatch"));
+}
+
+/// The folder Claude Code keeps `cwd`'s sessions in under `projects` (as `process::session_file` finds it).
+fn project_folder(cwd: &Path) -> String {
+    cwd.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// Brief 0060: `session/load` against the recorded `--resume`. A first adapter starts a session that runs `/effort
+/// low`; a second adapter resumes it: `claude` is started with `--resume <id>` and answers its own `initialize`, the
+/// conversation from Claude Code's session file is replayed before the answer, the answer carries the modes and the
+/// options, and the slash commands follow it. Loading it again while it is live is `invalid_params`; a `--resume`
+/// `claude` refuses fails the load with its message.
+#[test]
+fn recorded_resume_loads_the_session_and_replays_its_file() {
+    let mut env = fake_env("claude-2.1.289-resume.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let first = spawn("resume-new", env.clone(), read_policy());
+    let init = first.client.initialize(info(), T).unwrap();
+    assert!(init.agent_capabilities.load_session);
+    let session = first
+        .client
+        .new_session(&first.cwd, vec![eludite_server()], T)
+        .unwrap();
+    let sid = session.session_id.clone();
+    let r = first.client.prompt(&sid, "/effort low").unwrap();
+    assert_eq!(r.stop_reason, StopReason::EndTurn);
+    first.client.shutdown();
+    let log = fake_log(&first.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+
+    // Claude Code's session file for it, where `claude` would have written it.
+    let config = temp_dir("resume-config");
+    let folder = config.join("projects").join(project_folder(&first.cwd));
+    std::fs::create_dir_all(&folder).unwrap();
+    let sample = std::fs::read_to_string(fixture("claude-2.1.289-session-file.jsonl"))
+        .unwrap()
+        .replace("{{SESSION_ID}}", &sid)
+        .replace("{{CWD}}", &first.cwd.to_string_lossy());
+    std::fs::write(folder.join(format!("{sid}.jsonl")), sample).unwrap();
+
+    let mut env2 = env.clone();
+    env2.push((
+        "CLAUDE_CONFIG_DIR".into(),
+        config.to_string_lossy().into_owned(),
+    ));
+    let h = spawn("resume-load", env2, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    let loaded = h
+        .client
+        .load_session(&sid, &first.cwd, vec![eludite_server()], T)
+        .unwrap();
+    // The replay was on the wire before the answer, so it is all here already.
+    let mut before = Vec::new();
+    while let Ok(ev) = h.events.try_recv() {
+        before.push(ev);
+    }
+    let kinds: Vec<String> = updates(&before)
+        .iter()
+        .map(|u| {
+            serde_json::to_value(u).unwrap()["sessionUpdate"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(
+        kinds[..8],
+        [
+            "user_message_chunk",
+            "agent_thought_chunk",
+            "tool_call",
+            "tool_call_update",
+            "tool_call",
+            "tool_call_update",
+            "agent_message_chunk",
+            "user_message_chunk",
+        ]
+    );
+    for ev in &before {
+        if let ClientEvent::Update(n) = ev {
+            assert_eq!(n.session_id, sid);
+        }
+    }
+    let calls = tool_calls(&before);
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].status, Some(ToolCallStatus::Completed));
+    assert_eq!(calls[1].status, Some(ToolCallStatus::Failed));
+    // The modes and options, as `session/new` answers them.
+    assert_eq!(loaded.modes.unwrap().current_mode_id, "default");
+    assert!(!loaded.config_options.unwrap_or_default().is_empty());
+    let after = [before, drain(&h.events)].concat();
+    assert_eq!(
+        updates(&after)
+            .iter()
+            .filter(|u| u.available_commands().is_some())
+            .count(),
+        1
+    );
+    // Loading it again while it is live.
+    let again = h
+        .client
+        .load_session(&sid, &first.cwd, vec![eludite_server()], T)
+        .unwrap_err();
+    let e = rpc_error(&again);
+    assert_eq!(e["code"], -32602, "{e}");
+    assert!(e["data"].as_str().unwrap().contains("already live"), "{e}");
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
+    let argv: Vec<&str> = log.iter().find(|e| e["event"] == "start").unwrap()["argv"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    let at = argv.iter().position(|a| *a == "--resume").unwrap();
+    assert_eq!(argv[at + 1], sid);
+    assert!(!argv.contains(&"--session-id"));
+
+    // A `--resume` `claude` refuses (the recording's third process).
+    let mut env3 = env;
+    env3.push(("FAKE_CLAUDE_RESUME".into(), "refused".into()));
+    let refused = spawn("resume-refused", env3, read_policy());
+    refused.client.initialize(info(), T).unwrap();
+    let unknown = "11111111-2222-4333-8444-555555555555";
+    let err = refused
+        .client
+        .load_session(unknown, &refused.cwd, vec![eludite_server()], T)
+        .unwrap_err();
+    let e = rpc_error(&err);
+    let message = e.to_string();
+    assert!(
+        message.contains(&format!("No conversation found with session ID: {unknown}")),
+        "{e}"
+    );
+    refused.client.shutdown();
+    let _ = std::fs::remove_dir_all(&config);
 }

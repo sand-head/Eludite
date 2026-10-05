@@ -31,6 +31,16 @@
 //!
 //! Brief 0060: the agent picker's list ends with "Add server…" ([`ADD_SERVER_ITEM`]), which asks the shell to open
 //! the Add server dialog ([`super::providers::ProviderDialog`]); the window draws the dialog while it is open.
+//!
+//! Brief 0060: the window shows one session of several. What it shows of a session (the transcript and its list
+//! state, the permission prompt, the header, the pickers and their pending picks, the running turn's start, the prompt
+//! box's text, whether the box is disabled) is a [`SessionView`]: the shell swaps the shown session's view for
+//! another's ([`AgentsWindow::show_view`]), and briefly for a session off screen while it applies that session's events
+//! ([`AgentsWindow::swap_view`]). The header gains the history button ([`HISTORY_BUTTON`], a clock, "Sessions") and
+//! the New session button ([`NEW_BUTTON`], `+`): the history list ([`HISTORY_MENU`], rows [`session_item`]) shows each
+//! session's title, agent and when it last changed, a dot while it runs and `?` while it waits for an answer, the shown
+//! one checked; Up, Down, Enter and Escape work while it is open, and a row emits [`AgentsWindowEvent::Switch`]. With a
+//! session shown, picking another agent in the agent picker emits [`AgentsWindowEvent::NewSession`].
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -99,6 +109,14 @@ pub enum AgentsWindowEvent {
     },
     /// "Add server…" at the end of the agent picker (brief 0060).
     AddServer,
+    /// Show session `id` (brief 0060): a row of the history list.
+    Switch(String),
+    /// A new session (the `+` button, or another agent picked while a session is shown).
+    NewSession {
+        agent: Option<String>,
+    },
+    /// The history list opened: the shell refreshes its rows.
+    HistoryOpened,
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -175,6 +193,81 @@ pub struct HeaderState {
     /// block under the header).
     pub detail: String,
     pub login: Vec<LoginMethod>,
+    /// The session shown (brief 0060): its id and title; `None` before the first.
+    pub session: Option<(String, String)>,
+}
+
+/// One row of the history list (brief 0060).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRow {
+    pub id: String,
+    pub title: String,
+    pub agent: String,
+    /// When it last changed, in words (`2 min ago`, `yesterday`, the date).
+    pub when: String,
+    pub running: bool,
+    pub waiting: bool,
+    pub current: bool,
+}
+
+/// What the window shows of one session (brief 0060), swapped in when the session is shown.
+pub struct SessionView {
+    pub transcript: Transcript,
+    list: ListState,
+    pub prompt: Option<Prompt>,
+    pub header: HeaderState,
+    modes: Option<SessionModeState>,
+    config_options: Vec<SessionConfigOption>,
+    picker_list: Vec<Picker>,
+    pending: HashMap<String, String>,
+    open_picker: Option<(String, usize)>,
+    turn_started: Option<Instant>,
+    /// The prompt box's text while the session is not shown.
+    pub draft: String,
+    /// Why the prompt box is disabled (a stored session its agent cannot resume).
+    pub disabled: Option<String>,
+}
+
+impl Default for SessionView {
+    fn default() -> Self {
+        Self::new(Transcript::default())
+    }
+}
+
+impl SessionView {
+    /// A session's view of `transcript`, its list at the end.
+    pub fn new(transcript: Transcript) -> Self {
+        let list = ListState::new(0, ListAlignment::Top, px(400.));
+        list.set_follow_mode(FollowMode::Tail);
+        Self {
+            transcript,
+            list,
+            prompt: None,
+            header: HeaderState::default(),
+            modes: None,
+            config_options: Vec::new(),
+            picker_list: Vec::new(),
+            pending: HashMap::new(),
+            open_picker: None,
+            turn_started: None,
+            draft: String::new(),
+            disabled: None,
+        }
+    }
+}
+
+/// The history button in the header (brief 0060), its list, and the New session button.
+pub const HISTORY_BUTTON: &str = "agents-history";
+pub const HISTORY_MENU: &str = "agents-history-menu";
+pub const NEW_BUTTON: &str = "agents-new";
+pub const HISTORY_TIP: &str = "Sessions";
+pub const NEW_TIP: &str = "New session";
+/// The history list's last line when there are more sessions than it shows.
+pub const OLDER_ON_DISK: &str = "Older sessions are on disk";
+
+/// A row of the history list.
+pub fn session_item(id: &str) -> String {
+    format!("agents-session-{id}")
 }
 
 /// A pending change as the window lists it.
@@ -574,6 +667,14 @@ pub struct AgentsWindow {
     pub painted: Painted,
     /// The Add server dialog while it is open (brief 0060); the shell opens and closes it.
     pub provider_dialog: Option<Entity<super::providers::ProviderDialog>>,
+    /// The history list's rows (brief 0060), newest first, at most [`super::sessions::HISTORY_ROWS`]; whether there
+    /// are more; whether it is open and its highlighted row.
+    pub history_rows: Vec<HistoryRow>,
+    pub history_more: bool,
+    history_open: bool,
+    history_selected: usize,
+    /// Why the prompt box is disabled (the shown session's).
+    pub disabled: Option<String>,
 }
 
 impl EventEmitter<AgentsWindowEvent> for AgentsWindow {}
@@ -620,7 +721,122 @@ impl AgentsWindow {
             probes: Rc::default(),
             painted: Rc::default(),
             provider_dialog: None,
+            history_rows: Vec::new(),
+            history_more: false,
+            history_open: false,
+            history_selected: 0,
+            disabled: None,
         }
+    }
+
+    /// Swap what the window shows of a session for `view` (brief 0060): the transcript and its list, the permission
+    /// prompt, the header, the pickers, the running turn's start and whether the box is disabled. The prompt box's
+    /// text stays; the shell uses this to apply an off-screen session's events, then swaps back.
+    pub fn swap_view(&mut self, view: &mut SessionView, cx: &mut Context<Self>) {
+        std::mem::swap(&mut self.transcript, &mut view.transcript);
+        std::mem::swap(&mut self.list, &mut view.list);
+        std::mem::swap(&mut self.prompt, &mut view.prompt);
+        std::mem::swap(&mut self.header, &mut view.header);
+        std::mem::swap(&mut self.modes, &mut view.modes);
+        std::mem::swap(&mut self.config_options, &mut view.config_options);
+        std::mem::swap(&mut self.picker_list, &mut view.picker_list);
+        std::mem::swap(&mut self.pending, &mut view.pending);
+        std::mem::swap(&mut self.open_picker, &mut view.open_picker);
+        std::mem::swap(&mut self.turn_started, &mut view.turn_started);
+        std::mem::swap(&mut self.disabled, &mut view.disabled);
+        // The spinner's timer runs while the shown session's turn does.
+        if self.running() {
+            self.start_ticker(cx);
+        } else {
+            self.ticker = None;
+        }
+        cx.notify();
+    }
+
+    /// Show `view`'s session in place of the one shown, which goes into `view` with the prompt box's text (brief
+    /// 0060): its own text comes back, its list scrolls to the end, and the open lists close.
+    pub fn show_view(&mut self, view: &mut SessionView, cx: &mut Context<Self>) {
+        let outgoing = self.prompt_text(cx);
+        self.swap_view(view, cx);
+        // The draft is not swapped with the rest: the incoming one is still in `view`.
+        let incoming = std::mem::replace(&mut view.draft, outgoing);
+        view.open_picker = None;
+        self.input.update(cx, |i, cx| i.set_text(&incoming, cx));
+        self.history_pos = None;
+        self.menu_closed_for = None;
+        self.picker_open = false;
+        self.open_picker = None;
+        self.sync(cx);
+        self.list.set_follow_mode(FollowMode::Tail);
+        self.list.scroll_to_end();
+        cx.notify();
+    }
+
+    /// Scroll the transcript to its end and follow it.
+    pub fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
+        self.list.set_follow_mode(FollowMode::Tail);
+        self.list.scroll_to_end();
+        cx.notify();
+    }
+
+    /// Show `transcript` in place of the shown one (a stored session's, rebuilt from its record; brief 0060).
+    pub fn replace_transcript(&mut self, transcript: Transcript, cx: &mut Context<Self>) {
+        self.transcript = transcript;
+        self.list.reset(0);
+        self.sync(cx);
+        self.scroll_to_end(cx);
+    }
+
+    /// Whether the history list is open, and its highlighted row.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn history_open(&self) -> Option<usize> {
+        self.history_open.then_some(self.history_selected)
+    }
+
+    /// The history list's rows (the shell keeps them up to date).
+    pub fn set_history(&mut self, rows: Vec<HistoryRow>, more: bool, cx: &mut Context<Self>) {
+        if self.history_rows != rows || self.history_more != more {
+            self.history_rows = rows;
+            self.history_more = more;
+            self.history_selected = self
+                .history_selected
+                .min(self.history_rows.len().saturating_sub(1));
+            cx.notify();
+        }
+    }
+
+    /// Open or close the history list (the clock button); opening it highlights the shown session.
+    pub fn toggle_history(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.history_open = !self.history_open;
+        if self.history_open {
+            self.picker_open = false;
+            self.open_picker = None;
+            self.history_selected = self
+                .history_rows
+                .iter()
+                .position(|r| r.current)
+                .unwrap_or(0);
+            window.focus(&self.input.focus_handle(cx), cx);
+            cx.emit(AgentsWindowEvent::HistoryOpened);
+        }
+        cx.notify();
+    }
+
+    fn move_history(&mut self, delta: isize, cx: &mut Context<Self>) {
+        if !self.history_rows.is_empty() {
+            let n = self.history_rows.len() as isize;
+            self.history_selected = (self.history_selected as isize + delta).rem_euclid(n) as usize;
+            cx.notify();
+        }
+    }
+
+    /// Show the history list's highlighted session.
+    fn pick_history(&mut self, cx: &mut Context<Self>) {
+        self.history_open = false;
+        if let Some(row) = self.history_rows.get(self.history_selected) {
+            cx.emit(AgentsWindowEvent::Switch(row.id.clone()));
+        }
+        cx.notify();
     }
 
     /// Whether the agent picker's list is open.
@@ -852,7 +1068,7 @@ impl AgentsWindow {
     /// Send the prompt box's text: nothing while a turn runs or when it is only whitespace.
     pub fn submit(&mut self, cx: &mut Context<Self>) {
         let text = self.prompt_text(cx).trim().to_owned();
-        if text.is_empty() || self.running() {
+        if text.is_empty() || self.running() || self.disabled.is_some() {
             return;
         }
         if self.history.last() != Some(&text) {
@@ -1041,7 +1257,7 @@ impl AgentsWindow {
                 } else {
                     String::new()
                 };
-                let debug = tool.mcp.as_ref().and_then(|m| m.debug.clone());
+                let debug = tool.debug_line();
                 let result = if expanded {
                     clip(&tool.call.content_text(), 1500)
                 } else {
@@ -1234,6 +1450,7 @@ impl AgentsWindow {
     /// instructions and an error.
     fn render_header(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
+        let history_menu = self.render_history(cx);
         let h = &self.header;
         let name = h
             .agents
@@ -1260,10 +1477,16 @@ impl AgentsWindow {
                 this.picker_open = !this.picker_open;
                 cx.notify();
             }));
+        // Brief 0060: with a session shown, another agent starts a new session with it (the shown one keeps running).
+        let session_agent = h
+            .session
+            .as_ref()
+            .and_then(|_| h.agents.get(h.selected).cloned());
         let menu = self.picker_open.then(|| {
             let items = h.agents.iter().enumerate().map(|(ix, a)| {
                 let sel = agent_item(ix);
                 let a = a.clone();
+                let session_agent = session_agent.clone();
                 tracked(
                     &painted,
                     sel.clone(),
@@ -1279,10 +1502,15 @@ impl AgentsWindow {
                 .child(SharedString::from(a.clone()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.picker_open = false;
-                    cx.emit(AgentsWindowEvent::Start {
-                        agent: Some(a.clone()),
-                        restart: true,
-                    });
+                    match &session_agent {
+                        Some(current) if *current != a => cx.emit(AgentsWindowEvent::NewSession {
+                            agent: Some(a.clone()),
+                        }),
+                        _ => cx.emit(AgentsWindowEvent::Start {
+                            agent: Some(a.clone()),
+                            restart: true,
+                        }),
+                    }
                 }))
             });
             // Brief 0060: an OpenAI-compatible server is added from the list's last row.
@@ -1360,6 +1588,34 @@ impl AgentsWindow {
                 restart,
             })
         }));
+        // Brief 0060: the history button (a clock) and New session, after the state.
+        let history = tracked(
+            &self.painted,
+            HISTORY_BUTTON,
+            eludite_ui::icon_button(HISTORY_BUTTON, "\u{25F7}", &t)
+                .debug_selector(|| HISTORY_BUTTON.into()),
+        )
+        .min_w(px(22.))
+        .h(px(20.))
+        .text_size(t.typography.ui)
+        .text_color(t.text)
+        .tooltip(tip(HISTORY_TIP, t))
+        .on_click(cx.listener(|this, _, window, cx| this.toggle_history(window, cx)));
+        let new = tracked(
+            &self.painted,
+            NEW_BUTTON,
+            eludite_ui::icon_button(NEW_BUTTON, "+", &t).debug_selector(|| NEW_BUTTON.into()),
+        )
+        .min_w(px(22.))
+        .h(px(20.))
+        .text_size(t.typography.ui)
+        .text_color(t.text)
+        .tooltip(tip(NEW_TIP, t))
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.history_open = false;
+            cx.emit(AgentsWindowEvent::NewSession { agent: None });
+            cx.notify();
+        }));
         let mut col = div()
             .flex()
             .flex_col()
@@ -1375,6 +1631,8 @@ impl AgentsWindow {
                     .px_3()
                     .child(div().relative().child(picker).children(menu))
                     .child(state)
+                    .child(div().relative().child(history).children(history_menu))
+                    .child(new)
                     .child(div().flex_1())
                     .child(start),
             );
@@ -1423,6 +1681,135 @@ impl AgentsWindow {
             col = col.child(login);
         }
         col.into_any_element()
+    }
+
+    /// The history list under its button (brief 0060): each session's title, then its agent and when it last
+    /// changed, muted; a dot while it runs, `?` while it waits for an answer, the shown one checked.
+    fn render_history(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.history_open {
+            return None;
+        }
+        let t = self.theme;
+        let painted = self.painted.clone();
+        let rows = self.history_rows.iter().enumerate().map(|(ix, r)| {
+            let sel = session_item(&r.id);
+            let lit = ix == self.history_selected;
+            let id = r.id.clone();
+            let mark = if r.waiting {
+                "?"
+            } else if r.running {
+                "\u{25CF}"
+            } else {
+                ""
+            };
+            tracked(
+                &painted,
+                sel.clone(),
+                div().id(SharedString::from(sel.clone())),
+            )
+            .debug_selector(move || sel)
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .h(px(34.))
+            .cursor_pointer()
+            .when(lit, |d| d.bg(t.accent).text_color(t.text_on_accent))
+            .when(!lit, |d| d.hover(|s| s.bg(t.menu_hover)))
+            .child(
+                div()
+                    .w(px(12.))
+                    .flex_none()
+                    .child(if r.current { "\u{2713}" } else { "" }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .child(div().truncate().child(SharedString::from(r.title.clone())))
+                    .child(
+                        div()
+                            .truncate()
+                            .text_size(t.typography.small)
+                            .text_color(if lit { t.text_on_accent } else { t.text_muted })
+                            .child(SharedString::from(format!("{} \u{B7} {}", r.agent, r.when))),
+                    ),
+            )
+            .child(
+                div()
+                    .w(px(12.))
+                    .flex_none()
+                    .text_color(if lit {
+                        t.text_on_accent
+                    } else if r.waiting {
+                        t.warning
+                    } else {
+                        ToolStatus::Running.color(&t)
+                    })
+                    .child(mark),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.history_open = false;
+                cx.emit(AgentsWindowEvent::Switch(id.clone()));
+                cx.notify();
+            }))
+        });
+        let empty = self.history_rows.is_empty().then(|| {
+            div()
+                .px_2()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .text_color(t.text_muted)
+                .child("No sessions yet")
+        });
+        let more = self.history_more.then(|| {
+            div()
+                .px_2()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .border_t_1()
+                .border_color(t.border)
+                .text_size(t.typography.small)
+                .text_color(t.text_muted)
+                .child(OLDER_ON_DISK)
+        });
+        let painted = self.painted.clone();
+        Some(
+            deferred(
+                anchored().child(
+                    tracked(&painted, HISTORY_MENU, popup_panel(&t).id(HISTORY_MENU))
+                        .debug_selector(|| HISTORY_MENU.into())
+                        .occlude()
+                        .w(px(320.))
+                        .max_h(px(420.))
+                        .overflow_y_scroll()
+                        .py_1()
+                        .mt(px(22.))
+                        .on_mouse_down_out(cx.listener(
+                            move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                // A click on the clock toggles it (its click handler closes it).
+                                let on_button = painted
+                                    .borrow()
+                                    .get(HISTORY_BUTTON)
+                                    .is_some_and(|b| b.contains(&e.position));
+                                if !on_button {
+                                    this.history_open = false;
+                                    cx.notify();
+                                }
+                            },
+                        ))
+                        .children(rows)
+                        .children(empty)
+                        .children(more),
+                ),
+            )
+            .with_priority(1)
+            .into_any_element(),
+        )
     }
 
     fn render_prompt(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -1921,7 +2308,15 @@ impl Render for AgentsWindow {
             .border_color(if focused { t.accent } else { t.border })
             .bg(t.background)
             .text_color(t.text)
-            .child(self.input.clone());
+            // Brief 0060: a stored session its agent cannot resume says so in place of the box.
+            .map(|d| match self.disabled.clone() {
+                Some(why) => d
+                    .debug_selector(|| "agents-prompt-disabled".into())
+                    .min_h(px(36.))
+                    .text_color(t.text_muted)
+                    .child(SharedString::from(why)),
+                None => d.child(self.input.clone()),
+            });
         let input = div()
             .relative()
             .w_full()
@@ -1935,7 +2330,7 @@ impl Render for AgentsWindow {
                 SEND_BUTTON,
                 if running { "Stop" } else { "Send" },
                 !running,
-                true,
+                self.disabled.is_none() || running,
                 &t,
             ),
         )
@@ -1969,6 +2364,33 @@ impl Render for AgentsWindow {
         div()
             .id("agents-window")
             .debug_selector(|| "agents-window".into())
+            // The history list takes Up, Down, Enter and Escape while it is open (brief 0060), before the footer's
+            // pickers and the prompt box.
+            .capture_action(cx.listener(|this, _: &input_actions::MoveUp, _, cx| {
+                if this.history_open {
+                    this.move_history(-1, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &input_actions::MoveDown, _, cx| {
+                if this.history_open {
+                    this.move_history(1, cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &input_actions::Submit, _, cx| {
+                if this.history_open {
+                    this.pick_history(cx);
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &input_actions::Escape, _, cx| {
+                if this.history_open {
+                    this.history_open = false;
+                    cx.notify();
+                    cx.stop_propagation();
+                }
+            }))
             .size_full()
             .flex()
             .flex_col()

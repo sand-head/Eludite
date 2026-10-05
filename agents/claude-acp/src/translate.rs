@@ -37,9 +37,16 @@
 //! person typed `/model X` or `/effort X`) moves the option to X when X is
 //! one of its values ([`SessionOptions::on_local_command`]); the model of a
 //! turn's usage corrects the model option ([`SessionOptions::on_turn_model`]).
+//!
+//! [`replay`] (brief 0060) turns Claude Code's own session file (one JSON record per line) into the updates
+//! `session/load` replays before it answers: the person's text as `user_message_chunk`, the assistant's text as
+//! `agent_message_chunk` and its thinking as `agent_thought_chunk`, each tool use as a completed `tool_call` (titled
+//! and kinded as in a turn) followed by its result's `tool_call_update`. Anything else is skipped: meta records,
+//! local commands (`/effort`, `/model`) and their output, images, subagent (sidechain) records, attachments, hook
+//! summaries, the file's bookkeeping records and lines that do not parse.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_client_protocol::schema::v1::{
     AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate, ConfigOptionUpdate,
@@ -75,6 +82,124 @@ pub fn available_commands(commands: &[Value]) -> Vec<AvailableCommand> {
             Some(AvailableCommand::new(name, description).input(hint))
         })
         .collect()
+}
+
+/// What [`replay`] made of a session file: the updates, and how many conversation records or blocks it skipped.
+#[derive(Debug, Default)]
+pub struct Replay {
+    pub updates: Vec<SessionUpdate>,
+    pub skipped: usize,
+}
+
+/// Whether the text of a user record is Claude Code's own (a local command, its output or its caveat).
+fn is_local_command(text: &str) -> bool {
+    let t = text.trim_start();
+    [
+        "<command-name>",
+        "<command-message>",
+        "<local-command-",
+        "<command-args>",
+    ]
+    .iter()
+    .any(|p| t.starts_with(p))
+}
+
+/// The updates replaying Claude Code's session file `text` (see the module docs), the tool calls titled with paths
+/// relative to `cwd`.
+pub fn replay(text: &str, cwd: &Path) -> Replay {
+    let mut out = Replay::default();
+    let mut kinds: HashMap<String, (String, ToolKind)> = HashMap::new();
+    let chunk = |t: &str| ContentChunk::new(ContentBlock::from(t.to_owned()));
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(rec) = serde_json::from_str::<Value>(line) else {
+            out.skipped += 1;
+            continue;
+        };
+        let kind = rec.get("type").and_then(Value::as_str);
+        if !matches!(kind, Some("user" | "assistant")) {
+            continue;
+        }
+        if rec.get("isSidechain").and_then(Value::as_bool) == Some(true)
+            || rec.get("isMeta").and_then(Value::as_bool) == Some(true)
+        {
+            out.skipped += 1;
+            continue;
+        }
+        let content = rec
+            .pointer("/message/content")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let blocks = match content {
+            Value::String(t) => vec![json!({"type": "text", "text": t})],
+            Value::Array(b) => b,
+            _ => {
+                out.skipped += 1;
+                continue;
+            }
+        };
+        for block in &blocks {
+            let text = block.get("text").and_then(Value::as_str);
+            match (kind, block.get("type").and_then(Value::as_str)) {
+                (Some("user"), Some("text")) => match text {
+                    Some(t) if !t.trim().is_empty() && !is_local_command(t) => {
+                        out.updates.push(SessionUpdate::UserMessageChunk(chunk(t)))
+                    }
+                    _ => out.skipped += 1,
+                },
+                (Some("user"), Some("tool_result")) => {
+                    let Some(id) = block["tool_use_id"].as_str() else {
+                        out.skipped += 1;
+                        continue;
+                    };
+                    let known = kinds.get(id);
+                    let mut update = ToolCallUpdate::new(
+                        id.to_owned(),
+                        tool_result_fields(block, known.map(|(_, k)| *k)),
+                    );
+                    if let Some((name, _)) = known {
+                        update = update.meta(tool_meta(name, None));
+                    }
+                    out.updates.push(SessionUpdate::ToolCallUpdate(update));
+                }
+                (Some("assistant"), Some("text")) => match text {
+                    Some(t) if !t.is_empty() => {
+                        out.updates.push(SessionUpdate::AgentMessageChunk(chunk(t)))
+                    }
+                    _ => out.skipped += 1,
+                },
+                (Some("assistant"), Some("thinking")) => {
+                    match block.get("thinking").and_then(Value::as_str) {
+                        Some(t) if !t.is_empty() => {
+                            out.updates.push(SessionUpdate::AgentThoughtChunk(chunk(t)))
+                        }
+                        // Redacted thinking has no text to show.
+                        _ => out.skipped += 1,
+                    }
+                }
+                (Some("assistant"), Some("tool_use")) => {
+                    let (Some(id), Some(name)) = (block["id"].as_str(), block["name"].as_str())
+                    else {
+                        out.skipped += 1;
+                        continue;
+                    };
+                    let input = block.get("input").cloned().unwrap_or_else(|| json!({}));
+                    let info = tool_info(name, &input, cwd);
+                    kinds.insert(id.to_owned(), (name.to_owned(), info.kind));
+                    let mut call = ToolCall::new(id.to_owned(), info.title)
+                        .kind(info.kind)
+                        .status(ToolCallStatus::Completed)
+                        .content(info.content)
+                        .locations(info.locations)
+                        .raw_input(input)
+                        .meta(tool_meta(name, None));
+                    call.name = Some(name.to_owned());
+                    out.updates.push(SessionUpdate::ToolCall(call));
+                }
+                _ => out.skipped += 1,
+            }
+        }
+    }
+    out
 }
 
 /// The `available_commands_update` for `claude`'s commands (see [`available_commands`]).
@@ -669,6 +794,74 @@ impl Translator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Brief 0060: the checked-in sample of Claude Code's session file (redacted from 2.1.289's records) replays as
+    /// the person's text, the thought, each tool use as a completed call followed by its result, and the answer;
+    /// local commands, meta records, the subagent's answer, the image and the line cut short are skipped.
+    #[test]
+    fn a_session_file_replays_its_conversation() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/claude-2.1.289-session-file.jsonl"
+        ))
+        .unwrap()
+        .replace("{{CWD}}", "/w");
+        let r = replay(&text, Path::new("/w"));
+        let got: Vec<Value> = r
+            .updates
+            .iter()
+            .map(|u| serde_json::to_value(u).unwrap())
+            .collect();
+        let kinds: Vec<&str> = got
+            .iter()
+            .map(|u| u["sessionUpdate"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "user_message_chunk",
+                "agent_thought_chunk",
+                "tool_call",
+                "tool_call_update",
+                "tool_call",
+                "tool_call_update",
+                "agent_message_chunk",
+                "user_message_chunk",
+            ]
+        );
+        assert_eq!(
+            got[0]["content"]["text"],
+            "List the source files and explain what main.rs does."
+        );
+        assert_eq!(
+            got[1]["content"]["text"],
+            "The person wants the files listed first."
+        );
+        assert_eq!(got[2]["toolCallId"], "toolu_redacted_01");
+        assert_eq!(got[2]["status"], "completed");
+        assert_eq!(got[2]["kind"], "execute");
+        assert_eq!(got[2]["rawInput"]["command"], "ls src");
+        assert_eq!(got[2]["_meta"]["claudeCode"]["toolName"], "Bash");
+        assert_eq!(got[3]["status"], "completed");
+        assert_eq!(got[3]["content"][0]["content"]["text"], "lib.rs\nmain.rs");
+        assert_eq!(got[4]["kind"], "read");
+        assert_eq!(got[4]["locations"][0]["path"], "/w/src/missing.rs");
+        assert_eq!(got[5]["status"], "failed");
+        assert!(
+            got[6]["content"]["text"]
+                .as_str()
+                .unwrap()
+                .starts_with("There are two files")
+        );
+        assert_eq!(got[7]["content"]["text"], "And this screenshot?");
+        // The caveat, the command, the reminder (meta), the subagent's answer, the image and the cut line.
+        assert_eq!(r.skipped, 6);
+        // No file, no replay; text that is not a session file replays nothing.
+        assert!(replay("", Path::new("/w")).updates.is_empty());
+        let junk = replay("not json\n{\"type\": \"summary\"}\n", Path::new("/w"));
+        assert!(junk.updates.is_empty());
+        assert_eq!(junk.skipped, 1);
+    }
 
     /// Three of `claude` 2.1.289's `models` (tests/fixtures/claude-2.1.289-options.jsonl), and one without effort.
     fn models() -> Vec<Value> {

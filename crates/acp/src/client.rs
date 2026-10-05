@@ -23,10 +23,10 @@ use serde_json::Value;
 
 use crate::protocol::{
     CancelNotification, ClientCapabilities, ContentBlock, Implementation, InitializeRequest,
-    InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse, PROTOCOL_VERSION,
-    PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SessionNotification, SetSessionConfigOptionRequest,
-    SetSessionConfigOptionResponse, SetSessionModeRequest, methods,
+    InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpServer, NewSessionRequest,
+    NewSessionResponse, PROTOCOL_VERSION, PromptRequest, PromptResponse, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, SessionNotification,
+    SetSessionConfigOptionRequest, SetSessionConfigOptionResponse, SetSessionModeRequest, methods,
 };
 use crate::{AgentDescriptor, ErrorObject, Id, Message, Notification, Request, Response};
 
@@ -271,6 +271,28 @@ impl AcpClient {
             },
             timeout,
         )
+    }
+
+    /// `session/load` (brief 0060): resume `session_id`. The agent replays the conversation as `session/update`
+    /// notifications before it answers; an agent without `agentCapabilities.loadSession` refuses it.
+    pub fn load_session(
+        &self,
+        session_id: &str,
+        cwd: &Path,
+        mcp_servers: Vec<McpServer>,
+        timeout: Option<Duration>,
+    ) -> Result<LoadSessionResponse, AcpError> {
+        let params = serde_json::to_value(LoadSessionRequest {
+            session_id: session_id.to_owned(),
+            cwd: cwd.to_string_lossy().into_owned(),
+            mcp_servers,
+        })
+        .map_err(io_err)?;
+        // ACP's answer may be `null` (an agent with nothing to report).
+        match self.call(methods::SESSION_LOAD, params, timeout)? {
+            Value::Null => Ok(LoadSessionResponse::default()),
+            v => serde_json::from_value(v).map_err(|e| AcpError::Decode(e.to_string())),
+        }
     }
 
     /// `session/set_mode`: the agent answers once the mode is set (and notifies `current_mode_update`).

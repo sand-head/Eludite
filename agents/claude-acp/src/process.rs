@@ -14,6 +14,14 @@
 //! `{mode}` and a `system` `status` message, `set_model` answers success;
 //! there is no `set_effort` control request, so the effort is set with the
 //! local command `/effort`).
+//!
+//! Brief 0060: [`Launch::resume`] starts `claude --resume <session id>` in
+//! place of `--session-id` (verified on 2.1.289: it continues the session in
+//! its own file under the same id; a session with nothing in it yet, such as
+//! one that only ran `initialize`, is refused with "No conversation found with
+//! session ID" in a `result` message's `errors` and exit status 1), and
+//! [`session_file`] is where Claude Code keeps a session's conversation, which
+//! the adapter replays to the client.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -55,6 +63,8 @@ pub struct Launch {
     pub model: Option<String>,
     /// `--effort` (`low`, `medium`, `high`, `xhigh`, `max`; brief 0058).
     pub effort: Option<String>,
+    /// Resume `session_id` (`--resume`) instead of starting it (`--session-id`; brief 0060).
+    pub resume: bool,
 }
 
 impl Launch {
@@ -73,11 +83,18 @@ impl Launch {
             "stdio",
             "--permission-mode",
             "default",
-            "--session-id",
         ]
         .iter()
         .map(OsString::from)
         .collect();
+        a.push(
+            if self.resume {
+                "--resume"
+            } else {
+                "--session-id"
+            }
+            .into(),
+        );
         a.push(self.session_id.clone().into());
         a.push("--mcp-config".into());
         a.push(self.mcp_config.clone().into());
@@ -124,6 +141,43 @@ impl InitializeReply {
                 .unwrap_or_default(),
         }
     }
+}
+
+/// Where Claude Code keeps session `id`'s conversation for `cwd` (brief 0060): `<config>/projects/<cwd with every
+/// character but ASCII letters and digits as `-`>/<id>.jsonl`, `<config>` being `$CLAUDE_CONFIG_DIR` or `~/.claude`
+/// (verified on 2.1.289: `/a/b_c.d e` is `-a-b-c-d-e`). When that file is missing, the session is looked for under
+/// every project folder (Claude Code shortens very long folder names). `None` when it is nowhere.
+pub fn session_file(cwd: &Path, id: &str) -> Option<PathBuf> {
+    if id.is_empty() || id.contains(['/', '\\']) || id.contains("..") {
+        return None;
+    }
+    let config = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+                .map(|h| PathBuf::from(h).join(".claude"))
+        })?;
+    session_file_in(&config.join("projects"), cwd, id)
+}
+
+/// [`session_file`] under `projects`.
+pub fn session_file_in(projects: &Path, cwd: &Path, id: &str) -> Option<PathBuf> {
+    let folder: String = cwd
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let file = format!("{id}.jsonl");
+    let direct = projects.join(folder).join(&file);
+    if direct.is_file() {
+        return Some(direct);
+    }
+    std::fs::read_dir(projects)
+        .ok()?
+        .flatten()
+        .map(|e| e.path().join(&file))
+        .find(|p| p.is_file())
 }
 
 /// The `set_permission_mode` control request.
@@ -355,4 +409,72 @@ pub fn write_mcp_config(path: &Path, config: &Value) -> io::Result<()> {
     let mut f = opts.open(path)?;
     f.write_all(&serde_json::to_vec_pretty(config).map_err(io::Error::other)?)?;
     f.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn launch(resume: bool) -> Launch {
+        Launch {
+            claude: "claude".into(),
+            cwd: "/w".into(),
+            session_id: "s-1".into(),
+            mcp_config: "/tmp/m.json".into(),
+            model: None,
+            effort: None,
+            resume,
+        }
+    }
+
+    /// Brief 0060: a resumed launch names the session with `--resume`, never `--session-id`.
+    #[test]
+    fn a_resumed_launch_passes_resume_instead_of_session_id() {
+        let args = |l: Launch| -> Vec<String> {
+            l.args()
+                .into_iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        };
+        let new = args(launch(false));
+        let at = new.iter().position(|a| a == "--session-id").unwrap();
+        assert_eq!(new[at + 1], "s-1");
+        assert!(!new.iter().any(|a| a == "--resume"));
+        let resumed = args(launch(true));
+        let at = resumed.iter().position(|a| a == "--resume").unwrap();
+        assert_eq!(resumed[at + 1], "s-1");
+        assert!(!resumed.iter().any(|a| a == "--session-id"));
+        assert_eq!(new.len(), resumed.len());
+    }
+
+    /// Brief 0060: the session file is under the project folder named after the cwd (every character but ASCII
+    /// letters and digits a `-`), else under any project folder; a missing file or an id with a path in it is none.
+    #[test]
+    fn the_session_file_is_found_under_the_cwds_project_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "eludite-claude-acp-projects-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let direct = root.join("-w-a-b-c-d-e");
+        std::fs::create_dir_all(&direct).unwrap();
+        std::fs::write(direct.join("s-1.jsonl"), "{}").unwrap();
+        assert_eq!(
+            session_file_in(&root, Path::new("/w/a_b.c d/e"), "s-1"),
+            Some(direct.join("s-1.jsonl"))
+        );
+        let other = root.join("-shortened-1234");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("s-2.jsonl"), "{}").unwrap();
+        assert_eq!(
+            session_file_in(&root, Path::new("/elsewhere"), "s-2"),
+            Some(other.join("s-2.jsonl"))
+        );
+        assert_eq!(session_file_in(&root, Path::new("/w"), "s-3"), None);
+        assert_eq!(
+            session_file_in(&root.join("none"), Path::new("/w"), "s-1"),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

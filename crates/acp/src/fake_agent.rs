@@ -45,14 +45,20 @@
 //! ended) with the same `usage_update` as `stream` ([`stream_usage`]), so the Agents window's usage strip fills after
 //! a turn that also has tool calls and a permission prompt.
 //!
+//! Brief 0060: `--load` advertises `loadSession`, gives each `session/new` an id of its own in this process
+//! (`fake-session-N`) and answers `session/load` for an id it gave earlier in the same process (or any id with
+//! `--load-any`), replaying [`LOAD_REPLAY`] (a `user_message_chunk` and an `agent_message_chunk`) before it answers
+//! (with the modes and options of `--options`, as `session/new`); an unknown id is `invalid_params`.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
-//! `--script JSON`, `--url URL`, `--options`, `--usage`). `planned` needs a [`Planner`] in [`Options`],
+//! `--script JSON`, `--url URL`, `--options`, `--usage`, `--load`, `--load-any`). `planned` needs a [`Planner`] in [`Options`],
 //! so it runs in-process only.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -275,6 +281,10 @@ pub struct Options {
     pub options: bool,
     /// End the diagnostics scenarios' turns with [`stream_usage`] (`--usage`, brief 0059).
     pub usage: bool,
+    /// Advertise `loadSession` and resume the sessions given in this process (`--load`, brief 0060).
+    pub load: bool,
+    /// With `--load`, resume any id (`--load-any`).
+    pub load_any: bool,
 }
 
 impl Default for Options {
@@ -293,6 +303,8 @@ impl Default for Options {
             planner: None,
             options: false,
             usage: false,
+            load: false,
+            load_any: false,
         }
     }
 }
@@ -317,6 +329,11 @@ impl Options {
                 "--url" => o.url = Some(val()?),
                 "--options" => o.options = true,
                 "--usage" => o.usage = true,
+                "--load" => o.load = true,
+                "--load-any" => {
+                    o.load = true;
+                    o.load_any = true;
+                }
                 other => return Err(format!("unknown argument {other}")),
             }
         }
@@ -326,6 +343,16 @@ impl Options {
         Ok(o)
     }
 }
+
+/// What `session/load` replays before it answers (brief 0060): the earlier prompt and the agent's answer.
+pub const LOAD_REPLAY: [(&str, &str); 2] = [
+    ("user_message_chunk", "An earlier prompt"),
+    ("agent_message_chunk", "An earlier answer"),
+];
+
+/// The session ids `--load` gave in this process (brief 0060), which `session/load` resumes.
+static GIVEN_SESSIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
 /// Key in a stream chunk's content `_meta` holding its send time (ns since the Unix epoch).
 pub const SENT_AT_META: &str = "eludite/sentAtNs";
@@ -444,14 +471,47 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 };
                 self.reply(&id, json!({
                     "protocolVersion": 1,
-                    "agentCapabilities": {"loadSession": false, "promptCapabilities": {"image": false, "embeddedContext": false}, "mcpCapabilities": {"http": false, "sse": false}},
+                    "agentCapabilities": {"loadSession": self.opts.load, "promptCapabilities": {"image": false, "embeddedContext": false}, "mcpCapabilities": {"http": false, "sse": false}},
                     "agentInfo": {"name": "eludite-fake-acp-agent", "title": "Fake agent", "version": env!("CARGO_PKG_VERSION")},
                     "authMethods": auth_methods
                 }))
             }
+            (methods::SESSION_LOAD, Some(id)) if self.opts.load => {
+                let wanted = params["sessionId"].as_str().unwrap_or_default().to_owned();
+                let known = GIVEN_SESSIONS
+                    .lock()
+                    .is_ok_and(|g| g.contains(&wanted));
+                if !known && !self.opts.load_any {
+                    return self.invalid(&id, &format!("unknown session {wanted}"));
+                }
+                self.session = wanted;
+                self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
+                self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
+                for (kind, text) in LOAD_REPLAY {
+                    self.update(json!({"sessionUpdate": kind, "content": {"type": "text", "text": text}}))?;
+                }
+                if self.opts.options {
+                    let options = fake_options(&self.model, &self.effort);
+                    self.reply(&id, json!({"modes": {"currentModeId": self.mode, "availableModes": fake_modes()},
+                        "configOptions": options}))?;
+                } else {
+                    self.reply(&id, json!({}))?;
+                }
+                if self.opts.scenario == Scenario::Stream {
+                    self.update(json!({"sessionUpdate": "available_commands_update", "availableCommands": stream_commands()}))?;
+                }
+                Ok(())
+            }
             (methods::SESSION_NEW, Some(id)) => {
                 self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
                 self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
+                if self.opts.load {
+                    // An id of its own, which a later `session/load` in this process resumes (brief 0060).
+                    self.session = format!("fake-session-{}", NEXT_SESSION.fetch_add(1, Ordering::Relaxed));
+                    if let Ok(mut g) = GIVEN_SESSIONS.lock() {
+                        g.push(self.session.clone());
+                    }
+                }
                 let session = self.session.clone();
                 if self.opts.options {
                     // What the client remembered, when it is a listed value (brief 0058).

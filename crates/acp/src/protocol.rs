@@ -23,6 +23,8 @@ pub mod methods {
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
+    /// Resume a session the agent knows (brief 0060); only when `agentCapabilities.loadSession`.
+    pub const SESSION_LOAD: &str = "session/load";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -156,6 +158,34 @@ pub struct NewSessionRequest {
     /// key the Claude Code adapters read; brief 0058).
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
+}
+
+/// ACP `session/load` (brief 0060): resume session `session_id` with the same `cwd` and MCP servers as `session/new`.
+/// The agent replays the conversation as `session/update` notifications before it answers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadSessionRequest {
+    pub session_id: String,
+    pub cwd: String,
+    pub mcp_servers: Vec<McpServer>,
+}
+
+/// ACP `session/load`'s answer: the session's modes and config options, as `session/new` answers them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadSessionResponse {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "modes_or_none"
+    )]
+    pub modes: Option<SessionModeState>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "config_options_or_none"
+    )]
+    pub config_options: Option<Vec<SessionConfigOption>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -862,6 +892,35 @@ pub struct RequestPermissionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Brief 0060: `session/load`'s request is ACP's shape, and its answer decodes like `session/new`'s (modes and
+    /// options, or nothing).
+    #[test]
+    fn session_load_encodes_and_its_answer_decodes() {
+        let req = LoadSessionRequest {
+            session_id: "s1".into(),
+            cwd: "/w".into(),
+            mcp_servers: Vec::new(),
+        };
+        assert_eq!(
+            serde_json::to_value(&req).unwrap(),
+            serde_json::json!({"sessionId": "s1", "cwd": "/w", "mcpServers": []})
+        );
+        let empty: LoadSessionResponse = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(empty, LoadSessionResponse::default());
+        let full: LoadSessionResponse = serde_json::from_value(serde_json::json!({
+            "modes": {"currentModeId": "plan", "availableModes": [{"id": "plan", "name": "Plan"}]},
+            "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "a",
+                "options": [{"value": "a", "name": "A"}]}, {"name": "no id"}],
+            "models": {"ignored": true}
+        }))
+        .unwrap();
+        assert_eq!(full.modes.unwrap().current_mode_id, "plan");
+        assert_eq!(full.config_options.unwrap().len(), 1);
+        let bad: LoadSessionResponse =
+            serde_json::from_value(serde_json::json!({"modes": 3})).unwrap();
+        assert!(bad.modes.is_none());
+    }
 
     #[test]
     fn available_commands_decode_and_a_bad_entry_is_skipped() {
