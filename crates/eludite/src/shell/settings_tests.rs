@@ -336,7 +336,11 @@ fn the_options_dialog_is_generated_from_the_schema_and_edits_through_the_bus(
         .unwrap();
     assert_eq!(got["settings"][0]["source"], "user");
 
-    // A file edit made elsewhere shows in the open dialog.
+    // A file edit made elsewhere shows in the open dialog. The preset's write is queued for the settings thread:
+    // let it reach the file first, or it lands on top of this edit.
+    w.wait("the preset's write", |w| {
+        std::fs::read_to_string(w.path(USER_SETTINGS)).is_ok_and(|s| s.contains("keyboard.preset"))
+    });
     w.write_settings(USER_SETTINGS, json!({"build.onSave": true}));
     w.wait("the dialog follows the file", |w| {
         w.applied(|a| a.build_on_save) == Some(true)

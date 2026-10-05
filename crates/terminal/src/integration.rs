@@ -184,31 +184,47 @@ mod tests {
         (on, a, env)
     }
 
+    /// `rel` under the test's `/i`, joined as the platform does (`\\` on Windows).
+    fn in_dir(rel: &str) -> String {
+        Path::new("/i").join(rel).to_string_lossy().into_owned()
+    }
+
     #[test]
     fn each_shell_gets_its_startup_option_and_never_a_dotfile() {
         let (on, args, env) = launch(ShellKind::Bash, &["-l"]);
         assert!(on);
-        assert_eq!(args, ["--rcfile", "/i/bash.sh", "-i"]);
+        assert_eq!(args, ["--rcfile", &in_dir("bash.sh"), "-i"]);
         assert_eq!(env["ELUDITE_SHELL_LOGIN"], "1");
         let (on, _, env) = launch(ShellKind::Zsh, &[]);
         assert!(on);
-        assert_eq!(env["ZDOTDIR"], "/i/zsh");
+        assert_eq!(env["ZDOTDIR"], in_dir("zsh"));
         assert_eq!(env["ELUDITE_USER_ZDOTDIR"], "/home/me");
         let (on, args, _) = launch(ShellKind::Fish, &[]);
         assert!(on);
-        assert_eq!(args, ["--init-command", "source '/i/eludite.fish'"]);
+        assert_eq!(
+            args,
+            [
+                "--init-command",
+                &format!("source '{}'", in_dir("eludite.fish"))
+            ]
+        );
         let (on, args, _) = launch(ShellKind::PowerShell, &["-NoLogo"]);
         assert!(on);
         assert_eq!(
             args,
-            ["-NoExit", "-NoLogo", "-Command", ". '/i/eludite.ps1'"]
+            [
+                "-NoExit",
+                "-NoLogo",
+                "-Command",
+                &format!(". '{}'", in_dir("eludite.ps1"))
+            ]
         );
         // A Developer PowerShell's command runs first.
         let (_, args, _) = launch(
             ShellKind::PowerShell,
             &["-NoLogo", "-NoExit", "-Command", "& 'x.ps1'"],
         );
-        assert_eq!(args[3], "& 'x.ps1'; . '/i/eludite.ps1'");
+        assert_eq!(args[3], format!("& 'x.ps1'; . '{}'", in_dir("eludite.ps1")));
         assert!(!launch(ShellKind::Other, &[]).0);
         assert!(!launch(ShellKind::Cmd, &[]).0);
         // A shell told to run a command is left alone.

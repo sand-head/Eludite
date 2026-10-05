@@ -3450,6 +3450,10 @@ fn exception_types_go_as_filter_options_and_the_window_shows_the_tree(cx: &mut T
         .unwrap();
     d.w.click("debug-exc-type-remove-1");
     assert_eq!(tree(&d).types.len(), 1);
+    d.w.wait("the adapter's filter without FormatException", |_| {
+        fake.last("setExceptionBreakpoints").unwrap()["filterOptions"][0]["condition"]
+            == "System.InvalidOperationException"
+    });
     assert_eq!(
         fake.last("setExceptionBreakpoints").unwrap()["filterOptions"][0]["condition"],
         "System.InvalidOperationException"

@@ -480,7 +480,15 @@ fn included(inc: &Option<Gitignore>, root: &Path, path: &Path) -> bool {
     match inc {
         None => true,
         Some(g) if path.starts_with(root) && path != root => {
-            g.matched_path_or_any_parents(path, false).is_ignore()
+            // The matcher wants the path under its root with no root of its own: an open document's absolute path
+            // (root is empty then) keeps its drive and root on Windows, so take the plain components.
+            let rel: PathBuf = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .components()
+                .filter(|c| matches!(c, std::path::Component::Normal(_)))
+                .collect();
+            g.matched_path_or_any_parents(&rel, false).is_ignore()
         }
         Some(g) => path
             .file_name()

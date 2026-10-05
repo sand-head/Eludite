@@ -470,7 +470,9 @@ fn the_window_opens_from_the_view_menu_with_a_tab_and_navigates_through_the_bus(
             .iter()
             .any(|(m, p)| m == "Page.navigate" && p["url"] == "http://localhost:5000/orders")
     });
-    assert!(w.audit().iter().any(|c| c == cmds::NAVIGATE));
+    w.wait("the navigate's audit entry", |w| {
+        w.audit().iter().any(|c| c == cmds::NAVIGATE)
+    });
     assert_eq!(w.browser_window(|b| b.can_go()), (true, false));
     assert_eq!(
         w.browser_window(|b| b.history().to_vec()),

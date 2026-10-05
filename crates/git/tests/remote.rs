@@ -12,8 +12,18 @@ use eludite_git::{Cancel, ErrorKind, GlobalConfig, Repo, SessionCredentials, Use
 mod server;
 use server::GitHttp;
 
+/// `bare` as a `file://` url: on Windows the drive follows a third slash and the separators are `/`.
+fn file_url(path: &Path) -> String {
+    let p = path.display().to_string().replace('\\', "/");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else {
+        format!("file:///{p}")
+    }
+}
+
 fn clone_of(bare: &Path, at: &Path) -> Repo {
-    let url = format!("file://{}", bare.display());
+    let url = file_url(bare);
     let r = git2::Repository::clone(&url, at).unwrap();
     let mut c = r.config().unwrap();
     c.set_str("user.name", "Test").unwrap();
@@ -44,8 +54,7 @@ fn setup() -> (tempfile::TempDir, Repo, Repo) {
     let seed = {
         let r = git2::Repository::init(tmp.path().join("seed")).unwrap();
         r.set_head("refs/heads/main").unwrap();
-        r.remote("origin", &format!("file://{}", bare.display()))
-            .unwrap();
+        r.remote("origin", &file_url(&bare)).unwrap();
         let mut c = r.config().unwrap();
         c.set_str("user.name", "Seed").unwrap();
         c.set_str("user.email", "seed@example.com").unwrap();

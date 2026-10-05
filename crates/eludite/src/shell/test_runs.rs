@@ -991,9 +991,15 @@ impl Shell {
                 vstest_console_path: self.tests.vstest_console.clone(),
             };
             let (_, reply) = self.session.request::<host::TestDiscover>(params);
+            let generation = self.generation;
             cx.spawn_in(window, async move |this, cx| {
                 let reply = reply.await;
                 let _ = this.update_in(cx, |shell, window, cx| {
+                    // Asked under an older solution: the new generation's discovery has taken its place, and this
+                    // reply must not name the old run as the discovery or end the new one (CLAUDE.md invariant 12).
+                    if generation != shell.generation {
+                        return;
+                    }
                     match reply.map(|r| r.result) {
                         Ok(Ok(found)) => {
                             shell.tests.host_discovery = Some(found.run_id);
