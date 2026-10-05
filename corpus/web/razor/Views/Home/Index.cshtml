@@ -1,0 +1,32 @@
+﻿@model HomeViewModel
+@{
+    ViewData["Title"] = "Home";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>@ViewData["Title"] &ndash; Demo Shop</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header>
+        <nav class=navbar>
+            <a asp-controller="Home" asp-action="Index">Demo Shop</a>
+        </nav>
+    </header>
+    <main role="main">
+        <h1>Welcome, @Html.DisplayFor(model => model.UserName)</h1>
+        <form asp-action="Subscribe" method="post">
+            <label asp-for="Email"></label>
+            <input asp-for="Email" class="form-control" />
+            <button type="submit">Subscribe</button>
+        </form>
+        @RenderBody()
+    </main>
+    <footer>&copy; 2026 Demo Shop</footer>
+    @await RenderSectionAsync("Head", required: false)
+    @RenderSection("Scripts", required: false)
+</body>
+</html>

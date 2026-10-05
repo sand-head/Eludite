@@ -1,0 +1,40 @@
+@page
+@model IndexModel
+@using Demo.Shop.Pages;
+@{
+    ViewData["Title"] = "Catalog";
+}
+
+<style>
+    .catalog { display: grid; gap: 1rem; }
+    @@media (max-width: 600px) { .catalog { gap: .5rem; } }
+</style>
+
+<h1>@ViewData["Title"]</h1>
+
+Browse the catalog below, or search by name.
+
+<div class="catalog">
+    @foreach (var product in Model.Products)
+    {
+        <article>
+            <h2>@product.Name</h2>
+            <p>@product.Price.ToString("C")</p>
+        </article>
+    }
+</div>
+
+@await Html.PartialAsync("_Pagination", Model.Page)
+
+@section Scripts {
+    <script>
+        function readCookie(name) {
+            var ca = document.cookie.split(';');
+            for (var i = 0; i < ca.length; i++) {
+                var c = ca[i].trim();
+                if (c.indexOf(name + "=") === 0 && c.length > 0) { return c.substring(name.length + 1); }
+            }
+            return null;
+        }
+    </script>
+}

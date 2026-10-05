@@ -1,0 +1,57 @@
+@page "/counter"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@attribute [Authorize(Roles = "Counter")]
+@using Demo.Shop.Components.Shared
+@inject ILogger<Counter> Logger
+
+@* A counter with a filterable list: directive attributes with @ values,
+   a fully qualified component, a template and a code block. *@
+
+<PageTitle>Counter</PageTitle>
+
+<h1 class="title">Counter</h1>
+
+<p role="status">Current count: @currentCount</p>
+
+<button class="btn btn-primary" @onclick="@IncrementCount">Click me</button>
+
+<Demo.Shop.Components.Shared.SearchBox @ref="searchBox" @bind-Value="@filter" @bind-Value:after="@ApplyFilter" Placeholder="Filter items" />
+
+@if (visible.Count == 0)
+{
+    <p class="empty">Nothing matches @filter.</p>
+}
+else
+{
+    <ul>
+        @foreach (var item in visible)
+        {
+            <li @key="@item.Id" class="item">@item.Name &mdash; @Badge(item.Kind)</li>
+        }
+    </ul>
+}
+
+@code {
+#nullable enable
+    private int currentCount;
+    private string filter = "";
+    private Demo.Shop.Components.Shared.SearchBox? searchBox;
+    private List<Item> items = [new(1, "Apples", "fruit"), new(2, "Leeks", "vegetable")];
+    private List<Item> visible = [];
+
+    // A template: markup as a C# value.
+    private RenderFragment<string> Badge = kind => @<span class="badge">@kind</span>;
+
+    protected override void OnInitialized() => ApplyFilter();
+
+    private void IncrementCount()
+    {
+        currentCount++;
+        Logger.LogInformation("Count is {Count}", currentCount);
+    }
+
+    private void ApplyFilter() =>
+        visible = items.Where(i => i.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    private sealed record Item(int Id, string Name, string Kind);
+}
