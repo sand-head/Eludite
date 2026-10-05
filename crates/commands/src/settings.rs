@@ -656,6 +656,8 @@ mod tests {
             keys,
             [
                 "keyboard.preset",
+                "updates.channel",
+                "updates.mode",
                 "build.beforeRun",
                 "build.onSave",
                 "build.showOutputOnStart",
@@ -804,10 +806,35 @@ mod tests {
         );
         // Brief 0041: the Terminal page, after the earlier ones, so they keep their places.
         assert_eq!(s.section("Terminal").count(), 8);
-        // Brief 0042: Find and Replace, after the earlier pages.
+        // Brief 0042: Find and Replace, after the earlier pages (brief 0055's Updates page sits right after it).
+        assert_eq!(
+            s.sections.iter().rev().nth(8).map(String::as_str),
+            Some("Environment > Find and Replace")
+        );
         assert_eq!(
             s.sections.iter().rev().nth(7).map(String::as_str),
-            Some("Environment > Find and Replace")
+            Some("Environment > Updates")
+        );
+        assert_eq!(s.section("Environment > Updates").count(), 2);
+        assert_eq!(s.get("updates.mode").unwrap().default, json!("ask"));
+        assert!(
+            s.get("updates.mode")
+                .unwrap()
+                .validate(&json!("download"))
+                .is_ok()
+        );
+        assert!(
+            s.get("updates.mode")
+                .unwrap()
+                .validate(&json!("always"))
+                .is_err()
+        );
+        assert_eq!(s.get("updates.channel").unwrap().default, json!("unstable"));
+        assert!(
+            s.get("updates.channel")
+                .unwrap()
+                .validate(&json!("stable"))
+                .is_err()
         );
         assert_eq!(s.section("Environment > Find and Replace").count(), 4);
         assert_eq!(s.get("search.excludes").unwrap().kind, SettingKind::List);

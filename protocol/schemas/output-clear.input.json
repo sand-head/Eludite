@@ -13,7 +13,8 @@
         "language_servers",
         "debug",
         "browser",
-        "package_manager"
+        "package_manager",
+        "updates"
       ]
     }
   },

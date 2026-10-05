@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/output-show.input.json",
   "title": "eludite.output.show input",
-  "description": "Show the Output window (View > Output, Ctrl+Alt+O) with a source selected in its \"Show output from\" dropdown, and read the end of that source's text: Build is the build log, Host is eludite-host's own log, Language Servers is the log of the language servers the shell runs itself (rust-analyzer: its stderr, window/logMessage and window/showMessage), Debug is the program's output while it runs under the debugger or without it (the debug adapter's output events, or the program's stdout and stderr for Ctrl+F5) with the debugger's own messages, and Browser is the browser of the eludite.browser.* tools: its launch, tabs opened and closed, navigation failures, console errors and its exit, and Tests is the test runners' output: the Test Explorer's discoveries and runs (eludite-host's MTP and VSTest logs, cargo test's output), and Package Manager is what NuGet did: the Manage NuGet Packages window's and eludite.nuget.*'s installs, updates, uninstalls, consolidations and restores (brief 0048).",
+  "description": "Show the Output window (View > Output, Ctrl+Alt+O) with a source selected in its \"Show output from\" dropdown, and read the end of that source's text: Build is the build log, Host is eludite-host's own log, Language Servers is the log of the language servers the shell runs itself (rust-analyzer: its stderr, window/logMessage and window/showMessage), Debug is the program's output while it runs under the debugger or without it (the debug adapter's output events, or the program's stdout and stderr for Ctrl+F5) with the debugger's own messages, and Browser is the browser of the eludite.browser.* tools: its launch, tabs opened and closed, navigation failures, console errors and its exit, and Tests is the test runners' output: the Test Explorer's discoveries and runs (eludite-host's MTP and VSTest logs, cargo test's output), and Package Manager is what NuGet did: the Manage NuGet Packages window's and eludite.nuget.*'s installs, updates, uninstalls, consolidations and restores (brief 0048), and Updates is the self-updater's log: checks of the release channel, downloads, what is staged for the restart, failures and the update applied at this start (brief 0055).",
   "type": "object",
   "properties": {
     "source": {
@@ -14,7 +14,8 @@
         "debug",
         "browser",
         "tests",
-        "package_manager"
+        "package_manager",
+        "updates"
       ]
     },
     "tail": {

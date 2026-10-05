@@ -1865,6 +1865,7 @@ dependencies = [
  "eludite-search",
  "eludite-terminal",
  "eludite-ui",
+ "eludite-update",
  "eludite-workspace",
  "futures",
  "gpui",
@@ -2095,6 +2096,20 @@ dependencies = [
  "gpui",
  "pulldown-cmark",
  "serde_json",
+]
+
+[[package]]
+name = "eludite-update"
+version = "0.1.0"
+dependencies = [
+ "eludite-update",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tempfile",
+ "ureq",
 ]
 
 [[package]]

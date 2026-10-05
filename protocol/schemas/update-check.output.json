@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-check.output.json",
+  "title": "eludite.update.check output",
+  "description": "The updater's state after the check (or so far, when `wait_ms` ran out: `busy` is then true). The same shape as eludite.update.status.",
+  "type": "object",
+  "required": [
+    "enabled",
+    "build",
+    "install_dir",
+    "channel",
+    "mode",
+    "state",
+    "busy"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "build": {
+      "description": "A build's identity, build.json beside the executable: the workspace version, the channel, the build id (CI's <YYYYMMDD>.<run number>, compared segment by segment), the commit, the platform, when it was published.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "version",
+        "channel",
+        "build",
+        "os",
+        "arch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "unstable"
+          ]
+        },
+        "build": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        },
+        "published": {
+          "type": "string"
+        }
+      }
+    },
+    "install_dir": {
+      "description": "The folder holding the executable (and the stage).",
+      "type": "string"
+    },
+    "channel": {
+      "enum": [
+        "unstable"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "ask",
+        "notify",
+        "download",
+        "off"
+      ]
+    },
+    "state": {
+      "description": "Where the updater is. `idle`: not checked since the start. `up_to_date`: the installed build is the channel's newest (`tag`). `no_release`: the channel has no release. `no_archive`: the newest release has no archive for this platform or no SHA256SUMS. `available`: `update` can be downloaded. `downloading`: `received` of `total` bytes (null while unknown). `unpacking`: verified, being unpacked and checked. `ready`: `staged` waits for a restart (eludite.update.apply). `failed`: `error` names the kind (network, http, malformed, verification, archive, io, apply, canceled) and `message` says what to do.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "idle",
+            "up_to_date",
+            "no_release",
+            "no_archive",
+            "available",
+            "downloading",
+            "unpacking",
+            "ready",
+            "failed"
+          ]
+        },
+        "tag": {
+          "type": "string"
+        },
+        "update": {
+          "description": "A build on offer or staged.",
+          "type": [
+            "object",
+            "null"
+          ],
+          "required": [
+            "tag",
+            "channel",
+            "build",
+            "version",
+            "archive",
+            "size"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {
+              "description": "The release's tag (`unstable-20261005.142`).",
+              "type": "string"
+            },
+            "channel": {
+              "enum": [
+                "unstable"
+              ]
+            },
+            "build": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "published_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "html_url": {
+              "description": "The release's page.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "archive": {
+              "description": "The archive's name (`eludite-<version>-<os>-<arch>.tar.gz` or `.zip`).",
+              "type": "string"
+            },
+            "size": {
+              "description": "The archive's size in bytes as the release lists it (0 when unknown).",
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "received": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "staged": {
+          "description": "The update unpacked and checked in the stage (`.eludite-update/` in the install folder), ready to swap in on restart.",
+          "type": "object",
+          "required": [
+            "tag",
+            "build",
+            "layout",
+            "archive",
+            "at"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tag": {
+              "type": "string"
+            },
+            "build": {
+              "description": "A build's identity, build.json beside the executable: the workspace version, the channel, the build id (CI's <YYYYMMDD>.<run number>, compared segment by segment), the commit, the platform, when it was published.",
+              "type": "object",
+              "required": [
+                "version",
+                "channel",
+                "build",
+                "os",
+                "arch"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "version": {
+                  "type": "string"
+                },
+                "channel": {
+                  "enum": [
+                    "unstable"
+                  ]
+                },
+                "build": {
+                  "type": "string"
+                },
+                "commit": {
+                  "type": "string"
+                },
+                "os": {
+                  "type": "string"
+                },
+                "arch": {
+                  "type": "string"
+                },
+                "published": {
+                  "type": "string"
+                }
+              }
+            },
+            "layout": {
+              "description": "The unpacked layout's folder.",
+              "type": "string"
+            },
+            "archive": {
+              "description": "The downloaded archive.",
+              "type": "string"
+            },
+            "at": {
+              "description": "When it was staged, RFC 3339.",
+              "type": "string"
+            }
+          }
+        },
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "at": {
+          "description": "When it failed, RFC 3339.",
+          "type": "string"
+        }
+      }
+    },
+    "last_check": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "busy": {
+      "description": "A check or a download is running.",
+      "type": "boolean"
+    },
+    "writable": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  }
+}

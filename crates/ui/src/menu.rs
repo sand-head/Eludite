@@ -350,6 +350,10 @@ pub fn vs_menus() -> Vec<Menu> {
             vec![
                 item("View Help", "eludite.help.view"),
                 Separator,
+                // Brief 0055: the self-updater's check; the status bar's update slot carries the download and the
+                // restart.
+                item("Check for Updates...", "eludite.update.check"),
+                Separator,
                 item("About Eludite", "eludite.help.about"),
             ],
         ),

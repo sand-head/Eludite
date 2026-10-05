@@ -2,8 +2,9 @@
 
 Brief 0039 (proposal 0002, brief E, the Linux half). A built Eludite runs its embedded browser engine from a
 predictable layout, with no developer environment variables: `eludite-chromium` and CEF's runtime files beside the
-`eludite` executable. Installers, signing and auto-update are Phase 3 (PLAN.md section 13); this folder lays the files
-out and makes an archive.
+`eludite` executable. Installers and signing are Phase 3 (PLAN.md section 13); this folder lays the files out and
+makes an archive. Self-update from the archives CI publishes is brief 0055: `RELEASE.md` is the contract, and
+`--channel` and `--build` on the scripts below write the `build.json` it needs (`build-json.sh`).
 
 ## Linux: `linux.sh`
 

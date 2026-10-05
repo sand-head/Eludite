@@ -281,6 +281,8 @@ impl Shell {
         self.search_apply_settings();
         self.code_lens_apply_settings(cx);
         self.forge_apply_settings(cx);
+        // Brief 0055: `updates.channel` and `updates.mode`.
+        self.update_apply_settings();
         let agents_changed = self
             .applied_settings
             .as_ref()

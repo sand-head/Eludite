@@ -1,0 +1,32 @@
+[package]
+name = "eludite-update"
+description = "Eludite self-update: release channels on GitHub, staged downloads, the swap on restart."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# The release list and the archives over HTTPS (MIT OR Apache-2.0; already in the build through eludite-forge).
+ureq = { version = "3.4", default-features = false, features = ["rustls", "json"] }
+# SHA-256 of a downloaded archive against SHA256SUMS (MIT OR Apache-2.0; already in the build).
+sha2 = "0.10"
+# The Linux and macOS archives (.tar.gz) and the Windows archive's deflate (MIT OR Apache-2.0; both already in the build).
+tar = "0.4"
+flate2 = "1.1"
+
+[dev-dependencies]
+tempfile.workspace = true
+# The integration tests use the archive helpers behind `test-support`.
+eludite-update = { path = ".", features = ["test-support"] }
+
+[lints]
+workspace = true
+
+[features]
+# The in-memory zip writer, for tests and tools.
+test-support = []

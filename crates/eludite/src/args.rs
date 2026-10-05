@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub const USAGE: &str = "\
 Usage: eludite [OPTIONS]
        eludite --mcp-relay ADDR
+       eludite --apply-update PLAN
 
 Options:
   --solution PATH     open this .sln, .slnx or project file at startup (as
@@ -131,6 +132,20 @@ Measurement harness (prints one JSON line to stdout, then exits):
                       (for tools/drive.py, which drives the UI with real X11
                       pointer and key events)
 
+Updates (brief 0055): a packaged Eludite (build.json beside this executable)
+checks GitHub's releases of its channel on Help > Check for Updates and, once
+the person has said so (the setting updates.mode: ask, notify, download, off),
+on its own about 15 s after the window opens and every 4 hours; a build is
+downloaded to .eludite-update/ beside this executable, verified against the
+release's SHA256SUMS, unpacked and swapped in when the person restarts.
+  --apply-update PLAN run as the applier: wait for the shell to exit, swap the
+                      install folder's files with the staged layout the plan
+                      names, start the new eludite; no window
+  --updated-from TAG  passed by the applier to the new eludite: say in the
+                      Output window and the status bar what was replaced
+  ELUDITE_UPDATE_API  the releases API to read instead of
+                      https://api.github.com (a mirror, a test server)
+
 Environment:
   ELUDITE_CONFIG_DIR  replaces <user config dir>/eludite (layouts go in its
                       layouts/ subdirectory)
@@ -175,6 +190,10 @@ pub struct Args {
     /// `--print-engine-discovery` (brief 0039, hidden: the package smoke test): print where the embedded engine and
     /// CEF are found, as JSON on stdout, and exit.
     pub print_engine_discovery: bool,
+    /// `--apply-update PLAN` (brief 0055): run as the update applier and exit.
+    pub apply_update: Option<PathBuf>,
+    /// `--updated-from TAG` (brief 0055): this start follows an update from that build.
+    pub updated_from: Option<String>,
 }
 
 impl Args {
@@ -254,6 +273,8 @@ impl Args {
                 }
                 "--spike-browser" => a.spike_browser = Some(value("--spike-browser")?),
                 "--print-engine-discovery" => a.print_engine_discovery = true,
+                "--apply-update" => a.apply_update = Some(value("--apply-update")?.into()),
+                "--updated-from" => a.updated_from = Some(value("--updated-from")?),
                 "--bench-browser" => {
                     let n = value("--bench-browser")?;
                     a.bench_browser = Some(n.parse().map_err(|_| format!("bad duration `{n}`"))?);

@@ -148,6 +148,8 @@ pub enum OutputSource {
     Tests,
     /// What NuGet did (brief 0048): installs, updates, uninstalls, consolidations and restores.
     PackageManager,
+    /// The self-updater (brief 0055): checks, downloads, what is staged, failures and the applied update.
+    Updates,
 }
 
 impl OutputSource {
@@ -160,6 +162,7 @@ impl OutputSource {
             OutputSource::Browser => "browser",
             OutputSource::Tests => "tests",
             OutputSource::PackageManager => "package_manager",
+            OutputSource::Updates => "updates",
         }
     }
 }

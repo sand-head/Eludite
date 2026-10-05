@@ -63,6 +63,12 @@ fn main() {
     match args::Args::parse(std::env::args().skip(1)) {
         Ok(args) if args.help => print!("{}", args::USAGE),
         Ok(args) if args.print_engine_discovery => std::process::exit(print_engine_discovery()),
+        // The update applier (brief 0055): a copy of the new executable, started by the shell before it quit.
+        Ok(args) if args.apply_update.is_some() => {
+            std::process::exit(eludite_update::apply::run(
+                &args.apply_update.expect("checked"),
+            ));
+        }
         Ok(args) if args.mcp_relay.is_some() => {
             std::process::exit(relay(args.mcp_relay.expect("checked")));
         }

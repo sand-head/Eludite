@@ -3,7 +3,7 @@
 # eludite-chromium is still the stub (tools/package/README.md), or for Linux without CEF (linux.sh makes the Linux
 # tarball with the engine).
 #
-#   tools/package/shell.sh [--profile release|debug] [--out DIR] [--no-build]
+#   tools/package/shell.sh [--profile release|debug] [--out DIR] [--no-build] [--channel CHANNEL --build ID]
 #
 # Builds `eludite` in the given cargo profile (release by default), lays out the companions (companions.sh: the .NET
 # host, eludite-dbg-mono, eludite-claude-acp), then writes DIR/eludite-<version>-<os>-<arch>/ and its archive, a .zip
@@ -16,23 +16,32 @@
 #   README, LICENSE, THIRD-PARTY-CRATES.txt, licenses/
 #
 # --no-build packages the `eludite` that target/<profile>/ already holds (the companions are always built; their builds
-# are incremental). The last line on stdout is the archive's path; everything else goes to stderr.
+# are incremental). --channel and --build write build.json into the layout (build-json.sh, tools/package/RELEASE.md),
+# which makes the packaged Eludite one that updates itself from that channel's releases; without them it is a
+# development build to the updater. The last line on stdout is the archive's path; everything else goes to stderr.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 profile=release
 out="$repo/target/package"
 build=1
+channel=
+build_id=
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile=${2:?--profile needs release or debug}; shift 2 ;;
     --out) out=${2:?--out needs a folder}; shift 2 ;;
     --no-build) build=0; shift ;;
-    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --channel) channel=${2:?--channel needs a value}; shift 2 ;;
+    --build) build_id=${2:?--build needs a value}; shift 2 ;;
+    -h|--help) sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "shell.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 case "$profile" in release|debug) ;; *) echo "shell.sh: --profile is release or debug" >&2; exit 2 ;; esac
+if { [ -n "$channel" ] && [ -z "$build_id" ]; } || { [ -z "$channel" ] && [ -n "$build_id" ]; }; then
+  echo "shell.sh: --channel and --build go together" >&2; exit 2
+fi
 
 exe=
 case "$(uname -s)" in
@@ -72,6 +81,10 @@ install -m 644 "$repo/LICENSE" "$dest/LICENSE"
   sed -e "s/@EXE@/$exe/g" "$here/README-companions.in"
 } >"$dest/README"
 chmod 644 "$dest/README"
+if [ -n "$channel" ]; then
+  "$here/build-json.sh" --channel "$channel" --build "$build_id" --os "$os" --arch "$arch" --out "$dest/build.json"
+  chmod 644 "$dest/build.json"
+fi
 
 # The Rust crates linked into the shell, with their licenses (from Cargo.lock, offline). BSD sed too: no \| alternation.
 {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Brief 0039: lay out a built Eludite with its browser engine and make the Linux tarball.
 #
-#   tools/package/linux.sh [--profile release|debug] [--out DIR] [--no-build] [--with-companions]
+#   tools/package/linux.sh [--profile release|debug] [--out DIR] [--no-build] [--with-companions] [--channel CHANNEL --build ID]
 #
 # Builds `eludite` and `eludite-chromium` (with the `cef` feature) in the given cargo profile (release by default),
 # then writes DIR/eludite-<version>-linux-<arch>/ and DIR/eludite-<version>-linux-<arch>.tar.gz (DIR defaults to
@@ -17,8 +17,10 @@
 # CEF comes from tools/cef/fetch.sh, which downloads nothing when its cache holds the pinned version. --no-build
 # packages what target/<profile>/ already holds. --profile debug packages a development build (the smoke test in
 # browsers/chromium/tests/package.rs uses it, so `cargo test` never makes a release build). --with-companions adds the
-# .NET host, eludite-dbg-mono and eludite-claude-acp through companions.sh (CI does; the smoke test does not). The last
-# line on stdout is the tarball's path; everything else goes to stderr.
+# .NET host, eludite-dbg-mono and eludite-claude-acp through companions.sh (CI does; the smoke test does not).
+# --channel and --build write build.json into the layout (build-json.sh, tools/package/RELEASE.md), which makes the
+# packaged Eludite one that updates itself from that channel's releases; without them it is a development build to the
+# updater. The last line on stdout is the tarball's path; everything else goes to stderr.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -26,17 +28,24 @@ profile=release
 out="$repo/target/package"
 build=1
 companions=0
+channel=
+build_id=
 while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile=${2:?--profile needs release or debug}; shift 2 ;;
     --out) out=${2:?--out needs a folder}; shift 2 ;;
     --no-build) build=0; shift ;;
     --with-companions) companions=1; shift ;;
+    --channel) channel=${2:?--channel needs a value}; shift 2 ;;
+    --build) build_id=${2:?--build needs a value}; shift 2 ;;
     -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "linux.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 case "$profile" in release|debug) ;; *) echo "linux.sh: --profile is release or debug" >&2; exit 2 ;; esac
+if { [ -n "$channel" ] && [ -z "$build_id" ]; } || { [ -z "$channel" ] && [ -n "$build_id" ]; }; then
+  echo "linux.sh: --channel and --build go together" >&2; exit 2
+fi
 [ "$(uname -s)" = Linux ] || { echo "linux.sh: Linux only (see tools/package/README.md for Windows and macOS)" >&2; exit 2; }
 
 version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' "$repo/Cargo.toml" | head -n 1)
@@ -102,6 +111,10 @@ install -m 644 "$here/eludite.desktop" "$dest/eludite.desktop"
 install -m 644 "$repo/LICENSE" "$dest/LICENSE"
 sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$arch/g" "$here/README.in" >"$dest/README"
 chmod 644 "$dest/README"
+if [ -n "$channel" ]; then
+  "$here/build-json.sh" --channel "$channel" --build "$build_id" --os linux --arch "$arch" --out "$dest/build.json"
+  chmod 644 "$dest/build.json"
+fi
 
 # The Rust crates linked into the two executables, with their licenses (from Cargo.lock, offline).
 {

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-status.input.json",
+  "title": "eludite.update.status input",
+  "description": "Read the updater's state: this build, the channel and mode, what the last check found, a download's progress, the staged build. No network call.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

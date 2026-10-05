@@ -84,6 +84,9 @@ mod test_runs_tests;
 mod tests;
 pub mod tests_window;
 pub mod toolbar;
+pub mod update;
+#[cfg(test)]
+mod update_tests;
 #[cfg(test)]
 mod web_tests;
 pub mod workspace_edit;
@@ -208,6 +211,11 @@ pub struct Services {
     pub nuget_jobs: UnboundedReceiver<nuget::NuGetJob>,
     /// Brief 0049's `eludite.project.*` property commands and the solution configurations from other threads.
     pub properties_jobs: UnboundedReceiver<project_properties::PropertiesJob>,
+    /// The self-updater's `eludite.update.*` (brief 0055): the service, `apply` from other threads, and how the
+    /// updater is set up (tests replace it before the shell starts).
+    pub update: Arc<update::UpdateService>,
+    pub update_jobs: UnboundedReceiver<update::UpdateJob>,
+    pub update_setup: update::UpdateSetup,
 }
 
 /// Start the host session and the settings store, and register the workspace, settings and other shell commands on
@@ -316,6 +324,7 @@ pub fn register_workspace(
     let (nuget, nuget_events, nuget_jobs) =
         nuget::register(commands, session.clone(), tree.clone());
     let properties_jobs = project_properties::register(commands);
+    let (update, update_jobs) = update::register(commands);
     let (project_tx, project_jobs) = unbounded();
     eludite_commands::project::register(
         commands,
@@ -362,6 +371,9 @@ pub fn register_workspace(
         nuget_events,
         nuget_jobs,
         properties_jobs,
+        update,
+        update_jobs,
+        update_setup: update::UpdateSetup::detect(),
     }
 }
 
@@ -494,6 +506,8 @@ pub struct Shell {
     nuget: nuget::NuGetUi,
     /// The project property pages, the configuration selection and Configuration Manager (brief 0049).
     properties: project_properties::PropertiesUi,
+    /// The self-updater: the status slot, the Output lines, the question, the restart (brief 0055).
+    update: update::UpdateUi,
     /// The menu bar's and dialogs' probed bounds, while `--bounds-out` probes.
     ui_bounds: Option<eludite_ui::BoundsMap>,
     timings: Timings,
@@ -721,7 +735,11 @@ impl Shell {
             nuget_events,
             nuget_jobs,
             properties_jobs,
+            update,
+            update_jobs,
+            update_setup,
         } = services;
+        let update = update::UpdateUi::new(update);
         let nuget = nuget::NuGetUi::new(nuget, theme, cx);
         let properties = project_properties::PropertiesUi::default();
         let git = git::GitUi::new(git, theme, cx);
@@ -1105,6 +1123,7 @@ impl Shell {
             forge,
             nuget,
             properties,
+            update,
             ui_bounds: None,
             timings: Timings::default(),
             _tasks: vec![
@@ -1132,6 +1151,7 @@ impl Shell {
         this.forge_install(forge_events, window, cx);
         this.nuget_install(nuget_events, nuget_jobs, window, cx);
         this.properties_install(properties_jobs, window, cx);
+        this.update_install(update_setup, update_jobs, window, cx);
         this.apply_settings(None, cx);
         this
     }
@@ -1279,6 +1299,10 @@ impl Shell {
         }
         // The property pages' unsaved-changes question (brief 0049).
         if self.run_properties(command, &mut args, window, cx) {
+            return;
+        }
+        // `eludite.update.apply` asks before the restart (brief 0055).
+        if self.run_update(command, &mut args, window, cx) {
             return;
         }
         // F5 is Start Debugging, and Continue while the debuggee is in break mode (Visual Studio's Debug.Start).

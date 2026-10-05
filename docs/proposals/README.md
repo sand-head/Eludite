@@ -10,3 +10,4 @@ A proposal is accepted when the owner says so. Acceptance produces, in the same 
 |---|---|---|
 | [0001](0001-agent-debugging-suite.md) | The agent debugging suite | Accepted 2026-10-02; first brief [0022](../briefs/0022-mono-debug-adapter.md) (E1) |
 | [0002](0002-web-browser-window.md) | The Web Browser window and agent control of it | Accepted 2026-10-02; first briefs [0023](../briefs/0023-browser-automation-read.md) and 0024 (A, in two halves) |
+| [0004](0004-self-update.md) | Self-update by release channel | Accepted by the owner's direct request 2026-10-05, built in the same change: [ADR-0011](../adr/0011-self-update.md), brief [0055](../briefs/0055-self-update.md); the PLAN.md edit awaits review (0003 is on its own branch) |
