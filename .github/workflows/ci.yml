@@ -181,11 +181,11 @@ jobs:
 
       - name: Test (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run -a cargo test --workspace ${{ env.CEF_FEATURES }}
+        run: xvfb-run -a cargo test --workspace --no-fail-fast ${{ env.CEF_FEATURES }}
 
       - name: Test
         if: runner.os != 'Linux'
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       # Brief 0039's Linux package and its smoke test run in the package job below, which uploads the archives.
 

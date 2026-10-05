@@ -259,7 +259,10 @@ mod tests {
         );
         t.repo.unstage(Some(&[abs])).unwrap();
         assert_eq!(t.repo.status(false).unwrap().untracked, ["a.cs"]);
-        let e = t.repo.stage(Some(&["/not/here.cs".into()])).unwrap_err();
+        let e = t
+            .repo
+            .stage(Some(&[TestRepo::elsewhere("here.cs")]))
+            .unwrap_err();
         assert_eq!(e.kind, ErrorKind::NotFound);
     }
 }

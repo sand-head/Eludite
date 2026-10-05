@@ -18,6 +18,8 @@ impl TestRepo {
         let mut c = r.config().unwrap();
         c.set_str("user.name", "Test").unwrap();
         c.set_str("user.email", "test@example.com").unwrap();
+        // Git for Windows's system config sets core.autocrlf=true; the tests compare bytes.
+        c.set_bool("core.autocrlf", false).unwrap();
         let repo = Repo::open(dir.path())
             .unwrap()
             .with_global_config(GlobalConfig::Files(vec![]));
@@ -26,6 +28,16 @@ impl TestRepo {
 
     pub fn path(&self) -> &Path {
         self.dir.path()
+    }
+
+    /// An absolute path to `rel` that no test repository contains, spelled for the platform (`/` has no root on
+    /// Windows, where it is a relative path).
+    pub fn elsewhere(rel: &str) -> String {
+        if cfg!(windows) {
+            format!("C:/elsewhere/{rel}")
+        } else {
+            format!("/elsewhere/{rel}")
+        }
     }
 
     pub fn write(&self, rel: &str, text: &str) {

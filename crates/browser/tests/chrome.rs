@@ -74,6 +74,9 @@ fn answer(mut stream: TcpStream) {
     };
     let (status, body, mime) = if path == BIG_JSON {
         ("200 OK", big_json(), "application/json")
+    } else if path == "favicon.ico" {
+        // Chrome asks for it after every page; a 404 would land in the console the tests expect empty.
+        ("200 OK", Vec::new(), "image/x-icon")
     } else if ok {
         ("200 OK", std::fs::read(&file).unwrap(), mime_of(path))
     } else {
