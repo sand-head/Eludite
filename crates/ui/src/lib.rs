@@ -24,8 +24,11 @@
 //!   and toolbar buttons that can be disabled (brief 0035).
 //! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the menu bar, the title, the caption
 //!   buttons, and the window's frame on Linux with client-side decorations.
-//! - [`transcript`]: the Agents window's transcript rows: prompts, agent Markdown blocks, thinking, tool call cards
-//!   with their status, plans and notices.
+//! - [`transcript`]: the Agents window's transcript widgets: prompts with their time, agent Markdown blocks, thinking
+//!   (`Thinking…`, `Thought for 4 s`), tool call cards (one line with the kind's glyph, the adapter's title, the
+//!   status badge with its spinner, the arguments and result folded under it), plans with their progress, notices,
+//!   the usage strip ([`transcript::UsageStrip`]: the context bar, `61k of 1M · $0.95`) and a running turn's status
+//!   line (brief 0059).
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.

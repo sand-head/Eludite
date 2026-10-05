@@ -153,8 +153,8 @@ pub struct AgentRow {
     pub source: String,
 }
 
-/// `agents-state.output.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `agents-state.output.json`. Not `Eq`: the usage's cost is an `f64` (brief 0059).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentsStateOutput {
     pub agent: String,
@@ -185,6 +185,31 @@ pub struct AgentsStateOutput {
     /// The session's select config options (brief 0058); absent when the agent offers none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<OptionRow>,
+    /// The session's context and cost as the usage strip shows them (brief 0059): the agent's last `usage_update`;
+    /// absent before the first one, cleared by a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UsageOutput>,
+}
+
+/// `agents-state.output.json`'s `usage` (brief 0059).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsageOutput {
+    /// Tokens in context.
+    pub used: u64,
+    /// The context window; 0 when the agent does not know it.
+    pub size: u64,
+    /// The session's cost so far, the agent's running total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<CostOutput>,
+}
+
+/// An amount of money in `currency` (ISO 4217).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CostOutput {
+    pub amount: f64,
+    pub currency: String,
 }
 
 /// `agents-state.output.json`'s `mode`.
@@ -283,7 +308,7 @@ pub struct ReviewOutput {
 /// One per command, serialized at once: the state's size (it grew the mode and the options in brief 0058) costs
 /// nothing worth a box.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentsOutput {
     State(AgentsStateOutput),
     Permission(PermissionOutput),
@@ -612,6 +637,14 @@ mod tests {
                     description: Some("The recommended model".into()),
                 }],
             }],
+            usage: Some(UsageOutput {
+                used: 61_204,
+                size: 1_000_000,
+                cost: Some(CostOutput {
+                    amount: 0.9512,
+                    currency: "USD".into(),
+                }),
+            }),
         })
         .to_json();
         let schema: Value = serde_json::from_str(STATE_OUTPUT).unwrap();
@@ -620,6 +653,21 @@ mod tests {
         }
         for k in state.as_object().unwrap().keys() {
             assert!(schema["properties"].get(k).is_some(), "{k}");
+        }
+        // The usage (brief 0059): the schema's members, the cost an object.
+        assert_eq!(
+            state["usage"],
+            json!({"used": 61_204, "size": 1_000_000, "cost": {"amount": 0.9512, "currency": "USD"}})
+        );
+        let usage = &schema["properties"]["usage"];
+        for k in state["usage"].as_object().unwrap().keys() {
+            assert!(usage["properties"].get(k).is_some(), "{k}");
+        }
+        for k in state["usage"]["cost"].as_object().unwrap().keys() {
+            assert!(
+                usage["properties"]["cost"]["properties"].get(k).is_some(),
+                "{k}"
+            );
         }
         // The slash commands (brief 0057): each row's members are the schema's, the hint only when there is one.
         let row = &schema["properties"]["commands"]["items"];

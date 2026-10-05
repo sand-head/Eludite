@@ -10,13 +10,19 @@
 #      line (transcript.json) names the picked model; then
 #      the prompt "List the current errors and fix the first one"; Claude calls diagnostics-list and proposes an edit
 #      held as a pending change (agents-pending-diff.png); Accept; the error clears (agents-error-cleared.png); then a
-#      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png), Deny
-#      (agents-permission-denied.png). Two real prompts.
+#      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png); brief
+#      0059, still mid-turn: an earlier tool card expanded, the status line and the usage strip
+#      (agents-polish-running.png); Deny (agents-permission-denied.png). Three real prompts.
+#   2b. Brief 0059, a second run with --theme light (SKIP_POLISH=1 skips it): one prompt that makes Claude run `ls`
+#      (allowed), then after the turn a tool card expanded and the strip with the turn's usage
+#      (agents-polish-light.png). One real prompt. POLISH_THEMES="light blue" takes one shot per theme
+#      (agents-polish-<theme>.png).
 #   3. Wayland backend, RUNS runs each: --bench-agent-ready 5 (the real adapter, no prompt), --bench-agent-stream (the
 #      fake agent at 200 chunks/s), --bench-agent-prompt (2,000 keystrokes into the prompt box, then the stream with
 #      500 characters in it; brief 0057), --bench-diff 20                             -> OUT_DIR/agents-bench.jsonl
 #   The 1-minute load average before each step goes to OUT_DIR/loadavg.txt.
-# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_BENCH=1 skips 3; DRY=1 with
+# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_POLISH=1 skips 2b, SKIP_BENCH=1 skips 3;
+#        DRY=1 with
 #        ELUDITE_CLAUDE_ACP pointing at a scripted agent checks the driving without a real prompt)
 # The run needs dotnet/ clean in git and restores it with `git checkout -- dotnet/` at the end.
 set -euo pipefail
@@ -61,6 +67,23 @@ if [[ -z "${SKIP_DRIVE:-}" ]]; then
   kill \$pid; wait \$pid
   git -C $(q "$repo") diff -- dotnet/ >$(q "$out")/dotnet-after.diff
   ls -la $(q "$repo")/dotnet/eludite-denied.txt >$(q "$out")/denied-file.txt 2>&1 || true
+  restore
+fi
+if [[ -z "${SKIP_POLISH:-}" ]]; then
+  for theme in ${POLISH_THEMES:-light}; do
+    load "polish-\$theme"
+    env -u WAYLAND_DISPLAY $(q "$bin") --reset-layout --no-persist --theme "\$theme" --solution $(q "$sln") \\
+      --agent "Claude Code" --bounds-out $(q "$out")/bounds-\$theme.json \\
+      --transcript-out $(q "$out")/transcript-\$theme.json >$(q "$out")/polish-\$theme.out \\
+      2>$(q "$out")/polish-\$theme.err &
+    pid=\$!
+    SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --polish-light \\
+      --title $(q "$title") --log $(q "$out")/polish-\$theme.err --bounds $(q "$out")/bounds-\$theme.json \\
+      --shots $(q "$out") --polish-name "agents-polish-\$theme" \\
+      >$(q "$out")/polish-\$theme.json 2>$(q "$out")/polish-driver-\$theme.err || true
+    sleep 1
+    kill \$pid; wait \$pid
+  done
   restore
 fi
 if [[ -z "${SKIP_BENCH:-}" ]]; then

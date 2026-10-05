@@ -1,6 +1,6 @@
 # Brief 0059: The Agents window's usage strip, header and transcript polish
 
-Status: open
+Status: done on Linux (uncommitted), except the screenshots; see [0059-report.md](0059-report.md)
 Phase: 2
 Plan reference: PLAN.md sections 2 (principles 1, 3, 5), 5.2, 8, 9
 Depends on: brief 0058 (the footer with the pickers), brief 0057 (the prompt editor), brief 0034 (the usage line),
