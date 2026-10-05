@@ -111,6 +111,23 @@ jobs:
       - name: Build
         run: cargo build --workspace ${{ env.CEF_FEATURES }}
 
+      # The engine loads libcef.so beside itself ($ORIGIN): the `cef-dll-sys` build script copies CEF's runtime files
+      # into target/debug when it runs, but a restored cargo cache keeps that script's output and not those files, so
+      # on an exact cache hit nothing copies them. Lay them out from CEF_PATH when they are missing (the list of
+      # tools/package/linux.sh).
+      - name: Place CEF beside the engine
+        if: runner.os == 'Linux'
+        run: |
+          if [ ! -f target/debug/libcef.so ]; then
+            shopt -s nullglob
+            cp -a "$CEF_PATH"/*.so "$CEF_PATH"/*.so.1 "$CEF_PATH"/*.pak "$CEF_PATH"/*.bin "$CEF_PATH"/*.dat \
+              "$CEF_PATH"/*.json "$CEF_PATH"/chrome-sandbox target/debug/
+            rm -rf target/debug/locales
+            cp -a "$CEF_PATH"/locales target/debug/
+            echo "copied CEF's runtime files from $CEF_PATH"
+          fi
+          ls -l target/debug/libcef.so
+
       # The browser tests (crates/browser/tests/chrome.rs, brief 0023) run on Linux against Chrome for Testing,
       # pinned in tools/chrome/PIN. On Windows and macOS they skip themselves unless ELUDITE_CHROME is set.
       - name: Cache Chrome for Testing
