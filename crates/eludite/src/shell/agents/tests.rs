@@ -2165,6 +2165,116 @@ fn configure_on_the_bus_sets_the_mode_and_is_refused_during_a_turn(cx: &mut Test
 }
 
 impl Ws {
+    /// `inner` lies within `outer` (to the pixel's rounding).
+    fn assert_within(
+        what: &str,
+        inner: gpui::Bounds<gpui::Pixels>,
+        outer: gpui::Bounds<gpui::Pixels>,
+    ) {
+        let e = gpui::px(0.5);
+        assert!(
+            inner.left() >= outer.left() - e
+                && inner.right() <= outer.right() + e
+                && inner.top() >= outer.top() - e
+                && inner.bottom() <= outer.bottom() + e,
+            "{what} {inner:?} leaves the Agents window {outer:?}"
+        );
+    }
+}
+
+/// The slash menu and the pickers stay inside the Agents window docked at the right edge of a 1280 by 800 window
+/// with the panel about 300 px wide: the slash menu is no wider than the prompt box, and each picker's list is no
+/// wider than the panel and its right edge is not clipped.
+#[gpui::test]
+fn the_menus_stay_inside_a_narrow_agents_window(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.show_agents();
+    let panel = w.bounds("agents-window");
+    assert!(
+        (250.0..=350.0).contains(&f32::from(panel.size.width)),
+        "the Agents panel is about 300 px wide: {panel:?}"
+    );
+    assert!(
+        panel.right() >= gpui::px(1280. - 24.),
+        "docked at the right edge: {panel:?}"
+    );
+
+    // The slash menu.
+    w.start_agent("Fake streamer");
+    w.wait("the agent's commands", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            !s.agents().window.read(cx).transcript.commands.is_empty()
+        })
+    });
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("/");
+    assert!(w.slash_menu().is_some());
+    let panel = w.bounds("agents-window");
+    let prompt = w.bounds(super::window::PROMPT_BOX);
+    let menu = w.bounds(super::window::SLASH_MENU);
+    Ws::assert_within("the slash menu", menu, panel);
+    assert!(
+        menu.size.width <= prompt.size.width + gpui::px(0.5),
+        "no wider than the box: {menu:?} {prompt:?}"
+    );
+    assert!(
+        menu.left() >= prompt.left() - gpui::px(0.5),
+        "at the box's left edge: {menu:?} {prompt:?}"
+    );
+    assert!(
+        menu.bottom() <= prompt.top() + gpui::px(1.),
+        "above the box: {menu:?} {prompt:?}"
+    );
+    for row in [
+        super::window::slash_item("compact"),
+        super::window::slash_item("model"),
+        super::window::SLASH_DETAIL.to_owned(),
+    ] {
+        let b = w.bounds(&row);
+        Ws::assert_within(&row, b, menu);
+    }
+    w.vcx.simulate_keystrokes("escape");
+    w.vcx.run_until_parked();
+    assert_eq!(w.slash_menu(), None);
+
+    // Each picker's list.
+    w.start_agent("Fake options");
+    w.wait_options();
+    w.vcx.run_until_parked();
+    for button in [
+        super::window::option_picker("model"),
+        super::window::option_picker("effort"),
+        super::window::MODE_PICKER.to_owned(),
+    ] {
+        w.click(&button);
+        assert!(w.open_picker().is_some(), "{button} opens");
+        let panel = w.bounds("agents-window");
+        let b = w.bounds(&button);
+        let list = w.bounds(super::window::PICKER_MENU);
+        Ws::assert_within(&format!("{button}'s list"), list, panel);
+        assert!(
+            list.size.width <= panel.size.width,
+            "{button}'s list is no wider than the panel: {list:?} {panel:?}"
+        );
+        assert!(
+            list.bottom() <= b.top() + gpui::px(0.5),
+            "{button}'s list opens upward: {list:?} {b:?}"
+        );
+        // At the button's left edge, unless that would overflow the window; then its right edge is the footer's.
+        let footer = w.bounds(super::window::FOOTER);
+        let at_button = (list.left() - b.left()).abs() < gpui::px(1.);
+        let at_right = (list.right() - footer.right()).abs() < gpui::px(1.);
+        assert!(
+            at_button || (at_right && b.left() + list.size.width > footer.right()),
+            "{button}'s list is aligned: {list:?} {b:?} {footer:?}"
+        );
+        w.vcx.simulate_keystrokes("escape");
+        w.vcx.run_until_parked();
+        assert_eq!(w.open_picker(), None);
+    }
+}
+
+impl Ws {
     /// Read the Agents window.
     fn agents_window<R>(&self, f: impl FnOnce(&super::window::AgentsWindow, &gpui::App) -> R) -> R {
         self.shell

@@ -49,11 +49,11 @@ use eludite_ui::transcript::{
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Anchor, AnyElement, AnyView, App, AppContext as _, Bounds, Context, Div, Entity, EventEmitter,
+    AnyElement, AnyView, App, AppContext as _, Bounds, Context, Div, Entity, EventEmitter,
     FocusHandle, Focusable, FollowMode, FontWeight, HighlightStyle, ImageSource,
     InteractiveElement, IntoElement, ListAlignment, ListState, ParentElement, Pixels, Render, Rgba,
     SharedString, Stateful, StatefulInteractiveElement, Styled, StyledText, Subscription, Task,
-    Window, anchored, canvas, deferred, div, img, list, px,
+    Window, anchored, canvas, deferred, div, img, list, px, relative,
 };
 use serde_json::Value;
 
@@ -238,6 +238,8 @@ pub const PROMPT_BOX: &str = "agents-prompt";
 /// The slash-command menu (brief 0057), its rows by command name, and the line describing the selected one.
 pub const SLASH_MENU: &str = "agents-slash-menu";
 pub const SLASH_DETAIL: &str = "agents-slash-detail";
+/// The slash menu's widest width: it is as wide as the prompt box up to this, never wider than the box.
+pub const SLASH_MENU_WIDTH: f32 = 480.;
 /// The prompt box's placeholder.
 pub const PLACEHOLDER: &str = "Ask the agent\u{2026} (Enter to send, Shift+Enter for a new line, / for commands, Esc to stop)";
 /// The prompts the history keeps (in memory, for the session).
@@ -261,6 +263,10 @@ pub fn agent_item(ix: usize) -> String {
 pub const MODE_PICKER: &str = "agents-mode";
 /// The open picker's list.
 pub const PICKER_MENU: &str = "agents-option-menu";
+/// The open picker's narrowest width, when the footer is at least that wide.
+pub const PICKER_MIN_WIDTH: f32 = 220.;
+/// The footer under the prompt box: the pickers and Send.
+pub const FOOTER: &str = "agents-footer";
 /// The pickers' tooltip while a turn runs.
 pub const WAIT_FOR_TURN: &str = "Wait for the turn to end";
 /// `eludite.agents.configure`'s `option` for the mode.
@@ -1505,9 +1511,11 @@ impl AgentsWindow {
         )
     }
 
-    /// The slash menu above the prompt box, anchored to its top-left (brief 0057): at most
+    /// The slash menu above the prompt box, at its left edge and as wide as the box (brief 0057): at most
     /// [`COMPLETION_ROWS`] rows around the selected one, each the name in the mono font with the match bold and the
-    /// description muted after it, then the selected command's description and input hint on one muted line.
+    /// description muted after it, then the selected command's description and input hint on one muted line. The
+    /// menu is laid out in the box's own wrapper, so it never leaves the Agents window however narrow the panel is;
+    /// a description too long for it is cut with an ellipsis.
     fn render_menu(&mut self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let t = self.theme;
         let ui_font = window.text_style().font_family;
@@ -1540,7 +1548,8 @@ impl AgentsWindow {
                 .child(
                     div()
                         .flex_1()
-                        .overflow_hidden()
+                        .min_w(px(0.))
+                        .truncate()
                         .text_size(t.typography.small)
                         .font_family(ui_font.clone())
                         .text_color(if is_selected {
@@ -1561,31 +1570,33 @@ impl AgentsWindow {
         };
         Some(
             deferred(
-                anchored().anchor(Anchor::BottomLeft).child(
-                    popup_panel(&t)
-                        .id(SLASH_MENU)
-                        .debug_selector(|| SLASH_MENU.into())
-                        .occlude()
-                        .w(px(480.))
-                        .max_w(px(640.))
-                        .py_1()
-                        .mb_1()
-                        .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
-                        .children(items)
-                        .child(
-                            div()
-                                .debug_selector(|| SLASH_DETAIL.into())
-                                .px_1()
-                                .pt_1()
-                                .mt_1()
-                                .border_t_1()
-                                .border_color(t.border)
-                                .text_size(t.typography.small)
-                                .text_color(t.text_muted)
-                                .overflow_hidden()
-                                .child(SharedString::from(detail)),
-                        ),
-                ),
+                popup_panel(&t)
+                    .id(SLASH_MENU)
+                    .debug_selector(|| SLASH_MENU.into())
+                    .occlude()
+                    .absolute()
+                    .left_0()
+                    .bottom_full()
+                    // The box's width (laid out in the box's wrapper, so in this frame), at most `SLASH_MENU_WIDTH`.
+                    .w_full()
+                    .max_w(px(SLASH_MENU_WIDTH))
+                    .py_1()
+                    .mb_1()
+                    .on_mouse_down_out(cx.listener(|this, _, _, cx| this.close_menu(cx)))
+                    .children(items)
+                    .child(
+                        div()
+                            .debug_selector(|| SLASH_DETAIL.into())
+                            .px_1()
+                            .pt_1()
+                            .mt_1()
+                            .border_t_1()
+                            .border_color(t.border)
+                            .text_size(t.typography.small)
+                            .text_color(t.text_muted)
+                            .truncate()
+                            .child(SharedString::from(detail)),
+                    ),
             )
             .with_priority(1)
             .into_any_element(),
@@ -1597,8 +1608,9 @@ impl AgentsWindow {
         let t = self.theme;
         let running = self.running();
         let open = self.open_picker.clone();
-        let mut row = div()
-            .debug_selector(|| "agents-footer".into())
+        let mut menu = None;
+        let mut row = tracked(&self.painted, FOOTER, div().id(FOOTER))
+            .debug_selector(|| FOOTER.into())
             .flex()
             .items_center()
             .gap_1()
@@ -1638,17 +1650,21 @@ impl AgentsWindow {
                             this.toggle_picker(&key, window, cx)
                         }))
                 };
-            let menu = open
-                .as_ref()
-                .filter(|(k, _)| *k == p.key && !running)
-                .map(|(_, highlighted)| self.render_picker_menu(p, *highlighted, cx));
-            row = row.child(div().relative().child(button).children(menu));
+            if let Some((_, highlighted)) = open.as_ref().filter(|(k, _)| *k == p.key && !running) {
+                menu = Some(self.render_picker_menu(p, *highlighted, cx));
+            }
+            row = row.child(button);
         }
-        row.child(div().flex_1()).child(send).into_any_element()
+        row.children(menu)
+            .child(div().flex_1())
+            .child(send)
+            .into_any_element()
     }
 
     /// The open picker's list, above its button: each choice's name (the current one checked) with its description
-    /// muted after it.
+    /// muted after it, cut with an ellipsis when the panel is too narrow for it. The list is laid out across the
+    /// footer, so it stays inside the Agents window and is never wider than the footer: its left edge is the
+    /// button's, unless the list would then overflow the footer's right edge, when its right edge is the footer's.
     fn render_picker_menu(
         &self,
         p: &Picker,
@@ -1685,37 +1701,60 @@ impl AgentsWindow {
             .child(
                 div()
                     .flex_1()
-                    .overflow_hidden()
+                    .min_w(px(0.))
+                    .truncate()
                     .text_size(t.typography.small)
                     .text_color(if lit { t.text_on_accent } else { t.text_muted })
                     .children(c.description.clone().map(SharedString::from)),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.pick(&key, &value, cx)))
         });
+        // The button's offset in the footer and the footer's width, as last painted: the button was painted before
+        // the click that opened the list, and its offset does not change when the panel is resized.
+        let (offset, footer_width) = {
+            let painted = self.painted.borrow();
+            match (painted.get(FOOTER), painted.get(&button)) {
+                (Some(f), Some(b)) => ((b.left() - f.left()).max(px(0.)), f.size.width),
+                (Some(f), None) => (px(0.), f.size.width),
+                _ => (px(0.), px(PICKER_MIN_WIDTH)),
+            }
+        };
         let painted = self.painted.clone();
+        // A spacer as wide as the button's offset, then the list: the spacer shrinks when the list would overflow
+        // the footer, which pushes the list left until its right edge is the footer's.
         deferred(
-            anchored().anchor(Anchor::BottomLeft).child(
-                popup_panel(&t)
-                    .id(PICKER_MENU)
-                    .debug_selector(|| PICKER_MENU.into())
-                    .occlude()
-                    .min_w(px(220.))
-                    .max_w(px(520.))
-                    .py_1()
-                    .mb(px(22.))
-                    .on_mouse_down_out(cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                        // A click on the picker's own button toggles it (its click handler closes it).
-                        let on_button = painted
-                            .borrow()
-                            .get(&button)
-                            .is_some_and(|b| b.contains(&e.position));
-                        if !on_button {
-                            this.open_picker = None;
-                            cx.notify();
-                        }
-                    }))
-                    .children(rows),
-            ),
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_full()
+                .flex()
+                .items_end()
+                .child(div().w(offset).min_w(px(0.)).flex_shrink(1.))
+                .child(
+                    popup_panel(&t)
+                        .id(PICKER_MENU)
+                        .debug_selector(|| PICKER_MENU.into())
+                        .occlude()
+                        .flex_none()
+                        .min_w(px(PICKER_MIN_WIDTH).min(footer_width))
+                        .max_w(relative(1.))
+                        .py_1()
+                        .on_mouse_down_out(cx.listener(
+                            move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                // A click on the picker's own button toggles it (its click handler closes it).
+                                let on_button = painted
+                                    .borrow()
+                                    .get(&button)
+                                    .is_some_and(|b| b.contains(&e.position));
+                                if !on_button {
+                                    this.open_picker = None;
+                                    cx.notify();
+                                }
+                            },
+                        ))
+                        .children(rows),
+                ),
         )
         .with_priority(1)
         .into_any_element()
