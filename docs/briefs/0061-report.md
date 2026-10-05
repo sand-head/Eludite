@@ -3,7 +3,7 @@
 Status: done on Linux, except the screenshot (section 6, not run here) and the bench's `--sessions N` (section 6: its
 files are not in the brief's list). Windows and macOS: not run. CI: not run (nothing pushed). The .NET SDK is not
 installed here, so `dotnet build` and `dotnet test` were not run; this brief changes no .NET code.
-Branch: `brief/0061-agent-session-history`, on brief 0062's branch (briefs 0057 to 0060, the popup polish and 0062).
+Branch: `brief/0060-agent-session-history` (named before the renumbering), on brief 0062's branch (briefs 0057 to 0060, the popup polish and 0062).
 Date: 2026-10-05. Brief: [0061-agent-session-history.md](0061-agent-session-history.md).
 
 ## 1. Summary
