@@ -16,3 +16,9 @@ obj/
 /.worktrees/
 __pycache__/
 *.pyc
+
+# The Razor grammar's generated parser: build.rs writes it under target/; generate.sh writes it
+# here only to run the CLI's own tests and removes it after (ADR-0012).
+/grammars/razor/src/parser.c
+/grammars/razor/src/node-types.json
+/grammars/razor/src/tree_sitter/

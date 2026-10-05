@@ -1,0 +1,314 @@
+==================
+Anonymous Code Blocks
+==================
+
+@{
+        public int test = 1;
+        private string test2 = "test";
+}
+---
+
+(compilation_unit
+  (razor_block
+    (field_declaration
+      (modifier)
+      (variable_declaration
+        (predefined_type)
+        (variable_declarator
+          (identifier)
+          (integer_literal))))
+    (local_declaration_statement
+      (modifier)
+      (variable_declaration
+        (predefined_type)
+        (variable_declarator
+          (identifier)
+          (string_literal
+            (string_literal_content)))))))
+
+==================
+Code Blocks
+==================
+
+@code{
+  // hello
+}
+---
+
+(compilation_unit
+  (razor_block
+    (comment)))
+
+==================
+Functions Blocks
+==================
+
+@functions{
+  // hello
+}
+---
+
+(compilation_unit
+  (razor_block
+    (comment)))
+
+==================
+Empty Anonymous Code Blocks
+==================
+
+@{
+  //Comment
+}
+---
+
+(compilation_unit
+  (razor_block
+    (comment)))
+
+==================
+Anonymous Code Blocks with Braces
+==================
+
+@{
+  if (true)
+  {
+    var test = 1;
+  }
+}
+---
+
+(compilation_unit
+  (razor_block
+    (if_statement
+      (boolean_literal)
+      (block
+        (local_declaration_statement
+          (variable_declaration
+            (implicit_type)
+            (variable_declarator
+              (identifier)
+              (integer_literal))))))))
+
+====
+Multiple Code Blocks
+====
+@{
+    var quote = "The future depends on what you do today. - Mahatma Gandhi";
+}
+
+<p>@quote</p>
+
+@{
+    quote = "Hate cannot drive out hate, only love can do that. - Martin Luther King, Jr.";
+}
+
+<p>@quote</p>
+----
+
+(compilation_unit
+  (razor_block
+    (field_declaration
+      (variable_declaration
+        (implicit_type)
+        (variable_declarator
+          (identifier)
+          (string_literal
+            (string_literal_content))))))
+  (element
+    (tag_name)
+    (razor_implicit_expression
+      (identifier))
+    (tag_name))
+  (razor_block
+    (expression_statement
+      (assignment_expression
+        (identifier)
+        (string_literal
+          (string_literal_content)))))
+  (element
+    (tag_name)
+    (razor_implicit_expression
+      (identifier))
+    (tag_name)))
+
+====
+Code Block with HTML
+====
+@{
+    var inCSharp = true;
+    <p>Now in HTML, was in C# @inCSharp</p>
+}
+----
+
+(compilation_unit
+  (razor_block
+    (field_declaration
+      (variable_declaration
+        (implicit_type)
+        (variable_declarator
+          (identifier)
+          (boolean_literal))))
+    (element
+      (tag_name)
+      (text)
+      (razor_implicit_expression
+        (identifier))
+      (tag_name))))
+
+===========================
+Preprocessor lines in @code
+===========================
+@code {
+#nullable enable
+#pragma warning disable CS0618
+#region Fields
+    private int count;
+#endregion
+#if DEBUG
+    private int debugCount;
+#endif
+}
+---
+
+(compilation_unit
+  (razor_block
+    (preproc_nullable)
+    (preproc_pragma
+      (identifier))
+    (preproc_region
+      (preproc_arg))
+    (local_declaration_statement
+      (modifier)
+      (variable_declaration
+        (predefined_type)
+        (variable_declarator
+          (identifier))))
+    (preproc_endregion)
+    (preproc_if
+      (identifier)
+      (local_declaration_statement
+        (modifier)
+        (variable_declaration
+          (predefined_type)
+          (variable_declarator
+            (identifier)))))))
+
+================================
+Preprocessor lines in @functions
+================================
+@functions {
+#nullable disable
+    int Twice(int x) => x * 2;
+}
+---
+
+(compilation_unit
+  (razor_block
+    (preproc_nullable)
+    (method_declaration
+      (predefined_type)
+      (identifier)
+      (parameter_list
+        (parameter
+          (predefined_type)
+          (identifier)))
+      (arrow_expression_clause
+        (binary_expression
+          (identifier)
+          (integer_literal))))))
+
+==================================
+Preprocessor lines in a code block
+==================================
+@{
+#pragma warning disable CS0618
+    var a = 1;
+#if DEBUG
+    a = 2;
+#endif
+}
+---
+
+(compilation_unit
+  (razor_block
+    (preproc_pragma
+      (identifier))
+    (local_declaration_statement
+      (variable_declaration
+        (implicit_type)
+        (variable_declarator
+          (identifier)
+          (integer_literal))))
+    (preproc_if
+      (identifier)
+      (expression_statement
+        (assignment_expression
+          (identifier)
+          (integer_literal))))))
+
+===============================
+Regions inside a class in @code
+===============================
+@code {
+    private sealed class Row
+    {
+#region Fields
+        public int Id;
+#endregion
+    }
+}
+---
+
+(compilation_unit
+  (razor_block
+    (class_declaration
+      (modifier)
+      (modifier)
+      (identifier)
+      (declaration_list
+        (preproc_region
+          (preproc_arg))
+        (field_declaration
+          (modifier)
+          (variable_declaration
+            (predefined_type)
+            (variable_declarator
+              (identifier))))
+        (preproc_endregion)))))
+
+==============================================
+Markup in a switch section inside a code block
+==============================================
+@{
+    switch (priority)
+    {
+        case "1":
+            <b>High</b>
+            break;
+        default:
+            <i>Low</i>
+            break;
+    }
+}
+---
+
+(compilation_unit
+  (razor_block
+    (switch_statement
+      (identifier)
+      (switch_body
+        (switch_section
+          (constant_pattern
+            (string_literal
+              (string_literal_content)))
+          (element
+            (tag_name)
+            (text)
+            (tag_name))
+          (break_statement))
+        (switch_section
+          (element
+            (tag_name)
+            (text)
+            (tag_name))
+          (break_statement))))))

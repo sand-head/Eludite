@@ -1,0 +1,16 @@
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+// <- constant.macro
+//            ^ character.special
+
+@addTagHelper "TagHelpers.MyAssembly"
+// <- constant.macro
+
+@removeTagHelper *, MyAssembly
+// <- constant.macro
+//               ^ character.special
+
+@tagHelperPrefix "th:"
+// <- constant.macro
+
+@tagHelperPrefix th
+// <- constant.macro

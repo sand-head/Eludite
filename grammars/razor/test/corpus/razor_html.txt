@@ -1,0 +1,465 @@
+=======
+razor attribute values
+=======
+
+    <a @onclick="async () => { pageNo = 1; await Search(); }">First</a>
+    <a @onclick="async () => { pageNo = totalPages; await Search(); }">Last</a>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (modifier)
+        (lambda_expression
+          (parameter_list)
+          (block
+            (expression_statement
+              (assignment_expression
+                (identifier)
+                (integer_literal)))
+            (expression_statement
+              (await_expression
+                (invocation_expression
+                  (identifier)
+                  (argument_list))))))))
+    (text)
+    (tag_name))
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (modifier)
+        (lambda_expression
+          (parameter_list)
+          (block
+            (expression_statement
+              (assignment_expression
+                (identifier)
+                (identifier)))
+            (expression_statement
+              (await_expression
+                (invocation_expression
+                  (identifier)
+                  (argument_list))))))))
+    (text)
+    (tag_name)))
+
+======
+CSharp in HTML attribute - String(Semantic Highlighting does the rest)
+======
+   <GridColumn SortKeySelector="item => item.Integration.Id">
+      </GridColumn>
+----
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
+
+======
+HTML Attribute of empty string
+======
+   <GridColumn Nothing="">
+      </GridColumn>
+----
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (tag_name)))
+
+===
+razor section
+===
+@section Scripts {
+     <script type="text/javascript" src="/scripts/main.js"></script>
+}
+---
+
+(compilation_unit
+  (razor_section
+    (identifier)
+    (script_element
+      (tag_name)
+      (attribute_name)
+      (attribute_value)
+      (attribute_name)
+      (attribute_value)
+      (tag_name))))
+
+======
+form html attribute with value
+======
+<form @onsubmit="SearchAsync" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))))
+
+======
+form html attribute with modifier
+======
+<form @onclick:preventDefault />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier)))))
+
+======
+form html attribute with modifier and value
+======
+<form @bind:culture="Culture" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (razor_attribute_value
+        (identifier)))))
+
+======
+form html attribute case insensitive
+======
+<form @onClick:preventDefault />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier)))))
+
+======
+Mixed text and Razor expression in HTML attribute
+======
+<div class="x @(true ? "y" : "")">Hello</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (razor_explicit_expression
+      (conditional_expression
+        (boolean_literal)
+        (string_literal
+          (string_literal_content))
+        (string_literal)))
+    (text)
+    (tag_name)))
+
+=====
+Void element without a closing slash
+=====
+<img src="a.png">
+<div>a<br>b</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value))
+  (element
+    (tag_name)
+    (text)
+    (element
+      (tag_name))
+    (text)
+    (tag_name)))
+
+=====
+HTML entities in element text
+=====
+<div>a &amp; b &#169; &#x2014;</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (text)
+    (entity)
+    (text)
+    (entity)
+    (entity)
+    (tag_name)))
+
+=====
+A bare > is text, not a tag
+=====
+<pre>cat a >> b</pre>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (text)
+    (tag_name)))
+
+=====
+DOCTYPE
+=====
+<!DOCTYPE html>
+<html lang="en"></html>
+---
+
+(compilation_unit
+  (doctype)
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
+
+=====
+Single-quoted attribute value
+=====
+<textarea placeholder='{ "a": 1 }'></textarea>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
+
+=====
+Nested quotes in an implicit expression inside an attribute value
+=====
+<div class="@UiClass.Merge(Attrs, "card")">x</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (razor_implicit_expression
+      (identifier)
+      (razor_member_access)
+      (argument
+        (identifier))
+      (argument
+        (string_literal
+          (string_literal_content))))
+    (text)
+    (tag_name)))
+
+=====
+An implicit expression stops at a dot followed by a space
+=====
+<div title="Approvals — @Label. Dangerous gates pushes.">x</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (razor_implicit_expression
+      (identifier))
+    (attribute_value)
+    (text)
+    (tag_name)))
+
+=====
+Directive attributes: rendermode, bind-Value, bind:event
+=====
+<HeadOutlet @rendermode="PageRenderMode" />
+<input @bind-Value="X" @bind:event="oninput" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier))))
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (attribute_value))))
+
+==================================================
+Implicit expressions as directive attribute values
+==================================================
+<MudSwitch @bind-Value="@_dense" @key="@item.Id" @onclick="@Go" @bind-Value:after="@Save" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier)
+          (razor_member_access))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier))))
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier))))))
+
+===================================
+Unquoted directive attribute values
+===================================
+<div @ref=_grid @onclick=@(() => Go()) @bind-Value=context.Item.Value></div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_explicit_expression
+          (lambda_expression
+            (parameter_list)
+            (invocation_expression
+              (identifier)
+              (argument_list))))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)
+        (razor_member_access)
+        (razor_member_access)))
+    (tag_name)))
+
+========================================
+Directive attributes whose value is text
+========================================
+<form @formname="disable-2fa"></form>
+<input @bind-Value="Date" @bind-Value:format="yyyy-MM-dd" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (attribute_value))
+    (tag_name))
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (attribute_value))))
+
+==================================================
+A type or null as an explicit expression's content
+==================================================
+<MudNumericField T="@(int?)" Value="@(null)" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (razor_explicit_expression
+      (nullable_type
+        (predefined_type)))
+    (attribute_name)
+    (razor_explicit_expression
+      (null_literal))))
+
+===============================
+A verbatim identifier inside C#
+===============================
+<div @onclick:stopPropagation="@(!@ClickPropagation)" title="@(Rtl ? @Icons.Left : @Icons.Right)"></div>
+@if (!(@operator ?? "").EndsWith("empty"))
+{
+    @Names(@context.Items)
+}
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (razor_attribute_value
+        (razor_explicit_expression
+          (prefix_unary_expression
+            (identifier)))))
+    (attribute_name)
+    (razor_explicit_expression
+      (conditional_expression
+        (identifier)
+        (member_access_expression
+          (identifier)
+          (identifier))
+        (member_access_expression
+          (identifier)
+          (identifier))))
+    (tag_name))
+  (razor_if
+    (razor_condition
+      (prefix_unary_expression
+        (invocation_expression
+          (member_access_expression
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (string_literal)))
+            (identifier))
+          (argument_list
+            (argument
+              (string_literal
+                (string_literal_content)))))))
+    (razor_implicit_expression
+      (identifier)
+      (argument
+        (member_access_expression
+          (identifier)
+          (identifier))))))

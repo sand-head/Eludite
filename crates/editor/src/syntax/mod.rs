@@ -17,8 +17,8 @@
 //! The tree-sitter glue is written for Eludite, following the approach of
 //! Zed's `language/src/syntax_map.rs` (incremental re-parse from buffer edits,
 //! `changed_ranges` to find rows to re-highlight) without porting its
-//! injection layers: an injection (HTML's `<script>` and `<style>`, brief
-//! 0050) is parsed on its own when rows that hold it are highlighted, and its
+//! injection layers: an injection (HTML's and Razor's `<script>` and `<style>`,
+//! briefs 0050 and 0056) is parsed on its own when rows that hold it are highlighted, and its
 //! captures paint over the outer language's.
 
 pub mod alloc;

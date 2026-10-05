@@ -819,6 +819,7 @@ mod tests {
         );
         assert_eq!(ids("/v/index.html"), ["html"]);
         assert_eq!(ids("/w/Views/Home/Index.cshtml"), ["html"]);
+        assert_eq!(ids("/w/Components/Pages/Counter.razor"), ["html"]);
         assert_eq!(ids("/v/site.scss"), ["css"]);
         assert_eq!(ids("/v/package.json"), ["json"]);
         assert_eq!(ids("/v/Program.cs"), ["roslyn"]);
@@ -828,6 +829,7 @@ mod tests {
         assert_eq!(lang("typescript", "/v/a.js"), "javascript");
         assert_eq!(lang("eslint", "/v/a.jsx"), "javascriptreact");
         assert_eq!(lang("html", "/w/Index.cshtml"), "html");
+        assert_eq!(lang("html", "/w/Counter.razor"), "html");
         assert_eq!(lang("css", "/v/site.scss"), "scss");
         assert_eq!(lang("css", "/v/theme.less"), "less");
         assert_eq!(lang("css", "/v/site.css"), "css");

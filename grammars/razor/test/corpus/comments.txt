@@ -1,0 +1,135 @@
+==================
+Comments
+==================
+
+@* here is a comment *@
+@{
+//csharp comment
+}
+
+---
+
+(compilation_unit
+  (razor_comment)
+  (razor_block
+    (comment)))
+
+==================
+Empty Comment
+==================
+
+@* *@
+@{
+//csharp comment
+}
+---
+
+(compilation_unit
+  (razor_comment)
+  (razor_block
+    (comment)))
+
+==================
+Comment with @
+==================
+
+@* @ *@
+@{
+//csharp @ comment
+}
+---
+
+(compilation_unit
+  (razor_comment)
+  (razor_block
+    (comment)))
+
+=======
+Multi-line Comment
+=======
+@* here is a comment 
+over multiple lines *@
+@{
+//csharp comment
+}
+----
+
+(compilation_unit
+  (razor_comment)
+  (razor_block
+    (comment)))
+
+====
+Commented Code Block
+====
+@*
+    @{
+        /* C# comment */
+        // Another C# comment
+    }
+    <!-- HTML comment -->
+*@
+@{
+//actual code
+}
+
+---
+
+(compilation_unit
+  (razor_comment)
+  (razor_block
+    (comment)))
+
+===
+HTML Comment
+===
+<h1>
+<!-- Important heading -->
+IMPORTANT
+</h1>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (html_comment)
+    (text)
+    (tag_name)))
+
+=====
+Razor comment inside markup
+=====
+<div>@* c *@<span>x</span></div>
+@if (x) { <div>@* c *@</div> }
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_comment)
+    (element
+      (tag_name)
+      (text)
+      (tag_name))
+    (tag_name))
+  (razor_if
+    (razor_condition
+      (identifier))
+    (element
+      (tag_name)
+      (razor_comment)
+      (tag_name))))
+
+=====
+A razor comment above a directive does not end the directive run
+=====
+@* c *@
+@using System.Diagnostics
+---
+
+(compilation_unit
+  (razor_comment)
+  (razor_using_directive
+    (qualified_name
+      (identifier)
+      (identifier))))

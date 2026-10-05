@@ -142,7 +142,7 @@
       "id": "html",
       "name": "HTML",
       "languageId": "html",
-      "fileGlobs": ["*.html", "*.htm", "*.cshtml"],
+      "fileGlobs": ["*.html", "*.htm", "*.cshtml", "*.razor"],
       "via": "process",
       "rootMarkers": ["package.json"],
       "command": {

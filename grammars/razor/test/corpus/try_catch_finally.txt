@@ -1,0 +1,109 @@
+===
+@try, catch, finally
+===
+@try
+{
+    throw new InvalidOperationException("You did something invalid.");
+}
+catch (Exception ex)
+{
+    <p>The exception message: @ex.Message</p>
+}
+finally
+{
+    <p>The finally statement.</p>
+}
+---
+
+(compilation_unit
+  (razor_try
+    (throw_statement
+      (object_creation_expression
+        (identifier)
+        (argument_list
+          (argument
+            (string_literal
+              (string_literal_content))))))
+    (razor_catch
+      (catch_declaration
+        (identifier)
+        (identifier))
+      (element
+        (tag_name)
+        (text)
+        (razor_implicit_expression
+          (identifier)
+          (razor_member_access))
+        (tag_name)))
+    (razor_finally
+      (element
+        (tag_name)
+        (text)
+        (tag_name)))))
+
+===
+@try, catch
+===
+@try
+{
+  ThisCan.Fail();
+}
+catch (Exception)
+{
+    <p>Operation Failed</p>
+}
+---
+
+(compilation_unit
+  (razor_try
+    (expression_statement
+      (invocation_expression
+        (member_access_expression
+          (identifier)
+          (identifier))
+        (argument_list)))
+    (razor_catch
+      (catch_declaration
+        (identifier))
+      (element
+        (tag_name)
+        (text)
+        (tag_name)))))
+
+===
+@try, catch, finally nested in element
+===
+
+<div>
+    @try
+    {
+    <div />
+    }
+    catch (Exception exn)
+    {
+        <div />
+    }
+    finally
+    {
+        <div />
+    }
+</div>
+
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_try
+      (element
+        (tag_name))
+      (razor_catch
+        (catch_declaration
+          (identifier)
+          (identifier))
+        (element
+          (tag_name)))
+      (razor_finally
+        (element
+          (tag_name))))
+    (tag_name)))

@@ -1,0 +1,6 @@
+{
+  "name": "vendored-tree-sitter-c-sharp-grammar",
+  "private": true,
+  "type": "module",
+  "comment": "grammar.js copied verbatim from tree-sitter-c-sharp 0.23.5 (MIT, see LICENSE). Vendored so `tree-sitter generate` needs no npm install: the razor grammar extends the C# one, and downstream builds compile this def straight from a source tarball."
+}

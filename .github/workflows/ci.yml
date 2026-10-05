@@ -45,6 +45,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Brief 0056, ADR-0012: grammars/razor's build.rs generates its parser from src/grammar.json (about 15 s) and
+      # keeps the output in Eludite's cache folder under a key of its inputs; cache that so a cargo cache miss does
+      # not regenerate it.
+      - name: Cache generated grammars
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/grammars
+          key: grammars-${{ runner.os }}-${{ hashFiles('grammars/*/src/grammar.json', 'grammars/*/tree-sitter.json', 'grammars/*/PIN') }}
+
       # Brief 0030: the agent debugging proving scenario (crates/eludite/src/shell/agents/tests.rs) debugs the
       # seeded-bug corpus (corpus/debugging) under netcoredbg on every platform. The .NET SDK builds the corpus;
       # tools/netcoredbg/fetch.sh fetches the adapter, cached on the release and checksums the script pins (Git Bash
@@ -323,6 +332,15 @@ jobs:
             .
             agents/claude-acp
           cache-on-failure: true
+
+      # Brief 0056, ADR-0012: grammars/razor's build.rs generates its parser from src/grammar.json (about 15 s) and
+      # keeps the output in Eludite's cache folder under a key of its inputs; cache that so a cargo cache miss does
+      # not regenerate it.
+      - name: Cache generated grammars
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/eludite/grammars
+          key: grammars-${{ runner.os }}-${{ hashFiles('grammars/*/src/grammar.json', 'grammars/*/tree-sitter.json', 'grammars/*/PIN') }}
 
       - uses: actions/setup-dotnet@v4
         with:
