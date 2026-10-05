@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-search.input.json",
+  "title": "eludite.workspace.search input",
+  "description": "Search the Workspace window as its box \"Search Workspace (Ctrl+;)\" does (brief 0062): `query` is typed into the box and the tree shows the rows whose name contains it (case-insensitive; every word of a multi-word query must match) with their ancestors, expanded. An empty `query` clears the box and restores the tree and its expanded set from before the search. Without `query` the box keeps its text and the answer is for that text. `focus` puts the keyboard focus in the box and shows the Workspace window (Ctrl+;).",
+  "type": "object",
+  "properties": {
+    "query": {
+      "description": "The text to search for; empty clears the search.",
+      "type": "string",
+      "maxLength": 1000
+    },
+    "focus": {
+      "description": "Focus the search box (and show the Workspace window), as Ctrl+; does. Default false.",
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/workspace-search.output.json",
+  "title": "eludite.workspace.search output",
+  "description": "The rows of the Workspace window whose name matches the query, in the tree's order (ancestors that only lead to a match are not listed), at most 500. With an empty query, or with no workspace open, `rows` is empty.",
+  "type": "object",
+  "required": [
+    "query",
+    "rows",
+    "total",
+    "truncated"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "description": "The query the answer is for (the box's text).",
+      "type": "string"
+    },
+    "rows": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "The file, project file, solution or folder on disk, when the row stands for one (a folder of a project has none).",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "The row's text as the Workspace window shows it (`Eludite.Host (net10.0)`, `HostRpcTarget.cs`).",
+            "type": "string"
+          },
+          "kind": {
+            "description": "What the row stands for.",
+            "enum": [
+              "workspace",
+              "solution",
+              "project",
+              "folder",
+              "file",
+              "cargo_workspace",
+              "cargo_package",
+              "cargo_targets",
+              "cargo_target",
+              "dependencies",
+              "dependency_group",
+              "package",
+              "framework",
+              "project_reference"
+            ]
+          }
+        }
+      }
+    },
+    "total": {
+      "description": "How many rows match, also beyond the 500 listed.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "True when `total` is more than the rows listed.",
+      "type": "boolean"
+    }
+  }
+}

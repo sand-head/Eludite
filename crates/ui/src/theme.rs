@@ -51,6 +51,31 @@ pub struct Theme {
     pub success: Rgba,
     /// A block set off from `panel` (brief 0059): the person's prompts in the Agents transcript.
     pub panel_raised: Rgba,
+    /// The icon set's tints (brief 0062, [`crate::icons`]): each reads at 3:1 on `panel`. Folders and solution
+    /// folders.
+    pub icon_folder: Rgba,
+    /// C# files, Razor and `.cshtml` pages.
+    pub icon_csharp_file: Rgba,
+    /// C# projects and project references.
+    pub icon_csharp_project: Rgba,
+    /// The Cargo workspace, packages, targets and `.rs` files.
+    pub icon_rust: Rgba,
+    /// JSON, JavaScript and YAML files.
+    pub icon_json: Rgba,
+    /// Markdown files.
+    pub icon_markdown: Rgba,
+    /// MSBuild, XML and HTML files.
+    pub icon_xml: Rgba,
+    /// Web projects, TypeScript, CSS and Web Forms pages.
+    pub icon_web: Rgba,
+    /// NuGet packages and the Packages folder.
+    pub icon_package: Rgba,
+    /// The Dependencies node and its frameworks.
+    pub icon_dependencies: Rgba,
+    /// The solution and solution files.
+    pub icon_solution: Rgba,
+    /// Every other file, the Targets folder and the search box's glyphs.
+    pub icon_muted: Rgba,
     pub typography: Typography,
 }
 
@@ -85,6 +110,19 @@ impl Theme {
             warning: rgb(0xCCA700),
             success: rgb(0x89D185),
             panel_raised: rgb(0x2D2D30),
+            // Visual Studio's dark palette as the eye reads it (brief 0062).
+            icon_folder: rgb(0xDCB67A),
+            icon_csharp_file: rgb(0xA179DC),
+            icon_csharp_project: rgb(0x3BA25A),
+            icon_rust: rgb(0xDE7A4A),
+            icon_json: rgb(0xCBCB41),
+            icon_markdown: rgb(0x519ABA),
+            icon_xml: rgb(0xE37933),
+            icon_web: rgb(0x4FA6E0),
+            icon_package: rgb(0x6DAEE1),
+            icon_dependencies: rgb(0x519ABA),
+            icon_solution: rgb(0xA179DC),
+            icon_muted: rgb(0x9D9D9D),
             typography: Typography::default(),
         }
     }
@@ -119,6 +157,19 @@ impl Theme {
             warning: rgb(0x8F6200),
             success: rgb(0x2B7A2F),
             panel_raised: rgb(0xE7E8EC),
+            // The same hues, darker, so each reads on a light panel (brief 0062).
+            icon_folder: rgb(0xA87B1E),
+            icon_csharp_file: rgb(0x7B4DB3),
+            icon_csharp_project: rgb(0x2E7D32),
+            icon_rust: rgb(0xB5451B),
+            icon_json: rgb(0x8A7A00),
+            icon_markdown: rgb(0x2F6F9F),
+            icon_xml: rgb(0xB4530C),
+            icon_web: rgb(0x1F6FB2),
+            icon_package: rgb(0x1C6EA4),
+            icon_dependencies: rgb(0x2F6F9F),
+            icon_solution: rgb(0x6F42B0),
+            icon_muted: rgb(0x6E6E6E),
             typography: Typography::default(),
         }
     }
@@ -153,6 +204,19 @@ impl Theme {
             warning: rgb(0x8A5A00),
             success: rgb(0x26722A),
             panel_raised: rgb(0xE6EBF5),
+            // The same hues, darker, so each reads on a light panel (brief 0062).
+            icon_folder: rgb(0xA87B1E),
+            icon_csharp_file: rgb(0x7B4DB3),
+            icon_csharp_project: rgb(0x2E7D32),
+            icon_rust: rgb(0xB5451B),
+            icon_json: rgb(0x8A7A00),
+            icon_markdown: rgb(0x2F6F9F),
+            icon_xml: rgb(0xB4530C),
+            icon_web: rgb(0x1F6FB2),
+            icon_package: rgb(0x1C6EA4),
+            icon_dependencies: rgb(0x2F6F9F),
+            icon_solution: rgb(0x6F42B0),
+            icon_muted: rgb(0x6E6E6E),
             typography: Typography::default(),
         }
     }
@@ -207,25 +271,26 @@ impl Default for Typography {
     }
 }
 
+/// WCAG relative luminance contrast between two colors.
+#[cfg(test)]
+pub(crate) fn contrast(a: Rgba, b: Rgba) -> f32 {
+    fn lum(c: Rgba) -> f32 {
+        let f = |v: f32| {
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b)
+    }
+    let (x, y) = (lum(a), lum(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// WCAG relative luminance contrast between two colors.
-    fn contrast(a: Rgba, b: Rgba) -> f32 {
-        fn lum(c: Rgba) -> f32 {
-            let f = |v: f32| {
-                if v <= 0.03928 {
-                    v / 12.92
-                } else {
-                    ((v + 0.055) / 1.055).powf(2.4)
-                }
-            };
-            0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b)
-        }
-        let (x, y) = (lum(a), lum(b));
-        (x.max(y) + 0.05) / (x.min(y) + 0.05)
-    }
 
     #[test]
     fn vs_dark_is_default() {
@@ -234,6 +299,16 @@ mod tests {
         assert_eq!(t.panel, rgb(0x252526));
         assert_eq!(t.accent, rgb(0x007ACC));
         assert_eq!(Theme::default(), t);
+        // Brief 0062's starting palette for VS Dark's icons.
+        assert_eq!(t.icon_folder, rgb(0xDCB67A));
+        assert_eq!(t.icon_csharp_file, rgb(0xA179DC));
+        assert_eq!(t.icon_csharp_project, rgb(0x3BA25A));
+        assert_eq!(t.icon_json, rgb(0xCBCB41));
+        assert_eq!(t.icon_markdown, rgb(0x519ABA));
+        assert_eq!(t.icon_xml, rgb(0xE37933));
+        assert_eq!(t.icon_package, rgb(0x6DAEE1));
+        assert_eq!(t.icon_dependencies, rgb(0x519ABA));
+        assert_eq!(t.icon_solution, rgb(0xA179DC));
     }
 
     #[test]
@@ -277,6 +352,30 @@ mod tests {
                     "{} {what}: {}",
                     t.name,
                     contrast(fg, bg)
+                );
+            }
+            // Brief 0062: every icon token reads on the panel the Workspace window draws on (WCAG's 3:1 for
+            // graphics).
+            let icons = [
+                ("icon_folder", t.icon_folder),
+                ("icon_csharp_file", t.icon_csharp_file),
+                ("icon_csharp_project", t.icon_csharp_project),
+                ("icon_rust", t.icon_rust),
+                ("icon_json", t.icon_json),
+                ("icon_markdown", t.icon_markdown),
+                ("icon_xml", t.icon_xml),
+                ("icon_web", t.icon_web),
+                ("icon_package", t.icon_package),
+                ("icon_dependencies", t.icon_dependencies),
+                ("icon_solution", t.icon_solution),
+                ("icon_muted", t.icon_muted),
+            ];
+            for (what, c) in icons {
+                assert!(
+                    contrast(c, t.panel) >= 3.0,
+                    "{} {what}: {}",
+                    t.name,
+                    contrast(c, t.panel)
                 );
             }
             // Disabled text must look different from enabled text.
