@@ -9,7 +9,9 @@
 //! (brief 0047's `browser.allowNoSandbox`, whose label says "for this workspace, on this machine").
 //!
 //! A page that is not generated from settings is added by its owner with [`OptionsDialog::add_page`] and drawn after
-//! the schema's pages (brief 0048: NuGet Package Manager > Package Sources, the shell's NuGet module's view).
+//! the schema's pages (brief 0048: NuGet Package Manager > Package Sources, the shell's NuGet module's view). A view
+//! that belongs on a schema page is added with [`OptionsDialog::append_to_page`] and drawn after that page's settings
+//! (brief 0059: the OpenAI-compatible servers on the Agents page, with Edit and Remove).
 
 use std::sync::Arc;
 
@@ -76,6 +78,8 @@ pub struct OptionsDialog {
     probe: Option<eludite_ui::BoundsMap>,
     /// Pages after the schema's, with the view each shows.
     extra: Vec<(String, gpui::AnyView)>,
+    /// Views drawn after a schema page's settings, by page.
+    appended: Vec<(String, gpui::AnyView)>,
 }
 
 impl OptionsDialog {
@@ -100,7 +104,15 @@ impl OptionsDialog {
             focus: cx.focus_handle(),
             probe: None,
             extra: Vec::new(),
+            appended: Vec::new(),
         }
+    }
+
+    /// A view drawn after the settings of schema page `name` (one per page; a second replaces the first).
+    pub fn append_to_page(&mut self, name: &str, view: gpui::AnyView, cx: &mut Context<Self>) {
+        self.appended.retain(|(n, _)| n != name);
+        self.appended.push((name.to_owned(), view));
+        cx.notify();
     }
 
     /// A page that is not generated from settings, after the schema's pages.
@@ -461,6 +473,9 @@ impl Render for OptionsDialog {
             .map(|spec| self.setting_row(spec, focused, cx).into_any_element())
             .collect();
         if let Some((_, view)) = self.extra.iter().find(|(n, _)| *n == section) {
+            rows.push(view.clone().into_any_element());
+        }
+        if let Some((_, view)) = self.appended.iter().find(|(n, _)| *n == section) {
             rows.push(view.clone().into_any_element());
         }
         let files = match &self.solution_file {

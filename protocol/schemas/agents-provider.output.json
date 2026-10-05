@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-provider.output.json",
+  "title": "eludite.agents.provider_set and provider_remove output",
+  "description": "The server changed and the saved servers after the change.",
+  "type": "object",
+  "required": [
+    "name",
+    "action",
+    "hasKey",
+    "providers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "action": {
+      "description": "`saved`: added or changed; `removed`: removed with its key.",
+      "enum": [
+        "saved",
+        "removed"
+      ]
+    },
+    "hasKey": {
+      "description": "Whether the server has a stored key now.",
+      "type": "boolean"
+    },
+    "providers": {
+      "description": "Every saved server, in `agents.json` order.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "baseUrl",
+          "hasKey"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "baseUrl": {
+            "type": "string"
+          },
+          "defaultModel": {
+            "type": "string"
+          },
+          "tools": {
+            "enum": [
+              "core",
+              "all"
+            ]
+          },
+          "hasKey": {
+            "description": "Whether the credential store has a key for it (the key itself is never answered).",
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

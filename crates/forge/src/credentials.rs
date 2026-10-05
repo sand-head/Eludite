@@ -3,6 +3,10 @@
 //! sign-in dialog, a file only they can read (mode 0600) under Eludite's config directory. Nothing else ever holds
 //! a token: not the cache, not a log, not an audit entry, not a command's output. [`MemoryStore`] is the fake the
 //! tests use.
+//!
+//! The key a credential is kept under is any string, not only a forge's host: brief 0059 keeps an OpenAI-compatible
+//! server's API key under `provider:<name>` (`eludite_acp::settings::provider_credential_key`), as a [`Credential`]
+//! with [`Family::None`] and [`SignInMethod::Token`], through the same stores and the same consent rule for the file.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -519,6 +523,46 @@ mod tests {
         assert!(
             !path.exists(),
             "the last credential removed removes the file"
+        );
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_host_round_trips() {
+        // Brief 0059: an OpenAI-compatible server's key under `provider:<name>`.
+        let dir = tempfile::tempdir().unwrap();
+        let primary = MemoryStore::new();
+        let file = FileStore::new(dir.path().join("f.json"));
+        let creds = Credentials::new(Box::new(primary), Some(Box::new(file)));
+        let key = Credential {
+            family: Family::None,
+            account: None,
+            ..cred("sk-local")
+        };
+        for name in ["provider:llama.cpp", "provider:My server / 2"] {
+            assert_eq!(creds.set(name, &key, false).unwrap(), StoreKind::Memory);
+            let (c, kind) = creds.get(name).unwrap();
+            assert_eq!((c.token.expose(), kind), ("sk-local", StoreKind::Memory));
+            assert_eq!(c.family, Family::None);
+        }
+        assert!(creds.get("provider:other").is_none());
+        creds.delete("provider:llama.cpp").unwrap();
+        assert!(creds.get("provider:llama.cpp").is_none());
+        assert!(creds.get("provider:My server / 2").is_some());
+        // The file fallback keeps it the same way, with consent.
+        let unavailable = MemoryStore::new();
+        unavailable.set_unavailable(true);
+        let creds = Credentials::new(
+            Box::new(unavailable),
+            Some(Box::new(FileStore::new(dir.path().join("g.json")))),
+        );
+        assert!(creds.set("provider:x", &key, false).is_err());
+        assert_eq!(
+            creds.set("provider:x", &key, true).unwrap(),
+            StoreKind::File
+        );
+        assert_eq!(
+            creds.get("provider:x").unwrap().0.token.expose(),
+            "sk-local"
         );
     }
 

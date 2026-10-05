@@ -12,6 +12,10 @@
 #                               runs it under the Mono it locates (.NET Framework debugging on Linux and macOS).
 #   DIR/eludite-claude-acp      the Claude Code ACP adapter (agents/claude-acp, its own cargo workspace), release build,
 #                               with its MIT license and notice in DIR/licenses/eludite-claude-acp/.
+#   DIR/eludite-openai-acp      the ACP agent over OpenAI-compatible servers (agents/openai-acp, its own cargo workspace,
+#                               brief 0059), release build, with its MIT license and notice in
+#                               DIR/licenses/eludite-openai-acp/. The shell finds it beside itself for agents.json's
+#                               `providers`.
 #
 # Pinned external tools stay located at run time, never packaged (CLAUDE.md, tools/): netcoredbg, rust-analyzer, lldb-dap,
 # the Roslyn language server, vscode-js-debug, the web language servers and Chrome. Build output goes to stderr; nothing
@@ -23,7 +27,7 @@ into=
 while [ $# -gt 0 ]; do
   case "$1" in
     --into) into=${2:?--into needs a folder}; shift 2 ;;
-    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "companions.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -54,3 +58,13 @@ acp="$acp_target/release/eludite-claude-acp$exe"
 install -m 755 "$acp" "$into/eludite-claude-acp$exe"
 mkdir -p "$into/licenses/eludite-claude-acp"
 install -m 644 "$repo/agents/claude-acp/LICENSE" "$repo/agents/claude-acp/NOTICE" "$into/licenses/eludite-claude-acp/"
+
+# The same rule for the OpenAI-compatible agent (brief 0059): its own workspace and target folder.
+echo "companions.sh: cargo build --release --bin eludite-openai-acp (agents/openai-acp)" >&2
+(cd "$repo/agents/openai-acp" && cargo build --release --bin eludite-openai-acp >&2)
+openai_target=${CARGO_TARGET_DIR:-$repo/agents/openai-acp/target}
+openai="$openai_target/release/eludite-openai-acp$exe"
+[ -f "$openai" ] || { echo "companions.sh: no $openai" >&2; exit 1; }
+install -m 755 "$openai" "$into/eludite-openai-acp$exe"
+mkdir -p "$into/licenses/eludite-openai-acp"
+install -m 644 "$repo/agents/openai-acp/LICENSE" "$repo/agents/openai-acp/NOTICE" "$into/licenses/eludite-openai-acp/"

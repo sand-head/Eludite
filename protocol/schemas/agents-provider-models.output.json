@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-provider-models.output.json",
+  "title": "eludite.agents.provider_models output",
+  "description": "The server's models, sorted by id (case folded), with their context windows when the server reports them (llama.cpp's `meta.n_ctx_train`, OpenRouter's `context_length`) or the catalog gives them.",
+  "type": "object",
+  "required": [
+    "models",
+    "listing"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "models": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The model id the server takes in `model`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "The name the model picker shows; the id when absent.",
+            "type": "string",
+            "minLength": 1
+          },
+          "contextWindow": {
+            "description": "The model's context window in tokens; 0 or absent: unknown (the usage strip shows no bar).",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "listing": {
+      "description": "`server`: from `GET /models`; `catalog`: the provider's own list (the server does not list models, or was not asked); `none`: no list (see `message`).",
+      "enum": [
+        "server",
+        "catalog",
+        "none"
+      ]
+    },
+    "message": {
+      "description": "Why there is no list: `the key was rejected (401)`, `this server does not list models`, `could not reach the server: ...`, `the server answered 500: ...`.",
+      "type": "string"
+    }
+  }
+}

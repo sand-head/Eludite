@@ -25,13 +25,25 @@ send POLISH_PROMPT (Claude runs `ls`, allowed), wait for the turn's end, expand 
 agents-polish-light.png (the transcript after a turn, the strip with the turn's usage, in VS Light). Any theme works:
 the shot's name is --polish-name.
 
+With --openai (brief 0059, a separate run with a fresh config directory and ELUDITE_OPENAI_ACP set): show the
+Agents window, open the agent picker and click its last row, "Add server…": the Add server dialog opens on the
+llama.cpp preset (agents-openai-add-server.png). The base URL box gets --openai-url (default: a loopback fake
+OpenAI-compatible server this script starts, two llama.cpp-shaped models, a first answer that calls
+eludite-diagnostics-list and a slow streamed second answer), Test lists its models ("2 models",
+agents-openai-test.png), Save adds the server and selects it; Start runs `eludite-openai-acp`, the model picker fills,
+OPENAI_PROMPT is sent; mid-answer (the tool call done, the usage strip filled) agents-openai-turn.png (with
+--shot-name linux-agents-openai-llama against the owner's llama-server), and after the turn agents-openai-done.png.
+SHOT_X11=1 takes the screenshots with ImageMagick's `import -window root` (an Xvfb display) instead of spectacle.
+
 Permission requests the run does not expect (anything before the pending change that is not a shell command) are
 allowed and recorded. Prints one JSON object with what the trace showed.
 Usage: agents.py --title "Eludite - Eludite" --log run.err --bounds B --shots DIR --file F --shell-prompt TEXT
        [--transcript T --model opus]
        agents.py --polish-light --title T --log run.err --bounds B --shots DIR [--polish-name agents-polish-light]
+       agents.py --openai --title T --log run.err --bounds B --shots DIR [--openai-url URL] [--shot-name NAME]
 """
-import argparse, json, sys, time
+import argparse, json, os, subprocess, sys, threading, time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, __import__("os").path.dirname(__file__))
 from intellisense import bounds, find_window, press, shot, trace, type_text, wait_trace  # noqa: E402
@@ -43,6 +55,10 @@ POLISH_PROMPT = "Run ls in the solution folder with the shell and tell me in one
 # Brief 0056: long enough to wrap to three rows in the Agents window's default width.
 WRAPPED = ("Explain what HostRpcTarget does when the host receives a ping, which fields the result carries, "
            "and where the timestamp comes from")
+
+
+# Brief 0059: one tool call (class read, no prompt) and an answer, against the fake or a real llama-server.
+OPENAI_PROMPT = "List the current errors with your tools, then say in two sentences what you found"
 
 
 def ms():
@@ -218,6 +234,152 @@ def turn(a, out, key, start, timeout, on_permission):
     return None
 
 
+class FakeOpenAI(BaseHTTPRequestHandler):
+    """A loopback OpenAI-compatible server for the screenshots (the tests' fake is agents/openai-acp/tests/
+    fake_server.rs): GET /v1/models lists two llama.cpp-shaped models; a chat request whose last message is not a
+    tool result calls eludite-diagnostics-list, else the answer streams slowly (about 6 s) so a shot lands mid-turn."""
+    protocol_version = "HTTP/1.1"
+    MODELS = ["qwen3-8b-q4_k_m", "llama-3.1-8b-instruct-q4_k_m"]
+    ANSWER = ("The Error List has no errors right now, so the workspace builds cleanly as far as the language "
+              "server can tell. I called eludite-diagnostics-list once and it returned an empty list.")
+
+    def log_message(self, *args):
+        pass
+
+    def body(self, status, data, ctype="application/json"):
+        raw = data.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def chunk(self, obj):
+        data = ("data: " + (obj if isinstance(obj, str) else json.dumps(obj)) + "\n\n").encode()
+        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
+        self.wfile.flush()
+
+    def do_GET(self):
+        if self.path.rstrip("/").endswith("/models"):
+            data = [{"id": m, "object": "model", "owned_by": "llamacpp", "meta": {"n_ctx_train": 32768}}
+                    for m in self.MODELS]
+            self.body(200, json.dumps({"object": "list", "data": data}))
+        else:
+            self.body(404, json.dumps({"error": {"message": "not found"}}))
+
+    def do_POST(self):
+        req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        model = req.get("model", self.MODELS[0])
+        last = (req.get("messages") or [{}])[-1]
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+
+        def delta(d, finish=None):
+            return {"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": model,
+                    "choices": [{"index": 0, "delta": d, "finish_reason": finish}]}
+        try:
+            if last.get("role") != "tool":
+                self.chunk(delta({"reasoning_content": "The person wants the errors: the diagnostics tool lists them."}))
+                self.chunk(delta({"tool_calls": [{"index": 0, "id": "call_diag", "type": "function",
+                                                  "function": {"name": "eludite-diagnostics-list", "arguments": ""}}]}))
+                self.chunk(delta({"tool_calls": [{"index": 0, "function": {"arguments": "{}"}}]}))
+                self.chunk(delta({}, "tool_calls"))
+                usage = {"prompt_tokens": 6120, "completion_tokens": 24, "total_tokens": 6144}
+            else:
+                for word in self.ANSWER.split(" "):
+                    self.chunk(delta({"content": word + " "}))
+                    time.sleep(0.2)
+                self.chunk(delta({}, "stop"))
+                usage = {"prompt_tokens": 6410, "completion_tokens": 52, "total_tokens": 6462}
+            self.chunk({"id": "chatcmpl-1", "object": "chat.completion.chunk", "choices": [], "usage": usage})
+            self.chunk("[DONE]")
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
+def start_fake_openai():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), FakeOpenAI)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}/v1"
+
+
+def snap(a, name):
+    """A screenshot: spectacle (the nested KWin run), or with SHOT_X11=1 the X root window (an Xvfb display)."""
+    if os.environ.get("SHOT_X11"):
+        path = os.path.join(a.shots, name + ".png")
+        subprocess.run(["import", "-window", "root", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=30)
+        return path
+    return shot(a.shots, name)
+
+
+def openai_run(a):
+    """Brief 0059: the Add server dialog, Test, Save, Start and a turn through eludite-openai-acp."""
+    out = {}
+    url = a.openai_url or start_fake_openai()
+    out["base_url"] = url
+    find_window(a.title)
+    time.sleep(3.0)
+    press("backslash", ["Control_L"])
+    press("c", ["Control_L"])
+    time.sleep(1.0)
+    props = rect(a, "close-properties", timeout=5)
+    if props:
+        click(a.title, props)
+    time.sleep(0.5)
+    # The picker's last row opens the dialog, on the llama.cpp preset.
+    click(a.title, rect(a, "agents-picker"))
+    time.sleep(0.5)
+    add = rect(a, "agents-picker-add-server", timeout=10)
+    if not add:
+        out["error"] = "no Add server row in the bounds file"
+        print(json.dumps(out), flush=True)
+        return
+    click(a.title, add)
+    time.sleep(1.5)
+    out["shot_add"] = snap(a, "agents-openai-add-server")
+    # The server's URL over the preset's, then Test.
+    box = rect(a, "agents-provider-url", timeout=10)
+    click(a.title, box)
+    press("a", ["Control_L"])
+    press("BackSpace")
+    type_text(url, delay=0.02)
+    t = ms()
+    click(a.title, rect(a, "agents-provider-test"))
+    tested = wait_trace(a.log, lambda s: s.startswith("agents provider test"), t, 60)
+    out["test"] = tested and tested[1]
+    time.sleep(1.0)
+    out["shot_test"] = snap(a, "agents-openai-test")
+    # Save: the server is in the picker, selected; Start runs the adapter and the model picker fills.
+    t = ms()
+    click(a.title, rect(a, "agents-provider-save"))
+    registry = wait_trace(a.log, lambda s: s.startswith("agents registry") and "llama.cpp" in s, t, 30)
+    out["registry"] = registry and registry[1]
+    time.sleep(1.0)
+    t = ms()
+    click(a.title, rect(a, "agents-start"))
+    options = wait_trace(a.log, lambda s: s.startswith("agents options") and "model=" in s, t, 120)
+    out["options"] = options and options[1]
+    start = ms()
+    send(a, OPENAI_PROMPT)
+    # Mid-answer: the tool call has completed and the strip shows the first response's usage.
+    # Up to 8 s for the tool call (a shell without the host offers no diagnostics tool: the fake model is told so and
+    # answers in text; the shot is then simply mid-answer).
+    mid = wait_trace(a.log, lambda s: s.startswith("agents mcp") and "diagnostics" in s, start, 8)
+    out["tool"] = mid and mid[1]
+    time.sleep(a.mid_delay)
+    out["shot_turn"] = snap(a, a.shot_name)
+    out["turn"] = turn(a, out, "openai", start, 600, lambda tool: "allow")
+    time.sleep(1.5)
+    out["shot_done"] = snap(a, "agents-openai-done")
+    out["trace"] = since(a.log, start)[-25:]
+    print(json.dumps(out), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--title", required=True)
@@ -231,7 +393,14 @@ def main():
     ap.add_argument("--transcript", help="--transcript-out's file, to read the usage line after the model pick")
     ap.add_argument("--model", default="opus", help="the model picker's value to pick (brief 0057)")
     ap.add_argument("--dry", action="store_true", help="a scripted agent: skip waiting for the error to clear and the shell step")
+    ap.add_argument("--openai", action="store_true", help="brief 0059's run: Add server, Test, Save, Start, a turn")
+    ap.add_argument("--openai-url", help="the server's base URL (default: a loopback fake this script starts)")
+    ap.add_argument("--shot-name", default="agents-openai-turn", help="the mid-turn shot's name")
+    ap.add_argument("--mid-delay", type=float, default=2.0, help="seconds after the tool call before the mid-turn shot")
     a = ap.parse_args()
+    if a.openai:
+        openai_run(a)
+        return
     if a.polish_light:
         polish_light(a)
         return

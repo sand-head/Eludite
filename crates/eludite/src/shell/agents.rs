@@ -35,8 +35,18 @@
 //!   tooltip), login state, prompt, turn end (its stop reason and duration), error and exit, and every line the agent
 //!   writes to stderr (also to Eludite's stderr while `ELUDITE_AGENT_STDERR` is set). The transcript says how a turn
 //!   ended only when it did not end normally (`end_turn`): "Stopped" after a cancel, the other stop reasons in words.
+//! - **OpenAI-compatible servers** (brief 0059, [`providers`]). `agents.json`'s `providers` are registry entries
+//!   (source `provider`) run through `eludite-openai-acp`, kept whether or not `agents.custom` is set; their keys are
+//!   read from the credential store off the UI thread with each registry search and handed to the agent's
+//!   environment at start; without the adapter an entry starts in the `error` state ("eludite-openai-acp was not
+//!   found"). `eludite.agents.provider_set`, `provider_remove` and `provider_models` are registered here
+//!   ([`providers::ProviderStore`]), as are `eludite.file.read` (an open document's unsaved text, else the file) and
+//!   `eludite.file.edit` (one `eludite.workspace.apply_edit` under the calling agent, so it is a pending change
+//!   reviewed like any other), both answered off the UI thread. The agent picker ends with "Add server…", which opens
+//!   [`providers::ProviderDialog`]; Tools > Options > Agents lists the servers with Edit and Remove.
 
 pub mod endpoint;
+pub mod providers;
 pub mod review;
 #[cfg(test)]
 pub(in crate::shell) mod scenario;
@@ -48,7 +58,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 use eludite_acp::protocol::{
@@ -57,17 +67,21 @@ use eludite_acp::protocol::{
 };
 use eludite_acp::session::StreamConnector;
 use eludite_acp::{
-    AdapterSearch, AgentSession, AgentSettings, AgentState, LoginMethod, PermissionPolicy,
-    PolicyAnswer, RegisteredAgent, SessionConfig, SessionEvent,
+    AdapterSearch, AgentSession, AgentSettings, AgentSource, AgentState, LoginMethod,
+    PermissionPolicy, PolicyAnswer, RegisteredAgent, SessionConfig, SessionEvent,
 };
+use eludite_commands::agents::ProviderRow;
+use eludite_commands::files::{self, FILE_EDIT, FILE_READ, FilesTarget};
 use eludite_commands::policy::{AgentPolicy, AlwaysAllow, PolicySnapshot, Verdict};
 use eludite_commands::{CallClass, CommandRegistry, PermissionClass};
+use eludite_forge::credentials::Credentials;
 use eludite_mcp::{GateDecision, ToolCallRecord, command_id_from_tool_name, tool_name};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use gpui::{AppContext as _, Context, Entity, Window};
 use serde_json::{Value, json};
 
 use self::endpoint::{EndpointHooks, MCP_SERVER_NAME, McpEndpoint};
+use self::providers::{ProviderKeys, ProviderStore};
 use self::review::{DiffView, GutterMarkers, PendingChange, ReviewBoard};
 use self::transcript::{ImageData, McpLink, Permission, Thumb};
 use self::window::{AgentsWindow, AgentsWindowEvent, Decision, HeaderState, StateKind};
@@ -185,6 +199,13 @@ pub struct AgentsSetup {
     pub preferred: Option<String>,
     /// Write the transcript as JSON here whenever a turn ends (`--transcript-out`).
     pub transcript_out: Option<PathBuf>,
+    /// `agents.json`, where the OpenAI-compatible servers are kept (brief 0059); `None`: no servers.
+    pub agents_file: Option<PathBuf>,
+    /// Where the servers' keys are kept (the operating system's store and the consented file; tests: memory).
+    pub credentials: Arc<Credentials>,
+    /// `eludite-openai-acp` when known up front (tests), else found like the Claude adapter
+    /// (`ELUDITE_OPENAI_ACP`, beside the executable, `PATH`).
+    pub openai_adapter: Option<PathBuf>,
 }
 
 impl AgentsSetup {
@@ -195,7 +216,25 @@ impl AgentsSetup {
             connect: None,
             preferred: None,
             transcript_out: None,
+            agents_file: eludite_docking::eludite_config_dir()
+                .map(|d| d.join(eludite_acp::settings::SETTINGS_FILE)),
+            credentials: Arc::new(Credentials::system()),
+            openai_adapter: None,
         }
+    }
+
+    /// Where `eludite-openai-acp` is looked for: the given one; with a fixed registry (tests) nowhere else, so a
+    /// test never finds one installed on the machine.
+    fn openai_search(&self) -> AdapterSearch {
+        let mut search = if self.registry.is_some() {
+            AdapterSearch::default()
+        } else {
+            AdapterSearch::from_env()
+        };
+        if let Some(p) = &self.openai_adapter {
+            search.openai_configured = Some(p.clone());
+        }
+        search
     }
 }
 
@@ -223,33 +262,101 @@ impl RegistryConfig {
     }
 }
 
-/// The registry from the settings, the environment and (without `agents.custom`) the user's `agents.json`, with
-/// the `agents.json` error, if any.
-fn search_registry(config: &RegistryConfig) -> (Vec<RegisteredAgent>, Option<String>) {
-    let (mut settings, error) = match &config.custom {
-        Some(agents) => (
-            AgentSettings {
-                default: None,
-                agents: agents.clone(),
-            },
-            None,
-        ),
-        None => {
-            let path = eludite_docking::eludite_config_dir()
-                .map(|d| d.join(eludite_acp::settings::SETTINGS_FILE));
-            match path.as_deref().map(AgentSettings::load) {
-                Some(Ok(s)) => (s, None),
-                Some(Err(e)) => (AgentSettings::default(), Some(e)),
-                None => (AgentSettings::default(), None),
-            }
+/// A registry search, run off the UI thread.
+struct RegistryJob {
+    /// The agents settings (`None`: not applied yet, the defaults).
+    config: RegistryConfig,
+    /// The registry fixed up front (tests, the harness): kept, with the servers added after it.
+    fixed: Option<Vec<RegisteredAgent>>,
+    file: Option<PathBuf>,
+    openai: AdapterSearch,
+    credentials: Arc<Credentials>,
+    select: Option<String>,
+    seq: u64,
+}
+
+/// What a registry search found.
+pub struct Searched {
+    pub registry: Vec<RegisteredAgent>,
+    /// The `agents.json` error, if any.
+    pub error: Option<String>,
+    /// The agent to select (`agents.default` when it changed).
+    pub select: Option<String>,
+    /// The servers' keys and rows (brief 0059).
+    pub keys: ProviderKeys,
+    pub providers: Vec<ProviderRow>,
+    /// Which search this is: an older one arriving late is dropped.
+    pub seq: u64,
+}
+
+impl RegistryJob {
+    fn run(self) -> Searched {
+        let (registry, error, settings) = match &self.fixed {
+            Some(fixed) => fixed_registry(fixed, self.file.as_deref(), &self.openai),
+            None => search_registry(&self.config, self.file.as_deref(), &self.openai),
+        };
+        let keys = providers::read_keys(&self.credentials, &settings.providers);
+        Searched {
+            providers: providers::rows(&settings, &keys),
+            registry,
+            error,
+            select: self.select,
+            keys,
+            seq: self.seq,
         }
-    };
+    }
+}
+
+/// The registry from the settings, the environment and the user's `agents.json` (its `providers` always; its
+/// `agents` and `default` only without `agents.custom`), with the `agents.json` error, if any, and the settings read.
+fn search_registry(
+    config: &RegistryConfig,
+    file: Option<&Path>,
+    openai: &AdapterSearch,
+) -> (Vec<RegisteredAgent>, Option<String>, AgentSettings) {
+    let (mut settings, error) = providers::load_settings(file);
+    if let Some(agents) = &config.custom {
+        // `agents.custom` replaces the file's agents; its servers stay (brief 0059).
+        settings.agents = agents.clone();
+        settings.default = None;
+    }
     if config.default.is_some() {
         settings.default = config.default.clone();
     }
     let mut search = AdapterSearch::from_env();
     search.configured = config.adapter.clone();
-    (eludite_acp::settings::registry(&search, &settings), error)
+    if openai.openai_configured.is_some() {
+        search.openai_configured = openai.openai_configured.clone();
+    }
+    (
+        eludite_acp::settings::registry(&search, &settings),
+        error,
+        settings,
+    )
+}
+
+/// A fixed registry with the servers of `file` after it (a server with an entry's name replaces it).
+fn fixed_registry(
+    fixed: &[RegisteredAgent],
+    file: Option<&Path>,
+    openai: &AdapterSearch,
+) -> (Vec<RegisteredAgent>, Option<String>, AgentSettings) {
+    let (settings, error) = providers::load_settings(file);
+    let servers = AgentSettings {
+        providers: settings.providers.clone(),
+        ..AgentSettings::default()
+    };
+    let mut out = fixed.to_vec();
+    for entry in eludite_acp::settings::registry(openai, &servers)
+        .into_iter()
+        .filter(|a| a.source == AgentSource::Provider)
+    {
+        match out.iter_mut().find(|a| a.name() == entry.name()) {
+            Some(existing) => *existing = entry,
+            None => out.push(entry),
+        }
+    }
+    (out, error, settings)
 }
 
 /// The solution's permission policy, read lazily off the UI thread (by the first agent request that needs it).
@@ -371,10 +478,12 @@ pub fn class_of_kind(kind: Option<&str>) -> PermissionClass {
 }
 
 /// The Eludite commands whose edits go through the workspace-edit applier, so they can be held as pending changes.
-pub const REVIEWED_COMMANDS: [&str; 3] = [
+pub const REVIEWED_COMMANDS: [&str; 4] = [
     eludite_commands::workspace::WORKSPACE_APPLY_EDIT,
     eludite_commands::workspace::EDITOR_RENAME,
     eludite_commands::workspace::EDITOR_APPLY_CODE_ACTION,
+    // Brief 0059: one `workspace.apply_edit`, answered as it is.
+    FILE_EDIT,
 ];
 
 /// Keys of the endpoint's own permission requests (Eludite commands of class execute and dangerous), kept apart from
@@ -385,8 +494,12 @@ static NEXT_ASK: AtomicU64 = AtomicU64::new(1 << 40);
 pub enum HostMsg {
     Session(u64, Box<SessionEvent>),
     Mcp(Box<ToolCallRecord>),
-    /// A searched registry, its `agents.json` error, and the agent to select (`agents.default` when it changed).
-    Registry(Vec<RegisteredAgent>, Option<String>, Option<String>),
+    /// A searched registry.
+    Registry(Box<Searched>),
+    /// The servers in `agents.json` or their keys changed (brief 0059): search the registry again.
+    Providers,
+    /// `eludite.file.*` asks the UI for the workspace folder or an open document's text (brief 0059).
+    Files(FilesJob),
     /// The MCP gate asks the user about an Eludite command; the answer goes to `reply`.
     Ask(Box<GateAsk>),
     /// A tool call's images, decoded off the UI thread: (tool call id, thumbnails).
@@ -402,6 +515,69 @@ pub struct GateAsk {
     pub input: Value,
     pub tool_call: Option<String>,
     pub reply: mpsc::Sender<bool>,
+}
+
+/// What `eludite.file.read` and `eludite.file.edit` need from the UI thread.
+pub enum FilesJob {
+    Root(mpsc::SyncSender<Option<PathBuf>>),
+    Text(PathBuf, mpsc::SyncSender<Option<String>>),
+}
+
+/// The shell's [`FilesTarget`]: asks the UI for what lives there, applies through `eludite.workspace.apply_edit`
+/// under the calling agent (so the edit is a pending change).
+struct ShellFiles {
+    tx: UnboundedSender<HostMsg>,
+    commands: Weak<CommandRegistry>,
+}
+
+impl ShellFiles {
+    fn ask<T>(&self, job: impl FnOnce(mpsc::SyncSender<T>) -> FilesJob) -> Option<T> {
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.tx.unbounded_send(HostMsg::Files(job(tx))).ok()?;
+        rx.recv_timeout(Duration::from_secs(30)).ok()
+    }
+}
+
+impl FilesTarget for ShellFiles {
+    fn workspace_root(&self) -> Option<PathBuf> {
+        self.ask(FilesJob::Root).flatten()
+    }
+
+    fn open_text(&self, path: &Path) -> Option<String> {
+        let path = path.to_path_buf();
+        self.ask(|tx| FilesJob::Text(path, tx)).flatten()
+    }
+
+    fn apply_edit(&self, input: Value) -> Result<Value, eludite_commands::CommandError> {
+        let commands = self
+            .commands
+            .upgrade()
+            .ok_or_else(|| eludite_commands::CommandError::Failed("the window is closed".into()))?;
+        commands.invoke(eludite_commands::workspace::WORKSPACE_APPLY_EDIT, input)
+    }
+}
+
+/// Register `eludite.file.read` and `eludite.file.edit` on `target`. They wait for the UI thread, so on it they
+/// refuse (agents reach them through the MCP endpoint, off the UI thread).
+fn register_files(registry: &CommandRegistry, target: Arc<ShellFiles>) {
+    let ui_thread = std::thread::current().id();
+    for id in files::ALL {
+        let t = target.clone();
+        registry.replace(files::spec(id), move |input| {
+            if std::thread::current().id() == ui_thread {
+                return Err(eludite_commands::CommandError::Failed(format!(
+                    "{id} waits for the window, so it runs off the UI thread (agents call it through Eludite's MCP \
+                     endpoint)"
+                )));
+            }
+            if id == FILE_READ {
+                let req = files::parse_read(input)?;
+                Ok(serde_json::to_value(files::read(t.as_ref(), &req)?).expect("outputs serialize"))
+            } else {
+                files::edit(t.as_ref(), &files::parse_edit(input)?)
+            }
+        });
+    }
 }
 
 /// An `eludite.agents.configure` waiting for the agent (brief 0057).
@@ -494,6 +670,14 @@ pub struct Agents {
     configuring: Vec<Configuring>,
     /// The configure about to run came from a picker in the window (remembered in the settings).
     picking: bool,
+    /// The servers' keys, read with the last registry search (brief 0059), and the servers.
+    keys: ProviderKeys,
+    pub providers: Vec<ProviderRow>,
+    /// The last registry search started, and the last one applied.
+    search_seq: u64,
+    applied_seq: u64,
+    /// The servers' list on Tools > Options > Agents, while the dialog has it.
+    pub providers_page: Option<Entity<providers::ProvidersPage>>,
 }
 
 impl Agents {
@@ -508,11 +692,26 @@ impl Agents {
                 .as_ref()
                 .is_none_or(|old| old.default.as_ref() != Some(d))
         });
-        self.registry_config = Some(config.clone());
+        self.registry_config = Some(config);
+        self.search(select, cx);
+    }
+
+    /// Search the registry again off the UI thread (the settings or the servers changed). A fixed registry keeps
+    /// its entries and gains the servers of `agents.json`.
+    pub fn search(&mut self, select: Option<String>, cx: &mut Context<Shell>) {
+        self.search_seq += 1;
+        let job = RegistryJob {
+            config: self.registry_config.clone().unwrap_or_default(),
+            fixed: self.setup.registry.clone(),
+            file: self.setup.agents_file.clone(),
+            openai: self.setup.openai_search(),
+            credentials: self.setup.credentials.clone(),
+            select,
+            seq: self.search_seq,
+        };
         let tx = self.tx.clone();
         cx.background_spawn(async move {
-            let (r, e) = search_registry(&config);
-            let _ = tx.unbounded_send(HostMsg::Registry(r, e, select));
+            let _ = tx.unbounded_send(HostMsg::Registry(Box::new(job.run())));
         })
         .detach();
     }
@@ -528,6 +727,31 @@ impl Agents {
         let registry = setup.registry.clone().unwrap_or_default();
         window.update(cx, |w, _| {
             w.header.agents = registry.iter().map(|a| a.name().to_owned()).collect()
+        });
+        // `eludite.file.*` and `eludite.agents.provider_*` (brief 0059) answer through this module; registered once
+        // the shell exists (right after this returns), before any agent can call them.
+        let shell = cx.weak_entity();
+        let (files_tx, store) = (
+            tx.clone(),
+            ProviderStore {
+                file: setup.agents_file.clone(),
+                credentials: setup.credentials.clone(),
+                search: setup.openai_search(),
+                notify: tx.clone(),
+                lock: Mutex::new(()),
+            },
+        );
+        cx.defer(move |cx| {
+            let _ = shell.update(cx, |s, _| {
+                register_files(
+                    &s.commands,
+                    Arc::new(ShellFiles {
+                        tx: files_tx,
+                        commands: Arc::downgrade(&s.commands),
+                    }),
+                );
+                eludite_commands::agents::register_providers(&s.commands, Arc::new(store));
+            });
         });
         // Without a fixed registry, the shell's first settings pass searches it (`set_registry_config`).
         (
@@ -566,6 +790,11 @@ impl Agents {
                 config_options: Vec::new(),
                 configuring: Vec::new(),
                 picking: false,
+                keys: ProviderKeys::default(),
+                providers: Vec::new(),
+                search_seq: 0,
+                applied_seq: 0,
+                providers_page: None,
             },
             rx,
         )
@@ -751,6 +980,14 @@ impl Shell {
         let Some(agent) = self.agents.selected_agent().cloned() else {
             return Err("no agent is configured".into());
         };
+        // A server whose adapter is not installed (brief 0059): the error state says so, nothing is launched.
+        if let Some(e) = agent.launch_error() {
+            self.agents.state = StateKind::Error;
+            self.agents.detail = e.to_owned();
+            self.agents_log(&format!("Cannot start {}: {e}", agent.name()), cx);
+            self.sync_agents_header(cx);
+            return Err(e.to_owned());
+        }
         if self.agents.endpoint.is_none() {
             let endpoint = McpEndpoint::start(self.commands.clone(), self.endpoint_hooks())
                 .map_err(|e| format!("Eludite's MCP endpoint: {e}"))?;
@@ -781,8 +1018,16 @@ impl Shell {
             .current
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = agent.name().to_owned();
+        // A server's key from the credential store, in the agent's environment for this launch only (brief 0059).
+        let descriptor = match agent.source {
+            AgentSource::Provider => eludite_acp::with_provider_key(
+                agent.descriptor.clone(),
+                self.agents.keys.get(agent.name()),
+            ),
+            _ => agent.descriptor.clone(),
+        };
         let config = SessionConfig {
-            agent: agent.descriptor.clone(),
+            agent: descriptor,
             connect: self.agents.setup.connect.clone(),
             cwd,
             mcp_servers: vec![endpoint.acp_server(&self.agents.setup.relay_exe)],
@@ -809,8 +1054,11 @@ impl Shell {
             &format!("Starting {}: {}", agent.name(), agent.command_line()),
             cx,
         );
-        // The model and effort last picked in the window (brief 0057), for the agent to start with.
-        let meta = {
+        // The model and effort last picked in the window (brief 0057), for the agent to start with; not for a server
+        // (brief 0059), whose models are its own and whose first is `defaultModel`.
+        let meta = if agent.source == AgentSource::Provider {
+            None
+        } else {
             let s = self.settings.lock();
             let mut options = serde_json::Map::new();
             for (key, setting) in [("model", "agents.model"), ("effort", "agents.effort")] {
@@ -919,7 +1167,11 @@ impl Shell {
         } else {
             session.set_option(option, value);
         }
-        let remember = if from_window && !picker.is_mode {
+        // A server's models are its own (brief 0059): its pick is not remembered for Claude Code's next start.
+        let provider = a
+            .selected_agent()
+            .is_some_and(|x| x.source == AgentSource::Provider);
+        let remember = if from_window && !picker.is_mode && !provider {
             a.config_options
                 .iter()
                 .find(|o| o.id == option)
@@ -1281,7 +1533,12 @@ impl Shell {
                     if decided.is_empty() {
                         return Ok(out);
                     }
-                    Ok(review::amend_output(spec.id.as_str(), out, &decided))
+                    // `file.edit` answers as the `workspace.apply_edit` it ran (brief 0059).
+                    let id = match spec.id.as_str() {
+                        FILE_EDIT => eludite_commands::workspace::WORKSPACE_APPLY_EDIT,
+                        other => other,
+                    };
+                    Ok(review::amend_output(id, out, &decided))
                 })
             }),
             observer: Some(Arc::new(move |record| {
@@ -1638,6 +1895,7 @@ impl Shell {
                     });
                 }
             }
+            AgentsWindowEvent::AddServer => self.open_provider_dialog(None, window, cx),
             AgentsWindowEvent::OpenChange(id) => self.open_change(*id, window, cx),
             AgentsWindowEvent::OpenImage { tool_call, index } => {
                 self.open_image(tool_call, *index, cx)
@@ -1714,7 +1972,35 @@ impl Shell {
         let window = self.agents.window.clone();
         for msg in batch {
             match msg {
-                HostMsg::Registry(registry, error, select) => {
+                HostMsg::Registry(found) => {
+                    if found.seq < self.agents.applied_seq {
+                        continue;
+                    }
+                    self.agents.applied_seq = found.seq;
+                    let Searched {
+                        registry,
+                        error,
+                        select,
+                        keys,
+                        providers,
+                        ..
+                    } = *found;
+                    self.agents.keys = keys;
+                    // The screenshot driver waits for a saved server (brief 0059).
+                    super::documents::trace(format_args!(
+                        "agents registry {}",
+                        registry
+                            .iter()
+                            .map(|a| a.name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                    if self.agents.providers != providers {
+                        self.agents.providers = providers.clone();
+                        if let Some(page) = &self.agents.providers_page {
+                            page.update(cx, |p, cx| p.set_rows(providers, cx));
+                        }
+                    }
                     // `--agent` first, then a newly chosen `agents.default`, else keep the selected agent across a
                     // new search (a settings change).
                     let was = self
@@ -1792,6 +2078,8 @@ impl Shell {
                         self.decode_images(row, images, cx);
                     }
                 }
+                HostMsg::Providers => self.agents.search(None, cx),
+                HostMsg::Files(job) => self.on_files_job(job, cx),
                 HostMsg::Images(row, thumbs) => {
                     window.update(cx, |w, _| w.transcript.add_thumbs(&row, thumbs));
                 }
@@ -2016,6 +2304,203 @@ impl Shell {
         }
         if header {
             self.sync_agents_header(cx);
+        }
+    }
+
+    /// Open the Add server dialog (brief 0059): for a new server, or to edit saved server `name`.
+    pub fn open_provider_dialog(
+        &mut self,
+        name: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let theme = self.theme;
+        let editing =
+            name.and_then(|n| self.agents.providers.iter().find(|r| r.name == n).cloned());
+        let probe = self.ui_bounds.clone();
+        let dialog = cx.new(|cx| {
+            let mut d = providers::ProviderDialog::new(theme, editing, cx);
+            d.probe = probe;
+            d
+        });
+        cx.subscribe_in(&dialog, window, Self::on_provider_dialog_event)
+            .detach();
+        dialog.update(cx, |d, cx| d.focus_first(window, cx));
+        self.agents.window.update(cx, |w, cx| {
+            w.provider_dialog = Some(dialog);
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    /// The Add server dialog, while it is open.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn provider_dialog(&self, cx: &gpui::App) -> Option<Entity<providers::ProviderDialog>> {
+        self.agents.window.read(cx).provider_dialog.clone()
+    }
+
+    fn close_provider_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.agents.window.update(cx, |w, cx| {
+            w.provider_dialog = None;
+            cx.notify();
+        });
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
+    /// Run provider command `id` through the bus off the UI thread (it touches the credential store or the network),
+    /// then `done` with its answer on the UI thread.
+    fn provider_command(
+        &mut self,
+        id: &'static str,
+        args: Value,
+        done: impl FnOnce(&mut Shell, Result<Value, String>, &mut Window, &mut Context<Shell>) + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let commands = self.commands.clone();
+        let task = cx.background_spawn(async move {
+            commands.invoke(id, args).map_err(|e| {
+                e.to_string()
+                    .trim_start_matches("command failed: ")
+                    .to_owned()
+            })
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = task.await;
+            let _ = this.update_in(cx, |shell, window, cx| done(shell, result, window, cx));
+        })
+        .detach();
+    }
+
+    fn on_provider_dialog_event(
+        &mut self,
+        dialog: &Entity<providers::ProviderDialog>,
+        event: &providers::ProviderDialogEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use eludite_commands::agents::{PROVIDER_MODELS, PROVIDER_SET};
+        use providers::ProviderDialogEvent as E;
+        let dialog = dialog.clone();
+        match event {
+            E::Test(args) => self.provider_command(
+                PROVIDER_MODELS,
+                args.clone(),
+                move |_, result, _, cx| {
+                    super::documents::trace(format_args!(
+                        "agents provider test {}",
+                        match &result {
+                            Ok(v) => providers::test_summary(v).0,
+                            Err(e) => e.clone(),
+                        }
+                    ));
+                    dialog.update(cx, |d, cx| d.tested(result, cx));
+                },
+                window,
+                cx,
+            ),
+            E::Save(args) => {
+                let name = args["name"].as_str().unwrap_or_default().to_owned();
+                let previous = dialog.read(cx).editing.clone();
+                self.provider_command(
+                    PROVIDER_SET,
+                    args.clone(),
+                    move |shell, result, window, cx| match result {
+                        Ok(_) => {
+                            // A rename keeps one entry: the old name goes, with its key.
+                            if let Some(old) = previous.filter(|o| *o != name) {
+                                shell.provider_command(
+                                    eludite_commands::agents::PROVIDER_REMOVE,
+                                    json!({ "name": old }),
+                                    |_, _, _, _| {},
+                                    window,
+                                    cx,
+                                );
+                            }
+                            shell.close_provider_dialog(window, cx);
+                            shell.agents.search(Some(name.clone()), cx);
+                            shell.status.set(
+                                eludite_ui::slots::STATE,
+                                format!("Saved the server {name}: start it from the Agents window's agent list"),
+                            );
+                        }
+                        Err(e) => dialog.update(cx, |d, cx| d.save_failed(e, cx)),
+                    },
+                    window,
+                    cx,
+                );
+            }
+            E::Cancel => self.close_provider_dialog(window, cx),
+        }
+    }
+
+    /// The servers' list for Tools > Options > Agents (brief 0059).
+    pub(super) fn providers_options_page(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyView {
+        let theme = self.theme;
+        let rows = self.agents.providers.clone();
+        let page = cx.new(|_| providers::ProvidersPage::new(theme, rows));
+        cx.subscribe_in(&page, window, Self::on_providers_page_event)
+            .detach();
+        self.agents.providers_page = Some(page.clone());
+        page.into()
+    }
+
+    fn on_providers_page_event(
+        &mut self,
+        page: &Entity<providers::ProvidersPage>,
+        event: &providers::ProvidersPageEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            // The dialog lives in the Agents window: Options closes and the window shows it.
+            providers::ProvidersPageEvent::Edit(name) => {
+                self.close_options(window, cx);
+                let _ = self.commands.invoke(
+                    "eludite.view.show",
+                    json!({ "id": eludite_docking::ids::AGENTS }),
+                );
+                self.open_provider_dialog(name.as_deref(), window, cx);
+            }
+            providers::ProvidersPageEvent::Remove(name) => {
+                let page = page.clone();
+                self.provider_command(
+                    eludite_commands::agents::PROVIDER_REMOVE,
+                    json!({ "name": name }),
+                    move |_, result, _, cx| {
+                        page.update(cx, |p, cx| {
+                            p.message = result.err();
+                            cx.notify();
+                        })
+                    },
+                    window,
+                    cx,
+                );
+            }
+        }
+    }
+
+    /// `eludite.file.*`'s questions (brief 0059): the workspace folder, or an open document's text (unsaved edits
+    /// included).
+    fn on_files_job(&mut self, job: FilesJob, cx: &mut Context<Self>) {
+        match job {
+            FilesJob::Root(reply) => {
+                let _ = reply.send(self.workspace_root());
+            }
+            FilesJob::Text(path, reply) => {
+                let path = super::documents::normalize_path(&path);
+                let text = self
+                    .documents
+                    .values()
+                    .find(|d| super::documents::normalize_path(&d.path) == path)
+                    .map(|d| d.view.read(cx).editor().text());
+                let _ = reply.send(text);
+            }
         }
     }
 

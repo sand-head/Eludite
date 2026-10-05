@@ -108,10 +108,11 @@
             "type": "string"
           },
           "source": {
-            "description": "`native`: the eludite-claude-acp adapter (beside the executable, ELUDITE_CLAUDE_ACP or PATH); `npx`: the Node adapter; `settings`: added by the user in agents.json.",
+            "description": "`native`: the eludite-claude-acp adapter (beside the executable, ELUDITE_CLAUDE_ACP or PATH); `npx`: the Node adapter; `provider`: an OpenAI-compatible server from agents.json's `providers`, run through eludite-openai-acp (brief 0059); `settings`: added by the user in agents.json.",
             "enum": [
               "native",
               "npx",
+              "provider",
               "settings"
             ]
           }

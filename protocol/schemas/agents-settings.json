@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-settings.json",
   "title": "Eludite agents settings",
-  "description": "The ACP agents a user adds to the Agents window, in `agents.json` in Eludite's config directory (`<user config dir>/eludite/`, or ELUDITE_CONFIG_DIR). They follow the built-in ones (the native Claude Code adapter, then the npx adapter) in the window's agent list. Any ACP agent speaking JSON-RPC on stdio works.",
+  "description": "The ACP agents a user adds to the Agents window, in `agents.json` in Eludite's config directory (`<user config dir>/eludite/`, or ELUDITE_CONFIG_DIR). They follow the built-in ones (the native Claude Code adapter, then the npx adapter) in the window's agent list, after the OpenAI-compatible servers in `providers` (brief 0059). Any ACP agent speaking JSON-RPC on stdio works.",
   "type": "object",
   "properties": {
     "default": {
@@ -42,6 +42,82 @@
             "additionalProperties": {
               "type": "string"
             }
+          }
+        }
+      }
+    },
+    "providers": {
+      "description": "Servers that speak the OpenAI Chat Completions API (llama.cpp, Ollama, vLLM, LM Studio, OpenRouter, OpenAI and the rest), each run as an agent through `eludite-openai-acp` (brief 0059). The key is never in this file: the credential store keeps it under `provider:<name>`. Edited through eludite.agents.provider_set and provider_remove.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "baseUrl"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The server's name: unique, shown as the agent's name in the Agents window, and the credential key `provider:<name>`.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "baseUrl": {
+            "description": "The API root ending in the version segment, such as `http://localhost:8080/v1` (llama.cpp) or `https://openrouter.ai/api/v1`; the adapter appends `/models` and `/chat/completions` and strips one trailing slash.",
+            "type": "string",
+            "minLength": 8,
+            "pattern": "^https?://"
+          },
+          "defaultModel": {
+            "description": "The model a new session starts with; else the first one the server lists.",
+            "type": "string",
+            "minLength": 1
+          },
+          "headers": {
+            "description": "Extra request headers sent to the server, such as OpenRouter's `HTTP-Referer` and `X-Title`. Never `Authorization`: the key is kept in the credential store.",
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "models": {
+            "description": "The person's model catalog, for a server that does not list its models (or to name them and give their context windows). A server with a catalog is never asked for its list.",
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "The model id the server takes in `model`.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "description": "The name the model picker shows; the id when absent.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "contextWindow": {
+                  "description": "The model's context window in tokens; 0 or absent: unknown (the usage strip shows no bar).",
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "tools": {
+            "description": "`core` (the default): the core tool set plus the meta tool `eludite-tools`, for small context windows; `all`: every agent-visible command.",
+            "enum": [
+              "core",
+              "all"
+            ]
           }
         }
       }

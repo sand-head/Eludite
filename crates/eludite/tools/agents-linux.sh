@@ -17,11 +17,18 @@
 #      (allowed), then after the turn a tool card expanded and the strip with the turn's usage
 #      (agents-polish-light.png). One real prompt. POLISH_THEMES="light blue" takes one shot per theme
 #      (agents-polish-<theme>.png).
+#   2c. Brief 0059 (SKIP_OPENAI=1 skips it): a fresh config directory, ELUDITE_OPENAI_ACP set to agents/openai-acp's
+#      release build; the agent picker's "Add server…" opens the dialog on the llama.cpp preset
+#      (agents-openai-add-server.png); the base URL becomes a loopback fake OpenAI-compatible server the driver starts
+#      (or LLAMA_URL, the owner's llama-server); Test shows the model count (agents-openai-test.png); Save, Start, a
+#      prompt whose answer calls eludite-diagnostics-list; mid-answer agents-openai-turn.png (with LLAMA_URL:
+#      linux-agents-openai-llama.png), after the turn agents-openai-done.png. No key, so no credential store is needed.
 #   3. Wayland backend, RUNS runs each: --bench-agent-ready 5 (the real adapter, no prompt), --bench-agent-stream (the
 #      fake agent at 200 chunks/s), --bench-agent-prompt (2,000 keystrokes into the prompt box, then the stream with
 #      500 characters in it; brief 0056), --bench-diff 20                             -> OUT_DIR/agents-bench.jsonl
 #   The 1-minute load average before each step goes to OUT_DIR/loadavg.txt.
-# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_POLISH=1 skips 2b, SKIP_BENCH=1 skips 3;
+# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_POLISH=1 skips 2b, SKIP_OPENAI=1 skips 2c,
+#        SKIP_BENCH=1 skips 3;
 #        DRY=1 with
 #        ELUDITE_CLAUDE_ACP pointing at a scripted agent checks the driving without a real prompt)
 # The run needs dotnet/ clean in git and restores it with `git checkout -- dotnet/` at the end.
@@ -37,6 +44,7 @@ target_dir=${CARGO_TARGET_DIR:-$repo/target}
 bin=${ELUDITE_BIN:-$target_dir/release/eludite}
 fake=$target_dir/release/eludite-fake-acp-agent
 adapter=${ELUDITE_CLAUDE_ACP:-$repo/agents/claude-acp/target/release/eludite-claude-acp}
+openai=${ELUDITE_OPENAI_ACP:-$repo/agents/openai-acp/target/release/eludite-openai-acp}
 sln=$repo/dotnet/Eludite.slnx
 file=$repo/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs
 host=${ELUDITE_HOST:-$repo/dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host}
@@ -85,6 +93,21 @@ if [[ -z "${SKIP_POLISH:-}" ]]; then
     kill \$pid; wait \$pid
   done
   restore
+fi
+if [[ -z "${SKIP_OPENAI:-}" ]]; then
+  load openai
+  rm -rf $(q "$out/config-openai"); mkdir -p $(q "$out/config-openai")
+  ELUDITE_CONFIG_DIR=$(q "$out/config-openai") ELUDITE_OPENAI_ACP=$(q "$openai") env -u WAYLAND_DISPLAY $(q "$bin") \
+    --reset-layout --no-persist --solution $(q "$sln") --bounds-out $(q "$out")/bounds-openai.json \
+    --transcript-out $(q "$out")/transcript-openai.json >$(q "$out")/openai.out 2>$(q "$out")/openai.err &
+  pid=\$!
+  SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --openai --title $(q "$title") \
+    --log $(q "$out")/openai.err --bounds $(q "$out")/bounds-openai.json --shots $(q "$out") \
+    ${LLAMA_URL:+--openai-url $(q "${LLAMA_URL:-}") --shot-name linux-agents-openai-llama} \
+    >$(q "$out")/openai.json 2>$(q "$out")/openai-driver.err || true
+  sleep 1
+  kill \$pid; wait \$pid
+  cp $(q "$out/config-openai")/agents.json $(q "$out")/agents-openai.json 2>/dev/null || true
 fi
 if [[ -z "${SKIP_BENCH:-}" ]]; then
   for run in \$(seq 1 $runs); do
