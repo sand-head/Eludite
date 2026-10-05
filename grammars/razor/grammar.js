@@ -60,7 +60,7 @@ module.exports = grammar(CSHARP, {
   rules: {
     // Directives usually lead the file, but Razor takes them anywhere at the
     // top level (after a `@{ #pragma … }` block, say).
-    compilation_unit: ($) => repeat(choice($._directive, $._node)),
+    compilation_unit: ($) => repeat(choice($._directive, $._markup_node)),
 
     _directive: ($) =>
       choice(
@@ -80,6 +80,27 @@ module.exports = grammar(CSHARP, {
         $.razor_addtaghelper_directive,
         $.razor_removetaghelper_directive,
         $.razor_taghelperprefix_directive,
+      ),
+
+    // What may stand in markup: every node, plus text and entities. Text is
+    // not in `_node` itself, which is also reachable where C# is (`@{ }`).
+    _markup_node: ($) => choice($._node, $._markup_text),
+
+    _markup_text: ($) =>
+      choice(
+        alias($._html_text, $.text),
+        alias($._html_entity, $.entity),
+        alias($._html_ampersand, $.text),
+      ),
+
+    // The same directly inside a `{ }` body (`@section`, `@if`, …), where a
+    // brace is the body's own and so cannot be text.
+    _block_markup_node: ($) =>
+      choice(
+        $._node,
+        alias($._html_block_text, $.text),
+        alias($._html_entity, $.entity),
+        alias($._html_ampersand, $.text),
       ),
 
     _identifier_token: (_) =>
@@ -439,7 +460,7 @@ module.exports = grammar(CSHARP, {
         $.expression,
         ")",
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
       ),
 
@@ -453,7 +474,7 @@ module.exports = grammar(CSHARP, {
         ),
         ")",
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
       ),
 
@@ -461,7 +482,7 @@ module.exports = grammar(CSHARP, {
       seq(
         alias(seq($._razor_marker, "if"), "at_if"),
         $.razor_condition,
-        seq("{", $._blended_content, "}"),
+        seq("{", optional($._blended_content), "}"),
         repeat(choice($.razor_else_if, $.razor_else)),
       ),
 
@@ -470,7 +491,7 @@ module.exports = grammar(CSHARP, {
         seq(
           alias(seq($._razor_marker, "try"), "at_try"),
           "{",
-          $._blended_content,
+          optional($._blended_content),
           "}",
           repeat(choice($.razor_catch, $.razor_finally)),
         ),
@@ -481,12 +502,12 @@ module.exports = grammar(CSHARP, {
         token(prec(10, "catch")),
         repeat(choice($.catch_declaration, $.catch_filter_clause)),
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
       ),
 
     razor_finally: ($) =>
-      seq(token(prec(10, "finally")), "{", $._blended_content, "}"),
+      seq(token(prec(10, "finally")), "{", optional($._blended_content), "}"),
 
     razor_else_if: ($) =>
       seq(
@@ -494,12 +515,12 @@ module.exports = grammar(CSHARP, {
         "if",
         $.razor_condition,
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
       ),
 
     razor_else: ($) =>
-      seq(token(prec(10, "else")), "{", $._blended_content, "}"),
+      seq(token(prec(10, "else")), "{", optional($._blended_content), "}"),
 
     razor_switch: ($) =>
       seq(
@@ -518,13 +539,15 @@ module.exports = grammar(CSHARP, {
           "case",
           $.razor_case_condition,
           ":",
-          $._blended_content,
+          optional($._blended_content),
           optional("break;"),
         ),
       ),
 
     razor_switch_default: ($) =>
-      prec.right(seq("default", ":", $._blended_content, optional("break;"))),
+      prec.right(
+        seq("default", ":", optional($._blended_content), optional("break;")),
+      ),
 
     razor_case_condition: (_) => /[^:]+/,
 
@@ -547,15 +570,48 @@ module.exports = grammar(CSHARP, {
       seq(
         $._razor_for_initializer,
         "{",
-        field("body", $._blended_content),
+        field("body", optional($._blended_content)),
         "}",
       ),
 
+    // Never empty (tree-sitter rejects a rule that matches nothing), so each
+    // body writes `optional($._blended_content)`: `@if (x) { }` is legal.
     _blended_content: ($) =>
-      repeat1(
-        prec(
-          10,
-          choice($._node, $.explicit_line_transition, $.statement, $.comment),
+      prec.right(
+        choice(
+          seq(repeat1($._blended_item), optional($._blended_last_word)),
+          $._blended_last_word,
+        ),
+      ),
+
+    _blended_item: ($) =>
+      prec(
+        10,
+        choice(
+          $._block_markup_node,
+          $._blended_word_text,
+          $.explicit_line_transition,
+          $.statement,
+          $.comment,
+        ),
+      ),
+
+    // A lone word before the closing brace (`else { Nothing }`) is text too:
+    // as C# it would be a statement with no `;`.
+    _blended_last_word: ($) => prec.dynamic(-1, alias($.identifier, $.text)),
+
+    // Razor reads the body of `@if`, `@foreach` and the rest as C#, so prose
+    // there that begins with a word is not markup to Razor either, and a C#
+    // statement and a sentence cannot be told apart by the lexer. The one
+    // shape that is unambiguous is a word followed by a transition (`Hello
+    // @name`): no C# statement continues an identifier with `@`. Text that
+    // starts with anything C# cannot start with (`© 2023`) is a `text` run.
+    _blended_word_text: ($) =>
+      prec.dynamic(
+        -1,
+        seq(
+          alias($.identifier, $.text),
+          choice($.razor_implicit_expression, $.razor_explicit_expression),
         ),
       ),
 
@@ -579,7 +635,7 @@ module.exports = grammar(CSHARP, {
       seq(
         $._razor_foreach_initializer,
         "{",
-        field("body", $._blended_content),
+        field("body", optional($._blended_content)),
         "}",
       ),
 
@@ -588,7 +644,7 @@ module.exports = grammar(CSHARP, {
         alias(seq($._razor_marker, "while"), "at_while"),
         $.razor_condition,
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
       ),
 
@@ -598,7 +654,7 @@ module.exports = grammar(CSHARP, {
       seq(
         alias(seq($._razor_marker, "do"), "at_do"),
         "{",
-        $._blended_content,
+        optional($._blended_content),
         "}",
         $._razor_while_condition,
         ";",
@@ -609,7 +665,9 @@ module.exports = grammar(CSHARP, {
         alias(seq($._razor_marker, "section"), "at_section"),
         $.identifier,
         "{",
-        $._blended_content,
+        // A section's body is markup, as an element's is (Razor reads it so):
+        // text needs no `@:`, and code needs an `@`.
+        repeat($._block_markup_node),
         "}",
       ),
 
@@ -695,12 +753,16 @@ module.exports = grammar(CSHARP, {
     // `class="@A.Merge(x, "c")"` the `.` must extend the member access rather
     // than start a longer (and, to the lexer, more attractive) text run.
     //
-    // A value that starts with `/` has its own token above C#'s comment, or
+    // An `@` after a letter or digit is text here too (`wght@400`). A value
+    // that starts with `/` has its own token above C#'s comment, or
     // `src="//cdn.example.com/x.js"` would lex as a `//` comment.
-    _html_attribute_text: (_) => token(prec(-1, /[^"@]+/)),
-    _html_attribute_text_single: (_) => token(prec(-1, /[^'@]+/)),
-    _html_attribute_slash_text: (_) => token(prec(1, /\/[^"@]*/)),
-    _html_attribute_slash_text_single: (_) => token(prec(1, /\/[^'@]*/)),
+    _html_attribute_text: (_) => token(prec(-1, /([^"@]|[a-zA-Z0-9]@[^"@(])+/)),
+    _html_attribute_text_single: (_) =>
+      token(prec(-1, /([^'@]|[a-zA-Z0-9]@[^'@(])+/)),
+    _html_attribute_slash_text: (_) =>
+      token(prec(1, /\/([^"@]|[a-zA-Z0-9]@[^"@(])*/)),
+    _html_attribute_slash_text_single: (_) =>
+      token(prec(1, /\/([^'@]|[a-zA-Z0-9]@[^'@(])*/)),
     // Single-quoted values are as valid as double-quoted ones, and are how you
     // embed a double quote: `placeholder='{ "a": 1 }'`.
     _html_attribute_value: ($) =>
@@ -738,7 +800,18 @@ module.exports = grammar(CSHARP, {
     //
     // `>` is text, too. Only `<` opens a tag, so `<pre>cat a >> b</pre>` is
     // ordinary content — excluding `>` made every shell snippet unparseable.
-    _html_text: (_) => token(prec(-1, /[^<&@\s]([^<&@]*[^<&@\s])?/)),
+    //
+    // U+FEFF cannot start a run: it is whitespace to the extras.
+    //
+    // Two Razor rules shape the run as well. An `@` right after a letter or
+    // digit is not a transition (`user@example.com`, `wght@400`), so it is
+    // text, unless `(` follows: `Age@(joe.Age)` is. An `&` is text unless it
+    // can begin an entity, so `Backers & Sponsors` is one run while `&amp;` is
+    // still an `entity`.
+    _html_text: (_) => token(prec(-1, textRun("<&@"))),
+    _html_block_text: (_) => token(prec(-1, textRun("<&@{}"))),
+    // An `&` that begins no entity (`&nbsp` without its `;`) is text on its own.
+    _html_ampersand: (_) => token(prec(-2, "&")),
     _html_entity: (_) =>
       token(/&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]*);/),
 
@@ -835,13 +908,7 @@ module.exports = grammar(CSHARP, {
           alias($._tag_name, $.tag_name),
           attributes($),
           ">",
-          repeat(
-            choice(
-              $._node,
-              alias($._html_text, $.text),
-              alias($._html_entity, $.entity),
-            ),
-          ),
+          repeat($._markup_node),
           $._end_tag,
         ),
       ),
@@ -852,6 +919,21 @@ module.exports = grammar(CSHARP, {
       rawTextElement($, $._style_tag_name, $._style_raw_text),
   },
 });
+
+// A run of markup text that stops at any of `stops` (each also excluded from
+// its ends, with whitespace): `@` between a letter or digit and anything but
+// `(` (`Age@(joe.Age)` is still a transition), and `&` before anything that
+// cannot begin an entity, are part of the run (see `_html_text`).
+function textRun(stops) {
+  const plain = `[^${stops}]`;
+  const edge = `[^${stops}\\s\\uFEFF]`;
+  const amp = `&[^${stops}#a-zA-Z]`;
+  const email = `[a-zA-Z0-9]@[^${stops}(\\s]`;
+  const first = `(${edge}|${amp})`;
+  const middle = `(${plain}|${amp}|${email})`;
+  const last = `(${edge}|${email})`;
+  return new RegExp(`${first}(${middle}*${last})?`);
+}
 
 // An element whose body is one raw text token: `<script>` and `<style>`.
 function rawTextElement($, name, body) {

@@ -567,3 +567,18 @@ A type parameter with a constraint
       (type_parameter_constraint)
       (type_parameter_constraint
         (constructor_constraint)))))
+
+============================
+Text right after a directive
+============================
+@namespace Demo.Examples
+
+Services.AddDemoServices();
+---
+
+(compilation_unit
+  (razor_namespace_directive
+    (qualified_name
+      (identifier)
+      (identifier)))
+  (text))

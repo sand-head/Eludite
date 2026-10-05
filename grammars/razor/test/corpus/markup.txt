@@ -102,3 +102,176 @@ An attribute value that starts with two slashes
     (attribute_name)
     (attribute_value)
     (tag_name)))
+
+=====================
+Text at the top level
+=====================
+<h1>Hello, world!</h1>
+
+Welcome to your new app.
+<footer>x</footer>
+© 2023 Example
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (text)
+    (tag_name))
+  (text)
+  (element
+    (tag_name)
+    (text)
+    (tag_name))
+  (text))
+
+=============================
+Text in an @if and @else body
+=============================
+@if (x) { Hello @name }
+else { Nothing }
+@if (y) { count++; <b>@count</b> }
+@if (z) { }
+---
+
+(compilation_unit
+  (razor_if
+    (razor_condition
+      (identifier))
+    (text)
+    (razor_implicit_expression
+      (identifier))
+    (razor_else
+      (text)))
+  (razor_if
+    (razor_condition
+      (identifier))
+    (expression_statement
+      (postfix_unary_expression
+        (identifier)))
+    (element
+      (tag_name)
+      (razor_implicit_expression
+        (identifier))
+      (tag_name)))
+  (razor_if
+    (razor_condition
+      (identifier))))
+
+===================
+Text in loop bodies
+===================
+@foreach (var i in items) { Item @i }
+@for (var i = 0; i < 3; i++) { Row @i }
+---
+
+(compilation_unit
+  (razor_foreach
+    (implicit_type)
+    (identifier)
+    (identifier)
+    (text)
+    (razor_implicit_expression
+      (identifier)))
+  (razor_for
+    (variable_declaration
+      (implicit_type)
+      (variable_declarator
+        (identifier)
+        (integer_literal)))
+    (binary_expression
+      (identifier)
+      (integer_literal))
+    (postfix_unary_expression
+      (identifier))
+    (text)
+    (razor_implicit_expression
+      (identifier))))
+
+======================
+Text in a section body
+======================
+@section Footer { Some text, then @DateTime.Now.Year }
+---
+
+(compilation_unit
+  (razor_section
+    (identifier)
+    (text)
+    (razor_implicit_expression
+      (identifier)
+      (razor_member_access)
+      (razor_member_access))))
+
+==================================
+Text in using, lock and try bodies
+==================================
+@using (var s = Open()) { Hi @s }
+@lock (gate) { Hi @a }
+@try { Hi @a } catch (Exception e) { Oops @e.Message }
+---
+
+(compilation_unit
+  (razor_compound_using
+    (variable_declaration
+      (implicit_type)
+      (variable_declarator
+        (identifier)
+        (invocation_expression
+          (identifier)
+          (argument_list))))
+    (text)
+    (razor_implicit_expression
+      (identifier)))
+  (razor_lock
+    (identifier)
+    (text)
+    (razor_implicit_expression
+      (identifier)))
+  (razor_try
+    (text)
+    (razor_implicit_expression
+      (identifier))
+    (razor_catch
+      (catch_declaration
+        (identifier)
+        (identifier))
+      (text)
+      (razor_implicit_expression
+        (identifier)
+        (razor_member_access)))))
+
+==========================================
+An ampersand that begins no entity is text
+==========================================
+<p>Backers & Sponsors &amp; friends &nbsp more</p>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (text)
+    (entity)
+    (text)
+    (text)
+    (text)
+    (tag_name)))
+
+====================================
+An @ after a letter or digit is text
+====================================
+<p>Mail support@example.com or Age@(age)</p>
+<link href="https://fonts.example.com/css2?family=Inter:wght@400;700&display=swap" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (text)
+    (razor_explicit_expression
+      (identifier))
+    (tag_name))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)))
