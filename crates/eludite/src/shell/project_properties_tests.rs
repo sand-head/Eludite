@@ -398,8 +398,14 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
     let lang = p.shown("LangVersion");
     assert_eq!(lang, "12.0");
     p.w.click(&pages::choice_selector("LangVersion", 2));
-    let dirty = p.pages().unwrap().read_with(&p.w.vcx, |v, _| v.is_dirty());
-    assert!(!dirty, "an inherited value is read-only before Override");
+    let dirty = p
+        .pages()
+        .unwrap()
+        .read_with(&p.w.vcx, |v, _| v.dirty.clone());
+    assert!(
+        dirty.is_empty(),
+        "an inherited value is read-only before Override: {dirty:?}"
+    );
     p.w.click(&pages::override_selector("LangVersion"));
     p.w.click(&pages::choice_selector("LangVersion", 2));
     assert_eq!(

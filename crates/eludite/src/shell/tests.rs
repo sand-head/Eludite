@@ -253,14 +253,30 @@ impl Ws {
             .unwrap_or_else(|| panic!("no element {sel}"))
     }
 
+    /// The element's bounds once two consecutive frames agree on them: reading the bounds flushes pending effects,
+    /// which can redraw the window (a value arriving, a page leaving its loading state), and a click aimed with the
+    /// frame before that redraw lands on whatever moved into its place.
+    pub(super) fn settled_bounds(&mut self, sel: &str) -> gpui::Bounds<gpui::Pixels> {
+        let mut last = self.bounds(sel);
+        for _ in 0..50 {
+            self.vcx.run_until_parked();
+            let next = self.bounds(sel);
+            if next == last {
+                return next;
+            }
+            last = next;
+        }
+        last
+    }
+
     pub(super) fn click(&mut self, sel: &str) {
-        let c = self.bounds(sel).center();
+        let c = self.settled_bounds(sel).center();
         self.vcx.simulate_click(c, Modifiers::none());
         self.vcx.run_until_parked();
     }
 
     pub(super) fn double_click(&mut self, sel: &str) {
-        let position = self.bounds(sel).center();
+        let position = self.settled_bounds(sel).center();
         for click_count in [1, 2] {
             self.vcx.simulate_event(MouseDownEvent {
                 position,
