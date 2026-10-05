@@ -7,9 +7,9 @@
 //! script in the project's `node_modules`), then the server's formatting, and a failing formatter leaves the document
 //! and writes an Output line; format on save formats before writing; Emmet expands on Tab in HTML and CSS and not when
 //! `editor.emmet` is off; a server that is not found says `not found (run tools/web-servers/fetch.sh)` while
-//! highlighting stays; a `.cshtml` view gets HTML highlighting and the HTML server's completion; the JSON server gets
-//! the schema associations pushed with the cached schemas. The real servers' test is at the end, gated on
-//! `ELUDITE_WEB_SERVERS` (`tools/web-servers/fetch.sh`).
+//! highlighting stays; a `.cshtml` view and a `.razor` component get Razor highlighting (brief 0056) and the HTML
+//! server's completion; the JSON server gets the schema associations pushed with the cached schemas. The real servers'
+//! test is at the end, gated on `ELUDITE_WEB_SERVERS` (`tools/web-servers/fetch.sh`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use eludite_commands::workspace;
 use eludite_commands::{CommandRegistry, builtins, view};
 use eludite_docking::{DockController, DockLayout, ToolWindowRegistry};
 use eludite_editor::EditorView;
+use eludite_editor::syntax::HighlightKind;
 use eludite_lsp::fake::FakeReply;
 use eludite_lsp::fake_server::FakeServer;
 use eludite_ui::{Theme, bind_keymap, vs_keymap};
@@ -38,7 +39,9 @@ const LEGACY_JS: &str = "let total = 1;\nconsole.log(total);\n";
 const INDEX_HTML: &str = "<!doctype html>\n<html>\n  <body>\n    \n  </body>\n  <script>\n    const n = 1;\n  </script>\n</html>\n";
 const SITE_CSS: &str = ".card {\n  \n}\n";
 const INDEX_CSHTML: &str =
-    "@model Demo.Home\n<div class=\"greeting\">\n  <p>@Model.Name</p>\n  \n</div>\n";
+    "@model Demo.Home\n<div class=\"greeting\">\n  <h1>@Model.Name</h1>\n  \n</div>\n";
+const COUNTER_RAZOR: &str = "@page \"/counter\"\n<div class=\"counter\">\n  <h1>Count: @count</h1>\n  \n</div>\n\
+@code {\n    private int count;\n}\n";
 
 /// The fake Prettier: a shell script installed as the project's `prettier` package (its `bin`), so `auto` finds it
 /// where it finds the real one. It squeezes runs of spaces, fails on `BROKEN`, and answers `--version`.
@@ -151,6 +154,7 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&Web)) -> Web {
     write("index.html", INDEX_HTML);
     write("site.css", SITE_CSS);
     write("Views/Home/Index.cshtml", INDEX_CSHTML);
+    write("Components/Pages/Counter.razor", COUNTER_RAZOR);
     write("appsettings.json", "{\n  \"Logging\": {}\n}\n");
     let cache_path = cache.path().to_path_buf();
     launch(cx, dir, cache, Some(cache_path), true, script)
@@ -922,9 +926,39 @@ fn a_server_that_is_not_found_names_the_fetch_command(cx: &mut TestAppContext) {
     assert!(w.text(&view).contains("color: red;"));
 }
 
-/// A Razor view's markup is HTML: highlighted by the HTML grammar and served by the HTML server.
+/// A Razor view (`.cshtml`) is highlighted by the Razor grammar (brief 0056), its markup served by the HTML server.
 #[gpui::test]
-fn a_cshtml_view_gets_html_highlighting_and_the_html_servers_completion(cx: &mut TestAppContext) {
+fn a_cshtml_view_gets_razor_highlighting_and_the_html_servers_completion(cx: &mut TestAppContext) {
+    razor_highlighting_and_html_completion(cx, "Views/Home/Index.cshtml", &[]);
+}
+
+/// A Blazor component (`.razor`) is highlighted by the Razor grammar, its `@code` block's C# by the C# query, and its
+/// markup is served by the HTML server as a `.cshtml` view's is.
+#[gpui::test]
+fn a_razor_component_gets_razor_highlighting_and_the_html_servers_completion(
+    cx: &mut TestAppContext,
+) {
+    razor_highlighting_and_html_completion(
+        cx,
+        "Components/Pages/Counter.razor",
+        &[
+            (5, 0, HighlightKind::Keyword, "@code"),
+            (5, 1, HighlightKind::Keyword, "@code"),
+            (6, 4, HighlightKind::Keyword, "private"),
+            (6, 12, HighlightKind::TypeBuiltin, "int"),
+        ],
+    );
+}
+
+/// Open the Razor document `rel` (its first row a directive, its second `<div class=...>`, its third `  <h1>`, its
+/// fourth blank): the editor's language is Razor, with a keyword at the directive's `@`, a tag at `div` and `h1`, an
+/// attribute name at `class` and the `more` kinds at their rows and columns; the HTML server gets it with `languageId`
+/// `html` and completes `<s` typed on the blank row.
+fn razor_highlighting_and_html_completion(
+    cx: &mut TestAppContext,
+    rel: &str,
+    more: &[(u32, u32, HighlightKind, &str)],
+) {
     let mut w = setup(cx, |w| {
         w.html.respond("textDocument/completion", |_| {
             FakeReply::Result(
@@ -932,22 +966,45 @@ fn a_cshtml_view_gets_html_highlighting_and_the_html_servers_completion(cx: &mut
             )
         });
     });
-    let path = w
-        .path("Views/Home/Index.cshtml")
-        .to_string_lossy()
-        .into_owned();
-    let view = w.open("Views/Home/Index.cshtml");
+    let path = w.path(rel).to_string_lossy().into_owned();
+    let file = rel.rsplit('/').next().unwrap().to_owned();
+    let view = w.open(rel);
     let open = w
         .html
         .wait_for("textDocument/didOpen", T, |p| {
             p["textDocument"]["uri"]
                 .as_str()
-                .is_some_and(|u| u.ends_with("Index.cshtml"))
+                .is_some_and(|u| u.ends_with(&file))
         })
         .unwrap();
     assert_eq!(open.params["textDocument"]["languageId"], "html");
     let language = view.read_with(&w.vcx, |v, _| v.language().map(|l| l.id()));
-    assert_eq!(language, Some("html"));
+    assert_eq!(language, Some("razor"));
+    w.wait("the Razor highlights", |w| {
+        view.read_with(&w.vcx, |v, _| v.highlights_complete())
+    });
+    let kind = |w: &Web, row, column| {
+        view.read_with(&w.vcx, |v, _| {
+            v.highlights()
+                .kind_at(eludite_editor::text::Point::new(row, column))
+        })
+    };
+    assert_eq!(
+        kind(&w, 0, 0),
+        Some(HighlightKind::Keyword),
+        "the directive"
+    );
+    assert_eq!(
+        kind(&w, 0, 1),
+        Some(HighlightKind::Keyword),
+        "the directive"
+    );
+    assert_eq!(kind(&w, 1, 1), Some(HighlightKind::Tag), "div");
+    assert_eq!(kind(&w, 1, 5), Some(HighlightKind::AttributeName), "class");
+    assert_eq!(kind(&w, 2, 3), Some(HighlightKind::Tag), "h1");
+    for &(row, column, want, what) in more {
+        assert_eq!(kind(&w, row, column), Some(want), "{what}");
+    }
     w.wait("HTML ready", |w| w.slot("html").starts_with("HTML: ready"));
     w.type_at_end_of_line(&view, 3, "<s");
     w.run_cmd(
