@@ -1,13 +1,20 @@
 //! Tree rows (Workspace and later tree views): indentation by depth, a disclosure triangle for nodes with
-//! children, an optional glyph and the label, at a fixed height so a virtualized list can lay them out. The caller
-//! keeps the expanded set and adds ids and handlers.
+//! children, an optional glyph or icon and the label, at a fixed height so a virtualized list can lay them out. The
+//! caller keeps the expanded set and adds ids and handlers.
+//!
+//! [`tree_row_with_icon`] (brief 0061) leads with an icon of the set ([`crate::icons`]) and can draw the characters a
+//! search matched in bold and the guide color, as the completion list does.
+
+use std::ops::Range;
 
 use gpui::{
-    App, ClickEvent, Div, FontWeight, InteractiveElement, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window, div, px,
+    AnyElement, App, ClickEvent, Div, FontWeight, HighlightStyle, InteractiveElement, IntoElement,
+    ParentElement, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledText,
+    Window, div, px,
 };
 
 use crate::Theme;
+use crate::icons::{Icon, icon};
 
 /// Height of one row; lists of rows can be virtualized with it.
 pub const TREE_ROW_HEIGHT: f32 = 20.;
@@ -52,7 +59,90 @@ pub fn tree_row_with_badge(
     style: TreeRowStyle,
     on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    let lead = glyph.map(|g| {
+        div()
+            .flex_none()
+            .w(px(16.))
+            .text_size(theme.typography.small)
+            .text_color(theme.text_muted)
+            .child(g)
+            .into_any_element()
+    });
+    let label: SharedString = label.into();
+    row(
+        theme,
+        id.into(),
+        lead,
+        badge,
+        label.into_any_element(),
+        style,
+        on_toggle,
+    )
+}
+
+/// A tree row led by `icon` (an icon of the set and its tint, [`Icon::tint`]), with the colored `badge` between the
+/// icon and the label (brief 0040's source control glyph, brief 0048's warning), and the label's `matched` byte ranges
+/// drawn bold in the guide color (brief 0061's search; bold only on the selected row). The icon slot has the debug
+/// selector `<id>-icon`.
+#[allow(clippy::too_many_arguments)]
+pub fn tree_row_with_icon(
+    theme: &Theme,
+    id: impl Into<SharedString>,
+    lead: Option<(Icon, Rgba)>,
+    badge: Option<(&'static str, u32)>,
+    label: impl Into<SharedString>,
+    matched: &[Range<usize>],
+    style: TreeRowStyle,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
+    let icon_id = format!("{id}-icon");
+    let lead = lead.map(|(i, color)| {
+        div()
+            .debug_selector(move || icon_id)
+            .flex_none()
+            .flex()
+            .items_center()
+            .w(px(16.))
+            .h(px(16.))
+            .child(icon(i, color))
+            .into_any_element()
+    });
+    let label: SharedString = label.into();
+    let label = if matched.is_empty() {
+        label.into_any_element()
+    } else {
+        let highlight = HighlightStyle {
+            color: (!style.selected).then(|| theme.guide.into()),
+            font_weight: Some(FontWeight::BOLD),
+            ..Default::default()
+        };
+        let highlights: Vec<(Range<usize>, HighlightStyle)> = matched
+            .iter()
+            .filter(|r| {
+                r.start < r.end
+                    && r.end <= label.len()
+                    && label.is_char_boundary(r.start)
+                    && label.is_char_boundary(r.end)
+            })
+            .map(|r| (r.clone(), highlight))
+            .collect();
+        StyledText::new(label)
+            .with_highlights(highlights)
+            .into_any_element()
+    };
+    row(theme, id, lead, badge, label, style, on_toggle)
+}
+
+fn row(
+    theme: &Theme,
+    id: SharedString,
+    lead: Option<AnyElement>,
+    badge: Option<(&'static str, u32)>,
+    label: AnyElement,
+    style: TreeRowStyle,
+    on_toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
     let badge_id = format!("{id}-badge");
     let triangle = match style.disclosure {
         Some(true) => "\u{25E2}",
@@ -90,14 +180,7 @@ pub fn tree_row_with_badge(
         .text_size(theme.typography.ui)
         .whitespace_nowrap()
         .child(toggle)
-        .children(glyph.map(|g| {
-            div()
-                .flex_none()
-                .w(px(16.))
-                .text_size(theme.typography.small)
-                .text_color(theme.text_muted)
-                .child(g)
-        }))
+        .children(lead)
         .children(badge.map(|(b, color)| {
             div()
                 .debug_selector(move || badge_id)
@@ -107,7 +190,7 @@ pub fn tree_row_with_badge(
                 .text_color(gpui::rgb(color))
                 .child(b)
         }))
-        .child(label.into());
+        .child(label);
     let row = if style.bold {
         row.font_weight(FontWeight::BOLD)
     } else {

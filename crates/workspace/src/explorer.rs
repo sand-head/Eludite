@@ -17,6 +17,14 @@
 //! node lists its member packages (labelled with what they build: `eludite (bin)`, `eludite-lsp (lib)`), each with
 //! a `Targets` folder (every bin, lib, example, test, bench and build script, opening its root source file) and the
 //! package's files (`src/`, `tests/`, `Cargo.toml`), then the workspace's `Cargo.toml` and `Cargo.lock`.
+//!
+//! Nothing is listed twice (brief 0061): a project of the open solution and a package of the open Cargo workspace
+//! appear under their solution or workspace only. The folder listing's files are compared with the projects' and
+//! packages' folders by their canonical paths (a symlinked or `..` spelling of the root is the same folder), so a
+//! project file found on disk does not come back at the workspace root or under a plain folder, and a folder that
+//! held nothing else does not appear; a project the host lists twice is shown once.
+//!
+//! [`Row::file_type`] names a file row's type by its extension (case-insensitive), for the window's icons.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -105,6 +113,136 @@ impl NodeKind {
     }
 }
 
+/// What kind of file a row stands for, by its name ([`file_type_of`]); the Workspace window draws an icon per type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FileType {
+    /// `.cs`.
+    CSharp,
+    /// `.rs`.
+    Rust,
+    /// `.json`, `.jsonc`.
+    Json,
+    /// `.md`, `.markdown`.
+    Markdown,
+    /// MSBuild and other XML: `.csproj`, `.vbproj`, `.fsproj`, `.props`, `.targets`, `.xml`, `.config`, `.resx`,
+    /// `.nuspec`, `.xaml`, `.ruleset`.
+    Xml,
+    /// `.sln`, `.slnx`, `.slnf`.
+    Solution,
+    /// `.toml`.
+    Toml,
+    /// `.ts`, `.tsx`, `.mts`, `.cts`.
+    TypeScript,
+    /// `.js`, `.jsx`, `.mjs`, `.cjs`.
+    JavaScript,
+    /// `.html`, `.htm`.
+    Html,
+    /// `.css`, `.scss`, `.sass`, `.less`.
+    Css,
+    /// `.razor`.
+    Razor,
+    /// `.cshtml`, `.vbhtml`.
+    Cshtml,
+    /// Web Forms: `.aspx`, `.ascx`, `.master`, `.ashx`, `.asmx`, `.asax`.
+    Aspx,
+    /// `.png`, `.jpg`, `.jpeg`, `.gif`, `.svg`, `.ico`, `.bmp`, `.webp`.
+    Image,
+    /// `.txt`, `.log`.
+    Text,
+    /// `.sh`, `.bash`, `.zsh`, `.fish`, `.ps1`, `.psm1`, `.psd1`, `.cmd`, `.bat`.
+    Shell,
+    /// `.yml`, `.yaml`.
+    Yaml,
+    /// Lockfiles: `*.lock`, `package-lock.json`, `packages.lock.json`, `pnpm-lock.yaml`, `bun.lockb`.
+    Lock,
+    /// Anything else.
+    Other,
+}
+
+/// The type of the file named `name` (a file name or a path), by its extension, case-insensitively; lockfiles first.
+pub fn file_type_of(name: &str) -> FileType {
+    let name = name
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(name)
+        .to_ascii_lowercase();
+    if matches!(
+        name.as_str(),
+        "package-lock.json"
+            | "packages.lock.json"
+            | "pnpm-lock.yaml"
+            | "bun.lockb"
+            | "npm-shrinkwrap.json"
+    ) {
+        return FileType::Lock;
+    }
+    let Some((_, ext)) = name.rsplit_once('.') else {
+        return FileType::Other;
+    };
+    match ext {
+        "lock" => FileType::Lock,
+        "cs" => FileType::CSharp,
+        "rs" => FileType::Rust,
+        "json" | "jsonc" => FileType::Json,
+        "md" | "markdown" => FileType::Markdown,
+        "csproj" | "vbproj" | "fsproj" | "props" | "targets" | "xml" | "config" | "resx"
+        | "nuspec" | "xaml" | "ruleset" => FileType::Xml,
+        "sln" | "slnx" | "slnf" => FileType::Solution,
+        "toml" => FileType::Toml,
+        "ts" | "tsx" | "mts" | "cts" => FileType::TypeScript,
+        "js" | "jsx" | "mjs" | "cjs" => FileType::JavaScript,
+        "html" | "htm" => FileType::Html,
+        "css" | "scss" | "sass" | "less" => FileType::Css,
+        "razor" => FileType::Razor,
+        "cshtml" | "vbhtml" => FileType::Cshtml,
+        "aspx" | "ascx" | "master" | "ashx" | "asmx" | "asax" => FileType::Aspx,
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "ico" | "bmp" | "webp" => FileType::Image,
+        "txt" | "log" => FileType::Text,
+        "sh" | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "cmd" | "bat" => FileType::Shell,
+        "yml" | "yaml" => FileType::Yaml,
+        _ => FileType::Other,
+    }
+}
+
+impl Row {
+    /// The type of the file a file row stands for (by its path's name, else its label); `None` for other rows.
+    pub fn file_type(&self) -> Option<FileType> {
+        if !matches!(self.kind, NodeKind::File { .. }) {
+            return None;
+        }
+        let name = self
+            .path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.label.clone());
+        Some(file_type_of(&name))
+    }
+}
+
+/// `path` with `.` and `..` resolved by name (no file system access).
+pub fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push(c);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// `path` as the file system resolves it (symlinks followed), or [`lexical`] when it does not exist.
+pub fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| lexical(path))
+}
+
 /// One part of an opened folder, as it loads.
 #[derive(Debug)]
 pub enum Part<'a, T> {
@@ -164,7 +302,14 @@ impl SolutionModel {
     /// The tree for `tree`; `None` when no solution is open.
     pub fn from_tree(tree: &SolutionTree) -> Option<Self> {
         let path = PathBuf::from(tree.path.as_deref()?);
-        let loaded = tree.projects.iter().filter(|p| p.error.is_none()).count();
+        // A project the host lists twice (two spellings of one path) is one node.
+        let mut seen = HashSet::new();
+        let projects: Vec<&TreeProject> = tree
+            .projects
+            .iter()
+            .filter(|p| seen.insert(canonical(Path::new(&p.path))))
+            .collect();
+        let loaded = projects.iter().filter(|p| p.error.is_none()).count();
         let name = path
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
@@ -178,14 +323,14 @@ impl SolutionModel {
                     .push(p.name.clone());
             }
         }
-        let mut children: Vec<Node> = tree.projects.iter().map(project_node).collect();
+        let mut children: Vec<Node> = projects.iter().map(|p| project_node(p)).collect();
         sort_nodes(&mut children);
         let root = Node {
             id: path.to_string_lossy().into_owned(),
             label: format!(
                 "Solution '{name}' ({loaded} of {} project{})",
-                tree.projects.len(),
-                if tree.projects.len() == 1 { "" } else { "s" }
+                projects.len(),
+                if projects.len() == 1 { "" } else { "s" }
             ),
             kind: NodeKind::Solution,
             path: Some(path.clone()),
@@ -209,17 +354,33 @@ impl SolutionModel {
         let mut owned_dirs: Vec<PathBuf> = Vec::new();
         let mut owned_files: HashSet<PathBuf> = HashSet::new();
         let mut generation = 0;
+        // Each listed file with its canonical spelling: the root resolved once, the rest by name (brief 0061).
+        let canonical_root = canonical(parts.root);
+        let canonical_files: Vec<(PathBuf, &PathBuf)> = parts
+            .listing
+            .map(|l| {
+                l.files
+                    .iter()
+                    .map(|f| {
+                        let c = match f
+                            .strip_prefix(&l.root)
+                            .or_else(|_| f.strip_prefix(parts.root))
+                        {
+                            Ok(rel) => lexical(&canonical_root.join(rel)),
+                            Err(_) => lexical(f),
+                        };
+                        (c, f)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let listed = |dir: &Path| -> Vec<PathBuf> {
-            parts
-                .listing
-                .map(|l| {
-                    l.files
-                        .iter()
-                        .filter(|f| f.starts_with(dir))
-                        .cloned()
-                        .collect()
-                })
-                .unwrap_or_default()
+            let dir = canonical(dir);
+            canonical_files
+                .iter()
+                .filter(|(c, _)| c.starts_with(&dir))
+                .map(|(_, f)| (*f).clone())
+                .collect()
         };
 
         if let Some((path, part)) = &parts.solution {
@@ -243,6 +404,7 @@ impl SolutionModel {
                             projects_by_file.entry(file).or_default().extend(names);
                         }
                         for p in &tree.projects {
+                            owned_files.insert(PathBuf::from(&p.path));
                             if let Some(dir) = Path::new(&p.path).parent() {
                                 owned_dirs.push(dir.to_path_buf());
                             }
@@ -305,7 +467,15 @@ impl SolutionModel {
                                 .or_default()
                                 .push(p.name.clone());
                         }
-                        node.children.push(package_node(p, &files));
+                        // The package's folder as the listing spells it, for its folders' names.
+                        let shown = match parts.listing {
+                            Some(_) => canonical(&dir)
+                                .strip_prefix(&canonical_root)
+                                .map(|rel| parts.root.join(rel))
+                                .unwrap_or_else(|_| dir.clone()),
+                            None => dir.clone(),
+                        };
+                        node.children.push(package_node(p, &shown, &files));
                         owned_dirs.push(dir);
                     }
                     node.children.push(file_leaf(&id, "Cargo.toml", manifest));
@@ -319,15 +489,17 @@ impl SolutionModel {
             children.push(node);
         }
 
-        // The folder's other files.
-        if let Some(listing) = parts.listing {
-            let rest: Vec<PathBuf> = listing
-                .files
+        // The folder's other files: not a node already and not in a project's or package's folder, compared by
+        // their canonical paths, so nothing is listed twice.
+        if parts.listing.is_some() {
+            let owned_files: HashSet<PathBuf> = owned_files.iter().map(|f| canonical(f)).collect();
+            let owned_dirs: Vec<PathBuf> = owned_dirs.iter().map(|d| canonical(d)).collect();
+            let rest: Vec<PathBuf> = canonical_files
                 .iter()
-                .filter(|f| {
-                    !owned_files.contains(*f) && !owned_dirs.iter().any(|d| f.starts_with(d))
+                .filter(|(c, _)| {
+                    !owned_files.contains(c) && !owned_dirs.iter().any(|d| c.starts_with(d))
                 })
-                .cloned()
+                .map(|(_, f)| (*f).clone())
                 .collect();
             let prefix = root_path.to_string_lossy().into_owned();
             children.extend(files_tree(&prefix, parts.root, &rest));
@@ -731,7 +903,7 @@ fn dependencies_node(
 }
 
 /// A member package: `name (lib, bin)`, its `Targets` and its files.
-fn package_node(p: &CargoPackage, files: &[PathBuf]) -> Node {
+fn package_node(p: &CargoPackage, dir: &Path, files: &[PathBuf]) -> Node {
     let id = p.manifest_path.to_string_lossy().into_owned();
     let kinds = p.product_kinds();
     let label = if kinds.is_empty() {
@@ -772,7 +944,7 @@ fn package_node(p: &CargoPackage, files: &[PathBuf]) -> Node {
         path: None,
         children: targets,
     }];
-    children.extend(files_tree(&id, p.dir(), files));
+    children.extend(files_tree(&id, dir, files));
     Node {
         id,
         label,
@@ -1340,5 +1512,160 @@ mod tests {
         let rows = m.visible_rows(&m.default_expanded());
         let labels: Vec<&str> = rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(labels, ["notes", "a", "c.txt"]);
+    }
+    #[test]
+    fn file_types_by_extension_case_insensitively() {
+        let cases = [
+            ("Program.cs", FileType::CSharp),
+            ("MAIN.RS", FileType::Rust),
+            ("appsettings.json", FileType::Json),
+            ("README.md", FileType::Markdown),
+            ("Eludite.Host.csproj", FileType::Xml),
+            ("Directory.Build.props", FileType::Xml),
+            ("Sdk.targets", FileType::Xml),
+            ("web.config", FileType::Xml),
+            ("Strings.resx", FileType::Xml),
+            ("Eludite.slnx", FileType::Solution),
+            ("Legacy.SLN", FileType::Solution),
+            ("Cargo.toml", FileType::Toml),
+            ("app.ts", FileType::TypeScript),
+            ("view.tsx", FileType::TypeScript),
+            ("site.js", FileType::JavaScript),
+            ("index.html", FileType::Html),
+            ("site.css", FileType::Css),
+            ("Counter.razor", FileType::Razor),
+            ("Index.cshtml", FileType::Cshtml),
+            ("Default.aspx", FileType::Aspx),
+            ("logo.PNG", FileType::Image),
+            ("icon.svg", FileType::Image),
+            ("notes.txt", FileType::Text),
+            ("build.sh", FileType::Shell),
+            ("fetch.ps1", FileType::Shell),
+            ("ci.yml", FileType::Yaml),
+            ("Cargo.lock", FileType::Lock),
+            ("packages.lock.json", FileType::Lock),
+            ("package-lock.json", FileType::Lock),
+            ("LICENSE", FileType::Other),
+            ("a.unknown", FileType::Other),
+            ("/w/src/Dir.cs/Thing.json", FileType::Json),
+        ];
+        for (name, want) in cases {
+            assert_eq!(file_type_of(name), want, "{name}");
+        }
+        let row = |kind: NodeKind, path: Option<&str>, label: &str| Row {
+            id: label.into(),
+            label: label.into(),
+            depth: 0,
+            kind,
+            path: path.map(PathBuf::from),
+            has_children: false,
+            expanded: false,
+        };
+        let content = NodeKind::File {
+            item_type: TreeItemType::Content,
+        };
+        assert_eq!(
+            row(content.clone(), Some("/w/Default.ASPX"), "Default.ASPX").file_type(),
+            Some(FileType::Aspx)
+        );
+        assert_eq!(
+            row(content, None, "notes.md").file_type(),
+            Some(FileType::Markdown)
+        );
+        assert_eq!(row(NodeKind::Folder, None, "src.cs").file_type(), None);
+    }
+
+    /// A workspace folder opened through a symlink (or a `..` spelling): the host and `cargo metadata` report the
+    /// real paths, the listing the opened ones. Each project and package is listed once, under its solution or
+    /// workspace, and a folder that held only projects does not come back at the root.
+    #[test]
+    fn nothing_is_listed_twice_whatever_the_spelling_of_the_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("real")).unwrap();
+        let real = canonical(&tmp.path().join("real"));
+        let write = |rel: &str| {
+            let p = real.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, "x").unwrap();
+        };
+        for f in [
+            "Eludite.slnx",
+            "src/Eludite.Host/Eludite.Host.csproj",
+            "src/Eludite.Host/Program.cs",
+            "src/Eludite.Host/Rpc/HostRpcTarget.cs",
+            "tests/Eludite.Host.Tests/Eludite.Host.Tests.csproj",
+            "tests/Eludite.Host.Tests/HostTests.cs",
+            "Directory.Build.props",
+        ] {
+            write(f);
+        }
+        // The opened spelling: `<tmp>/real/../real`, and a symlink where the platform has them.
+        let mut spellings = vec![tmp.path().join("real").join("..").join("real")];
+        #[cfg(unix)]
+        {
+            let alias = tmp.path().join("alias");
+            std::os::unix::fs::symlink(&real, &alias).unwrap();
+            spellings.push(alias);
+        }
+        let project = |name: &str, dir: &str| TreeProject {
+            name: name.into(),
+            path: real
+                .join(dir)
+                .join(format!("{name}.csproj"))
+                .to_string_lossy()
+                .into_owned(),
+            kind: TreeProjectKind::Sdk,
+            web: false,
+            target_frameworks: vec!["net10.0".into()],
+            files: vec![],
+            error: None,
+            dependencies: None,
+        };
+        let host = project("Eludite.Host", "src/Eludite.Host");
+        // The host lists one project twice, once through a `..` spelling.
+        let mut again = host.clone();
+        again.path = real
+            .join("src/Eludite.Host/../Eludite.Host/Eludite.Host.csproj")
+            .to_string_lossy()
+            .into_owned();
+        let tree = SolutionTree {
+            generation: 2,
+            path: Some(real.join("Eludite.slnx").to_string_lossy().into_owned()),
+            projects: vec![
+                host,
+                project("Eludite.Host.Tests", "tests/Eludite.Host.Tests"),
+                again,
+            ],
+        };
+        for root in spellings {
+            let listing = crate::folder::list_folder(&root, 1000);
+            let sln = root.join("Eludite.slnx");
+            let m = SolutionModel::compose(&WorkspaceParts {
+                root: &root,
+                solution: Some((&sln, Part::Loaded(&tree))),
+                cargo: None,
+                listing: Some(&listing),
+            });
+            let rows = m.visible_rows(&expand_all(&m));
+            let labels = labels(&rows);
+            assert_eq!(
+                labels,
+                [
+                    root.file_name().unwrap().to_string_lossy().into_owned(),
+                    "  Solution 'Eludite' (2 of 2 projects)".into(),
+                    "    Eludite.Host (net10.0)".into(),
+                    "    Eludite.Host.Tests (net10.0)".into(),
+                    "  Directory.Build.props".into(),
+                ],
+                "{root:?}"
+            );
+            // A csproj is never a plain file row, and no folder holds only projects.
+            assert!(
+                !rows.iter().any(|r| r.label.ends_with(".csproj")
+                    || r.label == "src"
+                    || r.label == "tests"),
+                "{labels:?}"
+            );
+        }
     }
 }
