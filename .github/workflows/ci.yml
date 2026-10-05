@@ -270,14 +270,29 @@ jobs:
       - name: Test
         run: dotnet test dotnet/Eludite.slnx --configuration Release --no-build
 
+  # The build id of this run for the self-updater (brief 0055, tools/package/RELEASE.md): <YYYYMMDD>.<run number>,
+  # computed once so the three archives and the release agree even when the run crosses midnight UTC.
+  build-id:
+    name: build id
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.id.outputs.id }}
+    steps:
+      - id: id
+        run: echo "id=$(date -u +%Y%m%d).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
   # The archives to download and run without building (tools/package/): on Linux brief 0039's tarball with the browser
   # engine and CEF, on Windows and macOS the shell-only archive (the engine is Linux-only so far), each with the .NET host,
   # eludite-dbg-mono and eludite-claude-acp beside the shell (companions.sh). Release builds of what the rust and dotnet
   # jobs tested, so it runs once every one of them is green on every platform: no archive comes out of a red run. Each
-  # archive is this run's artifact eludite-<version>-<os>-<arch>.
+  # archive is this run's artifact eludite-<version>-<os>-<arch>. A push to main also gets build.json in each layout
+  # (channel unstable, this run's build id), so the archives the release job publishes update themselves; a pull
+  # request's archives carry none and are development builds to the updater.
   package:
     name: package (${{ matrix.os }})
-    needs: [rust, dotnet]
+    needs: [rust, dotnet, build-id]
+    env:
+      CHANNEL_ARGS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && format('--channel unstable --build {0}', needs.build-id.outputs.id) || '' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -324,7 +339,8 @@ jobs:
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
-          archive="$(tools/package/linux.sh --with-companions --out "${{ runner.temp }}/package")"
+          # shellcheck disable=SC2086
+          archive="$(tools/package/linux.sh --with-companions --out "${{ runner.temp }}/package" $CHANNEL_ARGS)"
           ls -l "$archive"
 
       - name: Package (Windows, macOS)
@@ -332,7 +348,8 @@ jobs:
         run: |
           out="$RUNNER_TEMP/package"
           if command -v cygpath >/dev/null 2>&1; then out="$(cygpath -u "$RUNNER_TEMP")/package"; fi
-          archive="$(tools/package/shell.sh --out "$out")"
+          # shellcheck disable=SC2086
+          archive="$(tools/package/shell.sh --out "$out" $CHANNEL_ARGS)"
           ls -l "$archive"
 
       - name: Name the artifact
@@ -370,3 +387,54 @@ jobs:
           xvfb-run -a env ELUDITE_PACKAGE_TARBALL="${{ runner.temp }}/package/$(basename "$(ls "${{ runner.temp }}"/package/eludite-*.tar.gz)")" \
             ELUDITE_CHROME_NO_SANDBOX=1 \
             cargo test -p eludite-chromium --features cef --test package -- --nocapture
+
+  # The unstable channel's release (brief 0055, tools/package/RELEASE.md): on a push to main, once the three archives
+  # are up, the pre-release unstable-<build id> at this commit with the archives and SHA256SUMS over them, which a
+  # packaged Eludite reads to update itself. Older unstable releases beyond the newest 30 (the page the updater reads)
+  # are deleted with their tags.
+  release:
+    name: release (unstable)
+    needs: [package, build-id]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: eludite-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          ls -l
+          shopt -s nullglob
+          set -- eludite-*.tar.gz eludite-*.zip
+          [ $# -eq 3 ] || { echo "expected three archives, found: $*" >&2; exit 1; }
+          sha256sum "$@" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.build-id.outputs.id }}
+        run: |
+          tag="unstable-$BUILD"
+          notes="Unstable build $BUILD of main at ${GITHUB_SHA}: every green build of main, for Eludite's self-updater (tools/package/RELEASE.md). Unpack an archive and run eludite; it updates itself from this channel once you say so."
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Unstable $BUILD" --notes "$notes" dist/eludite-* dist/SHA256SUMS
+          echo "::notice::published $tag"
+
+      - name: Prune old unstable releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 300 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("unstable-")))] | sort_by(.createdAt) | reverse | .[30:] | .[].tagName' |
+          while read -r old; do
+            [ -n "$old" ] || continue
+            echo "deleting $old"
+            gh release delete "$old" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+          done

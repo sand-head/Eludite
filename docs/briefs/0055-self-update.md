@@ -1,11 +1,11 @@
 # Brief 0055: Self-update from GitHub releases, the unstable channel first
 
-Status: done (this change; the release job that publishes `unstable-<build>` is the packaging work on `ci/package-artifacts`)
+Status: done (this change, including the `build-id` and `release` jobs in `.github/workflows/ci.yml` on top of the merged `package` job)
 Phase: 2 (PLAN.md section 10: "auto-update")
 Plan reference: PLAN.md sections 2 (principles 1, 3), 10 (Phase 2), 11 (bus factor: release scripts in the repo), 13
 Related ADRs: ADR-0011 (new), ADR-0009 (the dangerous class of `apply`)
 Related: proposal 0004; `tools/package/RELEASE.md` (the contract with the packaging job)
-Depends on: the `package` job (`ci/package-artifacts`) producing the archives; a release job publishing them under `unstable-<build>` with `SHA256SUMS` and `build.json` in each archive (owed by that work, see Contract)
+Depends on: the `package` job (merged from `ci/package-artifacts`) producing the archives
 
 ## Goal
 
@@ -33,7 +33,9 @@ cannot update and does nothing.
   install, the `run` dispatch), `shell/settings.rs` (the settings hook), `shell/output.rs` (the Updates source),
   `args.rs` and `main.rs` (`--apply-update`, `--updated-from`), `app.rs` (no question on measurement runs),
   `Cargo.toml`; `crates/ui/src/menu.rs` (Help > Check for Updates...).
-- `tools/package/RELEASE.md` (new, the contract), `tools/package/build-json.sh` (new).
+- `tools/package/RELEASE.md` (new, the contract), `tools/package/build-json.sh` (new), `tools/package/linux.sh` and
+  `shell.sh` (`--channel`, `--build`), `tools/package/README.md`, `.github/workflows/ci.yml` (the `build-id` and
+  `release` jobs, the channel arguments on `package`).
 - `Cargo.toml` (the workspace member), `CLAUDE.md` (the crate map), `docs/adr/0011-self-update.md` and the ADR
   index, `docs/proposals/0004-self-update.md` and its index, this brief and the briefs index.
 
@@ -42,9 +44,10 @@ cannot update and does nothing.
 - **The release** (`tools/package/RELEASE.md`): tag `unstable-<build>` with `<build>` = `<YYYYMMDD>.<run number>`,
   a pre-release; assets `eludite-<version>-<os>-<arch>.tar.gz` (Linux, macOS) or `.zip` (Windows) with one top
   folder, and `SHA256SUMS`; `build.json` inside each archive's folder naming the version, channel, build, commit,
-  os and arch (`tools/package/build-json.sh --channel unstable --build <build>` writes it; `linux.sh` and `shell.sh`
-  on `ci/package-artifacts` are to take `--channel` and `--build` and place it in the layout). The updater checks
-  all of it after unpacking and refuses what disagrees.
+  os and arch (`linux.sh --channel unstable --build <build>` and `shell.sh` likewise write it through
+  `tools/package/build-json.sh`; CI's `build-id` job computes the id once and `package` passes it on a push to
+  `main`; the `release` job publishes the pre-release with `SHA256SUMS` and prunes `unstable-*` beyond the newest
+  30). The updater checks all of it after unpacking and refuses what disagrees.
 - **Reading GitHub**: `GET /repos/sand-head/Eludite/releases?per_page=30`, anonymous, `If-None-Match` from the last
   answer's `ETag` (a 304 is free against the rate limit), no token ever; `ELUDITE_UPDATE_API` replaces the base.
   The channel's newest is the greatest build id among the tags the channel accepts, drafts skipped. Newer than the
@@ -122,7 +125,6 @@ cannot update and does nothing.
 
 ## Out of scope
 
-- The release job itself (the packaging work on `ci/package-artifacts` creates the release and uploads the assets).
 - A `stable` channel, installers, signing, delta updates, a rollback command (`.eludite-previous/` is the manual
   rollback until the next start), updating the pinned external tools (`tools/`), updating the host separately from
   the shell (one archive carries both).

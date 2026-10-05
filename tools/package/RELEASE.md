@@ -50,10 +50,10 @@ order); the commit goes in `build.json`.
 
 `version`, `channel`, `build`, `os` and `arch` are required; `commit` and `published` are read when present.
 `channel` and `build` must match the release's tag, and `os` and `arch` the archive's name: the updater checks
-all four after unpacking and refuses the archive otherwise. The packaging scripts take the channel and build id as
-`--channel` and `--build` (to add to `linux.sh` and `shell.sh`: `tools/package/build-json.sh` writes the file) and
-the job passes `unstable` and `$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER`. A build made without them has no
-`build.json`, and the updater says "a development build" and stays off.
+all four after unpacking and refuses the archive otherwise. `linux.sh` and `shell.sh` take the channel and build id
+as `--channel` and `--build` and write the file through `tools/package/build-json.sh`; CI passes `unstable` and the
+run's build id. A build made without them has no `build.json`, and the updater says "a development build" and stays
+off.
 
 ## How the updater reads a release
 
@@ -75,15 +75,21 @@ the job passes `unstable` and `$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER`. A build m
    build. The next successful start deletes `.eludite-previous/`. An install folder that cannot be written (a
    root-owned `/opt`) is reported in the status bar and the Output window; nothing is tried.
 
-## What the release job must do
+## The release job
 
-- Run after the `package` job, once per green build of `main` (not for pull requests): create the release
-  `unstable-<build>` as a pre-release with the three archives and `SHA256SUMS` computed over them. The tag points at
-  the built commit.
-- Keep the newest releases: the updater reads the first page of 30, so pruning older `unstable-*` releases is safe
-  once they are off the first page, and keeps the list fast.
-- Never re-upload an asset under an existing tag with different bytes: `SHA256SUMS` and the asset must agree, and an
-  installed build may have cached the list's `ETag`.
+`.github/workflows/ci.yml` does this on every push to `main`:
+
+- `build-id` computes the run's build id once, `<YYYYMMDD>.<run number>` in UTC, so the three archives and the
+  release agree even when the run crosses midnight.
+- `package` (after `rust` and `dotnet` are green on every platform) passes `--channel unstable --build <id>` to
+  `linux.sh` and `shell.sh`, which write `build.json` into the layout through `build-json.sh`. A pull request's
+  archives get no `build.json`: they are development builds to the updater.
+- `release` downloads the three archives, writes `SHA256SUMS` over them with `sha256sum`, creates the pre-release
+  `unstable-<id>` at the built commit with `gh release create`, and deletes `unstable-*` releases beyond the newest
+  30 (the page the updater reads) with their tags.
+
+An asset is never re-uploaded under an existing tag: a tag is one run's bytes, and an installed build may have cached
+the list's `ETag`.
 
 ## Checking a release by hand
 

@@ -83,10 +83,10 @@ downloads within the 30-minute request budget. No new dependency.
 
 ## 8. Briefs
 
-- **0055** (this change): the crate, the commands, the shell, the `unstable` channel, the release contract.
-- **A release job** (owed by the packaging work on `ci/package-artifacts`): after the `package` job on `main`,
-  create `unstable-<build>` as a pre-release with the three archives and `SHA256SUMS`; have `linux.sh` and
-  `shell.sh` take `--channel` and `--build` and place `build-json.sh`'s file in the layout.
+- **0055** (this change): the crate, the commands, the shell, the `unstable` channel, the release contract, and the
+  release job: after the `package` job on `main`, `unstable-<build>` as a pre-release with the three archives and
+  `SHA256SUMS`; `linux.sh` and `shell.sh` take `--channel` and `--build` and place `build-json.sh`'s file in the
+  layout.
 - **Later**: the `stable` channel and the rule for switching channels downward; installers taking over the swap on
   their platforms; signing; a rollback command.
 
