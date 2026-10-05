@@ -1,6 +1,16 @@
 //! The ACP agent: `initialize`, `authenticate`, `session/new`,
-//! `session/prompt`, `session/cancel`, and `session/request_permission` raised
+//! `session/prompt`, `session/cancel`, `session/set_mode`,
+//! `session/set_config_option`, and `session/request_permission` raised
 //! from the child's `can_use_tool` control requests.
+//!
+//! Modes and config options (brief 0057): `session/new` answers the modes
+//! `default` and `plan` and the `model` and `effort` options
+//! ([`crate::translate::SessionOptions`]). `session/set_mode` sends the
+//! `set_permission_mode` control request; `session/set_config_option` sends
+//! `set_model` for the model, and for the effort writes the local command
+//! `/effort LEVEL` and consumes its reply, which is not a turn. Both are refused
+//! while a turn is in progress, answer with the new state and notify
+//! `current_mode_update` or `config_option_update`.
 //!
 //! Each ACP session owns one `claude --print` child (see [`crate::process`]).
 //! Long-running work (`session/new`, each turn, each permission request) runs
@@ -18,7 +28,9 @@ use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodTerminal, AuthenticateRequest, AuthenticateResponse,
     CancelNotification, Implementation, InitializeRequest, InitializeResponse, McpCapabilities,
     NewSessionRequest, NewSessionResponse, PromptRequest, PromptResponse, RequestPermissionOutcome,
-    RequestPermissionRequest, SessionNotification, ToolCallUpdate, ToolCallUpdateFields,
+    RequestPermissionRequest, SessionConfigOption, SessionConfigOptionValue, SessionNotification,
+    SessionUpdate, SetSessionConfigOptionRequest, SetSessionConfigOptionResponse,
+    SetSessionModeRequest, SetSessionModeResponse, ToolCallUpdate, ToolCallUpdateFields,
 };
 use agent_client_protocol::{Agent, Client, ConnectTo, ConnectionTo, Error, Responder};
 use futures::StreamExt;
@@ -30,18 +42,30 @@ use crate::log;
 use crate::mapping::{
     mcp_config, permission_options, permission_response, prompt_content, tool_info, tool_meta,
 };
-use crate::process::{ClaudeProcess, Event, InitializeReply, Launch, write_mcp_config};
-use crate::translate::{Translator, TurnEnd, available_commands_update};
+use crate::process::{self, ClaudeProcess, Event, InitializeReply, Launch, write_mcp_config};
+use crate::translate::{
+    DEFAULT_VALUE, EFFORT_OPTION, MODEL_OPTION, SessionOptions, Translator, TurnEnd,
+    available_commands_update, local_command,
+};
 
 /// Environment variable choosing the model (`--model`) when the session does
 /// not.
 pub const MODEL_ENV: &str = "ELUDITE_CLAUDE_MODEL";
+
+/// Environment variable choosing the effort (`--effort`) when the session does
+/// not (brief 0057).
+pub const EFFORT_ENV: &str = "ELUDITE_CLAUDE_EFFORT";
+
+/// The levels `claude --effort` takes.
+pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// The terminal login method's id.
 pub const LOGIN_METHOD_ID: &str = "claude-login";
 
 const CHILD_INIT_TIMEOUT: Duration = Duration::from_secs(60);
 const INTERRUPT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a mode, model or effort change may take (`claude` answers at once).
+const OPTION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Adapter settings from the command line and environment.
 #[derive(Debug, Clone, Default)]
@@ -50,6 +74,8 @@ pub struct Config {
     pub claude: Option<PathBuf>,
     /// `--model M` (else `$ELUDITE_CLAUDE_MODEL`, else the session's `_meta`).
     pub model: Option<String>,
+    /// `--effort LEVEL` (else `$ELUDITE_CLAUDE_EFFORT`, else the session's `_meta`).
+    pub effort: Option<String>,
 }
 
 struct Session {
@@ -62,12 +88,22 @@ struct Session {
     mcp_config: PathBuf,
     /// `claude`'s slash commands from its `initialize` reply (brief 0056), as it lists them.
     commands: Vec<Value>,
+    /// The modes and config options (brief 0057).
+    options: Mutex<SessionOptions>,
 }
 
 impl Session {
     /// The `available_commands_update` sent right after `session/new` answers.
     fn commands_update(&self) -> SessionNotification {
         SessionNotification::new(self.id.clone(), available_commands_update(&self.commands))
+    }
+
+    fn options(&self) -> std::sync::MutexGuard<'_, SessionOptions> {
+        self.options.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn notification(&self, update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(self.id.clone(), update)
     }
 }
 
@@ -132,7 +168,9 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
         config,
         ..State::default()
     });
-    let (s_init, s_auth, s_new, s_prompt, s_cancel) = (
+    let (s_init, s_auth, s_new, s_prompt, s_cancel, s_mode, s_option) = (
+        state.clone(),
+        state.clone(),
         state.clone(),
         state.clone(),
         state.clone(),
@@ -199,6 +237,49 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
             },
             agent_client_protocol::on_receive_request!(),
         )
+        .on_receive_request(
+            async move |req: SetSessionModeRequest,
+                        responder: Responder<SetSessionModeResponse>,
+                        cx: ConnectionTo<Client>| {
+                let session = match s_mode.session(&req.session_id.0) {
+                    Ok(s) => s,
+                    Err(e) => return responder.respond_with_error(e),
+                };
+                let task_cx = cx.clone();
+                cx.spawn(async move {
+                    match set_mode(&session, &req.mode_id.0).await {
+                        Ok(update) => {
+                            responder.respond(SetSessionModeResponse::new())?;
+                            task_cx.send_notification(session.notification(update))
+                        }
+                        Err(e) => responder.respond_with_error(e),
+                    }
+                })
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
+        .on_receive_request(
+            async move |req: SetSessionConfigOptionRequest,
+                        responder: Responder<SetSessionConfigOptionResponse>,
+                        cx: ConnectionTo<Client>| {
+                let session = match s_option.session(&req.session_id.0) {
+                    Ok(s) => s,
+                    Err(e) => return responder.respond_with_error(e),
+                };
+                let task_cx = cx.clone();
+                cx.spawn(async move {
+                    match set_option(&session, &req.config_id.0, &req.value).await {
+                        Ok(options) => {
+                            responder.respond(SetSessionConfigOptionResponse::new(options))?;
+                            let update = session.options().update();
+                            task_cx.send_notification(session.notification(update))
+                        }
+                        Err(e) => responder.respond_with_error(e),
+                    }
+                })
+            },
+            agent_client_protocol::on_receive_request!(),
+        )
         .on_receive_notification(
             async move |n: CancelNotification, _cx: ConnectionTo<Client>| {
                 if let Ok(s) = s_cancel.session(&n.session_id.0) {
@@ -247,6 +328,17 @@ fn initialize(state: &State, req: InitializeRequest) -> InitializeResponse {
     resp
 }
 
+/// `_meta.claudeCode.options.<key>` of `session/new` (the Node adapter's keys).
+fn meta_option(meta: Option<&serde_json::Map<String, Value>>, key: &str) -> Option<String> {
+    meta?
+        .get("claudeCode")?
+        .get("options")?
+        .get(key)?
+        .as_str()
+        .filter(|v| !v.is_empty() && *v != DEFAULT_VALUE)
+        .map(str::to_owned)
+}
+
 /// The model for a new session: `--model`, then `$ELUDITE_CLAUDE_MODEL`, then
 /// the session's `_meta.claudeCode.options.model` (the Node adapter's key).
 fn session_model(config: &Config, meta: Option<&serde_json::Map<String, Value>>) -> Option<String> {
@@ -254,13 +346,22 @@ fn session_model(config: &Config, meta: Option<&serde_json::Map<String, Value>>)
         .model
         .clone()
         .or_else(|| std::env::var(MODEL_ENV).ok().filter(|m| !m.is_empty()))
-        .or_else(|| {
-            meta?
-                .get("claudeCode")?
-                .pointer("/options/model")?
-                .as_str()
-                .map(str::to_owned)
-        })
+        .or_else(|| meta_option(meta, "model"))
+}
+
+/// The effort for a new session: `--effort`, then `$ELUDITE_CLAUDE_EFFORT`,
+/// then the session's `_meta.claudeCode.options.effort`; only a level `claude
+/// --effort` takes.
+fn session_effort(
+    config: &Config,
+    meta: Option<&serde_json::Map<String, Value>>,
+) -> Option<String> {
+    config
+        .effort
+        .clone()
+        .or_else(|| std::env::var(EFFORT_ENV).ok().filter(|e| !e.is_empty()))
+        .or_else(|| meta_option(meta, "effort"))
+        .filter(|e| EFFORT_LEVELS.contains(&e.as_str()))
 }
 
 async fn new_session(
@@ -281,6 +382,7 @@ async fn new_session(
         session_id: id.clone(),
         mcp_config: config_path.clone(),
         model: session_model(&state.config, req.meta.as_ref()),
+        effort: session_effort(&state.config, req.meta.as_ref()),
     };
     let (process, events) = match ClaudeProcess::spawn(&launch) {
         Ok(p) => p,
@@ -301,6 +403,7 @@ async fn new_session(
         cancelled: AtomicBool::new(false),
         mcp_config: config_path,
         commands: Vec::new(),
+        options: Mutex::new(SessionOptions::new(Vec::new(), None, None)),
     };
     // The SDK handshake. Its reply carries the account; only whether one is
     // present is used (for the log), and nothing of it is logged or kept. Its
@@ -319,18 +422,163 @@ async fn new_session(
     let InitializeReply {
         logged_in,
         commands,
+        models,
     } = InitializeReply::parse(&reply);
     log::info(format_args!(
-        "session {id}: claude pid {:?} ready, logged in: {logged_in}, {} commands",
+        "session {id}: claude pid {:?} ready, logged in: {logged_in}, {} commands, {} models",
         process.id(),
-        commands.len()
+        commands.len(),
+        models.len()
     ));
     session.commands = commands;
+    let options = SessionOptions::new(models, launch.model.as_deref(), launch.effort.as_deref());
+    let response = NewSessionResponse::new(id.clone())
+        .modes(options.modes())
+        .config_options(options.config_options());
+    session.options = Mutex::new(options);
     let session = Arc::new(session);
     if let Ok(mut s) = state.sessions.lock() {
         s.insert(id.clone(), session.clone());
     }
-    Ok((NewSessionResponse::new(id), session))
+    Ok((response, session))
+}
+
+/// `invalid_params` with a message for the client.
+fn invalid(message: impl Into<String>) -> Error {
+    Error::invalid_params().data(json!(message.into()))
+}
+
+/// The session's turn, when none is in progress: a change made while a turn
+/// runs is refused (`in_turn`), so nothing is written to `claude` then.
+fn idle(
+    session: &Session,
+) -> Result<futures::lock::MutexGuard<'_, (UnboundedReceiver<Event>, Translator)>, Error> {
+    let busy = || {
+        Error::invalid_request().data(json!(
+            "in_turn: a turn is in progress; change it when the turn ends"
+        ))
+    };
+    if session.in_turn.load(Ordering::Acquire) {
+        return Err(busy());
+    }
+    session.turn.try_lock().ok_or_else(busy)
+}
+
+/// Send a control request to `claude` and wait for its answer.
+async fn control(session: &Session, request: Value) -> Result<Value, Error> {
+    let subtype = request["subtype"].as_str().unwrap_or("?").to_owned();
+    session
+        .process
+        .control(request, OPTION_TIMEOUT)
+        .map_err(|e| failure(format!("could not write to claude: {e}")))?
+        .await
+        .map_err(|_| failure("claude exited"))?
+        .map_err(|e| failure(format!("claude refused {subtype}: {e}")))
+}
+
+/// `session/set_mode`: `set_permission_mode`, then the `current_mode_update` to send.
+async fn set_mode(session: &Session, mode: &str) -> Result<SessionUpdate, Error> {
+    let _turn = idle(session)?;
+    if !session.options().has_mode(mode) {
+        return Err(invalid(format!("unknown mode {mode}")));
+    }
+    control(session, process::set_permission_mode(mode)).await?;
+    let mut o = session.options();
+    o.mode = mode.to_owned();
+    Ok(o.mode_update())
+}
+
+/// `session/set_config_option`: the model by `set_model`, the effort by the
+/// local command `/effort`. Returns every option.
+async fn set_option(
+    session: &Session,
+    id: &str,
+    value: &SessionConfigOptionValue,
+) -> Result<Vec<SessionConfigOption>, Error> {
+    let mut turn = idle(session)?;
+    let Some(value) = value.as_value_id().map(|v| v.0.to_string()) else {
+        return Err(invalid(format!("{id} takes one of its values")));
+    };
+    match id {
+        MODEL_OPTION => {
+            if !session.options().has_model(&value) {
+                return Err(invalid(format!("unknown value {value} for {id}")));
+            }
+            control(session, process::set_model(&value)).await?;
+            session.options().set_model(&value);
+        }
+        EFFORT_OPTION => {
+            {
+                let o = session.options();
+                if o.effort_levels().is_empty() {
+                    return Err(invalid(format!("unknown option {id}")));
+                }
+                if value == DEFAULT_VALUE {
+                    return Err(invalid(
+                        "Claude Code cannot go back to the model's own effort in a session; \
+                         start a new session for it",
+                    ));
+                }
+                if !o.can_set_effort(&value) {
+                    return Err(invalid(format!("unknown value {value} for {id}")));
+                }
+            }
+            let (events, _) = &mut *turn;
+            run_local_command(session, events, EFFORT_OPTION, &value).await?;
+            session.options().effort = value;
+        }
+        other => return Err(invalid(format!("unknown option {other}"))),
+    }
+    Ok(session.options().config_options())
+}
+
+/// Write `/<command> <arg>` and consume what `claude` answers up to the
+/// `result` of that local command: none of it is a turn for the client.
+async fn run_local_command(
+    session: &Session,
+    events: &mut UnboundedReceiver<Event>,
+    command: &str,
+    arg: &str,
+) -> Result<(), Error> {
+    session
+        .process
+        .send_user(
+            &session.id,
+            vec![json!({"type": "text", "text": format!("/{command} {arg}")})],
+        )
+        .map_err(|e| failure(format!("could not write to claude: {e}")))?;
+    let (timeout_tx, mut timeout) = futures::channel::oneshot::channel::<()>();
+    let _ = std::thread::Builder::new()
+        .name("claude-local-command-timeout".into())
+        .spawn(move || {
+            std::thread::sleep(OPTION_TIMEOUT);
+            let _ = timeout_tx.send(());
+        });
+    loop {
+        let next = match futures::future::select(events.next(), &mut timeout).await {
+            futures::future::Either::Left((next, _)) => next,
+            futures::future::Either::Right(_) => {
+                return Err(failure(format!("claude did not answer /{command}")));
+            }
+        };
+        match next {
+            Some(Event::Message(msg)) => {
+                if local_command(&msg) == Some(command) {
+                    return Ok(());
+                }
+                if msg.get("type").and_then(Value::as_str) == Some("result") {
+                    let why = msg.get("result").and_then(Value::as_str).unwrap_or("");
+                    return Err(failure(format!("claude did not run /{command}: {why}")));
+                }
+            }
+            Some(Event::ControlRequest { request_id, .. }) => {
+                let _ = session
+                    .process
+                    .respond_error(&request_id, "not supported by eludite-claude-acp");
+            }
+            Some(Event::Exited) | None => return Err(failure("claude exited")),
+        }
+    }
 }
 
 fn cancel(session: &Session) {
@@ -372,6 +620,12 @@ async fn drive_turn(
     if content.is_empty() {
         return Err(Error::invalid_params().data(json!("the prompt has no text")));
     }
+    // A local command typed as the prompt (`/model opus`) is matched against it (brief 0057).
+    let prompt_text = content
+        .iter()
+        .filter_map(|c| c.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
     session
         .process
         .send_user(&session.id, content)
@@ -384,6 +638,20 @@ async fn drive_turn(
                 let end = translator.on_message(&msg, cancelled, &mut updates);
                 for u in updates.drain(..) {
                     cx.send_notification(SessionNotification::new(session.id.clone(), u))?;
+                }
+                // `/model X` or `/effort X` typed as a prompt moves its option; a turn's model corrects the model
+                // option (brief 0057).
+                if end.is_some() {
+                    let changed = match local_command(&msg) {
+                        Some(command) => session.options().on_local_command(command, &prompt_text),
+                        None => translator
+                            .model()
+                            .is_some_and(|m| session.options().on_turn_model(m)),
+                    };
+                    if changed {
+                        let update = session.options().update();
+                        cx.send_notification(session.notification(update))?;
+                    }
                 }
                 match end {
                     None => {}

@@ -1,12 +1,13 @@
 //! `eludite-claude-acp`: ACP on stdin/stdout, Claude Code as the agent.
 //!
 //! Usage:
-//!   eludite-claude-acp [--claude PATH] [--model MODEL]   serve ACP on stdio
+//!   eludite-claude-acp [--claude PATH] [--model MODEL] [--effort LEVEL]   serve ACP on stdio
 //!   eludite-claude-acp auth login                        run `claude auth login` (the ACP terminal login method)
 //!   eludite-claude-acp --version | --help
 //!
 //! Environment: ELUDITE_CLAUDE_PATH (the `claude` executable), ELUDITE_CLAUDE_MODEL
-//! (`--model` for new sessions), ELUDITE_CLAUDE_ACP_LOG (`stderr` or a file: verbose log).
+//! (`--model` for new sessions), ELUDITE_CLAUDE_EFFORT (`--effort` for new sessions),
+//! ELUDITE_CLAUDE_ACP_LOG (`stderr` or a file: verbose log).
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -17,11 +18,14 @@ use eludite_claude_acp::discovery;
 const HELP: &str = "eludite-claude-acp: Agent Client Protocol (stdio) adapter for Claude Code.
 
 Usage:
-  eludite-claude-acp [--claude PATH] [--model MODEL]
+  eludite-claude-acp [--claude PATH] [--model MODEL] [--effort LEVEL]
   eludite-claude-acp auth login
   eludite-claude-acp --version
 
 Finds `claude` via --claude, $ELUDITE_CLAUDE_PATH, $PATH, then ~/.local/bin.
+--model and --effort (low, medium, high, xhigh, max) are passed to `claude`
+for every session; $ELUDITE_CLAUDE_MODEL and $ELUDITE_CLAUDE_EFFORT do the same,
+else the client's choice in session/new's _meta.claudeCode.options.
 Uses your existing Claude Code login. Logs go to stderr ($ELUDITE_CLAUDE_ACP_LOG
 for verbose output); stdout carries ACP only.";
 
@@ -42,6 +46,15 @@ fn main() -> ExitCode {
             "--model" => match args.next() {
                 Some(m) => config.model = Some(m),
                 None => return usage("--model needs a value"),
+            },
+            "--effort" => match args.next() {
+                Some(e) if agent::EFFORT_LEVELS.contains(&e.as_str()) => config.effort = Some(e),
+                Some(e) => {
+                    return usage(&format!(
+                        "--effort takes low, medium, high, xhigh or max, not {e}"
+                    ));
+                }
+                None => return usage("--effort needs a value"),
             },
             "--version" | "-V" => {
                 println!("eludite-claude-acp {}", env!("CARGO_PKG_VERSION"));

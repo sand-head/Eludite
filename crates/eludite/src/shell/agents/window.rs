@@ -13,6 +13,13 @@
 //! recalls the previous prompt, Down the next, then the empty box. Typing `/` at the start opens the slash menu of the
 //! agent's commands ([`filter_commands`]), above the box: Up and Down select, Tab and Enter complete (Enter sends
 //! when the typed name is already complete), Escape and a click outside close it.
+//!
+//! Brief 0057: a footer under the box holds the pickers ([`pickers`]: the model, the effort, any other select option
+//! the agent offers, then the mode) and the Send/Stop button. Each picker is a flat `Name ▾` button opening a list of
+//! the choices, the current one checked, each with its description; Up, Down, Enter and Escape work while it is open
+//! (the prompt box keeps the focus and the footer takes those keys first). A pick emits
+//! [`AgentsWindowEvent::Configure`]; the button shows the picked name muted until the agent answers. While a turn
+//! runs the pickers are muted, open nothing and say "Wait for the turn to end".
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -20,13 +27,14 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use eludite_acp::LoginMethod;
-use eludite_acp::protocol::AvailableCommand;
+use eludite_acp::protocol::{AvailableCommand, SessionConfigOption, SessionModeState};
 use eludite_editor::{EditorStyle, TextInput, TextInputEvent, input_actions};
 use eludite_ui::Theme;
 use eludite_ui::popup::{COMPLETION_ROWS, CompletionKind, completion_row, popup_panel};
 use eludite_ui::transcript::{
     ToolCard, agent_block, notice, plan_card, thought_block, tool_call_card, user_prompt,
 };
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Anchor, AnyElement, App, AppContext as _, Bounds, Context, Div, Entity, EventEmitter,
     FocusHandle, Focusable, FollowMode, FontWeight, ImageSource, InteractiveElement, IntoElement,
@@ -71,6 +79,11 @@ pub enum AgentsWindowEvent {
     },
     /// Follow a link in the agent's message: its target as written.
     OpenLink(String),
+    /// A picker's choice (brief 0057): `option` is `mode` or a config option's id.
+    Configure {
+        option: String,
+        value: String,
+    },
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -222,6 +235,157 @@ pub fn agent_item(ix: usize) -> String {
     format!("agents-agent-{ix}")
 }
 
+/// The mode picker's button (brief 0057); its rows are [`mode_item`].
+pub const MODE_PICKER: &str = "agents-mode";
+/// The open picker's list.
+pub const PICKER_MENU: &str = "agents-option-menu";
+/// The pickers' tooltip while a turn runs.
+pub const WAIT_FOR_TURN: &str = "Wait for the turn to end";
+/// `eludite.agents.configure`'s `option` for the mode.
+pub const MODE_KEY: &str = eludite_commands::agents::MODE_OPTION;
+
+pub fn mode_item(id: &str) -> String {
+    format!("agents-mode-{id}")
+}
+
+/// A config option's picker button.
+pub fn option_picker(id: &str) -> String {
+    format!("agents-option-{id}")
+}
+
+/// A row of a config option's picker.
+pub fn option_item(id: &str, value: &str) -> String {
+    format!("agents-option-{id}-{value}")
+}
+
+/// One choice of a [`Picker`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice {
+    pub value: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+/// One picker of the footer: the session's mode, or one select config option (brief 0057).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picker {
+    /// [`MODE_KEY`] or the option's id: `eludite.agents.configure`'s `option`.
+    pub key: String,
+    pub is_mode: bool,
+    /// The option's name (`Model`), for messages.
+    pub title: String,
+    /// The option's category (`model`, `thought_level`, ...).
+    pub category: Option<String>,
+    pub current: String,
+    pub choices: Vec<Choice>,
+}
+
+impl Picker {
+    pub fn button_id(&self) -> String {
+        if self.is_mode {
+            MODE_PICKER.into()
+        } else {
+            option_picker(&self.key)
+        }
+    }
+
+    pub fn row_id(&self, value: &str) -> String {
+        if self.is_mode {
+            mode_item(value)
+        } else {
+            option_item(&self.key, value)
+        }
+    }
+
+    /// The name of `value` (the value itself when it is not listed).
+    pub fn name_of(&self, value: &str) -> String {
+        self.choices
+            .iter()
+            .find(|c| c.value == value)
+            .map_or_else(|| value.to_owned(), |c| c.name.clone())
+    }
+
+    pub fn has(&self, value: &str) -> bool {
+        self.choices.iter().any(|c| c.value == value)
+    }
+}
+
+/// The footer's pickers, left to right: the model options, the effort (thought level) options, the agent's other
+/// select options, then the mode. Options of another kind are not shown, nor a config option of category `mode` when
+/// the agent also offers modes (the Node Claude Code adapter offers both).
+pub fn pickers(modes: Option<&SessionModeState>, options: &[SessionConfigOption]) -> Vec<Picker> {
+    let rank = |category: Option<&str>| match category {
+        Some("model") => 0,
+        Some("thought_level") => 1,
+        Some("mode") => 3,
+        _ => 2,
+    };
+    let mut out: Vec<Picker> = options
+        .iter()
+        .filter(|o| !(modes.is_some() && o.category.as_deref() == Some("mode")))
+        .filter_map(|o| {
+            let s = o.as_select()?;
+            Some(Picker {
+                key: o.id.clone(),
+                is_mode: false,
+                title: o.name.clone(),
+                category: o.category.clone(),
+                current: s.current_value.clone(),
+                choices: s
+                    .options
+                    .iter()
+                    .map(|c| Choice {
+                        value: c.value.clone(),
+                        name: c.name.clone(),
+                        description: c.description.clone(),
+                    })
+                    .collect(),
+            })
+        })
+        .collect();
+    out.sort_by_key(|p| rank(p.category.as_deref()));
+    if let Some(m) = modes {
+        out.push(Picker {
+            key: MODE_KEY.into(),
+            is_mode: true,
+            title: "Mode".into(),
+            category: Some("mode".into()),
+            current: m.current_mode_id.clone(),
+            choices: m
+                .available_modes
+                .iter()
+                .map(|m| Choice {
+                    value: m.id.clone(),
+                    name: m.name.clone(),
+                    description: m.description.clone(),
+                })
+                .collect(),
+        });
+    }
+    out
+}
+
+/// The tooltip of a picker while a turn runs.
+struct OptionTip {
+    text: &'static str,
+    theme: Theme,
+}
+
+impl Render for OptionTip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        div()
+            .px_2()
+            .py_1()
+            .bg(t.panel)
+            .border_1()
+            .border_color(t.border)
+            .text_size(t.typography.ui)
+            .text_color(t.text)
+            .child(self.text)
+    }
+}
+
 pub fn tool_card(ix: usize) -> String {
     format!("agents-tool-{ix}")
 }
@@ -312,6 +476,15 @@ pub struct AgentsWindow {
     pub changes: Vec<ChangeItem>,
     pub prompt: Option<Prompt>,
     picker_open: bool,
+    /// The agent's modes and config options (brief 0057), as the shell last heard them.
+    pub modes: Option<SessionModeState>,
+    pub config_options: Vec<SessionConfigOption>,
+    /// [`pickers`] of the two, computed when they change (not on every frame).
+    picker_list: Vec<Picker>,
+    /// Picks the agent has not answered yet: picker key to value (shown muted).
+    pub pending: HashMap<String, String>,
+    /// The open picker's key and its highlighted row.
+    open_picker: Option<(String, usize)>,
     mono: SharedString,
     pub probes: Rc<RefCell<Probes>>,
     pub painted: Painted,
@@ -350,6 +523,11 @@ impl AgentsWindow {
             changes: Vec::new(),
             prompt: None,
             picker_open: false,
+            modes: None,
+            config_options: Vec::new(),
+            picker_list: Vec::new(),
+            pending: HashMap::new(),
+            open_picker: None,
             mono: eludite_editor::default_font_family(),
             probes: Rc::default(),
             painted: Rc::default(),
@@ -375,7 +553,125 @@ impl AgentsWindow {
     pub fn set_header(&mut self, header: HeaderState, cx: &mut Context<Self>) {
         if self.header != header {
             self.header = header;
+            // A turn starting closes the open picker (they are disabled while it runs).
+            if self.running() {
+                self.open_picker = None;
+            }
             cx.notify();
+        }
+    }
+
+    /// The agent's modes and config options changed (brief 0057): picks it now shows are answered.
+    pub fn set_options(
+        &mut self,
+        modes: Option<SessionModeState>,
+        config_options: Vec<SessionConfigOption>,
+        cx: &mut Context<Self>,
+    ) {
+        self.picker_list = pickers(modes.as_ref(), &config_options);
+        self.modes = modes;
+        self.config_options = config_options;
+        let pickers = &self.picker_list;
+        self.pending.retain(|key, value| {
+            pickers
+                .iter()
+                .any(|p| p.key == *key && p.current != *value && p.has(value))
+        });
+        if let Some((key, _)) = &self.open_picker
+            && !pickers.iter().any(|p| p.key == *key)
+        {
+            self.open_picker = None;
+        }
+        cx.notify();
+    }
+
+    /// Forget the pick of `key` (the agent refused it, or the command failed): the picker shows the current choice.
+    pub fn revert(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.pending.remove(key);
+        cx.notify();
+    }
+
+    /// The footer's pickers.
+    pub fn pickers(&self) -> &[Picker] {
+        &self.picker_list
+    }
+
+    /// What picker `key`'s button says, and whether it is muted (a pick waiting for the agent, or a turn running).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn picker_label(&self, key: &str) -> Option<(String, bool)> {
+        let p = self.pickers().iter().find(|p| p.key == key)?;
+        let pending = self.pending.get(key);
+        let name = p.name_of(pending.unwrap_or(&p.current));
+        Some((
+            format!("{name} \u{25BE}"),
+            pending.is_some() || self.running(),
+        ))
+    }
+
+    /// The open picker's key and highlighted row.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn open_picker(&self) -> Option<(String, usize)> {
+        self.open_picker.clone()
+    }
+
+    fn toggle_picker(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.running() {
+            return;
+        }
+        if self.open_picker.as_ref().is_some_and(|(k, _)| k == key) {
+            self.open_picker = None;
+        } else if let Some(p) = self.pickers().iter().find(|p| p.key == key) {
+            let at = p.choices.iter().position(|c| c.value == p.current);
+            self.open_picker = Some((key.to_owned(), at.unwrap_or(0)));
+            // The prompt box keeps the focus; the footer takes Up, Down, Enter and Escape first.
+            window.focus(&self.input.focus_handle(cx), cx);
+        }
+        cx.notify();
+    }
+
+    fn move_picker(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some((key, at)) = self.open_picker.clone() else {
+            return;
+        };
+        if let Some(p) = self.pickers().iter().find(|p| p.key == key)
+            && !p.choices.is_empty()
+        {
+            let n = p.choices.len() as isize;
+            self.open_picker = Some((key, (at as isize + delta).rem_euclid(n) as usize));
+            cx.notify();
+        }
+    }
+
+    /// Pick `value` of picker `key`: nothing when it is already current.
+    pub fn pick(&mut self, key: &str, value: &str, cx: &mut Context<Self>) {
+        self.open_picker = None;
+        cx.notify();
+        let Some(p) = self.pickers().iter().find(|p| p.key == key) else {
+            return;
+        };
+        let shown = self.pending.get(key).unwrap_or(&p.current);
+        if shown == value || self.running() {
+            return;
+        }
+        self.pending.insert(key.to_owned(), value.to_owned());
+        cx.emit(AgentsWindowEvent::Configure {
+            option: key.to_owned(),
+            value: value.to_owned(),
+        });
+    }
+
+    /// Enter on the open picker: pick its highlighted row.
+    fn pick_highlighted(&mut self, cx: &mut Context<Self>) {
+        let Some((key, at)) = self.open_picker.clone() else {
+            return;
+        };
+        if let Some(c) = self
+            .pickers()
+            .iter()
+            .find(|p| p.key == key)
+            .and_then(|p| p.choices.get(at).cloned())
+        {
+            self.pick(&key, &c.value, cx);
         }
     }
 
@@ -1034,6 +1330,140 @@ impl AgentsWindow {
         )
     }
 
+    /// The footer under the prompt box (brief 0057): the pickers, a spacer, and `send`.
+    fn render_footer(&mut self, send: AnyElement, cx: &mut Context<Self>) -> AnyElement {
+        let t = self.theme;
+        let running = self.running();
+        let open = self.open_picker.clone();
+        let mut row = div()
+            .debug_selector(|| "agents-footer".into())
+            .flex()
+            .items_center()
+            .gap_1();
+        for p in &self.picker_list {
+            let id = p.button_id();
+            let pending = self.pending.get(&p.key).cloned();
+            let name = p.name_of(pending.as_deref().unwrap_or(&p.current));
+            let muted = pending.is_some() || running;
+            let key = p.key.clone();
+            let button = tracked(
+                &self.painted,
+                id.clone(),
+                div().id(SharedString::from(id.clone())),
+            )
+            .debug_selector({
+                let id = id.clone();
+                move || id
+            })
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .px_1()
+            .h(px(20.))
+            .text_color(if muted { t.text_muted } else { t.text })
+            .child(SharedString::from(name))
+            .child("\u{25BE}");
+            let button =
+                if running {
+                    button.tooltip(move |_, cx| {
+                        cx.new(|_| OptionTip {
+                            text: WAIT_FOR_TURN,
+                            theme: t,
+                        })
+                        .into()
+                    })
+                } else {
+                    button
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.menu_hover))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.toggle_picker(&key, window, cx)
+                        }))
+                };
+            let menu = open
+                .as_ref()
+                .filter(|(k, _)| *k == p.key && !running)
+                .map(|(_, highlighted)| self.render_picker_menu(p, *highlighted, cx));
+            row = row.child(div().relative().child(button).children(menu));
+        }
+        row.child(div().flex_1()).child(send).into_any_element()
+    }
+
+    /// The open picker's list, above its button: each choice's name (the current one checked) with its description
+    /// muted after it.
+    fn render_picker_menu(
+        &self,
+        p: &Picker,
+        highlighted: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let t = self.theme;
+        let button = p.button_id();
+        let rows = p.choices.iter().enumerate().map(|(ix, c)| {
+            let sel = p.row_id(&c.value);
+            let lit = ix == highlighted;
+            let (key, value) = (p.key.clone(), c.value.clone());
+            // Tracked for the real-input driver (`--bounds-out`), which picks a model.
+            tracked(
+                &self.painted,
+                sel.clone(),
+                div().id(SharedString::from(sel.clone())),
+            )
+            .debug_selector(move || sel)
+            .flex()
+            .items_center()
+            .gap_2()
+            .px_2()
+            .h(px(22.))
+            .cursor_pointer()
+            .when(lit, |d| d.bg(t.accent).text_color(t.text_on_accent))
+            .when(!lit, |d| d.hover(|s| s.bg(t.menu_hover)))
+            .child(div().w(px(12.)).flex_none().child(if c.value == p.current {
+                "\u{2713}"
+            } else {
+                ""
+            }))
+            .child(div().flex_none().child(SharedString::from(c.name.clone())))
+            .child(
+                div()
+                    .flex_1()
+                    .overflow_hidden()
+                    .text_size(t.typography.small)
+                    .text_color(if lit { t.text_on_accent } else { t.text_muted })
+                    .children(c.description.clone().map(SharedString::from)),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.pick(&key, &value, cx)))
+        });
+        let painted = self.painted.clone();
+        deferred(
+            anchored().anchor(Anchor::BottomLeft).child(
+                popup_panel(&t)
+                    .id(PICKER_MENU)
+                    .debug_selector(|| PICKER_MENU.into())
+                    .occlude()
+                    .min_w(px(220.))
+                    .max_w(px(520.))
+                    .py_1()
+                    .mb(px(22.))
+                    .on_mouse_down_out(cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                        // A click on the picker's own button toggles it (its click handler closes it).
+                        let on_button = painted
+                            .borrow()
+                            .get(&button)
+                            .is_some_and(|b| b.contains(&e.position));
+                        if !on_button {
+                            this.open_picker = None;
+                            cx.notify();
+                        }
+                    }))
+                    .children(rows),
+            ),
+        )
+        .with_priority(1)
+        .into_any_element()
+    }
+
     fn render_changes(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let t = self.theme;
         let pending: Vec<ChangeItem> = self.changes.iter().filter(|c| c.pending).cloned().collect();
@@ -1194,7 +1624,7 @@ impl Render for AgentsWindow {
             .child(self.input.clone());
         let input = div()
             .relative()
-            .flex_1()
+            .w_full()
             .min_w(px(0.))
             .children(menu)
             .child(input);
@@ -1210,13 +1640,16 @@ impl Render for AgentsWindow {
             ),
         )
         .min_w(px(50.))
+        .h(px(20.))
         .on_click(cx.listener(move |this, _, _, cx| {
             if running {
                 cx.emit(AgentsWindowEvent::Cancel)
             } else {
                 this.submit(cx)
             }
-        }));
+        }))
+        .into_any_element();
+        let footer = self.render_footer(send, cx);
         div()
             .id("agents-window")
             .debug_selector(|| "agents-window".into())
@@ -1240,13 +1673,40 @@ impl Render for AgentsWindow {
             .child(
                 div()
                     .flex()
+                    .flex_col()
                     .flex_none()
                     .gap_1()
                     .p_1()
                     .border_t_1()
                     .border_color(t.border)
+                    // An open picker takes Up, Down, Enter and Escape before the prompt box and its slash menu
+                    // (brief 0057).
+                    .capture_action(cx.listener(|this, _: &input_actions::MoveUp, _, cx| {
+                        if this.open_picker.is_some() {
+                            this.move_picker(-1, cx);
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .capture_action(cx.listener(|this, _: &input_actions::MoveDown, _, cx| {
+                        if this.open_picker.is_some() {
+                            this.move_picker(1, cx);
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .capture_action(cx.listener(|this, _: &input_actions::Submit, _, cx| {
+                        if this.open_picker.is_some() {
+                            this.pick_highlighted(cx);
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .capture_action(cx.listener(|this, _: &input_actions::Escape, _, cx| {
+                        if this.open_picker.take().is_some() {
+                            cx.notify();
+                            cx.stop_propagation();
+                        }
+                    }))
                     .child(input)
-                    .child(send),
+                    .child(footer),
             )
     }
 }

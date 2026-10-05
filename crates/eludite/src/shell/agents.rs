@@ -23,6 +23,13 @@
 //!   beside the transcript (or in Eludite's cache) and opens it with `eludite.browser.open_external`.
 //! - **Slash commands** (brief 0056). The agent's `available_commands_update` is kept in the transcript model, listed
 //!   in the state output's `commands` and offered by the prompt box's slash menu; a new session starts with none.
+//! - **Model, effort and mode** (brief 0057). The session's ACP modes and config options are kept here, listed in the
+//!   state output's `mode` and `options`, shown by the pickers under the prompt box and named in the status bar.
+//!   `eludite.agents.configure` checks the choice, has the session send `session/set_mode` or
+//!   `session/set_config_option` on its own thread, and answers once the agent has (from another thread the caller
+//!   waits for that answer: [`JobReply`]; from the UI thread it returns at once and the picker shows the pick muted
+//!   until then). A pick made in the window is remembered in the settings `agents.model` and `agents.effort` (user
+//!   scope), which the next `session/new` passes in `_meta.claudeCode.options`; the mode is not remembered.
 
 pub mod endpoint;
 pub mod review;
@@ -39,7 +46,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
-use eludite_acp::protocol::{Implementation, PermissionOptionKind, RequestPermissionRequest};
+use eludite_acp::protocol::{
+    Implementation, PermissionOptionKind, RequestPermissionRequest, SessionConfigOption,
+    SessionModeState,
+};
 use eludite_acp::session::StreamConnector;
 use eludite_acp::{
     AdapterSearch, AgentSession, AgentSettings, AgentState, LoginMethod, PermissionPolicy,
@@ -61,14 +71,46 @@ use super::Shell;
 /// `eludite.agents.*` from another thread (an outer agent), for the UI thread to apply.
 pub struct AgentsJob {
     pub request: eludite_commands::agents::AgentsRequest,
-    pub reply: mpsc::SyncSender<AgentsOutcome>,
+    pub reply: JobReply,
 }
 
 pub type AgentsOutcome =
     Result<eludite_commands::agents::AgentsOutput, eludite_commands::CommandError>;
 
+/// What the UI thread answers a job: the outcome, or (`eludite.agents.configure`, brief 0057) where the outcome will
+/// arrive once the agent has answered.
+pub enum JobAnswer {
+    Now(Box<AgentsOutcome>),
+    Later(mpsc::Receiver<AgentsOutcome>),
+}
+
+/// Where the UI thread answers an [`AgentsJob`]. The pump sends the outcome of `Shell::apply_agents` right after it
+/// returns, on the UI thread; a configure that waits for the agent left its receiver in [`DEFERRED`], and the caller's
+/// thread waits on that instead, so the UI thread never waits for the agent.
+pub struct JobReply {
+    tx: mpsc::SyncSender<JobAnswer>,
+    configure: bool,
+}
+
+impl JobReply {
+    /// Fails when the caller stopped waiting.
+    pub fn send(&self, outcome: AgentsOutcome) -> Result<(), ()> {
+        let later = DEFERRED.with(|d| d.borrow_mut().take());
+        let answer = match later {
+            Some(rx) if self.configure && outcome.is_ok() => JobAnswer::Later(rx),
+            _ => JobAnswer::Now(Box::new(outcome)),
+        };
+        self.tx.send(answer).map_err(|_| ())
+    }
+}
+
+/// How long a caller of `eludite.agents.configure` waits for the agent (its session gives the agent 30 s).
+const CONFIGURE_WAIT: Duration = Duration::from_secs(35);
+
 thread_local! {
     static STAGED: RefCell<Option<AgentsOutcome>> = const { RefCell::new(None) };
+    /// The receiver of the configure `Shell::apply_agents` just started (see [`JobReply`]).
+    static DEFERRED: RefCell<Option<mpsc::Receiver<AgentsOutcome>>> = const { RefCell::new(None) };
 }
 
 /// The result the shell computed for the bus invocation it is about to make on this (the UI) thread.
@@ -87,6 +129,8 @@ impl eludite_commands::agents::AgentsTarget for AgentsBus {
     fn apply(&self, request: eludite_commands::agents::AgentsRequest) -> AgentsOutcome {
         use eludite_commands::CommandError;
         if std::thread::current().id() == self.ui_thread {
+            // On the UI thread a configure returns at once; the window shows the pick until the agent answers.
+            DEFERRED.with(|d| d.borrow_mut().take());
             return STAGED.with(|s| s.borrow_mut().take()).unwrap_or_else(|| {
                 Err(CommandError::Failed(format!(
                     "{} runs on the UI thread through the shell",
@@ -94,12 +138,26 @@ impl eludite_commands::agents::AgentsTarget for AgentsBus {
                 )))
             });
         }
-        let (reply, rx) = mpsc::sync_channel(1);
+        let configure = matches!(
+            request,
+            eludite_commands::agents::AgentsRequest::Configure { .. }
+        );
+        let (tx, rx) = mpsc::sync_channel(1);
         self.jobs
-            .unbounded_send(AgentsJob { request, reply })
+            .unbounded_send(AgentsJob {
+                request,
+                reply: JobReply { tx, configure },
+            })
             .map_err(|_| CommandError::Failed("the window is closed".into()))?;
-        rx.recv_timeout(Duration::from_secs(30))
+        match rx
+            .recv_timeout(Duration::from_secs(30))
             .map_err(|_| CommandError::Failed("the UI did not answer".into()))?
+        {
+            JobAnswer::Now(outcome) => *outcome,
+            JobAnswer::Later(rx) => rx
+                .recv_timeout(CONFIGURE_WAIT)
+                .map_err(|_| CommandError::Failed("the agent did not answer".into()))?,
+        }
     }
 }
 
@@ -341,6 +399,27 @@ pub struct GateAsk {
     pub reply: mpsc::Sender<bool>,
 }
 
+/// An `eludite.agents.configure` waiting for the agent (brief 0057).
+struct Configuring {
+    /// [`window::MODE_KEY`] or the option's id.
+    key: String,
+    value: String,
+    /// The setting a pick in the window is remembered in (`agents.model`, `agents.effort`).
+    remember: Option<&'static str>,
+    /// Callers on other threads, answered with the state once the agent answered.
+    waiters: Vec<mpsc::SyncSender<AgentsOutcome>>,
+}
+
+/// The setting that remembers a pick of `option` in the window: the model's and the effort's (by ACP category, else
+/// by the native adapter's ids).
+fn remembered_in(option: &SessionConfigOption) -> Option<&'static str> {
+    match (option.category.as_deref(), option.id.as_str()) {
+        (Some("model"), _) | (None, "model") => Some("agents.model"),
+        (Some("thought_level"), _) | (None, "effort") => Some("agents.effort"),
+        _ => None,
+    }
+}
+
 /// A permission request waiting in the window.
 struct Waiting {
     tool: String,
@@ -401,6 +480,13 @@ pub struct Agents {
     pub gutters: Gutters,
     /// Changes whose review view was opened once by itself.
     pub opened_once: Vec<u64>,
+    /// The session's modes and config options (brief 0057).
+    pub modes: Option<SessionModeState>,
+    pub config_options: Vec<SessionConfigOption>,
+    /// Configure requests waiting for the agent.
+    configuring: Vec<Configuring>,
+    /// The configure about to run came from a picker in the window (remembered in the settings).
+    picking: bool,
 }
 
 impl Agents {
@@ -468,6 +554,10 @@ impl Agents {
                 reviews: Rc::default(),
                 gutters: Rc::default(),
                 opened_once: Vec::new(),
+                modes: None,
+                config_options: Vec::new(),
+                configuring: Vec::new(),
+                picking: false,
             },
             rx,
         )
@@ -507,11 +597,26 @@ impl Agents {
         }
     }
 
-    /// The status bar text.
+    /// The footer's pickers (brief 0057).
+    pub fn pickers(&self) -> Vec<window::Picker> {
+        window::pickers(self.modes.as_ref(), &self.config_options)
+    }
+
+    /// The status bar text: the agent, its state and (brief 0057) the model's name.
     pub fn status_text(&self) -> String {
         match (self.selected_agent(), self.state) {
             (_, StateKind::Stopped) | (None, _) => String::new(),
-            (Some(a), s) => format!("{}: {}", a.name(), s.as_str().replace('_', " ")),
+            (Some(a), s) => {
+                let mut text = format!("{}: {}", a.name(), s.as_str().replace('_', " "));
+                if let Some(model) = self
+                    .pickers()
+                    .into_iter()
+                    .find(|p| p.category.as_deref() == Some("model") || p.key == "model")
+                {
+                    text.push_str(&format!(" \u{b7} {}", model.name_of(&model.current)));
+                }
+                text
+            }
         }
     }
 }
@@ -683,7 +788,21 @@ impl Shell {
         self.agents.state = StateKind::Starting;
         self.agents.detail = format!("Starting {}\u{2026}", agent.command_line());
         self.agents.login.clear();
-        self.agents.session = Some(AgentSession::start(config, generation, sink));
+        // The model and effort last picked in the window (brief 0057), for the agent to start with.
+        let meta = {
+            let s = self.settings.lock();
+            let mut options = serde_json::Map::new();
+            for (key, setting) in [("model", "agents.model"), ("effort", "agents.effort")] {
+                let v = s.string(setting);
+                if !v.is_empty() {
+                    options.insert(key.into(), json!(v));
+                }
+            }
+            (!options.is_empty()).then(|| json!({"claudeCode": {"options": options}}))
+        };
+        self.agents.session = Some(AgentSession::start_with_meta(
+            config, meta, generation, sink,
+        ));
         let name = agent.name().to_owned();
         // The guides the session can read from Eludite's MCP server (brief 0027): MCP clients list them at start.
         let guides = eludite_mcp::resources::GUIDES
@@ -712,7 +831,167 @@ impl Shell {
         self.agents.state = StateKind::Stopped;
         self.agents.session_id = None;
         self.agents.detail.clear();
+        // The next session reports its own modes and options; a configure still waiting fails.
+        for c in std::mem::take(&mut self.agents.configuring) {
+            for w in c.waiters {
+                let _ = w.send(Err(eludite_commands::CommandError::Failed(
+                    "the agent session ended".into(),
+                )));
+            }
+        }
+        self.agents.modes = None;
+        self.agents.config_options.clear();
+        self.agents.window.update(cx, |w, cx| {
+            w.pending.clear();
+            w.set_options(None, Vec::new(), cx);
+        });
         self.sync_agents_header(cx);
+    }
+
+    /// `eludite.agents.configure` (brief 0057): check the choice and have the session ask the agent. Returns the
+    /// receiver its answer reaches (the state, or the agent's message).
+    fn agents_configure(
+        &mut self,
+        option: &str,
+        value: &str,
+        from_window: bool,
+    ) -> Result<mpsc::Receiver<AgentsOutcome>, String> {
+        let a = &self.agents;
+        let session = a
+            .session
+            .as_ref()
+            .filter(|_| matches!(a.state, StateKind::Ready | StateKind::Running))
+            .ok_or("not supported: no agent session is running; start the agent first")?;
+        if a.state == StateKind::Running {
+            return Err("busy: a turn is in progress; wait for the turn to end".into());
+        }
+        let pickers = a.pickers();
+        if pickers.is_empty() {
+            return Err(format!(
+                "not supported: {} offers no modes or config options",
+                a.current_name()
+            ));
+        }
+        let picker = pickers.iter().find(|p| p.key == option).ok_or_else(|| {
+            let known: Vec<&str> = pickers.iter().map(|p| p.key.as_str()).collect();
+            if option == window::MODE_KEY {
+                format!(
+                    "not supported: the agent offers no modes (its options: {})",
+                    known.join(", ")
+                )
+            } else {
+                format!(
+                    "unknown option `{option}` (the agent offers {})",
+                    known.join(", ")
+                )
+            }
+        })?;
+        if !picker.has(value) {
+            let values: Vec<&str> = picker.choices.iter().map(|c| c.value.as_str()).collect();
+            return Err(format!(
+                "unknown value `{value}` for {option} (one of {})",
+                values.join(", ")
+            ));
+        }
+        if picker.is_mode {
+            session.set_mode(value);
+        } else {
+            session.set_option(option, value);
+        }
+        let remember = if from_window && !picker.is_mode {
+            a.config_options
+                .iter()
+                .find(|o| o.id == option)
+                .and_then(remembered_in)
+        } else {
+            None
+        };
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.agents.configuring.push(Configuring {
+            key: option.to_owned(),
+            value: value.to_owned(),
+            remember,
+            waiters: vec![tx],
+        });
+        Ok(rx)
+    }
+
+    /// The agent's modes and options changed: answer the configures they satisfy, remember the window's picks.
+    fn on_agent_options(
+        &mut self,
+        modes: Option<SessionModeState>,
+        config_options: Vec<SessionConfigOption>,
+        cx: &mut Context<Self>,
+    ) {
+        self.agents.modes = modes.clone();
+        self.agents.config_options = config_options.clone();
+        let pickers = self.agents.pickers();
+        // The screenshot driver waits for the pickers (brief 0057).
+        super::documents::trace(format_args!(
+            "agents options {}",
+            pickers
+                .iter()
+                .map(|p| format!("{}={}", p.key, p.current))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ));
+        let (done, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.agents.configuring)
+            .into_iter()
+            .partition(|c| {
+                pickers
+                    .iter()
+                    .any(|p| p.key == c.key && p.current == c.value)
+            });
+        self.agents.configuring = waiting;
+        self.agents.window.update(cx, |w, cx| {
+            w.set_options(modes, config_options, cx);
+        });
+        for c in done {
+            super::documents::trace(format_args!("agents option {} = {}", c.key, c.value));
+            if let Some(setting) = c.remember
+                && let Err(e) = self.settings.set(
+                    setting,
+                    json!(c.value),
+                    eludite_commands::settings::SettingScope::User,
+                )
+            {
+                eprintln!("eludite: cannot remember {setting}: {e}");
+            }
+            let state = self.agents_state(cx);
+            for w in c.waiters {
+                let _ = w.send(Ok(eludite_commands::agents::AgentsOutput::State(
+                    state.clone(),
+                )));
+            }
+        }
+        self.sync_agents_header(cx);
+    }
+
+    /// The agent refused a change of `id`: the picker reverts and the transcript says why.
+    fn on_agent_option_failed(&mut self, id: &str, error: &str, cx: &mut Context<Self>) {
+        let (failed, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.agents.configuring)
+            .into_iter()
+            .partition(|c| c.key == id);
+        self.agents.configuring = waiting;
+        let title = self
+            .agents
+            .pickers()
+            .into_iter()
+            .find(|p| p.key == id)
+            .map_or_else(|| id.to_owned(), |p| p.title);
+        for c in failed {
+            for w in c.waiters {
+                let _ = w.send(Err(eludite_commands::CommandError::Failed(
+                    error.to_owned(),
+                )));
+            }
+        }
+        let text = format!("Could not change the {}: {error}", title.to_lowercase());
+        self.agents.window.update(cx, |w, cx| {
+            w.revert(id, cx);
+            w.transcript.error(text);
+            w.sync(cx);
+        });
     }
 
     /// Send a prompt, starting the agent first when needed.
@@ -995,10 +1274,20 @@ impl Shell {
             ReviewOutput, ReviewTarget,
         };
         let failed = CommandError::Failed;
+        DEFERRED.with(|d| d.borrow_mut().take());
         match request {
             AgentsRequest::Start { agent, restart } => {
                 self.agents_start(agent.as_deref(), restart, cx)
                     .map_err(failed)?;
+                Ok(AgentsOutput::State(self.agents_state(cx)))
+            }
+            AgentsRequest::Configure { option, value } => {
+                let from_window = std::mem::take(&mut self.agents.picking);
+                let rx = self
+                    .agents_configure(&option, &value, from_window)
+                    .map_err(failed)?;
+                // A caller on another thread waits on `rx` (see `JobReply`).
+                DEFERRED.with(|d| *d.borrow_mut() = Some(rx));
                 Ok(AgentsOutput::State(self.agents_state(cx)))
             }
             AgentsRequest::Prompt { text } => {
@@ -1061,7 +1350,10 @@ impl Shell {
 
     /// `agents-state.output.json`.
     pub fn agents_state(&self, cx: &gpui::App) -> eludite_commands::agents::AgentsStateOutput {
-        use eludite_commands::agents::{AgentRow, AgentsStateOutput, CommandRow, LoginRow};
+        use eludite_commands::agents::{
+            AgentRow, AgentsStateOutput, ChoiceRow, CommandRow, LoginRow, ModeOutput, ModeRow,
+            OptionRow,
+        };
         let a = &self.agents;
         AgentsStateOutput {
             agent: a
@@ -1110,6 +1402,42 @@ impl Shell {
                     name: c.name.clone(),
                     description: c.description.clone(),
                     hint: c.hint().map(str::to_owned),
+                })
+                .collect(),
+            // The session's mode and select options (brief 0057).
+            mode: a.modes.as_ref().map(|m| ModeOutput {
+                current: m.current_mode_id.clone(),
+                available: m
+                    .available_modes
+                    .iter()
+                    .map(|m| ModeRow {
+                        id: m.id.clone(),
+                        name: m.name.clone(),
+                        description: m.description.clone(),
+                    })
+                    .collect(),
+            }),
+            options: a
+                .config_options
+                .iter()
+                .filter_map(|o| {
+                    let s = o.as_select()?;
+                    Some(OptionRow {
+                        id: o.id.clone(),
+                        name: o.name.clone(),
+                        description: o.description.clone(),
+                        category: o.category.clone(),
+                        current: s.current_value.clone(),
+                        choices: s
+                            .options
+                            .iter()
+                            .map(|c| ChoiceRow {
+                                value: c.value.clone(),
+                                name: c.name.clone(),
+                                description: c.description.clone(),
+                            })
+                            .collect(),
+                    })
                 })
                 .collect(),
         }
@@ -1225,7 +1553,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use eludite_commands::agents::{CANCEL, PERMISSION, PROMPT, REVIEW, START};
+        use eludite_commands::agents::{CANCEL, CONFIGURE, PERMISSION, PROMPT, REVIEW, START};
         // Every action in the window is a command on the bus (CLAUDE.md invariant 3).
         match event {
             AgentsWindowEvent::Start { agent, restart } => {
@@ -1252,6 +1580,26 @@ impl Shell {
                     None => args["all"] = json!(true),
                 }
                 self.run(REVIEW, args, window, cx);
+            }
+            // A picker's choice (brief 0057): remembered in the settings once the agent took it.
+            AgentsWindowEvent::Configure { option, value } => {
+                self.agents.picking = true;
+                let result = self.invoke(
+                    CONFIGURE,
+                    json!({ "option": option, "value": value }),
+                    window,
+                    cx,
+                );
+                self.agents.picking = false;
+                if let Err(e) = result {
+                    let text = format!("Could not change the {option}: {e}");
+                    self.status.set(eludite_ui::slots::STATE, text.clone());
+                    self.agents.window.update(cx, |w, cx| {
+                        w.revert(option, cx);
+                        w.transcript.error(text);
+                        w.sync(cx);
+                    });
+                }
             }
             AgentsWindowEvent::OpenChange(id) => self.open_change(*id, window, cx),
             AgentsWindowEvent::OpenImage { tool_call, index } => {
@@ -1594,6 +1942,13 @@ impl Shell {
                         }
                     }
                     SessionEvent::Notification { .. } => {}
+                    SessionEvent::Options {
+                        modes,
+                        config_options,
+                    } => self.on_agent_options(modes, config_options, cx),
+                    SessionEvent::OptionFailed { id, error } => {
+                        self.on_agent_option_failed(&id, &error, cx)
+                    }
                 },
             }
         }

@@ -5,7 +5,9 @@
 #   2. X11 backend on the nested Xwayland, real XTest input (tools/agents.py): Ctrl+\, Ctrl+C shows the Agents window;
 #      brief 0056 first, with no prompt sent: a prompt that wraps to three rows with the caret clicked into its second
 #      row (agents-prompt-editor.png), then Start and the slash menu on `/mo` with the adapter's commands
-#      (agents-slash-menu.png); then
+#      (agents-slash-menu.png); brief 0057, still before any prompt: the model picker under the prompt box open with
+#      the adapter's model list (agents-model-picker.png), then Opus picked (no model call), so the next turn's usage
+#      line (transcript.json) names the picked model; then
 #      the prompt "List the current errors and fix the first one"; Claude calls diagnostics-list and proposes an edit
 #      held as a pending change (agents-pending-diff.png); Accept; the error clears (agents-error-cleared.png); then a
 #      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png), Deny
@@ -53,7 +55,8 @@ if [[ -z "${SKIP_DRIVE:-}" ]]; then
   pid=\$!
   SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --title $(q "$title") \\
     --log $(q "$out")/drive.err --bounds $(q "$out")/bounds.json --shots $(q "$out") --file $(q "$file") \\
-    --shell-prompt $(q "$shell_prompt") \${DRY:+--dry} >$(q "$out")/drive.json 2>$(q "$out")/driver.err || true
+    --shell-prompt $(q "$shell_prompt") --transcript $(q "$out")/transcript.json \${DRY:+--dry} \
+    >$(q "$out")/drive.json 2>$(q "$out")/driver.err || true
   sleep 1
   kill \$pid; wait \$pid
   git -C $(q "$repo") diff -- dotnet/ >$(q "$out")/dotnet-after.diff
