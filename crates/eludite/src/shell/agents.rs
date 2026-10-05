@@ -21,6 +21,8 @@
 //! - **Thumbnails** (brief 0024). Images in a tool call's result (Eludite's screenshot, or image content the agent
 //!   forwards) are decoded and scaled off the UI thread and shown in its transcript row; clicking one saves the image
 //!   beside the transcript (or in Eludite's cache) and opens it with `eludite.browser.open_external`.
+//! - **Slash commands** (brief 0057). The agent's `available_commands_update` is kept in the transcript model, listed
+//!   in the state output's `commands` and offered by the prompt box's slash menu; a new session starts with none.
 
 pub mod endpoint;
 pub mod review;
@@ -693,6 +695,8 @@ impl Shell {
             w.transcript.notice(format!(
                 "Starting {name} (Eludite's MCP resources for the agent: {guides})"
             ));
+            // The new session's agent sends its own slash commands, if it has any (brief 0057).
+            w.transcript.commands.clear();
             w.sync(cx);
         });
         self.sync_agents_header(cx);
@@ -1057,7 +1061,7 @@ impl Shell {
 
     /// `agents-state.output.json`.
     pub fn agents_state(&self, cx: &gpui::App) -> eludite_commands::agents::AgentsStateOutput {
-        use eludite_commands::agents::{AgentRow, AgentsStateOutput, LoginRow};
+        use eludite_commands::agents::{AgentRow, AgentsStateOutput, CommandRow, LoginRow};
         let a = &self.agents;
         AgentsStateOutput {
             agent: a
@@ -1095,6 +1099,19 @@ impl Shell {
                 .values()
                 .filter(|c| c.state == review::ChangeState::Pending)
                 .count() as u64,
+            // What the slash menu offers (brief 0057).
+            commands: a
+                .window
+                .read(cx)
+                .transcript
+                .commands
+                .iter()
+                .map(|c| CommandRow {
+                    name: c.name.clone(),
+                    description: c.description.clone(),
+                    hint: c.hint().map(str::to_owned),
+                })
+                .collect(),
         }
     }
 
@@ -1478,6 +1495,12 @@ impl Shell {
                         {
                             let images = transcript::content_images(content);
                             self.decode_images(t.tool_call_id.clone(), images, cx);
+                        }
+                        if let Some(commands) = u.available_commands() {
+                            super::documents::trace(format_args!(
+                                "agents commands {}",
+                                commands.len()
+                            ));
                         }
                         window.update(cx, |w, _| w.transcript.apply(&u))
                     }

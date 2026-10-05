@@ -173,6 +173,10 @@ pub fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("tab", AcceptCompletion, Some(COMPLETION_CONTEXT)),
         KeyBinding::new("enter", AcceptCompletion, Some(COMPLETION_SELECTED_CONTEXT)),
     ]
+    .into_iter()
+    // The text box's keys (brief 0057), in its own context.
+    .chain(crate::input::bindings())
+    .collect()
 }
 
 /// Fonts, metrics and colors for one editor.

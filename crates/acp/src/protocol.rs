@@ -347,6 +347,47 @@ pub struct PlanEntry {
     pub status: String,
 }
 
+/// One command of an `available_commands_update` (ACP schema 1.9's `AvailableCommand`): a slash command the person can
+/// type as `/name`. Unknown fields are ignored, so an agent's extensions never break decoding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailableCommand {
+    /// Without the leading `/`.
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    /// What the command takes after its name, when it takes input (ACP's unstructured `input.hint`). An input of
+    /// another shape reads as none, as ACP's own `DefaultOnError` does.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "input_or_none"
+    )]
+    pub input: Option<AvailableCommandInput>,
+}
+
+fn input_or_none<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<AvailableCommandInput>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).ok())
+}
+
+/// An [`AvailableCommand`]'s input: all text typed after the name, with a hint shown until it is typed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AvailableCommandInput {
+    #[serde(default)]
+    pub hint: String,
+}
+
+impl AvailableCommand {
+    /// The input hint, when there is a non-empty one.
+    pub fn hint(&self) -> Option<&str> {
+        self.input
+            .as_ref()
+            .map(|i| i.hint.as_str())
+            .filter(|h| !h.is_empty())
+    }
+}
+
 /// One `session/update` payload.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionUpdate {
@@ -431,6 +472,22 @@ impl SessionUpdate {
             cost,
             turn,
         })
+    }
+
+    /// The commands of an `available_commands_update` (kept as [`SessionUpdate::Other`], like `plan`; brief 0057). A
+    /// command that does not decode (no name) is skipped, not the whole list.
+    pub fn available_commands(&self) -> Option<Vec<AvailableCommand>> {
+        match self {
+            SessionUpdate::Other { kind, raw } if kind == "available_commands_update" => Some(
+                raw.get("availableCommands")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|c| serde_json::from_value(c.clone()).ok())
+                    .collect(),
+            ),
+            _ => None,
+        }
     }
 
     /// The entries of a `plan` update (kept as [`SessionUpdate::Other`] so new fields never break decoding).
@@ -578,6 +635,38 @@ pub struct RequestPermissionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn available_commands_decode_and_a_bad_entry_is_skipped() {
+        // As the Node adapter sends them (crates/acp/tests/fixtures/claude-agent-acp-0.85.0-diagnostics.jsonl), plus
+        // an entry with no name and one whose input is not ACP's unstructured input.
+        let line = r#"{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Free up context by summarizing the conversation so far","input":{"hint":"<optional custom summarization instructions>"}},{"name":"init","description":"Initialize a new CLAUDE.md file with codebase documentation","input":null},{"description":"no name"},{"name":"model","description":"Set the model","input":"oops","_meta":{"x":1}}]}"#;
+        let update: SessionUpdate = serde_json::from_str(line).unwrap();
+        let commands = update.available_commands().expect("a command list");
+        let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["compact", "init", "model"]);
+        assert_eq!(
+            commands[0].hint(),
+            Some("<optional custom summarization instructions>")
+        );
+        assert_eq!(commands[1].hint(), None);
+        assert_eq!(commands[2].hint(), None);
+        // It round-trips unchanged, and is neither a plan nor usage.
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::from_str::<Value>(line).unwrap()
+        );
+        assert!(update.plan_entries().is_none() && update.usage().is_none());
+        // An empty list is a list (the agent has no commands now).
+        let empty: SessionUpdate = serde_json::from_str(
+            r#"{"sessionUpdate":"available_commands_update","availableCommands":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(empty.available_commands(), Some(Vec::new()));
+        let plan: SessionUpdate =
+            serde_json::from_str(r#"{"sessionUpdate":"plan","entries":[]}"#).unwrap();
+        assert!(plan.available_commands().is_none());
+    }
 
     #[test]
     fn a_usage_update_decodes_with_the_turns_tokens() {

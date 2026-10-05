@@ -2,6 +2,10 @@
 //! (`eludite-acp`), against a fake `claude` replaying a recorded and redacted
 //! real session (`tests/fixtures/claude-2.1.287-session.jsonl`).
 //!
+//! Brief 0057: `claude-2.1.289-commands.jsonl` (no prompt; the `initialize`
+//! reply with Claude Code's built-in slash commands) proves the adapter sends
+//! one `available_commands_update` right after `session/new`.
+//!
 //! The recorded session has three turns: the diagnostics question (ToolSearch,
 //! then the Eludite MCP tool, allowed), a Write (denied), and a long answer
 //! interrupted by the client.
@@ -690,4 +694,50 @@ fn cancel_while_permission_pending() {
         inputs[answer]["response"]["response"],
         json!({"behavior": "deny", "message": "The prompt was cancelled", "interrupt": true})
     );
+}
+
+#[test]
+fn recorded_commands_follow_session_new() {
+    let mut env = fake_env("claude-2.1.289-commands.jsonl");
+    env.push(("FAKE_CLAUDE_VERSION".into(), "2.1.289 (Claude Code)".into()));
+    let h = spawn("commands", env, read_policy());
+    h.client.initialize(info(), T).unwrap();
+    // Nothing arrives before the session exists.
+    assert!(updates(&drain(&h.events)).is_empty());
+    let session = h
+        .client
+        .new_session(&h.cwd, vec![eludite_server()], T)
+        .unwrap();
+    let ev = drain(&h.events);
+    let lists: Vec<(String, Vec<String>)> = ev
+        .iter()
+        .filter_map(|e| match e {
+            ClientEvent::Update(SessionNotification { session_id, update }) => update
+                .available_commands()
+                .map(|c| (session_id.clone(), c.into_iter().map(|c| c.name).collect())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lists.len(), 1, "one list: {lists:?}");
+    let (sid, names) = &lists[0];
+    assert_eq!(sid, &session.session_id);
+    for want in ["model", "effort", "compact", "clear", "context"] {
+        assert!(names.iter().any(|n| n == want), "{want} in {names:?}");
+    }
+    assert!(!names.iter().any(|n| n.starts_with("__")), "{names:?}");
+    let commands = updates(&ev)
+        .iter()
+        .find_map(SessionUpdate::available_commands)
+        .unwrap();
+    let compact = commands.iter().find(|c| c.name == "compact").unwrap();
+    assert_eq!(
+        compact.hint(),
+        Some("<optional custom summarization instructions>")
+    );
+    let context = commands.iter().find(|c| c.name == "context").unwrap();
+    assert_eq!(context.hint(), None);
+    // The replay matched: the fake saw only the initialize request, no mismatch.
+    h.client.shutdown();
+    let log = fake_log(&h.log);
+    assert!(!log.iter().any(|e| e["event"] == "mismatch"), "{log:?}");
 }

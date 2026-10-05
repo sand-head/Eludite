@@ -166,6 +166,45 @@ impl Ws {
         self.vcx.run_until_parked();
     }
 
+    /// Type `text` in the prompt box without sending it (the box must have focus).
+    fn type_keys(&mut self, text: &str) {
+        let keys: Vec<String> = text
+            .chars()
+            .map(|c| {
+                if c == ' ' {
+                    "space".into()
+                } else {
+                    c.to_string()
+                }
+            })
+            .collect();
+        self.vcx.simulate_keystrokes(&keys.join(" "));
+        self.vcx.run_until_parked();
+    }
+
+    /// The prompt box's text and caret (brief 0057).
+    fn prompt_box(&self) -> (String, usize) {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            let input = s.agents().window.read(cx).input.read(cx);
+            (input.text(), input.caret())
+        })
+    }
+
+    /// The slash menu's commands and selected row, when it is open.
+    fn slash_menu(&self) -> Option<(Vec<String>, usize)> {
+        self.shell
+            .read_with(&self.vcx, |s, cx| s.agents().window.read(cx).menu_items(cx))
+    }
+
+    fn user_rows(&self) -> Vec<String> {
+        self.transcript()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["user"].as_str().map(str::to_owned))
+            .collect()
+    }
+
     /// View > Agents.
     fn show_agents(&mut self) {
         self.commands
@@ -1658,4 +1697,181 @@ fn a_file_link_in_the_agents_message_opens_the_file_at_its_line(cx: &mut TestApp
     );
     let caret_row = view.read_with(&w.vcx, |v, _| v.editor().primary_head().row);
     assert_eq!(caret_row, 2, "line 3");
+}
+
+/// Brief 0057: the prompt box is an editor. A prompt edited in the middle arrives as edited; Up recalls it and Enter
+/// sends it again; the box keeps its text and caret while the window is hidden; Enter with only whitespace sends
+/// nothing.
+#[gpui::test]
+fn the_prompt_box_edits_at_the_caret_and_recalls_prompts(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.start_agent("Fake streamer");
+    w.show_agents();
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("world");
+    w.vcx.simulate_keystrokes("home");
+    w.type_keys("hello ");
+    w.vcx.simulate_keystrokes("end");
+    w.type_keys("!");
+    assert_eq!(w.prompt_box(), ("hello world!".into(), 12));
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.wait_turn(), "end_turn");
+    assert_eq!(w.user_rows(), ["hello world!"]);
+    assert_eq!(w.prompt_box(), (String::new(), 0), "sending clears the box");
+    // Up on the empty box recalls the last prompt; Enter sends it again.
+    w.click(super::window::PROMPT_BOX);
+    w.vcx.simulate_keystrokes("up");
+    w.vcx.run_until_parked();
+    assert_eq!(w.prompt_box().0, "hello world!");
+    // Down past the newest prompt is the empty box again; Up brings it back.
+    w.vcx.simulate_keystrokes("down");
+    w.vcx.run_until_parked();
+    assert_eq!(w.prompt_box().0, "");
+    w.vcx.simulate_keystrokes("up enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.wait_turn(), "end_turn");
+    assert_eq!(w.user_rows(), ["hello world!", "hello world!"]);
+    // Up does not replace a draft.
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("draft");
+    w.vcx.simulate_keystrokes("left up");
+    w.vcx.run_until_parked();
+    assert_eq!(w.prompt_box(), ("draft".into(), 4));
+    // Hidden behind Workspace and shown again, the box keeps the draft and its caret.
+    w.commands
+        .invoke("eludite.view.show", json!({"id": ids::WORKSPACE}))
+        .unwrap();
+    w.vcx.run_until_parked();
+    assert!(w.vcx.debug_bounds(super::window::PROMPT_BOX).is_none());
+    w.show_agents();
+    assert_eq!(w.prompt_box(), ("draft".into(), 4));
+    // Only whitespace: nothing is sent.
+    w.click(super::window::PROMPT_BOX);
+    w.vcx
+        .simulate_keystrokes("ctrl-a backspace space shift-enter space enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.user_rows().len(), 2);
+    let history = w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents().window.read(cx).history().to_vec()
+    });
+    assert_eq!(history, ["hello world!"], "a repeat is kept once");
+}
+
+/// Brief 0057: the agent's slash commands in the menu above the prompt box, filtered as the person types, completed
+/// with Tab, Enter or a click, closed with Escape; the state output lists them; an agent with none has no menu.
+#[gpui::test]
+fn the_slash_menu_offers_the_agents_commands(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.start_agent("Fake streamer");
+    w.wait("the agent's commands", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            !s.agents().window.read(cx).transcript.commands.is_empty()
+        })
+    });
+    // The state output lists them, as the menu does (agents-state.output.json's `commands`).
+    let state = w.shell.read_with(&w.vcx, |s, cx| {
+        serde_json::to_value(s.agents_state(cx)).unwrap()
+    });
+    assert_eq!(
+        state["commands"],
+        json!([
+            {"name": "compact", "description": "Free up context by summarizing the conversation so far",
+             "hint": "<optional custom summarization instructions>"},
+            {"name": "model", "description": "Set the AI model for Claude Code", "hint": "<model>"}
+        ])
+    );
+    w.show_agents();
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("/");
+    assert_eq!(
+        w.slash_menu(),
+        Some((vec!["compact".to_owned(), "model".to_owned()], 0))
+    );
+    assert!(w.vcx.debug_bounds(super::window::SLASH_MENU).is_some());
+    let menu = w.vcx.debug_bounds(super::window::SLASH_MENU).unwrap();
+    let prompt = w.vcx.debug_bounds(super::window::PROMPT_BOX).unwrap();
+    assert!(
+        menu.bottom() <= prompt.top() + gpui::px(1.),
+        "above the box: {menu:?} {prompt:?}"
+    );
+    assert!(
+        w.vcx
+            .debug_bounds(String::leak(super::window::slash_item("model")))
+            .is_some()
+    );
+    // Down and Up move the selection, wrapping.
+    w.vcx.simulate_keystrokes("down");
+    assert_eq!(w.slash_menu().unwrap().1, 1);
+    w.vcx.simulate_keystrokes("down");
+    assert_eq!(w.slash_menu().unwrap().1, 0);
+    w.vcx.simulate_keystrokes("up");
+    assert_eq!(w.slash_menu().unwrap().1, 1);
+    // Typing filters: `co` is in `compact` only.
+    w.type_keys("co");
+    assert_eq!(w.slash_menu(), Some((vec!["compact".to_owned()], 0)));
+    // Escape closes the menu and leaves the text; it does not cancel anything.
+    w.vcx.simulate_keystrokes("escape");
+    w.vcx.run_until_parked();
+    assert_eq!(w.slash_menu(), None);
+    assert!(w.vcx.debug_bounds(super::window::SLASH_MENU).is_none());
+    assert_eq!(w.prompt_box(), ("/co".into(), 3));
+    assert!(!w.audit().contains(&"eludite.agents.cancel".to_owned()));
+    // Typing again reopens it; Tab completes to `/compact ` with the caret after the space, and the menu closes.
+    w.type_keys("m");
+    assert_eq!(w.slash_menu(), Some((vec!["compact".to_owned()], 0)));
+    w.vcx.simulate_keystrokes("tab");
+    w.vcx.run_until_parked();
+    assert_eq!(w.prompt_box(), ("/compact ".into(), 9));
+    assert_eq!(w.slash_menu(), None);
+    // Enter sends it; the fake agent answers a slash command with one line naming it.
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.wait_turn(), "end_turn");
+    assert_eq!(w.user_rows(), ["/compact"]);
+    assert!(
+        w.agent_text()
+            .contains(&eludite_acp::fake_agent::slash_reply("/compact"))
+    );
+    // Enter on a partial name completes and does not send; on the full name it sends (`/model` Enter Enter).
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("/mo");
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.prompt_box(), ("/model ".into(), 7));
+    assert_eq!(w.user_rows().len(), 1);
+    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.type_keys("/model");
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.wait_turn(), "end_turn");
+    assert_eq!(w.user_rows(), ["/compact", "/model"]);
+    // A click on a row completes it.
+    w.click(super::window::PROMPT_BOX);
+    w.type_keys("/");
+    w.click(&super::window::slash_item("model"));
+    assert_eq!(w.prompt_box(), ("/model ".into(), 7));
+    // Backspace past the `/` closes the menu.
+    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.type_keys("/");
+    assert!(w.slash_menu().is_some());
+    w.vcx.simulate_keystrokes("backspace");
+    w.vcx.run_until_parked();
+    assert_eq!(w.slash_menu(), None);
+    // Not in the first word: no menu.
+    w.type_keys("/model x");
+    assert_eq!(w.slash_menu(), None);
+
+    // An agent with no commands: `/` is plain text, and the state lists none.
+    w.start_agent("Fake editor");
+    w.click(super::window::PROMPT_BOX);
+    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.type_keys("/co");
+    assert_eq!(w.slash_menu(), None);
+    assert!(w.vcx.debug_bounds(super::window::SLASH_MENU).is_none());
+    assert_eq!(w.prompt_box(), ("/co".into(), 3));
+    let state = w.shell.read_with(&w.vcx, |s, cx| {
+        serde_json::to_value(s.agents_state(cx)).unwrap()
+    });
+    assert_eq!(state["commands"], json!([]));
 }

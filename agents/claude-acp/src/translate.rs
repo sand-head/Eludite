@@ -23,17 +23,54 @@
 //!
 //! Only top-level messages (`parent_tool_use_id: null`) produce text; tool
 //! calls from subagents are shown too.
+//!
+//! Outside a turn, [`available_commands_update`] turns the slash commands of
+//! `claude`'s `initialize` reply into the `available_commands_update` sent
+//! right after `session/new` answers (brief 0057).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use agent_client_protocol::schema::v1::{
-    ContentBlock, ContentChunk, Cost, Meta, SessionUpdate, StopReason, ToolCall, ToolCallStatus,
-    ToolCallUpdate, ToolCallUpdateFields, ToolKind, UsageUpdate,
+    AvailableCommand, AvailableCommandInput, AvailableCommandsUpdate, ContentBlock, ContentChunk,
+    Cost, Meta, SessionUpdate, StopReason, ToolCall, ToolCallStatus, ToolCallUpdate,
+    ToolCallUpdateFields, ToolKind, UnstructuredCommandInput, UsageUpdate,
 };
 use serde_json::{Map, Value, json};
 
 use crate::mapping::{tool_info, tool_meta, tool_result_fields};
+
+/// ACP's commands from `claude`'s (`[{name, description, argumentHint, aliases?, builtin?}]`): `argumentHint` becomes
+/// `input.hint` when it is not empty, a name starting with `__` (Claude Code's internal commands) is dropped, an entry
+/// without a name is skipped, and aliases are not sent (ACP has no field for them).
+pub fn available_commands(commands: &[Value]) -> Vec<AvailableCommand> {
+    commands
+        .iter()
+        .filter_map(|c| {
+            let name = c.get("name").and_then(Value::as_str)?;
+            if name.is_empty() || name.starts_with("__") {
+                return None;
+            }
+            let description = c.get("description").and_then(Value::as_str).unwrap_or("");
+            let hint = c
+                .get("argumentHint")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|h| !h.is_empty())
+                .map(|h| {
+                    AvailableCommandInput::Unstructured(UnstructuredCommandInput::new(h.to_owned()))
+                });
+            Some(AvailableCommand::new(name, description).input(hint))
+        })
+        .collect()
+}
+
+/// The `available_commands_update` for `claude`'s commands (see [`available_commands`]).
+pub fn available_commands_update(commands: &[Value]) -> SessionUpdate {
+    SessionUpdate::AvailableCommandsUpdate(AvailableCommandsUpdate::new(available_commands(
+        commands,
+    )))
+}
 
 /// How a turn ended.
 #[derive(Debug, Clone, PartialEq)]

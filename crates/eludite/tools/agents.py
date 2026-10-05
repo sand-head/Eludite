@@ -4,6 +4,9 @@
 adapter, and take the three screenshots.
 
   1. Wait for the solution and the injected error's diagnostics; Ctrl+\\, Ctrl+C shows the Agents window.
+     Brief 0057, before any prompt (no model call): type a prompt that wraps to three rows, click in its second row
+     (agents-prompt-editor.png), clear it; Start the agent, wait for its slash commands, type `/mo`
+     (agents-slash-menu.png), Escape, clear.
   2. Click the prompt box, type "List the current errors and fix the first one", Enter. Claude calls
      diagnostics-list (no prompt: class read) and proposes an edit, held as a pending change; its review view opens
      (screenshot agents-pending-diff.png). Click Accept in the review view; wait for the error to clear and the turn
@@ -22,6 +25,9 @@ from intellisense import bounds, find_window, press, shot, trace, type_text, wai
 from navigation import click, since  # noqa: E402
 
 PROMPT = "List the current errors and fix the first one"
+# Brief 0057: long enough to wrap to three rows in the Agents window's default width.
+WRAPPED = ("Explain what HostRpcTarget does when the host receives a ping, which fields the result carries, "
+           "and where the timestamp comes from")
 
 
 def ms():
@@ -53,6 +59,45 @@ def send(a, text):
     click(a.title, box)
     type_text(text, delay=0.04)
     press("Return")
+
+
+def editor_shots(a, out):
+    """Brief 0057: the prompt editor with a wrapped prompt and a clicked caret, then the slash menu on `/mo`."""
+    box = rect(a, "agents-prompt")
+    if not box:
+        out["editor_error"] = "no prompt box in the bounds file"
+        return
+    click(a.title, box)
+    type_text(WRAPPED, delay=0.02)
+    time.sleep(1.0)
+    box = rect(a, "agents-prompt")
+    out["editor_box"] = box
+    # The box is its rows plus 2 px of padding and 1 px of border above and below: click in the second row, at 40% of
+    # its width.
+    rows = 3
+    row_h = (box[3] - 6) / rows
+    at = [box[0] + box[2] * 0.4, box[1] + 3 + row_h * 1.5, 0, 0]
+    out["editor_click"] = at
+    click(a.title, at)
+    time.sleep(0.8)
+    out["shot_editor"] = shot(a.shots, "agents-prompt-editor")
+    press("a", ["Control_L"])
+    press("BackSpace")
+    # The slash menu needs the agent's commands: Start, then wait for them.
+    t = ms()
+    start = rect(a, "agents-start", timeout=5)
+    if start:
+        click(a.title, start)
+    commands = wait_trace(a.log, lambda s: s.startswith("agents commands"), t, 90)
+    out["commands"] = commands and commands[1]
+    click(a.title, rect(a, "agents-prompt"))
+    type_text("/mo", delay=0.1)
+    time.sleep(1.0)
+    out["shot_slash"] = shot(a.shots, "agents-slash-menu")
+    press("Escape")
+    press("a", ["Control_L"])
+    press("BackSpace")
+    time.sleep(0.5)
 
 
 def turn(a, out, key, start, timeout, on_permission):
@@ -108,6 +153,9 @@ def main():
     if props:
         click(a.title, props)
     time.sleep(0.5)
+
+    # 0. Brief 0057: the prompt editor and the slash menu.
+    editor_shots(a, out)
 
     # 1. The error: diagnostics-list, a pending change, Accept.
     start = ms()

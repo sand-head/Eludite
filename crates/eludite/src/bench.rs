@@ -1686,15 +1686,103 @@ pub fn agent_ready(shell: &Entity<Shell>, runs: usize, t_main: Instant, cx: &mut
     });
 }
 
+/// The prompt bench's text (brief 0057): words of 2 to 11 characters, so the box wraps by words.
+const PROMPT_WORDS: &str =
+    "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor ";
+
+/// `--bench-agent-prompt` (brief 0057): type `count` characters into the Agents window's prompt box, one keystroke at a
+/// time, 8 to 14 ms apart; report keystroke-to-frame as `--bench-type` does (the key handler plus the next frame's
+/// render to the end of present), and the box's rows at the end.
+async fn type_into_prompt(
+    shell: &Entity<Shell>,
+    handle: gpui::AnyWindowHandle,
+    count: usize,
+    cx: &mut gpui::AsyncApp,
+) -> Value {
+    use gpui::AppContext as _;
+    let probe = Rc::new(RefCell::new(RenderProbe::default()));
+    let _ = cx.update_window(handle, |_, window, cx| {
+        let input = shell.read(cx).agents().window.read(cx).input.clone();
+        input.update(cx, |i, cx| i.clear(cx));
+        window.focus(&input.focus_handle(cx), cx);
+        shell.update(cx, |s, cx| s.set_probe(Some(probe.clone()), cx));
+    });
+    let mut seed: u64 = 0x5eed;
+    let mut next = move || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let mut keys: Vec<(Instant, Instant)> = Vec::with_capacity(count);
+    for c in PROMPT_WORDS.chars().cycle().take(count) {
+        let delay = 8. + 6. * next();
+        cx.background_executor()
+            .timer(Duration::from_micros((delay * 1000.) as u64))
+            .await;
+        let key = if c == ' ' {
+            "space".to_owned()
+        } else {
+            c.to_string()
+        };
+        let ks = Keystroke::parse(&key).expect("keystroke");
+        let _ = cx.update_window(handle, |_, window, cx| {
+            let t0 = Instant::now();
+            window.dispatch_keystroke(ks, cx);
+            keys.push((t0, Instant::now()));
+        });
+    }
+    cx.background_executor()
+        .timer(Duration::from_millis(300))
+        .await;
+    cx.update(|cx| {
+        let p = probe.borrow();
+        let frames: Vec<(Instant, Instant)> = p
+            .renders
+            .iter()
+            .copied()
+            .zip(p.presents.iter().copied())
+            .collect();
+        let mut cost = Vec::new();
+        let mut handler = Vec::new();
+        for (t0, t1) in &keys {
+            handler.push(ms(*t1 - *t0));
+            if let Some((r, pr)) = frames.iter().find(|(r, _)| r >= t1) {
+                cost.push(ms(*t1 - *t0) + ms(pr.saturating_duration_since(*r)));
+            }
+        }
+        let input = shell.read(cx).agents().window.read(cx).input.read(cx);
+        let typed = input.text().chars().count();
+        let rows = input.layout().map_or(0, |l| l.row_count());
+        shell.update(cx, |s, cx| s.set_probe(None, cx));
+        json!({
+            "method": "Window::dispatch_keystroke into the focused prompt box, 8-14 ms apart; frame cost = key handler + render to end of present (the next frame after the key)",
+            "keystrokes": count,
+            "typed_chars": typed,
+            "visual_rows": rows,
+            "samples": cost.len(),
+            "keystroke_frame_cost": summarize(&cost),
+            "key_handler": summarize(&handler),
+        })
+    })
+}
+
 /// `--bench-agent-stream PATH`: the fake agent at PATH (a real child process) streams 2000 message chunks at 200 per
 /// second into the Agents window; report the UI thread's frame work while it streams (the window's render to the end
 /// of the frame), the cost of applying each batch of events, and the batch sizes.
+///
+/// `--bench-agent-prompt PATH` (brief 0057; the same setup): first type 2,000 characters into the prompt box
+/// ([`type_into_prompt`]), then stream as above with the box focused and holding 500 characters, and report both.
 pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
+    // The flag rides on `--bench-agent-stream`'s setup (the fake agent registered from its path).
+    let prompt_bench =
+        crate::args::Args::parse(std::env::args().skip(1)).is_ok_and(|a| a.bench_agent_prompt);
     let shell2 = shell.clone();
     shell.update(cx, |s, _| {
         s.after_first_present(move |window, cx| {
             let shell = shell2.clone();
             let platform = platform(window);
+            let handle = window.window_handle();
             shell.update(cx, |s, cx| {
                 let _ = s.commands_invoke_view_show(eludite_docking::ids::AGENTS);
                 let _ = s.agents_start(None, true, cx);
@@ -1705,6 +1793,19 @@ pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
                     if cx.update(|cx| shell.read(cx).agents().ready_ms.is_some()) {
                         break;
                     }
+                }
+                let mut typing = Value::Null;
+                if prompt_bench {
+                    typing = type_into_prompt(&shell, handle, 2000, cx).await;
+                    // The stream then runs with 500 characters in the focused box.
+                    cx.update(|cx| {
+                        let input = shell.read(cx).agents().window.read(cx).input.clone();
+                        let text: String = PROMPT_WORDS.chars().cycle().take(500).collect();
+                        input.update(cx, |i, cx| i.set_text(&text, cx));
+                    });
+                    cx.background_executor()
+                        .timer(Duration::from_millis(300))
+                        .await;
                 }
                 cx.update(|cx| {
                     shell.update(cx, |s, cx| {
@@ -1728,8 +1829,11 @@ pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
                     shell.update(cx, |s, cx| {
                         s.agents_probe(false, cx);
                         let (frames, apply, batches, chunks) = s.agents_probe_results(cx);
+                        let prompt_chars = s.agents().window.read(cx).prompt_text(cx).chars().count();
                         json!({
-                            "bench": "agent_stream",
+                            "bench": if prompt_bench { "agent_prompt" } else { "agent_stream" },
+                            "prompt_typing": typing,
+                            "prompt_chars_while_streaming": prompt_chars,
                             "stream_s": ms(started.elapsed()) / 1e3,
                             "frames": frames.len(),
                             "frame_work": summarize(&frames),
