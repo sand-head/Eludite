@@ -534,9 +534,13 @@ fn f5_builds_the_package_through_cargo_then_launches_and_ctrl_f5_runs_it(cx: &mu
     });
     let out = nt.debug_output();
     let rs = nt.rs.clone();
+    // macOS's temporary folder is a symlink (`/var` to `/private/var`); the program prints its physical cwd.
+    let real = std::fs::canonicalize(&rs).unwrap_or_else(|_| rs.clone());
     assert!(
-        out.iter()
-            .any(|l| l == &format!("app --fast mode=dev cwd={}", rs.display())),
+        out.iter().any(|l| {
+            l == &format!("app --fast mode=dev cwd={}", rs.display())
+                || l == &format!("app --fast mode=dev cwd={}", real.display())
+        }),
         "{out:?}"
     );
     // `test` with a filter: `cargo test --no-run` names the test executable, which runs with the filter and

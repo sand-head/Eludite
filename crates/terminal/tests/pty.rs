@@ -303,13 +303,16 @@ fn osc_133_marks_give_each_commands_exit_code_under_bash() {
     assert_eq!(
         r.text.trim(),
         "out-42",
-        "the output only, without prompt or command"
+        "the output only, without prompt or command; mark {m}, marks {:?}, transcript {:?}",
+        b.t.marks_since(0),
+        b.t.since(0, usize::MAX).0
     );
     let m = b.run("(exit 3)");
     assert_eq!(b.prompt(m).exit_code, Some(3));
-    let m = b.run("false; echo two; ls /nonexistent-eludite");
+    // The last command's code (GNU ls exits 2 for a missing path, BSD ls 1: a subshell's is the same everywhere).
+    let m = b.run("false; echo two; (exit 2)");
     let r = b.prompt(m);
-    assert_eq!(r.exit_code, Some(2), "ls's code");
+    assert_eq!(r.exit_code, Some(2), "the last command's code");
     assert!(r.text.contains("two"));
     // The folder through OSC 7.
     let m = b.run("cd /tmp");

@@ -466,7 +466,8 @@ public sealed partial class MonoAdapterTests
         var s = c.WaitEvent("stopped");
         Assert.Equal("pause", (string)s["body"]!["reason"]!);
         var trace = c.Body("stackTrace", new JObject { ["threadId"] = (long)s["body"]!["threadId"]! });
-        Assert.Contains((JArray)trace["stackFrames"]!, f => ((string)f["name"]!).StartsWith("Eludite.Debugger.Mono.TestApp.Program.Main(", StringComparison.Ordinal) && (int)f["line"]! == Built.Line("sleep"));
+        // The pause follows the "sleeping" line: Main is at the sleep, or still at the print when the pause came first.
+        Assert.Contains((JArray)trace["stackFrames"]!, f => ((string)f["name"]!).StartsWith("Eludite.Debugger.Mono.TestApp.Program.Main(", StringComparison.Ordinal) && ((int)f["line"]! == Built.Line("sleep") || (int)f["line"]! == Built.Line("sleep-print")));
         c.Body("disconnect", new JObject { ["terminateDebuggee"] = true });
         c.WaitEvent("terminated");
         Assert.True(c.WaitForExit(TimeSpan.FromSeconds(10)));

@@ -68,8 +68,43 @@ then `eludite --print-engine-discovery` and the engine from the layout (initiali
 CEF, `about:blank`) with no `CEF_PATH`, `ELUDITE_CEF`, `ELUDITE_CHROMIUM`, `LD_LIBRARY_PATH` or CEF cache.
 `ELUDITE_PACKAGE_TARBALL=PATH` tests a release tarball instead (CI's step does). It skips when CEF is not cached.
 
-**CI** (`.github/workflows/ci.yml`, Linux job): when the CEF cache was restored, `linux.sh` builds the release tarball
-and the smoke test runs against it; otherwise the step is skipped with a notice.
+**CI** (`.github/workflows/ci.yml`, the `package` job): on Linux `linux.sh --with-companions` builds the release tarball
+(fetching CEF when the cache missed), the smoke test runs against it, and the tarball is uploaded as the run's artifact
+`eludite-<version>-linux-<arch>`; Windows and macOS upload `shell.sh`'s archives (below). The job runs after the `rust`
+and `dotnet` jobs and only when every one of them is green, so no archive comes out of a red run.
+
+## The companions: `companions.sh`
+
+The shell looks beside its own executable for the programs it runs (`crates/eludite/src/shell/session.rs`,
+`crates/dap/src/discovery.rs`, `crates/acp/src/lib.rs`), so a layout can carry Eludite's own ones and need no
+environment variables. `tools/package/companions.sh --into DIR` builds and lays out:
+
+```
+eludite-host/                the .NET host: dotnet publish of dotnet/src/Eludite.Host (Release, framework-dependent:
+                             the apphost eludite-host, eludite-host.dll and its dependencies; runs on the installed
+                             .NET 10 runtime, which the SDK brings)
+eludite-dbg-mono/            dotnet publish of debuggers/mono/Eludite.Debugger.Mono (net472; runs under Mono)
+eludite-claude-acp           the release build of agents/claude-acp (its own cargo workspace)
+licenses/eludite-claude-acp/ its LICENSE (MIT) and NOTICE
+```
+
+Pinned external tools (netcoredbg, rust-analyzer, lldb-dap, the Roslyn language server, vscode-js-debug, the web
+language servers, Chrome) stay located at run time and are never packaged. `linux.sh --with-companions` runs it before
+making the tarball and appends `README-companions.in` to the tarball's README; the smoke test's `linux.sh` call does
+not, so `cargo test` never runs `dotnet publish`.
+
+## Without the engine: `shell.sh`
+
+```
+tools/package/shell.sh                           # release build, layout and archive in target/package/
+tools/package/shell.sh --out DIR --no-build      # package the eludite already in target/release/
+```
+
+For Windows and macOS, where `eludite-chromium` is still the stub, or Linux without CEF: `cargo build --release -p
+eludite`, the companions, `LICENSE`, `README` (`README-shell.in` and `README-companions.in`) and `THIRD-PARTY-CRATES.txt`
+in `eludite-<version>-<os>-<arch>/` (`windows`, `macos` or `linux`; the arch from `uname -m`), archived as a `.zip` on
+Windows (7-Zip or `zip`) and a `.tar.gz` elsewhere. It runs under Git Bash on Windows. The Web Browser window reports
+the missing engine; the macOS archive is a plain executable, not the `Eludite.app` bundle the engine will need (below).
 
 **Not done here:** Flatpak and Snap (their sandboxes restrict user namespaces in their own ways, and Chromium inside
 them uses the portal's sandbox: a topic of its own), `.deb` and `.rpm` (installers are Phase 3; an installer would own

@@ -1194,7 +1194,8 @@ mod tests {
         assert_eq!(c.describe(None), "codelldb (stdio)");
     }
 
-    /// The real lldb-dap of this machine, when there is one: its version comes from `lldb --version` beside it.
+    /// The real lldb-dap of this machine, when there is one: its version comes from `lldb --version` beside it, when
+    /// that runs (the LLVM installer's `lldb.exe` on Windows wants a Python it does not install).
     #[test]
     fn the_installed_lldb_dap_has_a_version() {
         let Ok(found) = LldbSearch::from_env().find(Platform::current()) else {
@@ -1203,8 +1204,14 @@ mod tests {
         };
         let v = found.version();
         eprintln!("{} {v:?}", found.path.display());
-        if found.flavor == LldbFlavor::LldbDap {
+        let real = std::fs::canonicalize(&found.path).unwrap_or_else(|_| found.path.clone());
+        let lldb = real.parent().unwrap().join(exe("lldb"));
+        let lldb_runs = command_output(&lldb, &["--version"])
+            .is_some_and(|o| o.to_ascii_lowercase().contains("lldb"));
+        if found.flavor == LldbFlavor::LldbDap && lldb_runs {
             assert!(v.is_some_and(|v| v.chars().next().is_some_and(|c| c.is_ascii_digit())));
+        } else if v.is_none() {
+            eprintln!("no version: {} does not run here", lldb.display());
         }
     }
 

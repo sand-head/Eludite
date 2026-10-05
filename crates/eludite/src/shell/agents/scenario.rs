@@ -110,6 +110,9 @@ pub struct DebugAgent {
     replacement: Option<String>,
     /// The reasons read in `breakpoints_failed` (brief 0036).
     pub failures_read: Vec<String>,
+    /// The condition was replaced while the session sits at its break (an adapter that evaluates conditions at the
+    /// hit, as netcoredbg and Visual Studio do): the rerun is a restart.
+    at_break: bool,
 }
 
 impl DebugAgent {
@@ -129,6 +132,7 @@ impl DebugAgent {
             condition: None,
             replacement: None,
             failures_read: Vec::new(),
+            at_break: false,
         }
     }
 
@@ -372,8 +376,14 @@ impl DebugAgent {
             ));
         }
         match self.failure {
-            // The exception's session is still at its break: start it again from there.
+            // The exception's session is still at its break (or the one whose condition was just replaced): start it
+            // again from there.
             Some(Failure::Exception { .. }) => self.call(
+                Phase::Rerun,
+                "eludite-debug-restart",
+                json!({ "wait_ms": WAIT_MS }),
+            ),
+            _ if self.at_break => self.call(
                 Phase::Rerun,
                 "eludite-debug-restart",
                 json!({ "wait_ms": WAIT_MS }),
@@ -397,7 +407,9 @@ impl DebugAgent {
 
     fn rerun_waited(&mut self, r: &Value) -> Next {
         self.last = Some(r.clone());
-        // The breakpoint never stopped: the answer says why when the adapter rejected it (brief 0036).
+        // The answer says why the breakpoint's condition failed (brief 0036): the adapter rejected it up front and the
+        // program never stopped, or it could not evaluate it at the hit and stopped there anyway (netcoredbg, as Visual
+        // Studio does). Either way the reason is read and the condition replaced; from a break, the rerun restarts.
         let failed = r["breakpoints_failed"]
             .as_array()
             .into_iter()
@@ -405,10 +417,9 @@ impl DebugAgent {
             .find(|f| f["line"].as_u64() == Some(self.breakpoint))
             .and_then(|f| f["message"].as_str())
             .map(str::to_owned);
-        if r["mode"] != "break"
-            && let Some(message) = failed
-        {
+        if let Some(message) = failed {
             self.failures_read.push(message.clone());
+            self.at_break = r["mode"] == "break";
             return match self.replacement.take() {
                 Some(c) => {
                     self.condition = Some(c);

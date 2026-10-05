@@ -1661,7 +1661,18 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert!(woke.duration_since(fed) < Duration::from_millis(500));
+        // The line wakes the wait at once, unless the wait is inside a probe: a closed port refuses at once here,
+        // but a hosted Windows runner's filtering can hold the connection until the probe's cap.
+        let slack = if cfg!(windows) {
+            Duration::from_millis(1500)
+        } else {
+            Duration::from_millis(500)
+        };
+        assert!(
+            woke.duration_since(fed) < slack,
+            "{:?}",
+            woke.duration_since(fed)
+        );
         assert_eq!(
             w.heard(),
             ["http://localhost:5180", "https://localhost:7180"]

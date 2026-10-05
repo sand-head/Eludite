@@ -180,8 +180,13 @@ fn child() {
     let work = home.parent().unwrap().join("work");
     let seed = git2::Repository::init(&work).unwrap();
     seed.set_head("refs/heads/main").unwrap();
-    seed.remote("origin", &format!("file://{}", bare.display()))
-        .unwrap();
+    let bare_url = bare.display().to_string().replace('\\', "/");
+    let bare_url = if bare_url.starts_with('/') {
+        format!("file://{bare_url}")
+    } else {
+        format!("file:///{bare_url}")
+    };
+    seed.remote("origin", &bare_url).unwrap();
     let a = open(&work);
     commit(&a, "a.txt", "init");
     a.push(None, None, true, false, &Cancel::new(), &mut |_| {})

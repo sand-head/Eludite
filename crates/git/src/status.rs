@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(t.repo.relative("src/../a.txt").unwrap(), "a.txt");
         let abs = t.path().join("dir").join("f.cs");
         assert_eq!(t.repo.relative(&abs.to_string_lossy()).unwrap(), "dir/f.cs");
-        assert!(t.repo.relative("/elsewhere/f.cs").is_err());
+        assert!(t.repo.relative(&TestRepo::elsewhere("f.cs")).is_err());
         assert!(t.repo.relative("../out.cs").is_err());
     }
 

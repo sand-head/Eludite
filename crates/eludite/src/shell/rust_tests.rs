@@ -100,7 +100,10 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&FakeServer)) -> Rs {
     let mut services = super::register_workspace(
         &mut commands,
         HostLaunch::InProcess(host.connector()),
-        crate::settings::SettingsSetup::isolated(None),
+        // A user settings file, so a test can set a path (`set_cargo`) through the settings command.
+        crate::settings::SettingsSetup::isolated(Some(
+            dir.path().join(super::tests::USER_SETTINGS),
+        )),
     );
     services.agents = super::agents::AgentsSetup {
         registry: Some(Vec::new()),
@@ -272,10 +275,20 @@ impl Rs {
         })
     }
 
+    /// The cargo to run, through the settings store (`build.cargoPath`) as a person would set it: the settings pass
+    /// applies the store's value and would put `cargo` back over one poked into the shell.
     fn set_cargo(&mut self, program: impl Into<std::ffi::OsString>) {
         let program = program.into();
-        self.shell
-            .update(&mut self.vcx, |s, _| s.builds.cargo_program = program);
+        self.commands
+            .invoke(
+                eludite_commands::settings::SET,
+                json!({"key": "build.cargoPath", "value": program.to_string_lossy()}),
+            )
+            .unwrap();
+        self.wait("the cargo path", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.builds.cargo_program == program)
+        });
     }
 }
 
@@ -599,8 +612,15 @@ fn a_crash_restarts_the_generic_server_and_replays_its_documents(cx: &mut TestAp
     w.wait("ready", |w| w.slot().starts_with("rust-analyzer: ready"));
     assert_eq!(w.generation(), 1);
     w.ra.crash();
+    let opened_twice = |w: &Rs| {
+        w.ra.received_params("textDocument/didOpen")
+            .into_iter()
+            .filter(|p| p["textDocument"]["uri"] == uri)
+            .count()
+            == 2
+    };
     w.wait("the restart", |w| {
-        w.ra.connections() == 2 && w.generation() == 2
+        w.ra.connections() == 2 && w.generation() == 2 && opened_twice(w)
     });
     let opens: Vec<Value> =
         w.ra.received_params("textDocument/didOpen")
@@ -740,7 +760,7 @@ fn cancel_kills_cargo(cx: &mut TestAppContext) {
     });
     let canceled = Instant::now();
     let out = w.run_cmd(build_commands::CANCEL, json!({}));
-    assert_eq!(out["canceled"], true);
+    assert_eq!(out["canceled"], true, "{out} with {:?}", w.build_lines());
     w.wait("the build to end", |w| !w.building());
     assert!(canceled.elapsed() < Duration::from_secs(5));
     assert_eq!(w.build_status(), "Build canceled");

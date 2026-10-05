@@ -49,7 +49,12 @@ namespace NullField
                 var error = (Exception)e.ExceptionObject;
                 Console.WriteLine("FAIL " + Check + ": expected " + Expected + ", actual " + error.GetType().Name + " (" + error.Message + ")");
                 Console.Out.Flush();
-                Environment.Exit(1);
+                // Under a debugger, let the exception reach it as unhandled (the stop the scenario expects): this event
+                // fires before the debugger's notification, and an exit here would end the process first.
+                if (!System.Diagnostics.Debugger.IsAttached)
+                {
+                    Environment.Exit(1);
+                }
             };
             var root = new Folder("root", null);
             var docs = new Folder("docs", root);

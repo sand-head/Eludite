@@ -51,6 +51,8 @@ fn identity(r: &git2::Repository) {
     let mut c = r.config().unwrap();
     c.set_str("user.name", "Test").unwrap();
     c.set_str("user.email", "test@example.com").unwrap();
+    // Git for Windows's system config sets core.autocrlf=true; the tests compare bytes.
+    c.set_bool("core.autocrlf", false).unwrap();
 }
 
 /// Stage everything in `r` and commit it with git2.
@@ -394,7 +396,9 @@ fn the_status_bar_shows_the_branch_and_counts_and_the_glyphs_follow_the_file(
     let row = row_selector(&format!("{}|Program.cs", project.to_string_lossy()));
     g.w.double_click(&row);
     let view = g.w.editor(&program);
-    let id = program.to_string_lossy().into_owned();
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     let badge = |g: &G| g.w.controller.snapshot().badges.get(&id).cloned();
     assert_eq!(badge(&g), None);
     let explorer_glyph = |g: &G| {
@@ -420,7 +424,9 @@ fn the_status_bar_shows_the_branch_and_counts_and_the_glyphs_follow_the_file(
     assert_eq!(explorer_glyph(&g), Some(eludite_git::FileGlyph::Modified));
     assert_eq!(
         badge(&g),
-        Some(("\u{2713}".into(), eludite_git::FileGlyph::Modified.color()))
+        Some(("\u{2713}".into(), eludite_git::FileGlyph::Modified.color())),
+        "badges: {:?}",
+        g.w.controller.snapshot().badges.keys().collect::<Vec<_>>()
     );
     assert_eq!(g.slot(PENDING_SLOT), "\u{270E} 1");
     // A new file shows the untracked glyph; staging it, the added one.
@@ -537,15 +543,46 @@ fn compare_with_unmodified_opens_two_panes_with_the_hunks_and_f8_moves(cx: &mut 
     );
 }
 
+/// Run the UI until document `id`'s change margin satisfies `pred`; a timeout names the margins there were.
+fn wait_margin(g: &mut G, what: &str, id: &str, pred: impl Fn(&[gutter::Mark]) -> bool) {
+    let deadline = Instant::now() + super::tests::T;
+    loop {
+        g.w.vcx.run_until_parked();
+        let (ok, keys) = g.w.shell.read_with(&g.w.vcx, |s, cx| {
+            let margins = s.git().margins.borrow();
+            (
+                margins.get(id).is_some_and(|m| pred(&m.read(cx).marks)),
+                margins.keys().cloned().collect::<Vec<_>>(),
+            )
+        });
+        if ok {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}: margins for {keys:?}, wanted {id}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// `measured` under `limit`, unless the machine is overloaded (other agents build beside these tests).
 pub(super) fn assert_budget(what: &str, measured: Duration, limit: Duration) {
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
     let load = std::fs::read_to_string("/proc/loadavg")
         .ok()
         .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok());
+    // The budgets are calibrated on Linux (CI's reference job); the hosted Windows and macOS runners are shared VMs
+    // with no load average to read, so there the numbers are printed, not asserted.
+    let hosted_elsewhere = !cfg!(target_os = "linux") && std::env::var_os("CI").is_some();
     match load {
         Some(l) if l > cores => eprintln!(
             "timing: {what} {:.2} ms not asserted against {:.0} ms: load average {l:.1} on {cores:.0} cores",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        ),
+        _ if hosted_elsewhere => eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a hosted runner, not the reference machine",
             measured.as_secs_f64() * 1e3,
             limit.as_secs_f64() * 1e3
         ),
@@ -620,7 +657,9 @@ fn the_change_margin_follows_edits_and_clears_after_a_stage(cx: &mut TestAppCont
         let view = g.w.editor(&program);
         (program, view)
     };
-    let id = program.to_string_lossy().into_owned();
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     let marks = |g: &G| {
         g.w.shell.read_with(&g.w.vcx, |s, cx| {
             s.git()
@@ -640,15 +679,7 @@ fn the_change_margin_follows_edits_and_clears_after_a_stage(cx: &mut TestAppCont
     assert!(marks(&g).is_empty(), "not before the editor is idle");
     let started = Instant::now();
     g.w.vcx.executor().advance_clock(gutter::IDLE);
-    g.w.wait("the margin", |w| {
-        w.shell.read_with(&w.vcx, |s, cx| {
-            s.git()
-                .margins
-                .borrow()
-                .get(&id)
-                .is_some_and(|m| !m.read(cx).marks.is_empty())
-        })
-    });
+    wait_margin(&mut g, "the margin", &id, |marks| !marks.is_empty());
     let compute = started.elapsed();
     eprintln!(
         "timing: change margin {:.0} ms idle + {:.1} ms to read the index and diff",
@@ -781,14 +812,12 @@ fn a_merge_conflict_opens_the_file_with_markers_and_staging_resolves_it(cx: &mut
     assert_eq!(g.group(Group::Merge), ["src/App/Program.cs"]);
     // The margin shows the sides.
     g.w.vcx.executor().advance_clock(gutter::IDLE);
-    let id = program.to_string_lossy().into_owned();
-    g.w.wait("the conflict's sides", |w| {
-        w.shell.read_with(&w.vcx, |s, cx| {
-            s.git().margins.borrow().get(&id).is_some_and(|m| {
-                let k: Vec<_> = m.read(cx).marks.iter().map(|m| m.kind).collect();
-                k == [gutter::MarkKind::Ours, gutter::MarkKind::Theirs]
-            })
-        })
+    let id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
+    wait_margin(&mut g, "the conflict's sides", &id, |marks| {
+        let k: Vec<_> = marks.iter().map(|m| m.kind).collect();
+        k == [gutter::MarkKind::Ours, gutter::MarkKind::Theirs]
     });
     // Resolve in the editor, save, stage: resolved; commit ends the merge.
     view.update(&mut g.w.vcx, |v, cx| {
@@ -829,7 +858,7 @@ fn with_remote(g: &mut G) -> (PathBuf, git2::Repository) {
     let mut opts = git2::RepositoryInitOptions::new();
     opts.bare(true).initial_head("main");
     git2::Repository::init_opts(&bare, &opts).unwrap();
-    let url = format!("file://{}", bare.display());
+    let url = super::documents::path_to_uri(&bare);
     g.repo().remote("origin", &url).unwrap();
     g.agent(cmds::PUSH, json!({ "set_upstream": true }))
         .unwrap_or_else(|e| panic!("{e}"));

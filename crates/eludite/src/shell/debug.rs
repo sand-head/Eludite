@@ -6319,17 +6319,15 @@ impl Shell {
         if wait_for_children {
             // Detached when the last child ends (`end_session`).
         } else if d.client.is_some() {
-            // An attached session detaches: the process keeps running, and the session ends with the answer (an
-            // adapter may stay up after detaching; brief 0027).
+            // The session ends with the answer: an attached one detaches and the process keeps running (an adapter may
+            // stay up after detaching; brief 0027); a launched one's adapter is asked to end the debuggee, and is killed
+            // if still up (netcoredbg can take long to exit after answering on a loaded machine, and the headless
+            // tests' stop timer never fires).
             let attached = d.model.attached();
             let _ = d.send(
                 "disconnect",
                 json!({ "terminateDebuggee": !attached }),
-                if attached {
-                    Pending::Detach { generation }
-                } else {
-                    Pending::Other
-                },
+                Pending::Detach { generation },
             );
         } else if was == Mode::Launching {
             // Connected or LaunchFailed will see Stopping and end the session.
@@ -6458,6 +6456,9 @@ impl Shell {
                     }
                 }
                 BreakpointAction::Set => {
+                    if condition.is_some() {
+                        b.forget_condition_error(&path, line);
+                    }
                     let bp = b.ensure(&path, line);
                     if let Some(e) = enabled {
                         bp.enabled = e;
@@ -7676,6 +7677,17 @@ impl Shell {
                         "stderr"
                     };
                     d.program_output(&o.output, stream);
+                    let mut changed = false;
+                    for (path, line, message) in condition_errors(&o.output) {
+                        let hit = d
+                            .model
+                            .breakpoints
+                            .set_condition_error(&path, line, &message);
+                        changed |= hit;
+                    }
+                    if changed {
+                        self.refresh_glyphs(cx);
+                    }
                 }
                 // `console` (DAP's default), `important` and the rest: the adapter's messages.
                 _ => {
@@ -7748,22 +7760,12 @@ impl Shell {
             }
             Event::Terminated => {
                 if d.model.mode != Mode::Stopping {
-                    // vscode-js-debug keeps its socket open after `disconnect`: the answer ends the session (brief
-                    // 0038), as a detach's does.
-                    let js = matches!(
-                        d.model.family(),
-                        AdapterFamily::Javascript | AdapterFamily::Browser
-                    );
+                    // The `disconnect` answer ends the session, as a detach's does: vscode-js-debug keeps its socket
+                    // open after it (brief 0038), and netcoredbg can take long to exit after it on a loaded machine
+                    // (the session sat in `stopping` for the agents' 20 s waits on CI). Ending the session kills an
+                    // adapter still up; one that closes first ends the session the same way.
                     let generation = d.generation();
-                    let _ = d.send(
-                        "disconnect",
-                        json!({}),
-                        if js {
-                            Pending::Detach { generation }
-                        } else {
-                            Pending::Other
-                        },
-                    );
+                    let _ = d.send("disconnect", json!({}), Pending::Detach { generation });
                 }
                 d.model.mode = Mode::Stopping;
             }
@@ -8951,10 +8953,13 @@ impl Reader {
         max_chars: usize,
         cut: &mut bool,
     ) -> Result<(), String> {
+        // netcoredbg's `$exception` pseudo-local at an exception stop has two dozen members (Watson buckets, HResult,
+        // the stack trace twice); the stop's `exception` already says what was thrown, so a depth snapshot leaves it
+        // folded (its reference stays, for `variables` on demand) and spends the budget on the program's own locals.
         let mut frontier: Vec<Vec<usize>> = rows
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.reference > 0)
+            .filter(|(_, r)| r.reference > 0 && r.name != EXCEPTION_PSEUDO_LOCAL)
             .map(|(i, _)| vec![i])
             .collect();
         let paging = self.paging(cx)?;
@@ -9851,6 +9856,28 @@ fn wait_satisfied(
 
 /// The adapter's exception details as `eludite.debug.exception_info` lists them, inner exceptions at most
 /// [`cmds::MAX_INNER_EXCEPTIONS`] deep.
+/// The pseudo-local netcoredbg (and vsdbg-style adapters) list at an exception stop, holding the thrown exception.
+const EXCEPTION_PSEUDO_LOCAL: &str = "$exception";
+
+/// The breakpoints whose condition netcoredbg could not evaluate at a hit, from the lines it prints on stderr as it
+/// stops there (Visual Studio's behavior): `Breakpoint error: The condition for a breakpoint failed to execute. The
+/// condition was 'c'. The error returned was 'e'. - <path>:<line>`. Each is (the normalized path, the line, the message
+/// up to the location).
+fn condition_errors(text: &str) -> Vec<(String, u32, String)> {
+    text.lines()
+        .filter_map(|l| {
+            let rest = l.trim().strip_prefix("Breakpoint error: ")?;
+            let (message, at) = rest.rsplit_once(" - ")?;
+            let (path, line) = at.trim().rsplit_once(':')?;
+            let line = line.trim().parse::<u32>().ok()?;
+            let path = normalize_path(Path::new(path.trim()))
+                .to_string_lossy()
+                .into_owned();
+            Some((path, line, message.trim().to_owned()))
+        })
+        .collect()
+}
+
 fn details_row(d: &ExceptionDetails, depth: usize) -> ExceptionDetailsRow {
     ExceptionDetailsRow {
         message: d.message.clone(),

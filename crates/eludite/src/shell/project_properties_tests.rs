@@ -398,11 +398,24 @@ fn configuration_lists_route_the_write_all_configurations_confirms_and_override_
     let lang = p.shown("LangVersion");
     assert_eq!(lang, "12.0");
     p.w.click(&pages::choice_selector("LangVersion", 2));
-    let dirty = p.pages().unwrap().read_with(&p.w.vcx, |v, _| v.is_dirty());
-    assert!(!dirty, "an inherited value is read-only before Override");
+    let dirty = p
+        .pages()
+        .unwrap()
+        .read_with(&p.w.vcx, |v, _| v.dirty.clone());
+    assert!(
+        dirty.is_empty(),
+        "an inherited value is read-only before Override: {dirty:?}"
+    );
     p.w.click(&pages::override_selector("LangVersion"));
     p.w.click(&pages::choice_selector("LangVersion", 2));
-    assert_eq!(p.shown("LangVersion"), "13.0");
+    assert_eq!(
+        p.shown("LangVersion"),
+        "13.0",
+        "choice 2 at {:?}, override at {:?}, dirty {}",
+        p.w.bounds(&pages::choice_selector("LangVersion", 2)),
+        p.w.bounds(&pages::override_selector("LangVersion")),
+        p.pages().unwrap().read_with(&p.w.vcx, |v, _| v.is_dirty())
+    );
     p.w.vcx.simulate_keystrokes("ctrl-s");
     p.wait_set_properties(3);
     assert_eq!(
@@ -609,8 +622,30 @@ fn toolbar_lists_select_persist_and_the_build_uses_the_selection_and_skips_unmap
     p.w.click(&toolbar_item_selector("configuration", 2));
     p.w.click(PLATFORM_BUTTON);
     p.w.click(&toolbar_item_selector("platform", 1));
-    let selection = p.w.shell.read_with(&p.w.vcx, |s, _| s.active_selection());
-    assert_eq!(selection, ("Staging".to_owned(), "x64".to_owned()));
+    let selected = |w: &Ws| w.shell.read_with(&w.vcx, |s, _| s.active_selection());
+    if selected(&p.w) != ("Staging".to_owned(), "x64".to_owned()) {
+        let entries = p.w.commands.audit_log().entries();
+        let selects: Vec<String> = entries
+            .iter()
+            .filter(|e| e.command == "eludite.solution.select_configuration")
+            .map(|e| format!("{:?} {:?}", e.arguments, e.outcome))
+            .collect();
+        let lists = p.w.shell.read_with(&p.w.vcx, |s, _| {
+            (
+                s.solution_configurations(),
+                s.solution_platforms(),
+                s.properties.toolbar_menu,
+            )
+        });
+        panic!(
+            "selected {:?}; select_configuration calls {selects:?}; lists {lists:?}; bounds {:?} {:?}",
+            selected(&p.w),
+            p.w.vcx
+                .debug_bounds(toolbar_item_selector("configuration", 2).leak()),
+            p.w.vcx
+                .debug_bounds(toolbar_item_selector("configuration", 0).leak()),
+        );
+    }
     assert!(
         p.w.audit()
             .iter()

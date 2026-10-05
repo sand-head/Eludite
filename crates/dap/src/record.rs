@@ -953,15 +953,68 @@ fn record_with(
     (conn, RecordHandle { shared })
 }
 
-/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving) and
-/// lldb-dap's `statistics` (its own memory figures).
+/// A message as the re-record check compares it: without `seq` and `request_seq` (they follow the interleaving),
+/// lldb-dap's `statistics` (its own memory figures), and the code and memory addresses anywhere in it
+/// (`instructionReference`, `instructionPointerReference`, `memoryReference`: the debuggee's layout, which the
+/// machine that built it decides). In a `stackTrace` answer, the frames of the C runtime (no source under a
+/// recorded root or the toolchain's `/rustc/`) are one `runtime` placeholder per run of them, and `totalFrames`
+/// goes: whether glibc's start-up frames have lines and columns, or how many there are, is the machine's debug
+/// information. A `scopes` answer loses its variable counts for the same reason (lldb's Globals).
 fn comparable(m: &Value) -> Value {
+    fn is_program_frame(f: &Value) -> bool {
+        f["source"]["path"]
+            .as_str()
+            .is_some_and(|p| p.contains("${") || p.starts_with("/rustc/"))
+    }
+    fn collapse_runtime_frames(body: &mut Value) {
+        let Some(frames) = body["stackFrames"].as_array() else {
+            return;
+        };
+        let mut kept = Vec::with_capacity(frames.len());
+        for f in frames {
+            if is_program_frame(f) {
+                kept.push(f.clone());
+            } else if kept.last().is_none_or(|k: &Value| k["runtime"] != true) {
+                kept.push(json!({"runtime": true}));
+            }
+        }
+        body["stackFrames"] = Value::Array(kept);
+        if let Some(o) = body.as_object_mut() {
+            o.remove("totalFrames");
+        }
+    }
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(o) => {
+                o.remove("instructionReference");
+                o.remove("instructionPointerReference");
+                o.remove("memoryReference");
+                o.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
     let mut m = m.clone();
     if let Some(o) = m.as_object_mut() {
         o.remove("seq");
         o.remove("request_seq");
         o.remove("statistics");
     }
+    if m["type"] == "response" && m["command"] == "stackTrace" {
+        collapse_runtime_frames(&mut m["body"]);
+    }
+    if m["type"] == "response"
+        && m["command"] == "scopes"
+        && let Some(scopes) = m["body"]["scopes"].as_array_mut()
+    {
+        // How many globals lldb sees depends on the machine's debug information (glibc's, or none).
+        for scope in scopes.iter_mut().filter_map(Value::as_object_mut) {
+            scope.remove("namedVariables");
+            scope.remove("indexedVariables");
+        }
+    }
+    strip(&mut m);
     m
 }
 
@@ -1090,10 +1143,11 @@ pub fn differences(expected: &Value, actual: &Value, max: usize) -> Vec<String> 
 
 /// The re-record check: `rerecorded` reproduces `checked_in` when each group of messages (see `groups`: the
 /// client's requests, the adapter's responses, its events, its output text by category, the session's end) agrees,
-/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, `continued` events and
+/// ignoring `t_ms`, `recorded_at`, `seq`, `request_seq`, `order`, lldb-dap's `statistics`, the addresses in
+/// `instructionReference`, `instructionPointerReference` and `memoryReference` (the debuggee's layout differs
+/// between the machines that build it), the C runtime's stack frames (see `comparable`), `continued` events and
 /// vscode-js-debug's `loadedSource` events: how the directions, the adapter's events and the debuggee's streams
-/// interleave is timing. `Err` names the first difference of each group
-/// that differs.
+/// interleave is timing. `Err` names the first difference of each group that differs.
 pub fn compare(checked_in: &Recording, rerecorded: &Recording) -> Result<(), String> {
     let mut problems = Vec::new();
     if checked_in.adapter != rerecorded.adapter {
@@ -1335,6 +1389,54 @@ mod tests {
         other.messages[1].t_ms = 900;
         other.messages[1].message["seq"] = json!(7);
         assert_eq!(compare(&r, &other), Ok(()), "timing and seq are not drift");
+        let (mut here, mut there) = (r.clone(), r.clone());
+        here.messages[1].message["body"] =
+            json!({"breakpoints": [{"verified": true, "instructionReference": "0x55555556C94C"}]});
+        there.messages[1].message["body"] =
+            json!({"breakpoints": [{"verified": true, "instructionReference": "0x55555556C24C"}]});
+        assert_eq!(
+            compare(&here, &there),
+            Ok(()),
+            "addresses are the building machine's"
+        );
+        let stack = |libc: Value| {
+            let mut r = r.clone();
+            r.messages[1].message["command"] = json!("stackTrace");
+            r.messages[1].message["body"] = json!({"totalFrames": 4, "stackFrames": [
+                {"id": 1, "name": "app::main", "line": 3, "column": 5, "source": {"path": "${TMP}/src/main.rs"}},
+                {"id": 2, "name": "std::rt::lang_start", "line": 9, "column": 1, "source": {"path": "/rustc/abc/library/std/src/rt.rs"}},
+                {"id": 3, "name": "main", "line": 0, "column": 0},
+                libc,
+            ]});
+            r
+        };
+        let with_debug_info = stack(
+            json!({"id": 4, "name": "__libc_start_call_main", "line": 58, "column": 16, "source": {"path": "sysdeps/nptl/libc_start_call_main.h"}}),
+        );
+        let without =
+            stack(json!({"id": 4, "name": "__libc_start_call_main", "line": 0, "column": 0}));
+        assert_eq!(
+            compare(&with_debug_info, &without),
+            Ok(()),
+            "the C runtime's frames are the machine's"
+        );
+        let mut moved = without.clone();
+        moved.messages[1].message["body"]["stackFrames"][0]["line"] = json!(4);
+        assert!(compare(&with_debug_info, &moved).is_err());
+        let scopes = |globals: u32| {
+            let mut r = r.clone();
+            r.messages[1].message["command"] = json!("scopes");
+            r.messages[1].message["body"] = json!({"scopes": [
+                {"name": "Locals", "namedVariables": 1, "variablesReference": 1},
+                {"name": "Globals", "namedVariables": globals, "variablesReference": 2},
+            ]});
+            r
+        };
+        assert_eq!(
+            compare(&scopes(0), &scopes(2)),
+            Ok(()),
+            "the globals lldb sees are the machine's"
+        );
         other.messages[1].message["success"] = json!(false);
         let e = compare(&r, &other).unwrap_err();
         assert!(

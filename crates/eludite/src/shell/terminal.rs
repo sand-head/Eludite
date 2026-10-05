@@ -954,7 +954,7 @@ impl TerminalWindow {
         cx.notify();
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(all(test, unix)), allow(dead_code))]
     pub fn profiles(&self) -> &[String] {
         &self.profiles
     }
@@ -1035,7 +1035,7 @@ impl TerminalWindow {
     }
 
     /// The agent typing in `id`, as the tab shows it.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(all(test, unix)), allow(dead_code))]
     pub fn agent(&self, id: &str) -> Option<&str> {
         self.agents.get(id).map(String::as_str)
     }
@@ -1049,12 +1049,12 @@ impl TerminalWindow {
     }
 
     /// The tabs' terminal ids, in order.
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(all(test, unix)), allow(dead_code))]
     pub fn tabs(&self) -> &[Vec<String>] {
         &self.tabs
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(all(test, unix)), allow(dead_code))]
     pub fn name(&self, id: &str) -> Option<&str> {
         self.names.get(id).map(String::as_str)
     }
@@ -1760,7 +1760,7 @@ impl Shell {
         self.terminal.service.close_all();
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn terminal_ui(&self) -> &TerminalUi {
         &self.terminal
     }
@@ -1768,7 +1768,7 @@ impl Shell {
 
 impl TerminalUi {
     /// The settings the views draw with.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn view_settings(&self) -> Option<&ViewSettings> {
         Some(&self.settings)
     }

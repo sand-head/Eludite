@@ -284,9 +284,12 @@ fn lenses_appear_above_members_and_the_references_popup_lists_and_navigates(
     assert_eq!(w.caret(&order_view), 6);
     assert!(w.audit().contains(&workspace::FILE_OPEN.to_owned()));
     w.vcx.simulate_keystrokes("ctrl--");
+    let program_id = super::documents::normalize_path(&program)
+        .to_string_lossy()
+        .into_owned();
     w.wait("back in Program.cs", |w| {
         w.shell.read_with(&w.vcx, |s, _| {
-            s.controller.active_document().as_deref() == Some(program.to_str().unwrap())
+            s.controller.active_document().as_deref() == Some(program_id.as_str())
         })
     });
 

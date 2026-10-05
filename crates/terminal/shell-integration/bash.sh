@@ -36,8 +36,14 @@ if [ -z "$__ELUDITE_INTEGRATED" ] && [[ $- == *i* ]]; then
         return $__eludite_status
     }
     # PS0 prints after a command is read, before it runs: C, and (an arithmetic subscript that expands to nothing)
-    # the note that a command ran.
-    PS0="${PS0}"'${__eludite_none[__eludite_ran=1]}\033]133;C\007'
+    # the note that a command ran. bash before 4.4 (macOS's /bin/bash is 3.2) has no PS0: the DEBUG trap notes the
+    # command instead (it fires for the prompt's own commands too, so every prompt then carries a D with the last
+    # status), and no C is marked: Eludite then takes the output to start after the command's line.
+    if [ "${BASH_VERSINFO[0]}" -gt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -ge 4 ]; }; then
+        PS0="${PS0}"'${__eludite_none[__eludite_ran=1]}\033]133;C\007'
+    else
+        trap '__eludite_ran=1' DEBUG
+    fi
     if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
         PROMPT_COMMAND=(__eludite_end "${PROMPT_COMMAND[@]}" __eludite_start)
     else

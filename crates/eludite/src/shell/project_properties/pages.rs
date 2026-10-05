@@ -716,24 +716,27 @@ impl PropertyPages {
         };
         let banner = inherited.then(|| {
             let name = p.name.clone();
+            // The sentence shrinks and wraps and the button keeps its size, so a narrow pane (or wider platform fonts)
+            // never pushes Override out of reach.
             div()
                 .flex()
                 .flex_row()
+                .flex_wrap()
                 .items_center()
                 .gap_2()
                 .px_2()
                 .py_1()
                 .bg(t.panel_header)
                 .text_size(t.typography.small)
-                .child(format!(
+                .child(div().flex_1().min_w_0().child(format!(
                     "This value is inherited from {}. Override it to set it in the project file.",
                     p.inherited_from.as_deref().unwrap_or("an imported file")
-                ))
-                .child(
+                )))
+                .child(div().flex_shrink_0().child(
                     push_button(override_selector(&name), "Override", false, true, &t).on_click(
                         cx.listener(move |this, _, _, cx| this.override_inherited(&name, cx)),
                     ),
-                )
+                ))
         });
         let differs = (p.per_configuration
             && self.configuration.is_none()

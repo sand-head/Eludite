@@ -599,15 +599,12 @@ impl Terminal {
             if w.prompt {
                 if integration {
                     let after: Vec<&Mark> = s.marks.iter().filter(|m| m.at >= w.mark).collect();
-                    // A prompt counts once drawn: its B came (the person can type). A shell that sends no B: an A
-                    // after the mark.
-                    let uses_b = s.marks.iter().any(|m| m.kind == MarkKind::CommandStart);
+                    // A prompt counts once drawn: its B came (the person can type). A shell that sends no B, or
+                    // whose B has not arrived yet: an A after the mark, once the output has been quiet for a moment.
+                    let quiet = s.last_output.elapsed() >= PROMPT_DRAWN_SILENCE;
                     let prompt = after.iter().enumerate().rev().find_map(|(i, m)| {
-                        let drawn = if uses_b {
-                            after[i..].iter().any(|n| n.kind == MarkKind::CommandStart)
-                        } else {
-                            m.at > w.mark
-                        };
+                        let drawn = after[i..].iter().any(|n| n.kind == MarkKind::CommandStart)
+                            || (m.at > w.mark && quiet);
                         (m.kind == MarkKind::PromptStart && drawn).then_some(i)
                     });
                     if let Some(p) = prompt {
@@ -633,10 +630,15 @@ impl Terminal {
                 break finish(Matched::Timeout, &s, None);
             }
             let mut step = (deadline - now).min(Duration::from_millis(50));
-            if w.prompt && !integration && end > w.mark {
+            if w.prompt && end > w.mark {
                 let silent = s.last_output.elapsed();
-                if silent < PROMPT_SILENCE {
-                    step = step.min(PROMPT_SILENCE - silent + Duration::from_millis(5));
+                let needed = if integration {
+                    PROMPT_DRAWN_SILENCE
+                } else {
+                    PROMPT_SILENCE
+                };
+                if silent < needed {
+                    step = step.min(needed - silent + Duration::from_millis(5));
                 }
             }
             s = self
@@ -663,6 +665,11 @@ impl Terminal {
     }
 }
 
+/// How long an integrated shell's prompt start (A) must be followed by silence before it counts as drawn when no
+/// command start (B) has followed it: the B of a shell that sends one can arrive in a later read than its A (bash
+/// 3.2 on macOS), and a wait that took the A alone would mark the command before the shell could read it.
+pub const PROMPT_DRAWN_SILENCE: Duration = Duration::from_millis(150);
+
 /// The most text a wait answers.
 pub const WAIT_TEXT_MAX: usize = 64 * 1024;
 
@@ -671,13 +678,25 @@ pub const WAIT_TEXT_MAX: usize = 64 * 1024;
 fn command_output(s: &Shared, mark: u64) -> (String, bool) {
     let mut out = String::new();
     let mut start: Option<u64> = None;
+    // The command was typed at the prompt drawn before the mark: its B is the last one at or before it.
+    let mut command: Option<u64> = s
+        .marks
+        .iter()
+        .rev()
+        .find(|m| m.at <= mark && m.kind == MarkKind::CommandStart)
+        .map(|m| m.at);
     let mut any = false;
     let mut cut = false;
     for m in s.marks.iter().filter(|m| m.at >= mark) {
         match m.kind {
+            MarkKind::CommandStart => command = Some(m.at),
             MarkKind::OutputStart => start = Some(m.at),
             MarkKind::CommandEnd(_) => {
-                if let Some(a) = start.take() {
+                // No output mark (a shell without PS0): the output follows the command's own line.
+                let from = start
+                    .take()
+                    .or_else(|| command.take().and_then(|b| s.text.next_line_mark(b)));
+                if let Some(a) = from {
                     let (t, c) = s.text.range(a, m.at, WAIT_TEXT_MAX);
                     out.push_str(&t);
                     cut |= c;
@@ -1029,6 +1048,44 @@ impl IoLoop {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shared(text: Transcript, marks: &[(MarkKind, u64)]) -> Shared {
+        Shared {
+            text,
+            marks: marks.iter().map(|&(kind, at)| Mark { kind, at }).collect(),
+            integration: true,
+            exited: None,
+            last_output: Instant::now(),
+            cwd: None,
+            title: String::new(),
+            size: (80, 24),
+            interrupts: 0,
+            waiting: 0,
+        }
+    }
+
+    /// bash 3.2 marks no C: the output starts on the line after the command's, whose B came before the wait's mark.
+    #[test]
+    fn without_an_output_mark_the_output_follows_the_commands_line() {
+        let mut t = Transcript::new();
+        t.append(b"$ ");
+        let b = t.end();
+        t.append(b"echo out-42\r\nout-42\r\n");
+        let d = t.end();
+        t.append(b"$ ");
+        let s = shared(
+            t,
+            &[
+                (MarkKind::PromptStart, 0),
+                (MarkKind::CommandStart, b),
+                (MarkKind::CommandEnd(Some(0)), d),
+                (MarkKind::PromptStart, d),
+            ],
+        );
+        // The wait's mark is where the person started typing, after the prompt's B.
+        assert_eq!(command_output(&s, b).0, "out-42\n");
+        assert_eq!(command_output(&s, 0).0, "out-42\n");
+    }
 
     #[test]
     fn pastes_end_lines_with_returns_and_bracket_when_asked() {

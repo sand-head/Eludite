@@ -21,14 +21,17 @@
          netstandard2.0 protocol library, which runs under Mono 6.8 and on .NET 10 (its tests). -->
     <PackageVersion Include="Mono.Debugging.Soft" Version="1.0.20170212.42" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
-    <!-- Brief 0048: the NuGet client in eludite-host (NuGet.Client, Apache-2.0), at the version the pinned .NET SDK
-         10.0.302 carries (7.6), so the SDK's MSBuild loaded in-process and the host agree on one NuGet. -->
-    <PackageVersion Include="NuGet.Protocol" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Configuration" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Versioning" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Packaging" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Resolver" Version="7.6.0" />
-    <PackageVersion Include="NuGet.ProjectModel" Version="7.6.0" />
-    <PackageVersion Include="NuGet.Credentials" Version="7.6.0" />
+    <!-- Brief 0048: the NuGet client in eludite-host (NuGet.Client, Apache-2.0). The host loads the located SDK's MSBuild
+         in-process (InProcessMsBuildEvaluator picks the newest SDK on the machine), and that MSBuild binds to the NuGet
+         assemblies the host already loaded, which must then be at least the SDK's version: a lower one fails with
+         "manifest definition does not match" (CI's runners carry SDK 10.0.4xx, NuGet 7.9; the pinned 10.0.302 has 7.6
+         and is satisfied by 7.9). Raise these when a newer SDK's NuGet appears. -->
+    <PackageVersion Include="NuGet.Protocol" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Configuration" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Resolver" Version="7.9.0" />
+    <PackageVersion Include="NuGet.ProjectModel" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Credentials" Version="7.9.0" />
   </ItemGroup>
 </Project>

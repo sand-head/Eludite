@@ -262,8 +262,11 @@ fn ctrl_shift_f_opens_the_dialog_with_the_selection_and_enter_searches_the_solut
     s.w.vcx.run_until_parked();
     let customer = s.w.path("src/App/Models/Customer.cs");
     let cview = s.w.editor(&customer);
+    let customer_id = super::documents::normalize_path(&customer)
+        .to_string_lossy()
+        .into_owned();
     s.w.wait("the selection", |w| {
-        w.controller.active_document().as_deref() == Some(customer.to_string_lossy().as_ref())
+        w.controller.active_document().as_deref() == Some(customer_id.as_str())
     });
     let sel = cview.read_with(&s.w.vcx, |v, _| {
         let e = v.editor();
@@ -649,7 +652,7 @@ fn replace_all_with_preview_holds_changes_and_accept_all_is_one_undo_step_per_do
             .contains("Order First"),
         "not saved"
     );
-    assert!(s.w.dirty(&customer.to_string_lossy()));
+    assert!(s.w.dirty(&super::documents::normalize_path(&customer).to_string_lossy()));
     // One undo step per document: Ctrl+Z takes Program.cs's two replacements back at once.
     s.run(
         workspace::EDITOR_UNDO,
@@ -966,7 +969,10 @@ fn the_first_result_streams_before_the_search_ends(cx: &mut TestAppContext) {
     for i in 0..200 {
         s.write(&format!("stream/f{i:03}.txt"), "needle\n");
     }
-    s.service().set_slow_overlay(Some(Duration::from_millis(5)));
+    // 25 ms per file: five seconds for the whole search, so the first file's draw lands while it still runs even on a
+    // loaded CI runner (the overlay is lifted below once the first file is seen).
+    s.service()
+        .set_slow_overlay(Some(Duration::from_millis(25)));
     let started = Instant::now();
     s.run(cmds::FIND, json!({"query": "needle", "results_window": 1}));
     let win = s.window(1);
@@ -985,7 +991,7 @@ fn the_first_result_streams_before_the_search_ends(cx: &mut TestAppContext) {
     s.service().set_slow_overlay(None);
     s.wait_done(1);
     eprintln!(
-        "timing: Enter to the first result drawn {:.1} ms (with 5 ms per file)",
+        "timing: Enter to the first result drawn {:.1} ms (with 25 ms per file)",
         first.unwrap().as_secs_f64() * 1e3
     );
 }

@@ -233,6 +233,16 @@ fn callbacks<'a, 'p: 'a>(
 }
 
 /// A failed transfer as the caller sees it: canceled, the credential callback's failure, a refused certificate
+/// libgit2 refused the server's certificate: its certificate code, or an SSL-class error whose message says so.
+/// OpenSSL (Linux) says "the SSL certificate is invalid"; SecureTransport (macOS) says "untrusted connection error".
+fn is_certificate_refusal(e: &git2::Error) -> bool {
+    if e.code() == git2::ErrorCode::Certificate {
+        return true;
+    }
+    let m = e.message().to_ascii_lowercase();
+    e.class() == git2::ErrorClass::Ssl && (m.contains("certificate") || m.contains("untrusted"))
+}
+
 /// naming the host, or libgit2's message.
 fn transfer_error(
     e: git2::Error,
@@ -247,10 +257,7 @@ fn transfer_error(
         return f;
     }
     let host = remote_host(url).unwrap_or_else(|| url.to_owned());
-    if e.code() == git2::ErrorCode::Certificate
-        || matches!(e.class(), git2::ErrorClass::Ssl)
-            && e.message().to_ascii_lowercase().contains("certificate")
-    {
+    if is_certificate_refusal(&e) {
         return certificate_refusal(&host, remote_scheme(url) == "ssh", e.message());
     }
     if e.code() == git2::ErrorCode::Auth
@@ -541,6 +548,27 @@ impl Repo {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn certificate_refusals_are_recognized_on_every_platform() {
+        let cert = |code, class, m: &str| git2::Error::new(code, class, m);
+        assert!(super::is_certificate_refusal(&cert(
+            git2::ErrorCode::Certificate,
+            git2::ErrorClass::Ssl,
+            "the SSL certificate is invalid"
+        )));
+        // macOS's SecureTransport.
+        assert!(super::is_certificate_refusal(&cert(
+            git2::ErrorCode::GenericError,
+            git2::ErrorClass::Ssl,
+            "untrusted connection error"
+        )));
+        assert!(!super::is_certificate_refusal(&cert(
+            git2::ErrorCode::GenericError,
+            git2::ErrorClass::Net,
+            "failed to connect"
+        )));
+    }
     use super::*;
     use crate::testutil::TestRepo;
 

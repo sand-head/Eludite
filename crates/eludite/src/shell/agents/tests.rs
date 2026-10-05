@@ -1594,14 +1594,20 @@ fn a_scripted_agent_finds_the_null_field_in_the_corpus(cx: &mut TestAppContext) 
 /// (which `eludite-dbg-mono` resolves from the method's namespace) and reaches the faulting statement.
 #[gpui::test]
 fn a_scripted_agent_reads_why_a_wrong_condition_never_stopped(cx: &mut TestAppContext) {
-    let agent = scenario::DebugAgent::new(1)
-        .with_condition("coin == Money.Quarter", "coin == Coin.Quarter");
+    // The replacement is one the adapter evaluates: netcoredbg's evaluator has no enum `==` (CS0019) and no casts, so
+    // it compares the enum's backing field; eludite-dbg-mono and the fake take the C# spelling.
+    let replacement = match CorpusAdapter::find() {
+        Ok(CorpusAdapter::Netcoredbg(_)) => "coin.value__ == 3",
+        _ => "coin == Coin.Quarter",
+    };
+    let agent = scenario::DebugAgent::new(1).with_condition("coin == Money.Quarter", replacement);
     let Some((read, answers)) = debug_scenario_with(cx, "MissingCase", agent, 10) else {
         return;
     };
     assert_eq!(read.len(), 1, "{read:?}");
     assert!(read[0].contains("Money"), "{read:?}");
-    // The reason is in an answer the agent received: the end-of-session summary of the run that never stopped.
+    // The reason is in an answer the agent received: the end-of-session summary of the run that never stopped (an
+    // adapter that refuses the condition up front), or the break's summary (netcoredbg evaluates it at the hit).
     let carried: Vec<&Value> = answers
         .iter()
         .filter(|a| {
@@ -1611,7 +1617,11 @@ fn a_scripted_agent_reads_why_a_wrong_condition_never_stopped(cx: &mut TestAppCo
         })
         .collect();
     assert!(!carried.is_empty(), "{answers:#?}");
-    assert_eq!(carried[0]["mode"], "design");
+    assert!(
+        matches!(carried[0]["mode"].as_str(), Some("design" | "break")),
+        "{}",
+        carried[0]
+    );
 }
 
 /// Brief 0043: a link in the agent's Markdown is clickable; a file link opens the file in the editor at its line.

@@ -325,8 +325,9 @@ fn falls_back_to_syntax_identifiers_while_loading_and_swaps_to_server_items(
         fake.set_hold_load(true);
         fake.respond("textDocument/completion", |p| {
             let start = p["position"]["character"].as_u64().unwrap() as u32 - 1;
+            // Long enough for the syntax fallback to draw first on a slow runner (macOS's took over 400 ms).
             FakeReply::After(
-                Duration::from_millis(400),
+                Duration::from_millis(2000),
                 list(p, start, &[("Main", 2), ("Math", 7)]),
             )
         });

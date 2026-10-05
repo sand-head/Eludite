@@ -980,25 +980,43 @@ fn wait_cdp(
 fn socket_pair() -> std::io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
     use std::os::fd::FromRawFd;
     let mut fds = [0i32; 2];
+    // Linux sets close-on-exec atomically; the other Unixes (macOS has no SOCK_CLOEXEC) set it after the fact.
+    #[cfg(target_os = "linux")]
+    let kind = libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let kind = libc::SOCK_SEQPACKET;
     // SAFETY: socketpair fills the array; the result is checked.
-    let r = unsafe {
-        libc::socketpair(
-            libc::AF_UNIX,
-            libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC,
-            0,
-            fds.as_mut_ptr(),
-        )
-    };
+    let r = unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) };
     if r != 0 {
         return Err(std::io::Error::last_os_error());
     }
     // SAFETY: two new descriptors this process owns.
-    Ok(unsafe {
+    let pair = unsafe {
         (
             std::os::fd::OwnedFd::from_raw_fd(fds[0]),
             std::os::fd::OwnedFd::from_raw_fd(fds[1]),
         )
-    })
+    };
+    #[cfg(not(target_os = "linux"))]
+    {
+        use std::os::fd::AsRawFd;
+        set_cloexec(pair.0.as_raw_fd())?;
+        set_cloexec(pair.1.as_raw_fd())?;
+    }
+    Ok(pair)
+}
+
+/// `FD_CLOEXEC` on a descriptor, where the call that made it could not set it (not Linux).
+#[cfg(all(unix, not(target_os = "linux")))]
+fn set_cloexec(fd: i32) -> std::io::Result<()> {
+    // SAFETY: fcntl on a descriptor this process owns; both results are checked.
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFD);
+        if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
 }
 
 /// One descriptor and its 8-byte payload (the region id), as the engine sends them.
@@ -1019,8 +1037,13 @@ fn recv_fd(sock: i32) -> std::io::Result<(u64, std::os::fd::OwnedFd)> {
     msg.msg_iovlen = 1;
     msg.msg_control = control.as_mut_ptr().cast();
     msg.msg_controllen = space as _;
+    // Linux sets close-on-exec on the received descriptor atomically (MSG_CMSG_CLOEXEC); macOS has no such flag.
+    #[cfg(target_os = "linux")]
+    let flags = libc::MSG_CMSG_CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let flags = 0;
     // SAFETY: a valid msghdr; the result is checked.
-    let n = unsafe { libc::recvmsg(sock, &mut msg, libc::MSG_CMSG_CLOEXEC) };
+    let n = unsafe { libc::recvmsg(sock, &mut msg, flags) };
     if n <= 0 {
         return Err(if n == 0 {
             std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "the frame socket closed")
@@ -1041,9 +1064,13 @@ fn recv_fd(sock: i32) -> std::io::Result<(u64, std::os::fd::OwnedFd)> {
         std::ptr::read_unaligned(libc::CMSG_DATA(c).cast::<i32>())
     };
     // SAFETY: SCM_RIGHTS gave this process a new descriptor.
-    Ok((u64::from_le_bytes(payload), unsafe {
-        std::os::fd::OwnedFd::from_raw_fd(fd)
-    }))
+    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
+    #[cfg(not(target_os = "linux"))]
+    {
+        use std::os::fd::AsRawFd;
+        set_cloexec(fd.as_raw_fd())?;
+    }
+    Ok((u64::from_le_bytes(payload), fd))
 }
 
 // ---- the engine ----
@@ -2135,8 +2162,12 @@ mod tests {
             "nothing found: the external Chrome"
         );
         let why = why.unwrap();
-        assert!(why.contains("tools/cef/fetch.sh"), "{why}");
-        assert!(why.contains("tools/package/linux.sh"), "{why}");
+        if cfg!(target_os = "linux") {
+            assert!(why.contains("tools/cef/fetch.sh"), "{why}");
+            assert!(why.contains("tools/package/linux.sh"), "{why}");
+        } else {
+            assert!(why.contains("Linux only"), "{why}");
+        }
         if cfg!(target_os = "linux") {
             std::fs::write(dir.path().join(exe_name()), b"").unwrap();
             let cef = tempfile::tempdir().unwrap();

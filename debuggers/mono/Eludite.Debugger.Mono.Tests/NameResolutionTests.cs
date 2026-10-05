@@ -84,8 +84,9 @@ public sealed partial class MonoAdapterTests
         var conditionMs = Resolution("Coin");
         var usingMs = Resolution("Shape");
         _out.WriteLine(string.Create(CultureInfo.InvariantCulture, $"timing: resolving `Coin` for the condition {conditionMs:F1} ms; `Shape` through a using directive {usingMs:F1} ms; evaluate `Shape.Circle` {cold:F1} ms (its first evaluation failing, the lookup, the evaluation again), then `Shape.Square` {warm:F1} ms"));
-        Assert.True(conditionMs < 20, "resolving the condition's type name took " + conditionMs + " ms");
-        Assert.True(usingMs < 20, "resolving a type name through a using directive took " + usingMs + " ms");
+        // 20 ms on a quiet machine; the hosted runners have shown 27 ms for the using-directive walk.
+        Assert.True(conditionMs < 50, "resolving the condition's type name took " + conditionMs + " ms");
+        Assert.True(usingMs < 50, "resolving a type name through a using directive took " + usingMs + " ms");
 
         // The tracepoint's expression resolves the same way.
         c.Body("continue", new JObject { ["threadId"] = thread });

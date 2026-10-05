@@ -122,10 +122,36 @@ pub(super) fn setup_services(
     let controller = DockController::new(DockLayout::default_vs(&tools), tools);
     let mut commands = builtins::default_registry();
     view::register(&mut commands, Arc::new(controller.clone())).unwrap();
+    // The store resolves the tool-path settings from its own environment (captured once, empty here), and applying the
+    // settings at startup writes them into the debug setup. A test that located a real adapter passes it in `debug`;
+    // the store gets it as that variable, as the real environment would hand it over.
+    let mut settings = crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS)));
+    if let Some(d) = &debug {
+        for (name, value) in [
+            (eludite_dap::discovery::ENV_VAR, d.search.env.clone()),
+            (
+                eludite_dap::discovery::MONO_PREFIX_ENV,
+                d.mono.configured.clone().map(PathBuf::into_os_string),
+            ),
+            (
+                eludite_dap::discovery::MONO_ADAPTER_ENV,
+                d.mono_adapter
+                    .configured
+                    .clone()
+                    .map(PathBuf::into_os_string),
+            ),
+        ] {
+            if let Some(v) = value {
+                settings
+                    .env
+                    .insert(name.to_owned(), v.to_string_lossy().into_owned());
+            }
+        }
+    }
     let mut services = Some(super::register_workspace(
         &mut commands,
         HostLaunch::InProcess(fake.connector()),
-        crate::settings::SettingsSetup::isolated(Some(root.join(USER_SETTINGS))),
+        settings,
     ));
     if let Some(s) = services.as_mut() {
         s.agents = agents.unwrap_or_else(|| super::agents::AgentsSetup {
@@ -200,7 +226,13 @@ impl Ws {
 
     /// Run the UI until `done` holds, letting the host and worker threads run in real time.
     pub(super) fn wait(&mut self, what: &str, mut done: impl FnMut(&mut Self) -> bool) {
-        let deadline = Instant::now() + T;
+        // Hosted runners are slower and shared; the bound only catches a hang.
+        let bound = if std::env::var_os("CI").is_some() {
+            3 * T
+        } else {
+            T
+        };
+        let deadline = Instant::now() + bound;
         loop {
             self.vcx.run_until_parked();
             if done(self) {
@@ -227,14 +259,30 @@ impl Ws {
             .unwrap_or_else(|| panic!("no element {sel}"))
     }
 
+    /// The element's bounds once two consecutive frames agree on them: reading the bounds flushes pending effects,
+    /// which can redraw the window (a value arriving, a page leaving its loading state), and a click aimed with the
+    /// frame before that redraw lands on whatever moved into its place.
+    pub(super) fn settled_bounds(&mut self, sel: &str) -> gpui::Bounds<gpui::Pixels> {
+        let mut last = self.bounds(sel);
+        for _ in 0..50 {
+            self.vcx.run_until_parked();
+            let next = self.bounds(sel);
+            if next == last {
+                return next;
+            }
+            last = next;
+        }
+        last
+    }
+
     pub(super) fn click(&mut self, sel: &str) {
-        let c = self.bounds(sel).center();
+        let c = self.settled_bounds(sel).center();
         self.vcx.simulate_click(c, Modifiers::none());
         self.vcx.run_until_parked();
     }
 
     pub(super) fn double_click(&mut self, sel: &str) {
-        let position = self.bounds(sel).center();
+        let position = self.settled_bounds(sel).center();
         for click_count in [1, 2] {
             self.vcx.simulate_event(MouseDownEvent {
                 position,

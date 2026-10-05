@@ -140,7 +140,25 @@ pub fn decorations(
 /// name one document. Without this, click-through from the Error List opened a second tab for an
 /// already open file on Windows CI (brief 0012).
 pub fn normalize_path(path: &Path) -> PathBuf {
-    path.components().collect()
+    strip_verbatim(path).components().collect()
+}
+
+/// A Windows path without the `\\?\` prefix `canonicalize` adds (`\\?\C:\a` is `C:\a`, `\\?\UNC\s\v` is
+/// `\\s\v`): the prefix is for Win32 calls, and the tools Eludite runs (dotnet, netcoredbg, git) and the ids it
+/// compares want the plain spelling.
+fn strip_verbatim(path: &Path) -> std::borrow::Cow<'_, Path> {
+    let Some(s) = path.to_str() else {
+        return std::borrow::Cow::Borrowed(path);
+    };
+    if let Some(rest) = s.strip_prefix("\\\\?\\UNC\\") {
+        return std::borrow::Cow::Owned(PathBuf::from(format!("\\\\{rest}")));
+    }
+    match s.strip_prefix("\\\\?\\") {
+        Some(rest) if rest.len() >= 2 && rest.as_bytes()[1] == b':' => {
+            std::borrow::Cow::Owned(PathBuf::from(rest))
+        }
+        _ => std::borrow::Cow::Borrowed(path),
+    }
 }
 
 /// `file:///abs/path` with reserved and non-ASCII bytes percent-encoded.
@@ -708,6 +726,22 @@ mod tests {
 
     /// The round trip must reproduce the native path *string*, not just an equal `Path`,
     /// because documents are keyed by that string (the Windows CI failure after brief 0012).
+    #[test]
+    fn normalize_path_drops_the_windows_verbatim_prefix() {
+        assert_eq!(
+            super::strip_verbatim(Path::new("\\\\?\\C:\\a\\b.cs")).as_os_str(),
+            "C:\\a\\b.cs"
+        );
+        assert_eq!(
+            super::strip_verbatim(Path::new("\\\\?\\UNC\\srv\\share\\b.cs")).as_os_str(),
+            "\\\\srv\\share\\b.cs"
+        );
+        assert_eq!(
+            super::strip_verbatim(Path::new("/home/a/b.cs")).as_os_str(),
+            "/home/a/b.cs"
+        );
+    }
+
     #[test]
     fn normalize_path_joins_components_with_the_native_separator() {
         // Build from a real absolute base: a bare "/a" has no drive on Windows and
