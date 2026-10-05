@@ -28,7 +28,9 @@
 //!   click). [`EditorView::update_editor`] is the entry point for
 //!   programmatic edits.
 //! - [`syntax`]: tree-sitter highlighting. Languages are data
-//!   ([`syntax::LanguageConfig`]); C# and Rust are built in. Parsing and
+//!   ([`syntax::LanguageConfig`]); C#, Rust, the web languages (TypeScript,
+//!   TSX, JavaScript, HTML, CSS, JSON, JSON with comments) and Razor
+//!   (`.razor`, `.cshtml`) are built in ([`syntax::BUILTINS`]). Parsing and
 //!   highlighting run on the [`syntax::SyntaxThread`], never on the UI
 //!   thread; until a result arrives the view shows the previous highlights,
 //!   moved through the edits since ([`syntax::LineHighlights::interpolate`]).

@@ -1,6 +1,7 @@
 //! Brief 0050: the web grammars' highlights on fixtures (captures to the kinds the theme colors), HTML's `<script>`
 //! and `<style>` injections, JSON with comments, the language table's ids, and the keystroke budget on a 10,000-line
-//! TypeScript file.
+//! TypeScript file. Brief 0056: Razor (`.razor` and `.cshtml`) on a Blazor component, its markup, directives and C#,
+//! its `<script>` and `<style>` injections, and an edit in its `@code` block.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -150,11 +151,6 @@ fn html_kinds_and_its_script_and_style_injections() {
     assert_eq!(kind_at(&u, "add("), Some(Function));
     assert_eq!(kind_at(&u, "2)"), Some(Number));
     assert_eq!(kind_at(&u, "// done"), Some(Comment));
-    // A Razor view's markup is HTML.
-    let cshtml = LanguageRegistry::with_builtins()
-        .for_path(Path::new("/w/Views/Home/Index.cshtml"))
-        .unwrap();
-    assert_eq!(cshtml.id(), "html");
 }
 
 #[test]
@@ -231,6 +227,8 @@ fn the_language_table_resolves_every_web_suffix() {
         ("a.cjs", "javascript"),
         ("index.html", "html"),
         ("index.htm", "html"),
+        ("Counter.razor", "razor"),
+        ("Index.cshtml", "razor"),
         ("site.css", "css"),
         ("a.json", "json"),
         ("Program.cs", "csharp"),
@@ -239,6 +237,209 @@ fn the_language_table_resolves_every_web_suffix() {
         assert_eq!(id(file), Some(want), "{file}");
     }
     assert_eq!(id("README.md"), None);
+}
+
+/// A Blazor component with what the brief names: directives, a Razor comment, elements and components with plain and
+/// directive attributes, an entity, an implicit expression, `@if` with markup in its body, `<style>`, `<script>` and an
+/// `@code` block.
+const COUNTER_RAZOR: &str = r#"@page "/counter"
+@rendermode InteractiveServer
+@using MudBlazor
+@inject ILogger<Counter> Logger
+
+<PageTitle>Counter</PageTitle>
+
+@* The counter. *@
+<h1 class="title">Counter &amp; more</h1>
+
+<p role="status">Current count: @currentCount</p>
+
+<MudButton Color="Color.Primary" @onclick="IncrementCount">Click me</MudButton>
+<MudSwitch @bind-Value="_dense" @bind-Value:after="Save" @key="_dense" @ref="_switch" />
+
+@if (currentCount > 3)
+{
+    <p>Many clicks</p>
+}
+
+<style>
+    .title { color: red; }
+</style>
+
+<script>
+    function go() { const n = 1; return n; }
+</script>
+
+@code {
+    private int currentCount = 0;
+    private bool _dense;
+    private MudSwitch<bool> _switch = default!;
+
+    private async Task IncrementCount()
+    {
+        currentCount++;
+        await Task.Delay(1);
+    }
+}
+"#;
+
+/// The Razor grammar's tree of `source` has no `ERROR` or `MISSING` node.
+fn assert_parses_cleanly(source: &str) {
+    let razor = LanguageRegistry::with_builtins().by_id("razor").unwrap();
+    let mut parser = tree_sitter::Parser::new();
+    parser.set_language(razor.grammar()).unwrap();
+    let tree = parser.parse(source, None).unwrap();
+    assert!(
+        !tree.root_node().has_error(),
+        "{}",
+        tree.root_node().to_sexp()
+    );
+}
+
+#[test]
+fn razor_resolves_razor_and_cshtml_and_html_stays_html() {
+    let registry = LanguageRegistry::with_builtins();
+    let id = |f: &str| registry.for_path(Path::new(f)).map(|l| l.id());
+    assert_eq!(id("/w/Components/Pages/Counter.razor"), Some("razor"));
+    assert_eq!(id("/w/Views/Home/Index.cshtml"), Some("razor"));
+    assert_eq!(id("/w/Pages/Shared/_Layout.CSHTML"), Some("razor"));
+    assert_eq!(id("/w/wwwroot/index.html"), Some("html"));
+    assert_eq!(id("/w/wwwroot/index.htm"), Some("html"));
+    let razor = registry.by_id("razor").unwrap();
+    assert_eq!(razor.name(), "Razor");
+    assert_eq!(
+        razor.config().emmet,
+        Some(crate::intellisense::emmet::EmmetSyntax::Html)
+    );
+}
+
+#[test]
+fn razor_kinds_in_a_blazor_component() {
+    assert_parses_cleanly(COUNTER_RAZOR);
+    let u = highlight("razor", COUNTER_RAZOR);
+    // Directives, transitions and control structures: `@` and its keyword together.
+    assert_eq!(kind_at(&u, "@page"), Some(Keyword));
+    assert_eq!(kind_at(&u, "page \""), Some(Keyword));
+    assert_eq!(kind_at(&u, "\"/counter\""), Some(String));
+    assert_eq!(kind_at(&u, "@rendermode"), Some(Keyword));
+    assert_eq!(kind_at(&u, "InteractiveServer"), Some(Type));
+    assert_eq!(kind_at(&u, "@using"), Some(Keyword));
+    assert_eq!(kind_at(&u, "@inject"), Some(Keyword));
+    assert_eq!(kind_at(&u, "@if"), Some(Keyword));
+    assert_eq!(kind_at(&u, "if ("), Some(Keyword));
+    assert_eq!(kind_at(&u, "@code"), Some(Keyword));
+    assert_eq!(kind_at(&u, "code {"), Some(Keyword));
+    assert_eq!(kind_at(&u, "@currentCount"), Some(Keyword));
+    // A Razor comment.
+    assert_eq!(kind_at(&u, "@* The"), Some(Comment));
+    assert_eq!(kind_at(&u, "counter. *@"), Some(Comment));
+    // Markup: tags (components too), attribute names, values and entities; text is the default color.
+    assert_eq!(kind_at(&u, "h1 class"), Some(Tag));
+    assert_eq!(kind_at(&u, "h1>"), Some(Tag));
+    assert_eq!(kind_at(&u, "PageTitle>Counter"), Some(Tag));
+    assert_eq!(kind_at(&u, "MudButton Color"), Some(Tag));
+    assert_eq!(kind_at(&u, "MudSwitch"), Some(Tag));
+    assert_eq!(kind_at(&u, "class="), Some(AttributeName));
+    assert_eq!(kind_at(&u, "Color="), Some(AttributeName));
+    assert_eq!(kind_at(&u, "title\">"), Some(String));
+    assert_eq!(kind_at(&u, "\"title\""), Some(String), "the quotes too");
+    assert_eq!(kind_at(&u, "status"), Some(String));
+    assert_eq!(kind_at(&u, "&amp;"), Some(Escape));
+    assert_eq!(kind_at(&u, "Current count"), None);
+    assert_eq!(kind_at(&u, "Click me"), None);
+    // Directive attributes, the `@` included.
+    assert_eq!(kind_at(&u, "@onclick"), Some(AttributeName));
+    assert_eq!(kind_at(&u, "onclick"), Some(AttributeName));
+    assert_eq!(kind_at(&u, "@bind-Value"), Some(AttributeName));
+    assert_eq!(kind_at(&u, "-Value"), Some(AttributeName));
+    assert_eq!(kind_at(&u, "@key"), Some(AttributeName));
+    assert_eq!(kind_at(&u, ":after"), Some(AttributeName));
+    // `ref` itself is the C# keyword's anonymous node in the grammar, which the C# query (first) captures.
+    assert_eq!(kind_at(&u, "@ref"), Some(AttributeName));
+    // `@code` is C#, by the C# query.
+    assert_eq!(kind_at(&u, "private int"), Some(Keyword));
+    assert_eq!(kind_at(&u, "int currentCount"), Some(TypeBuiltin));
+    assert_eq!(kind_at(&u, "0;"), Some(Number));
+    assert_eq!(kind_at(&u, "async"), Some(Keyword));
+    assert_eq!(kind_at(&u, "Task IncrementCount"), Some(Type));
+    assert_eq!(kind_at(&u, "IncrementCount()"), Some(Function));
+    assert_eq!(kind_at(&u, "await"), Some(Keyword));
+    assert_eq!(kind_at(&u, "Delay"), Some(Function));
+}
+
+#[test]
+fn a_razor_render_mode_is_a_type_by_name_and_csharp_as_an_expression() {
+    let source = "@rendermode RenderMode.InteractiveWebAssembly\n<p>x</p>\n";
+    assert_parses_cleanly(source);
+    let u = highlight("razor", source);
+    assert_eq!(kind_at(&u, "@rendermode"), Some(Keyword));
+    assert_eq!(kind_at(&u, "RenderMode."), Some(Type));
+    let source = "@rendermode @(new InteractiveServerRenderMode(prerender: false))\n<p>x</p>\n";
+    assert_parses_cleanly(source);
+    let u = highlight("razor", source);
+    assert_eq!(kind_at(&u, "@("), Some(Keyword));
+    assert_eq!(kind_at(&u, "(new"), None, "C#, not a type");
+    assert_eq!(kind_at(&u, "new "), Some(Keyword));
+    assert_eq!(kind_at(&u, "InteractiveServerRenderMode"), Some(Type));
+    assert_eq!(kind_at(&u, "false"), Some(ConstantBuiltin));
+}
+
+#[test]
+fn razor_script_and_style_bodies_are_javascript_and_css() {
+    let u = highlight("razor", COUNTER_RAZOR);
+    // <style>: CSS.
+    assert_eq!(kind_at(&u, "title {"), Some(Selector));
+    assert_eq!(kind_at(&u, "color: red"), Some(PropertyName));
+    // <script>: JavaScript.
+    assert_eq!(kind_at(&u, "function go"), Some(Keyword));
+    assert_eq!(kind_at(&u, "go()"), Some(Function));
+    assert_eq!(kind_at(&u, "const n"), Some(Keyword));
+    assert_eq!(kind_at(&u, "1; return"), Some(Number));
+    assert_eq!(kind_at(&u, "return n"), Some(Keyword));
+    // The tags around them stay markup.
+    assert_eq!(kind_at(&u, "style>\n"), Some(Tag));
+    assert_eq!(kind_at(&u, "script>\n"), Some(Tag));
+}
+
+/// Typing a member into the `@code` block re-parses incrementally (the old tree reused), leaves no error node, and
+/// highlights the same as a fresh parse of the new text.
+#[test]
+fn an_edit_in_a_razor_code_block_re_highlights_without_errors() {
+    let registry = LanguageRegistry::with_builtins();
+    let razor = registry.by_id("razor").unwrap();
+    let mut h = Highlighter::new(razor.clone());
+    let mut b = buffer(COUNTER_RAZOR);
+    let step_all = |h: &mut Highlighter, b: &TextBuffer| loop {
+        let update = h.step(b.snapshot(), 0..0).expect("not cancelled");
+        if update.complete {
+            break update;
+        }
+    };
+    let first = step_all(&mut h, &b);
+    assert!(first.stats.full_parse);
+    let at = COUNTER_RAZOR.find("    private bool _dense;").unwrap();
+    let typed = "    private string _label = \"Clicks\";\n";
+    for (i, ch) in typed.char_indices() {
+        b.edit([(at + i..at + i, ch.to_string())]);
+        step_all(&mut h, &b);
+    }
+    let edited = step_all(&mut h, &b);
+    assert!(!edited.stats.full_parse, "re-parse reuses the old tree");
+    let text = b.snapshot().text();
+    assert_parses_cleanly(&text);
+    assert_eq!(kind_at(&edited, "string _label"), Some(TypeBuiltin));
+    assert_eq!(kind_at(&edited, "\"Clicks\""), Some(String));
+    assert_eq!(kind_at(&edited, "private bool"), Some(Keyword));
+    assert_eq!(kind_at(&edited, "@code"), Some(Keyword));
+    assert_eq!(kind_at(&edited, "function go"), Some(Keyword));
+    let fresh = highlight("razor", &text);
+    for row in 0..fresh.highlights.row_count() {
+        assert_eq!(
+            edited.highlights.spans(row),
+            fresh.highlights.spans(row),
+            "row {row}"
+        );
+    }
 }
 
 /// A 10,000-line TypeScript file, typed into in view: the UI thread's part of highlighting a keystroke (moving the

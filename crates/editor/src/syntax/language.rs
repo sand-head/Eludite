@@ -3,12 +3,14 @@
 //! language is one [`LanguageConfig`] value passed to
 //! [`LanguageRegistry::register`]; nothing else in the editor changes.
 //!
-//! The built-ins are C#, Rust (brief 0009) and the web languages (brief 0050):
+//! The built-ins are C#, Rust (brief 0009), the web languages (brief 0050):
 //! TypeScript, TSX, JavaScript (with JSX), HTML (with `<script>` and `<style>`
-//! highlighted as JavaScript and CSS, and `.cshtml` markup), CSS (also SCSS and
-//! Less, which its grammar parses in their common subset), JSON and JSON with
-//! comments (`.jsonc`, `tsconfig.json`, `jsconfig.json`; the JSON grammar
-//! accepts comments, so only the id differs).
+//! highlighted as JavaScript and CSS), CSS (also SCSS and Less, which its
+//! grammar parses in their common subset), JSON and JSON with comments
+//! (`.jsonc`, `tsconfig.json`, `jsconfig.json`; the JSON grammar accepts
+//! comments, so only the id differs), and Razor (brief 0056: `.razor` and
+//! `.cshtml`, from the in-repo `tree-sitter-razor`; its C# by the C# query,
+//! its markup by its own, `<script>` and `<style>` as JavaScript and CSS).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -137,16 +139,35 @@ pub const CSS: LanguageConfig = LanguageConfig {
     emmet: Some(EmmetSyntax::Css),
 };
 
-/// HTML with `<script>` as JavaScript and `<style>` as CSS. Razor views
-/// (`.cshtml`) get it for their markup until the Razor grammar comes.
+/// HTML with `<script>` as JavaScript and `<style>` as CSS.
 pub const HTML: LanguageConfig = LanguageConfig {
     id: "html",
     name: "HTML",
-    path_suffixes: &["html", "htm", "cshtml"],
+    path_suffixes: &["html", "htm"],
     file_names: &[],
     grammar: || tree_sitter_html::LANGUAGE.into(),
     highlights_query: include_str!("../../queries/html/highlights.scm"),
     injections_query: include_str!("../../queries/html/injections.scm"),
+    injected: &[JAVASCRIPT, CSS],
+    emmet: Some(EmmetSyntax::Html),
+};
+
+/// Razor, for Blazor components (`.razor`) and MVC and Razor Pages views
+/// (`.cshtml`): `tree-sitter-razor` (grammars/razor, which extends the C#
+/// grammar). Its query is the C# query followed by the Razor additions, so on
+/// the same node C# wins inside code; `<script>` is JavaScript and `<style>`
+/// CSS, and Emmet expands HTML abbreviations as in HTML.
+pub const RAZOR: LanguageConfig = LanguageConfig {
+    id: "razor",
+    name: "Razor",
+    path_suffixes: &["razor", "cshtml"],
+    file_names: &[],
+    grammar: || tree_sitter_razor::LANGUAGE.into(),
+    highlights_query: concat!(
+        include_str!("../../queries/csharp/highlights.scm"),
+        include_str!("../../queries/razor/highlights.scm")
+    ),
+    injections_query: include_str!("../../queries/razor/injections.scm"),
     injected: &[JAVASCRIPT, CSS],
     emmet: Some(EmmetSyntax::Html),
 };
@@ -181,7 +202,7 @@ pub const JSONC: LanguageConfig = LanguageConfig {
 
 /// Every built-in language, in registration order.
 pub const BUILTINS: &[LanguageConfig] = &[
-    CSHARP, RUST, TYPESCRIPT, TSX, JAVASCRIPT, HTML, CSS, JSON, JSONC,
+    CSHARP, RUST, TYPESCRIPT, TSX, JAVASCRIPT, HTML, RAZOR, CSS, JSON, JSONC,
 ];
 
 /// A language injected into another one's text, and where.
