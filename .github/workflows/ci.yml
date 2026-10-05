@@ -272,10 +272,12 @@ jobs:
 
   # The archives to download and run without building (tools/package/): on Linux brief 0039's tarball with the browser
   # engine and CEF, on Windows and macOS the shell-only archive (the engine is Linux-only so far), each with the .NET host,
-  # eludite-dbg-mono and eludite-claude-acp beside the shell (companions.sh). Release builds, so this job runs beside the
-  # test jobs rather than after them. Each archive is this run's artifact eludite-<version>-<os>-<arch>.
+  # eludite-dbg-mono and eludite-claude-acp beside the shell (companions.sh). Release builds of what the rust and dotnet
+  # jobs tested, so it runs once every one of them is green on every platform: no archive comes out of a red run. Each
+  # archive is this run's artifact eludite-<version>-<os>-<arch>.
   package:
     name: package (${{ matrix.os }})
+    needs: [rust, dotnet]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

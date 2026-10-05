@@ -70,8 +70,8 @@ CEF, `about:blank`) with no `CEF_PATH`, `ELUDITE_CEF`, `ELUDITE_CHROMIUM`, `LD_L
 
 **CI** (`.github/workflows/ci.yml`, the `package` job): on Linux `linux.sh --with-companions` builds the release tarball
 (fetching CEF when the cache missed), the smoke test runs against it, and the tarball is uploaded as the run's artifact
-`eludite-<version>-linux-<arch>`; Windows and macOS upload `shell.sh`'s archives (below). The job runs beside the test
-jobs, not after them.
+`eludite-<version>-linux-<arch>`; Windows and macOS upload `shell.sh`'s archives (below). The job runs after the `rust`
+and `dotnet` jobs and only when every one of them is green, so no archive comes out of a red run.
 
 ## The companions: `companions.sh`
 
