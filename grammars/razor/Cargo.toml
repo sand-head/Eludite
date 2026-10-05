@@ -1,0 +1,27 @@
+[package]
+name = "tree-sitter-razor"
+description = "Razor grammar for tree-sitter: the owner's library, brought into Eludite (brief 0056)."
+version = "0.1.1"
+edition.workspace = true
+# The grammar is MIT (its own LICENSE), not the workspace's GPL-3.0-or-later.
+license = "MIT"
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+tree-sitter-language = "0.1" # MIT; already in the build through the other grammars
+
+[build-dependencies]
+cc = "1" # MIT OR Apache-2.0; already in the build through the other grammars
+# The generator behind the tree-sitter CLI (MIT), pinned to the exact version in PIN so the parser it
+# writes at build time is the one that CLI writes; `load` reads tree-sitter.json's version, `qjs-rt`
+# (a JavaScript engine) is not needed because the input is src/grammar.json (ADR-0012).
+tree-sitter-generate = { version = "=0.27.0", default-features = false, features = ["load"] }
+
+[dev-dependencies]
+tree-sitter = "0.27"
+
+[lints]
+workspace = true

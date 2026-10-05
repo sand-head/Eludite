@@ -1,0 +1,47 @@
+@page "/cards/{Id:int}"
+@using System.Collections.Generic
+@inject IJSRuntime JS
+@rendermode InteractiveWebAssembly
+@attribute [Authorize]
+
+@* A component that exercises the corners: directives, markup, entities,
+   void elements, razor comments in markup, nested quotes in an attribute
+   expression, a template, and a code block. *@
+
+<!DOCTYPE html>
+<article class="@UiClass.Merge(Attrs, "card")" @onclick="Go" @key="@($"card-{Id}")">
+    <h1>Hello, @User.Name!</h1>
+    <img src="avatar.png">
+    <p>Terms &amp; conditions apply. Run <code>dotnet build >> log.txt</code>.</p>
+
+    @if (Items.Count > 0)
+    {
+        <ul>
+            @foreach (var item in Items)
+            {
+                <li @key="item.Id">@item.Title</li>
+            }
+        </ul>
+    }
+    else
+    {
+        <p class="empty">Nothing here.</p>
+    }
+
+    <textarea placeholder='{ "a": 1 }'></textarea>
+</article>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private List<Item> Items { get; set; } = [];
+
+    private RenderFragment Badge(string text) => @<span class="badge">@text</span>;
+
+    private async Task Go()
+    {
+        await JS.InvokeVoidAsync("console.log", "clicked");
+    }
+
+    public sealed record Item(int Id, string Title);
+}
