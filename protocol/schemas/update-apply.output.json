@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-apply.output.json",
+  "title": "eludite.update.apply output",
+  "description": "The restart is under way: the IDE quits right after answering.",
+  "type": "object",
+  "required": [
+    "applying",
+    "tag",
+    "plan"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "applying": {
+      "const": true
+    },
+    "tag": {
+      "description": "The staged release's tag.",
+      "type": "string"
+    },
+    "plan": {
+      "description": "The applier's plan file (`.eludite-update/apply/plan.json`), with its log beside it.",
+      "type": "string"
+    }
+  }
+}

@@ -17,6 +17,7 @@
     "Source Control > Git Global Settings",
     "Terminal",
     "Environment > Find and Replace",
+    "Environment > Updates",
     "Source Control > Forges",
     "NuGet Package Manager > General",
     "Text Editor > All Languages",
@@ -36,6 +37,36 @@
       "x-eludite-label": "Apply the following additional keyboard mapping scheme",
       "x-eludite-enum-labels": [
         "Visual Studio"
+      ]
+    },
+    "updates.channel": {
+      "description": "The release channel Eludite follows for updates (brief 0055). `unstable`: every green build of `main`, published on GitHub as the pre-release tagged `unstable-<build>`. A packaged Eludite knows its own channel from build.json beside its executable; this setting picks the channel to follow from now on, and the next check is of that channel. Other channels (`stable`) come with their first release.",
+      "enum": [
+        "unstable"
+      ],
+      "default": "unstable",
+      "x-eludite-section": "Environment > Updates",
+      "x-eludite-label": "Release channel",
+      "x-eludite-enum-labels": [
+        "Unstable (every green build of main)"
+      ]
+    },
+    "updates.mode": {
+      "description": "What the updater does on its own (brief 0055). Eludite makes no network call at startup on its own: `ask` (the default) means the person has not decided yet, so a packaged build asks once, after its first window, whether to check GitHub for new builds, and writes the answer here; nothing is checked until then. `notify`: check about 15 s after the window opens and every 4 hours, say in the status bar when a build is available, download only when asked. `download`: check the same way, download and stage the build in the background, and offer the restart that installs it. `off`: never check on its own; Help > Check for Updates still works. A development build (no build.json beside the executable) never checks, whatever this says.",
+      "enum": [
+        "ask",
+        "notify",
+        "download",
+        "off"
+      ],
+      "default": "ask",
+      "x-eludite-section": "Environment > Updates",
+      "x-eludite-label": "Automatic updates",
+      "x-eludite-enum-labels": [
+        "Ask on the first start of a packaged build",
+        "Check and tell me when a build is available",
+        "Check, download in the background and install when I restart",
+        "Never check on my own"
       ]
     },
     "build.beforeRun": {

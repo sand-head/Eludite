@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-apply.input.json",
+  "title": "eludite.update.apply input",
+  "description": "Restart Eludite into the staged build: the shell asks about unsaved changes, quits (every agent session with it), the new executable swaps the install folder's files (the old ones go to `.eludite-previous/` until the next start) and starts with the same arguments. Refused when no build is staged (`ready`). From the menu or the status bar the person is asked first; an agent's call is dangerous (the policy prompts unless it allows it).",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

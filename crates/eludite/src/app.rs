@@ -120,6 +120,9 @@ pub fn run(args: Args, t_main: Instant) {
             ),
         );
         services.agents.preferred = args.agent.clone();
+        // Brief 0055: a measurement run never asks about updates; an updated start says what it replaced.
+        services.update_setup.ask = !args.benching() && args.exit_after_ms.is_none();
+        services.update_setup.updated_from = args.updated_from.clone();
         services.agents.transcript_out = args.transcript_out.clone();
         if let Some(fake) = &args.bench_agent_stream {
             services.agents.registry = Some(vec![eludite_acp::RegisteredAgent {

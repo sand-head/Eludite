@@ -207,7 +207,8 @@ fn disabled_menu_items_do_nothing(cx: &mut TestAppContext) {
     });
     assert_eq!(enabled.0, Some(false), "no help command exists yet");
     assert_eq!(enabled.1, Some(true));
-    assert_eq!(enabled.2, ["About Eludite"]);
+    // Brief 0055: Check for Updates... is registered (it answers "a development build" here).
+    assert_eq!(enabled.2, ["Check for Updates...", "About Eludite"]);
     // Brief 0017: the build commands exist; Cancel is disabled while no build runs.
     assert_eq!(enabled.3, ["Build", "Rebuild", "Clean"]);
 

@@ -34,7 +34,8 @@
 //! shell through a [`forge::ForgeCommands`], with the policy's `forge` object applied by their escalation hooks and
 //! an agent's arguments audited through their redaction ([`AuditRedaction`]). [`nuget`] holds NuGet's
 //! `eludite.nuget.*` (brief 0048), registered by the shell through a [`nuget::NuGetCommands`], with the policy's
-//! `nuget` object applied by their escalation hooks.
+//! `nuget` object applied by their escalation hooks. [`update`] holds the self-update's `eludite.update.*` (brief
+//! 0055), registered by the shell through an [`update::UpdateTarget`].
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -61,6 +62,7 @@ pub mod settings;
 pub mod solution;
 pub mod terminal;
 pub mod test;
+pub mod update;
 pub mod view;
 pub mod workspace;
 pub mod workspace_tree;

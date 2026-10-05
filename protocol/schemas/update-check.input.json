@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-check.input.json",
+  "title": "eludite.update.check input",
+  "description": "Read the channel's release list from GitHub (one conditional request; a 304 costs nothing against the rate limit) and say whether a newer build exists (Help > Check for Updates). `download: true` also downloads, verifies and stages it, as the `download` mode's timer does. Refused for a development build (the output says so, `enabled: false`).",
+  "type": "object",
+  "properties": {
+    "wait_ms": {
+      "description": "How long to wait for the result, in milliseconds (0 to 600000). 0: answer at once with the state so far (`busy` says it is still running; read eludite.update.status later). The UI passes 0; an agent that wants the answer passes a few seconds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000,
+      "default": 0
+    },
+    "download": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "additionalProperties": false
+}

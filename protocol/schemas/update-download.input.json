@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/update-download.input.json",
+  "title": "eludite.update.download input",
+  "description": "Download the available build's archive to the stage (`.eludite-update/` in the install folder), verify it against the release's SHA256SUMS, unpack and check it, so eludite.update.apply can swap it in. Checks first when no build is known to be available. The install folder must be writable; else the state is `failed` with what to do.",
+  "type": "object",
+  "properties": {
+    "wait_ms": {
+      "description": "How long to wait for the result, in milliseconds (0 to 600000). 0: answer at once with the state so far (`busy` says it is still running; read eludite.update.status later). The UI passes 0; an agent that wants the answer passes a few seconds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000,
+      "default": 0
+    }
+  },
+  "additionalProperties": false
+}
