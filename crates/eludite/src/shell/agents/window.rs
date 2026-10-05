@@ -32,7 +32,7 @@
 //! Brief 0060: the agent picker's list ends with "Add server…" ([`ADD_SERVER_ITEM`]), which asks the shell to open
 //! the Add server dialog ([`super::providers::ProviderDialog`]); the window draws the dialog while it is open.
 //!
-//! Brief 0060: the window shows one session of several. What it shows of a session (the transcript and its list
+//! Brief 0061: the window shows one session of several. What it shows of a session (the transcript and its list
 //! state, the permission prompt, the header, the pickers and their pending picks, the running turn's start, the prompt
 //! box's text, whether the box is disabled) is a [`SessionView`]: the shell swaps the shown session's view for
 //! another's ([`AgentsWindow::show_view`]), and briefly for a session off screen while it applies that session's events
@@ -109,7 +109,7 @@ pub enum AgentsWindowEvent {
     },
     /// "Add server…" at the end of the agent picker (brief 0060).
     AddServer,
-    /// Show session `id` (brief 0060): a row of the history list.
+    /// Show session `id` (brief 0061): a row of the history list.
     Switch(String),
     /// A new session (the `+` button, or another agent picked while a session is shown).
     NewSession {
@@ -193,11 +193,11 @@ pub struct HeaderState {
     /// block under the header).
     pub detail: String,
     pub login: Vec<LoginMethod>,
-    /// The session shown (brief 0060): its id and title; `None` before the first.
+    /// The session shown (brief 0061): its id and title; `None` before the first.
     pub session: Option<(String, String)>,
 }
 
-/// One row of the history list (brief 0060).
+/// One row of the history list (brief 0061).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryRow {
     pub id: String,
@@ -210,7 +210,7 @@ pub struct HistoryRow {
     pub current: bool,
 }
 
-/// What the window shows of one session (brief 0060), swapped in when the session is shown.
+/// What the window shows of one session (brief 0061), swapped in when the session is shown.
 pub struct SessionView {
     pub transcript: Transcript,
     list: ListState,
@@ -256,7 +256,7 @@ impl SessionView {
     }
 }
 
-/// The history button in the header (brief 0060), its list, and the New session button.
+/// The history button in the header (brief 0061), its list, and the New session button.
 pub const HISTORY_BUTTON: &str = "agents-history";
 pub const HISTORY_MENU: &str = "agents-history-menu";
 pub const NEW_BUTTON: &str = "agents-new";
@@ -667,7 +667,7 @@ pub struct AgentsWindow {
     pub painted: Painted,
     /// The Add server dialog while it is open (brief 0060); the shell opens and closes it.
     pub provider_dialog: Option<Entity<super::providers::ProviderDialog>>,
-    /// The history list's rows (brief 0060), newest first, at most [`super::sessions::HISTORY_ROWS`]; whether there
+    /// The history list's rows (brief 0061), newest first, at most [`super::sessions::HISTORY_ROWS`]; whether there
     /// are more; whether it is open and its highlighted row.
     pub history_rows: Vec<HistoryRow>,
     pub history_more: bool,
@@ -729,7 +729,7 @@ impl AgentsWindow {
         }
     }
 
-    /// Swap what the window shows of a session for `view` (brief 0060): the transcript and its list, the permission
+    /// Swap what the window shows of a session for `view` (brief 0061): the transcript and its list, the permission
     /// prompt, the header, the pickers, the running turn's start and whether the box is disabled. The prompt box's
     /// text stays; the shell uses this to apply an off-screen session's events, then swaps back.
     pub fn swap_view(&mut self, view: &mut SessionView, cx: &mut Context<Self>) {
@@ -754,7 +754,7 @@ impl AgentsWindow {
     }
 
     /// Show `view`'s session in place of the one shown, which goes into `view` with the prompt box's text (brief
-    /// 0060): its own text comes back, its list scrolls to the end, and the open lists close.
+    /// 0061): its own text comes back, its list scrolls to the end, and the open lists close.
     pub fn show_view(&mut self, view: &mut SessionView, cx: &mut Context<Self>) {
         let outgoing = self.prompt_text(cx);
         self.swap_view(view, cx);
@@ -779,7 +779,7 @@ impl AgentsWindow {
         cx.notify();
     }
 
-    /// Show `transcript` in place of the shown one (a stored session's, rebuilt from its record; brief 0060).
+    /// Show `transcript` in place of the shown one (a stored session's, rebuilt from its record; brief 0061).
     pub fn replace_transcript(&mut self, transcript: Transcript, cx: &mut Context<Self>) {
         self.transcript = transcript;
         self.list.reset(0);
@@ -1477,7 +1477,7 @@ impl AgentsWindow {
                 this.picker_open = !this.picker_open;
                 cx.notify();
             }));
-        // Brief 0060: with a session shown, another agent starts a new session with it (the shown one keeps running).
+        // Brief 0061: with a session shown, another agent starts a new session with it (the shown one keeps running).
         let session_agent = h
             .session
             .as_ref()
@@ -1588,7 +1588,7 @@ impl AgentsWindow {
                 restart,
             })
         }));
-        // Brief 0060: the history button (a clock) and New session, after the state.
+        // Brief 0061: the history button (a clock) and New session, after the state.
         let history = tracked(
             &self.painted,
             HISTORY_BUTTON,
@@ -1683,7 +1683,7 @@ impl AgentsWindow {
         col.into_any_element()
     }
 
-    /// The history list under its button (brief 0060): each session's title, then its agent and when it last
+    /// The history list under its button (brief 0061): each session's title, then its agent and when it last
     /// changed, muted; a dot while it runs, `?` while it waits for an answer, the shown one checked.
     fn render_history(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.history_open {
@@ -2308,7 +2308,7 @@ impl Render for AgentsWindow {
             .border_color(if focused { t.accent } else { t.border })
             .bg(t.background)
             .text_color(t.text)
-            // Brief 0060: a stored session its agent cannot resume says so in place of the box.
+            // Brief 0061: a stored session its agent cannot resume says so in place of the box.
             .map(|d| match self.disabled.clone() {
                 Some(why) => d
                     .debug_selector(|| "agents-prompt-disabled".into())
@@ -2364,7 +2364,7 @@ impl Render for AgentsWindow {
         div()
             .id("agents-window")
             .debug_selector(|| "agents-window".into())
-            // The history list takes Up, Down, Enter and Escape while it is open (brief 0060), before the footer's
+            // The history list takes Up, Down, Enter and Escape while it is open (brief 0061), before the footer's
             // pickers and the prompt box.
             .capture_action(cx.listener(|this, _: &input_actions::MoveUp, _, cx| {
                 if this.history_open {

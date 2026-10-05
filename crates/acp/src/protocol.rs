@@ -23,7 +23,7 @@ pub mod methods {
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
-    /// Resume a session the agent knows (brief 0060); only when `agentCapabilities.loadSession`.
+    /// Resume a session the agent knows (brief 0061); only when `agentCapabilities.loadSession`.
     pub const SESSION_LOAD: &str = "session/load";
 }
 
@@ -160,7 +160,7 @@ pub struct NewSessionRequest {
     pub meta: Option<Value>,
 }
 
-/// ACP `session/load` (brief 0060): resume session `session_id` with the same `cwd` and MCP servers as `session/new`.
+/// ACP `session/load` (brief 0061): resume session `session_id` with the same `cwd` and MCP servers as `session/new`.
 /// The agent replays the conversation as `session/update` notifications before it answers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -893,7 +893,7 @@ pub struct RequestPermissionResponse {
 mod tests {
     use super::*;
 
-    /// Brief 0060: `session/load`'s request is ACP's shape, and its answer decodes like `session/new`'s (modes and
+    /// Brief 0061: `session/load`'s request is ACP's shape, and its answer decodes like `session/new`'s (modes and
     /// options, or nothing).
     #[test]
     fn session_load_encodes_and_its_answer_decodes() {

@@ -3265,7 +3265,7 @@ impl FakeServerHandle {
     }
 }
 
-// Brief 0060: sessions.
+// Brief 0061: sessions.
 
 /// The fake agents of the session tests, keeping their sessions under `root` (the per-workspace state folders): a
 /// streamer slow enough to switch away mid-stream (300 chunks at 100 a second), the shell asker, the editor, a quick
@@ -3383,7 +3383,7 @@ impl Ws {
     }
 }
 
-/// Brief 0060's proof, live sessions: a streaming session keeps streaming off screen while another is shown; that
+/// Brief 0061's proof, live sessions: a streaming session keeps streaming off screen while another is shown; that
 /// other session's permission request waits off screen with `?` in the history list and `waiting` in
 /// `eludite.agents.sessions`, and is answered after switching to it (with the keyboard in the history list); both are
 /// listed with their titles and flags, and each has its record (mode 0600) once its turn ended.
@@ -3517,7 +3517,7 @@ fn two_live_sessions_stream_and_wait_off_screen_and_are_kept(cx: &mut TestAppCon
     );
 }
 
-/// Brief 0060's proof, stored sessions: the edit scenario's transcript round-trips through its record; a new shell on
+/// Brief 0061's proof, stored sessions: the edit scenario's transcript round-trips through its record; a new shell on
 /// the same state folder lists the stored sessions; switching to the `--load` agent's session shows Eludite's record
 /// and resumes it with `session/load` of the stored id (the agent's replay counted and discarded), and the next prompt
 /// continues it; the session of an agent without `loadSession` shows the notice and a disabled prompt box, and
@@ -3695,7 +3695,7 @@ fn stored_sessions_are_listed_rebuilt_and_resumed(cx: &mut TestAppContext) {
     assert_eq!(disabled, None);
 }
 
-/// Brief 0060: the store keeps the 100 most recent records (the 101st deletes the oldest file), and a ninth live
+/// Brief 0061: the store keeps the 100 most recent records (the 101st deletes the oldest file), and a ninth live
 /// session stops the oldest idle one, whose record stays.
 #[gpui::test]
 fn the_store_keeps_a_hundred_and_eight_sessions_stay_live(cx: &mut TestAppContext) {
@@ -3776,7 +3776,7 @@ fn the_store_keeps_a_hundred_and_eight_sessions_stay_live(cx: &mut TestAppContex
     assert!(w.record(&first).ended);
 }
 
-/// Brief 0060: the header's `+` starts a new session with the shown session's agent and the agent picker's other
+/// Brief 0061: the header's `+` starts a new session with the shown session's agent and the agent picker's other
 /// agent starts a new session with it, the earlier ones running on; each new session's prompt box is empty and the
 /// earlier one's text comes back with it.
 #[gpui::test]

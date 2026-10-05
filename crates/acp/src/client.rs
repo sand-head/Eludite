@@ -273,7 +273,7 @@ impl AcpClient {
         )
     }
 
-    /// `session/load` (brief 0060): resume `session_id`. The agent replays the conversation as `session/update`
+    /// `session/load` (brief 0061): resume `session_id`. The agent replays the conversation as `session/update`
     /// notifications before it answers; an agent without `agentCapabilities.loadSession` refuses it.
     pub fn load_session(
         &self,

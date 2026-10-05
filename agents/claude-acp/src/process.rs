@@ -15,7 +15,7 @@
 //! there is no `set_effort` control request, so the effort is set with the
 //! local command `/effort`).
 //!
-//! Brief 0060: [`Launch::resume`] starts `claude --resume <session id>` in
+//! Brief 0061: [`Launch::resume`] starts `claude --resume <session id>` in
 //! place of `--session-id` (verified on 2.1.289: it continues the session in
 //! its own file under the same id; a session with nothing in it yet, such as
 //! one that only ran `initialize`, is refused with "No conversation found with
@@ -63,7 +63,7 @@ pub struct Launch {
     pub model: Option<String>,
     /// `--effort` (`low`, `medium`, `high`, `xhigh`, `max`; brief 0058).
     pub effort: Option<String>,
-    /// Resume `session_id` (`--resume`) instead of starting it (`--session-id`; brief 0060).
+    /// Resume `session_id` (`--resume`) instead of starting it (`--session-id`; brief 0061).
     pub resume: bool,
 }
 
@@ -143,7 +143,7 @@ impl InitializeReply {
     }
 }
 
-/// Where Claude Code keeps session `id`'s conversation for `cwd` (brief 0060): `<config>/projects/<cwd with every
+/// Where Claude Code keeps session `id`'s conversation for `cwd` (brief 0061): `<config>/projects/<cwd with every
 /// character but ASCII letters and digits as `-`>/<id>.jsonl`, `<config>` being `$CLAUDE_CONFIG_DIR` or `~/.claude`
 /// (verified on 2.1.289: `/a/b_c.d e` is `-a-b-c-d-e`). When that file is missing, the session is looked for under
 /// every project folder (Claude Code shortens very long folder names). `None` when it is nowhere.
@@ -427,7 +427,7 @@ mod tests {
         }
     }
 
-    /// Brief 0060: a resumed launch names the session with `--resume`, never `--session-id`.
+    /// Brief 0061: a resumed launch names the session with `--resume`, never `--session-id`.
     #[test]
     fn a_resumed_launch_passes_resume_instead_of_session_id() {
         let args = |l: Launch| -> Vec<String> {
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(new.len(), resumed.len());
     }
 
-    /// Brief 0060: the session file is under the project folder named after the cwd (every character but ASCII
+    /// Brief 0061: the session file is under the project folder named after the cwd (every character but ASCII
     /// letters and digits a `-`), else under any project folder; a missing file or an id with a path in it is none.
     #[test]
     fn the_session_file_is_found_under_the_cwds_project_folder() {

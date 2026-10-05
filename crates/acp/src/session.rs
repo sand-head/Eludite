@@ -19,7 +19,7 @@
 //!   [`AgentSession::set_mode`] and [`AgentSession::set_option`] run their request on `acp-driver`, after the turn in
 //!   progress if any (the owner refuses them during a turn), and report the answer as `Options` or
 //!   [`SessionEvent::OptionFailed`].
-//! - **Resuming** (brief 0060). [`AgentSession::resume`] runs `session/load` with a session id the agent gave
+//! - **Resuming** (brief 0061). [`AgentSession::resume`] runs `session/load` with a session id the agent gave
 //!   earlier instead of `session/new`, when the agent's `initialize` advertises `loadSession`
 //!   ([`SessionEvent::LoadUnsupported`] otherwise, and the session goes no further). The conversation the agent
 //!   replays before it answers arrives as [`SessionEvent::Replay`] (its message chunks, thoughts, tool calls and plans;
@@ -83,7 +83,7 @@ pub enum SessionEvent {
         ms: f64,
     },
     Update(SessionUpdate),
-    /// A part of the conversation the agent replays during `session/load` ([`AgentSession::resume`]; brief 0060).
+    /// A part of the conversation the agent replays during `session/load` ([`AgentSession::resume`]; brief 0061).
     Replay(SessionUpdate),
     /// The agent does not advertise `loadSession`, so [`AgentSession::resume`] cannot resume the session; nothing
     /// else follows.
@@ -231,7 +231,7 @@ impl AgentSession {
         Self::launch(config, meta, None, generation, sink)
     }
 
-    /// Spawn the agent and resume `acp_session_id` with `session/load` (brief 0060), with the same `cwd` and MCP
+    /// Spawn the agent and resume `acp_session_id` with `session/load` (brief 0061), with the same `cwd` and MCP
     /// servers as `session/new`. Its replay arrives as [`SessionEvent::Replay`], then [`SessionEvent::Ready`] with
     /// that id; an agent without `loadSession` reports [`SessionEvent::LoadUnsupported`] instead.
     pub fn resume(
@@ -464,7 +464,7 @@ fn apply_option_update(state: &OptionsState, update: &SessionUpdate) -> bool {
     false
 }
 
-/// Whether `update` is part of the conversation a `session/load` replays (brief 0060).
+/// Whether `update` is part of the conversation a `session/load` replays (brief 0061).
 fn is_replayed(update: &SessionUpdate) -> bool {
     match update {
         SessionUpdate::UserMessageChunk(_)
@@ -500,7 +500,7 @@ fn drive(
     // Methods from `initialize`, for a login state reported before or after the handshake.
     let auth_methods: Arc<Mutex<Vec<AuthMethod>>> = Arc::default();
     let options: OptionsState = Arc::default();
-    // While `session/load` runs, the conversation the agent replays (brief 0060).
+    // While `session/load` runs, the conversation the agent replays (brief 0061).
     let replaying = Arc::new(AtomicBool::new(false));
     let events: crate::EventSink = {
         let sink = sink.clone();
@@ -623,7 +623,7 @@ fn drive(
         methods: login_methods(&config.agent, &init.auth_methods),
     };
     let opened = match &load {
-        // Brief 0060: resume the session the agent gave earlier, when it can.
+        // Brief 0061: resume the session the agent gave earlier, when it can.
         Some(_) if !init.agent_capabilities.load_session => {
             return emit(SessionEvent::LoadUnsupported);
         }

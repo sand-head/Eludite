@@ -23,11 +23,18 @@
 #      (or LLAMA_URL, the owner's llama-server); Test shows the model count (agents-openai-test.png); Save, Start, a
 #      prompt whose answer calls eludite-diagnostics-list; mid-answer agents-openai-turn.png (with LLAMA_URL:
 #      linux-agents-openai-llama.png), after the turn agents-openai-done.png. No key, so no credential store is needed.
+#   2d. Brief 0061 (SKIP_HISTORY=1 skips it): a fresh config directory whose agents.json names three fake agents
+#      (eludite-fake-acp-agent, release build: "Fake quick", "Fake asker", "Fake streamer", tools/agents.py's
+#      HISTORY_AGENTS); three sessions picked from the agent picker: one that finished its turn, one waiting at its
+#      shell command's permission prompt, one streaming and shown; the clock in the header opens the history list
+#      (linux-agents-history.png). No real prompt. Alone on an Xvfb display: HISTORY_ONLY=1 with DISPLAY set runs only
+#      this step, without KWin, and SHOT_X11=1 shoots with ImageMagick.
 #   3. Wayland backend, RUNS runs each: --bench-agent-ready 5 (the real adapter, no prompt), --bench-agent-stream (the
 #      fake agent at 200 chunks/s), --bench-agent-prompt (2,000 keystrokes into the prompt box, then the stream with
 #      500 characters in it; brief 0057), --bench-diff 20                             -> OUT_DIR/agents-bench.jsonl
 #   The 1-minute load average before each step goes to OUT_DIR/loadavg.txt.
 # Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_POLISH=1 skips 2b, SKIP_OPENAI=1 skips 2c,
+#        SKIP_HISTORY=1 skips 2d, HISTORY_ONLY=1 runs only 2d on the current X display,
 #        SKIP_BENCH=1 skips 3;
 #        DRY=1 with
 #        ELUDITE_CLAUDE_ACP pointing at a scripted agent checks the driving without a real prompt)
@@ -52,6 +59,39 @@ runs=${RUNS:-3}
 title="Eludite - Eludite"
 shell_prompt=${SHELL_PROMPT:-"Run the shell command touch eludite-denied.txt in the solution folder"}
 q() { printf %q "$1"; }
+# Brief 0061: the history run, on whatever X display is set (the nested Xwayland, or an Xvfb display).
+history="$out/history.sh"
+cat >"$history" <<HISTORY
+#!/usr/bin/env bash
+rm -rf $(q "$out/config-history"); mkdir -p $(q "$out/config-history")
+python3 - $(q "$out/config-history/agents.json") $(q "$fake") <<'PY'
+import json, sys
+# tools/agents.py's HISTORY_AGENTS.
+HISTORY_AGENTS = [
+    ("Fake quick", ["--scenario", "stream", "--chunks", "40", "--rate", "200"]),
+    ("Fake asker", ["--scenario", "diagnostics-then-shell"]),
+    ("Fake streamer", ["--scenario", "stream", "--chunks", "20000", "--rate", "20"]),
+]
+json.dump({"agents": [{"name": n, "command": sys.argv[2], "args": a} for n, a in HISTORY_AGENTS]},
+          open(sys.argv[1], "w"), indent=2)
+PY
+ELUDITE_CONFIG_DIR=$(q "$out/config-history") ELUDITE_TRACE_LSP=1 env -u WAYLAND_DISPLAY $(q "$bin") \
+  --reset-layout --no-persist --solution $(q "$sln") --bounds-out $(q "$out")/bounds-history.json \
+  >$(q "$out")/history.out 2>$(q "$out")/history.err &
+pid=\$!
+SHOT_WAYLAND_DISPLAY=\${SHOT_WAYLAND_DISPLAY:-\${WAYLAND_DISPLAY:-}} env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") \
+  --history --title $(q "$title") --log $(q "$out")/history.err --bounds $(q "$out")/bounds-history.json \
+  --shots $(q "$out") --shot-name linux-agents-history >$(q "$out")/history.json 2>$(q "$out")/history-driver.err || true
+sleep 1
+kill \$pid; wait \$pid
+cp -r $(q "$out/config-history")/workspaces $(q "$out")/history-sessions 2>/dev/null || true
+HISTORY
+chmod +x "$history"
+if [[ -n "${HISTORY_ONLY:-}" ]]; then
+  "$history"
+  ls "$out"
+  exit 0
+fi
 inner="$out/inner.sh"
 cat >"$inner" <<INNER
 #!/usr/bin/env bash
@@ -108,6 +148,10 @@ if [[ -z "${SKIP_OPENAI:-}" ]]; then
   sleep 1
   kill \$pid; wait \$pid
   cp $(q "$out/config-openai")/agents.json $(q "$out")/agents-openai.json 2>/dev/null || true
+fi
+if [[ -z "${SKIP_HISTORY:-}" ]]; then
+  load history
+  $(q "$out/history.sh")
 fi
 if [[ -z "${SKIP_BENCH:-}" ]]; then
   for run in \$(seq 1 $runs); do

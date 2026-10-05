@@ -35,12 +35,21 @@ OPENAI_PROMPT is sent; mid-answer (the tool call done, the usage strip filled) a
 --shot-name linux-agents-openai-llama against the owner's llama-server), and after the turn agents-openai-done.png.
 SHOT_X11=1 takes the screenshots with ImageMagick's `import -window root` (an Xvfb display) instead of spectacle.
 
+With --history (brief 0061, a separate run with a fresh config directory whose agents.json names the fake agents
+HISTORY_AGENTS, see agents-linux.sh): show the Agents window; pick "Fake quick" in the agent picker (a first session),
+send HISTORY_PROMPTS[0] and wait for the turn's end; pick "Fake asker" (a second session, the first kept), send
+HISTORY_PROMPTS[1] and leave its shell command's permission prompt waiting; pick "Fake streamer" (a third session),
+send HISTORY_PROMPTS[2] and, while it streams, click the clock in the header: the history list with three sessions,
+the streaming one with its dot, the waiting one with `?`, the shown one checked (agents-history.png, or --shot-name).
+The rows are agents-session-<id>; the buttons agents-history and agents-new; the list agents-history-menu.
+
 Permission requests the run does not expect (anything before the pending change that is not a shell command) are
 allowed and recorded. Prints one JSON object with what the trace showed.
 Usage: agents.py --title "Eludite - Eludite" --log run.err --bounds B --shots DIR --file F --shell-prompt TEXT
        [--transcript T --model opus]
        agents.py --polish-light --title T --log run.err --bounds B --shots DIR [--polish-name agents-polish-light]
        agents.py --openai --title T --log run.err --bounds B --shots DIR [--openai-url URL] [--shot-name NAME]
+       agents.py --history --title T --log run.err --bounds B --shots DIR [--shot-name linux-agents-history]
 """
 import argparse, json, os, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,6 +64,21 @@ POLISH_PROMPT = "Run ls in the solution folder with the shell and tell me in one
 # Brief 0057: long enough to wrap to three rows in the Agents window's default width.
 WRAPPED = ("Explain what HostRpcTarget does when the host receives a ping, which fields the result carries, "
            "and where the timestamp comes from")
+
+
+# Brief 0061: the fake agents of the history run (agents.json's `agents`, which agents-linux.sh writes with the same
+# list; the command is eludite-fake-acp-agent) and
+# the three sessions' first prompts (their titles in the list).
+HISTORY_AGENTS = [
+    ("Fake quick", ["--scenario", "stream", "--chunks", "40", "--rate", "200"]),
+    ("Fake asker", ["--scenario", "diagnostics-then-shell"]),
+    ("Fake streamer", ["--scenario", "stream", "--chunks", "20000", "--rate", "20"]),
+]
+HISTORY_PROMPTS = [
+    "Summarize the build output of the last run",
+    "List the errors, then clean the obj folder",
+    "Stream the release notes for version 0.6",
+]
 
 
 # Brief 0060: one tool call (class read, no prompt) and an answer, against the fake or a real llama-server.
@@ -380,6 +404,63 @@ def openai_run(a):
     print(json.dumps(out), flush=True)
 
 
+def pick_agent(a, name, registry):
+    """Brief 0061: pick agent `name` in the header's agent picker (with a session shown, a new session)."""
+    click(a.title, rect(a, "agents-picker"))
+    time.sleep(0.5)
+    row = rect(a, f"agents-agent-{registry.index(name)}", timeout=10)
+    t = ms()
+    click(a.title, row)
+    shown = wait_trace(a.log, lambda s: s.startswith("agents session shown"), t, 30)
+    ready = wait_trace(a.log, lambda s: s.startswith("agents ready"), t, 60)
+    return shown and shown[1], ready and ready[1]
+
+
+def history_run(a):
+    """Brief 0061: three sessions, one streaming and one waiting for a permission answer, and the history list."""
+    out = {}
+    find_window(a.title)
+    t0 = ms() - 600_000
+    reg = wait_trace(a.log, lambda s: s.startswith("agents registry") and "Fake streamer" in s, t0, 60)
+    out["registry"] = reg and reg[1]
+    if not reg:
+        out["error"] = "the fake agents are not in the registry (agents.json)"
+        print(json.dumps(out), flush=True)
+        return
+    registry = reg[1][len("agents registry "):].split(", ")
+    press("backslash", ["Control_L"])
+    press("c", ["Control_L"])
+    time.sleep(1.0)
+    props = rect(a, "close-properties", timeout=5)
+    if props:
+        click(a.title, props)
+    time.sleep(0.5)
+    # 1. A finished session.
+    out["quick"] = pick_agent(a, "Fake quick", registry)
+    start = ms()
+    send(a, HISTORY_PROMPTS[0])
+    ended = wait_trace(a.log, lambda s: s.startswith("agents turn ended"), start, 60)
+    out["quick_turn"] = ended and ended[1]
+    # 2. A session waiting for an answer (its shell command's permission prompt).
+    out["asker"] = pick_agent(a, "Fake asker", registry)
+    start = ms()
+    send(a, HISTORY_PROMPTS[1])
+    asked = wait_trace(a.log, lambda s: s.startswith("agents permission asked"), start, 60)
+    out["asked"] = asked and asked[1]
+    # 3. A streaming session, shown.
+    out["streamer"] = pick_agent(a, "Fake streamer", registry)
+    start = ms()
+    send(a, HISTORY_PROMPTS[2])
+    time.sleep(3.0)
+    click(a.title, rect(a, "agents-history"))
+    time.sleep(1.0)
+    out["menu"] = rect(a, "agents-history-menu", timeout=5)
+    out["rows"] = sorted(k for k in bounds(a.bounds) if k.startswith("agents-session-"))
+    out["shot"] = snap(a, a.shot_name if a.shot_name != "agents-openai-turn" else "agents-history")
+    out["trace"] = since(a.log, start)[-15:]
+    print(json.dumps(out), flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--title", required=True)
@@ -397,7 +478,11 @@ def main():
     ap.add_argument("--openai-url", help="the server's base URL (default: a loopback fake this script starts)")
     ap.add_argument("--shot-name", default="agents-openai-turn", help="the mid-turn shot's name")
     ap.add_argument("--mid-delay", type=float, default=2.0, help="seconds after the tool call before the mid-turn shot")
+    ap.add_argument("--history", action="store_true", help="brief 0061's run: three sessions and the history list")
     a = ap.parse_args()
+    if a.history:
+        history_run(a)
+        return
     if a.openai:
         openai_run(a)
         return

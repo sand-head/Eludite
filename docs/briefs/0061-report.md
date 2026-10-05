@@ -1,14 +1,3 @@
-<<<<<<<< HEAD:docs/briefs/0062-report.md
-# Brief 0062 report: the Workspace window's Visual Studio look
-
-Status: implemented and tested on Linux (uncommitted); the four screenshots are owed (section 6): the driver is
-written, not run here. Windows and macOS: not run. CI: not run (nothing pushed). The .NET SDK is not installed here, so
-`dotnet build` and `dotnet test` were not run; this brief changes no .NET code. No file outside the brief's list was
-edited.
-Branch: `brief/0062-workspace-window-visual-studio-look`, based on `main` at `f86ede6` with briefs 0057 to 0060's
-uncommitted work applied on top.
-Date: 2026-10-05. Brief: [0062-workspace-window-visual-studio-look.md](0062-workspace-window-visual-studio-look.md).
-========
 # Brief 0061 report: agent session history and switching in the Agents window
 
 Status: done on Linux, except the screenshot (section 6, not run here) and the bench's `--sessions N` (section 6: its
@@ -16,7 +5,6 @@ files are not in the brief's list). Windows and macOS: not run. CI: not run (not
 installed here, so `dotnet build` and `dotnet test` were not run; this brief changes no .NET code.
 Branch: `brief/0061-agent-session-history`, on brief 0062's branch (briefs 0057 to 0060, the popup polish and 0062).
 Date: 2026-10-05. Brief: [0061-agent-session-history.md](0061-agent-session-history.md).
->>>>>>>> 007f9d4 (Add the session history report, index row and screenshot driver as brief 0061):docs/briefs/0061-report.md
 
 ## 1. Summary
 
@@ -195,30 +183,9 @@ Timings, debug build, this VM (4 cores shared with other work, load average abou
 
 | What | Measured | Budget |
 |---|---|---|
-<<<<<<<< HEAD:docs/briefs/0062-report.md
-| every icon has a 16 by 16 file under 2 KB that parses (GPUI's `SvgRenderer`, rendered at 32 by 32 with pixels drawn) and the asset source serves it | `eludite-ui` `icons::tests::every_icon_has_a_16_by_16_file_that_parses_and_the_asset_source_serves_it` | pass |
-| monochrome icons use `currentColor` and no fixed color; colored ones have at most three colors, each at 3:1 on every theme's panel | `icons::tests::monochrome_icons_use_current_color_and_colored_ones_read_on_every_panel` | pass |
-| every icon's tint reads at 3:1 in every theme | `icons::tests::every_icon_has_a_tint_in_every_theme` | pass |
-| the three themes define every icon token, each at 3:1 on `panel` (brief 0059's readability test, extended); VS Dark's starting values | `theme::tests::text_is_readable_in_every_theme`, `vs_dark_is_default` | pass |
-| the command answers its schema, caps 700 rows at 500 with `truncated`, `""` answers nothing, rejects bad input | `eludite-commands` `workspace::tests::search_answers_its_schema_caps_the_rows_and_rejects_bad_input` | pass |
-| file types by extension, case-insensitive (32 names), `Row::file_type` | `eludite-workspace` `explorer::tests::file_types_by_extension_case_insensitively` | pass |
-| a root spelled through `..` and through a symlink: each project once, no `src`/`tests` folder, a twice-listed project once | `explorer::tests::nothing_is_listed_twice_whatever_the_spelling_of_the_root` | pass |
-| the icon for every `NodeKind` (and each Cargo target kind); every file type its own icon | `eludite` `shell::explorer::tests::every_node_kind_has_its_icon` | pass |
-| 28 file names (20 extensions and more) to their icons | `files_get_their_icon_by_extension_case_insensitively` | pass |
-| match rules: case, every word, merged ranges, non-ASCII | `matches_are_case_insensitive_every_word_must_match_and_ranges_merge` | pass |
-| the change glyph on a modified file, in the badge slot after the icon; none (no lock) on unchanged rows | `a_modified_file_shows_its_change_glyph_and_an_unchanged_one_none` | pass |
-| a workspace folder holding `Eludite.slnx`'s layout, opened as `dotnet/../dotnet`: each project once, under the solution; the test project's flask icon; `eludite.workspace.tree` answers each once | `a_solution_folder_lists_each_project_once_under_the_solution` | pass |
-| typing `host rpc` in the box: nothing before the debounce, then `HostRpcTarget.cs` under its expanded ancestors with `HostRpc` bold; Escape restores the expanded set and the rows and focuses the tree | `typing_host_rpc_shows_the_file_under_its_expanded_ancestors_and_escape_restores_the_tree` | pass |
-| Ctrl+; from the editor focuses the box through the command (audited), typing goes to the box | `ctrl_semicolon_focuses_the_search_box_from_the_editor` | pass |
-| `eludite.workspace.search` on the bus from an agent's thread answers its schema, types into the box at once; `{}` answers the box's text; `""` clears and restores the tree | `the_search_command_answers_its_schema_types_into_the_box_and_an_empty_query_clears` | pass |
-| a tree of 20,202 nodes searches on a background task; the first of two quick queries is dropped as stale | `a_large_tree_searches_off_the_ui_thread_and_drops_stale_results` | pass |
-| search budget over 20,202 rows | `a_search_over_20000_rows_fits_the_budget` | pass: 9.5 ms in the debug build (asserted under 100 ms in debug, 10 ms in release) |
-| 60 rows with icons and bold matches against 60 glyph rows | `sixty_rows_with_icons_draw_within_2_ms_of_glyph_rows` | pass: 2.45 ms glyphs, 2.76 ms icons (median of 30 frames, +0.31 ms; the test platform does not rasterize SVGs) |
-========
 | Rebuild a 2,000-row record (`Transcript::from_json`, on the store's thread) | 16.4 to 19.6 ms | < 50 ms (debug) |
 | Serialize a 2,000-row record to its JSON value (UI thread) | 11.2 to 11.8 ms (one run 17 ms) | < 10 ms |
 | Write it (string and file) | on the `agents-sessions` thread | never on the UI thread |
->>>>>>>> 007f9d4 (Add the session history report, index row and screenshot driver as brief 0061):docs/briefs/0061-report.md
 
 The serialization misses the 10 ms budget in a debug build by about 15 percent; the brief does not say debug for this
 one, and a release build was not made here (disk). The test asserts 50 ms for the rebuild and, in a debug build,
@@ -242,14 +209,6 @@ From the worktree root with `CARGO_INCREMENTAL=0` (the adapter's from `agents/cl
 - Every workspace crate's `cargo test -p <crate>` in place of `cargo test --workspace` (test executables deleted after
   each for disk): see section 7.
 
-<<<<<<<< HEAD:docs/briefs/0062-report.md
-| Visual Studio 2022 (the owner's screenshot) | Eludite, VS Dark |
-|---|---|
-| ![Visual Studio](0062-run/visual-studio-reference.png) | ![Eludite](0062-run/SCREENSHOT-DARK.png) |
-
-The other screenshots, once taken: VS Light `0062-run/SCREENSHOT-LIGHT.png`, VS Blue `0062-run/SCREENSHOT-BLUE.png`,
-the search `0062-run/SCREENSHOT-SEARCH.png`.
-========
 ## 6. Not done
 
 - **The screenshot** `linux-agents-history.png`: not taken (no display, XTest or ImageMagick here). The driver is
@@ -274,7 +233,6 @@ the search `0062-run/SCREENSHOT-SEARCH.png`.
 - **A field for a pending change's session**: `PendingChange` is in `review.rs`, not in the brief's files; the session
   is derived instead (section 1), and `review.rs` is unchanged (its `reject_pending` is now used by the diff bench only).
 - Windows and macOS; `dotnet build` / `dotnet test` (no SDK).
->>>>>>>> 007f9d4 (Add the session history report, index row and screenshot driver as brief 0061):docs/briefs/0061-report.md
 
 ## 7. Files
 
@@ -289,44 +247,8 @@ Renumbering (the coordinator's, mid-brief): this brief became 0061 (was 0060) an
 brief added was renumbered, and because this report takes the name `0061-report.md`, the Workspace look's report
 (the old 0061, now 0062) was moved to `0062-report.md` unchanged, with its index row pointing there.
 
-<<<<<<<< HEAD:docs/briefs/0062-report.md
-Not taken: this run has no display. The driver is `crates/eludite/tools/workspace-look-linux.sh`; it runs on Xvfb
-(see `xvfb-linux.sh`) with xdotool and jq:
-
-```
-cargo build -p eludite
-crates/eludite/tools/workspace-look-linux.sh /tmp/0062-shots            # dark, light, blue
-# optional: ELUDITE_HOST=... for the solution's projects; SETTLE=20 on a slow machine
-```
-
-It writes `linux-workspace-vs-look-dark.png`, `-light.png`, `-blue.png` and `linux-workspace-search.png` (dark,
-Ctrl+; then `host rpc`). Without the .NET host the solution node reads `Solution 'Eludite' (load failed)` (or
-`loading…`), and the tree shows the folder listing: `src` and `tests` expanded with each project's folder, `.csproj`
-and `.cs` files with their icons, `Directory.Build.props` and `Directory.Packages.props`; `debuggers` is not there
-(outside `dotnet/`). The search finds `HostRpcTarget.cs` and `HostRpcTargetTests.cs` (and anything else named so) in the
-listing either way. With the host, the 12 projects show under the solution with their Dependencies nodes, the test
-projects with the flask, and the driver expands `Eludite.Host` and `Eludite.Host.Tests`.
-
-## 7. Commands run
-
-From the worktree root, `CARGO_INCREMENTAL=0`, debug builds, on the 4-core VM:
-
-- `cargo fmt --check`: clean.
-- `cargo build --workspace`: builds with no warnings.
-- `cargo clippy --workspace --all-targets -- -D warnings`: clean.
-- `cargo test -p <crate>` for each member (test executables deleted after each): eludite-ui 44 passed, eludite-workspace
-  21, eludite-commands 129, eludite-editor 102 (1 ignored, as before), eludite-docking 39, eludite-protocol 48,
-  eludite-mcp 29, eludite-acp 31, eludite-browser 58, eludite-dap 89, eludite-lsp 76, eludite-forge 65, eludite-git 50,
-  eludite-search 17, eludite-terminal 43, eludite-update 31, eludite-extensions 2, eludite-extension-sdk 2,
-  eludite-cdp-generator 6, eludite-dbg-netfx 19, eludite-chromium 32 (the stub; no CEF here), eludite 431 (the 11 new
-  Workspace window tests among them). No failures; the three frame-budget tests that can fail on this VM passed in this
-  run.
-- Not run: `dotnet build` and `dotnet test` (no .NET SDK here; no .NET code changed), the Xvfb screenshots (section 6),
-  `agents/claude-acp` and `agents/openai-acp` (not touched).
-========
 Per-crate test results (`cargo test -p <crate>` for each of the 22 workspace members): all pass except two `eludite`
 timing tests in the full run (440 of 442 passed): `forge_tests::budgets_of_the_cached_list_the_large_document_and_memory`
 (the large document's frame p99 13.9 ms against 8 ms; one of the three frame-budget tests known to fail on this VM; it
 fails alone too) and `debug::tests::run_until_costs_little_more_than_continue` (a median difference over 20 ms under
 load; it passes when run alone).
->>>>>>>> 007f9d4 (Add the session history report, index row and screenshot driver as brief 0061):docs/briefs/0061-report.md

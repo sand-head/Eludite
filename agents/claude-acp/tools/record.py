@@ -23,14 +23,14 @@ came from:
 
 with empty-mcp.json holding {"mcpServers": {}}.
 
-Mode "resume" (brief 0060) ends the running `claude` (stdin closed, its exit
+Mode "resume" (brief 0061) ends the running `claude` (stdin closed, its exit
 recorded) and starts another with `--resume SESSION_ID` instead of
 `--session-id`, which gets its own `initialize`; mode "resume-unknown" does the
 same with an id no session has, to record the refusal. Each process starts with
 a {"dir": "start", "m": {"flag", "label"}} record (label `new`, `resume` or
 `refused`), and its stderr lines are kept as {"dir": "err", "m": {"line"}}. A
 session that only ran `initialize` has nothing to resume (`claude` 2.1.289 says
-"No conversation found with session ID"), so the brief 0060 fixture runs the
+"No conversation found with session ID"), so the brief 0061 fixture runs the
 local command /effort first, which writes the session file with no model call:
 
   record.py WS raw.jsonl empty-mcp.json '[["/effort low","normal"],["","resume"],["","resume-unknown"]]'

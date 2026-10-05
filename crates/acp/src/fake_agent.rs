@@ -45,7 +45,7 @@
 //! ended) with the same `usage_update` as `stream` ([`stream_usage`]), so the Agents window's usage strip fills after
 //! a turn that also has tool calls and a permission prompt.
 //!
-//! Brief 0060: `--load` advertises `loadSession`, gives each `session/new` an id of its own in this process
+//! Brief 0061: `--load` advertises `loadSession`, gives each `session/new` an id of its own in this process
 //! (`fake-session-N`) and answers `session/load` for an id it gave earlier in the same process (or any id with
 //! `--load-any`), replaying [`LOAD_REPLAY`] (a `user_message_chunk` and an `agent_message_chunk`) before it answers
 //! (with the modes and options of `--options`, as `session/new`); an unknown id is `invalid_params`.
@@ -281,7 +281,7 @@ pub struct Options {
     pub options: bool,
     /// End the diagnostics scenarios' turns with [`stream_usage`] (`--usage`, brief 0059).
     pub usage: bool,
-    /// Advertise `loadSession` and resume the sessions given in this process (`--load`, brief 0060).
+    /// Advertise `loadSession` and resume the sessions given in this process (`--load`, brief 0061).
     pub load: bool,
     /// With `--load`, resume any id (`--load-any`).
     pub load_any: bool,
@@ -344,13 +344,13 @@ impl Options {
     }
 }
 
-/// What `session/load` replays before it answers (brief 0060): the earlier prompt and the agent's answer.
+/// What `session/load` replays before it answers (brief 0061): the earlier prompt and the agent's answer.
 pub const LOAD_REPLAY: [(&str, &str); 2] = [
     ("user_message_chunk", "An earlier prompt"),
     ("agent_message_chunk", "An earlier answer"),
 ];
 
-/// The session ids `--load` gave in this process (brief 0060), which `session/load` resumes.
+/// The session ids `--load` gave in this process (brief 0061), which `session/load` resumes.
 static GIVEN_SESSIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
@@ -506,7 +506,7 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 self.mcp = serde_json::from_value(params["mcpServers"].clone()).unwrap_or_default();
                 self.cwd = params["cwd"].as_str().unwrap_or_default().to_owned();
                 if self.opts.load {
-                    // An id of its own, which a later `session/load` in this process resumes (brief 0060).
+                    // An id of its own, which a later `session/load` in this process resumes (brief 0061).
                     self.session = format!("fake-session-{}", NEXT_SESSION.fetch_add(1, Ordering::Relaxed));
                     if let Ok(mut g) = GIVEN_SESSIONS.lock() {
                         g.push(self.session.clone());

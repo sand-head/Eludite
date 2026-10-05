@@ -4,7 +4,7 @@
 //! buttons, the prompt box, its keys and the pickers run them, and they are agent-visible too, so an outer agent could
 //! drive an inner one.
 //!
-//! Brief 0060 adds the sessions: `eludite.agents.sessions` (the history list), `switch` (show another session, a
+//! Brief 0061 adds the sessions: `eludite.agents.sessions` (the history list), `switch` (show another session, a
 //! stored one resumed through ACP `session/load` when its agent can) and `new_session` (a new session made current,
 //! the previous one kept running); `start` gains `session`, and the state output names the session it describes.
 //!
@@ -105,7 +105,7 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             STATE_OUTPUT,
             Execute,
         ),
-        // Brief 0060: the history list reads; switching may start the agent that owns a stored session, and a new
+        // Brief 0061: the history list reads; switching may start the agent that owns a stored session, and a new
         // session starts one.
         SESSIONS => (
             "Agents: List Sessions",
@@ -172,7 +172,7 @@ pub enum AgentsRequest {
     Start {
         agent: Option<String>,
         restart: bool,
-        /// Act on this session instead of the current one (brief 0060).
+        /// Act on this session instead of the current one (brief 0061).
         session: Option<String>,
     },
     Prompt {
@@ -193,7 +193,7 @@ pub enum AgentsRequest {
         option: String,
         value: String,
     },
-    /// List the sessions (brief 0060).
+    /// List the sessions (brief 0061).
     Sessions,
     /// Show session `session`, resuming a stored one when its agent can.
     Switch {
@@ -246,7 +246,7 @@ pub struct AgentRow {
 #[serde(deny_unknown_fields)]
 pub struct AgentsStateOutput {
     pub agent: String,
-    /// The session the window shows (brief 0060); absent when it shows none.
+    /// The session the window shows (brief 0061); absent when it shows none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionOutput>,
     /// `stopped`, `starting`, `ready`, `needs_login`, `running` or `error`.
@@ -1193,7 +1193,7 @@ mod tests {
             );
         }
     }
-    /// Brief 0060: `sessions`, `switch` and `new_session` parse, validate and follow their schemas; `start` takes
+    /// Brief 0061: `sessions`, `switch` and `new_session` parse, validate and follow their schemas; `start` takes
     /// `session`; the state's `session` and the sessions output serialize to the schemas' members.
     #[test]
     fn the_session_commands_parse_validate_and_follow_their_schemas() {

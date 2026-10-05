@@ -364,7 +364,7 @@ fn edit_scenario_streams_a_thought_and_a_plan() {
     assert!(r.text().contains("The edit tool failed"), "{}", r.text());
 }
 
-/// The fake agent run in this process over pipes (brief 0060), so the session ids it gives stay known to a later run.
+/// The fake agent run in this process over pipes (brief 0061), so the session ids it gives stay known to a later run.
 fn in_process() -> eludite_acp::session::StreamConnector {
     Arc::new(|agent, _cwd| {
         let opts = eludite_acp::fake_agent::Options::from_args(agent.args.clone())
@@ -434,7 +434,7 @@ impl Run {
     }
 }
 
-/// Brief 0060: `session/load` round trip. A session the fake gave in this process is resumed: its replay arrives as
+/// Brief 0061: `session/load` round trip. A session the fake gave in this process is resumed: its replay arrives as
 /// `Replay` events (not `Update`s) before `Ready` names the same id, the modes and options come back as after
 /// `session/new`, and the next prompt runs a turn in it. An id the fake never gave fails the load; `--load-any`
 /// (a real child process) resumes any id.
@@ -540,7 +540,7 @@ fn a_session_is_resumed_with_session_load_and_its_replay_is_marked() {
     any.session.shutdown();
 }
 
-/// Brief 0060: an agent that does not advertise `loadSession` cannot resume: the session reports `LoadUnsupported`,
+/// Brief 0061: an agent that does not advertise `loadSession` cannot resume: the session reports `LoadUnsupported`,
 /// never `Ready`, and sends no `session/load`.
 #[test]
 fn an_agent_without_load_session_reports_it_cannot_resume() {

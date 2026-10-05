@@ -12,7 +12,7 @@
 //! while a turn is in progress, answer with the new state and notify
 //! `current_mode_update` or `config_option_update`.
 //!
-//! Resuming (brief 0060): `initialize` advertises `loadSession`, and
+//! Resuming (brief 0061): `initialize` advertises `loadSession`, and
 //! `session/load` starts `claude --resume <sessionId>` (with the MCP config and
 //! the `initialize` control request as for `session/new`), replays the
 //! conversation from Claude Code's own session file
@@ -241,7 +241,7 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
                 cx.spawn(async move {
                     match load_session(&state, req).await {
                         Ok((r, session, updates)) => {
-                            // ACP: the conversation is replayed before the answer (brief 0060), then the slash
+                            // ACP: the conversation is replayed before the answer (brief 0061), then the slash
                             // commands follow it as after `session/new`.
                             for u in updates {
                                 task_cx.send_notification(session.notification(u))?;
@@ -412,7 +412,7 @@ async fn new_session(
     Ok((response, session))
 }
 
-/// `session/load` (brief 0060): `claude --resume`, then the conversation from Claude Code's session file to replay.
+/// `session/load` (brief 0061): `claude --resume`, then the conversation from Claude Code's session file to replay.
 async fn load_session(
     state: &State,
     req: LoadSessionRequest,
@@ -503,7 +503,7 @@ async fn open_session(
     let reply = match answer {
         Ok(Ok(reply)) => reply,
         failed => {
-            // A refused `--resume` (brief 0060): `claude` says why in a `result`'s `errors`, then exits.
+            // A refused `--resume` (brief 0061): `claude` says why in a `result`'s `errors`, then exits.
             if resuming && let Some(why) = refusal(&session).await {
                 return Err(failure(format!("claude could not resume {id}: {why}")));
             }

@@ -1,4 +1,4 @@
-//! The Agents window's session store (brief 0060): every conversation is kept in the person's per-workspace state,
+//! The Agents window's session store (brief 0061): every conversation is kept in the person's per-workspace state,
 //! never in the repository.
 //!
 //! - **Where.** `<workspace state dir>/agents/sessions/<id>.json` ([`dir_for`], over brief 0047's
@@ -6,7 +6,7 @@
 //!   temporary file renamed over the old one, so a reader never sees half a record.
 //! - **What.** A [`Record`]: `{"version": 1, "id", "agent", "acp_session_id", "title", "started", "last_activity",
 //!   "model", "ended", "usage", "transcript"}`, the transcript being `Transcript::to_json`'s record (brief 0016's
-//!   `--transcript-out`, as brief 0058 extended it). Times are RFC 3339 in UTC with milliseconds ([`rfc3339`]), so
+//!   `--transcript-out`, as brief 0059 extended it). Times are RFC 3339 in UTC with milliseconds ([`rfc3339`]), so
 //!   they sort as text.
 //! - **How.** One `agents-sessions` thread does every read and write ([`SessionStore`]), in the order they were asked
 //!   for: the record is serialized to a JSON value on the UI thread and written there; a folder is scanned for the

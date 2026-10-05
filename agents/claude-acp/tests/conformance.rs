@@ -14,7 +14,7 @@
 //! local command is not a turn. The ACP side is pinned in
 //! `claude-2.1.289-options.acp.jsonl` (`UPDATE_GOLDEN=1` rewrites it).
 //!
-//! Brief 0060: `claude-2.1.289-resume.jsonl` holds three `claude` processes
+//! Brief 0061: `claude-2.1.289-resume.jsonl` holds three `claude` processes
 //! (no model call): a new session that runs the local command `/effort low`
 //! (which writes Claude Code's session file), `--resume` of that session (its
 //! own `initialize`), and `--resume` of an id no session has (refused). With
@@ -261,7 +261,7 @@ fn recorded_session_full_mapping_permissions_and_cancel() {
     assert_eq!(agent.name, "eludite-claude-acp");
     assert!(init.agent_capabilities.mcp_capabilities.http);
     assert!(!init.agent_capabilities.mcp_capabilities.sse);
-    // Brief 0060: the adapter resumes sessions (`session/load` over `claude --resume`).
+    // Brief 0061: the adapter resumes sessions (`session/load` over `claude --resume`).
     assert!(init.agent_capabilities.load_session);
     let login = &init.auth_methods[0];
     assert_eq!(login.kind.as_deref(), Some("terminal"));
@@ -1138,7 +1138,7 @@ fn project_folder(cwd: &Path) -> String {
         .collect()
 }
 
-/// Brief 0060: `session/load` against the recorded `--resume`. A first adapter starts a session that runs `/effort
+/// Brief 0061: `session/load` against the recorded `--resume`. A first adapter starts a session that runs `/effort
 /// low`; a second adapter resumes it: `claude` is started with `--resume <id>` and answers its own `initialize`, the
 /// conversation from Claude Code's session file is replayed before the answer, the answer carries the modes and the
 /// options, and the slash commands follow it. Loading it again while it is live is `invalid_params`; a `--resume`

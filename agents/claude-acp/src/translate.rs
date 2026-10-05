@@ -38,7 +38,7 @@
 //! one of its values ([`SessionOptions::on_local_command`]); the model of a
 //! turn's usage corrects the model option ([`SessionOptions::on_turn_model`]).
 //!
-//! [`replay`] (brief 0060) turns Claude Code's own session file (one JSON record per line) into the updates
+//! [`replay`] (brief 0061) turns Claude Code's own session file (one JSON record per line) into the updates
 //! `session/load` replays before it answers: the person's text as `user_message_chunk`, the assistant's text as
 //! `agent_message_chunk` and its thinking as `agent_thought_chunk`, each tool use as a completed `tool_call` (titled
 //! and kinded as in a turn) followed by its result's `tool_call_update`. Anything else is skipped: meta records,
@@ -795,7 +795,7 @@ impl Translator {
 mod tests {
     use super::*;
 
-    /// Brief 0060: the checked-in sample of Claude Code's session file (redacted from 2.1.289's records) replays as
+    /// Brief 0061: the checked-in sample of Claude Code's session file (redacted from 2.1.289's records) replays as
     /// the person's text, the thought, each tool use as a completed call followed by its result, and the answer;
     /// local commands, meta records, the subagent's answer, the image and the line cut short are skipped.
     #[test]

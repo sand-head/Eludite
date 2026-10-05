@@ -44,7 +44,7 @@
 //!   `eludite.file.edit` (one `eludite.workspace.apply_edit` under the calling agent, so it is a pending change
 //!   reviewed like any other), both answered off the UI thread. The agent picker ends with "Add server…", which opens
 //!   [`providers::ProviderDialog`]; Tools > Options > Agents lists the servers with Edit and Remove.
-//! - **Sessions** (brief 0060). `Agents` keeps every session at once: the shown one's state is its [`Slot`] (the
+//! - **Sessions** (brief 0061). `Agents` keeps every session at once: the shown one's state is its [`Slot`] (the
 //!   fields above are reached through it), the others wait in `parked` with what the window shows of them
 //!   ([`window::SessionView`]). Each live session has its own agent process, generation, MCP endpoint (from a pool, so
 //!   its calls are audited under its own agent and its prompts reach its own transcript), policy grants, waiting
@@ -202,7 +202,7 @@ pub const AGENTS_SLOT: &str = "agents";
 /// What the transcript says, and the prompt box in place of the text, when a stored session's agent cannot resume it.
 pub const CANNOT_RESUME: &str = "This agent cannot resume a session; start a new one to continue";
 
-/// How often a session's record is written while it changes (brief 0060), besides at a turn's end, a permission
+/// How often a session's record is written while it changes (brief 0061), besides at a turn's end, a permission
 /// answered and the session's stop.
 const WRITE_EVERY: Duration = Duration::from_secs(2);
 
@@ -230,7 +230,7 @@ pub struct AgentsSetup {
     /// (`ELUDITE_OPENAI_ACP`, beside the executable, `PATH`).
     pub openai_adapter: Option<PathBuf>,
     /// Where the per-workspace state folders are (`<config dir>/eludite/workspaces`, brief 0047), whose
-    /// `agents/sessions` keep the sessions (brief 0060); `None`: nothing is kept (the shell's tests other than the
+    /// `agents/sessions` keep the sessions (brief 0061); `None`: nothing is kept (the shell's tests other than the
     /// Agents window's).
     pub sessions_root: Option<PathBuf>,
 }
@@ -527,7 +527,7 @@ static NEXT_ASK: AtomicU64 = AtomicU64::new(1 << 40);
 /// What reaches the UI thread from the agents' and the endpoint's threads.
 pub enum HostMsg {
     Session(u64, Box<SessionEvent>),
-    /// An MCP call of session `.0` (its endpoint's owner, brief 0060).
+    /// An MCP call of session `.0` (its endpoint's owner, brief 0061).
     Mcp(SessionId, Box<ToolCallRecord>),
     /// A searched registry.
     Registry(Box<Searched>),
@@ -539,7 +539,7 @@ pub enum HostMsg {
     Ask(SessionId, Box<GateAsk>),
     /// A tool call's images, decoded off the UI thread: (session, tool call id, thumbnails).
     Images(SessionId, String, Vec<Thumb>),
-    /// The session store found or did something (brief 0060).
+    /// The session store found or did something (brief 0061).
     Store(StoreEvent),
 }
 
@@ -658,7 +658,7 @@ pub struct Answered {
     pub policy_path: Option<PathBuf>,
 }
 
-/// Who an MCP endpoint of the pool serves (brief 0060): its calls are that session's, audited under its agent and
+/// Who an MCP endpoint of the pool serves (brief 0061): its calls are that session's, audited under its agent and
 /// judged by its policy.
 struct EndpointOwner {
     session: SessionId,
@@ -668,7 +668,7 @@ struct EndpointOwner {
 
 type Owner = Arc<Mutex<EndpointOwner>>;
 
-/// One session's state in the shell (brief 0060): the shown session's is `Agents::slot`, reached through `Agents`'
+/// One session's state in the shell (brief 0061): the shown session's is `Agents::slot`, reached through `Agents`'
 /// `Deref`, so `self.agents.state` is the shown session's state.
 pub struct Slot {
     /// `None` only for the empty slot shown before the first session.
@@ -695,7 +695,7 @@ pub struct Slot {
     policy: SharedPolicy,
     /// Permission requests waiting for the user, by key.
     waiting: HashMap<u64, Waiting>,
-    /// The session's modes and config options (brief 0057).
+    /// The session's modes and config options (brief 0058).
     pub modes: Option<SessionModeState>,
     pub config_options: Vec<SessionConfigOption>,
     /// Configure requests waiting for the agent.
@@ -775,7 +775,7 @@ pub struct Agents {
     registry_config: Option<RegistryConfig>,
     pub registry: Vec<RegisteredAgent>,
     pub selected: usize,
-    /// The shown session's state (brief 0060); `Deref` reaches it.
+    /// The shown session's state (brief 0061); `Deref` reaches it.
     slot: Slot,
     /// Its id (`None` before the first session).
     pub shown: Option<SessionId>,
@@ -788,7 +788,7 @@ pub struct Agents {
     store: SessionStore,
     store_dir: Option<PathBuf>,
     stored: Vec<SessionMeta>,
-    /// MCP endpoints no live session uses (brief 0060).
+    /// MCP endpoints no live session uses (brief 0061).
     free_endpoints: Vec<(McpEndpoint, Owner)>,
     _watch: Option<gpui::Subscription>,
     tx: UnboundedSender<HostMsg>,
@@ -901,7 +901,7 @@ impl Agents {
                 eludite_commands::agents::register_providers(&s.commands, Arc::new(store));
             });
         });
-        // Brief 0060: the session store's thread reports through the pump; the store folder follows the workspace.
+        // Brief 0061: the session store's thread reports through the pump; the store folder follows the workspace.
         let store = {
             let tx = tx.clone();
             SessionStore::start(Arc::new(move |e| {
@@ -1065,7 +1065,7 @@ impl Agents {
     }
 }
 
-/// What the tests read of the sessions (brief 0060).
+/// What the tests read of the sessions (brief 0061).
 #[cfg(test)]
 impl Agents {
     /// The workspace's store folder.
@@ -1194,7 +1194,7 @@ impl Shell {
         cx.notify();
     }
 
-    /// Start or restart the shown session's agent (or `agent`), unless it runs and `restart` is false (brief 0060's
+    /// Start or restart the shown session's agent (or `agent`), unless it runs and `restart` is false (brief 0061's
     /// meaning of `eludite.agents.start`): with no session shown, a new one; with `agent` another than the shown
     /// session's, that session stops and a new one starts with `agent`; a stored session its agent cannot resume is
     /// replaced by a new session with the same agent.
@@ -1655,11 +1655,11 @@ impl Shell {
         let resuming = resume.is_some();
         self.agents.resuming = resuming;
         if let Some(acp) = resume {
-            // Brief 0060: the agent resumes its own session; its replay is counted (and discarded with a record).
+            // Brief 0061: the agent resumes its own session; its replay is counted (and discarded with a record).
             self.agents.slot.session = Some(AgentSession::resume(config, acp, generation, sink));
         } else {
-            // The model and effort last picked in the window (brief 0057), for the agent to start with; not for a
-            // server (brief 0059), whose models are its own and whose first is `defaultModel`.
+            // The model and effort last picked in the window (brief 0058), for the agent to start with; not for a
+            // server (brief 0060), whose models are its own and whose first is `defaultModel`.
             let meta = if agent.source == AgentSource::Provider {
                 None
             } else {
@@ -1738,7 +1738,7 @@ impl Shell {
         self.refresh_history(cx);
     }
 
-    /// Write the shown session's record (brief 0060): `now`, or when it changed and the last write is 2 s old.
+    /// Write the shown session's record (brief 0061): `now`, or when it changed and the last write is 2 s old.
     /// Nothing is written before a prompt; the record is serialized here and written by the store's thread.
     fn persist(&mut self, now: bool, cx: &mut Context<Self>) {
         let Some(meta) = self.agents.meta.clone().filter(|m| m.prompted()) else {
@@ -1783,7 +1783,7 @@ impl Shell {
         }
     }
 
-    /// The history list's rows and the state's `session` (brief 0060).
+    /// The history list's rows and the state's `session` (brief 0061).
     pub(super) fn refresh_history(&mut self, cx: &mut Context<Self>) {
         let now = sessions::now();
         let offset = sessions::local_offset_minutes();
@@ -1888,7 +1888,7 @@ impl Shell {
     ) {
         self.agents.modes = modes.clone();
         self.agents.config_options = config_options.clone();
-        // The history list names the session's model (brief 0060).
+        // The history list names the session's model (brief 0061).
         let model = self.agents.model_name();
         if let Some(m) = self.agents.slot.meta.as_mut() {
             m.model = model;
@@ -1967,7 +1967,7 @@ impl Shell {
         if self.agents.state == StateKind::Running {
             return Err("the agent is still answering; cancel the turn first".into());
         }
-        // Brief 0060: a stored session its agent cannot resume takes no prompt; one still loading waits.
+        // Brief 0061: a stored session its agent cannot resume takes no prompt; one still loading waits.
         if let Some(why) = self.agents.window.read(cx).disabled.clone() {
             return Err(why);
         }
@@ -1983,7 +1983,7 @@ impl Shell {
         session.prompt(text);
         self.agents.state = StateKind::Running;
         self.agents.turn_started = Some(Instant::now());
-        // The first prompt names the session (brief 0060).
+        // The first prompt names the session (brief 0061).
         if let Some(m) = self.agents.slot.meta.as_mut()
             && !m.prompted()
         {
@@ -2009,7 +2009,7 @@ impl Shell {
 
     /// Cancel the turn: `session/cancel`, every pending request answered `cancelled`, every pending change rejected.
     pub fn agents_cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // The shown session's pending changes only (brief 0060): another session's turn goes on.
+        // The shown session's pending changes only (brief 0061): another session's turn goes on.
         let ids = self.session_changes(cx);
         if !ids.is_empty() {
             let _ = self.decide(&ids, false, window, cx);
@@ -2086,7 +2086,7 @@ impl Shell {
         }
     }
 
-    /// Accept or reject changes `ids` (`eludite.agents.review`), each with its own session swapped in (brief 0060),
+    /// Accept or reject changes `ids` (`eludite.agents.review`), each with its own session swapped in (brief 0061),
     /// so an off-screen session's agent hears the answer and its transcript the outcome.
     fn decide_in_sessions(
         &mut self,
@@ -2125,7 +2125,7 @@ impl Shell {
 
     /// Answer permission request `key`: the agent's (through ACP) or the MCP gate's. Always Allow adds a rule to the
     /// solution's policy file (written off the UI thread) and allows this call. A request of a session that is not
-    /// shown is answered in that session (brief 0060: keys are unique across sessions).
+    /// shown is answered in that session (brief 0061: keys are unique across sessions).
     pub fn agents_answer(
         &mut self,
         key: u64,
@@ -2223,7 +2223,7 @@ impl Shell {
             w.sync(cx);
         });
         self.after_permission_change(cx);
-        // Brief 0060: an answer is written to the session's record at once.
+        // Brief 0061: an answer is written to the session's record at once.
         self.agents.touch();
         self.persist(true, cx);
         self.refresh_history(cx);
@@ -2293,7 +2293,7 @@ impl Shell {
         });
     }
 
-    /// The hooks of an MCP endpoint serving `owner`'s session (brief 0060: endpoints come from a pool, so the owner is
+    /// The hooks of an MCP endpoint serving `owner`'s session (brief 0061: endpoints come from a pool, so the owner is
     /// read at each call).
     fn endpoint_hooks(&self, owner: Owner) -> EndpointHooks {
         let tx = self.agents.tx.clone();
@@ -2402,7 +2402,7 @@ impl Shell {
                     .map_err(failed)?;
                 Ok(AgentsOutput::State(self.agents_state(cx)))
             }
-            // Brief 0060: the history list, switching and a new session.
+            // Brief 0061: the history list, switching and a new session.
             AgentsRequest::Sessions => Ok(AgentsOutput::Sessions(SessionsOutput {
                 current: self.agents.shown.clone(),
                 sessions: self
@@ -2510,7 +2510,7 @@ impl Shell {
                 .selected_agent()
                 .map(|x| x.name().to_owned())
                 .unwrap_or_default(),
-            // The session shown (brief 0060).
+            // The session shown (brief 0061).
             session: a.meta.as_ref().map(|m| SessionOutput {
                 id: m.id.clone(),
                 title: m.title.clone(),
@@ -2767,7 +2767,7 @@ impl Shell {
                 }
             }
             AgentsWindowEvent::AddServer => self.open_provider_dialog(None, window, cx),
-            // Brief 0060: the history list and New session.
+            // Brief 0061: the history list and New session.
             AgentsWindowEvent::Switch(id) => self.run(
                 eludite_commands::agents::SWITCH,
                 json!({ "session": id }),
@@ -2873,7 +2873,7 @@ impl Shell {
     ) {
         let mut header = false;
         let window = self.agents.window.clone();
-        // Brief 0060: each session's messages, in order, applied with that session swapped in when it is not shown.
+        // Brief 0061: each session's messages, in order, applied with that session swapped in when it is not shown.
         let mut groups: Vec<(SessionId, Vec<HostMsg>)> = Vec::new();
         for msg in batch {
             let session = match &msg {
@@ -2899,7 +2899,7 @@ impl Shell {
                                 ..
                             } = *found;
                             self.agents.keys = keys;
-                            // The screenshot driver waits for a saved server (brief 0059).
+                            // The screenshot driver waits for a saved server (brief 0060).
                             super::documents::trace(format_args!(
                                 "agents registry {}",
                                 registry
@@ -2975,7 +2975,7 @@ impl Shell {
     ) {
         let mut header = false;
         let mut permissions = false;
-        // Brief 0060: the record is written at once when a turn ends or the agent stops, else at most every 2 s.
+        // Brief 0061: the record is written at once when a turn ends or the agent stops, else at most every 2 s.
         let mut now = false;
         let window = self.agents.window.clone();
         for msg in batch {
@@ -3082,7 +3082,7 @@ impl Shell {
                         }
                         self.on_agent_state(s, cx);
                     }
-                    // Brief 0060: what the agent replays on `session/load`: counted, and discarded when Eludite's
+                    // Brief 0061: what the agent replays on `session/load`: counted, and discarded when Eludite's
                     // record of the session (richer: review links, audit numbers) is shown; else it builds the
                     // transcript.
                     SessionEvent::Replay(u) => {
@@ -3126,7 +3126,7 @@ impl Shell {
                             self.agents_log(&format!("{name} is ready: {detail}"), cx);
                             self.agents.detail = detail;
                         }
-                        // Brief 0060: the agent's id for the session, which a later `session/load` resumes.
+                        // Brief 0061: the agent's id for the session, which a later `session/load` resumes.
                         if let Some(m) = self.agents.slot.meta.as_mut() {
                             m.acp_session_id = Some(session_id.clone());
                         }
@@ -3511,7 +3511,7 @@ impl Shell {
         if images.is_empty() {
             return;
         }
-        // The session whose events are being applied (brief 0060).
+        // The session whose events are being applied (brief 0061).
         let Some(session) = self.agents.shown.clone() else {
             return;
         };
@@ -3525,7 +3525,7 @@ impl Shell {
         .detach();
     }
 
-    /// What the session store's thread found or did (brief 0060).
+    /// What the session store's thread found or did (brief 0061).
     fn on_store_event(&mut self, e: StoreEvent, cx: &mut Context<Self>) {
         match e {
             StoreEvent::Scanned(dir, metas) => {

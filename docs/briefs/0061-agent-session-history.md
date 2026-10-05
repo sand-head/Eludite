@@ -1,6 +1,6 @@
 # Brief 0061: Agent session history and switching in the Agents window
 
-Status: open
+Status: done on Linux, except the history-list screenshot and the bench's `--sessions N`; see [0061-report.md](0061-report.md)
 Phase: 2
 Plan reference: PLAN.md sections 2 (principles 1, 3, 12), 5.2 ("Multiple agents run concurrently"), 8
 Depends on: briefs 0057, 0058 and 0059 (the window as it is after them), brief 0047 (the per-workspace state

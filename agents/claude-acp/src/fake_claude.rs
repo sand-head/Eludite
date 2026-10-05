@@ -12,7 +12,7 @@
 //! `FAKE_CLAUDE_LENIENT=1`. `{{SESSION_ID}}` and `{{CWD}}` are replaced by the
 //! `--session-id` (or `--resume`) argument and the working directory.
 //!
-//! Brief 0060: a fixture of several `claude` processes has a
+//! Brief 0061: a fixture of several `claude` processes has a
 //! `{"dir": "start", "m": {"flag", "label"}}` record before each one's; the
 //! fake replays the first for `--session-id` and, for `--resume`, the one
 //! labelled `$FAKE_CLAUDE_RESUME` (default `resume`; the recording's refusal is
@@ -40,7 +40,7 @@ pub const LOG_ENV: &str = "FAKE_CLAUDE_LOG";
 pub const VERSION_ENV: &str = "FAKE_CLAUDE_VERSION";
 pub const LENIENT_ENV: &str = "FAKE_CLAUDE_LENIENT";
 pub const SCENARIO_ENV: &str = "FAKE_CLAUDE_SCENARIO";
-/// Which recorded process answers a `--resume` (brief 0060): its start record's label.
+/// Which recorded process answers a `--resume` (brief 0061): its start record's label.
 pub const RESUME_ENV: &str = "FAKE_CLAUDE_RESUME";
 
 struct Log(Option<std::fs::File>);

@@ -23,7 +23,7 @@
 //! adapter's title ([`ToolRow::name`], the tool's own name in [`ToolRow::tool_name`]); the session's latest usage is
 //! kept for the usage strip ([`Transcript::usage`]) until a new session starts ([`Transcript::new_session`]).
 //!
-//! Brief 0060: [`Transcript::from_json`] rebuilds the rows from the record [`Transcript::to_json`] writes (a session
+//! Brief 0061: [`Transcript::from_json`] rebuilds the rows from the record [`Transcript::to_json`] writes (a session
 //! kept in the per-workspace store): the prompts with their time (the record now carries it, and a thought its length
 //! in seconds), the agent's Markdown, the thoughts collapsed, the tool calls as completed, denied or failed with their
 //! arguments, result and note, the change links read from the note (`Change #3 Program.cs: accepted`), the plans,
@@ -474,7 +474,7 @@ pub struct ToolRow {
     /// The card shows its arguments and result (brief 0059; collapsed by default). A debug command's row (brief 0027)
     /// shows the summary the agent received under its line by the same state, through its "Show snapshot" link.
     pub expanded: bool,
-    /// The record this row was rebuilt from (brief 0060): its status, note and debug line come from it, and so does
+    /// The record this row was rebuilt from (brief 0061): its status, note and debug line come from it, and so does
     /// its record. `None` for a row of a live session.
     pub restored: Option<Box<Value>>,
 }
@@ -500,7 +500,7 @@ impl ToolRow {
             .unwrap_or_else(|| self.call.tool_call_id.clone())
     }
 
-    /// The status the transcript shows (brief 0016 Contract). A restored row (brief 0060) is denied, failed or
+    /// The status the transcript shows (brief 0016 Contract). A restored row (brief 0061) is denied, failed or
     /// completed, as its record says.
     pub fn status(&self) -> ToolStatus {
         if let Some(r) = &self.restored {
@@ -811,7 +811,7 @@ pub struct Transcript {
     pub usage: Option<TurnUsage>,
     /// The thought row still receiving text, if any.
     thought_row: Option<usize>,
-    /// The last row is a prompt an agent's replay is still sending (brief 0060).
+    /// The last row is a prompt an agent's replay is still sending (brief 0061).
     user_open: bool,
 }
 
@@ -1061,7 +1061,7 @@ impl Transcript {
                 }
                 let ix = self.tool_index(t);
                 if known && let Some(row) = self.tool_mut(ix) {
-                    // A live update makes a restored row live again (brief 0060).
+                    // A live update makes a restored row live again (brief 0061).
                     row.restored = None;
                     row.call.apply(t.clone());
                 }
@@ -1312,7 +1312,7 @@ impl Transcript {
                 }
                 Row::Tool(t) => {
                     // Built member by member: `json!` would serialize the arguments' value into a new one (brief
-                    // 0060 writes the record every 2 s while a session changes).
+                    // 0061 writes the record every 2 s while a session changes).
                     let opt = |v: Option<String>| v.map_or(Value::Null, Value::String);
                     let mut map = serde_json::Map::new();
                     map.insert("id".into(), Value::String(t.call.tool_call_id.clone()));
@@ -1358,7 +1358,7 @@ impl Transcript {
         Value::Array(out)
     }
 
-    /// The transcript [`Transcript::to_json`] recorded (brief 0060): every row rebuilt, the agent's text split into its
+    /// The transcript [`Transcript::to_json`] recorded (brief 0061): every row rebuilt, the agent's text split into its
     /// Markdown blocks again, the thoughts collapsed, the tool rows with their record ([`ToolRow::restored`]), the last
     /// usage line the usage strip's. Entries it does not know are skipped. Its record is `record`.
     pub fn from_json(record: &Value) -> Transcript {
@@ -1462,7 +1462,7 @@ impl Transcript {
         t
     }
 
-    /// What an agent replays on `session/load` (brief 0060), when the shell has no record of the session: its prompts
+    /// What an agent replays on `session/load` (brief 0061), when the shell has no record of the session: its prompts
     /// as prompt rows (no time), everything else as [`Transcript::apply`] shows it.
     pub fn replay(&mut self, update: &SessionUpdate) {
         let SessionUpdate::UserMessageChunk(c) = update else {
@@ -2166,7 +2166,7 @@ mod record_tests {
         t
     }
 
-    /// Brief 0060: a transcript's record rebuilds into rows whose record is the same; the rows read as the shown ones
+    /// Brief 0061: a transcript's record rebuilds into rows whose record is the same; the rows read as the shown ones
     /// did (titles, statuses, notes, the debug line, the change links), thoughts collapsed and done, and no restored
     /// call is audited again.
     #[test]
@@ -2234,7 +2234,7 @@ mod record_tests {
         );
     }
 
-    /// Brief 0060: an agent's replay builds rows when the shell has no record: the prompts (their chunks joined),
+    /// Brief 0061: an agent's replay builds rows when the shell has no record: the prompts (their chunks joined),
     /// the answer, the tool calls.
     #[test]
     fn a_replay_builds_prompts_and_answers() {
@@ -2254,8 +2254,8 @@ mod record_tests {
         assert_eq!(record[2]["user"], "Thanks");
     }
 
-    /// Brief 0060's budget: a 2,000-row record rebuilds in under 50 ms in a debug build; it serializes in under 10 ms
-    /// (the brief's budget, for the shipped build: a debug build takes 11 to 12 ms on the 4-core VM of brief 0060's
+    /// Brief 0061's budget: a 2,000-row record rebuilds in under 50 ms in a debug build; it serializes in under 10 ms
+    /// (the brief's budget, for the shipped build: a debug build takes 11 to 12 ms on the 4-core VM of brief 0061's
     /// report, so a debug run is held to twice it). Asserted while the machine is not loaded; printed always.
     #[test]
     fn a_two_thousand_row_record_serializes_and_rebuilds_within_budget() {

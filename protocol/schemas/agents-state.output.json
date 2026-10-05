@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-state.output.json",
   "title": "eludite.agents.start, prompt, cancel, configure, switch and new_session output",
-  "description": "The Agents window's agent and session state: of the session the window shows (brief 0060), the stopped state with no `session` when it shows none.",
+  "description": "The Agents window's agent and session state: of the session the window shows (brief 0061), the stopped state with no `session` when it shows none.",
   "type": "object",
   "required": [
     "agent",
@@ -19,7 +19,7 @@
       "type": "string"
     },
     "session": {
-      "description": "The session the window shows (brief 0060): Eludite's own id, its title, when it started and last changed, and whether its agent process runs. Absent when the window shows none.",
+      "description": "The session the window shows (brief 0061): Eludite's own id, its title, when it started and last changed, and whether its agent process runs. Absent when the window shows none.",
       "type": "object",
       "required": [
         "id",
