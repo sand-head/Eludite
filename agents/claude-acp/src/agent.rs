@@ -30,8 +30,8 @@ use crate::log;
 use crate::mapping::{
     mcp_config, permission_options, permission_response, prompt_content, tool_info, tool_meta,
 };
-use crate::process::{ClaudeProcess, Event, Launch, write_mcp_config};
-use crate::translate::{Translator, TurnEnd};
+use crate::process::{ClaudeProcess, Event, InitializeReply, Launch, write_mcp_config};
+use crate::translate::{Translator, TurnEnd, available_commands_update};
 
 /// Environment variable choosing the model (`--model`) when the session does
 /// not.
@@ -60,6 +60,15 @@ struct Session {
     in_turn: AtomicBool,
     cancelled: AtomicBool,
     mcp_config: PathBuf,
+    /// `claude`'s slash commands from its `initialize` reply (brief 0056), as it lists them.
+    commands: Vec<Value>,
+}
+
+impl Session {
+    /// The `available_commands_update` sent right after `session/new` answers.
+    fn commands_update(&self) -> SessionNotification {
+        SessionNotification::new(self.id.clone(), available_commands_update(&self.commands))
+    }
 }
 
 impl Drop for Session {
@@ -157,9 +166,15 @@ pub async fn serve(config: Config, transport: impl ConnectTo<Agent>) -> Result<(
                         responder: Responder<NewSessionResponse>,
                         cx: ConnectionTo<Client>| {
                 let state = s_new.clone();
+                let task_cx = cx.clone();
                 cx.spawn(async move {
                     match new_session(&state, req).await {
-                        Ok(r) => responder.respond(r),
+                        Ok((r, session)) => {
+                            responder.respond(r)?;
+                            // ACP clients expect the slash commands before the first prompt (brief 0056): one
+                            // `available_commands_update` right after the answer, from this task, so it follows it.
+                            task_cx.send_notification(session.commands_update())
+                        }
                         Err(e) => responder.respond_with_error(e),
                     }
                 })
@@ -248,7 +263,10 @@ fn session_model(config: &Config, meta: Option<&serde_json::Map<String, Value>>)
         })
 }
 
-async fn new_session(state: &State, req: NewSessionRequest) -> Result<NewSessionResponse, Error> {
+async fn new_session(
+    state: &State,
+    req: NewSessionRequest,
+) -> Result<(NewSessionResponse, Arc<Session>), Error> {
     let (claude, _version) = state.claude().map_err(failure)?;
     if !req.cwd.is_absolute() {
         return Err(Error::invalid_params().data(json!("cwd must be an absolute path")));
@@ -274,7 +292,7 @@ async fn new_session(state: &State, req: NewSessionRequest) -> Result<NewSession
             )));
         }
     };
-    let session = Arc::new(Session {
+    let mut session = Session {
         id: id.clone(),
         cwd: req.cwd.clone(),
         process: process.clone(),
@@ -282,9 +300,11 @@ async fn new_session(state: &State, req: NewSessionRequest) -> Result<NewSession
         in_turn: AtomicBool::new(false),
         cancelled: AtomicBool::new(false),
         mcp_config: config_path,
-    });
+        commands: Vec::new(),
+    };
     // The SDK handshake. Its reply carries the account; only whether one is
-    // present is used (for the log), and nothing of it is logged or kept.
+    // present is used (for the log), and nothing of it is logged or kept. Its
+    // slash commands are kept for the client (brief 0056).
     let reply = process
         .control(json!({"subtype": "initialize"}), CHILD_INIT_TIMEOUT)
         .map_err(|e| failure(format!("could not talk to claude: {e}")))?
@@ -296,17 +316,21 @@ async fn new_session(state: &State, req: NewSessionRequest) -> Result<NewSession
     // the file, which may hold tokens, does not outlive this point even if
     // the adapter is killed.
     let _ = std::fs::remove_file(&session.mcp_config);
-    let logged_in = reply
-        .get("account")
-        .is_some_and(|a| a.get("tokenSource").and_then(Value::as_str) != Some("none"));
+    let InitializeReply {
+        logged_in,
+        commands,
+    } = InitializeReply::parse(&reply);
     log::info(format_args!(
-        "session {id}: claude pid {:?} ready, logged in: {logged_in}",
-        process.id()
+        "session {id}: claude pid {:?} ready, logged in: {logged_in}, {} commands",
+        process.id(),
+        commands.len()
     ));
+    session.commands = commands;
+    let session = Arc::new(session);
     if let Ok(mut s) = state.sessions.lock() {
-        s.insert(id.clone(), session);
+        s.insert(id.clone(), session.clone());
     }
-    Ok(NewSessionResponse::new(id))
+    Ok((NewSessionResponse::new(id), session))
 }
 
 fn cancel(session: &Session) {

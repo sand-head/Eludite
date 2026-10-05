@@ -30,6 +30,10 @@
 //! Brief 0034: the `stream` scenario ends its turn with a `usage_update` in
 //! eludite-claude-acp's shape ([`stream_usage`]).
 //!
+//! Brief 0056: the `stream` scenario sends two slash commands ([`stream_commands`]) in an
+//! `available_commands_update` right after `session/new` answers, as eludite-claude-acp does, and answers a prompt
+//! that starts with `/` the way Claude Code answers a local command: one line of text naming it, no stream.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
 //! `--script JSON`, `--url URL`). `planned` needs a [`Planner`] in [`Options`],
@@ -58,6 +62,20 @@ pub const EDIT_HEADER: &str = "// Edited by the agent\n";
 /// The file the write scenario creates, relative to the session's cwd, and its content.
 pub const WRITE_FILE: &str = "notes.txt";
 pub const WRITE_TEXT: &str = "hello\n";
+
+/// The slash commands the `stream` scenario sends after `session/new` (brief 0056), in ACP's `AvailableCommand` shape.
+pub fn stream_commands() -> Value {
+    json!([
+        {"name": "compact", "description": "Free up context by summarizing the conversation so far",
+         "input": {"hint": "<optional custom summarization instructions>"}},
+        {"name": "model", "description": "Set the AI model for Claude Code", "input": {"hint": "<model>"}}
+    ])
+}
+
+/// The text the `stream` scenario answers a slash command `prompt` with (brief 0056).
+pub fn slash_reply(prompt: &str) -> String {
+    format!("Ran the local command {prompt}")
+}
 
 /// The `usage_update` the `stream` scenario ends its turn with (brief 0034), in eludite-claude-acp's shape: brief
 /// 0030's first OffByOne run's counts.
@@ -374,7 +392,11 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 } else {
                     json!({"kind": "account", "label": "Fake subscription"})
                 };
-                self.write(json!({"jsonrpc": "2.0", "method": "_auth/status_update", "params": {"authStatus": status}}))
+                self.write(json!({"jsonrpc": "2.0", "method": "_auth/status_update", "params": {"authStatus": status}}))?;
+                if self.opts.scenario == Scenario::Stream {
+                    self.update(json!({"sessionUpdate": "available_commands_update", "availableCommands": stream_commands()}))?;
+                }
+                Ok(())
             }
             (methods::SESSION_PROMPT, Some(id)) => {
                 self.cancelled = false;
@@ -388,6 +410,11 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                 let stop = match self.opts.scenario {
                     Scenario::LoginRequired => {
                         return self.write(json!({"jsonrpc": "2.0", "id": id, "error": {"code": AUTH_REQUIRED, "message": "Authentication required"}}));
+                    }
+                    Scenario::Stream if self.prompt.starts_with('/') => {
+                        let reply = slash_reply(&self.prompt);
+                        self.say(&reply)?;
+                        "end_turn"
                     }
                     Scenario::Stream => self.stream()?,
                     Scenario::Diagnostics => self.diagnostics(false)?,
@@ -1331,6 +1358,54 @@ mod tests {
                 "resources/read",
                 "tools/call"
             ]
+        );
+    }
+
+    /// Brief 0056: the stream scenario lists its slash commands right after `session/new` answers, and answers a
+    /// slash command with one line instead of the stream; other scenarios list none.
+    #[test]
+    fn the_stream_scenario_lists_its_commands_after_session_new_and_answers_one() {
+        let session_new = json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+            "cwd": "/", "mcpServers": []}});
+        let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_PROMPT, "params": {
+            "sessionId": "fake-session-1", "prompt": [{"type": "text", "text": "/compact keep the plan"}]}});
+        let input = format!("{session_new}\n{prompt}\n");
+        let run_with = |scenario, input: &str| {
+            let mut output = Vec::new();
+            let opts = Options {
+                scenario,
+                ..Options::default()
+            };
+            run(input.as_bytes(), &mut output, opts).unwrap();
+            String::from_utf8(output)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let out = run_with(Scenario::Stream, &input);
+        let answered = out.iter().position(|m| m["id"] == 1).unwrap();
+        let listed = out
+            .iter()
+            .position(|m| m["params"]["update"]["sessionUpdate"] == "available_commands_update")
+            .expect("the commands");
+        assert!(listed > answered);
+        assert_eq!(
+            out[listed]["params"]["update"]["availableCommands"],
+            stream_commands()
+        );
+        let said: String = out
+            .iter()
+            .filter(|m| m["params"]["update"]["sessionUpdate"] == "agent_message_chunk")
+            .filter_map(|m| m["params"]["update"]["content"]["text"].as_str())
+            .collect();
+        assert_eq!(said, slash_reply("/compact keep the plan"));
+        assert!(out.iter().any(|m| m["result"]["stopReason"] == "end_turn"));
+        let edit = run_with(Scenario::Edit, &format!("{session_new}\n"));
+        assert!(
+            !edit
+                .iter()
+                .any(|m| m["params"]["update"]["sessionUpdate"] == "available_commands_update")
         );
     }
 }

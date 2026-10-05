@@ -157,6 +157,21 @@ pub struct AgentsStateOutput {
     pub agents: Vec<AgentRow>,
     pub pending_permissions: u64,
     pub pending_changes: u64,
+    /// The agent's slash commands (its latest ACP `available_commands_update`; brief 0056).
+    #[serde(default)]
+    pub commands: Vec<CommandRow>,
+}
+
+/// One slash command of `agents-state.output.json`'s `commands`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandRow {
+    /// Without the leading `/`.
+    pub name: String,
+    pub description: String,
+    /// What the command takes after its name (ACP's `input.hint`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// `agents-permission.output.json`.
@@ -452,6 +467,18 @@ mod tests {
             }],
             pending_permissions: 0,
             pending_changes: 0,
+            commands: vec![
+                CommandRow {
+                    name: "compact".into(),
+                    description: "Summarize the conversation".into(),
+                    hint: Some("<instructions>".into()),
+                },
+                CommandRow {
+                    name: "context".into(),
+                    description: "Show context usage".into(),
+                    hint: None,
+                },
+            ],
         })
         .to_json();
         let schema: Value = serde_json::from_str(STATE_OUTPUT).unwrap();
@@ -460,6 +487,20 @@ mod tests {
         }
         for k in state.as_object().unwrap().keys() {
             assert!(schema["properties"].get(k).is_some(), "{k}");
+        }
+        // The slash commands (brief 0056): each row's members are the schema's, the hint only when there is one.
+        let row = &schema["properties"]["commands"]["items"];
+        assert_eq!(
+            state["commands"],
+            json!([
+                {"name": "compact", "description": "Summarize the conversation", "hint": "<instructions>"},
+                {"name": "context", "description": "Show context usage"}
+            ])
+        );
+        for c in state["commands"].as_array().unwrap() {
+            for k in c.as_object().unwrap().keys() {
+                assert!(row["properties"].get(k).is_some(), "{k}");
+            }
         }
     }
 }

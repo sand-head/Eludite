@@ -80,6 +80,30 @@ impl Launch {
     }
 }
 
+/// What the adapter keeps of `claude`'s reply to its `initialize` control request: whether an account is logged in
+/// (only that; nothing of the account is logged or kept) and the slash commands, as `claude` lists them:
+/// `[{name, description, argumentHint, aliases?, builtin?}]` (verified on 2.1.289; brief 0056).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InitializeReply {
+    pub logged_in: bool,
+    pub commands: Vec<Value>,
+}
+
+impl InitializeReply {
+    pub fn parse(reply: &Value) -> Self {
+        Self {
+            logged_in: reply
+                .get("account")
+                .is_some_and(|a| a.get("tokenSource").and_then(Value::as_str) != Some("none")),
+            commands: reply
+                .get("commands")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
+}
+
 type Waiters = Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>;
 
 /// A running child.

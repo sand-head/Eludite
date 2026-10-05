@@ -127,6 +127,32 @@
       "description": "Agent edits waiting for review (eludite.agents.review).",
       "type": "integer",
       "minimum": 0
+    },
+    "commands": {
+      "description": "The agent's slash commands, from its latest ACP `available_commands_update` (a new list replaces the old one), as the Agents window's slash-command menu offers them. Empty until the agent sends a list, and for an agent that has none. A prompt starting with `/name` runs one; it is text the agent receives.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The command's name, without the leading `/`.",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "hint": {
+            "description": "What the command takes after its name (ACP's `input.hint`), when it takes input.",
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

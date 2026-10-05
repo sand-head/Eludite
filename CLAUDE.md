@@ -28,7 +28,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 | `crates/eludite` | App binary: entry, window, layout | 3 (D1), 8 |
 | `crates/docking` | Tool windows, document tabs, layouts (layout schema v5 with migrations) | 8 |
 | `crates/ui` | Widgets, themes, keymaps, icons | 8 |
-| `crates/editor` | Buffer, view, input; tree-sitter highlighting for C#, Rust and (brief 0050) TypeScript, TSX, JavaScript, HTML with its `<script>` and `<style>` injected, CSS, JSON and JSON with comments; Emmet on Tab | 4.1 |
+| `crates/editor` | Buffer, view, input; `TextInput`, a text box over the editor core with wrapped rows, selection, the clipboard, undo, IME and 2 to 8 rows then scrolling (the Agents window's prompt box, brief 0056); tree-sitter highlighting for C#, Rust and (brief 0050) TypeScript, TSX, JavaScript, HTML with its `<script>` and `<style>` injected, CSS, JSON and JSON with comments; Emmet on Tab | 4.1 |
 | `crates/commands` | Command bus, schemas, audit | 5.1 |
 | `crates/workspace` | Solution and project model, client side | 4.2 |
 | `crates/lsp` | LSP client: the host bridge and the generic client over one connection core; `servers.json` registrations (brief 0019; the web entries `typescript`, `eslint`, `html`, `css`, `json` and the formatters `prettier` and `biome`, brief 0050), several servers per file with the fan-out and merge rules (`fanout`), npm servers found in the project's `node_modules` first, and the Node.js search shared with `crates/dap` (`node`) | 3 (D3), 4.3 |
@@ -109,7 +109,7 @@ A PR is done when all of these hold:
 - The brief declares which files you own. Do not edit files outside that list. If you need a change elsewhere, stop and say so in the PR.
 - If a brief is ambiguous or cannot be satisfied as written, report that instead of guessing. Imprecise briefs go back to design.
 - Run `git fetch origin` before starting and rebase if `main` has moved.
-- Do not create commits on `main` or push to the remote on weekdays between 8 am and 5 pm Central time (America/Chicago) unless the owner overrides it for that push. Work in a worktree can continue; the rebase, merge and push wait for the window to close. Check `TZ=America/Chicago date` before each one.
+- Do not create commits on any branch, and do not push to the remote, on weekdays between 8 am and 5 pm Central time (America/Chicago) unless the owner overrides it for that commit or push. Work in a worktree can continue as uncommitted changes; the commit, rebase, merge and push wait for the window to close. Check `TZ=America/Chicago date` before each one.
 
 ## Code conventions
 

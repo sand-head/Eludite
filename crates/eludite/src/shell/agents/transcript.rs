@@ -13,6 +13,10 @@
 //! forwards Claude Code's), else the context `53k of 200k tokens in context`; a later update of the same turn replaces it.
 //! `toggle_breakpoint`'s compact answer reads `Toggle Breakpoint → added at Program.cs:13`.
 //!
+//! Brief 0056: the agent's slash commands ([`Transcript::commands`]) are kept from its latest
+//! `available_commands_update`, a new list replacing the old one in full; they make no row (the prompt box's slash
+//! menu offers them, and `eludite.agents.*`'s state output lists them).
+//!
 //! Brief 0024: a tool call whose result carries images (an `eludite.browser.screenshot` the agent took, or image
 //! content in the agent's own tool results) shows them as thumbnails in its row ([`Thumb`], at most
 //! [`THUMB_WIDTH`] pixels wide, decoded and scaled off the UI thread by [`decode_thumb`]).
@@ -21,8 +25,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use eludite_acp::protocol::{
-    PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate, ToolCall, ToolCallStatus,
-    Usage,
+    AvailableCommand, PermissionOption, PlanEntry, RequestPermissionRequest, SessionUpdate,
+    ToolCall, ToolCallStatus, Usage,
 };
 use eludite_commands::PermissionClass;
 use eludite_ui::markdown::{self, Block};
@@ -683,6 +687,8 @@ pub struct Transcript {
     usage_row: Option<usize>,
     /// The agent's running cost at the end of the previous turn.
     cost_before: Option<f64>,
+    /// The agent's slash commands, from its latest `available_commands_update` (brief 0056).
+    pub commands: Vec<AvailableCommand>,
 }
 
 impl Transcript {
@@ -897,6 +903,8 @@ impl Transcript {
             other => {
                 if let Some(usage) = other.usage() {
                     self.usage(usage);
+                } else if let Some(commands) = other.available_commands() {
+                    self.commands = commands;
                 } else if let Some(entries) = other.plan_entries() {
                     // A plan replaces the previous one when it is the last row.
                     if let Some(Row::Plan(last)) = self.rows.last_mut() {
@@ -1621,5 +1629,36 @@ pub(crate) mod tests {
             l.text
                 .starts_with("Terminal send refused: the person typed")
         );
+    }
+
+    #[test]
+    fn the_latest_command_list_replaces_the_last_one_and_makes_no_row() {
+        let mut t = Transcript::default();
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": eludite_acp::fake_agent::stream_commands()
+        })));
+        let names = |t: &Transcript| {
+            t.commands
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&t), ["compact", "model"]);
+        assert_eq!(
+            t.commands[0].hint(),
+            Some("<optional custom summarization instructions>")
+        );
+        assert!(t.rows.is_empty());
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [{"name": "clear", "description": "Clear the conversation"}]
+        })));
+        assert_eq!(names(&t), ["clear"]);
+        t.apply(&usage_update(json!({
+            "sessionUpdate": "available_commands_update", "availableCommands": []
+        })));
+        assert!(t.commands.is_empty());
+        assert!(t.rows.is_empty());
     }
 }

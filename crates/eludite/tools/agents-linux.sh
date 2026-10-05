@@ -3,12 +3,16 @@
 # real eludite-host, Roslyn and the native Claude Code adapter (agents/claude-acp, release build):
 #   1. An error is put into HostRpcTarget.cs (`timestamp` misspelled in Ping), which the run opens.
 #   2. X11 backend on the nested Xwayland, real XTest input (tools/agents.py): Ctrl+\, Ctrl+C shows the Agents window;
+#      brief 0056 first, with no prompt sent: a prompt that wraps to three rows with the caret clicked into its second
+#      row (agents-prompt-editor.png), then Start and the slash menu on `/mo` with the adapter's commands
+#      (agents-slash-menu.png); then
 #      the prompt "List the current errors and fix the first one"; Claude calls diagnostics-list and proposes an edit
 #      held as a pending change (agents-pending-diff.png); Accept; the error clears (agents-error-cleared.png); then a
 #      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png), Deny
 #      (agents-permission-denied.png). Two real prompts.
 #   3. Wayland backend, RUNS runs each: --bench-agent-ready 5 (the real adapter, no prompt), --bench-agent-stream (the
-#      fake agent at 200 chunks/s), --bench-diff 20                                   -> OUT_DIR/agents-bench.jsonl
+#      fake agent at 200 chunks/s), --bench-agent-prompt (2,000 keystrokes into the prompt box, then the stream with
+#      500 characters in it; brief 0056), --bench-diff 20                             -> OUT_DIR/agents-bench.jsonl
 #   The 1-minute load average before each step goes to OUT_DIR/loadavg.txt.
 # Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_BENCH=1 skips 3; DRY=1 with
 #        ELUDITE_CLAUDE_ACP pointing at a scripted agent checks the driving without a real prompt)
@@ -64,6 +68,9 @@ if [[ -z "${SKIP_BENCH:-}" ]]; then
     load "stream-\$run"
     $(q "$bin") --reset-layout --no-persist --bench-agent-stream $(q "$fake") \\
       >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/stream-\$run.err
+    load "prompt-\$run"
+    $(q "$bin") --reset-layout --no-persist --bench-agent-prompt $(q "$fake") \\
+      >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/prompt-\$run.err
     load "diff-\$run"
     $(q "$bin") --reset-layout --no-persist --bench-diff 20 \\
       >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/diff-\$run.err
