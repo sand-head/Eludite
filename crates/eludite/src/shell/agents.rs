@@ -1038,7 +1038,7 @@ impl Agents {
         window::pickers(self.modes.as_ref(), &self.config_options)
     }
 
-    /// The model's name as the model picker shows it (brief 0058).
+    /// The model's name as the model picker shows it (brief 0059).
     fn model_name(&self) -> Option<String> {
         self.pickers()
             .into_iter()
@@ -1046,7 +1046,7 @@ impl Agents {
             .map(|model| model.name_of(&model.current))
     }
 
-    /// The status bar text: the agent, its state, (brief 0058) the model's name and (brief 0061) the session's title
+    /// The status bar text: the agent, its state, (brief 0059) the model's name and (brief 0061) the session's title
     /// once a prompt named it: `Claude Code: ready · Sonnet 5.5 · Fix the failing test`.
     pub fn status_text(&self) -> String {
         match (self.selected_agent(), self.state) {
@@ -1694,7 +1694,7 @@ impl Shell {
                 w.transcript.notice(format!(
                     "Starting {name} (Eludite's MCP resources for the agent: {guides})"
                 ));
-                // The new session's agent sends its own slash commands (brief 0057) and usage (brief 0059).
+                // The new session's agent sends its own slash commands (brief 0058) and usage (brief 0060).
                 w.transcript.new_session();
             }
             w.sync(cx);
