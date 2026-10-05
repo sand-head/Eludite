@@ -51,6 +51,9 @@ module.exports = grammar(CSHARP, {
 
     [$.field_declaration, $.local_declaration_statement],
 
+    // `@name` where both an implicit expression and a C# expression may
+    // stand: the dynamic precedence on `_verbatim_identifier` decides.
+    [$._verbatim_identifier, $.identifier],
     ...o,
   ],
 
@@ -309,8 +312,16 @@ module.exports = grammar(CSHARP, {
     // `style="width:@(Clamped)%"` re-read the `%` as a modulus and left a
     // MISSING node where its right operand should have been. Spelling the
     // parentheses out here gives the expression a state nothing can extend.
+    //
+    // The content may also be a type: a generic component's type argument is
+    // written `TItem="@(int?)"`, and that is not an expression.
     razor_explicit_expression: ($) =>
-      seq(alias($._razor_marker, "at_explicit"), "(", $.expression, ")"),
+      seq(
+        alias($._razor_marker, "at_explicit"),
+        "(",
+        choice($.expression, prec.dynamic(-1, $.type)),
+        ")",
+      ),
 
     // A Razor implicit expression is a restricted, whitespace-free chain —
     // that is the language's actual rule ("implicit expressions cannot contain
@@ -319,11 +330,20 @@ module.exports = grammar(CSHARP, {
     // the end of the expression and into the prose behind it: `@Label. Dangerous
     // gates …` parsed the sentence as a member access, and `@repo.Files.Count
     // file(s)` swallowed `file`. The chain simply cannot do that.
+    //
+    // `@await` takes the same chain, as Razor parses it (`@await
+    // Html.PartialAsync("_Nav")`). Taking C#'s whole `await_expression` let the
+    // await run on into prose as well, and embedded the entire C# expression
+    // automaton once for every context an implicit expression stands in
+    // (element content, each quote style, code bodies): about half of the
+    // parser's states.
     razor_implicit_expression: ($) =>
       seq(
         alias($._razor_marker, "at_implicit"),
-        choice($.await_expression, $._implicit_chain),
+        choice(alias($._implicit_await, $.await_expression), $._implicit_chain),
       ),
+
+    _implicit_await: ($) => seq("await", $._implicit_chain),
 
     _implicit_chain: ($) =>
       prec.left(
@@ -353,12 +373,24 @@ module.exports = grammar(CSHARP, {
     razor_member_access: (_) =>
       token.immediate(
         // @ts-ignore
-        /\??\.(\p{XID_Start}|_)(\p{XID_Continue})*/,
+        /!?\??\.(\p{XID_Start}|_)(\p{XID_Continue})*/,
       ),
+    // A null-forgiving `!` belongs to the chain only when a call, index or
+    // member access follows it (`@Template!(item)`); `Hello @name!` ends the
+    // expression at `name`.
     _implicit_invocation: ($) =>
-      seq(token.immediate("("), commaSep($.argument), ")"),
+      seq(
+        choice(token.immediate("("), token.immediate("!(")),
+        commaSep($.argument),
+        ")",
+      ),
     _implicit_index: ($) =>
-      seq(token.immediate("["), commaSep1($.argument), optional(","), "]"),
+      seq(
+        choice(token.immediate("["), token.immediate("![")),
+        commaSep1($.argument),
+        optional(","),
+        "]",
+      ),
 
     // `@<text>…</text>` — a RenderFragment template. It stands where a C#
     // expression does (`RenderFragment f = @<text>hi</text>;`, or as a lambda
@@ -367,7 +399,38 @@ module.exports = grammar(CSHARP, {
     razor_template: ($) =>
       seq(alias($._razor_marker, "at_template"), $.element),
 
-    expression: ($, original) => choice(original, $.razor_template),
+    expression: ($, original) =>
+      choice(
+        original,
+        $.razor_template,
+        alias($._verbatim_identifier, $.identifier),
+      ),
+
+    // C#'s verbatim identifier, `@name`: the `@` is Razor's transition token
+    // here, so the C# grammar's own form (one token with an optional `@`) is
+    // gone, and Razor code writes the redundant prefix often inside C#
+    // (`!@ClickPropagation`, `(@operator ?? "")`, `F(@context.Items)`). As an
+    // expression it is the marker and a name, spelled as one `identifier`;
+    // where an implicit expression could stand as well, that reading wins.
+    _verbatim_identifier: ($) =>
+      prec.dynamic(
+        -1,
+        seq(
+          $._razor_marker,
+          choice(
+            $._identifier_token,
+            // Keywords that Razor does not claim after `@`.
+            "operator",
+            "class",
+            "event",
+            "default",
+            "params",
+            "base",
+            "checked",
+            "fixed",
+          ),
+        ),
+      ),
 
     razor_lock: ($) =>
       seq(
@@ -571,7 +634,6 @@ module.exports = grammar(CSHARP, {
             "attributes",
             // `@bind` and the two-way `@bind-Value` / `@bind-Checked` form.
             token(prec(10, /bind(-[A-Za-z_][A-Za-z0-9_]*)?/)),
-            "formname",
             token(prec(10, /on[a-z]+/i)),
             "key",
             "ref",
@@ -588,11 +650,10 @@ module.exports = grammar(CSHARP, {
         ":culture",
         ":preventDefault",
         ":stopPropagation",
-        ":event",
-        ":format",
         ":after",
         ":get",
         ":set",
+        ":suppressField",
       ),
 
     html_comment: (_) => token(seq("<!--", /[^-]*-+([^->][^-]*-+)*/, ">")),
@@ -623,15 +684,23 @@ module.exports = grammar(CSHARP, {
     _style_raw_text: (_) => token(prec(1, rawTextUntil("style"))),
     // At the same precedence as the void, script and style names and defined
     // after them: a longer name wins by length (`<inputs>`, `<StyleSheet>`), and
-    // on an exact match the earlier-defined special name wins the tie.
-    _tag_name: (_) => token(prec(1, /[a-zA-Z0-9-:]+/)),
+    // on an exact match the earlier-defined special name wins the tie. Dots and
+    // underscores are part of a name: a component may be written fully
+    // qualified (`<eShop.Components.CatalogSearch />`), and `<svg:path>` keeps
+    // its prefix.
+    _tag_name: (_) => token(prec(1, /[a-zA-Z0-9_:-][a-zA-Z0-9_.:-]*/)),
     _html_attribute_name: (_) => /[a-zA-Z0-9-:]+/,
     // The text run is lexed *below* the default precedence so that a C#
     // expression already in progress keeps going: in
     // `class="@A.Merge(x, "c")"` the `.` must extend the member access rather
     // than start a longer (and, to the lexer, more attractive) text run.
+    //
+    // A value that starts with `/` has its own token above C#'s comment, or
+    // `src="//cdn.example.com/x.js"` would lex as a `//` comment.
     _html_attribute_text: (_) => token(prec(-1, /[^"@]+/)),
     _html_attribute_text_single: (_) => token(prec(-1, /[^'@]+/)),
+    _html_attribute_slash_text: (_) => token(prec(1, /\/[^"@]*/)),
+    _html_attribute_slash_text_single: (_) => token(prec(1, /\/[^'@]*/)),
     // Single-quoted values are as valid as double-quoted ones, and are how you
     // embed a double quote: `placeholder='{ "a": 1 }'`.
     _html_attribute_value: ($) =>
@@ -643,6 +712,7 @@ module.exports = grammar(CSHARP, {
               $.razor_explicit_expression,
               $.razor_implicit_expression,
               alias($._html_attribute_text, $.attribute_value),
+              alias($._html_attribute_slash_text, $.attribute_value),
             ),
           ),
           '"',
@@ -654,6 +724,7 @@ module.exports = grammar(CSHARP, {
               $.razor_explicit_expression,
               $.razor_implicit_expression,
               alias($._html_attribute_text_single, $.attribute_value),
+              alias($._html_attribute_slash_text_single, $.attribute_value),
             ),
           ),
           "'",
@@ -673,19 +744,25 @@ module.exports = grammar(CSHARP, {
 
     // A directive attribute's value is C#, but the `@` prefix is idiomatic and
     // legal: `@key="@($"sub-{id}")"` is as valid as `@key="expr"`.
+    // `@bind-Value="@_dense"` and `@onclick="@Go"` are as common as the bare
+    // forms, so the implicit expression is a value too, and so is an unquoted
+    // `@onclick=@(…)`.
     razor_attribute_value: ($) =>
       choice(
-        seq(
-          '"',
-          optional($.modifier),
-          choice($.razor_explicit_expression, $.expression),
-          '"',
-        ),
-        seq(
-          "'",
-          optional($.modifier),
-          choice($.razor_explicit_expression, $.expression),
-          "'",
+        seq('"', $._razor_attribute_value_content, '"'),
+        seq("'", $._razor_attribute_value_content, "'"),
+        $.razor_explicit_expression,
+        alias($._unquoted_implicit_expression, $.razor_implicit_expression),
+        // `@ref=_grid`, `@bind-Value=context.Item.Value`
+        $._implicit_chain,
+      ),
+    _razor_attribute_value_content: ($) =>
+      seq(
+        optional($.modifier),
+        choice(
+          $.razor_explicit_expression,
+          $.razor_implicit_expression,
+          $.expression,
         ),
       ),
 
@@ -693,11 +770,53 @@ module.exports = grammar(CSHARP, {
       seq(
         alias($._html_attribute_name, $.attribute_name),
         "=",
-        $._html_attribute_value,
+        choice($._html_attribute_value, $._unquoted_attribute_value),
       ),
 
+    // HTML allows an unquoted value (`class=foo`), and Razor code uses it for
+    // a value that is one expression: `Value=@role`, `CanDrop=@((x) => false)`.
+    _unquoted_attribute_value: ($) =>
+      choice(
+        $.razor_explicit_expression,
+        alias($._unquoted_implicit_expression, $.razor_implicit_expression),
+        alias($._unquoted_attribute_text, $.attribute_value),
+      ),
+
+    // An implicit expression as an unquoted value, without `@await` (write it
+    // quoted). Unquoted, `await` is followed by the next attribute's name,
+    // a lookahead that cost thousands of parse states when `@await` took a
+    // full C# expression.
+    _unquoted_implicit_expression: ($) =>
+      seq(alias($._razor_marker, "at_implicit"), $._implicit_chain),
+    // A `/` ends the value when `>` follows, so `Editable=false/>` closes.
+    _unquoted_attribute_text: (_) => /([^\s"'=<>`@/]|\/[^\s"'=<>`@])+/,
+
     razor_html_attribute: ($) =>
-      seq($.razor_attribute_name, optional(seq("=", $.razor_attribute_value))),
+      choice(
+        seq(
+          $.razor_attribute_name,
+          optional(seq("=", $.razor_attribute_value)),
+        ),
+        // `@formname`, `@bind:event` and `@bind:format` take text, not C#:
+        // `@formname="disable-2fa"`, `@bind-Value:format="yyyy-MM-dd"`.
+        seq(
+          alias($._razor_text_attribute_name, $.razor_attribute_name),
+          "=",
+          choice($._html_attribute_value, $._unquoted_attribute_value),
+        ),
+      ),
+
+    _razor_text_attribute_name: ($) =>
+      seq(
+        $._razor_marker,
+        choice(
+          "formname",
+          seq(
+            token(prec(10, /bind(-[A-Za-z_][A-Za-z0-9_]*)?/)),
+            alias(choice(":event", ":format"), $.razor_attribute_modifier),
+          ),
+        ),
+      ),
 
     element: ($) =>
       choice(

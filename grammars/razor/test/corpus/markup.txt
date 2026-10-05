@@ -1,0 +1,104 @@
+===============================
+Dotted and namespaced tag names
+===============================
+<eShop.HybridApp.Components.Pages.Catalog.CatalogSearch BrandId="@BrandId" />
+<svg><svg:path d="M0 0" /></svg>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (razor_implicit_expression
+      (identifier)))
+  (element
+    (tag_name)
+    (element
+      (tag_name)
+      (attribute_name)
+      (attribute_value))
+    (tag_name)))
+
+=========================
+Unquoted attribute values
+=========================
+<MudDropContainer CanDrop=@((x) => false) Value=@role class=foo Editable=false/>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (razor_explicit_expression
+      (lambda_expression
+        (parameter_list
+          (parameter
+            (identifier)))
+        (boolean_literal)))
+    (attribute_name)
+    (razor_implicit_expression
+      (identifier))
+    (attribute_name)
+    (attribute_value)
+    (attribute_name)
+    (attribute_value)))
+
+====================================
+Script and style bodies are raw text
+====================================
+@section Scripts {
+<script>
+    var ca = document.cookie.split(';');
+    for (var i = 0; i < ca.length; i++) { if (ca[i] == "</b>") { break; } }
+</script>
+}
+<style>
+    @media (max-width: 600px) { a { color: red; } }
+</style>
+<script src="site.js"></script>
+---
+
+(compilation_unit
+  (razor_section
+    (identifier)
+    (script_element
+      (tag_name)
+      (raw_text)
+      (tag_name)))
+  (style_element
+    (tag_name)
+    (raw_text)
+    (tag_name))
+  (script_element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
+
+===========================================
+A tag that only starts like script or style
+===========================================
+<StyleSheet></StyleSheet>
+<Scripts />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (tag_name))
+  (element
+    (tag_name)))
+
+===============================================
+An attribute value that starts with two slashes
+===============================================
+<script async src="//cdn.example.com/x.js?serve=A&placement=b"></script>
+---
+
+(compilation_unit
+  (script_element
+    (tag_name)
+    (attribute_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))

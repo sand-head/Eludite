@@ -189,15 +189,13 @@ Await Implicit Razor Expression
     (tag_name)
     (razor_implicit_expression
       (await_expression
-        (invocation_expression
-          (identifier)
-          (argument_list
-            (argument
-              (string_literal
-                (string_literal_content)))
-            (argument
-              (string_literal
-                (string_literal_content)))))))
+        (identifier)
+        (argument
+          (string_literal
+            (string_literal_content)))
+        (argument
+          (string_literal
+            (string_literal_content)))))
     (tag_name)))
 
 ======
@@ -312,4 +310,27 @@ Code block inline in markup
           (variable_declarator
             (identifier)
             (integer_literal)))))
+    (tag_name)))
+
+===================================================
+A null-forgiving operator in an implicit expression
+===================================================
+<div>@Template!(item) and @Item!.Name, then Hello @name!</div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_implicit_expression
+      (identifier)
+      (argument
+        (identifier)))
+    (text)
+    (razor_implicit_expression
+      (identifier)
+      (razor_member_access))
+    (text)
+    (razor_implicit_expression
+      (identifier))
+    (text)
     (tag_name)))

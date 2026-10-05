@@ -306,5 +306,160 @@ Directive attributes: rendermode, bind-Value, bind:event
     (razor_html_attribute
       (razor_attribute_name
         (razor_attribute_modifier))
+      (attribute_value))))
+
+==================================================
+Implicit expressions as directive attribute values
+==================================================
+<MudSwitch @bind-Value="@_dense" @key="@item.Id" @onclick="@Go" @bind-Value:after="@Save" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
       (razor_attribute_value
-        (identifier)))))
+        (razor_implicit_expression
+          (identifier))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier)
+          (razor_member_access))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier))))
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (razor_attribute_value
+        (razor_implicit_expression
+          (identifier))))))
+
+===================================
+Unquoted directive attribute values
+===================================
+<div @ref=_grid @onclick=@(() => Go()) @bind-Value=context.Item.Value></div>
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (razor_explicit_expression
+          (lambda_expression
+            (parameter_list)
+            (invocation_expression
+              (identifier)
+              (argument_list))))))
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)
+        (razor_member_access)
+        (razor_member_access)))
+    (tag_name)))
+
+========================================
+Directive attributes whose value is text
+========================================
+<form @formname="disable-2fa"></form>
+<input @bind-Value="Date" @bind-Value:format="yyyy-MM-dd" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (attribute_value))
+    (tag_name))
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name)
+      (razor_attribute_value
+        (identifier)))
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (attribute_value))))
+
+==================================================
+A type or null as an explicit expression's content
+==================================================
+<MudNumericField T="@(int?)" Value="@(null)" />
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (attribute_name)
+    (razor_explicit_expression
+      (nullable_type
+        (predefined_type)))
+    (attribute_name)
+    (razor_explicit_expression
+      (null_literal))))
+
+===============================
+A verbatim identifier inside C#
+===============================
+<div @onclick:stopPropagation="@(!@ClickPropagation)" title="@(Rtl ? @Icons.Left : @Icons.Right)"></div>
+@if (!(@operator ?? "").EndsWith("empty"))
+{
+    @Names(@context.Items)
+}
+---
+
+(compilation_unit
+  (element
+    (tag_name)
+    (razor_html_attribute
+      (razor_attribute_name
+        (razor_attribute_modifier))
+      (razor_attribute_value
+        (razor_explicit_expression
+          (prefix_unary_expression
+            (identifier)))))
+    (attribute_name)
+    (razor_explicit_expression
+      (conditional_expression
+        (identifier)
+        (member_access_expression
+          (identifier)
+          (identifier))
+        (member_access_expression
+          (identifier)
+          (identifier))))
+    (tag_name))
+  (razor_if
+    (razor_condition
+      (prefix_unary_expression
+        (invocation_expression
+          (member_access_expression
+            (parenthesized_expression
+              (binary_expression
+                (identifier)
+                (string_literal)))
+            (identifier))
+          (argument_list
+            (argument
+              (string_literal
+                (string_literal_content)))))))
+    (razor_implicit_expression
+      (identifier)
+      (argument
+        (member_access_expression
+          (identifier)
+          (identifier))))))
