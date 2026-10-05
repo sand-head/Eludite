@@ -407,3 +407,163 @@ tagHelperPrefix
       (string_literal_content)))
   (razor_taghelperprefix_directive
     (identifier)))
+
+================================
+A bare @page beside a routed one
+================================
+@page
+@page "/counter"
+---
+
+(compilation_unit
+  (razor_page_directive)
+  (razor_page_directive
+    (string_literal
+      (string_literal_content))))
+
+======================================
+A trailing semicolon after a directive
+======================================
+@using System.Linq;
+@inherits LayoutComponentBase;
+@implements IDisposable;
+@inject NavigationManager Navigation;
+@model IndexModel;
+@layout MainLayout;
+@namespace Demo.App;
+---
+
+(compilation_unit
+  (razor_using_directive
+    (qualified_name
+      (identifier)
+      (identifier)))
+  (razor_inherits_directive
+    (identifier))
+  (razor_implements_directive
+    (identifier))
+  (razor_inject_directive
+    (variable_declaration
+      (identifier)
+      (variable_declarator
+        (identifier))))
+  (razor_model_directive
+    (identifier))
+  (razor_layout_directive
+    (identifier))
+  (razor_namespace_directive
+    (qualified_name
+      (identifier)
+      (identifier))))
+
+==================================
+Namespace with a single identifier
+==================================
+@namespace Demo
+---
+
+(compilation_unit
+  (razor_namespace_directive
+    (identifier)))
+
+=====================================
+Render mode as an explicit expression
+=====================================
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+---
+
+(compilation_unit
+  (razor_rendermode_directive
+    (razor_rendermode
+      (razor_explicit_expression
+        (object_creation_expression
+          (identifier)
+          (argument_list
+            (argument
+              (identifier)
+              (boolean_literal))))))))
+
+=====================================
+A leading byte order mark is an extra
+=====================================
+﻿@page
+@model IndexModel
+---
+
+(compilation_unit
+  (razor_page_directive)
+  (razor_model_directive
+    (identifier)))
+
+=============================
+Directives after a code block
+=============================
+@{
+#pragma warning disable IL2111
+}
+
+@namespace Demo
+@using Demo.Resources
+@inherits ComponentBase
+---
+
+(compilation_unit
+  (razor_block
+    (preproc_pragma
+      (identifier)))
+  (razor_namespace_directive
+    (identifier))
+  (razor_using_directive
+    (qualified_name
+      (identifier)
+      (identifier)))
+  (razor_inherits_directive
+    (identifier)))
+
+=====================================
+A model directive inside a code block
+=====================================
+@page
+@{
+    ViewData["Title"] = "Catalog";
+    @model IndexModel
+}
+---
+
+(compilation_unit
+  (razor_page_directive)
+  (razor_block
+    (expression_statement
+      (assignment_expression
+        (element_access_expression
+          (identifier)
+          (bracketed_argument_list
+            (argument
+              (string_literal
+                (string_literal_content)))))
+        (string_literal
+          (string_literal_content))))
+    (razor_model_directive
+      (identifier))))
+
+==================================
+A type parameter with a constraint
+==================================
+@typeparam T where T : Enum
+@typeparam TItem where TItem : class, new()
+---
+
+(compilation_unit
+  (razor_typeparam_directive
+    (identifier)
+    (type_parameter_constraints_clause
+      (identifier)
+      (type_parameter_constraint
+        (identifier))))
+  (razor_typeparam_directive
+    (identifier)
+    (type_parameter_constraints_clause
+      (identifier)
+      (type_parameter_constraint)
+      (type_parameter_constraint
+        (constructor_constraint)))))

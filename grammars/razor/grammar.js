@@ -15,7 +15,10 @@ const CSHARP = require("./vendor/tree-sitter-c-sharp/grammar.js").default;
 module.exports = grammar(CSHARP, {
   name: "razor",
 
-  extras: ($) => [$.razor_comment, $.comment, /\s+/],
+  // U+FEFF is whitespace here so a file's leading byte order mark (which
+  // Visual Studio writes on every `.cshtml` and `.razor` it creates) is an
+  // extra like any other: `\s` does not include it in tree-sitter's regexes.
+  extras: ($) => [$.razor_comment, $.comment, /[\s\uFEFF]+/],
 
   conflicts: ($, o) => [
     [
@@ -47,33 +50,33 @@ module.exports = grammar(CSHARP, {
     [$.destructor_declaration, $._simple_name],
 
     [$.field_declaration, $.local_declaration_statement],
+
     ...o,
   ],
 
   rules: {
-    compilation_unit: ($) =>
-      seq(
-        repeat(
-          choice(
-            $.shebang_directive, // this is to make sharing highlights easier
-            $.razor_page_directive,
-            $.razor_using_directive,
-            $.razor_model_directive,
-            $.razor_rendermode_directive,
-            $.razor_inject_directive,
-            $.razor_implements_directive,
-            $.razor_layout_directive,
-            $.razor_inherits_directive,
-            $.razor_attribute_directive,
-            $.razor_typeparam_directive,
-            $.razor_namespace_directive,
-            $.razor_preservewhitespace_directive,
-            $.razor_addtaghelper_directive,
-            $.razor_removetaghelper_directive,
-            $.razor_taghelperprefix_directive,
-          ),
-        ),
-        repeat($._node),
+    // Directives usually lead the file, but Razor takes them anywhere at the
+    // top level (after a `@{ #pragma … }` block, say).
+    compilation_unit: ($) => repeat(choice($._directive, $._node)),
+
+    _directive: ($) =>
+      choice(
+        $.shebang_directive, // this is to make sharing highlights easier
+        $.razor_page_directive,
+        $.razor_using_directive,
+        $.razor_model_directive,
+        $.razor_rendermode_directive,
+        $.razor_inject_directive,
+        $.razor_implements_directive,
+        $.razor_layout_directive,
+        $.razor_inherits_directive,
+        $.razor_attribute_directive,
+        $.razor_typeparam_directive,
+        $.razor_namespace_directive,
+        $.razor_preservewhitespace_directive,
+        $.razor_addtaghelper_directive,
+        $.razor_removetaghelper_directive,
+        $.razor_taghelperprefix_directive,
       ),
 
     _identifier_token: (_) =>
@@ -83,11 +86,12 @@ module.exports = grammar(CSHARP, {
       ),
     identifier: ($) => choice($._identifier_token, $._reserved_identifier),
 
-    _csharp_nodes: ($) =>
+    // C#'s line directives are extras in tree-sitter-c-sharp, but not here:
+    // `#region`, `#line` or `#error` as extras would also match inside markup
+    // (`href="#line-5"`). They are nodes wherever C# members or statements
+    // stand instead.
+    _preproc_line: ($) =>
       choice(
-        $.statement,
-        $._node,
-
         $.preproc_region,
         $.preproc_endregion,
         $.preproc_line,
@@ -99,7 +103,30 @@ module.exports = grammar(CSHARP, {
         $.preproc_undef,
       ),
 
+    _csharp_nodes: ($) => choice($.statement, $._node, $._preproc_line),
+
     block: ($) => seq("{", repeat($._csharp_nodes), "}"),
+
+    // Markup is a statement in Razor code, so a `case` inside `@{ }` may
+    // render an element before its `break;`.
+    switch_section: ($) =>
+      prec.left(
+        seq(
+          choice(
+            seq(
+              "case",
+              choice($.expression, seq($.pattern, optional($.when_clause))),
+            ),
+            "default",
+          ),
+          ":",
+          repeat(choice($.statement, $._node)),
+        ),
+      ),
+
+    // A class declared inside `@code` keeps its `#region`s too.
+    declaration_list: ($) =>
+      seq("{", repeat(choice($.declaration, $._preproc_line)), "}"),
 
     // razor_comment is deliberately absent: it is an `extra`, so it already
     // appears anywhere. Listing it here as well made it a *node*, and matching
@@ -138,8 +165,13 @@ module.exports = grammar(CSHARP, {
     razor_escape: ($) =>
       seq(alias(/@{2}/, "at_at_escape"), alias($._html_text, $.element)),
 
+    // A Razor Pages page is a bare `@page`; a Blazor routable component
+    // names its route.
     razor_page_directive: ($) =>
-      seq(alias(seq($._razor_marker, "page"), "at_page"), $.string_literal),
+      seq(
+        alias(seq($._razor_marker, "page"), "at_page"),
+        optional($.string_literal),
+      ),
     razor_using_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "using"), "at_using"),
@@ -147,11 +179,17 @@ module.exports = grammar(CSHARP, {
           seq(optional("unsafe"), field("name", $.identifier), "=", $.type),
           seq(optional("static"), optional("unsafe"), $._name),
         ),
+        optional(";"),
       ),
+    // Right-associative so that inside `@{ }` the `;` is the directive's own
+    // rather than an empty statement after it.
     razor_model_directive: ($) =>
-      seq(
-        alias(seq($._razor_marker, "model"), "at_model"),
-        field("name", $._name),
+      prec.right(
+        seq(
+          alias(seq($._razor_marker, "model"), "at_model"),
+          field("name", $._name),
+          optional(";"),
+        ),
       ),
     razor_preservewhitespace_directive: ($) =>
       seq(
@@ -170,31 +208,39 @@ module.exports = grammar(CSHARP, {
       seq(
         alias(seq($._razor_marker, "implements"), "at_implements"),
         field("name", $._name),
+        optional(";"),
       ),
     razor_layout_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "layout"), "at_layout"),
         field("name", $._name),
+        optional(";"),
       ),
     razor_inherits_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "inherits"), "at_inherits"),
         field("name", $._name),
+        optional(";"),
       ),
+    // `@typeparam T where T : Enum` constrains it as C# does.
     razor_typeparam_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "typeparam"), "at_typeparam"),
         field("name", $._name),
+        repeat($.type_parameter_constraints_clause),
       ),
     razor_inject_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "inject"), "at_inject"),
         $.variable_declaration,
+        optional(";"),
       ),
     razor_namespace_directive: ($) =>
       seq(
         alias(seq($._razor_marker, "namespace"), "at_namespace"),
-        $.qualified_name,
+        // `@namespace Demo` is as legal as `@namespace Demo.App`.
+        $._name,
+        optional(";"),
       ),
     razor_rendermode_directive: ($) =>
       seq(
@@ -209,6 +255,8 @@ module.exports = grammar(CSHARP, {
         "InteractiveWebAssembly",
         "InteractiveAuto",
         $._name,
+        // `@rendermode @(new InteractiveServerRenderMode(prerender: false))`
+        $.razor_explicit_expression,
       ),
 
     _taghelper_target: ($) =>
@@ -241,7 +289,16 @@ module.exports = grammar(CSHARP, {
             "at_block",
           ),
           "{",
-          repeat(choice($.declaration, seq($.statement), $._node)),
+          repeat(
+            choice(
+              $.declaration,
+              seq($.statement),
+              $._node,
+              $._preproc_line,
+              // Razor accepts `@model` inside `@{ }` (eShopOnWeb's pages do).
+              $.razor_model_directive,
+            ),
+          ),
           "}",
         ),
       ),
