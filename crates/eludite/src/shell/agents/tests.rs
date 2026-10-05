@@ -26,7 +26,8 @@ use super::{AgentsSetup, Shell};
 /// The registry the tests offer, by name: each runs the fake agent with a scenario, then its own arguments (after
 /// the common ones, so they win).
 const AGENTS: [(&str, &str); 8] = [
-    ("Fake agent", "diagnostics-then-shell"),
+    // Brief 0058: its turns end with the stream scenario's `usage_update`, so the strip fills after a tool call.
+    ("Fake agent", "diagnostics-then-shell --usage"),
     ("Fake editor", "edit"),
     ("Fake writer", "write"),
     ("Fake streamer", "stream"),
@@ -506,6 +507,19 @@ fn an_edit_is_held_for_review_accepted_as_one_undo_and_rejected(cx: &mut TestApp
     w.show_agents();
     w.click(&super::window::review_button(Some(o_id), false));
     assert_eq!(w.wait_turn(), "end_turn");
+    // Brief 0058: the agent's thought is one collapsed line that says how long it thought.
+    let thought = w.agents_window(|w, _| {
+        w.transcript.rows.iter().find_map(|r| match r {
+            super::transcript::Row::Thought(t) => Some((t.label(), t.expanded)),
+            _ => None,
+        })
+    });
+    let (label, expanded) = thought.expect("the edit scenario thinks first");
+    assert!(
+        label.starts_with("Thought for ") && label.ends_with(" s"),
+        "{label}"
+    );
+    assert!(!expanded);
     assert_eq!(
         std::fs::read_to_string(&order).unwrap(),
         order_before,
@@ -691,8 +705,10 @@ fn an_agent_that_exits_is_an_error_until_restarted(cx: &mut TestAppContext) {
     let state = w.shell.read_with(&w.vcx, |s, cx| s.agents_state(cx));
     assert_eq!(state.state, "error");
     assert!(state.message.unwrap().contains("Restart"));
-    // The window's Restart (Start) runs a new session with a new generation.
+    // The window's Restart (Start) runs a new session with a new generation. Brief 0058: the error is the bordered
+    // block under the header.
     w.show_agents();
+    assert!(w.vcx.debug_bounds("agents-error").is_some());
     w.click(super::window::START_BUTTON);
     w.wait("ready again", |w| w.agents_state() == StateKind::Ready);
     assert_eq!(
@@ -2135,4 +2151,265 @@ fn configure_on_the_bus_sets_the_mode_and_is_refused_during_a_turn(cx: &mut Test
         s.status().get(super::AGENTS_SLOT).map(str::to_owned)
     });
     assert_eq!(status.as_deref(), Some("Fake streamer: ready"));
+}
+
+impl Ws {
+    /// Read the Agents window.
+    fn agents_window<R>(&self, f: impl FnOnce(&super::window::AgentsWindow, &gpui::App) -> R) -> R {
+        self.shell
+            .read_with(&self.vcx, |s, cx| f(s.agents().window.read(cx), cx))
+    }
+
+    /// The transcript row of tool call `id`.
+    fn tool_row(&self, id: &str) -> usize {
+        self.agents_window(|w, _| {
+            w.transcript
+                .rows
+                .iter()
+                .position(
+                    |r| matches!(r, super::transcript::Row::Tool(t) if t.call.tool_call_id == id),
+                )
+                .unwrap()
+        })
+    }
+
+    /// The transcript's notices, in order.
+    fn notices(&self) -> Vec<String> {
+        self.transcript()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r["notice"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    /// The Output window's Agents source, all of it.
+    fn agents_output(&self) -> Vec<String> {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            let pane = s
+                .output
+                .read(cx)
+                .pane(eludite_commands::build::OutputSource::Agents);
+            pane.tail(pane.len())
+        })
+    }
+}
+
+/// Brief 0058: the usage strip above the prompt box says `No usage yet` until the agent's first `usage_update`, then
+/// the session's context and cost (`61k of 1M · $0.95` after the `stream` turn); the per-turn line stays in the
+/// transcript in its short form; `end_turn` adds no notice; a restart clears the strip.
+#[gpui::test]
+fn the_usage_strip_shows_the_sessions_context_and_cost(cx: &mut TestAppContext) {
+    use super::window::{STATUS_LINE, USAGE_STRIP};
+    let mut w = setup(cx);
+    w.show_agents();
+    assert!(w.vcx.debug_bounds(USAGE_STRIP).is_some());
+    assert_eq!(w.agents_window(|w, _| w.usage_text()), "No usage yet");
+    w.start_agent("Fake streamer");
+    assert_eq!(w.agents_window(|w, _| w.usage_text()), "No usage yet");
+    w.type_prompt("stream");
+    assert_eq!(w.wait_turn(), "end_turn");
+    w.vcx.run_until_parked();
+    assert_eq!(
+        w.agents_window(|w, _| w.usage_text()),
+        "61k of 1M \u{B7} $0.95"
+    );
+    assert_eq!(
+        crate::bench::AGENT_STREAM_STRIP,
+        "61k of 1M \u{B7} $0.95",
+        "the stream bench checks the same text"
+    );
+    // The state output says the same (`agents-state.output.json`'s `usage`).
+    let state = w.state_json();
+    assert_eq!(
+        state["usage"],
+        json!({"used": 61_204, "size": 1_000_000, "cost": {"amount": 0.9512, "currency": "USD"}})
+    );
+    // The strip reads the session's last `usage_update` as the agent sent it.
+    let usage = w
+        .agents_window(|w, _| w.transcript.usage.clone())
+        .expect("the session's usage");
+    assert_eq!((usage.usage.used, usage.usage.size), (61_204, 1_000_000));
+    assert_eq!(usage.usage.cost, Some((0.9512, "USD".to_owned())));
+    // The turn's own line stays in the transcript, short, and in the record unchanged (brief 0034).
+    let short = w.agents_window(|w, _| {
+        w.transcript.rows.iter().find_map(|r| match r {
+            super::transcript::Row::Usage(u) => Some(u.short()),
+            _ => None,
+        })
+    });
+    assert_eq!(
+        short.as_deref(),
+        Some("260k in \u{B7} 2.9k out \u{B7} $0.95")
+    );
+    // `end_turn` is how a turn normally ends: no notice says so.
+    assert!(
+        w.notices().iter().all(|n| !n.starts_with("Turn ended")),
+        "{:?}",
+        w.notices()
+    );
+    // The turn is over: no status line, and the window no longer redraws on its own.
+    assert!(w.vcx.debug_bounds(STATUS_LINE).is_none());
+    assert!(!w.agents_window(|w, _| w.ticking()));
+    // A restart is a new session: no usage yet.
+    w.start_agent("Fake streamer");
+    w.vcx.run_until_parked();
+    assert_eq!(w.agents_window(|w, _| w.usage_text()), "No usage yet");
+    assert_eq!(w.state_json().get("usage"), None);
+}
+
+/// Brief 0058: while a turn runs the status line says the agent is working, with the elapsed time, and the window
+/// redraws on a timer; a tool call is one line named by the adapter's title, collapsed until clicked (its record says
+/// `expanded`); the permission prompt names the call's title; after the turn the status line and the timer are gone.
+#[gpui::test]
+fn a_running_turn_shows_its_status_and_tool_cards_fold(cx: &mut TestAppContext) {
+    use super::window::{STATUS_LINE, permission_sentence, tool_card};
+    let mut w = setup(cx);
+    w.start_agent("Fake agent");
+    w.type_prompt("List the errors");
+    w.wait_for_prompt();
+    // The status line, while the turn waits at the permission prompt.
+    assert!(w.vcx.debug_bounds(STATUS_LINE).is_some());
+    let status = w.agents_window(|w, _| w.status_text()).unwrap();
+    assert!(
+        status.starts_with("Fake agent is working\u{2026} 0:")
+            && status.ends_with(" \u{B7} Esc to stop"),
+        "{status}"
+    );
+    assert!(w.agents_window(|w, _| w.ticking()));
+    // The prompt names what the call does, as the adapter titled it.
+    let prompt = w.agents_window(|w, _| w.prompt.clone()).unwrap();
+    assert_eq!(prompt.tool, "Bash");
+    assert_eq!(prompt.title, "`rm -rf obj/`");
+    assert!(w.vcx.debug_bounds("agents-permission-text").is_some());
+    let (sentence, bold) = permission_sentence("Fake agent", &prompt.title, &prompt.class, None);
+    assert_eq!(sentence, "Fake agent wants to run `rm -rf obj/` (execute).");
+    assert_eq!(&sentence[bold], "`rm -rf obj/`");
+    // Deny; the turn ends normally: no notice, no status line, no timer.
+    w.click(&super::window::decision_button(
+        super::window::Decision::Deny,
+    ));
+    assert_eq!(w.wait_turn(), "end_turn");
+    w.vcx.run_until_parked();
+    assert!(w.vcx.debug_bounds(STATUS_LINE).is_none());
+    assert!(w.agents_window(|w, _| w.status_text()).is_none());
+    assert!(!w.agents_window(|w, _| w.ticking()));
+    // The fake agent's `--usage` ends the turn with its usage: the strip fills after a turn with tool calls.
+    assert_eq!(
+        w.agents_window(|w, _| w.usage_text()),
+        "61k of 1M \u{B7} $0.95"
+    );
+    assert_eq!(w.state_json()["usage"]["used"], 61_204);
+    // The diagnostics call is one collapsed line; a click on it shows its arguments and result, another folds them.
+    let ix = w.tool_row("toolu_fake_diagnostics");
+    let window = w.shell.read_with(&w.vcx, |s, _| s.agents().window.clone());
+    window.update(&mut w.vcx, |w, cx| w.reveal(ix, cx));
+    let card = tool_card(ix);
+    let card: &'static str = Box::leak(card.into_boxed_str());
+    w.wait("the card drawn", |w| w.vcx.debug_bounds(card).is_some());
+    assert_eq!(w.tool("toolu_fake_diagnostics")["expanded"], false);
+    assert_eq!(
+        w.tool("toolu_fake_diagnostics")["title"],
+        "mcp__eludite__diagnostics-list"
+    );
+    let collapsed = w.vcx.debug_bounds(card).unwrap();
+    w.click(card);
+    assert_eq!(w.tool("toolu_fake_diagnostics")["expanded"], true);
+    window.update(&mut w.vcx, |w, cx| w.reveal(ix, cx));
+    w.vcx.run_until_parked();
+    let expanded = w.vcx.debug_bounds(card).unwrap();
+    assert!(
+        expanded.size.height > collapsed.size.height,
+        "{collapsed:?} -> {expanded:?}"
+    );
+    w.click(card);
+    assert_eq!(w.tool("toolu_fake_diagnostics")["expanded"], false);
+    assert!(
+        w.notices().iter().all(|n| !n.starts_with("Turn ended")),
+        "{:?}",
+        w.notices()
+    );
+}
+
+/// Brief 0058: a cancelled turn ends with the notice "Stopped"; the Output window's Agents source holds the start,
+/// the ready line (the agent's version and the MCP endpoint, which the header shows only as a tooltip), the prompt
+/// and the turn's end, in order, and `eludite.output.show` reads it.
+#[gpui::test]
+fn a_cancel_says_stopped_and_the_output_window_logs_the_session(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.start_agent("Fake agent");
+    w.type_prompt("List the errors");
+    w.wait_for_prompt();
+    w.click(super::window::PROMPT_BOX);
+    w.vcx.simulate_keystrokes("escape");
+    assert_eq!(w.wait_turn(), "cancelled");
+    w.vcx.run_until_parked();
+    assert_eq!(w.notices().last().map(String::as_str), Some("Stopped"));
+    for (stop, words) in [
+        ("end_turn", None),
+        ("cancelled", Some("Stopped")),
+        ("max_tokens", Some("The model reached its output limit")),
+        (
+            "max_turn_requests",
+            Some("The agent reached its request limit"),
+        ),
+        ("refusal", Some("The model declined to continue")),
+        ("something_new", Some("something_new")),
+    ] {
+        assert_eq!(super::window::stop_notice(stop).as_deref(), words, "{stop}");
+    }
+    let lines = w.agents_output();
+    let at = |prefix: &str| {
+        lines
+            .iter()
+            .position(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no line starting {prefix:?} in {lines:#?}"))
+    };
+    let start = at("Starting Fake agent: eludite-fake-acp-agent --scenario diagnostics-then-shell");
+    let ready = at("Fake agent is ready: eludite-fake-acp-agent ");
+    let prompt = at("Prompt: List the errors");
+    let ended = at("Turn ended: cancelled in ");
+    assert!(
+        start < ready && ready < prompt && prompt < ended,
+        "{lines:#?}"
+    );
+    assert!(
+        lines[ready].contains("(ACP v1). MCP: eludite via stdio relay to 127.0.0.1:"),
+        "{}",
+        lines[ready]
+    );
+    assert!(lines[ended].ends_with(" s"), "{}", lines[ended]);
+    // The header's detail is that line's text; the window shows it as the state's tooltip, not under the header.
+    w.show_agents();
+    assert!(w.vcx.debug_bounds("agents-state").is_some());
+    assert!(w.vcx.debug_bounds("agents-error").is_none());
+    assert!(w.vcx.debug_bounds("agents-login").is_none());
+    // Agents read it on the bus.
+    let commands = w.commands.clone();
+    let shown = w.agent(move || {
+        commands
+            .invoke(
+                "eludite.output.show",
+                json!({"source": "agents", "tail": 50}),
+            )
+            .unwrap()
+    });
+    assert_eq!(shown["source"], "agents");
+    let tail: Vec<&str> = shown["tail"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
+    assert!(tail.contains(&"Prompt: List the errors"), "{tail:?}");
+    // Clear All on the Agents source empties it.
+    let commands = w.commands.clone();
+    let cleared = w.agent(move || {
+        commands
+            .invoke("eludite.output.clear", json!({"source": "agents"}))
+            .unwrap()
+    });
+    assert_eq!(cleared["source"], "agents");
+    assert_eq!(cleared["cleared"], lines.len());
+    assert!(w.agents_output().is_empty());
 }

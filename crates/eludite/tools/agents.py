@@ -15,12 +15,21 @@ adapter, and take the three screenshots.
      (screenshot agents-pending-diff.png). Click Accept in the review view; wait for the error to clear and the turn
      to end; click the transcript's link to the change, which opens the file at it (agents-error-cleared.png).
   3. Type a prompt that makes Claude run a shell command; the permission prompt appears in the window
-     (agents-permission-prompt.png); click Deny; wait for the turn to end (agents-permission-denied.png).
+     (agents-permission-prompt.png). Brief 0058, still mid-turn: click the topmost tool card drawn (an earlier call)
+     so it expands, with the status line ("Claude Code is working… 0:07 · Esc to stop"), the other cards collapsed
+     and the usage strip of the earlier turns on screen (agents-polish-running.png); click Deny; wait for the turn
+     to end (agents-permission-denied.png).
+
+With --polish-light (brief 0058's second screenshot, a separate run with --theme light): show the Agents window,
+send POLISH_PROMPT (Claude runs `ls`, allowed), wait for the turn's end, expand the topmost tool card and take
+agents-polish-light.png (the transcript after a turn, the strip with the turn's usage, in VS Light). Any theme works:
+the shot's name is --polish-name.
 
 Permission requests the run does not expect (anything before the pending change that is not a shell command) are
 allowed and recorded. Prints one JSON object with what the trace showed.
 Usage: agents.py --title "Eludite - Eludite" --log run.err --bounds B --shots DIR --file F --shell-prompt TEXT
        [--transcript T --model opus]
+       agents.py --polish-light --title T --log run.err --bounds B --shots DIR [--polish-name agents-polish-light]
 """
 import argparse, json, sys, time
 
@@ -29,6 +38,8 @@ from intellisense import bounds, find_window, press, shot, trace, type_text, wai
 from navigation import click, since  # noqa: E402
 
 PROMPT = "List the current errors and fix the first one"
+# Brief 0058: one tool call (`ls`, kind execute) and a short answer, for the screenshot after a turn.
+POLISH_PROMPT = "Run ls in the solution folder with the shell and tell me in one sentence how many entries it lists"
 # Brief 0056: long enough to wrap to three rows in the Agents window's default width.
 WRAPPED = ("Explain what HostRpcTarget does when the host receives a ping, which fields the result carries, "
            "and where the timestamp comes from")
@@ -128,6 +139,52 @@ def model_shot(a, out):
     time.sleep(0.5)
 
 
+def cards(a):
+    """The tool cards drawn in the last frame, top to bottom: (row, [x, y, w, h])."""
+    b = bounds(a.bounds)
+    found = [(int(k.rsplit("-", 1)[1]), v) for k, v in b.items()
+             if k.startswith("agents-tool-") and k.rsplit("-", 1)[1].isdigit()]
+    return sorted(found, key=lambda kv: kv[1][1])
+
+
+def expand_card(a, out, key, skip_last=False):
+    """Brief 0058: click the line of the topmost tool card drawn (not the last one with `skip_last`: the call the
+    permission prompt is about) so it shows its arguments and result."""
+    drawn = cards(a)
+    if skip_last and len(drawn) > 1:
+        drawn = drawn[:-1]
+    if not drawn:
+        out[key + "_error"] = "no tool card drawn"
+        return
+    row, r = drawn[0]
+    # The card's line is its first 22 px.
+    click(a.title, [r[0], r[1], r[2], 22])
+    out[key + "_expanded_row"] = row
+    time.sleep(1.0)
+
+
+def polish_light(a):
+    """Brief 0058: the transcript after a turn with a tool call, in the theme this run started with."""
+    out = {}
+    find_window(a.title)
+    time.sleep(3.0)
+    press("backslash", ["Control_L"])
+    press("c", ["Control_L"])
+    time.sleep(1.0)
+    props = rect(a, "close-properties", timeout=5)
+    if props:
+        click(a.title, props)
+    time.sleep(0.5)
+    start = ms()
+    send(a, POLISH_PROMPT)
+    out["polish_turn"] = turn(a, out, "polish", start, 300, lambda tool: "allow")
+    time.sleep(1.5)
+    expand_card(a, out, "polish")
+    out["shot_polish"] = shot(a.shots, a.polish_name)
+    out["polish_trace"] = since(a.log, start)[-20:]
+    print(json.dumps(out), flush=True)
+
+
 def usage_models(path):
     """The models of the usage lines in the transcript written by --transcript-out, in order."""
     try:
@@ -167,12 +224,19 @@ def main():
     ap.add_argument("--log", required=True)
     ap.add_argument("--bounds", required=True)
     ap.add_argument("--shots", required=True)
-    ap.add_argument("--file", required=True)
-    ap.add_argument("--shell-prompt", required=True)
+    ap.add_argument("--polish-light", action="store_true", help="brief 0058's screenshot after a turn, then exit")
+    ap.add_argument("--polish-name", default="agents-polish-light")
+    ap.add_argument("--file")
+    ap.add_argument("--shell-prompt")
     ap.add_argument("--transcript", help="--transcript-out's file, to read the usage line after the model pick")
     ap.add_argument("--model", default="opus", help="the model picker's value to pick (brief 0057)")
     ap.add_argument("--dry", action="store_true", help="a scripted agent: skip waiting for the error to clear and the shell step")
     a = ap.parse_args()
+    if a.polish_light:
+        polish_light(a)
+        return
+    if not a.file or not a.shell_prompt:
+        ap.error("--file and --shell-prompt are required without --polish-light")
     out = {}
     find_window(a.title)
     t0 = ms() - 600_000
@@ -265,6 +329,9 @@ def main():
     if asked:
         time.sleep(1.5)
         out["shot_prompt"] = shot(a.shots, "agents-permission-prompt")
+        # Brief 0058: mid-turn, an earlier card expanded, the status line and the strip.
+        expand_card(a, out, "running", skip_last=True)
+        out["shot_polish_running"] = shot(a.shots, "agents-polish-running")
     ended = turn(a, out, "shell", start, 300, lambda tool: "deny")
     out["shell_turn"] = ended
     time.sleep(1.5)

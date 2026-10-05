@@ -27,7 +27,7 @@ Linux needs, on Debian/Ubuntu: `libwayland-dev libxkbcommon-x11-dev libvulkan-de
 |---|---|---|
 | `crates/eludite` | App binary: entry, window, layout | 3 (D1), 8 |
 | `crates/docking` | Tool windows, document tabs, layouts (layout schema v5 with migrations) | 8 |
-| `crates/ui` | Widgets, themes, keymaps, icons | 8 |
+| `crates/ui` | Widgets, themes (with the `warning`, `success` and `panel_raised` tokens, brief 0058), keymaps, icons; the Agents window's transcript widgets (`transcript`: prompts, Markdown blocks, thoughts, tool call cards with the kind glyphs and the spinner, plans, the usage strip and the status line of a running turn, brief 0058) | 8 |
 | `crates/editor` | Buffer, view, input; `TextInput`, a text box over the editor core with wrapped rows, selection, the clipboard, undo, IME and 2 to 8 rows then scrolling (the Agents window's prompt box, brief 0056); tree-sitter highlighting for C#, Rust and (brief 0050) TypeScript, TSX, JavaScript, HTML with its `<script>` and `<style>` injected, CSS, JSON and JSON with comments; Emmet on Tab | 4.1 |
 | `crates/commands` | Command bus, schemas, audit | 5.1 |
 | `crates/workspace` | Solution and project model, client side | 4.2 |

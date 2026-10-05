@@ -2,8 +2,10 @@
 //! (the build log as `eludite-host` or cargo streams it), Debug (the program's output and the debugger's messages,
 //! brief 0020), Host (`eludite-host`'s own log), Language Servers (the servers the shell runs itself, brief 0019)
 //! Browser (the browser of `eludite.browser.*`: launch, tabs, navigation failures, console errors, brief 0023) and
-//! Tests (the test runners' output: eludite-host's MTP and VSTest logs, cargo test's output, brief 0035),
-//! Clear All, and a virtualized, append-only text view.
+//! Tests (the test runners' output: eludite-host's MTP and VSTest logs, cargo test's output, brief 0035), Package
+//! Manager (brief 0048), Updates (brief 0055) and Agents (the Agents window's log: starts, the agent's version and MCP
+//! endpoint, login states, prompts, turn ends, errors, exits and the agent's stderr, brief 0058), Clear All, and a
+//! virtualized, append-only text view.
 //!
 //! - **Storage.** One `String` per source plus the byte offset of each line start, so 100k lines cost their bytes and
 //!   one `usize` each. ANSI escape sequences and carriage returns are removed as text arrives.
@@ -162,6 +164,8 @@ pub struct OutputWindow {
     package_manager: OutputPane,
     /// Brief 0055: the self-updater.
     updates: OutputPane,
+    /// Brief 0058: the Agents window.
+    agents: OutputPane,
     selected: OutputSource,
     scroll: UniformListScrollHandle,
     /// Auto-scroll with new output (false after the user scrolled up, until they are back at the end).
@@ -182,6 +186,7 @@ impl OutputWindow {
             tests: OutputPane::default(),
             package_manager: OutputPane::default(),
             updates: OutputPane::default(),
+            agents: OutputPane::default(),
             selected: OutputSource::Build,
             scroll: UniformListScrollHandle::new(),
             following: true,
@@ -199,6 +204,7 @@ impl OutputWindow {
             OutputSource::Tests => &self.tests,
             OutputSource::PackageManager => &self.package_manager,
             OutputSource::Updates => &self.updates,
+            OutputSource::Agents => &self.agents,
         }
     }
 
@@ -212,6 +218,7 @@ impl OutputWindow {
             OutputSource::Tests => &mut self.tests,
             OutputSource::PackageManager => &mut self.package_manager,
             OutputSource::Updates => &mut self.updates,
+            OutputSource::Agents => &mut self.agents,
         }
     }
 
@@ -310,6 +317,7 @@ impl Render for OutputWindow {
             OutputSource::Tests => "Tests",
             OutputSource::PackageManager => "Package Manager",
             OutputSource::Updates => "Updates",
+            OutputSource::Agents => "Agents",
         };
         let source_button = toggle_button(
             SOURCE_BUTTON,
@@ -332,6 +340,7 @@ impl Render for OutputWindow {
                 OutputSource::Tests,
                 OutputSource::PackageManager,
                 OutputSource::Updates,
+                OutputSource::Agents,
             ]
             .into_iter()
             .enumerate()

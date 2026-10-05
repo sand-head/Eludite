@@ -1767,12 +1767,21 @@ async fn type_into_prompt(
     })
 }
 
+/// What the usage strip says after the fake agent's `stream` turn (its `usage_update`: 61,204 of 1,000,000 tokens,
+/// $0.9512).
+pub const AGENT_STREAM_STRIP: &str = "61k of 1M \u{B7} $0.95";
+
 /// `--bench-agent-stream PATH`: the fake agent at PATH (a real child process) streams 2000 message chunks at 200 per
 /// second into the Agents window; report the UI thread's frame work while it streams (the window's render to the end
 /// of the frame), the cost of applying each batch of events, and the batch sizes.
 ///
 /// `--bench-agent-prompt PATH` (brief 0056; the same setup): first type 2,000 characters into the prompt box
 /// ([`type_into_prompt`]), then stream as above with the box focused and holding 500 characters, and report both.
+///
+/// Brief 0058: the status line (its elapsed time and spinner, redrawn every 100 ms while the turn runs) and the usage
+/// strip are on screen while it streams; at the end the bench checks the strip says the fake agent's last
+/// `usage_update` ([`AGENT_STREAM_STRIP`], and the state output's `usage`), that the status line is gone and that the window stopped redrawing on its
+/// own, and exits with status 1 after its line when they do not.
 pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
     // The flag rides on `--bench-agent-stream`'s setup (the fake agent registered from its path).
     let prompt_bench =
@@ -1829,11 +1838,18 @@ pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
                     shell.update(cx, |s, cx| {
                         s.agents_probe(false, cx);
                         let (frames, apply, batches, chunks) = s.agents_probe_results(cx);
-                        let prompt_chars = s.agents().window.read(cx).prompt_text(cx).chars().count();
+                        let w = s.agents().window.read(cx);
+                        let prompt_chars = w.prompt_text(cx).chars().count();
+                        let (strip, status, ticking) = (w.usage_text(), w.status_text(), w.ticking());
+                        let state_usage = serde_json::to_value(s.agents_state(cx).usage).unwrap_or_default();
                         json!({
                             "bench": if prompt_bench { "agent_prompt" } else { "agent_stream" },
                             "prompt_typing": typing,
                             "prompt_chars_while_streaming": prompt_chars,
+                            "usage_strip": strip,
+                            "status_line_after": status,
+                            "ticking_after": ticking,
+                            "state_usage": state_usage,
                             "stream_s": ms(started.elapsed()) / 1e3,
                             "frames": frames.len(),
                             "frame_work": summarize(&frames),
@@ -1848,6 +1864,18 @@ pub fn agent_stream(shell: &Entity<Shell>, cx: &mut App) {
                     })
                 });
                 println!("{out}");
+                if out["usage_strip"] != AGENT_STREAM_STRIP
+                    || out["state_usage"]["used"] != 61_204
+                    || out["status_line_after"] != Value::Null
+                    || out["ticking_after"] != false
+                {
+                    eprintln!(
+                        "eludite: the usage strip says {} (expected {AGENT_STREAM_STRIP}), the status line {}, \
+                         ticking {}",
+                        out["usage_strip"], out["status_line_after"], out["ticking_after"]
+                    );
+                    std::process::exit(1);
+                }
                 cx.update(|cx| shell.update(cx, |s, cx| s.agents_stop(cx)));
                 cx.background_executor().timer(Duration::from_millis(300)).await;
                 std::process::exit(0);

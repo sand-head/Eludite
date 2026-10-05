@@ -43,6 +43,14 @@ pub struct Theme {
     pub status_bar_text: Rgba,
     /// CodeLens indicators above members in the editor (brief 0052): a quiet grey, as Visual Studio draws them.
     pub code_lens: Rgba,
+    /// Something that needs attention but is not an error (brief 0058): the usage strip's context bar from 80
+    /// percent, a permission or review a tool call waits for, the logged-out state. Readable as text on `panel`.
+    pub warning: Rgba,
+    /// Something that went well (brief 0058): a completed tool call, the agent's Ready state. Readable as text on
+    /// `panel`.
+    pub success: Rgba,
+    /// A block set off from `panel` (brief 0058): the person's prompts in the Agents transcript.
+    pub panel_raised: Rgba,
     pub typography: Typography,
 }
 
@@ -74,6 +82,9 @@ impl Theme {
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
             code_lens: rgb(0x999999),
+            warning: rgb(0xCCA700),
+            success: rgb(0x89D185),
+            panel_raised: rgb(0x2D2D30),
             typography: Typography::default(),
         }
     }
@@ -105,6 +116,9 @@ impl Theme {
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
             code_lens: rgb(0x6D6D6D),
+            warning: rgb(0x8F6200),
+            success: rgb(0x2B7A2F),
+            panel_raised: rgb(0xE7E8EC),
             typography: Typography::default(),
         }
     }
@@ -136,6 +150,9 @@ impl Theme {
             status_bar: rgb(0x007ACC),
             status_bar_text: rgb(0xFFFFFF),
             code_lens: rgb(0x6D6D6D),
+            warning: rgb(0x8A5A00),
+            success: rgb(0x26722A),
+            panel_raised: rgb(0xE6EBF5),
             typography: Typography::default(),
         }
     }
@@ -249,6 +266,10 @@ mod tests {
                 ("on accent", t.text_on_accent, t.accent),
                 ("status", t.status_bar_text, t.status_bar),
                 ("code lens/background", t.code_lens, t.background),
+                // Brief 0058: the Agents window's status colors and its prompt blocks.
+                ("warning/panel", t.warning, t.panel),
+                ("success/panel", t.success, t.panel),
+                ("text/panel_raised", t.text, t.panel_raised),
             ];
             for (what, fg, bg) in pairs {
                 assert!(
@@ -260,6 +281,10 @@ mod tests {
             }
             // Disabled text must look different from enabled text.
             assert!(contrast(t.text_disabled, t.menu_text) > 1.5, "{}", t.name);
+            // A raised block is visibly set off from the panel it sits on, and the context bar's warning from its
+            // normal fill.
+            assert!(contrast(t.panel_raised, t.panel) > 1.05, "{}", t.name);
+            assert_ne!(t.warning, t.accent, "{}", t.name);
         }
     }
 

@@ -41,9 +41,13 @@
 //! answer and notify `current_mode_update` or `config_option_update`; an unlisted one is `invalid_params`, and so is
 //! the listed effort `max` ([`REFUSED_EFFORT`]), so a test sees an agent refuse a choice it offered.
 //!
+//! Brief 0058: `--usage` makes the `diagnostics` and `diagnostics-then-shell` scenarios end every turn (however it
+//! ended) with the same `usage_update` as `stream` ([`stream_usage`]), so the Agents window's usage strip fills after
+//! a turn that also has tool calls and a permission prompt.
+//!
 //! Run it with [`run`] over any streams, or as the `eludite-fake-acp-agent`
 //! binary (`--scenario NAME`, `--chunks N`, `--rate HZ`, `--edit RELPATH`,
-//! `--script JSON`, `--url URL`, `--options`). `planned` needs a [`Planner`] in [`Options`],
+//! `--script JSON`, `--url URL`, `--options`, `--usage`). `planned` needs a [`Planner`] in [`Options`],
 //! so it runs in-process only.
 
 use std::collections::{BTreeMap, VecDeque};
@@ -269,6 +273,8 @@ pub struct Options {
     pub planner: Option<PlannerHandle>,
     /// Offer modes and config options (`--options`, brief 0057).
     pub options: bool,
+    /// End the diagnostics scenarios' turns with [`stream_usage`] (`--usage`, brief 0058).
+    pub usage: bool,
 }
 
 impl Default for Options {
@@ -286,6 +292,7 @@ impl Default for Options {
             url: None,
             planner: None,
             options: false,
+            usage: false,
         }
     }
 }
@@ -309,6 +316,7 @@ impl Options {
                 }
                 "--url" => o.url = Some(val()?),
                 "--options" => o.options = true,
+                "--usage" => o.usage = true,
                 other => return Err(format!("unknown argument {other}")),
             }
         }
@@ -497,8 +505,15 @@ impl<R: BufRead, W: Write> Agent<R, W> {
                         "end_turn"
                     }
                     Scenario::Stream => self.stream()?,
-                    Scenario::Diagnostics => self.diagnostics(false)?,
-                    Scenario::DiagnosticsThenShell => self.diagnostics(true)?,
+                    Scenario::Diagnostics | Scenario::DiagnosticsThenShell => {
+                        let stop =
+                            self.diagnostics(self.opts.scenario == Scenario::DiagnosticsThenShell)?;
+                        // Brief 0058: the turn's usage, as `stream` reports it.
+                        if self.opts.usage {
+                            self.update(stream_usage())?;
+                        }
+                        stop
+                    }
                     Scenario::Edit => self.edit()?,
                     Scenario::Write => self.write_file()?,
                     Scenario::Script => self.script()?,
@@ -1532,6 +1547,42 @@ mod tests {
             serde_json::from_str(String::from_utf8(output).unwrap().lines().next().unwrap())
                 .unwrap();
         assert_eq!(first["result"], json!({"sessionId": "fake-session-1"}));
+    }
+
+    /// Brief 0058: `--usage` ends a diagnostics turn with the stream scenario's `usage_update`.
+    #[test]
+    fn the_usage_flag_ends_a_diagnostics_turn_with_the_streams_usage() {
+        let session_new = json!({"jsonrpc": "2.0", "id": 1, "method": methods::SESSION_NEW, "params": {
+            "cwd": "/", "mcpServers": []}});
+        let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": methods::SESSION_PROMPT, "params": {
+            "sessionId": "fake-session-1", "prompt": [{"type": "text", "text": "List the errors"}]}});
+        let input = format!("{session_new}\n{prompt}\n");
+        let run_with = |args: &[&str]| {
+            let opts = Options::from_args(args.iter().map(|a| (*a).to_owned())).unwrap();
+            let mut output = Vec::new();
+            run(input.as_bytes(), &mut output, opts).unwrap();
+            String::from_utf8(output)
+                .unwrap()
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let usage = |out: &[Value]| {
+            out.iter()
+                .position(|m| m["params"]["update"]["sessionUpdate"] == "usage_update")
+        };
+        // The permission request goes unanswered (the input ends): the turn still ends, with the usage first.
+        let out = run_with(&["--scenario", "diagnostics-then-shell", "--usage"]);
+        let at = usage(&out).expect("a usage_update");
+        assert_eq!(out[at]["params"]["update"], stream_usage());
+        let ended = out
+            .iter()
+            .position(|m| m["id"] == 2 && m["result"]["stopReason"] == "end_turn")
+            .expect("the turn's end");
+        assert!(at < ended);
+        assert!(usage(&run_with(&["--scenario", "diagnostics", "--usage"])).is_some());
+        // Without the flag, nothing changes.
+        assert!(usage(&run_with(&["--scenario", "diagnostics-then-shell"])).is_none());
     }
 
     /// Brief 0056: the stream scenario lists its slash commands right after `session/new` answers, and answers a

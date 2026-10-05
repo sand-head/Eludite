@@ -20,11 +20,19 @@
 //! (the prompt box keeps the focus and the footer takes those keys first). A pick emits
 //! [`AgentsWindowEvent::Configure`]; the button shows the picked name muted until the agent answers. While a turn
 //! runs the pickers are muted, open nothing and say "Wait for the turn to end".
+//!
+//! Brief 0058: the header is one row (the agent picker, the state as a colored dot and word whose tooltip is the
+//! agent's version and MCP endpoint, the Start/Restart icon button); a bordered block under it only for the login
+//! instructions and an error. Tool calls are one line each (the kind's glyph, the adapter's title, the status badge,
+//! a chevron), collapsed until clicked; a running turn shows a status line with its elapsed time and a spinner, and
+//! the usage strip above the prompt box shows the session's context and cost ([`USAGE_STRIP`]). The spinner and the
+//! elapsed time are redrawn by a timer that runs only while a turn runs ([`AgentsWindow::ticking`]): an idle window
+//! requests no frames. Every color comes from the theme.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eludite_acp::LoginMethod;
 use eludite_acp::protocol::{AvailableCommand, SessionConfigOption, SessionModeState};
@@ -32,15 +40,17 @@ use eludite_editor::{EditorStyle, TextInput, TextInputEvent, input_actions};
 use eludite_ui::Theme;
 use eludite_ui::popup::{COMPLETION_ROWS, CompletionKind, completion_row, popup_panel};
 use eludite_ui::transcript::{
-    ToolCard, agent_block, notice, plan_card, thought_block, tool_call_card, user_prompt,
+    SPINNER_STEP, ToolCard, ToolStatus, UsageStrip, agent_block, clip_lines, elapsed_text, notice,
+    plan_card, spinner_frame, status_line, thought_block, tool_call_card, usage_line, usage_strip,
+    user_prompt,
 };
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Anchor, AnyElement, App, AppContext as _, Bounds, Context, Div, Entity, EventEmitter,
-    FocusHandle, Focusable, FollowMode, FontWeight, ImageSource, InteractiveElement, IntoElement,
-    ListAlignment, ListState, ParentElement, Pixels, Render, Rgba, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, anchored, canvas, deferred, div, img,
-    list, px, rgb,
+    Anchor, AnyElement, AnyView, App, AppContext as _, Bounds, Context, Div, Entity, EventEmitter,
+    FocusHandle, Focusable, FollowMode, FontWeight, HighlightStyle, ImageSource,
+    InteractiveElement, IntoElement, ListAlignment, ListState, ParentElement, Pixels, Render, Rgba,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, StyledText, Subscription, Task,
+    Window, anchored, canvas, deferred, div, img, list, px,
 };
 use serde_json::Value;
 
@@ -139,13 +149,13 @@ impl StateKind {
         }
     }
 
-    fn color(self) -> Rgba {
+    fn color(self, t: &Theme) -> Rgba {
         match self {
-            StateKind::Ready => rgb(0x89D185),
-            StateKind::Running | StateKind::Starting => rgb(0x3794FF),
-            StateKind::NeedsLogin => rgb(0xCCA700),
-            StateKind::Error => rgb(0xF48771),
-            StateKind::Stopped => rgb(0x9D9D9D),
+            StateKind::Ready => t.success,
+            StateKind::Running | StateKind::Starting => ToolStatus::Running.color(t),
+            StateKind::NeedsLogin => t.warning,
+            StateKind::Error => ToolStatus::Failed.color(t),
+            StateKind::Stopped => t.text_muted,
         }
     }
 }
@@ -156,7 +166,8 @@ pub struct HeaderState {
     pub agents: Vec<String>,
     pub selected: usize,
     pub state: StateKind,
-    /// The agent's own name and version, the MCP endpoint, or the error.
+    /// The agent's own name and version and the MCP endpoint (the state's tooltip), the login label or the error (a
+    /// block under the header).
     pub detail: String,
     pub login: Vec<LoginMethod>,
 }
@@ -174,7 +185,10 @@ pub struct ChangeItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Prompt {
     pub request: u64,
+    /// The tool's own name (`Bash`).
     pub tool: String,
+    /// What the call does as the adapter titled it (`ls`), bold in the sentence (brief 0058).
+    pub title: String,
     pub class: String,
     pub detail: String,
     /// Whether Always Allow can persist (a solution is open, so there is a policy file, and the call's escalation
@@ -365,13 +379,25 @@ pub fn pickers(modes: Option<&SessionModeState>, options: &[SessionConfigOption]
     out
 }
 
-/// The tooltip of a picker while a turn runs.
-struct OptionTip {
-    text: &'static str,
+/// A plain tooltip: a picker's while a turn runs, the state's, Restart's, a tool card's, the usage strip's.
+struct TextTip {
+    text: SharedString,
     theme: Theme,
 }
 
-impl Render for OptionTip {
+/// A tooltip builder saying `text`.
+fn tip(text: impl Into<SharedString>, theme: Theme) -> impl Fn(&mut Window, &mut App) -> AnyView {
+    let text = text.into();
+    move |_, cx| {
+        cx.new(|_| TextTip {
+            text: text.clone(),
+            theme,
+        })
+        .into()
+    }
+}
+
+impl Render for TextTip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
         div()
@@ -382,8 +408,49 @@ impl Render for OptionTip {
             .border_color(t.border)
             .text_size(t.typography.ui)
             .text_color(t.text)
-            .child(self.text)
+            .child(self.text.clone())
     }
+}
+
+/// The usage strip above the prompt box (brief 0058).
+pub const USAGE_STRIP: &str = "agents-usage";
+/// The status line of a running turn (brief 0058).
+pub const STATUS_LINE: &str = "agents-status";
+/// The state in the header, whose tooltip is the agent's version and MCP endpoint.
+pub const STATE_LABEL: &str = "agents-state";
+/// The Start/Restart button's tooltips.
+pub const RESTART_TIP: &str = "Restart the agent";
+pub const START_TIP: &str = "Start the agent";
+/// The most lines of a tool call's arguments an expanded card shows.
+pub const ARGUMENT_LINES: usize = 40;
+
+/// The permission prompt's sentence (brief 0058), `Claude Code wants to run ls (execute).`, and where the call's
+/// title is in it (drawn bold).
+pub fn permission_sentence(
+    agent: &str,
+    title: &str,
+    class: &str,
+    reason: Option<&str>,
+) -> (String, std::ops::Range<usize>) {
+    let head = format!("{agent} wants to run ");
+    let bold = head.len()..head.len() + title.len();
+    let tail = match reason {
+        Some(r) => format!(" ({class}: {r})."),
+        None => format!(" ({class})."),
+    };
+    (format!("{head}{title}{tail}"), bold)
+}
+
+/// What the transcript says when a turn ends with `stop` (brief 0058): nothing for `end_turn`, else in words.
+pub fn stop_notice(stop: &str) -> Option<String> {
+    Some(match stop {
+        "end_turn" => return None,
+        "cancelled" => "Stopped".into(),
+        "max_tokens" => "The model reached its output limit".into(),
+        "max_turn_requests" => "The agent reached its request limit".into(),
+        "refusal" => "The model declined to continue".into(),
+        other => other.to_owned(),
+    })
 }
 
 pub fn tool_card(ix: usize) -> String {
@@ -485,6 +552,9 @@ pub struct AgentsWindow {
     pub pending: HashMap<String, String>,
     /// The open picker's key and its highlighted row.
     open_picker: Option<(String, usize)>,
+    /// When the running turn started (brief 0058), and the timer redrawing its status line and spinner.
+    turn_started: Option<Instant>,
+    ticker: Option<Task<()>>,
     mono: SharedString,
     pub probes: Rc<RefCell<Probes>>,
     pub painted: Painted,
@@ -528,6 +598,8 @@ impl AgentsWindow {
             picker_list: Vec::new(),
             pending: HashMap::new(),
             open_picker: None,
+            turn_started: None,
+            ticker: None,
             mono: eludite_editor::default_font_family(),
             probes: Rc::default(),
             painted: Rc::default(),
@@ -556,9 +628,79 @@ impl AgentsWindow {
             // A turn starting closes the open picker (they are disabled while it runs).
             if self.running() {
                 self.open_picker = None;
+                self.turn_started.get_or_insert_with(Instant::now);
+                self.start_ticker(cx);
+            } else {
+                self.turn_started = None;
+                self.ticker = None;
             }
             cx.notify();
         }
+    }
+
+    /// Redraw the status line and the spinners every [`SPINNER_STEP`] while the turn runs; the timer ends with it.
+    fn start_ticker(&mut self, cx: &mut Context<Self>) {
+        if self.ticker.is_some() {
+            return;
+        }
+        self.ticker = Some(cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(SPINNER_STEP).await;
+                let running = this.update(cx, |w, cx| {
+                    if w.running() {
+                        cx.notify();
+                    }
+                    w.running()
+                });
+                if !matches!(running, Ok(true)) {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// Whether the window redraws on its own (a turn runs); an idle window requests no frames.
+    pub fn ticking(&self) -> bool {
+        self.ticker.is_some()
+    }
+
+    /// How long the running turn has run.
+    fn elapsed(&self) -> Option<Duration> {
+        self.turn_started.map(|t| t.elapsed())
+    }
+
+    /// The selected agent's name.
+    fn agent_name(&self) -> String {
+        self.header
+            .agents
+            .get(self.header.selected)
+            .cloned()
+            .unwrap_or_else(|| "The agent".into())
+    }
+
+    /// The status line while a turn runs: `Claude Code is working… 0:12 · Esc to stop`.
+    pub fn status_text(&self) -> Option<String> {
+        let elapsed = self.elapsed()?;
+        Some(format!(
+            "{} is working\u{2026} {} \u{B7} Esc to stop",
+            self.agent_name(),
+            elapsed_text(elapsed)
+        ))
+    }
+
+    /// What the usage strip shows: the session's last usage, `None` before the first.
+    pub fn usage_strip(&self) -> Option<UsageStrip> {
+        self.transcript.usage.as_ref().map(|u| UsageStrip {
+            used: u.usage.used,
+            size: u.usage.size,
+            cost: u.usage.cost.clone(),
+        })
+    }
+
+    /// The usage strip's text (`61k of 1M · $0.95`, or `No usage yet`).
+    pub fn usage_text(&self) -> String {
+        self.usage_strip()
+            .map_or_else(|| eludite_ui::transcript::NO_USAGE.to_owned(), |s| s.text())
     }
 
     /// The agent's modes and config options changed (brief 0057): picks it now shows are answered.
@@ -826,7 +968,7 @@ impl AgentsWindow {
             return div().into_any_element();
         };
         match row {
-            Row::User(text) => user_prompt(text.clone(), &t).into_any_element(),
+            Row::User { text, time } => user_prompt(text.clone(), time, &t).into_any_element(),
             Row::Agent(text) => {
                 let mono = gpui::font(self.mono.clone());
                 let this = cx.entity().downgrade();
@@ -846,7 +988,7 @@ impl AgentsWindow {
                 .debug_selector(move || sel)
                 .into_any_element()
             }
-            Row::Thought { text, expanded } => thought_block(thought(ix), text, *expanded, &t)
+            Row::Thought(th) => thought_block(thought(ix), &th.label(), &th.text, th.expanded, &t)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.transcript.toggle_thought(ix);
                     this.sync(cx);
@@ -860,38 +1002,64 @@ impl AgentsWindow {
                 &t,
             )
             .into_any_element(),
-            Row::Usage(u) => notice(u.text(), false, &t).into_any_element(),
+            Row::Usage(u) => usage_line(u.short(), &t).into_any_element(),
             Row::Notice(text) => notice(text.clone(), false, &t).into_any_element(),
             Row::Error(text) => notice(text.clone(), true, &t).into_any_element(),
             Row::Tool(tool) => {
-                let arguments = tool
-                    .call
-                    .raw_input
-                    .as_ref()
-                    .map(compact)
-                    .unwrap_or_default();
-                // A debug command's result (the summary the agent received) is folded under its line (brief 0027).
-                let debug = tool.mcp.as_ref().and_then(|m| m.debug.clone());
-                let result = if debug.is_some() && !tool.expanded {
-                    String::new()
+                // Collapsed, the card is one line; expanded, its arguments (pretty-printed, at most 40 lines) and its
+                // result (a debug command's: the summary the agent received, brief 0027) fold out under it.
+                let expanded = tool.expanded;
+                let arguments = if expanded {
+                    tool.call
+                        .raw_input
+                        .as_ref()
+                        .map(|v| clip_lines(&pretty(v), ARGUMENT_LINES))
+                        .unwrap_or_default()
                 } else {
+                    String::new()
+                };
+                let debug = tool.mcp.as_ref().and_then(|m| m.debug.clone());
+                let result = if expanded {
                     clip(&tool.call.content_text(), 1500)
+                } else {
+                    String::new()
                 };
                 let note = tool.note();
                 let changes = tool.changes.clone();
-                let card = tool_call_card(
-                    ToolCard {
-                        id: tool_card(ix).into(),
-                        name: &tool.name(),
-                        kind: tool.call.kind.as_deref().unwrap_or_default(),
-                        status: tool.status(),
-                        arguments: &clip(&arguments, 600),
-                        result: &result,
-                        note: note.as_deref(),
-                    },
-                    &t,
-                    self.mono.clone(),
-                );
+                let status = tool.status();
+                let spinner = (status == ToolStatus::Running)
+                    .then(|| self.elapsed().map(spinner_frame))
+                    .flatten();
+                // Consecutive tool calls of a turn read as one group.
+                let is_tool = |i: usize| matches!(self.transcript.rows.get(i), Some(Row::Tool(_)));
+                let grouped = (ix > 0 && is_tool(ix - 1)) || is_tool(ix + 1);
+                let tool_name = tool.tool_name();
+                // Tracked for the real-input driver, which expands a card for its screenshot (brief 0058).
+                let card = tracked(
+                    &self.painted,
+                    tool_card(ix),
+                    tool_call_card(
+                        ToolCard {
+                            id: tool_card(ix).into(),
+                            title: &tool.name(),
+                            kind: tool.call.kind.as_deref().unwrap_or_default(),
+                            status,
+                            spinner,
+                            expanded,
+                            grouped,
+                            arguments: &arguments,
+                            result: &result,
+                            note: note.as_deref(),
+                        },
+                        &t,
+                        self.mono.clone(),
+                    ),
+                )
+                .tooltip(tip(tool_name, t))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.transcript.toggle_tool(ix);
+                    this.sync(cx);
+                }));
                 // Each change the call proposed links to its review view (and, once decided, what was applied).
                 let painted = self.painted.clone();
                 let links = changes.into_iter().map(|(id, path, state)| {
@@ -945,7 +1113,6 @@ impl AgentsWindow {
                     }))
                 });
                 let thumbs: Vec<_> = thumbs.collect();
-                let expanded = tool.expanded;
                 let debug_line = debug.map(|d| {
                     let sel = debug_row(ix);
                     let location = d.location.clone().map(|(path, line)| {
@@ -985,7 +1152,7 @@ impl AgentsWindow {
                             "Show snapshot"
                         })
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.transcript.toggle_result(ix);
+                            this.transcript.toggle_tool(ix);
                             this.sync(cx);
                         }))
                     };
@@ -998,6 +1165,7 @@ impl AgentsWindow {
                         .px_3()
                         .pt_1()
                         .text_size(t.typography.small)
+                        .text_color(t.text)
                         .child(
                             div()
                                 .font_family(self.mono.clone())
@@ -1022,10 +1190,13 @@ impl AgentsWindow {
                         .py_1()
                         .children(thumbs)
                 });
+                // The last call of a group leaves the 8 px gap before the next row.
+                let last = !is_tool(ix + 1);
                 div()
                     .w_full()
                     .flex()
                     .flex_col()
+                    .when(last, |d| d.pb_2())
                     .children(debug_line)
                     .child(card)
                     .children(links)
@@ -1035,6 +1206,9 @@ impl AgentsWindow {
         }
     }
 
+    /// One row (brief 0058): the agent picker, the state as a colored dot and word (its tooltip the agent's version
+    /// and MCP endpoint), a spacer, and the Start/Restart icon button; a bordered block under it only for the login
+    /// instructions and an error.
     fn render_header(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
         let h = &self.header;
@@ -1101,20 +1275,39 @@ impl AgentsWindow {
             )
             .with_priority(1)
         });
+        // The block under the row says what the person must do: log in, or read the error. Any other detail (the
+        // agent's version and MCP endpoint, what is starting) is the state's tooltip and a line in Output > Agents.
+        let block_detail = matches!(h.state, StateKind::NeedsLogin | StateKind::Error);
+        let state_color = h.state.color(&t);
+        let state = div()
+            .id(STATE_LABEL)
+            .debug_selector(|| STATE_LABEL.into())
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap_1()
+            .text_color(state_color)
+            .child("\u{25CF}")
+            .child(h.state.label())
+            .when(!block_detail && !h.detail.is_empty(), |d| {
+                d.tooltip(tip(h.detail.clone(), t))
+            });
         // Tracked for the real-input driver (brief 0056's run starts the agent before any prompt).
         let start = tracked(
             &self.painted,
             START_BUTTON,
-            eludite_ui::push_button(
+            eludite_ui::icon_button(
                 START_BUTTON,
-                if restart { "Restart" } else { "Start" },
-                false,
-                true,
+                if restart { "\u{27F3}" } else { "\u{25B6}" },
                 &t,
-            ),
+            )
+            .debug_selector(|| START_BUTTON.into()),
         )
-        .min_w(px(56.))
+        .min_w(px(22.))
         .h(px(20.))
+        .text_size(t.typography.ui)
+        .text_color(t.text)
+        .tooltip(tip(if restart { RESTART_TIP } else { START_TIP }, t))
         .on_click(cx.listener(move |_, _, _, cx| {
             cx.emit(AgentsWindowEvent::Start {
                 agent: None,
@@ -1125,8 +1318,6 @@ impl AgentsWindow {
             .flex()
             .flex_col()
             .flex_none()
-            .gap_1()
-            .p_1()
             .border_b_1()
             .border_color(t.border)
             .child(
@@ -1134,22 +1325,23 @@ impl AgentsWindow {
                     .flex()
                     .items_center()
                     .gap_2()
+                    .h(px(28.))
+                    .px_3()
                     .child(div().relative().child(picker).children(menu))
-                    .child(
-                        div()
-                            .debug_selector(|| "agents-state".into())
-                            .text_color(h.state.color())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(h.state.label()),
-                    )
+                    .child(state)
                     .child(div().flex_1())
                     .child(start),
             );
-        if !h.detail.is_empty() {
+        if h.state == StateKind::Error && !h.detail.is_empty() {
             col = col.child(
                 div()
-                    .text_size(t.typography.small)
-                    .text_color(t.text_muted)
+                    .debug_selector(|| "agents-error".into())
+                    .mx_3()
+                    .mb_2()
+                    .p_2()
+                    .border_1()
+                    .border_color(state_color)
+                    .text_color(t.text)
                     .child(SharedString::from(h.detail.clone())),
             );
         }
@@ -1158,10 +1350,22 @@ impl AgentsWindow {
                 .debug_selector(|| "agents-login".into())
                 .flex()
                 .flex_col()
-                .p_1()
+                .gap_1()
+                .mx_3()
+                .mb_2()
+                .p_2()
                 .border_1()
-                .border_color(StateKind::NeedsLogin.color())
-                .child("The agent is not logged in. Run this in a terminal, then Restart:");
+                .border_color(state_color)
+                .text_color(t.text);
+            if !h.detail.is_empty() {
+                login = login.child(
+                    div()
+                        .text_color(t.text_muted)
+                        .child(SharedString::from(h.detail.clone())),
+                );
+            }
+            login =
+                login.child("The agent is not logged in. Run this in a terminal, then Restart:");
             for m in &h.login {
                 login = login.child(
                     div()
@@ -1194,13 +1398,13 @@ impl AgentsWindow {
                 })
             }))
         };
-        let mut buttons =
-            div()
-                .flex()
-                .gap_2()
-                .justify_end()
-                .p_2()
-                .child(button(Decision::Allow, "Allow", false));
+        let mut buttons = div()
+            .flex()
+            .flex_none()
+            .gap_2()
+            .justify_end()
+            .p_2()
+            .child(button(Decision::Allow, "Allow", false));
         if p.can_persist {
             let label = if p.session {
                 "Allow for this session"
@@ -1210,28 +1414,46 @@ impl AgentsWindow {
             buttons = buttons.child(button(Decision::AlwaysAllow, label, false));
         }
         buttons = buttons.child(button(Decision::Deny, "Deny", true));
+        // `Claude Code wants to run **ls** (execute).`
+        let (sentence, bold) =
+            permission_sentence(&self.agent_name(), &p.title, &p.class, p.reason.as_deref());
+        let sentence = StyledText::new(sentence).with_highlights([(
+            bold,
+            HighlightStyle {
+                font_weight: Some(FontWeight::BOLD),
+                ..HighlightStyle::default()
+            },
+        )]);
+        // In a short window the call's detail gives up its lines first, so the buttons and the prompt box below stay
+        // on screen.
         Some(
             eludite_ui::dialog_panel(&t, "Agent Permission")
                 .debug_selector(|| "agents-permission-dialog".into())
-                .flex_none()
-                .m_1()
+                .flex_shrink(1.)
+                .min_h_0()
+                .overflow_hidden()
+                .mx_3()
+                .mb_2()
                 .child(
                     div()
                         .flex()
                         .flex_col()
+                        .flex_shrink(1.)
+                        .min_h_0()
+                        .overflow_hidden()
                         .gap_1()
                         .p_2()
-                        .child(SharedString::from(format!(
-                            "The agent wants to run {} (class {}{}).",
-                            p.tool,
-                            p.class,
-                            p.reason
-                                .as_deref()
-                                .map(|r| format!(": {r}"))
-                                .unwrap_or_default()
-                        )))
                         .child(
                             div()
+                                .flex_none()
+                                .debug_selector(|| "agents-permission-text".into())
+                                .child(sentence),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink(1.)
+                                .min_h_0()
+                                .overflow_hidden()
                                 .font_family(self.mono.clone())
                                 .text_size(t.typography.small)
                                 .text_color(t.text_muted)
@@ -1339,7 +1561,8 @@ impl AgentsWindow {
             .debug_selector(|| "agents-footer".into())
             .flex()
             .items_center()
-            .gap_1();
+            .gap_1()
+            .h(px(28.));
         for p in &self.picker_list {
             let id = p.button_id();
             let pending = self.pending.get(&p.key).cloned();
@@ -1366,13 +1589,7 @@ impl AgentsWindow {
             .child("\u{25BE}");
             let button =
                 if running {
-                    button.tooltip(move |_, cx| {
-                        cx.new(|_| OptionTip {
-                            text: WAIT_FOR_TURN,
-                            theme: t,
-                        })
-                        .into()
-                    })
+                    button.tooltip(tip(WAIT_FOR_TURN, t))
                 } else {
                     button
                         .cursor_pointer()
@@ -1536,8 +1753,8 @@ impl AgentsWindow {
     }
 }
 
-fn compact(v: &Value) -> String {
-    serde_json::to_string(v).unwrap_or_default()
+fn pretty(v: &Value) -> String {
+    serde_json::to_string_pretty(v).unwrap_or_default()
 }
 
 fn clip(s: &str, max: usize) -> String {
@@ -1571,6 +1788,10 @@ impl Render for AgentsWindow {
             }
         }
         let t = self.theme;
+        // The tool cards drawn in this frame record their bounds again; the ones scrolled away drop out.
+        self.painted
+            .borrow_mut()
+            .retain(|k, _| !k.starts_with("agents-tool-"));
         let focus = self.input.focus_handle(cx);
         let focused = focus.is_focused(window);
         let running = self.running();
@@ -1650,6 +1871,22 @@ impl Render for AgentsWindow {
         }))
         .into_any_element();
         let footer = self.render_footer(send, cx);
+        // Brief 0058: while a turn runs, its status line; then the usage strip, above the prompt box.
+        let status = self.status_text().map(|text| {
+            let spinner = spinner_frame(self.elapsed().unwrap_or_default());
+            status_line(text, spinner, &t)
+                .id(STATUS_LINE)
+                .debug_selector(|| STATUS_LINE.into())
+        });
+        let strip = self.usage_strip();
+        let last_turn = self.transcript.usage.as_ref().map(|u| u.text());
+        let strip = tracked(
+            &self.painted,
+            USAGE_STRIP,
+            usage_strip(strip.as_ref(), &t).id(USAGE_STRIP),
+        )
+        .debug_selector(|| USAGE_STRIP.into())
+        .when_some(last_turn, |d, text| d.tooltip(tip(text, t)));
         div()
             .id("agents-window")
             .debug_selector(|| "agents-window".into())
@@ -1666,17 +1903,19 @@ impl Render for AgentsWindow {
                     cx.processor(|this, ix, window, cx| this.render_row(ix, window, cx)),
                 )
                 .flex_1()
-                .py_1(),
+                .pt_2(),
             )
+            .children(status)
             .children(prompt)
             .children(changes)
+            .child(strip)
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_none()
-                    .gap_1()
-                    .p_1()
+                    .px_3()
+                    .pt_1()
                     .border_t_1()
                     .border_color(t.border)
                     // An open picker takes Up, Down, Enter and Escape before the prompt box and its slash menu

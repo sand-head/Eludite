@@ -150,6 +150,9 @@ pub enum OutputSource {
     PackageManager,
     /// The self-updater (brief 0055): checks, downloads, what is staged, failures and the applied update.
     Updates,
+    /// The Agents window (brief 0058): starts, ready with the agent's version and the MCP endpoint, login states,
+    /// prompts, turn ends, errors, exits and the agent's stderr.
+    Agents,
 }
 
 impl OutputSource {
@@ -163,6 +166,7 @@ impl OutputSource {
             OutputSource::Tests => "tests",
             OutputSource::PackageManager => "package_manager",
             OutputSource::Updates => "updates",
+            OutputSource::Agents => "agents",
         }
     }
 }
@@ -576,6 +580,15 @@ mod tests {
                 tail: 50
             }
         );
+        // The Agents source (brief 0058).
+        assert_eq!(
+            parse(OUTPUT_SHOW, json!({"source": "agents"})).unwrap(),
+            BuildRequest::OutputShow {
+                source: Some(OutputSource::Agents),
+                tail: 50
+            }
+        );
+        assert_eq!(OutputSource::Agents.as_str(), "agents");
         assert!(parse(OUTPUT_SHOW, json!({"source": "immediate"})).is_err());
         assert_eq!(
             parse(OUTPUT_CLEAR, json!({})).unwrap(),

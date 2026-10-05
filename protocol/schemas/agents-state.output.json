@@ -249,6 +249,46 @@
           }
         }
       }
+    },
+    "usage": {
+      "description": "The session's context window and cost as the Agents window's usage strip shows them (brief 0058): the last ACP `usage_update`. Absent before the first one; a restart clears it.",
+      "type": "object",
+      "required": [
+        "used",
+        "size"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "used": {
+          "description": "Tokens in context.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "description": "The context window in tokens; 0 when the agent does not know it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost": {
+          "description": "The session's cost so far, the agent's running total.",
+          "type": "object",
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "description": "ISO 4217, for example `USD`.",
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -30,6 +30,11 @@
 //!   waits for that answer: [`JobReply`]; from the UI thread it returns at once and the picker shows the pick muted
 //!   until then). A pick made in the window is remembered in the settings `agents.model` and `agents.effort` (user
 //!   scope), which the next `session/new` passes in `_meta.claudeCode.options`; the mode is not remembered.
+//! - **The log** (brief 0058). The Output window's Agents source has one line per start (with the command line),
+//!   ready (the agent's version, the ACP version and the MCP endpoint, which the window shows only as the state's
+//!   tooltip), login state, prompt, turn end (its stop reason and duration), error and exit, and every line the agent
+//!   writes to stderr (also to Eludite's stderr while `ELUDITE_AGENT_STDERR` is set). The transcript says how a turn
+//!   ended only when it did not end normally (`end_turn`): "Stopped" after a cancel, the other stop reasons in words.
 
 pub mod endpoint;
 pub mod review;
@@ -465,6 +470,8 @@ pub struct Agents {
     pub timings: Vec<(&'static str, f64)>,
     /// When the session became ready, since `started`.
     pub ready_ms: Option<f64>,
+    /// When the running turn's prompt was sent (brief 0058: its duration goes to the log).
+    turn_started: Option<Instant>,
     /// The solution's policy.
     policy: SharedPolicy,
     /// `--bench-agent-stream`: per batch, the UI time to apply it, its size, and each chunk's send-to-apply time.
@@ -545,6 +552,7 @@ impl Agents {
                 started: None,
                 timings: Vec::new(),
                 ready_ms: None,
+                turn_started: None,
                 policy: Arc::new(Mutex::new(Arc::new(PolicyStore::default()))),
                 probe: None,
                 waiting: HashMap::new(),
@@ -697,6 +705,14 @@ impl Shell {
         &self.agents
     }
 
+    /// One line in the Output window's Agents source (brief 0058).
+    pub(super) fn agents_log(&mut self, line: &str, cx: &mut Context<Self>) {
+        let text = format!("{line}\n");
+        self.output.update(cx, |o, cx| {
+            o.append(eludite_commands::build::OutputSource::Agents, &text, cx)
+        });
+    }
+
     /// Push the header and the status bar slot.
     pub(super) fn sync_agents_header(&mut self, cx: &mut Context<Self>) {
         let header = self.agents.header();
@@ -788,6 +804,11 @@ impl Shell {
         self.agents.state = StateKind::Starting;
         self.agents.detail = format!("Starting {}\u{2026}", agent.command_line());
         self.agents.login.clear();
+        self.agents.turn_started = None;
+        self.agents_log(
+            &format!("Starting {}: {}", agent.name(), agent.command_line()),
+            cx,
+        );
         // The model and effort last picked in the window (brief 0057), for the agent to start with.
         let meta = {
             let s = self.settings.lock();
@@ -814,8 +835,8 @@ impl Shell {
             w.transcript.notice(format!(
                 "Starting {name} (Eludite's MCP resources for the agent: {guides})"
             ));
-            // The new session's agent sends its own slash commands, if it has any (brief 0056).
-            w.transcript.commands.clear();
+            // The new session's agent sends its own slash commands (brief 0056) and usage (brief 0058).
+            w.transcript.new_session();
             w.sync(cx);
         });
         self.sync_agents_header(cx);
@@ -1007,6 +1028,13 @@ impl Shell {
         let session = self.agents.session.as_ref().expect("started");
         session.prompt(text);
         self.agents.state = StateKind::Running;
+        self.agents.turn_started = Some(Instant::now());
+        let first: String = text
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(80)
+            .collect();
+        self.agents_log(&format!("Prompt: {first}"), cx);
         let text = text.to_owned();
         self.agents.window.update(cx, |w, cx| {
             w.transcript.user(&text);
@@ -1178,7 +1206,8 @@ impl Shell {
                     call.is_some_and(|c| matches!(c.always_allow, AlwaysAllow::Session(_)));
                 Some(window::Prompt {
                     request: key,
-                    tool: row.name(),
+                    tool: row.tool_name(),
+                    title: row.name(),
                     class: class.as_str().to_owned(),
                     detail: row
                         .call
@@ -1351,8 +1380,8 @@ impl Shell {
     /// `agents-state.output.json`.
     pub fn agents_state(&self, cx: &gpui::App) -> eludite_commands::agents::AgentsStateOutput {
         use eludite_commands::agents::{
-            AgentRow, AgentsStateOutput, ChoiceRow, CommandRow, LoginRow, ModeOutput, ModeRow,
-            OptionRow,
+            AgentRow, AgentsStateOutput, ChoiceRow, CommandRow, CostOutput, LoginRow, ModeOutput,
+            ModeRow, OptionRow, UsageOutput,
         };
         let a = &self.agents;
         AgentsStateOutput {
@@ -1440,6 +1469,14 @@ impl Shell {
                     })
                 })
                 .collect(),
+            // What the usage strip shows (brief 0058).
+            usage: a.window.read(cx).usage_strip().map(|u| UsageOutput {
+                used: u.used,
+                size: u.size,
+                cost: u
+                    .cost
+                    .map(|(amount, currency)| CostOutput { amount, currency }),
+            }),
         }
     }
 
@@ -1825,6 +1862,8 @@ impl Shell {
                         );
                         // The login state's detail is the label the agent gave.
                         if self.agents.state != StateKind::NeedsLogin {
+                            let name = self.agents.current_name();
+                            self.agents_log(&format!("{name} is ready: {detail}"), cx);
                             self.agents.detail = detail;
                         }
                         self.agents.session_id = Some(session_id);
@@ -1907,23 +1946,40 @@ impl Shell {
                     }
                     SessionEvent::TurnEnded(r) => {
                         super::documents::trace(format_args!("agents turn ended {r:?}"));
-                        let text = match &r {
+                        let took = self
+                            .agents
+                            .turn_started
+                            .take()
+                            .map_or(0., |t| t.elapsed().as_secs_f64());
+                        // The transcript says how the turn ended only when it did not end normally (brief 0058).
+                        let (log, row) = match &r {
                             Ok(stop) => {
                                 let s = serde_json::to_value(stop)
                                     .ok()
                                     .and_then(|v| v.as_str().map(str::to_owned))
                                     .unwrap_or_default();
                                 self.agents.last_stop = Some(s.clone());
-                                format!("Turn ended: {s}")
+                                (
+                                    format!("Turn ended: {s} in {took:.1} s"),
+                                    window::stop_notice(&s).map(Ok),
+                                )
                             }
                             Err(e) => {
                                 self.agents.last_stop = Some("error".into());
-                                format!("The turn failed: {e}")
+                                (
+                                    format!("Turn ended: error in {took:.1} s: {e}"),
+                                    Some(Err(format!("The turn failed: {e}"))),
+                                )
                             }
                         };
-                        window.update(cx, |w, _| match r {
-                            Ok(_) => w.transcript.notice(text),
-                            Err(_) => w.transcript.error(text),
+                        self.agents_log(&log, cx);
+                        window.update(cx, |w, _| {
+                            w.transcript.end_turn();
+                            match row {
+                                Some(Ok(text)) => w.transcript.notice(text),
+                                Some(Err(text)) => w.transcript.error(text),
+                                None => {}
+                            }
                         });
                         if let Some(path) = self.agents.setup.transcript_out.clone() {
                             let json = window.read(cx).transcript.to_json();
@@ -1940,6 +1996,7 @@ impl Shell {
                         if std::env::var_os("ELUDITE_AGENT_STDERR").is_some() {
                             eprintln!("[agent] {line}");
                         }
+                        self.agents_log(&format!("[stderr] {line}"), cx);
                     }
                     SessionEvent::Notification { .. } => {}
                     SessionEvent::Options {
@@ -2094,23 +2151,30 @@ impl Shell {
 
     fn on_agent_state(&mut self, s: AgentState, cx: &mut Context<Self>) {
         let window = self.agents.window.clone();
+        let name = self.agents.current_name();
         match s {
             AgentState::Starting => self.agents.state = StateKind::Starting,
             AgentState::Ready => self.agents.state = StateKind::Ready,
             AgentState::Running => self.agents.state = StateKind::Running,
             AgentState::NeedsLogin { label, methods } => {
                 self.agents.state = StateKind::NeedsLogin;
+                self.agents_log(&format!("{name} needs login: {label}"), cx);
+                for m in &methods {
+                    self.agents_log(&format!("  {}: {}", m.name, m.command), cx);
+                }
                 self.agents.detail = label;
                 self.agents.login = methods;
             }
             AgentState::Error(e) => {
                 self.agents.state = StateKind::Error;
+                self.agents_log(&format!("{name} error: {e}"), cx);
                 self.agents.detail = e.clone();
                 window.update(cx, |w, _| w.transcript.error(e));
             }
             AgentState::Exited => {
                 if self.agents.state != StateKind::Stopped {
                     self.agents.state = StateKind::Error;
+                    self.agents_log(&format!("{name} exited"), cx);
                     self.agents.detail = "The agent exited. Restart it to continue.".into();
                     window.update(cx, |w, _| w.transcript.error("The agent process exited."));
                 }
