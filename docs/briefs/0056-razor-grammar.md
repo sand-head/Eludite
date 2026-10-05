@@ -1,6 +1,6 @@
 # Brief 0056: Razor highlighting from the in-repo tree-sitter grammar
 
-Status: in progress
+Status: done (2026-10-05, Linux; Windows and macOS by CI)
 Phase: 2 (PLAN.md section 10: "Razor/Blazor"; section 7, the Web row: "Razor and Blazor share this stack")
 Plan reference: PLAN.md sections 2 (principles 1, 4, 6), 4.1 (syntax highlighting from tree-sitter), 4.9 (Razor and Blazor), 7, 8, 9, 10 (Phase 2), 11 (corpora)
 Related ADRs: ADR-0001, ADR-0005 (the grammar is MIT, the owner's own library)
@@ -25,7 +25,7 @@ Nothing in `vendor/` (that is Zed's), nothing in `protocol/` (no cross-process b
 
 **The grammar crate.**
 
-- `grammars/razor` is a path dependency named `tree-sitter-razor`, MIT, with the generated `src/parser.c` and `src/scanner.c` checked in like every tree-sitter grammar crate on crates.io; `generate.sh` is the only way they change, with the CLI version in `PIN` (0.27.0 to match the editor's `tree-sitter` 0.27 runtime; ABI 15). `src/` is never edited by hand (CLAUDE.md invariant 4's rule for generated code applies).
+- `grammars/razor` is a path dependency named `tree-sitter-razor`, MIT, with the generated `src/parser.c` and `src/scanner.c` checked in like every tree-sitter grammar crate on crates.io; `generate.sh` is the only way they change, with the CLI version in `PIN` (0.27.0 to match the editor's `tree-sitter` 0.27 runtime; ABI 15). `src/` is never edited by hand (CLAUDE.md invariant 4's rule for generated code applies). *Superseded on 2026-10-05 by the owner's decision on the pull request (ADR-0012): the parser is generated at build time from the checked-in `src/grammar.json` by the CLI's own generator at the same pin, cached by content; nothing generated beyond `grammar.json` is checked in.*
 - `tests/corpus.rs` parses every case in `test/corpus/*.txt` and compares the root's S-expression (whitespace-normalized) with the case's expected tree, so `cargo test -p tree-sitter-razor` proves the grammar on every CI platform without Node or the CLI. A case marked `:error` in its header is expected to carry `ERROR` nodes.
 - Every `razor_*` node and every `at_*` alias the library has today keeps its name, so the owner's library queries stay valid against this grammar.
 - **Named nodes for highlighting**, added by this brief: `tag_name` (start and end tags, components included), `attribute_name`, `attribute_value` (the text of a quoted or unquoted value; the quotes stay anonymous), `text` (a run of markup text), `entity`, `script_element` and `style_element` with a `raw_text` child (their bodies are never parsed as markup), `razor_attribute_name` and `razor_attribute_modifier` as today. `doctype`, `html_comment` and `razor_comment` as today.
@@ -50,7 +50,7 @@ Nothing in `vendor/` (that is Zed's), nothing in `protocol/` (no cross-process b
 ## Budget
 
 - The editor's keystroke and highlighting budgets (PLAN.md section 9) unchanged on a Razor document; a 700-line component parses in under 5 ms in release and re-parses incrementally after an edit in under 1 ms.
-- `cargo build` of `tree-sitter-razor` adds no more than 15 s to a cold build (the parser is a second C# parser, about 57 MB of generated C compiling to an 11 MB static library); the release shell binary grows by no more than 4 MB.
+- `cargo build` of `tree-sitter-razor` adds no more than 15 s to a cold build (the parser is a second C# parser: the library's is 57 MB of generated C compiling to an 11 MB static library); the release shell binary grows by no more than the parser's linked size, which the report measures (the brief first said 4 MB, a guess; a parser that embeds C# cannot be smaller than the C# grammar's own 5.3 MB object, and the report records 8.3 MB). *With ADR-0012 the cold build also generates the parser once per cache key (16 s measured, section 5 of the report), then copies it.*
 - New dependency: `tree-sitter-razor` (path, MIT) and its `tree-sitter-language` (MIT, already in the build through the other grammars). No other.
 
 ## Exit criterion
