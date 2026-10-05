@@ -7,7 +7,10 @@ Simple HTML
 -----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (text)
+    (tag_name)))
 
 ===========
 HTML with attributes
@@ -17,7 +20,14 @@ HTML with attributes
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (attribute_name)
+    (attribute_value)
+    (text)
+    (tag_name)))
 
 ===========
 Attribute name with space
@@ -27,7 +37,12 @@ Attribute name with space
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (text)
+    (tag_name)))
 
 =========
 Self Closing Tag
@@ -36,7 +51,12 @@ Self Closing Tag
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (attribute_name)
+    (attribute_value)))
 
 ====
 self closing image tag
@@ -45,7 +65,10 @@ self closing image tag
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)))
 
 ===
 HTML boolean attribute
@@ -55,7 +78,11 @@ HTML boolean attribute
 ---
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (attribute_name)))
 
 ===
 complex html
@@ -64,4 +91,7 @@ complex html
 ---
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (text)
+    (tag_name)))

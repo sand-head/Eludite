@@ -123,6 +123,8 @@ module.exports = grammar(CSHARP, {
           $.razor_compound_using,
           $.razor_lock,
           $.element,
+          $.script_element,
+          $.style_element,
           $.html_comment,
           $.doctype,
           // `@{ var i = 0; }` is legal *inside* markup, not just at the top of
@@ -251,12 +253,7 @@ module.exports = grammar(CSHARP, {
     // MISSING node where its right operand should have been. Spelling the
     // parentheses out here gives the expression a state nothing can extend.
     razor_explicit_expression: ($) =>
-      seq(
-        alias($._razor_marker, "at_explicit"),
-        "(",
-        $.expression,
-        ")",
-      ),
+      seq(alias($._razor_marker, "at_explicit"), "(", $.expression, ")"),
 
     // A Razor implicit expression is a restricted, whitespace-free chain —
     // that is the language's actual rule ("implicit expressions cannot contain
@@ -369,12 +366,7 @@ module.exports = grammar(CSHARP, {
       ),
 
     razor_finally: ($) =>
-      seq(
-        token(prec(10, "finally")),
-        "{",
-        $._blended_content,
-        "}"
-      ),
+      seq(token(prec(10, "finally")), "{", $._blended_content, "}"),
 
     razor_else_if: ($) =>
       seq(
@@ -383,16 +375,11 @@ module.exports = grammar(CSHARP, {
         $.razor_condition,
         "{",
         $._blended_content,
-        "}"
+        "}",
       ),
 
     razor_else: ($) =>
-      seq(
-        token(prec(10, "else")),
-        "{",
-        $._blended_content,
-        "}"
-      ),
+      seq(token(prec(10, "else")), "{", $._blended_content, "}"),
 
     razor_switch: ($) =>
       seq(
@@ -553,11 +540,11 @@ module.exports = grammar(CSHARP, {
 
     html_comment: (_) => token(seq("<!--", /[^-]*-+([^->][^-]*-+)*/, ">")),
 
-    doctype: (_) => token(seq("<!", /[dD][oO][cC][tT][yY][pP][eE]/, /[^>]*/, ">")),
+    doctype: (_) =>
+      token(seq("<!", /[dD][oO][cC][tT][yY][pP][eE]/, /[^>]*/, ">")),
 
     // HTML Base Definitions
-    _tag_name: (_) => /[a-zA-Z0-9-:]+/,
-    // Lowercase only, and lexed at a higher precedence than `_tag_name` so it
+    // Lowercase only, and defined before `_tag_name` (same precedence) so it
     // wins the tie on an exact match. Blazor components are PascalCase, so
     // `<Input>` stays a normal element that expects `</Input>`.
     _void_tag_name: (_) =>
@@ -567,9 +554,21 @@ module.exports = grammar(CSHARP, {
           /(area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)/,
         ),
       ),
-    _end_tag: ($) => seq("</", $._tag_name, ">"),
+    _end_tag: ($) => seq("</", alias($._tag_name, $.tag_name), ">"),
+    // `<script>` and `<style>` are their own elements, as in tree-sitter-html:
+    // their bodies are one `raw_text` token, never markup and never C#, so the
+    // editor can inject JavaScript and CSS there. The name is lexed at the same
+    // precedence as `_tag_name`, so a longer name that merely starts with it
+    // (`<StyleSheet>`) is still an ordinary tag by the longest-match rule.
+    _script_tag_name: (_) => token(prec(1, /[sS][cC][rR][iI][pP][tT]/)),
+    _style_tag_name: (_) => token(prec(1, /[sS][tT][yY][lL][eE]/)),
+    _script_raw_text: (_) => token(prec(1, rawTextUntil("script"))),
+    _style_raw_text: (_) => token(prec(1, rawTextUntil("style"))),
+    // At the same precedence as the void, script and style names and defined
+    // after them: a longer name wins by length (`<inputs>`, `<StyleSheet>`), and
+    // on an exact match the earlier-defined special name wins the tie.
+    _tag_name: (_) => token(prec(1, /[a-zA-Z0-9-:]+/)),
     _html_attribute_name: (_) => /[a-zA-Z0-9-:]+/,
-    _boolean_html_attribute: (_) => /[a-zA-Z0-9-:]+/,
     // The text run is lexed *below* the default precedence so that a C#
     // expression already in progress keeps going: in
     // `class="@A.Merge(x, "c")"` the `.` must extend the member access rather
@@ -586,7 +585,7 @@ module.exports = grammar(CSHARP, {
             choice(
               $.razor_explicit_expression,
               $.razor_implicit_expression,
-              $._html_attribute_text,
+              alias($._html_attribute_text, $.attribute_value),
             ),
           ),
           '"',
@@ -597,7 +596,7 @@ module.exports = grammar(CSHARP, {
             choice(
               $.razor_explicit_expression,
               $.razor_implicit_expression,
-              $._html_attribute_text_single,
+              alias($._html_attribute_text_single, $.attribute_value),
             ),
           ),
           "'",
@@ -634,7 +633,11 @@ module.exports = grammar(CSHARP, {
       ),
 
     _html_attribute: ($) =>
-      seq($._html_attribute_name, "=", $._html_attribute_value),
+      seq(
+        alias($._html_attribute_name, $.attribute_name),
+        "=",
+        $._html_attribute_value,
+      ),
 
     razor_html_attribute: ($) =>
       seq($.razor_attribute_name, optional(seq("=", $.razor_attribute_value))),
@@ -643,19 +646,68 @@ module.exports = grammar(CSHARP, {
       choice(
         // Void elements have no end tag, and the closing slash is optional:
         // `<img src="a.png">` and `<br />` are both well-formed.
-        seq("<", $._void_tag_name, attributes($), optional("/"), ">"),
-        seq("<", $._tag_name, attributes($), "/>"),
         seq(
           "<",
-          $._tag_name,
+          alias($._void_tag_name, $.tag_name),
+          attributes($),
+          optional("/"),
+          ">",
+        ),
+        seq("<", alias($._tag_name, $.tag_name), attributes($), "/>"),
+        seq(
+          "<",
+          alias($._tag_name, $.tag_name),
           attributes($),
           ">",
-          repeat(choice($._node, $._html_text, $._html_entity)),
+          repeat(
+            choice(
+              $._node,
+              alias($._html_text, $.text),
+              alias($._html_entity, $.entity),
+            ),
+          ),
           $._end_tag,
         ),
       ),
+
+    script_element: ($) =>
+      rawTextElement($, $._script_tag_name, $._script_raw_text),
+    style_element: ($) =>
+      rawTextElement($, $._style_tag_name, $._style_raw_text),
   },
 });
+
+// An element whose body is one raw text token: `<script>` and `<style>`.
+function rawTextElement($, name, body) {
+  return choice(
+    seq("<", alias(name, $.tag_name), attributes($), "/>"),
+    seq(
+      "<",
+      alias(name, $.tag_name),
+      attributes($),
+      ">",
+      optional(alias(body, $.raw_text)),
+      "</",
+      alias(name, $.tag_name),
+      ">",
+    ),
+  );
+}
+
+// Everything up to (not including) the first `</tag`, matched case-blind, as a
+// single regular expression: a `<` that does not begin `</tag` is body text.
+// Built rather than written out so the two bodies cannot drift apart.
+function rawTextUntil(tag) {
+  const either = (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`;
+  const neither = (c) => `[^${c.toLowerCase()}${c.toUpperCase()}]`;
+  const alternatives = ["[^<]", "<[^/]"];
+  for (let i = 0; i < tag.length; i++) {
+    alternatives.push(
+      "</" + [...tag.slice(0, i)].map(either).join("") + neither(tag[i]),
+    );
+  }
+  return new RegExp(`(${alternatives.join("|")})+`);
+}
 
 function commaSep(rule) {
   return optional(commaSep1(rule));
@@ -673,7 +725,7 @@ function attributes($) {
       seq(
         choice(
           $._html_attribute,
-          $._boolean_html_attribute,
+          alias($._html_attribute_name, $.attribute_name),
           $.razor_html_attribute,
         ),
         optional(" "),

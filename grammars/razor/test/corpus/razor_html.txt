@@ -8,6 +8,7 @@ razor attribute values
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name)
       (razor_attribute_value
@@ -23,8 +24,11 @@ razor attribute values
               (await_expression
                 (invocation_expression
                   (identifier)
-                  (argument_list)))))))))
+                  (argument_list))))))))
+    (text)
+    (tag_name))
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name)
       (razor_attribute_value
@@ -40,7 +44,9 @@ razor attribute values
               (await_expression
                 (invocation_expression
                   (identifier)
-                  (argument_list))))))))))
+                  (argument_list))))))))
+    (text)
+    (tag_name)))
 
 ======
 CSharp in HTML attribute - String(Semantic Highlighting does the rest)
@@ -50,7 +56,11 @@ CSharp in HTML attribute - String(Semantic Highlighting does the rest)
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
 
 ======
 HTML Attribute of empty string
@@ -60,7 +70,10 @@ HTML Attribute of empty string
 ----
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (tag_name)))
 
 ===
 razor section
@@ -73,7 +86,13 @@ razor section
 (compilation_unit
   (razor_section
     (identifier)
-    (element)))
+    (script_element
+      (tag_name)
+      (attribute_name)
+      (attribute_value)
+      (attribute_name)
+      (attribute_value)
+      (tag_name))))
 
 ======
 form html attribute with value
@@ -83,6 +102,7 @@ form html attribute with value
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name)
       (razor_attribute_value
@@ -96,6 +116,7 @@ form html attribute with modifier
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name
         (razor_attribute_modifier)))))
@@ -108,6 +129,7 @@ form html attribute with modifier and value
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name
         (razor_attribute_modifier))
@@ -122,6 +144,7 @@ form html attribute case insensitive
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name
         (razor_attribute_modifier)))))
@@ -134,12 +157,17 @@ Mixed text and Razor expression in HTML attribute
 
 (compilation_unit
   (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
     (razor_explicit_expression
       (conditional_expression
         (boolean_literal)
         (string_literal
           (string_literal_content))
-        (string_literal)))))
+        (string_literal)))
+    (text)
+    (tag_name)))
 
 =====
 Void element without a closing slash
@@ -149,9 +177,17 @@ Void element without a closing slash
 ---
 
 (compilation_unit
-  (element)
   (element
-    (element)))
+    (tag_name)
+    (attribute_name)
+    (attribute_value))
+  (element
+    (tag_name)
+    (text)
+    (element
+      (tag_name))
+    (text)
+    (tag_name)))
 
 =====
 HTML entities in element text
@@ -160,7 +196,14 @@ HTML entities in element text
 ---
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (text)
+    (entity)
+    (text)
+    (entity)
+    (entity)
+    (tag_name)))
 
 =====
 A bare > is text, not a tag
@@ -169,7 +212,10 @@ A bare > is text, not a tag
 ---
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (text)
+    (tag_name)))
 
 =====
 DOCTYPE
@@ -180,7 +226,11 @@ DOCTYPE
 
 (compilation_unit
   (doctype)
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
 
 =====
 Single-quoted attribute value
@@ -189,7 +239,11 @@ Single-quoted attribute value
 ---
 
 (compilation_unit
-  (element))
+  (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
+    (tag_name)))
 
 =====
 Nested quotes in an implicit expression inside an attribute value
@@ -199,6 +253,8 @@ Nested quotes in an implicit expression inside an attribute value
 
 (compilation_unit
   (element
+    (tag_name)
+    (attribute_name)
     (razor_implicit_expression
       (identifier)
       (razor_member_access)
@@ -206,7 +262,9 @@ Nested quotes in an implicit expression inside an attribute value
         (identifier))
       (argument
         (string_literal
-          (string_literal_content))))))
+          (string_literal_content))))
+    (text)
+    (tag_name)))
 
 =====
 An implicit expression stops at a dot followed by a space
@@ -216,8 +274,14 @@ An implicit expression stops at a dot followed by a space
 
 (compilation_unit
   (element
+    (tag_name)
+    (attribute_name)
+    (attribute_value)
     (razor_implicit_expression
-      (identifier))))
+      (identifier))
+    (attribute_value)
+    (text)
+    (tag_name)))
 
 =====
 Directive attributes: rendermode, bind-Value, bind:event
@@ -228,11 +292,13 @@ Directive attributes: rendermode, bind-Value, bind:event
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name)
       (razor_attribute_value
         (identifier))))
   (element
+    (tag_name)
     (razor_html_attribute
       (razor_attribute_name)
       (razor_attribute_value

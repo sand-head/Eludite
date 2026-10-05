@@ -36,13 +36,19 @@ For
               (argument
                 (identifier)))))))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))))
+        (razor_member_access))
+      (tag_name))))
 
 ======
 ForEach
@@ -62,13 +68,19 @@ ForEach
     (identifier)
     (identifier)
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))))
+        (razor_member_access))
+      (tag_name))))
 
 ======
 While
@@ -112,13 +124,19 @@ While
               (argument
                 (identifier)))))))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (expression_statement
       (postfix_unary_expression
         (identifier)))))
@@ -158,13 +176,19 @@ Do while
               (argument
                 (identifier)))))))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (element
+      (tag_name)
+      (text)
       (razor_implicit_expression
         (identifier)
-        (razor_member_access)))
+        (razor_member_access))
+      (tag_name))
     (expression_statement
       (postfix_unary_expression
         (identifier)))
@@ -211,9 +235,15 @@ For with multiple conditions
         (integer_literal))
       (block
         (element
+          (tag_name)
+          (text)
           (razor_implicit_expression
-            (identifier))))
+            (identifier))
+          (tag_name)))
       (block
         (element
+          (tag_name)
+          (text)
           (razor_implicit_expression
-            (identifier)))))))
+            (identifier))
+          (tag_name))))))

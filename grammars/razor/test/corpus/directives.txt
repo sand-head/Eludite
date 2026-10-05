@@ -129,7 +129,10 @@ Compound Using
         (identifier)
         (identifier))
       (argument_list))
-    (element))
+    (element
+      (tag_name)
+      (text)
+      (tag_name)))
   (razor_compound_using
     (variable_declaration
       (implicit_type)
@@ -138,7 +141,10 @@ Compound Using
         (object_creation_expression
           (identifier)
           (argument_list))))
-    (element)))
+    (element
+      (tag_name)
+      (text)
+      (tag_name))))
 
 ======
 Injects
@@ -343,7 +349,10 @@ lock
       (identifier)
       (identifier)
       (block
-        (element)))))
+        (element
+          (tag_name)
+          (text)
+          (tag_name))))))
 
 ===
 addTagHelper

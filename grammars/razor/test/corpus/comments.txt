@@ -91,7 +91,10 @@ IMPORTANT
 
 (compilation_unit
   (element
-    (html_comment)))
+    (tag_name)
+    (html_comment)
+    (text)
+    (tag_name)))
 
 =====
 Razor comment inside markup
@@ -102,13 +105,20 @@ Razor comment inside markup
 
 (compilation_unit
   (element
+    (tag_name)
     (razor_comment)
-    (element))
+    (element
+      (tag_name)
+      (text)
+      (tag_name))
+    (tag_name))
   (razor_if
     (razor_condition
       (identifier))
     (element
-      (razor_comment))))
+      (tag_name)
+      (razor_comment)
+      (tag_name))))
 
 =====
 A razor comment above a directive does not end the directive run
