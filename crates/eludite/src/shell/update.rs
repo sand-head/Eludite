@@ -363,13 +363,26 @@ impl Shell {
         self.update_on_status(&status, cx);
 
         let events_task = cx.spawn_in(window, async move |this, cx| {
-            while let Some(mut status) = events.next().await {
-                // A burst of progress snapshots costs one update.
+            while let Some(first) = events.next().await {
+                // A burst of snapshots costs one update per state change: progress ticks of one state collapse into
+                // the last of them, but no state is skipped, so the Output window's lines are the same whether the
+                // download took a second or a millisecond.
+                let mut batch = vec![first];
                 while let Ok(more) = events.try_recv() {
-                    status = more;
+                    if batch
+                        .last()
+                        .is_some_and(|b: &Status| b.state.kind() == more.state.kind())
+                    {
+                        batch.pop();
+                    }
+                    batch.push(more);
                 }
                 if this
-                    .update(cx, |shell, cx| shell.update_on_status(&status, cx))
+                    .update(cx, |shell, cx| {
+                        for status in &batch {
+                            shell.update_on_status(status, cx);
+                        }
+                    })
                     .is_err()
                 {
                     break;
