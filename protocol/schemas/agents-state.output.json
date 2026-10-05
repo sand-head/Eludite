@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-state.output.json",
-  "title": "eludite.agents.start, prompt, cancel and configure output",
-  "description": "The Agents window's agent and session state.",
+  "title": "eludite.agents.start, prompt, cancel, configure, switch and new_session output",
+  "description": "The Agents window's agent and session state: of the session the window shows (brief 0060), the stopped state with no `session` when it shows none.",
   "type": "object",
   "required": [
     "agent",
@@ -17,6 +17,42 @@
     "agent": {
       "description": "The selected agent's name.",
       "type": "string"
+    },
+    "session": {
+      "description": "The session the window shows (brief 0060): Eludite's own id, its title, when it started and last changed, and whether its agent process runs. Absent when the window shows none.",
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "started",
+        "last_activity",
+        "live"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Eludite's id for the session (UUID v4), as eludite.agents.sessions lists it.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The first prompt's first 60 characters on one line; `New session` until a prompt is sent.",
+          "type": "string"
+        },
+        "started": {
+          "description": "RFC 3339, UTC.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_activity": {
+          "description": "RFC 3339, UTC.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "live": {
+          "description": "The agent process runs.",
+          "type": "boolean"
+        }
+      }
     },
     "state": {
       "description": "`stopped`: no session; `starting`: spawning, initialize or session/new in flight; `ready`: waiting for a prompt; `needs_login`: the agent reported no login (see `login`); `running`: a turn is in progress; `error`: the agent failed or exited (see `message`).",
