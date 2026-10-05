@@ -25,7 +25,8 @@ use crate::protocol::{
     CancelNotification, ClientCapabilities, ContentBlock, Implementation, InitializeRequest,
     InitializeResponse, McpServer, NewSessionRequest, NewSessionResponse, PROTOCOL_VERSION,
     PromptRequest, PromptResponse, RequestPermissionOutcome, RequestPermissionRequest,
-    RequestPermissionResponse, SessionNotification, methods,
+    RequestPermissionResponse, SessionNotification, SetSessionConfigOptionRequest,
+    SetSessionConfigOptionResponse, SetSessionModeRequest, methods,
 };
 use crate::{AgentDescriptor, ErrorObject, Id, Message, Notification, Request, Response};
 
@@ -250,11 +251,58 @@ impl AcpClient {
         mcp_servers: Vec<McpServer>,
         timeout: Option<Duration>,
     ) -> Result<NewSessionResponse, AcpError> {
+        self.new_session_with_meta(cwd, mcp_servers, None, timeout)
+    }
+
+    /// `session/new` with `_meta` (brief 0058: the remembered model and effort in `claudeCode.options`).
+    pub fn new_session_with_meta(
+        &self,
+        cwd: &Path,
+        mcp_servers: Vec<McpServer>,
+        meta: Option<Value>,
+        timeout: Option<Duration>,
+    ) -> Result<NewSessionResponse, AcpError> {
         self.typed(
             methods::SESSION_NEW,
             NewSessionRequest {
                 cwd: cwd.to_string_lossy().into_owned(),
                 mcp_servers,
+                meta,
+            },
+            timeout,
+        )
+    }
+
+    /// `session/set_mode`: the agent answers once the mode is set (and notifies `current_mode_update`).
+    pub fn set_mode(
+        &self,
+        session_id: &str,
+        mode_id: &str,
+        timeout: Option<Duration>,
+    ) -> Result<(), AcpError> {
+        let params = serde_json::to_value(SetSessionModeRequest {
+            session_id: session_id.to_owned(),
+            mode_id: mode_id.to_owned(),
+        })
+        .map_err(io_err)?;
+        self.call(methods::SESSION_SET_MODE, params, timeout)
+            .map(|_| ())
+    }
+
+    /// `session/set_config_option` with a select option's value: the answer carries every option.
+    pub fn set_config_option(
+        &self,
+        session_id: &str,
+        config_id: &str,
+        value: &str,
+        timeout: Option<Duration>,
+    ) -> Result<SetSessionConfigOptionResponse, AcpError> {
+        self.typed(
+            methods::SESSION_SET_CONFIG_OPTION,
+            SetSessionConfigOptionRequest {
+                session_id: session_id.to_owned(),
+                config_id: config_id.to_owned(),
+                value: value.to_owned(),
             },
             timeout,
         )

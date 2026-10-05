@@ -384,6 +384,22 @@
       "x-eludite-label": "Claude Code adapter executable",
       "x-eludite-env": "ELUDITE_CLAUDE_ACP"
     },
+    "agents.model": {
+      "description": "The model the Agents window last picked (the model picker under the prompt box): a value of the agent's `model` config option, such as `opus`. The next session asks for it in `session/new`'s `_meta.claudeCode.options.model`, which the native Claude Code adapter reads (`--model` and ELUDITE_CLAUDE_MODEL on the adapter still win) and another agent may ignore. Written when a person picks a model in the window, never when an agent runs eludite.agents.configure. Empty: the agent's own default.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Agents",
+      "x-eludite-label": "Model"
+    },
+    "agents.effort": {
+      "description": "The effort the Agents window last picked (the effort picker under the prompt box): a value of the agent's `effort` config option (`low`, `medium`, `high`, `xhigh` or `max` for Claude Code). The next session asks for it in `session/new`'s `_meta.claudeCode.options.effort`, which the native Claude Code adapter passes to `claude --effort` (its own `--effort` and ELUDITE_CLAUDE_EFFORT still win). Written when a person picks an effort in the window, never when an agent runs eludite.agents.configure. Empty: the model decides.",
+      "type": "string",
+      "default": "",
+      "x-eludite-editor": "text",
+      "x-eludite-section": "Agents",
+      "x-eludite-label": "Effort"
+    },
     "agents.custom": {
       "description": "ACP agents added to the Agents window after the built-in ones; one with a built-in's name replaces it. Any ACP agent speaking JSON-RPC on stdio works. Edited in the file (the Options dialog shows the count). When neither settings file has this key, the older `agents.json` in the config directory is read instead.",
       "type": "array",

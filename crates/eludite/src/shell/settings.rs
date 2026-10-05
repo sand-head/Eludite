@@ -12,6 +12,7 @@
 //! | `debugger.allowAgentsByDefault` | whether each new debugging session lets agents drive it (brief 0027) |
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
+//! | `agents.model`, `agents.effort` | the next agent session's `session/new` (`_meta.claudeCode.options`), read when it starts; written by the Agents window's model and effort pickers (brief 0058) |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
 //! | `browser.enginePath`, `browser.allowNoSandbox` | the embedded engine's search and whether its next launch may drop the sandbox (brief 0039); the opt-in is read from the person's state for the workspace only, and the Web Browser window and the Output window warn while the workspace's file carries it (brief 0047) |

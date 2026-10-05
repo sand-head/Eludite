@@ -1,6 +1,8 @@
 //! The Agents window's commands (brief 0016): `eludite.agents.start`, `prompt`, `cancel`, `permission` (answer a
-//! pending request) and `review` (accept or reject a pending change). The window's buttons, the prompt box and its
-//! keys run them, and they are agent-visible too, so an outer agent could drive an inner one.
+//! pending request) and `review` (accept or reject a pending change); brief 0058 adds `configure` (the session's mode
+//! or a config option such as the model or the effort, as the pickers under the prompt box set them). The window's
+//! buttons, the prompt box, its keys and the pickers run them, and they are agent-visible too, so an outer agent could
+//! drive an inner one.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4). This module parses
 //! input into a typed [`AgentsRequest`] and serializes the typed [`AgentsOutput`]; the shell implements
@@ -18,8 +20,12 @@ pub const PROMPT: &str = "eludite.agents.prompt";
 pub const CANCEL: &str = "eludite.agents.cancel";
 pub const PERMISSION: &str = "eludite.agents.permission";
 pub const REVIEW: &str = "eludite.agents.review";
+pub const CONFIGURE: &str = "eludite.agents.configure";
 
-pub const ALL: [&str; 5] = [START, PROMPT, CANCEL, PERMISSION, REVIEW];
+pub const ALL: [&str; 6] = [START, PROMPT, CANCEL, PERMISSION, REVIEW, CONFIGURE];
+
+/// `eludite.agents.configure`'s `option` for the session mode (any other value names a config option).
+pub const MODE_OPTION: &str = "mode";
 
 const STATE_OUTPUT: &str = include_str!("../../../protocol/schemas/agents-state.output.json");
 
@@ -58,6 +64,13 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/agents-review.input.json"),
             include_str!("../../../protocol/schemas/agents-review.output.json"),
             Dangerous,
+        ),
+        // An agent changing another agent's model or mode is something to prompt about (brief 0058).
+        CONFIGURE => (
+            "Agents: Configure Session",
+            include_str!("../../../protocol/schemas/agents-configure.input.json"),
+            STATE_OUTPUT,
+            Execute,
         ),
         other => unreachable!("not an agents command: {other}"),
     }
@@ -100,6 +113,11 @@ pub enum AgentsRequest {
         target: ReviewTarget,
         accept: bool,
     },
+    /// The session's mode ([`MODE_OPTION`]) or a config option, set to `value`.
+    Configure {
+        option: String,
+        value: String,
+    },
 }
 
 impl AgentsRequest {
@@ -110,6 +128,7 @@ impl AgentsRequest {
             AgentsRequest::Cancel => CANCEL,
             AgentsRequest::Permission { .. } => PERMISSION,
             AgentsRequest::Review { .. } => REVIEW,
+            AgentsRequest::Configure { .. } => CONFIGURE,
         }
     }
 }
@@ -160,6 +179,54 @@ pub struct AgentsStateOutput {
     /// The agent's slash commands (its latest ACP `available_commands_update`; brief 0057).
     #[serde(default)]
     pub commands: Vec<CommandRow>,
+    /// The session's mode and the modes offered (brief 0058); absent when the agent offers none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ModeOutput>,
+    /// The session's select config options (brief 0058); absent when the agent offers none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<OptionRow>,
+}
+
+/// `agents-state.output.json`'s `mode`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeOutput {
+    pub current: String,
+    pub available: Vec<ModeRow>,
+}
+
+/// One mode of [`ModeOutput::available`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One config option of `agents-state.output.json`'s `options`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OptionRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub current: String,
+    pub choices: Vec<ChoiceRow>,
+}
+
+/// One value of [`OptionRow::choices`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChoiceRow {
+    pub value: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// One slash command of `agents-state.output.json`'s `commands`.
@@ -213,6 +280,9 @@ pub struct ReviewOutput {
     pub message: Option<String>,
 }
 
+/// One per command, serialized at once: the state's size (it grew the mode and the options in brief 0058) costs
+/// nothing worth a box.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentsOutput {
     State(AgentsStateOutput),
@@ -259,6 +329,13 @@ struct Empty {}
 struct PermissionIn {
     request: Option<u64>,
     decision: PermissionDecision,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigureIn {
+    option: String,
+    value: String,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -344,6 +421,18 @@ pub fn parse(id: &str, value: Value) -> Result<AgentsRequest, CommandError> {
             AgentsRequest::Review {
                 target,
                 accept: i.decision == ReviewDecision::Accept,
+            }
+        }
+        CONFIGURE => {
+            let i: ConfigureIn = required(value)?;
+            if i.option.is_empty() || i.value.is_empty() {
+                return Err(CommandError::InvalidInput(
+                    "`option` and `value` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::Configure {
+                option: i.option,
+                value: i.value,
             }
         }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
@@ -440,6 +529,22 @@ mod tests {
             .is_err()
         );
         assert!(parse(REVIEW, json!({"decision": "accept"})).is_err());
+        assert_eq!(
+            parse(CONFIGURE, json!({"option": "model", "value": "opus"})).unwrap(),
+            AgentsRequest::Configure {
+                option: "model".into(),
+                value: "opus".into()
+            }
+        );
+        assert!(parse(CONFIGURE, json!({"option": "mode"})).is_err());
+        assert!(parse(CONFIGURE, json!({"option": "", "value": "plan"})).is_err());
+        assert!(
+            parse(
+                CONFIGURE,
+                json!({"option": "mode", "value": "plan", "x": 1})
+            )
+            .is_err()
+        );
 
         for id in ALL {
             let s = spec(id);
@@ -449,6 +554,7 @@ mod tests {
         }
         assert_eq!(spec(PERMISSION).permission, PermissionClass::Dangerous);
         assert_eq!(spec(CANCEL).permission, PermissionClass::Read);
+        assert_eq!(spec(CONFIGURE).permission, PermissionClass::Execute);
         // Outputs serialize to their schemas' required members.
         let state = AgentsOutput::State(AgentsStateOutput {
             agent: "A".into(),
@@ -479,6 +585,33 @@ mod tests {
                     hint: None,
                 },
             ],
+            mode: Some(ModeOutput {
+                current: "default".into(),
+                available: vec![
+                    ModeRow {
+                        id: "default".into(),
+                        name: "Manual".into(),
+                        description: Some("Prompts as the policy says".into()),
+                    },
+                    ModeRow {
+                        id: "plan".into(),
+                        name: "Plan".into(),
+                        description: None,
+                    },
+                ],
+            }),
+            options: vec![OptionRow {
+                id: "model".into(),
+                name: "Model".into(),
+                description: None,
+                category: Some("model".into()),
+                current: "default".into(),
+                choices: vec![ChoiceRow {
+                    value: "default".into(),
+                    name: "Default".into(),
+                    description: Some("The recommended model".into()),
+                }],
+            }],
         })
         .to_json();
         let schema: Value = serde_json::from_str(STATE_OUTPUT).unwrap();
@@ -501,6 +634,38 @@ mod tests {
             for k in c.as_object().unwrap().keys() {
                 assert!(row["properties"].get(k).is_some(), "{k}");
             }
+        }
+        // The mode and the options (brief 0058): each member is the schema's, the optional ones only when set.
+        let mode = &schema["properties"]["mode"];
+        assert_eq!(
+            state["mode"],
+            json!({"current": "default", "available": [
+                {"id": "default", "name": "Manual", "description": "Prompts as the policy says"},
+                {"id": "plan", "name": "Plan"}
+            ]})
+        );
+        for k in state["mode"]["available"][0].as_object().unwrap().keys() {
+            assert!(
+                mode["properties"]["available"]["items"]["properties"]
+                    .get(k)
+                    .is_some(),
+                "{k}"
+            );
+        }
+        let option = &schema["properties"]["options"]["items"];
+        assert_eq!(
+            state["options"],
+            json!([{"id": "model", "name": "Model", "category": "model", "current": "default",
+                "choices": [{"value": "default", "name": "Default", "description": "The recommended model"}]}])
+        );
+        for k in state["options"][0].as_object().unwrap().keys() {
+            assert!(option["properties"].get(k).is_some(), "{k}");
+        }
+        for r in option["required"].as_array().unwrap() {
+            assert!(
+                state["options"][0].get(r.as_str().unwrap()).is_some(),
+                "{r}"
+            );
         }
     }
 }

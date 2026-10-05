@@ -6,6 +6,14 @@
 //! unbounded channel the session's prompt task drains. A second thread copies
 //! the child's stderr to the adapter's log. Writes to the child's stdin are
 //! single lines under a mutex.
+//!
+//! Brief 0058: the launch passes `--effort` beside `--model`, and the
+//! `initialize` reply's `models` are kept for the session's model and effort
+//! options; [`set_permission_mode`] and [`set_model`] are the control requests
+//! that change them (verified on 2.1.289: `set_permission_mode` answers
+//! `{mode}` and a `system` `status` message, `set_model` answers success;
+//! there is no `set_effort` control request, so the effort is set with the
+//! local command `/effort`).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -45,6 +53,8 @@ pub struct Launch {
     /// The `--mcp-config` file (always passed, with `--strict-mcp-config`).
     pub mcp_config: PathBuf,
     pub model: Option<String>,
+    /// `--effort` (`low`, `medium`, `high`, `xhigh`, `max`; brief 0058).
+    pub effort: Option<String>,
 }
 
 impl Launch {
@@ -76,17 +86,24 @@ impl Launch {
             a.push("--model".into());
             a.push(m.into());
         }
+        if let Some(e) = &self.effort {
+            a.push("--effort".into());
+            a.push(e.into());
+        }
         a
     }
 }
 
 /// What the adapter keeps of `claude`'s reply to its `initialize` control request: whether an account is logged in
-/// (only that; nothing of the account is logged or kept) and the slash commands, as `claude` lists them:
-/// `[{name, description, argumentHint, aliases?, builtin?}]` (verified on 2.1.289; brief 0057).
+/// (only that; nothing of the account is logged or kept), the slash commands, as `claude` lists them:
+/// `[{name, description, argumentHint, aliases?, builtin?}]` (verified on 2.1.289; brief 0057), and the models:
+/// `[{value, resolvedModel, displayName, description, supportsEffort?, supportedEffortLevels?, ...}]` (verified on
+/// 2.1.289; brief 0058).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InitializeReply {
     pub logged_in: bool,
     pub commands: Vec<Value>,
+    pub models: Vec<Value>,
 }
 
 impl InitializeReply {
@@ -100,8 +117,23 @@ impl InitializeReply {
                 .and_then(Value::as_array)
                 .cloned()
                 .unwrap_or_default(),
+            models: reply
+                .get("models")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default(),
         }
     }
+}
+
+/// The `set_permission_mode` control request.
+pub fn set_permission_mode(mode: &str) -> Value {
+    json!({"subtype": "set_permission_mode", "mode": mode})
+}
+
+/// The `set_model` control request.
+pub fn set_model(model: &str) -> Value {
+    json!({"subtype": "set_model", "model": model})
 }
 
 type Waiters = Mutex<HashMap<String, oneshot::Sender<Result<Value, String>>>>;

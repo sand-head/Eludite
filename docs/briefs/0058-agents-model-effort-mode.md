@@ -1,6 +1,6 @@
 # Brief 0058: Model, effort and mode in the Agents window
 
-Status: open
+Status: done on Linux (uncommitted), except the manual screenshot; see [0058-report.md](0058-report.md)
 Phase: 2
 Plan reference: PLAN.md sections 2 (principles 1, 3, 5), 5.2, 5.3, 8
 Depends on: brief 0057 (the prompt editor; this brief adds the footer under it), brief 0016 (the Agents window), brief

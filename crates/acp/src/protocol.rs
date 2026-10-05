@@ -21,6 +21,8 @@ pub mod methods {
     pub const SESSION_CANCEL: &str = "session/cancel";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
+    pub const SESSION_SET_MODE: &str = "session/set_mode";
+    pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,12 +152,213 @@ pub enum HttpTag {
 pub struct NewSessionRequest {
     pub cwd: String,
     pub mcp_servers: Vec<McpServer>,
+    /// Extensions the agent may read: Eludite passes the remembered model and effort in `claudeCode.options` (the
+    /// key the Claude Code adapters read; brief 0058).
+    #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewSessionResponse {
     pub session_id: String,
+    /// The session's modes, when the agent offers them (ACP's `SessionModeState`; brief 0058). A malformed value reads
+    /// as none, as ACP's own `DefaultOnError` does.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "modes_or_none"
+    )]
+    pub modes: Option<SessionModeState>,
+    /// The session's config options, when the agent offers them (ACP's `SessionConfigOption[]`; brief 0058). An entry
+    /// that does not decode is skipped; one of a kind this client does not know is kept raw
+    /// ([`SessionConfigKind::Other`]) and not shown.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "config_options_or_none"
+    )]
+    pub config_options: Option<Vec<SessionConfigOption>>,
+}
+
+fn modes_or_none<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<SessionModeState>, D::Error> {
+    Ok(serde_json::from_value(Value::deserialize(d)?).ok())
+}
+
+fn config_options_or_none<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Vec<SessionConfigOption>>, D::Error> {
+    Ok(config_options_from(&Value::deserialize(d)?))
+}
+
+/// The config options of a JSON array, skipping the entries that do not decode; `None` when it is not an array.
+pub fn config_options_from(v: &Value) -> Option<Vec<SessionConfigOption>> {
+    Some(
+        v.as_array()?
+            .iter()
+            .filter_map(|o| serde_json::from_value(o.clone()).ok())
+            .collect(),
+    )
+}
+
+/// The modes an agent offers and the current one (ACP's `SessionModeState`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionModeState {
+    pub current_mode_id: String,
+    #[serde(default)]
+    pub available_modes: Vec<SessionMode>,
+}
+
+/// One mode of [`SessionModeState`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionMode {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One session config option (ACP's `SessionConfigOption`): the model, the effort, or another of the agent's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionConfigOption {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// `mode`, `model`, `model_config`, `thought_level`, or the agent's own.
+    pub category: Option<String>,
+    pub kind: SessionConfigKind,
+}
+
+/// What kind of value a [`SessionConfigOption`] takes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionConfigKind {
+    /// One value of a list (`type: "select"`).
+    Select(SessionConfigSelect),
+    /// A kind this client does not know (`boolean`, or newer): the option's whole object, kept for round trips.
+    Other(Value),
+}
+
+/// A select option's current value and choices. ACP's grouped choices are flattened in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionConfigSelect {
+    pub current_value: String,
+    pub options: Vec<SessionConfigSelectOption>,
+}
+
+/// One choice of a [`SessionConfigSelect`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionConfigSelectOption {
+    pub value: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl SessionConfigOption {
+    /// The select kind, when it is one.
+    pub fn as_select(&self) -> Option<&SessionConfigSelect> {
+        match &self.kind {
+            SessionConfigKind::Select(s) => Some(s),
+            SessionConfigKind::Other(_) => None,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SessionConfigOption {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let raw = Value::deserialize(d)?;
+        let text = |k: &str| raw.get(k).and_then(Value::as_str).map(str::to_owned);
+        let id = text("id").ok_or_else(|| D::Error::custom("missing id"))?;
+        let name = text("name").ok_or_else(|| D::Error::custom("missing name"))?;
+        let kind = match raw.get("type").and_then(Value::as_str) {
+            Some("select") => {
+                let current_value =
+                    text("currentValue").ok_or_else(|| D::Error::custom("missing currentValue"))?;
+                let choice =
+                    |o: &Value| serde_json::from_value::<SessionConfigSelectOption>(o.clone());
+                // Ungrouped choices, or groups of them (`{group, name, options}`); an entry that does not decode
+                // is skipped.
+                let options = raw
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|o| match o.get("options").and_then(Value::as_array) {
+                        Some(group) => group.iter().filter_map(|c| choice(c).ok()).collect(),
+                        None => choice(o).ok().into_iter().collect::<Vec<_>>(),
+                    })
+                    .collect();
+                SessionConfigKind::Select(SessionConfigSelect {
+                    current_value,
+                    options,
+                })
+            }
+            _ => SessionConfigKind::Other(raw.clone()),
+        };
+        Ok(Self {
+            id,
+            name,
+            description: text("description"),
+            category: text("category"),
+            kind,
+        })
+    }
+}
+
+impl Serialize for SessionConfigOption {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match &self.kind {
+            SessionConfigKind::Other(raw) => raw.serialize(s),
+            SessionConfigKind::Select(select) => {
+                let mut v = serde_json::json!({
+                    "id": self.id, "name": self.name, "type": "select",
+                    "currentValue": select.current_value, "options": select.options,
+                });
+                if let Some(d) = &self.description {
+                    v["description"] = Value::String(d.clone());
+                }
+                if let Some(c) = &self.category {
+                    v["category"] = Value::String(c.clone());
+                }
+                v.serialize(s)
+            }
+        }
+    }
+}
+
+/// `session/set_mode`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSessionModeRequest {
+    pub session_id: String,
+    pub mode_id: String,
+}
+
+/// `session/set_config_option` for a select option.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSessionConfigOptionRequest {
+    pub session_id: String,
+    pub config_id: String,
+    pub value: String,
+}
+
+/// `session/set_config_option`'s answer: every option, with the new value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetSessionConfigOptionResponse {
+    #[serde(default, deserialize_with = "config_options_or_empty")]
+    pub config_options: Vec<SessionConfigOption>,
+}
+
+fn config_options_or_empty<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<SessionConfigOption>, D::Error> {
+    Ok(config_options_from(&Value::deserialize(d)?).unwrap_or_default())
 }
 
 /// A content block. Only text is interpreted; anything else is kept raw.
@@ -396,7 +599,7 @@ pub enum SessionUpdate {
     AgentThoughtChunk(ContentBlock),
     ToolCall(ToolCall),
     ToolCallUpdate(ToolCall),
-    /// `plan`, `available_commands_update`, `current_mode_update`,
+    /// `plan`, `available_commands_update`, `current_mode_update`, `config_option_update`,
     /// `usage_update` and adapter extensions: kind plus the raw object.
     Other {
         kind: String,
@@ -486,6 +689,28 @@ impl SessionUpdate {
                     .filter_map(|c| serde_json::from_value(c.clone()).ok())
                     .collect(),
             ),
+            _ => None,
+        }
+    }
+
+    /// The new mode of a `current_mode_update` (kept as [`SessionUpdate::Other`], like `plan`; brief 0058).
+    pub fn current_mode(&self) -> Option<String> {
+        match self {
+            SessionUpdate::Other { kind, raw } if kind == "current_mode_update" => raw
+                .get("currentModeId")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            _ => None,
+        }
+    }
+
+    /// The options of a `config_option_update` (kept as [`SessionUpdate::Other`], like `plan`; brief 0058): the whole
+    /// list, each entry that does not decode skipped.
+    pub fn config_options(&self) -> Option<Vec<SessionConfigOption>> {
+        match self {
+            SessionUpdate::Other { kind, raw } if kind == "config_option_update" => {
+                config_options_from(raw.get("configOptions")?)
+            }
             _ => None,
         }
     }
@@ -666,6 +891,107 @@ mod tests {
         let plan: SessionUpdate =
             serde_json::from_str(r#"{"sessionUpdate":"plan","entries":[]}"#).unwrap();
         assert!(plan.available_commands().is_none());
+    }
+
+    #[test]
+    fn session_new_decodes_with_and_without_modes_and_config_options() {
+        // Without: an agent that offers neither (the fake agent's scenarios, the 2.1.287 adapter).
+        let plain: NewSessionResponse = serde_json::from_str(r#"{"sessionId":"s1"}"#).unwrap();
+        assert_eq!((plain.modes, plain.config_options), (None, None));
+        // With: as the Node adapter answers (crates/acp/tests/fixtures/claude-agent-acp-0.85.0-diagnostics.jsonl,
+        // shortened), plus a grouped select, a boolean option and an entry with no id.
+        let full: NewSessionResponse = serde_json::from_str(
+            r#"{"sessionId":"s2","modes":{"currentModeId":"default","availableModes":[
+                {"id":"default","name":"Manual","description":"Always ask before making changes"},
+                {"id":"plan","name":"Plan"}]},
+              "configOptions":[
+                {"id":"model","name":"Model","description":"AI model to use","category":"model","type":"select",
+                 "currentValue":"sonnet","options":[{"value":"default","name":"Default (recommended)"},
+                 {"value":"sonnet","name":"Sonnet 5.5","description":"Most efficient for simpler tasks"}]},
+                {"id":"effort","name":"Effort","category":"thought_level","type":"select","currentValue":"high",
+                 "options":[{"group":"g","name":"Levels","options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]}]},
+                {"id":"fast","name":"Fast mode","type":"boolean","currentValue":false},
+                {"name":"no id","type":"select","currentValue":"x","options":[]}]}"#,
+        )
+        .unwrap();
+        let modes = full.modes.unwrap();
+        assert_eq!(modes.current_mode_id, "default");
+        assert_eq!(modes.available_modes.len(), 2);
+        assert_eq!(modes.available_modes[1].description, None);
+        let options = full.config_options.unwrap();
+        let ids: Vec<&str> = options.iter().map(|o| o.id.as_str()).collect();
+        assert_eq!(ids, ["model", "effort", "fast"]);
+        let model = options[0].as_select().unwrap();
+        assert_eq!(model.current_value, "sonnet");
+        assert_eq!(model.options[1].name, "Sonnet 5.5");
+        assert_eq!(options[0].category.as_deref(), Some("model"));
+        let effort = options[1].as_select().unwrap();
+        let values: Vec<&str> = effort.options.iter().map(|o| o.value.as_str()).collect();
+        assert_eq!(values, ["low", "high"]);
+        // The boolean is kept raw and is not a select (the window shows no picker for it).
+        assert!(options[2].as_select().is_none());
+        assert_eq!(
+            serde_json::to_value(&options[2]).unwrap()["currentValue"],
+            false
+        );
+        // A malformed `modes` reads as none.
+        let bad: NewSessionResponse = serde_json::from_str(
+            r#"{"sessionId":"s3","modes":{"availableModes":3},"configOptions":"x"}"#,
+        )
+        .unwrap();
+        assert_eq!((bad.modes, bad.config_options), (None, None));
+        // The request carries `_meta` only when given.
+        let req = NewSessionRequest {
+            cwd: "/w".into(),
+            mcp_servers: Vec::new(),
+            meta: None,
+        };
+        assert!(serde_json::to_value(&req).unwrap().get("_meta").is_none());
+    }
+
+    #[test]
+    fn mode_and_config_option_updates_decode_and_an_unknown_kind_is_not_listed() {
+        let mode: SessionUpdate = serde_json::from_str(
+            r#"{"sessionUpdate":"current_mode_update","currentModeId":"plan"}"#,
+        )
+        .unwrap();
+        assert_eq!(mode.current_mode().as_deref(), Some("plan"));
+        assert!(mode.config_options().is_none());
+        let line = r#"{"sessionUpdate":"config_option_update","configOptions":[{"id":"model","name":"Model","type":"select","currentValue":"opus","options":[{"value":"opus","name":"Opus"}]},{"id":"speed","name":"Speed","type":"slider","currentValue":3,"min":1,"max":5}]}"#;
+        let update: SessionUpdate = serde_json::from_str(line).unwrap();
+        let options = update.config_options().expect("an option list");
+        assert_eq!(options.len(), 2, "the unknown kind decodes");
+        let listed: Vec<&str> = options
+            .iter()
+            .filter(|o| o.as_select().is_some())
+            .map(|o| o.id.as_str())
+            .collect();
+        assert_eq!(listed, ["model"], "and is not listed");
+        assert!(matches!(options[1].kind, SessionConfigKind::Other(_)));
+        assert!(update.current_mode().is_none());
+        // It round-trips unchanged.
+        assert_eq!(
+            serde_json::to_value(&update).unwrap(),
+            serde_json::from_str::<Value>(line).unwrap()
+        );
+        // The set answer carries the whole list.
+        let answer: SetSessionConfigOptionResponse = serde_json::from_str(
+            r#"{"configOptions":[{"id":"effort","name":"Effort","type":"select","currentValue":"high","options":[]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            answer.config_options[0].as_select().unwrap().current_value,
+            "high"
+        );
+        assert_eq!(
+            serde_json::to_value(SetSessionConfigOptionRequest {
+                session_id: "s".into(),
+                config_id: "model".into(),
+                value: "opus".into()
+            })
+            .unwrap(),
+            serde_json::json!({"sessionId": "s", "configId": "model", "value": "opus"})
+        );
     }
 
     #[test]

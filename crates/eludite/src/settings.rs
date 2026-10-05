@@ -698,6 +698,43 @@ mod tests {
     }
 
     #[test]
+    fn the_agents_model_and_effort_are_unset_by_default_and_set_in_the_user_file() {
+        // Brief 0058: the Agents window's pickers remember the model and the effort in the user file; the workspace's
+        // file may set them too (and wins, like any setting of the default scope).
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = store(dir.path(), &[]);
+        for key in ["agents.model", "agents.effort"] {
+            assert_eq!(s.effective(key), (json!(""), SettingSource::Default));
+            assert_eq!(s.string(key), "");
+            assert_eq!(
+                s.schema().get(key).unwrap().scope,
+                SettingScope::User,
+                "{key}"
+            );
+        }
+        let (out, write) = s
+            .set("agents.model", json!("opus"), SettingScope::User)
+            .unwrap();
+        assert_eq!(
+            (out.value, out.source),
+            (json!("opus"), SettingSource::User)
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(&write.text).unwrap(),
+            json!({"agents.model": "opus"})
+        );
+        let sln = dir.path().join("sln/.eludite");
+        std::fs::create_dir_all(&sln).unwrap();
+        std::fs::write(sln.join("settings.json"), r#"{"agents.effort": "high"}"#).unwrap();
+        s.set_solution_dir(Some(&dir.path().join("sln")));
+        s.reload_if_changed();
+        assert_eq!(
+            s.effective("agents.effort"),
+            (json!("high"), SettingSource::Solution)
+        );
+    }
+
+    #[test]
     fn set_keeps_other_keys_null_removes_and_bad_files_are_reported() {
         let dir = tempfile::tempdir().unwrap();
         let user = dir.path().join("user/settings.json");

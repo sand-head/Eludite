@@ -7,6 +7,9 @@ adapter, and take the three screenshots.
      Brief 0057, before any prompt (no model call): type a prompt that wraps to three rows, click in its second row
      (agents-prompt-editor.png), clear it; Start the agent, wait for its slash commands, type `/mo`
      (agents-slash-menu.png), Escape, clear.
+     Brief 0058, still with no prompt sent: wait for the agent's options, click the model picker under the prompt
+     box (agents-model-picker.png, the native adapter's model list), pick Opus and wait for the agent's answer. The
+     next turn's usage line (in --transcript-out's transcript) then names the picked model.
   2. Click the prompt box, type "List the current errors and fix the first one", Enter. Claude calls
      diagnostics-list (no prompt: class read) and proposes an edit, held as a pending change; its review view opens
      (screenshot agents-pending-diff.png). Click Accept in the review view; wait for the error to clear and the turn
@@ -17,6 +20,7 @@ adapter, and take the three screenshots.
 Permission requests the run does not expect (anything before the pending change that is not a shell command) are
 allowed and recorded. Prints one JSON object with what the trace showed.
 Usage: agents.py --title "Eludite - Eludite" --log run.err --bounds B --shots DIR --file F --shell-prompt TEXT
+       [--transcript T --model opus]
 """
 import argparse, json, sys, time
 
@@ -100,6 +104,39 @@ def editor_shots(a, out):
     time.sleep(0.5)
 
 
+def model_shot(a, out):
+    """Brief 0058: the model picker open with the real adapter's list, then a pick (no model call)."""
+    t = ms() - 120_000
+    options = wait_trace(a.log, lambda s: s.startswith("agents options") and "model=" in s, t, 90)
+    out["options"] = options and options[1]
+    button = rect(a, "agents-option-model", timeout=10)
+    if not button:
+        out["model_error"] = "no model picker in the bounds file"
+        return
+    click(a.title, button)
+    time.sleep(1.0)
+    out["shot_model_picker"] = shot(a.shots, "agents-model-picker")
+    row = rect(a, f"agents-option-model-{a.model}", timeout=5)
+    if not row:
+        out["model_error"] = f"no row for {a.model}"
+        press("Escape")
+        return
+    t = ms()
+    click(a.title, row)
+    picked = wait_trace(a.log, lambda s: s == f"agents option model = {a.model}", t, 10)
+    out["model_picked_ms"] = picked and picked[0] - t
+    time.sleep(0.5)
+
+
+def usage_models(path):
+    """The models of the usage lines in the transcript written by --transcript-out, in order."""
+    try:
+        rows = json.load(open(path))
+    except (OSError, ValueError):
+        return []
+    return [r["usage"].get("model") for r in rows if isinstance(r, dict) and isinstance(r.get("usage"), dict)]
+
+
 def turn(a, out, key, start, timeout, on_permission):
     """Wait for the turn's end, answering permission prompts with `on_permission(tool) -> 'allow'|'deny'`."""
     end = time.time() + timeout
@@ -132,6 +169,8 @@ def main():
     ap.add_argument("--shots", required=True)
     ap.add_argument("--file", required=True)
     ap.add_argument("--shell-prompt", required=True)
+    ap.add_argument("--transcript", help="--transcript-out's file, to read the usage line after the model pick")
+    ap.add_argument("--model", default="opus", help="the model picker's value to pick (brief 0058)")
     ap.add_argument("--dry", action="store_true", help="a scripted agent: skip waiting for the error to clear and the shell step")
     a = ap.parse_args()
     out = {}
@@ -154,8 +193,9 @@ def main():
         click(a.title, props)
     time.sleep(0.5)
 
-    # 0. Brief 0057: the prompt editor and the slash menu.
+    # 0. Brief 0057: the prompt editor and the slash menu. Brief 0058: the model picker, then a pick.
     editor_shots(a, out)
+    model_shot(a, out)
 
     # 1. The error: diagnostics-list, a pending change, Accept.
     start = ms()
@@ -203,6 +243,10 @@ def main():
     ended = turn(a, out, "fix", t_accept, 300, lambda tool: "deny" if tool.startswith("Bash") else "allow")
     out["fix_turn"] = ended
     out["fix_trace"] = since(a.log, start)[-40:]
+    if a.transcript:
+        # Brief 0058: the turn after the pick ran on the picked model.
+        time.sleep(1.0)
+        out["usage_after_pick"] = usage_models(a.transcript)[-1:]
     time.sleep(1.0)
     link = rect(a, f"agents-change-{change}", timeout=5)
     if link:

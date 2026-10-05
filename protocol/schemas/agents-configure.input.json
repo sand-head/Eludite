@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-configure.input.json",
+  "title": "eludite.agents.configure input",
+  "description": "Change the running agent's session mode or one of its session config options (ACP `session/set_mode` or `session/set_config_option`), as the Agents window's pickers under the prompt box do: the model, the effort, the mode. Answers the state (agents-state.output.json) once the agent has answered, so its `mode` or `options` show the new value; fails with the agent's message otherwise: `busy` while a turn runs, `unknown option` for an option the agent does not offer, `unknown value` for a value the option does not list, `not supported` for an agent that offers no modes or config options. A choice made through this command is not remembered in the settings `agents.model` and `agents.effort`; only a choice made in the window is.",
+  "type": "object",
+  "required": [
+    "option",
+    "value"
+  ],
+  "properties": {
+    "option": {
+      "description": "`mode` for the session mode, else a config option's id from the state's `options` (for example `model` or `effort`).",
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "description": "A mode id from the state's `mode.available`, or a value from the option's `choices`.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

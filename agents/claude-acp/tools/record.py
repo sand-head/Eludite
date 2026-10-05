@@ -5,14 +5,23 @@ conformance fixture. Uses the real model and your login: keep prompts few.
   record.py CWD RAW_OUT.jsonl MCP_CONFIG.json PROMPTS_JSON
 
 PROMPTS_JSON is a list of [text, mode]; mode "interrupt" sends an interrupt
-control request 0.5 s after the first streamed text. Permission requests for
+control request 0.5 s after the first streamed text; mode "control" sends
+text (a JSON object such as {"subtype": "set_model", "model": "opus"}) as a
+control request instead of a user message and waits for its reply, so a
+recording can hold no model call at all. Permission requests for
 `mcp__eludite__*` tools are allowed, all others denied. Then run redact.py on
 the output. The brief 0006 fixture came from:
 
   record.py WS raw.jsonl mcp.json '[["List the current errors in the Error List and tell me which file has the most.","normal"],["Create a file named notes.txt in the current directory containing the word hello.","normal"],["Count from 1 to 300, one number per line, with no other text.","interrupt"]]'
 
 with mcp.json naming `cargo run -p eludite-mcp --example fixture_stdio_server`'s
-binary as the stdio server "eludite".
+binary as the stdio server "eludite". The brief 0058 fixture (no model call:
+two permission mode changes, a model change and the local command /effort)
+came from:
+
+  record.py WS raw.jsonl empty-mcp.json '[["{\"subtype\": \"set_permission_mode\", \"mode\": \"plan\"}","control"],["{\"subtype\": \"set_permission_mode\", \"mode\": \"default\"}","control"],["{\"subtype\": \"set_model\", \"model\": \"opus\"}","control"],["/effort high","normal"]]'
+
+with empty-mcp.json holding {"mcpServers": {}}.
 """
 import json, os, shutil, subprocess, sys, threading, time, uuid
 
@@ -70,12 +79,21 @@ def reader():
             send({"type": "control_request", "request_id": "int_1", "request": {"subtype": "interrupt"}})
         if m.get("type") == "result":
             done.set()
+        if (state["mode"] == "control" and m.get("type") == "control_response"
+                and m["response"].get("request_id") == state.get("control_id")):
+            done.set()
     done.set()
 
 threading.Thread(target=reader, daemon=True).start()
-for text, mode in prompts:
+for n, (text, mode) in enumerate(prompts):
     done.clear()
     state["mode"] = mode
+    if mode == "control":
+        state["control_id"] = f"ctl_{n + 1}"
+        send({"type": "control_request", "request_id": state["control_id"], "request": json.loads(text)})
+        done.wait(60)
+        time.sleep(1)
+        continue
     send({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]},
           "parent_tool_use_id": None, "session_id": sid})
     done.wait(300)

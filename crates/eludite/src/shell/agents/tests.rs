@@ -23,14 +23,20 @@ use super::scenario;
 use super::window::StateKind;
 use super::{AgentsSetup, Shell};
 
-/// The registry the tests offer, by name: each runs the fake agent with a scenario.
-const AGENTS: [(&str, &str); 6] = [
+/// The registry the tests offer, by name: each runs the fake agent with a scenario, then its own arguments (after
+/// the common ones, so they win).
+const AGENTS: [(&str, &str); 8] = [
     ("Fake agent", "diagnostics-then-shell"),
     ("Fake editor", "edit"),
     ("Fake writer", "write"),
     ("Fake streamer", "stream"),
     ("Logged out", "login-required"),
     ("Crasher", "exit"),
+    // Brief 0058: modes and config options, and a turn long enough to change them during it (1 s).
+    ("Fake options", "stream --options --chunks 2000"),
+    // Brief 0058: modes and config options, and a turn held open at a shell command's permission prompt until the
+    // test answers it.
+    ("Fake asker", "diagnostics-then-shell --options"),
 ];
 
 fn fake_setup() -> AgentsSetup {
@@ -38,17 +44,17 @@ fn fake_setup() -> AgentsSetup {
         AGENTS
             .iter()
             .map(|(name, scenario)| {
-                (
-                    (*name).to_owned(),
-                    vec![
-                        "--scenario".into(),
-                        (*scenario).into(),
-                        "--chunks".into(),
-                        "400".into(),
-                        "--rate".into(),
-                        "2000".into(),
-                    ],
-                )
+                let mut words = scenario.split_whitespace().map(str::to_owned);
+                let mut args = vec![
+                    "--scenario".into(),
+                    words.next().unwrap(),
+                    "--chunks".into(),
+                    "400".into(),
+                    "--rate".into(),
+                    "2000".into(),
+                ];
+                args.extend(words);
+                ((*name).to_owned(), args)
             })
             .collect(),
     )
@@ -1874,4 +1880,259 @@ fn the_slash_menu_offers_the_agents_commands(cx: &mut TestAppContext) {
         serde_json::to_value(s.agents_state(cx)).unwrap()
     });
     assert_eq!(state["commands"], json!([]));
+}
+
+impl Ws {
+    /// `agents-state.output.json` as the bus would answer it.
+    fn state_json(&self) -> Value {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            serde_json::to_value(s.agents_state(cx)).unwrap()
+        })
+    }
+
+    /// The state's option `id`'s current value.
+    fn option_current(&self, id: &str) -> Option<String> {
+        let state = self.state_json();
+        state["options"]
+            .as_array()?
+            .iter()
+            .find(|o| o["id"] == id)
+            .and_then(|o| o["current"].as_str().map(str::to_owned))
+    }
+
+    /// What picker `key`'s button says, and whether it is muted.
+    fn picker(&self, key: &str) -> Option<(String, bool)> {
+        self.shell.read_with(&self.vcx, |s, cx| {
+            s.agents().window.read(cx).picker_label(key)
+        })
+    }
+
+    fn open_picker(&self) -> Option<(String, usize)> {
+        self.shell
+            .read_with(&self.vcx, |s, cx| s.agents().window.read(cx).open_picker())
+    }
+
+    /// A setting's effective value and where it came from.
+    fn setting(&self, key: &str) -> (Value, eludite_commands::settings::SettingSource) {
+        self.shell
+            .read_with(&self.vcx, |s, _| s.settings.lock().effective(key))
+    }
+
+    fn wait_options(&mut self) {
+        self.wait("the agent's options", |w| {
+            w.option_current("model").is_some()
+        });
+    }
+
+    fn configure(&mut self, option: &str, value: &str) -> Result<Value, String> {
+        let commands = self.commands.clone();
+        let args = json!({"option": option, "value": value});
+        self.agent(move || {
+            commands
+                .invoke("eludite.agents.configure", args)
+                .map_err(|e| e.to_string())
+        })
+    }
+}
+
+/// Brief 0058: the footer's pickers show the fake agent's model, effort and mode; picking a model runs
+/// `eludite.agents.configure`, shows the pick muted until the agent answers, remembers it in the user settings and the
+/// next session starts with it; the keyboard works the picker; a choice the agent refuses reverts with an error row.
+#[gpui::test]
+fn the_footer_picks_the_model_and_the_next_session_starts_with_it(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.show_agents();
+    w.start_agent("Fake options");
+    w.wait_options();
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("model"), Some(("Smart \u{25BE}".into(), false)));
+    assert_eq!(w.picker("effort"), Some(("Default \u{25BE}".into(), false)));
+    assert_eq!(w.picker("mode"), Some(("Manual \u{25BE}".into(), false)));
+    // Left to right: model, effort, mode, then Send, all under the prompt box.
+    let at = |w: &mut Ws, sel: &str| w.bounds(sel);
+    let model = at(&mut w, &super::window::option_picker("model"));
+    let effort = at(&mut w, &super::window::option_picker("effort"));
+    let mode = at(&mut w, super::window::MODE_PICKER);
+    let send = at(&mut w, super::window::SEND_BUTTON);
+    let prompt = at(&mut w, super::window::PROMPT_BOX);
+    assert!(
+        model.left() < effort.left() && effort.left() < mode.left() && mode.right() < send.left()
+    );
+    for b in [model, effort, mode, send] {
+        assert!(
+            b.top() >= prompt.bottom(),
+            "under the box: {b:?} {prompt:?}"
+        );
+    }
+    // The state output and the status bar.
+    let state = w.state_json();
+    assert_eq!(state["mode"]["current"], "default");
+    assert_eq!(state["mode"]["available"][1]["name"], "Plan");
+    assert_eq!(
+        state["options"][0]["choices"][0],
+        json!({"value": "fast", "name": "Fast", "description": "Quick answers"})
+    );
+    assert_eq!(state["options"][1]["category"], "thought_level");
+    let status = w.shell.read_with(&w.vcx, |s, _| {
+        s.status().get(super::AGENTS_SLOT).map(str::to_owned)
+    });
+    assert_eq!(status.as_deref(), Some("Fake options: ready \u{b7} Smart"));
+
+    // Pick Fast with the mouse: the list, the current one checked, then the command.
+    w.click(&super::window::option_picker("model"));
+    assert_eq!(
+        w.open_picker(),
+        Some(("model".into(), 1)),
+        "the current choice is highlighted"
+    );
+    assert!(w.vcx.debug_bounds(super::window::PICKER_MENU).is_some());
+    w.click(&super::window::option_item("model", "fast"));
+    assert_eq!(w.open_picker(), None);
+    assert_eq!(w.picker("model").unwrap().0, "Fast \u{25BE}");
+    assert!(w.audit().contains(&"eludite.agents.configure".to_owned()));
+    w.wait("the agent's answer", |w| {
+        w.option_current("model").as_deref() == Some("fast")
+    });
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("model"), Some(("Fast \u{25BE}".into(), false)));
+    let (value, source) = w.setting("agents.model");
+    assert_eq!(
+        (value, source),
+        (
+            json!("fast"),
+            eludite_commands::settings::SettingSource::User
+        )
+    );
+    let status = w.shell.read_with(&w.vcx, |s, _| {
+        s.status().get(super::AGENTS_SLOT).map(str::to_owned)
+    });
+    assert_eq!(status.as_deref(), Some("Fake options: ready \u{b7} Fast"));
+
+    // The keyboard: Down, Down, Enter picks High; Escape closes a picker without a pick or a cancel.
+    w.click(&super::window::option_picker("effort"));
+    assert_eq!(w.open_picker(), Some(("effort".into(), 0)));
+    w.vcx.simulate_keystrokes("down down");
+    w.vcx.run_until_parked();
+    assert_eq!(w.open_picker(), Some(("effort".into(), 2)));
+    w.vcx.simulate_keystrokes("enter");
+    w.vcx.run_until_parked();
+    assert_eq!(w.open_picker(), None);
+    w.wait("the effort", |w| {
+        w.option_current("effort").as_deref() == Some("high")
+    });
+    assert_eq!(w.setting("agents.effort").0, json!("high"));
+    assert!(w.user_rows().is_empty(), "Enter picked, it sent nothing");
+    w.click(super::window::MODE_PICKER);
+    assert_eq!(w.open_picker(), Some(("mode".into(), 0)));
+    w.vcx.simulate_keystrokes("up escape");
+    w.vcx.run_until_parked();
+    assert_eq!(w.open_picker(), None);
+    assert!(!w.audit().contains(&"eludite.agents.cancel".to_owned()));
+    // A click on the open picker's button closes it.
+    w.click(super::window::MODE_PICKER);
+    w.click(super::window::MODE_PICKER);
+    assert_eq!(w.open_picker(), None);
+
+    // A choice the agent refuses: the picker reverts and the transcript says why.
+    w.click(&super::window::option_picker("effort"));
+    w.click(&super::window::option_item("effort", "max"));
+    w.wait("the refusal", |w| {
+        w.transcript().as_array().unwrap().iter().any(|r| {
+            r["error"]
+                .as_str()
+                .is_some_and(|e| e.contains(fake_agent::REFUSED_WHY))
+        })
+    });
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("effort"), Some(("High \u{25BE}".into(), false)));
+    assert_eq!(w.setting("agents.effort").0, json!("high"));
+
+    // The next session starts with the remembered model and effort (the fake agent sets its current values from
+    // `session/new`'s `_meta.claudeCode.options`).
+    w.start_agent("Fake options");
+    w.wait_options();
+    assert_eq!(w.option_current("model").as_deref(), Some("fast"));
+    assert_eq!(w.option_current("effort").as_deref(), Some("high"));
+    assert_eq!(
+        w.state_json()["mode"]["current"],
+        "default",
+        "the mode is not remembered"
+    );
+}
+
+/// Brief 0058: `eludite.agents.configure` from the bus answers once the agent has and writes no setting; it fails
+/// with `busy` during a turn (when the pickers are disabled), and with `unknown option`, `unknown value` or (an agent
+/// with no options, which shows no pickers) `not supported`.
+#[gpui::test]
+fn configure_on_the_bus_sets_the_mode_and_is_refused_during_a_turn(cx: &mut TestAppContext) {
+    let mut w = setup(cx);
+    w.show_agents();
+    w.start_agent("Fake asker");
+    w.wait_options();
+    let state = w.configure("mode", "plan").unwrap();
+    assert_eq!(
+        state["mode"]["current"], "plan",
+        "answered after the agent did"
+    );
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("mode"), Some(("Plan \u{25BE}".into(), false)));
+    let state = w.configure("model", "fast").unwrap();
+    assert_eq!(state["options"][0]["current"], "fast");
+    // An agent's choice is not remembered.
+    assert_eq!(w.setting("agents.model").0, json!(""));
+    assert_eq!(w.setting("agents.effort").0, json!(""));
+    let e = w.configure("speed", "1").unwrap_err();
+    assert!(e.contains("unknown option"), "{e}");
+    let e = w.configure("model", "huge").unwrap_err();
+    assert!(e.contains("unknown value"), "{e}");
+    let e = w.configure("mode", "bypassPermissions").unwrap_err();
+    assert!(e.contains("unknown value"), "{e}");
+
+    // During a turn, held open at the shell command's permission prompt: busy, and the pickers are muted and open
+    // nothing.
+    w.shell
+        .update(&mut w.vcx, |s, cx| s.agents_prompt("List the errors", cx))
+        .unwrap();
+    let request = w.wait_for_prompt();
+    assert_eq!(w.agents_state(), StateKind::Running);
+    let e = w.configure("model", "smart").unwrap_err();
+    assert!(e.starts_with("busy") || e.contains("busy:"), "{e}");
+    assert_eq!(w.picker("model"), Some(("Fast \u{25BE}".into(), true)));
+    w.click(&super::window::option_picker("model"));
+    assert_eq!(w.open_picker(), None);
+    assert!(w.vcx.debug_bounds(super::window::PICKER_MENU).is_none());
+    assert_eq!(w.option_current("model").as_deref(), Some("fast"));
+    // Deny the command; the turn ends and the pickers work again.
+    w.shell
+        .update(&mut w.vcx, |s, cx| {
+            s.agents_answer(request, super::window::Decision::Deny, cx)
+        })
+        .unwrap();
+    assert_eq!(w.wait_turn(), "end_turn");
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("model"), Some(("Fast \u{25BE}".into(), false)));
+    w.click(&super::window::option_picker("model"));
+    assert_eq!(w.open_picker(), Some(("model".into(), 0)));
+
+    // An agent without options: no pickers, and the command is not supported.
+    w.start_agent("Fake streamer");
+    w.vcx.run_until_parked();
+    assert_eq!(w.picker("model"), None);
+    assert!(w.vcx.debug_bounds(super::window::MODE_PICKER).is_none());
+    assert!(
+        w.vcx
+            .debug_bounds(String::leak(super::window::option_picker("model")))
+            .is_none()
+    );
+    let state = w.state_json();
+    assert!(
+        state.get("mode").is_none() && state.get("options").is_none(),
+        "{state}"
+    );
+    let e = w.configure("model", "fast").unwrap_err();
+    assert!(e.contains("not supported"), "{e}");
+    let status = w.shell.read_with(&w.vcx, |s, _| {
+        s.status().get(super::AGENTS_SLOT).map(str::to_owned)
+    });
+    assert_eq!(status.as_deref(), Some("Fake streamer: ready"));
 }
