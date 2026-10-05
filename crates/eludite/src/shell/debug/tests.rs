@@ -5757,7 +5757,7 @@ fn breakpoints_bind_in_every_session_and_stop_debugging_ends_them_all(cx: &mut T
     assert!(st["breakpoints"][0].get("sessions").is_none());
 }
 
-/// Brief 0028: Project > Set Startup Projects... opens the Startup Projects dialog; its Action column and OK set two
+/// Brief 0028: Set Startup Projects (the command without arguments) opens the Startup Projects dialog; its Action column and OK set two
 /// startup projects through `eludite.workspace.set_startup_project` with `projects`; they persist (version 3), show
 /// bold in Workspace and in `eludite.workspace.tree`, and F5 builds once for the set and then starts both; an agent
 /// sets them with actions and cannot open the dialog; one startup project again replaces them.
@@ -5782,9 +5782,16 @@ fn the_startup_projects_dialog_sets_two_projects_that_persist_show_bold_and_f5_s
             .read_with(&w.vcx, |s, cx| s.explorer().read(cx).startups().len() == 1)
     });
     assert_eq!(startups(&d), std::slice::from_ref(&app));
-    // Project > Set Startup Projects...: App starts (the startup project), Tool does not.
-    d.w.click("menu-Project");
-    d.w.click("menu-item-Project-Set Startup Projects...");
+    // The person's Set Startup Projects (no arguments): App starts (the startup project), Tool does not.
+    d.w.shell.update_in(&mut d.w.vcx, |s, window, cx| {
+        s.run(
+            eludite_commands::project::SET_STARTUP_PROJECT,
+            json!({}),
+            window,
+            cx,
+        )
+    });
+    d.w.vcx.run_until_parked();
     let rows = |d: &Dbg| {
         d.w.shell.read_with(&d.w.vcx, |s, cx| {
             s.debugger().startup_dialog.as_ref().map(|e| {

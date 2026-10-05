@@ -108,25 +108,15 @@ pub const WORKSPACE_GIT_ITEMS: [(&str, &str, &str); 5] = [
 pub const WORKSPACE_TERMINAL_ITEM: (&str, &str, &str) =
     ("terminal", "Open in Terminal", "eludite.terminal.open");
 
-/// The menu titles, in Visual Studio's order (PLAN.md 8).
-pub const MENU_TITLES: [&str; 13] = [
-    "File",
-    "Edit",
-    "View",
-    "Git",
-    "Project",
-    "Build",
-    "Debug",
-    "Test",
-    "Analyze",
-    "Tools",
-    "Extensions",
-    "Window",
-    "Help",
+/// The menu titles, in order (PLAN.md 8). Visual Studio's names and order, trimmed to the menus a workspace of any
+/// language needs: no Project, Analyze, Extensions or Window menu (PLAN.md 14, decision 14).
+pub const MENU_TITLES: [&str; 9] = [
+    "File", "Edit", "View", "Git", "Build", "Debug", "Test", "Tools", "Help",
 ];
 
-/// Visual Studio's menus. Command ids that are not registered yet are stubs:
-/// the bar shows them disabled until a later brief registers the command.
+/// The menus. Command ids that are not registered yet are stubs: the bar shows them disabled until a later brief
+/// registers the command. No item names a solution or a project (PLAN.md 14, decision 12): a workspace is a folder,
+/// and the .NET solution and projects in it only organize the Workspace window.
 pub fn vs_menus() -> Vec<Menu> {
     use MenuEntry::Separator;
     let menu = |title, entries| Menu { title, entries };
@@ -134,11 +124,8 @@ pub fn vs_menus() -> Vec<Menu> {
         menu(
             "File",
             vec![
-                item("New Project...", "eludite.file.new_project"),
-                // A workspace is any folder: a Cargo workspace, a .NET solution, both, or neither.
+                // A workspace is any folder: a Cargo workspace, a .NET solution, an npm package, any mix, or none.
                 item("Open Workspace...", "eludite.workspace.open_folder"),
-                // .NET-specific: open a solution or project file directly.
-                item("Open Solution or Project File...", "eludite.solution.open"),
                 item("Open File...", "eludite.file.open_file_dialog"),
                 Separator,
                 item("Save", "eludite.editor.save"),
@@ -158,64 +145,56 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Copy", "eludite.edit.copy"),
                 item("Paste", "eludite.edit.paste"),
                 Separator,
-                // Visual Studio's Edit > Find and Replace submenu: Quick Find (the editor's find bar), Find in Files
-                // and Replace in Files (brief 0042).
-                item("Find and Replace > Quick Find", "eludite.editor.find"),
-                item("Find and Replace > Find in Files", "eludite.search.find"),
-                item(
-                    "Find and Replace > Replace in Files",
-                    "eludite.search.replace",
-                ),
+                // Visual Studio's Edit > Find and Replace: Quick Find (the editor's find bar), Find in Files and
+                // Replace in Files (brief 0042).
+                item("Find", "eludite.editor.find"),
+                item("Find in Files", "eludite.search.find"),
+                item("Replace in Files", "eludite.search.replace"),
+                Separator,
                 item("Go To All", "eludite.edit.go_to_all"),
                 item("Go To Definition", "eludite.editor.go_to_definition"),
                 item("Find All References", "eludite.editor.find_references"),
+                item("Navigate Backward", "eludite.navigation.back"),
+                item("Navigate Forward", "eludite.navigation.forward"),
                 Separator,
-                // Visual Studio's Edit > Refactor > Rename and the editor's Quick Actions and Refactorings.
+                // Visual Studio's Edit > Refactor > Rename, the Quick Actions and Refactorings, and Edit > Advanced >
+                // Format Document (brief 0050).
                 item("Rename...", "eludite.editor.rename"),
                 item(
                     "Quick Actions and Refactorings...",
                     "eludite.editor.code_actions",
                 ),
+                item("Format Document", "eludite.editor.format_document"),
                 Separator,
                 // Visual Studio's Edit > IntelliSense items.
                 item("Complete Word", "eludite.editor.complete"),
                 item("Parameter Info", "eludite.editor.signature_help"),
                 item("Quick Info", "eludite.editor.hover"),
-                Separator,
-                // Visual Studio's Edit > Advanced > Format Document (brief 0050).
-                item(
-                    "Advanced > Format Document",
-                    "eludite.editor.format_document",
-                ),
             ],
         ),
         menu(
             "View",
             vec![
-                show("Workspace", "workspace"),
-                show("Git Changes", "git_changes"),
-                show("Git Repository", "git_repository"),
-                show("Agents", "agents"),
+                item("Command Palette", "eludite.view.command_palette"),
                 Separator,
+                show("Workspace", "workspace"),
+                show("Agents", "agents"),
                 show("Error List", "error_list"),
                 show("Output", "output"),
                 // View > Terminal, Ctrl+` (brief 0041).
                 show("Terminal", "terminal"),
-                show("Properties Window", "properties"),
-                show("Toolbox", "toolbox"),
-                // Visual Studio's View > Other Windows > Web Browser (brief 0032): a document tab.
+                // Visual Studio's View > Other Windows: the Web Browser document tab (brief 0032) and Find Results 1
+                // and 2 (brief 0042).
                 show("Other Windows > Web Browser", "web_browser"),
-                // View > Other Windows > Find Results 1 and 2 (brief 0042).
                 show("Other Windows > Find Results 1", "find_results_1"),
                 show("Other Windows > Find Results 2", "find_results_2"),
-                // View > Other Windows > Pull Requests and Issues (brief 0046).
-                show("Other Windows > Pull Requests", "pull_requests"),
-                show("Other Windows > Issues", "issues"),
                 Separator,
-                item("Navigate Backward", "eludite.navigation.back"),
-                item("Navigate Forward", "eludite.navigation.forward"),
-                Separator,
-                item("Command Palette", "eludite.view.command_palette"),
+                // Visual Studio's Window menu, folded in: the active tool window's state and the layout.
+                item("Float", "eludite.view.float"),
+                item("Dock", "eludite.view.dock"),
+                item("Auto Hide", "eludite.view.auto_hide"),
+                item("Hide", "eludite.view.hide"),
+                item("Reset Window Layout", "eludite.view.reset_layout"),
             ],
         ),
         // Visual Studio's Git menu (brief 0040): Commit or Stash... shows Git Changes, Manage Branches the Git
@@ -225,16 +204,18 @@ pub fn vs_menus() -> Vec<Menu> {
             "Git",
             vec![
                 show("Commit or Stash...", "git_changes"),
+                show("Manage Branches", "git_repository"),
+                item("New Branch...", "eludite.git.checkout"),
                 Separator,
                 item("Fetch", "eludite.git.fetch"),
                 item("Pull", "eludite.git.pull"),
                 item("Push", "eludite.git.push"),
                 item("Sync", "eludite.git.sync"),
                 Separator,
-                item("New Branch...", "eludite.git.checkout"),
-                show("Manage Branches", "git_repository"),
-                Separator,
-                // The forge of the repository's remote (brief 0046): the form, and the sign-in dialog for its host.
+                // The forge of the repository's remote (brief 0046): its windows, the form, and the sign-in dialog for
+                // its host.
+                show("Pull Requests", "pull_requests"),
+                show("Issues", "issues"),
                 item("Create Pull Request", "eludite.forge.pull_create"),
                 MenuEntry::Item {
                     label: "Sign in to Forge...",
@@ -248,53 +229,15 @@ pub fn vs_menus() -> Vec<Menu> {
                 ),
             ],
         ),
-        menu(
-            "Project",
-            vec![
-                item("Add Class...", "eludite.project.add_class"),
-                item("Add New Item...", "eludite.project.add_item"),
-                Separator,
-                item("Manage NuGet Packages...", "eludite.nuget.manage"),
-                // Visual Studio's multiple startup projects (brief 0028): the Startup Projects dialog.
-                item(
-                    "Set Startup Projects...",
-                    "eludite.workspace.set_startup_project",
-                ),
-                // Brief 0049: the selected project's property pages as a document tab (Alt+Enter in Workspace).
-                MenuEntry::Item {
-                    label: "Properties",
-                    command: "eludite.project.properties",
-                    args: json!({ "open": true }),
-                },
-            ],
-        ),
+        // The workspace's build systems (brief 0019): Ctrl+Shift+B builds the one that owns the active document.
         menu(
             "Build",
             vec![
-                item("Build Solution", "eludite.build.solution"),
-                item("Rebuild Solution", "eludite.build.rebuild"),
-                item("Clean Solution", "eludite.build.clean"),
-                Separator,
-                // The active document's project (Visual Studio names it in the label).
-                item("Build Project", "eludite.build.project"),
-                MenuEntry::Item {
-                    label: "Rebuild Project",
-                    command: "eludite.build.project",
-                    args: json!({ "target": "rebuild" }),
-                },
-                MenuEntry::Item {
-                    label: "Clean Project",
-                    command: "eludite.build.project",
-                    args: json!({ "target": "clean" }),
-                },
+                item("Build", "eludite.build.solution"),
+                item("Rebuild", "eludite.build.rebuild"),
+                item("Clean", "eludite.build.clean"),
                 Separator,
                 item("Cancel", "eludite.build.cancel"),
-                Separator,
-                // Brief 0049: the solution-to-project mapping grid.
-                item(
-                    "Configuration Manager...",
-                    "eludite.solution.set_configuration",
-                ),
             ],
         ),
         menu(
@@ -306,13 +249,13 @@ pub fn vs_menus() -> Vec<Menu> {
                     command: "eludite.debug.start",
                     args: json!({ "debug": false }),
                 },
-                // A web project's page in the system browser instead of the Web Browser window (brief 0037).
+                // A web page in the system browser instead of the Web Browser window (brief 0037).
                 MenuEntry::Item {
                     label: "Start in External Browser",
                     command: "eludite.debug.start",
                     args: json!({ "browser": "external" }),
                 },
-                // Where F5 opens a web project's page: the setting browser.useBuiltIn (brief 0037).
+                // Where F5 opens a web page: the setting browser.useBuiltIn (brief 0037).
                 MenuEntry::SettingCheck {
                     label: "Open in Web Browser Window",
                     key: "browser.useBuiltIn",
@@ -323,6 +266,7 @@ pub fn vs_menus() -> Vec<Menu> {
                 item("Continue", "eludite.debug.continue"),
                 // Break All (brief 0025): only a running debuggee; the command refuses it otherwise.
                 item("Break All", "eludite.debug.pause"),
+                Separator,
                 item("Attach to Process...", "eludite.debug.attach"),
                 // A page of the Web Browser window, with vscode-js-debug (brief 0038): the same dialog, its tabs only.
                 MenuEntry::Item {
@@ -355,7 +299,6 @@ pub fn vs_menus() -> Vec<Menu> {
                 Separator,
                 show("Windows > Breakpoints", "breakpoints"),
                 show("Windows > Exception Settings", "exception_settings"),
-                show("Windows > Output", "output"),
                 show("Windows > Watch 1", "watch"),
                 show("Windows > Locals", "locals"),
                 show("Windows > Call Stack", "call_stack"),
@@ -384,51 +327,22 @@ pub fn vs_menus() -> Vec<Menu> {
             ],
         ),
         menu(
-            "Analyze",
-            vec![
-                item("Code Cleanup", "eludite.analyze.cleanup"),
-                item("Run Code Analysis", "eludite.analyze.run"),
-            ],
-        ),
-        menu(
             "Tools",
             vec![
-                // Visual Studio's Tools > Command Line opens the Developer PowerShell: a terminal of the default
-                // profile (brief 0041).
-                item("Command Line", "eludite.terminal.open"),
-                Separator,
-                // Visual Studio's Tools > NuGet Package Manager submenu (brief 0048).
+                // The workspace's NuGet packages (brief 0048): the window over every package reference in the
+                // workspace, and the Options page of the sources.
                 MenuEntry::Item {
-                    label: "NuGet Package Manager > Manage NuGet Packages for Solution...",
+                    label: "NuGet Packages...",
                     command: "eludite.nuget.manage",
                     args: json!({ "solution": true }),
                 },
                 MenuEntry::Item {
-                    label: "NuGet Package Manager > Package Sources...",
+                    label: "NuGet Package Sources...",
                     command: "eludite.tools.options",
                     args: json!({ "section": "NuGet Package Manager > Package Sources" }),
                 },
                 Separator,
                 item("Options...", "eludite.tools.options"),
-            ],
-        ),
-        menu(
-            "Extensions",
-            vec![item("Manage Extensions", "eludite.extensions.manage")],
-        ),
-        menu(
-            "Window",
-            vec![
-                item("Float", "eludite.view.float"),
-                item("Dock", "eludite.view.dock"),
-                item("Auto Hide", "eludite.view.auto_hide"),
-                item("Hide", "eludite.view.hide"),
-                Separator,
-                item("Pin Tab", "eludite.window.pin_tab"),
-                Separator,
-                item("Save Window Layout", "eludite.window.save_layout"),
-                item("Apply Window Layout", "eludite.window.apply_layout"),
-                item("Reset Window Layout", "eludite.view.reset_layout"),
             ],
         ),
         menu(
@@ -761,7 +675,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn titles_in_vs_order() {
+    fn titles_in_order() {
         let titles: Vec<_> = vs_menus().iter().map(|m| m.title).collect();
         assert_eq!(titles, MENU_TITLES);
     }
@@ -814,8 +728,6 @@ mod tests {
         assert!(shortcuts.contains(&("Other Windows > Find Results 1", None)));
         assert!(shortcuts.contains(&("Other Windows > Find Results 2", None)));
         // Brief 0046.
-        assert!(shortcuts.contains(&("Other Windows > Pull Requests", None)));
-        assert!(shortcuts.contains(&("Other Windows > Issues", None)));
         let edit = vs_menus().into_iter().find(|m| m.title == "Edit").unwrap();
         let shortcuts: Vec<_> = edit
             .entries
@@ -831,11 +743,11 @@ mod tests {
                 }
             })
             .collect();
-        assert!(shortcuts.contains(&("Find and Replace > Quick Find", Some("Ctrl+F"))));
-        assert!(shortcuts.contains(&("Find and Replace > Find in Files", Some("Ctrl+Shift+F"))));
-        assert!(shortcuts.contains(&("Find and Replace > Replace in Files", Some("Ctrl+Shift+H"))));
+        assert!(shortcuts.contains(&("Find", Some("Ctrl+F"))));
+        assert!(shortcuts.contains(&("Find in Files", Some("Ctrl+Shift+F"))));
+        assert!(shortcuts.contains(&("Replace in Files", Some("Ctrl+Shift+H"))));
         // Brief 0050.
-        assert!(shortcuts.contains(&("Advanced > Format Document", Some("Ctrl+K, Ctrl+D"))));
+        assert!(shortcuts.contains(&("Format Document", Some("Ctrl+K, Ctrl+D"))));
         let build = vs_menus().into_iter().find(|m| m.title == "Build").unwrap();
         let shortcuts: Vec<_> = build
             .entries
@@ -851,9 +763,15 @@ mod tests {
                 }
             })
             .collect();
-        assert!(shortcuts.contains(&("Build Solution", Some("Ctrl+Shift+B"))));
-        assert!(shortcuts.contains(&("Build Project", Some("Shift+F6"))));
-        assert!(shortcuts.contains(&("Rebuild Project", None)));
+        assert_eq!(
+            shortcuts,
+            [
+                ("Build", Some("Ctrl+Shift+B")),
+                ("Rebuild", None),
+                ("Clean", None),
+                ("Cancel", None)
+            ]
+        );
     }
 
     #[test]
@@ -998,74 +916,28 @@ mod tests {
         );
     }
 
-    /// Brief 0028: Project > Set Startup Projects... opens the Startup Projects dialog through
-    /// `eludite.workspace.set_startup_project` without arguments.
+    /// PLAN.md 14, decision 12: no menu item names a solution or a project, and there is no Project menu.
     #[test]
-    fn the_project_menu_sets_startup_projects() {
-        let project = vs_menus()
-            .into_iter()
-            .find(|m| m.title == "Project")
-            .unwrap();
-        let found = project.entries.iter().any(|e| {
-            matches!(e, MenuEntry::Item { label, command, args }
-                if *label == "Set Startup Projects..."
-                    && *command == "eludite.workspace.set_startup_project"
-                    && args.as_object().is_none_or(|o| o.is_empty()))
-        });
-        assert!(found);
+    fn no_menu_item_names_a_solution_or_a_project() {
+        for m in vs_menus() {
+            assert_ne!(m.title, "Project");
+            for e in &m.entries {
+                if let Some((label, _, _)) = e.action(false) {
+                    for word in ["Solution", "Project"] {
+                        assert!(!label.contains(word), "{} > {label}", m.title);
+                    }
+                }
+            }
+        }
     }
 
-    /// Brief 0048: Project > Manage NuGet Packages... (the active project), Tools > NuGet Package Manager > Manage
-    /// NuGet Packages for Solution... and Package Sources... (the Options page).
+    /// Brief 0048: Tools > NuGet Packages... (the workspace's packages) and NuGet Package Sources... (the Options
+    /// page).
     #[test]
     fn the_nuget_items_open_the_window_and_the_package_sources_page() {
-        let find = |menu: &str, label: &str| {
-            vs_menus()
-                .into_iter()
-                .find(|m| m.title == menu)
-                .unwrap()
-                .entries
-                .into_iter()
-                .find_map(|e| match e {
-                    MenuEntry::Item {
-                        label: l,
-                        command,
-                        args,
-                    } if l == label => Some((command, args)),
-                    _ => None,
-                })
-                .unwrap_or_else(|| panic!("no {menu} > {label}"))
-        };
-        assert_eq!(
-            find("Project", "Manage NuGet Packages..."),
-            ("eludite.nuget.manage", json!({}))
-        );
-        assert_eq!(
-            find(
-                "Tools",
-                "NuGet Package Manager > Manage NuGet Packages for Solution..."
-            ),
-            ("eludite.nuget.manage", json!({"solution": true}))
-        );
-        assert_eq!(
-            find("Tools", "NuGet Package Manager > Package Sources..."),
-            (
-                "eludite.tools.options",
-                json!({"section": "NuGet Package Manager > Package Sources"})
-            )
-        );
-    }
-
-    /// Brief 0049: Project > Properties opens the property pages; Build > Configuration Manager... opens the dialog
-    /// through `eludite.solution.set_configuration` without arguments.
-    #[test]
-    fn project_properties_and_configuration_manager_are_menu_items() {
-        let menus = vs_menus();
-        let find = |title: &str, label: &str| {
-            menus
-                .iter()
-                .find(|m| m.title == title)
-                .unwrap()
+        let tools = vs_menus().into_iter().find(|m| m.title == "Tools").unwrap();
+        let find = |label: &str| {
+            tools
                 .entries
                 .iter()
                 .find_map(|e| match e {
@@ -1076,15 +948,18 @@ mod tests {
                     } if *l == label => Some((*command, args.clone())),
                     _ => None,
                 })
-                .unwrap()
+                .unwrap_or_else(|| panic!("no Tools > {label}"))
         };
         assert_eq!(
-            find("Project", "Properties"),
-            ("eludite.project.properties", json!({"open": true}))
+            find("NuGet Packages..."),
+            ("eludite.nuget.manage", json!({"solution": true}))
         );
         assert_eq!(
-            find("Build", "Configuration Manager..."),
-            ("eludite.solution.set_configuration", json!({}))
+            find("NuGet Package Sources..."),
+            (
+                "eludite.tools.options",
+                json!({"section": "NuGet Package Manager > Package Sources"})
+            )
         );
     }
 
@@ -1104,8 +979,11 @@ mod tests {
             at("Attach to Browser Tab..."),
             at("Attach to Process...") + 1
         );
-        let item = debug.entries[at("Attach to Browser Tab...")]
-            .action(false)
+        let item = debug
+            .entries
+            .iter()
+            .filter_map(|e| e.action(false))
+            .nth(at("Attach to Browser Tab..."))
             .unwrap();
         assert_eq!(item.1, "eludite.debug.attach");
         assert_eq!(item.2, json!({"adapter": "javascript"}));

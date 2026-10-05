@@ -684,14 +684,15 @@ fn agents_open_save_and_find_from_another_thread(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn file_open_solution_menu_uses_the_path_prompt(cx: &mut TestAppContext) {
+fn file_open_workspace_menu_uses_the_folder_prompt(cx: &mut TestAppContext) {
     let mut w = setup(cx);
     w.click("menu-File");
-    w.click("menu-item-File-Open Solution or Project File...");
+    w.click("menu-item-File-Open Workspace...");
     assert!(w.vcx.did_prompt_for_paths());
-    let sln = w.path("App.slnx");
+    // The folder holds App.slnx: the workspace finds the solution and the tree loads from it.
+    let root = w.path("App.slnx").parent().unwrap().to_owned();
     w.vcx
-        .simulate_path_prompt_response(move |_| Some(vec![sln]));
+        .simulate_path_prompt_response(move |_| Some(vec![root]));
     w.wait("the tree", |w| {
         w.shell
             .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_some())
@@ -699,7 +700,7 @@ fn file_open_solution_menu_uses_the_path_prompt(cx: &mut TestAppContext) {
     assert_eq!(
         w.audit()
             .iter()
-            .filter(|c| c.as_str() == workspace::SOLUTION_OPEN)
+            .filter(|c| c.as_str() == workspace::WORKSPACE_OPEN_FOLDER)
             .count(),
         1,
         "the menu item opened the dialog, the chosen path went through the bus once"
