@@ -608,7 +608,8 @@ pub enum SessionUpdate {
 }
 
 /// A `usage_update` (ACP's context window and cost update; brief 0034), with the turn's token counts an adapter adds
-/// in `_meta.claudeCode.usage` (eludite-claude-acp, under the names of ACP's `Usage`).
+/// in `_meta.claudeCode.usage` (eludite-claude-acp) or `_meta.eludite.usage` (eludite-openai-acp, brief 0060), under
+/// the names of ACP's `Usage`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Usage {
     /// Tokens in context.
@@ -621,7 +622,7 @@ pub struct Usage {
     pub turn: Option<TurnTokens>,
 }
 
-/// One turn's tokens (`_meta.claudeCode.usage`).
+/// One turn's tokens (`_meta.claudeCode.usage` or `_meta.eludite.usage`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnTokens {
@@ -668,6 +669,7 @@ impl SessionUpdate {
         });
         let turn = raw
             .pointer("/_meta/claudeCode/usage")
+            .or_else(|| raw.pointer("/_meta/eludite/usage"))
             .and_then(|u| serde_json::from_value(u.clone()).ok());
         Some(Usage {
             used: n("used"),
@@ -1024,6 +1026,24 @@ mod tests {
             (u.used, u.size, u.cost, u.turn),
             (53_000, 200_000, None, None)
         );
+        // As eludite-openai-acp sends it (brief 0060): `_meta.eludite.usage`, no cost, cached and thought tokens
+        // only when the server reports them.
+        let openai: SessionUpdate = serde_json::from_str(
+            r#"{"sessionUpdate":"usage_update","used":14210,"size":16384,"_meta":{"eludite":{"usage":{"inputTokens":13000,"cachedReadTokens":1024,"outputTokens":186,"totalTokens":14210,"model":"qwen3-8b"}}}}"#,
+        )
+        .unwrap();
+        let u = openai.usage().unwrap();
+        assert_eq!((u.used, u.size, u.cost), (14_210, 16_384, None));
+        let t = u.turn.expect("the turn's tokens from _meta.eludite.usage");
+        assert_eq!(
+            (t.input_tokens, t.cached_read_tokens, t.output_tokens),
+            (13_000, 1_024, 186)
+        );
+        assert_eq!(
+            (t.thought_tokens, t.model.as_deref()),
+            (None, Some("qwen3-8b"))
+        );
+        assert_eq!(t.input_total(), 14_024);
         // Other updates are not usage.
         let plan: SessionUpdate =
             serde_json::from_str(r#"{"sessionUpdate":"plan","entries":[]}"#).unwrap();

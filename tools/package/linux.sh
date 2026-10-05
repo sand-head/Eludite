@@ -17,7 +17,8 @@
 # CEF comes from tools/cef/fetch.sh, which downloads nothing when its cache holds the pinned version. --no-build
 # packages what target/<profile>/ already holds. --profile debug packages a development build (the smoke test in
 # browsers/chromium/tests/package.rs uses it, so `cargo test` never makes a release build). --with-companions adds the
-# .NET host, eludite-dbg-mono and eludite-claude-acp through companions.sh (CI does; the smoke test does not).
+# .NET host, eludite-dbg-mono, eludite-claude-acp and eludite-openai-acp through companions.sh (CI does; the smoke
+# test does not).
 # --channel and --build write build.json into the layout (build-json.sh, tools/package/RELEASE.md), which makes the
 # packaged Eludite one that updates itself from that channel's releases; without them it is a development build to the
 # updater. The last line on stdout is the tarball's path; everything else goes to stderr.

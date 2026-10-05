@@ -18,6 +18,7 @@ An ADR records one structural decision: what was decided, why, what else was con
 | [0010](0010-own-title-bar.md) | Eludite draws the main window's title bar | Accepted |
 | [0011](0011-self-update.md) | Self-update from GitHub releases by channel, staged beside the install and swapped on restart | Accepted |
 | [0012](0012-generated-parsers-at-build-time.md) | In-repo tree-sitter grammars generate their parser at build time from the checked-in grammar JSON, cached by content | Accepted |
+| [0013](0013-openai-compatible-agent.md) | A first-party ACP agent over OpenAI-compatible servers, with the IDE's tools as its only tools | Proposed |
 
 ## Rules
 

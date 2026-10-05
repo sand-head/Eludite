@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-read.output.json",
+  "title": "eludite.file.read output",
+  "description": "The lines read, each prefixed with its 1-based number and a tab.",
+  "type": "object",
+  "required": [
+    "path",
+    "text",
+    "startLine",
+    "endLine",
+    "totalLines",
+    "truncated",
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "The absolute path read.",
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "description": "The lines, each as `<number>\\t<text>`, joined by line feeds.",
+      "type": "string"
+    },
+    "startLine": {
+      "description": "The first line returned (1-based).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "endLine": {
+      "description": "The last line returned (1-based; `startLine - 1` when none).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "totalLines": {
+      "description": "Lines in the whole file.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "truncated": {
+      "description": "True when the 2,000-line or 256 KB cap stopped the read before `endLine` or the end of the file.",
+      "type": "boolean"
+    },
+    "nextLine": {
+      "description": "With `truncated`: the line to pass as `startLine` to read on.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "source": {
+      "description": "`buffer`: the open document's text, unsaved changes included; `disk`: the file on disk.",
+      "enum": [
+        "buffer",
+        "disk"
+      ]
+    },
+    "outsideWorkspace": {
+      "description": "True when the path is outside the workspace folder (or no workspace is open).",
+      "type": "boolean"
+    }
+  }
+}

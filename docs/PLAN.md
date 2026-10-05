@@ -184,6 +184,7 @@ Every action (open file, apply edit, build project, run tests matching filter, s
 - **Claude Code first.** The owner's organization has a Claude Code subscription, so the first agent wired through ACP is Claude Code via its ACP adapter, which reuses the existing Claude Code login rather than an API key. Confirm the subscription terms permit third-party ACP hosts before relying on it for users other than the owner. Gemini CLI, Copilot CLI, Codex and OpenCode follow at zero marginal cost since they already speak ACP.
 - **IDE MCP server.** Each hosted agent receives the Eludite MCP endpoint, so it can read diagnostics, build, run tests, drive the debugger and query Roslyn rather than grepping.
 - **Native first-party agent: pinned.** Not in scope until ACP hosting is excellent. If built, it uses the same ACP surface internally so it is not privileged.
+  - 2026-10-05: the owner lifted the pin for one adapter, `eludite-openai-acp` (brief 0060, ADR-0013): an ACP agent over servers that speak the OpenAI Chat Completions API (llama.cpp, Ollama, vLLM, OpenRouter, OpenAI and the rest), since those models have no agent CLI to wrap. It is a separate MIT process whose only tools are the Eludite MCP endpoint every hosted agent gets, so it is not privileged.
 
 ### 5.3 Permission model
 Four classes: read (always), edit-in-buffer (shown as pending diff until accepted, or auto-accept per policy), execute (build, test, run; per-workspace policy), dangerous (push, delete, external network; prompt unless whitelisted). Policies are per solution and committable.

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-edit.output.json",
+  "title": "eludite.file.edit output",
+  "description": "What the workspace-edit applier did with the edit: eludite.workspace.apply_edit's output (`workspace-apply-edit.output.json`).",
+  "type": "object",
+  "required": [
+    "state",
+    "applied",
+    "files",
+    "edits",
+    "open_documents",
+    "files_on_disk",
+    "created",
+    "renamed",
+    "deleted",
+    "paths"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "description": "`applying`: closed files are being written; `applied`: done; `failed`: refused (nothing applied, see `message`) or a write failed.",
+      "enum": [
+        "applying",
+        "applied",
+        "failed"
+      ]
+    },
+    "applied": {
+      "description": "True when every change was applied; false when the edit was refused (nothing was applied) or a write failed (see `message`).",
+      "type": "boolean"
+    },
+    "files": {
+      "description": "Distinct files touched (edited, created, renamed or deleted).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "edits": {
+      "description": "Text edits applied.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_documents": {
+      "description": "Open documents edited in their buffers (one undo step each, not saved).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "files_on_disk": {
+      "description": "Closed files written on disk (atomically: a temporary file, then a rename).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "created": {
+      "description": "Files created.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "renamed": {
+      "description": "Files renamed.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "deleted": {
+      "description": "Files or folders deleted.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "paths": {
+      "description": "The absolute paths touched, sorted (at most 1000).",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "string"
+      }
+    },
+    "message": {
+      "description": "Why the edit was refused or failed.",
+      "type": "string"
+    }
+  }
+}

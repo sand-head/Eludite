@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-provider-set.input.json",
+  "title": "eludite.agents.provider_set input",
+  "description": "Add an OpenAI-compatible server to the Agents window, or change one (by `name`): the entry in `agents.json`'s `providers` and its key in the credential store (`provider:<name>`). Dangerous: it stores a credential. The audit record and every log line show `apiKey` as `<redacted>`.",
+  "type": "object",
+  "required": [
+    "name",
+    "baseUrl"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The server's name: unique, shown as the agent's name in the Agents window, and the credential key `provider:<name>`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "baseUrl": {
+      "description": "The API root ending in the version segment, such as `http://localhost:8080/v1` (llama.cpp) or `https://openrouter.ai/api/v1`; the adapter appends `/models` and `/chat/completions` and strips one trailing slash.",
+      "type": "string",
+      "minLength": 8,
+      "pattern": "^https?://"
+    },
+    "apiKey": {
+      "description": "The key, kept in the credential store and never in a file. Absent: keep the stored key; empty: delete it (the server is then sent no `Authorization` header).",
+      "type": "string"
+    },
+    "defaultModel": {
+      "description": "The model a new session starts with; else the first one the server lists.",
+      "type": "string",
+      "minLength": 1
+    },
+    "headers": {
+      "description": "Extra request headers sent to the server, such as OpenRouter's `HTTP-Referer` and `X-Title`. Never `Authorization`: the key is kept in the credential store.",
+      "type": "object",
+      "maxProperties": 20,
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "models": {
+      "description": "The person's model catalog, for a server that does not list its models (or to name them and give their context windows). A server with a catalog is never asked for its list.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The model id the server takes in `model`.",
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "description": "The name the model picker shows; the id when absent.",
+            "type": "string",
+            "minLength": 1
+          },
+          "contextWindow": {
+            "description": "The model's context window in tokens; 0 or absent: unknown (the usage strip shows no bar).",
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "allowFileStore": {
+      "description": "The person agreed to keep the key in a file only they can read (mode 0600) under Eludite's config directory, used only when the operating system's credential store is unavailable (brief 0046's rule). Without it such a save fails with `store_unavailable` and the dialog asks.",
+      "type": "boolean"
+    },
+    "tools": {
+      "description": "`core` (the default): the core tool set plus the meta tool `eludite-tools`, for small context windows; `all`: every agent-visible command.",
+      "enum": [
+        "core",
+        "all"
+      ]
+    }
+  }
+}

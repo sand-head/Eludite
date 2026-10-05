@@ -1,0 +1,73 @@
+# eludite-openai-acp: an ACP agent over any server that speaks the OpenAI Chat
+# Completions API (llama.cpp, Ollama, vLLM, LM Studio, OpenRouter, OpenAI and
+# the rest), with Eludite's MCP endpoint as its only tools (brief 0060,
+# ADR-0013). Its own workspace, like agents/claude-acp, so the shell's
+# workspace does not build it and it stays MIT.
+[workspace]
+
+[package]
+name = "eludite-openai-acp"
+description = "Agent Client Protocol agent over OpenAI-compatible Chat Completions servers, with the IDE's MCP tools as its only tools."
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.98"
+publish = false
+# The test support files (`tests/fake_server.rs`, `tests/fake_mcp.rs`, `tests/acp.rs`) are modules of the tests
+# below, not tests of their own.
+autotests = false
+
+[[bin]]
+name = "eludite-openai-acp"
+path = "src/main.rs"
+
+# Test-only: a stdio MCP relay to a TCP endpoint with the token on the first
+# line, the same wire as `eludite --mcp-relay ADDR`, so the tests can launch
+# "the IDE's relay" without the IDE. Not under `src/bin/`: the repository's
+# .gitignore ignores `bin/` (.NET output).
+[[bin]]
+name = "eludite-openai-fake-relay"
+path = "src/fake_relay_main.rs"
+test = false
+
+[dependencies]
+agent-client-protocol = "=2.2.0" # Apache-2.0
+futures = "0.3" # MIT OR Apache-2.0
+serde = { version = "1", features = ["derive"] } # MIT OR Apache-2.0
+serde_json = "1" # MIT OR Apache-2.0
+ureq = { version = "3.4", default-features = false, features = ["rustls"] } # MIT OR Apache-2.0
+uuid = { version = "1", features = ["v4"] } # Apache-2.0 OR MIT
+
+[dev-dependencies]
+# Eludite's MCP server and command bus (GPL-3.0-or-later), used only by the
+# tests to prove the adapter's MCP client against the real server; they are
+# not linked into the shipped binary.
+eludite-commands = { path = "../../crates/commands" }
+eludite-mcp = { path = "../../crates/mcp" }
+
+[[test]]
+name = "turns"
+path = "tests/turns.rs"
+
+[[test]]
+name = "mcp_real"
+path = "tests/mcp_real.rs"
+
+[[test]]
+name = "real_server"
+path = "tests/real_server.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = "s"
+
+[lints.rust]
+unsafe_code = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"

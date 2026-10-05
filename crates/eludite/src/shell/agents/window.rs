@@ -28,6 +28,9 @@
 //! the usage strip above the prompt box shows the session's context and cost ([`USAGE_STRIP`]). The spinner and the
 //! elapsed time are redrawn by a timer that runs only while a turn runs ([`AgentsWindow::ticking`]): an idle window
 //! requests no frames. Every color comes from the theme.
+//!
+//! Brief 0060: the agent picker's list ends with "Add server…" ([`ADD_SERVER_ITEM`]), which asks the shell to open
+//! the Add server dialog ([`super::providers::ProviderDialog`]); the window draws the dialog while it is open.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -94,6 +97,8 @@ pub enum AgentsWindowEvent {
         option: String,
         value: String,
     },
+    /// "Add server…" at the end of the agent picker (brief 0060).
+    AddServer,
 }
 
 /// A permission answer (`agents-permission.input.json`).
@@ -244,6 +249,9 @@ pub fn slash_item(name: &str) -> String {
 pub const SEND_BUTTON: &str = "agents-send";
 pub const START_BUTTON: &str = "agents-start";
 pub const AGENT_PICKER: &str = "agents-picker";
+
+/// The agent picker's last row, "Add server…" (brief 0060).
+pub const ADD_SERVER_ITEM: &str = "agents-picker-add-server";
 
 pub fn agent_item(ix: usize) -> String {
     format!("agents-agent-{ix}")
@@ -558,6 +566,8 @@ pub struct AgentsWindow {
     mono: SharedString,
     pub probes: Rc<RefCell<Probes>>,
     pub painted: Painted,
+    /// The Add server dialog while it is open (brief 0060); the shell opens and closes it.
+    pub provider_dialog: Option<Entity<super::providers::ProviderDialog>>,
 }
 
 impl EventEmitter<AgentsWindowEvent> for AgentsWindow {}
@@ -603,7 +613,14 @@ impl AgentsWindow {
             mono: eludite_editor::default_font_family(),
             probes: Rc::default(),
             painted: Rc::default(),
+            provider_dialog: None,
         }
+    }
+
+    /// Whether the agent picker's list is open.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn picker_list_open(&self) -> bool {
+        self.picker_open
     }
 
     /// Re-measure the rows that changed and redraw.
@@ -1218,8 +1235,9 @@ impl AgentsWindow {
             .cloned()
             .unwrap_or_else(|| "No agent".into());
         let restart = !matches!(h.state, StateKind::Stopped | StateKind::Error);
-        let picker = div()
-            .id(AGENT_PICKER)
+        // Tracked, with its rows, for the screenshot driver (brief 0060 picks a server from it).
+        let painted = self.painted.clone();
+        let picker = tracked(&painted, AGENT_PICKER, div().id(AGENT_PICKER))
             .debug_selector(|| AGENT_PICKER.into())
             .flex()
             .items_center()
@@ -1240,24 +1258,46 @@ impl AgentsWindow {
             let items = h.agents.iter().enumerate().map(|(ix, a)| {
                 let sel = agent_item(ix);
                 let a = a.clone();
-                div()
-                    .id(SharedString::from(sel.clone()))
-                    .debug_selector(move || sel)
-                    .px_2()
-                    .h(px(22.))
-                    .flex()
-                    .items_center()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(t.menu_hover))
-                    .child(SharedString::from(a.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.picker_open = false;
-                        cx.emit(AgentsWindowEvent::Start {
-                            agent: Some(a.clone()),
-                            restart: true,
-                        });
-                    }))
+                tracked(
+                    &painted,
+                    sel.clone(),
+                    div().id(SharedString::from(sel.clone())),
+                )
+                .debug_selector(move || sel)
+                .px_2()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .cursor_pointer()
+                .hover(|s| s.bg(t.menu_hover))
+                .child(SharedString::from(a.clone()))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.picker_open = false;
+                    cx.emit(AgentsWindowEvent::Start {
+                        agent: Some(a.clone()),
+                        restart: true,
+                    });
+                }))
             });
+            // Brief 0060: an OpenAI-compatible server is added from the list's last row.
+            let add = tracked(&painted, ADD_SERVER_ITEM, div().id(ADD_SERVER_ITEM))
+                .debug_selector(|| ADD_SERVER_ITEM.into())
+                .px_2()
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .border_t_1()
+                .border_color(t.border)
+                .text_color(t.text_muted)
+                .cursor_pointer()
+                .hover(|s| s.bg(t.menu_hover))
+                .child("Add server\u{2026}")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.picker_open = false;
+                    cx.emit(AgentsWindowEvent::AddServer);
+                    cx.notify();
+                }));
+            let items = items.chain(std::iter::once(add));
             deferred(
                 anchored().child(
                     eludite_ui::popup::popup_panel(&t)
@@ -1905,6 +1945,7 @@ impl Render for AgentsWindow {
                 .flex_1()
                 .pt_2(),
             )
+            .children(self.provider_dialog.clone())
             .children(status)
             .children(prompt)
             .children(changes)

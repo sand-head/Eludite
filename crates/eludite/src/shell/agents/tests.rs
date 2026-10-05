@@ -95,7 +95,18 @@ pub(in crate::shell) fn fake_agents(agents: Vec<(String, Vec<String>)>) -> Agent
         })),
         preferred: None,
         transcript_out: None,
+        agents_file: None,
+        credentials: memory_credentials(),
+        openai_adapter: None,
     }
+}
+
+/// A credential store in memory (brief 0060): tests never touch the machine's keyring.
+fn memory_credentials() -> Arc<eludite_forge::credentials::Credentials> {
+    Arc::new(eludite_forge::credentials::Credentials::new(
+        Box::new(eludite_forge::credentials::MemoryStore::new()),
+        None,
+    ))
 }
 
 fn setup(cx: &mut TestAppContext) -> Ws {
@@ -2412,4 +2423,732 @@ fn a_cancel_says_stopped_and_the_output_window_logs_the_session(cx: &mut TestApp
     assert_eq!(cleared["source"], "agents");
     assert_eq!(cleared["cleared"], lines.len());
     assert!(w.agents_output().is_empty());
+}
+
+// ---- Brief 0060: OpenAI-compatible servers through eludite-openai-acp ----
+
+/// The adapter's loopback fake of an OpenAI-compatible server (hand-written HTTP/1.1, scripted per test).
+#[path = "../../../../../agents/openai-acp/tests/fake_server.rs"]
+mod fake_openai;
+
+/// `eludite-openai-acp` and its test relay (`eludite-openai-fake-relay`, what `eludite --mcp-relay` does), built
+/// once from `agents/openai-acp` (its own workspace: no `CARGO_BIN_EXE_` reaches it). `None`, with a message, when
+/// cargo cannot build it here.
+fn openai_adapter() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    static BUILT: std::sync::OnceLock<Option<(std::path::PathBuf, std::path::PathBuf)>> =
+        std::sync::OnceLock::new();
+    BUILT
+        .get_or_init(|| {
+            let root =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../agents/openai-acp");
+            let target = root.join("target");
+            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+            let built = std::process::Command::new(cargo)
+                .args(["build", "--quiet", "--bins", "--manifest-path"])
+                .arg(root.join("Cargo.toml"))
+                .arg("--target-dir")
+                .arg(&target)
+                .status();
+            let exe = |n: &str| {
+                target
+                    .join("debug")
+                    .join(format!("{n}{}", std::env::consts::EXE_SUFFIX))
+            };
+            let (adapter, relay) = (exe("eludite-openai-acp"), exe("eludite-openai-fake-relay"));
+            match built {
+                Ok(s) if s.success() && adapter.is_file() && relay.is_file() => {
+                    Some((adapter, relay))
+                }
+                other => {
+                    eprintln!("skipped: could not build agents/openai-acp with cargo ({other:?})");
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
+/// The shell with no agents but the servers of a temporary `agents.json`, keys in memory, and (when given) the
+/// built adapter launched for real, its MCP relay the test relay.
+fn provider_setup(
+    cx: &mut TestAppContext,
+    adapter: Option<&(std::path::PathBuf, std::path::PathBuf)>,
+) -> (
+    Ws,
+    tempfile::TempDir,
+    Arc<eludite_forge::credentials::Credentials>,
+) {
+    let config = tempfile::tempdir().unwrap();
+    let credentials = memory_credentials();
+    let setup = AgentsSetup {
+        registry: Some(Vec::new()),
+        relay_exe: adapter.map_or_else(|| "eludite".into(), |a| a.1.clone()),
+        connect: None,
+        preferred: None,
+        transcript_out: None,
+        agents_file: Some(config.path().join("agents.json")),
+        credentials: credentials.clone(),
+        openai_adapter: adapter.map(|a| a.0.clone()),
+    };
+    let mut w = setup_full(cx, |_| {}, Some(setup));
+    w.open_solution();
+    (w, config, credentials)
+}
+
+impl Ws {
+    fn registry_names(&self) -> Vec<(String, AgentSource)> {
+        self.shell.read_with(&self.vcx, |s, _| {
+            s.agents()
+                .registry
+                .iter()
+                .map(|a| (a.name().to_owned(), a.source))
+                .collect()
+        })
+    }
+
+    fn wait_registry(&mut self, name: &str, present: bool) {
+        let name = name.to_owned();
+        self.wait("the registry", |w| {
+            w.registry_names().iter().any(|(n, _)| *n == name) == present
+        });
+    }
+}
+
+#[test]
+fn providers_are_kept_when_agents_custom_is_set() {
+    // Phase one's finding: with `agents.custom` set, `agents.json`'s servers were dropped.
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("agents.json");
+    std::fs::write(
+        &file,
+        r#"{"agents": [{"name": "From the file", "command": "x"}],
+            "providers": [{"name": "Local llama", "baseUrl": "http://localhost:8080/v1"}]}"#,
+    )
+    .unwrap();
+    let custom = super::RegistryConfig {
+        custom: Some(vec![eludite_acp::settings::ConfiguredAgent {
+            name: "From the settings".into(),
+            command: "y".into(),
+            args: Vec::new(),
+            env: Default::default(),
+        }]),
+        ..Default::default()
+    };
+    let none = eludite_acp::AdapterSearch::default();
+    let (registry, error, settings) = super::search_registry(&custom, Some(&file), &none);
+    assert!(error.is_none());
+    let names: Vec<_> = registry.iter().map(|a| (a.name(), a.source)).collect();
+    assert!(
+        names.contains(&("Local llama", AgentSource::Provider)),
+        "{names:?}"
+    );
+    assert!(
+        names.contains(&("From the settings", AgentSource::Settings)),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|(n, _)| *n == "From the file"),
+        "{names:?}"
+    );
+    assert_eq!(settings.providers.len(), 1);
+    // Without the setting, the file's agents come too; a malformed file is reported and adds no server.
+    let (registry, _, _) = super::search_registry(&Default::default(), Some(&file), &none);
+    assert!(registry.iter().any(|a| a.name() == "From the file"));
+    std::fs::write(&file, "{").unwrap();
+    let (registry, error, _) = super::search_registry(&custom, Some(&file), &none);
+    assert!(error.unwrap().contains("agents.json"));
+    assert!(!registry.iter().any(|a| a.source == AgentSource::Provider));
+}
+
+#[gpui::test]
+fn a_server_without_the_adapter_is_in_the_error_state(cx: &mut TestAppContext) {
+    use eludite_commands::agents::{PROVIDER_REMOVE, PROVIDER_SET};
+    let (mut w, config, credentials) = provider_setup(cx, None);
+    let out = w
+        .commands
+        .invoke(
+            PROVIDER_SET,
+            json!({"name": "Ollama", "baseUrl": "http://localhost:11434/v1"}),
+        )
+        .unwrap();
+    assert_eq!(out["action"], "saved");
+    assert_eq!(out["hasKey"], false);
+    w.wait_registry("Ollama", true);
+    assert_eq!(
+        w.registry_names(),
+        [("Ollama".to_owned(), AgentSource::Provider)]
+    );
+    // Starting it says why it cannot run; nothing is launched.
+    let e = w
+        .shell
+        .update(&mut w.vcx, |s, cx| s.agents_start(Some("Ollama"), true, cx))
+        .unwrap_err();
+    assert_eq!(e, "eludite-openai-acp was not found");
+    let state = w.shell.read_with(&w.vcx, |s, cx| s.agents_state(cx));
+    assert_eq!(state.state, "error");
+    assert_eq!(
+        state.message.as_deref(),
+        Some("eludite-openai-acp was not found")
+    );
+    assert_eq!(state.agents[0].source, "provider");
+    assert!(
+        w.shell
+            .read_with(&w.vcx, |s, _| s.agents().session().is_none())
+    );
+    // A key given, then deleted with `""`; Remove takes the entry and the key.
+    w.commands
+        .invoke(
+            PROVIDER_SET,
+            json!({"name": "Ollama", "baseUrl": "http://localhost:11434/v1", "apiKey": "k-1"}),
+        )
+        .unwrap();
+    assert!(credentials.get("provider:Ollama").is_some());
+    let out = w
+        .commands
+        .invoke(
+            PROVIDER_SET,
+            json!({"name": "Ollama", "baseUrl": "http://localhost:11434/v1", "apiKey": ""}),
+        )
+        .unwrap();
+    assert_eq!(out["hasKey"], false);
+    assert!(credentials.get("provider:Ollama").is_none());
+    w.commands
+        .invoke(PROVIDER_REMOVE, json!({"name": "Ollama"}))
+        .unwrap();
+    w.wait_registry("Ollama", false);
+    let file = std::fs::read_to_string(config.path().join("agents.json")).unwrap();
+    assert!(!file.contains("Ollama"), "{file}");
+    assert!(
+        w.commands
+            .invoke(PROVIDER_REMOVE, json!({"name": "Ollama"}))
+            .unwrap_err()
+            .to_string()
+            .contains("no server named")
+    );
+}
+
+#[gpui::test]
+fn file_read_serves_an_open_documents_unsaved_text_off_the_ui_thread(cx: &mut TestAppContext) {
+    use eludite_commands::files::FILE_READ;
+    let mut w = setup(cx);
+    let (program, view) = w.open_program();
+    view.update(&mut w.vcx, |v, cx| {
+        v.update_editor(cx, |e| {
+            e.set_caret(0);
+            e.insert("// unsaved\n");
+        })
+    });
+    w.vcx.run_until_parked();
+    let commands = w.commands.clone();
+    let out = w.agent(move || {
+        commands
+            .invoke(
+                FILE_READ,
+                json!({"path": "src/App/Program.cs", "endLine": 2}),
+            )
+            .unwrap()
+    });
+    assert_eq!(out["source"], "buffer");
+    assert_eq!(out["text"], "1\t// unsaved\n2\tclass Program");
+    assert_eq!(
+        (out["endLine"].as_u64(), out["totalLines"].as_u64()),
+        (Some(2), Some(5))
+    );
+    assert_eq!(
+        std::path::PathBuf::from(out["path"].as_str().unwrap()),
+        super::super::documents::normalize_path(&program)
+    );
+    // A closed file is read from disk; the UI thread is refused (it would wait for itself).
+    let commands = w.commands.clone();
+    let out = w.agent(move || {
+        commands
+            .invoke(FILE_READ, json!({"path": "src/App/Models/Order.cs"}))
+            .unwrap()
+    });
+    assert_eq!(
+        (out["source"].as_str(), out["text"].as_str()),
+        (Some("disk"), Some("1\tclass Order { }"))
+    );
+    let e = w
+        .commands
+        .invoke(FILE_READ, json!({"path": "src/App/Program.cs"}))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("runs off the UI thread"), "{e}");
+    // Both are agent-visible tools; file.edit is reviewed like workspace.apply_edit.
+    for id in eludite_commands::files::ALL {
+        assert!(w.commands.lookup(id).unwrap().agent_visible, "{id}");
+    }
+    assert!(super::REVIEWED_COMMANDS.contains(&eludite_commands::files::FILE_EDIT));
+}
+
+#[gpui::test]
+fn a_server_added_through_provider_set_runs_a_turn_with_eludites_tools(cx: &mut TestAppContext) {
+    use eludite_commands::agents::{PROVIDER_MODELS, PROVIDER_REMOVE, PROVIDER_SET};
+    use fake_openai::{FakeServer, Reply, finish, text_reply, tool_frag, tool_reply, usage};
+    let Some(adapter) = openai_adapter() else {
+        return;
+    };
+    let fake = FakeServer::start();
+    fake.llama_models(&["qwen3-8b", "llama-3.1-8b"], 16_384);
+    let (mut w, config, credentials) = provider_setup(cx, Some(&adapter));
+    // Added as an agent would add it: the audit keeps its arguments with the key redacted.
+    let commands = w.commands.clone();
+    let url = fake.url.clone();
+    let out = w.agent(move || {
+        eludite_commands::with_caller(
+            eludite_commands::Caller::Agent {
+                agent: "Outer".into(),
+                call: eludite_commands::next_call_id(),
+                tool_call: None,
+            },
+            || {
+                commands.invoke(
+                    PROVIDER_SET,
+                    json!({"name": "Local llama", "baseUrl": url, "apiKey": "sk-test-secret"}),
+                )
+            },
+        )
+        .unwrap()
+    });
+    assert_eq!(
+        (out["action"].as_str(), out["hasKey"].as_bool()),
+        (Some("saved"), Some(true))
+    );
+    let audit = w.commands.audit_log().entries();
+    let set = audit
+        .iter()
+        .find(|e| e.command == PROVIDER_SET)
+        .expect("audited");
+    assert_eq!(set.arguments.as_ref().unwrap()["apiKey"], "<redacted>");
+    assert!(!format!("{audit:?}").contains("sk-test-secret"));
+    // The key is in the store, not in agents.json; the server is in the registry with source `provider`.
+    let file = std::fs::read_to_string(config.path().join("agents.json")).unwrap();
+    assert!(
+        !file.contains("sk-test-secret") && file.contains("Local llama"),
+        "{file}"
+    );
+    assert_eq!(
+        credentials
+            .get("provider:Local llama")
+            .unwrap()
+            .0
+            .token
+            .expose(),
+        "sk-test-secret"
+    );
+    w.wait_registry("Local llama", true);
+    let state = w.shell.read_with(&w.vcx, |s, cx| s.agents_state(cx));
+    assert_eq!(state.agents[0].source, "provider");
+    assert!(state.agents[0].command.contains("--base-url"));
+    assert!(!state.agents[0].command.contains("sk-test-secret"));
+
+    // Started for real: the model picker lists the server's two models.
+    w.start_agent("Local llama");
+    assert_eq!(w.agents_state(), StateKind::Ready);
+    let models = w.shell.read_with(&w.vcx, |s, _| {
+        s.agents()
+            .pickers()
+            .into_iter()
+            .find(|p| p.category.as_deref() == Some("model"))
+            .map(|p| {
+                p.choices
+                    .iter()
+                    .map(|c| c.value.clone())
+                    .collect::<Vec<_>>()
+            })
+    });
+    assert_eq!(
+        models,
+        Some(vec!["llama-3.1-8b".to_owned(), "qwen3-8b".to_owned()])
+    );
+    let models_request = fake
+        .requests()
+        .into_iter()
+        .find(|r| r.path.ends_with("/models"))
+        .expect("the adapter listed the models");
+    assert_eq!(
+        models_request.header("authorization"),
+        Some("Bearer sk-test-secret")
+    );
+
+    // A pick in the window's model picker changes the model for the next request, and is not remembered in
+    // `agents.model` (that setting is Claude Code's next start).
+    w.shell.update(&mut w.vcx, |s, cx| {
+        s.agents().window.update(cx, |_, cx| {
+            cx.emit(super::window::AgentsWindowEvent::Configure {
+                option: "model".into(),
+                value: "qwen3-8b".into(),
+            })
+        })
+    });
+    w.wait("the agent took the model", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.agents()
+                .pickers()
+                .iter()
+                .any(|p| p.key == "model" && p.current == "qwen3-8b")
+        })
+    });
+    let remembered = w
+        .shell
+        .read_with(&w.vcx, |s, _| s.settings.lock().string("agents.model"));
+    assert_eq!(remembered, "");
+
+    // The turn: diagnostics.list runs without a prompt, terminal.send prompts and is denied, file.edit is held as a
+    // pending change and accepted, then the answer.
+    fake.push(tool_reply(
+        "call_diag",
+        "eludite-diagnostics-list",
+        "{}",
+        900,
+    ));
+    fake.push(tool_reply(
+        "call_term",
+        "eludite-terminal-send",
+        r#"{"text": "ls\n"}"#,
+        950,
+    ));
+    // Arguments split mid-token across fragments.
+    fake.push(Reply::sse(vec![
+        tool_frag(0, Some("call_edit"), Some("eludite-file-edit"), ""),
+        tool_frag(0, None, None, r#"{"path": "src/App/Program.cs", "oldT"#),
+        tool_frag(
+            0,
+            None,
+            None,
+            r#"ext": "static void Main() { }", "newText": "static void Main() { Run(); }"}"#,
+        ),
+        finish("tool_calls"),
+        usage(1_000, 10),
+    ]));
+    fake.push(text_reply("Fixed Program.cs.", 1_200, 30));
+    w.shell
+        .update(&mut w.vcx, |s, cx| s.agents_prompt("Fix the program", cx))
+        .unwrap();
+    let request = w.wait_for_prompt();
+    let prompt = w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents().window.read(cx).prompt.clone().unwrap()
+    });
+    // The adapter titles a call with its tool's name and first argument.
+    assert!(
+        prompt.tool.starts_with("eludite-terminal-send"),
+        "{}",
+        prompt.tool
+    );
+    assert!(
+        ["execute", "dangerous"].contains(&prompt.class.as_str()),
+        "{}",
+        prompt.class
+    );
+    w.shell
+        .update(&mut w.vcx, |s, cx| {
+            s.agents_answer(request, super::window::Decision::Deny, cx)
+        })
+        .unwrap();
+    w.wait("the file edit's pending change", |w| {
+        change_ids(w)
+            .iter()
+            .any(|c| c.1 == "Program.cs" && c.2 == "pending")
+    });
+    let program = w.path("src/App/Program.cs");
+    assert_eq!(
+        std::fs::read_to_string(&program).unwrap(),
+        super::super::tests::PROGRAM,
+        "nothing applied before the review"
+    );
+    w.shell.update_in(&mut w.vcx, |s, window, cx| {
+        s.invoke(
+            eludite_commands::agents::REVIEW,
+            json!({"decision": "accept", "all": true}),
+            window,
+            cx,
+        )
+        .unwrap()
+    });
+    assert_eq!(w.wait_turn(), "end_turn");
+    assert!(w.agent_text().contains("Fixed Program.cs."));
+    // What the model was sent back: the diagnostics, the refusal, the applied edit, in order.
+    let chats = fake.chats();
+    assert_eq!(chats.len(), 4, "{chats:?}");
+    assert!(
+        chats.iter().all(|c| c["model"] == "qwen3-8b"),
+        "the picked model"
+    );
+    let tool_result = |chat: &Value, id: &str| {
+        chat["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["role"] == "tool" && m["tool_call_id"] == id)
+            .map(|m| m["content"].as_str().unwrap_or_default().to_owned())
+            .unwrap_or_default()
+    };
+    assert!(!tool_result(&chats[1], "call_diag").is_empty());
+    let refusal = tool_result(&chats[2], "call_term");
+    assert!(refusal.contains("denied"), "{refusal}");
+    let applied = tool_result(&chats[3], "call_edit");
+    assert!(applied.contains("applied"), "{applied}");
+    let audit = w.commands.audit_log().entries();
+    let calls: Vec<_> = audit
+        .iter()
+        .filter(|e| e.caller.is_agent())
+        .map(|e| {
+            (
+                e.command.as_str(),
+                e.edits.iter().map(|x| x.state).collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert!(
+        calls
+            .iter()
+            .any(|(c, _)| *c == "eludite.workspace.apply_edit"),
+        "file.edit ran one workspace.apply_edit as the agent: {calls:?}"
+    );
+    assert!(
+        calls
+            .iter()
+            .any(|(_, e)| e.as_slice() == [eludite_commands::EditState::Accepted]),
+        "{calls:?}"
+    );
+    let after = std::fs::read_to_string(&program).unwrap();
+    assert!(after.contains("static void Main() { Run(); }"), "{after}");
+    // The usage strip reads the last response's counts against the model's window.
+    let usage = w
+        .shell
+        .read_with(&w.vcx, |s, cx| s.agents_state(cx))
+        .usage
+        .expect("usage");
+    assert_eq!((usage.used, usage.size), (1_230, 16_384));
+
+    // provider_models on a server that does not list models, with a catalog: the catalog.
+    let unlisted = FakeServer::start();
+    unlisted.set_models(Reply::json(404, json!({"error": {"message": "not found"}})));
+    w.commands
+        .invoke(
+            PROVIDER_SET,
+            json!({"name": "Catalogued", "baseUrl": unlisted.url, "models": [{"id": "m-1", "contextWindow": 8192}]}),
+        )
+        .unwrap();
+    let commands = w.commands.clone();
+    let out = w.agent(move || {
+        commands
+            .invoke(PROVIDER_MODELS, json!({"name": "Catalogued"}))
+            .unwrap()
+    });
+    assert_eq!(out["listing"], "catalog");
+    assert_eq!(out["models"][0]["id"], "m-1");
+    // And a saved server listed with its stored key; a url being added, with none.
+    let commands = w.commands.clone();
+    let out = w.agent(move || {
+        commands
+            .invoke(PROVIDER_MODELS, json!({"name": "Local llama"}))
+            .unwrap()
+    });
+    assert_eq!(out["listing"], "server");
+    assert_eq!(out["models"].as_array().unwrap().len(), 2);
+    let commands = w.commands.clone();
+    let url = unlisted.url.clone();
+    let out = w.agent(move || {
+        commands
+            .invoke(PROVIDER_MODELS, json!({"baseUrl": url}))
+            .unwrap()
+    });
+    assert_eq!(out["listing"], "none");
+    // Remove deletes the credential too.
+    w.agents_stop_now();
+    w.commands
+        .invoke(PROVIDER_REMOVE, json!({"name": "Local llama"}))
+        .unwrap();
+    assert!(credentials.get("provider:Local llama").is_none());
+    w.wait_registry("Local llama", false);
+}
+
+impl Ws {
+    fn agents_stop_now(&mut self) {
+        self.shell.update(&mut self.vcx, |s, cx| s.agents_stop(cx));
+        self.vcx.run_until_parked();
+    }
+}
+
+#[gpui::test]
+fn a_server_is_added_from_the_picker_tested_and_listed_in_options(cx: &mut TestAppContext) {
+    use super::providers::{
+        KEY_BOX, MESSAGE, NAME_BOX, PRESETS, SAVE, TEST, URL_BOX, preset_selector, remove_selector,
+    };
+    use super::window::{ADD_SERVER_ITEM, AGENT_PICKER};
+    let Some(adapter) = openai_adapter() else {
+        return;
+    };
+    let fake = FakeServerHandle::start();
+    let (mut w, config, credentials) = provider_setup(cx, Some(&adapter));
+    w.show_agents();
+    // The picker's list ends with "Add server…", which opens the dialog on the llama.cpp preset.
+    w.click(AGENT_PICKER);
+    assert!(w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents().window.read(cx).picker_list_open()
+    }));
+    w.click(ADD_SERVER_ITEM);
+    let dialog = w
+        .shell
+        .read_with(&w.vcx, |s, cx| s.provider_dialog(cx))
+        .expect("the dialog opened");
+    for sel in [NAME_BOX, URL_BOX, KEY_BOX, TEST, SAVE] {
+        assert!(w.vcx.debug_bounds(sel).is_some(), "{sel}");
+    }
+    w.bounds(&preset_selector(0));
+    let fields = |w: &mut Ws| {
+        dialog.read_with(&w.vcx, |d, cx| {
+            (d.name.read(cx).text(), d.url.read(cx).text(), d.preset)
+        })
+    };
+    assert_eq!(
+        fields(&mut w),
+        (
+            "llama.cpp".to_owned(),
+            "http://localhost:8080/v1".to_owned(),
+            0
+        )
+    );
+    // Another preset fills its url and name; Custom keeps them.
+    w.click(&preset_selector(5));
+    assert_eq!(
+        fields(&mut w),
+        (
+            "OpenRouter".to_owned(),
+            "https://openrouter.ai/api/v1".to_owned(),
+            5
+        )
+    );
+    w.click(&preset_selector(0));
+    assert_eq!(PRESETS[0].name, "llama.cpp");
+    // The fake's url typed over the preset's; Test lists its models through the bus, off the UI thread.
+    dialog.update(&mut w.vcx, |d, cx| {
+        d.url.update(cx, |i, cx| i.set_text(&fake.0.url, cx))
+    });
+    w.click(KEY_BOX);
+    w.vcx.simulate_keystrokes("s k x 9");
+    dialog.read_with(&w.vcx, |d, cx| {
+        assert!(d.test_args(cx).unwrap()["apiKey"] == "skx9")
+    });
+    w.click(TEST);
+    w.wait("the test's answer", |w| {
+        dialog.read_with(&w.vcx, |d, _| {
+            d.message.as_ref().is_some_and(|m| m.0 == "2 models")
+        })
+    });
+    assert!(w.vcx.debug_bounds(MESSAGE).is_some());
+    // Save adds it, selected, and closes the dialog; the key went to the store only.
+    w.click(SAVE);
+    w.wait("the dialog to close", |w| {
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.provider_dialog(cx).is_none())
+    });
+    w.wait_registry("llama.cpp", true);
+    w.wait("the server selected", |w| {
+        w.shell.read_with(&w.vcx, |s, _| {
+            s.agents().selected_agent().map(|a| a.name().to_owned()) == Some("llama.cpp".into())
+        })
+    });
+    assert_eq!(
+        credentials
+            .get("provider:llama.cpp")
+            .unwrap()
+            .0
+            .token
+            .expose(),
+        "skx9"
+    );
+    let file = std::fs::read_to_string(config.path().join("agents.json")).unwrap();
+    assert!(!file.contains("skx9"), "{file}");
+    // Tools > Options > Agents lists it with Edit and Remove; Remove takes it and its key.
+    w.shell.update_in(&mut w.vcx, |s, window, cx| {
+        s.run(
+            eludite_commands::settings::OPTIONS,
+            json!({"section": "Agents"}),
+            window,
+            cx,
+        )
+    });
+    w.vcx.run_until_parked();
+    let rows = w.shell.read_with(&w.vcx, |s, cx| {
+        s.agents()
+            .providers_page
+            .as_ref()
+            .map(|p| p.read(cx).rows.clone())
+    });
+    let rows = rows.expect("the page is on the Agents page");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        (rows[0].name.as_str(), rows[0].has_key),
+        ("llama.cpp", true)
+    );
+    assert!(w.vcx.debug_bounds("options-providers").is_some());
+    // The page sits under the Agents settings, scrolled out of the dialog's view: its buttons are pressed by their
+    // events.
+    w.bounds(&super::providers::edit_selector(0));
+    w.bounds(&remove_selector(0));
+    let page = |w: &Ws| {
+        w.shell
+            .read_with(&w.vcx, |s, _| s.agents().providers_page.clone())
+            .unwrap()
+    };
+    page(&w).update(&mut w.vcx, |_, cx| {
+        cx.emit(super::providers::ProvidersPageEvent::Edit(Some(
+            "llama.cpp".into(),
+        )))
+    });
+    w.vcx.run_until_parked();
+    let editing = w
+        .shell
+        .read_with(&w.vcx, |s, cx| s.provider_dialog(cx))
+        .expect("Edit opens the dialog");
+    editing.read_with(&w.vcx, |d, cx| {
+        assert_eq!(d.editing.as_deref(), Some("llama.cpp"));
+        assert!(d.has_key);
+        // An empty key box keeps the stored key.
+        assert!(d.save_args(cx).unwrap().get("apiKey").is_none());
+    });
+    w.vcx.simulate_keystrokes("escape");
+    w.vcx.run_until_parked();
+    assert!(
+        w.shell
+            .read_with(&w.vcx, |s, cx| s.provider_dialog(cx).is_none())
+    );
+    w.shell.update_in(&mut w.vcx, |s, window, cx| {
+        s.run(
+            eludite_commands::settings::OPTIONS,
+            json!({"section": "Agents"}),
+            window,
+            cx,
+        )
+    });
+    w.vcx.run_until_parked();
+    page(&w).update(&mut w.vcx, |_, cx| {
+        cx.emit(super::providers::ProvidersPageEvent::Remove(
+            "llama.cpp".into(),
+        ))
+    });
+    w.wait_registry("llama.cpp", false);
+    assert!(credentials.get("provider:llama.cpp").is_none());
+    w.wait("the page's rows", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.agents()
+                .providers_page
+                .as_ref()
+                .is_some_and(|p| p.read(cx).rows.is_empty())
+        })
+    });
+}
+
+/// The fake server with two llama.cpp-shaped models.
+struct FakeServerHandle(fake_openai::FakeServer);
+
+impl FakeServerHandle {
+    fn start() -> Self {
+        let f = fake_openai::FakeServer::start();
+        f.llama_models(&["qwen3-8b", "llama-3.1-8b"], 16_384);
+        Self(f)
+    }
 }
