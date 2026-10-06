@@ -1,0 +1,12 @@
+: OPENROUTER PROCESSING
+
+: OPENROUTER PROCESSING
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"role":"assistant","content":"","reasoning":"Short question."}}],"created":1759650000,"id":"chatcmpl-synth","model":"deepseek/deepseek-r1","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"content":"It is "}}],"created":1759650000,"id":"chatcmpl-synth","model":"deepseek/deepseek-r1","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":"stop","index":0,"delta":{"content":"PERIWINKLE."}}],"created":1759650000,"id":"chatcmpl-synth","model":"deepseek/deepseek-r1","object":"chat.completion.chunk","usage":{"prompt_tokens":900,"completion_tokens":30,"total_tokens":930}}
+
+data: [DONE]
+

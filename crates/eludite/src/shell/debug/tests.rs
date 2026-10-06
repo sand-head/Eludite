@@ -3345,6 +3345,9 @@ fn function_breakpoints_bind_by_name_and_stop(cx: &mut TestAppContext) {
     // Delete it from the window.
     d.w.click("debug-bp-delete");
     assert!(d.state()["breakpoints"].as_array().unwrap().is_empty());
+    d.w.wait("the deletion sent", |_| {
+        fake.last("setFunctionBreakpoints").unwrap()["breakpoints"] == json!([])
+    });
     assert_eq!(
         fake.last("setFunctionBreakpoints").unwrap(),
         json!({"breakpoints": []})

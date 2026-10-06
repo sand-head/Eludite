@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-read.input.json",
+  "title": "eludite.file.read input",
+  "description": "Read a text file with line numbers: from its open document when it is open (unsaved text included), else from disk. At most 2,000 lines or 256 KB per call; a longer read answers `truncated` with the line to ask for next. A binary file is refused with its size. A relative path is resolved against the workspace folder and may not leave it; an absolute path outside the workspace is read when it is readable (the call is audited either way).",
+  "type": "object",
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "description": "Absolute path, or a path relative to the workspace folder.",
+      "type": "string",
+      "minLength": 1
+    },
+    "startLine": {
+      "description": "1-based first line to read; 1 when omitted.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "endLine": {
+      "description": "1-based last line to read (inclusive); the end of the file, or the cap, when omitted.",
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

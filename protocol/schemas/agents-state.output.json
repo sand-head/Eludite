@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-state.output.json",
-  "title": "eludite.agents.start, prompt and cancel output",
-  "description": "The Agents window's agent and session state.",
+  "title": "eludite.agents.start, prompt, cancel, configure, switch and new_session output",
+  "description": "The Agents window's agent and session state: of the session the window shows (brief 0061), the stopped state with no `session` when it shows none.",
   "type": "object",
   "required": [
     "agent",
@@ -17,6 +17,42 @@
     "agent": {
       "description": "The selected agent's name.",
       "type": "string"
+    },
+    "session": {
+      "description": "The session the window shows (brief 0061): Eludite's own id, its title, when it started and last changed, and whether its agent process runs. Absent when the window shows none.",
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "started",
+        "last_activity",
+        "live"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Eludite's id for the session (UUID v4), as eludite.agents.sessions lists it.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The first prompt's first 60 characters on one line; `New session` until a prompt is sent.",
+          "type": "string"
+        },
+        "started": {
+          "description": "RFC 3339, UTC.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_activity": {
+          "description": "RFC 3339, UTC.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "live": {
+          "description": "The agent process runs.",
+          "type": "boolean"
+        }
+      }
     },
     "state": {
       "description": "`stopped`: no session; `starting`: spawning, initialize or session/new in flight; `ready`: waiting for a prompt; `needs_login`: the agent reported no login (see `login`); `running`: a turn is in progress; `error`: the agent failed or exited (see `message`).",
@@ -108,10 +144,11 @@
             "type": "string"
           },
           "source": {
-            "description": "`native`: the eludite-claude-acp adapter (beside the executable, ELUDITE_CLAUDE_ACP or PATH); `npx`: the Node adapter; `settings`: added by the user in agents.json.",
+            "description": "`native`: the eludite-claude-acp adapter (beside the executable, ELUDITE_CLAUDE_ACP or PATH); `npx`: the Node adapter; `provider`: an OpenAI-compatible server from agents.json's `providers`, run through eludite-openai-acp (brief 0060); `settings`: added by the user in agents.json.",
             "enum": [
               "native",
               "npx",
+              "provider",
               "settings"
             ]
           }
@@ -127,6 +164,168 @@
       "description": "Agent edits waiting for review (eludite.agents.review).",
       "type": "integer",
       "minimum": 0
+    },
+    "commands": {
+      "description": "The agent's slash commands, from its latest ACP `available_commands_update` (a new list replaces the old one), as the Agents window's slash-command menu offers them. Empty until the agent sends a list, and for an agent that has none. A prompt starting with `/name` runs one; it is text the agent receives.",
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "The command's name, without the leading `/`.",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "hint": {
+            "description": "What the command takes after its name (ACP's `input.hint`), when it takes input.",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mode": {
+      "description": "The session's mode and the modes the agent offers (ACP `modes`: `session/new`'s `SessionModeState`, then `current_mode_update`), as the Agents window's mode picker shows them. Absent when the agent offers no modes. Every session starts in the agent's own current mode; the shell does not remember a mode.",
+      "type": "object",
+      "required": [
+        "current",
+        "available"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "description": "The current mode's id.",
+          "type": "string"
+        },
+        "available": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "options": {
+      "description": "The session's config options of the select kind (ACP `configOptions`: `session/new`, then `config_option_update` and the `session/set_config_option` answer), as the Agents window's pickers show them: the model, the effort and any other the agent offers. Options of another kind are not listed. Absent when the agent offers none.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "current",
+          "choices"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The option's id, for eludite.agents.configure's `option`.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "description": "ACP's category: `mode`, `model`, `model_config`, `thought_level`, or the agent's own.",
+            "type": "string"
+          },
+          "current": {
+            "description": "The current value.",
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "required": [
+                "value",
+                "name"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "usage": {
+      "description": "The session's context window and cost as the Agents window's usage strip shows them (brief 0059): the last ACP `usage_update`. Absent before the first one; a restart clears it.",
+      "type": "object",
+      "required": [
+        "used",
+        "size"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "used": {
+          "description": "Tokens in context.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "size": {
+          "description": "The context window in tokens; 0 when the agent does not know it.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost": {
+          "description": "The session's cost so far, the agent's running total.",
+          "type": "object",
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "description": "ISO 4217, for example `USD`.",
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

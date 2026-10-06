@@ -35,9 +35,11 @@
 //! an agent's arguments audited through their redaction ([`AuditRedaction`]). [`nuget`] holds NuGet's
 //! `eludite.nuget.*` (brief 0048), registered by the shell through a [`nuget::NuGetCommands`], with the policy's
 //! `nuget` object applied by their escalation hooks. [`update`] holds the self-update's `eludite.update.*` (brief
-//! 0055), registered by the shell through an [`update::UpdateTarget`]. [`resx`] holds the `.resx` editor's
-//! `eludite.resx.*` (proposal 0005), registered by the shell through a [`resx::ResxCommands`], with the policy's
-//! `resx` object applied by `remove`'s escalation hook.
+//! 0055), registered by the shell through an [`update::UpdateTarget`]. [`files`] holds `eludite.file.read` and
+//! `eludite.file.edit` (brief 0060), registered by the shell through a [`files::FilesTarget`]; [`agents`] also holds
+//! the OpenAI-compatible servers' `eludite.agents.provider_*` commands, registered through an
+//! [`agents::ProviderTarget`]. [`resx`] holds the `.resx` editor's `eludite.resx.*` (proposal 0005), registered by the
+//! shell through a [`resx::ResxCommands`], with the policy's `resx` object applied by `remove`'s escalation hook.
 //!
 //! A command may register an escalation hook with its handler ([`CommandRegistry::register_with_escalation`],
 //! ADR-0009): per call, from the input and a [`policy::PolicyView`], it raises the call's class above the spec's
@@ -52,6 +54,7 @@ pub mod builtins;
 mod caller;
 pub mod debug;
 pub mod diagnostics;
+pub mod files;
 pub mod forge;
 pub mod git;
 mod id;

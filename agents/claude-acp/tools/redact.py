@@ -9,7 +9,9 @@ fixture for the fake `claude` (src/fake_claude.rs).
 - Message, request, tool-use and event ids become stable placeholders.
 - Thinking signatures, the account in the initialize reply, rate-limit
   figures, memory paths, sockets, and the user's own skills, plugins, agents
-  and commands are removed.
+  and commands are removed; Claude Code's built-in slash commands
+  (`builtin: true` in the initialize reply) and its model list (`models`,
+  brief 0058) are kept.
 - Fails if the home directory or the user name is still present.
 """
 import json, os, re, sys
@@ -80,7 +82,8 @@ with open(out, "w") as f:
                 acct = resp["account"]
                 logged_in = acct.get("tokenSource") != "none"
                 m["response"]["response"] = {
-                    "commands": [], "agents": [], "output_style": "default", "models": [],
+                    "commands": [c for c in resp.get("commands", []) if c.get("builtin") is True],
+                    "agents": [], "output_style": "default", "models": resp.get("models", []),
                     "account": ({"subscriptionType": "redacted", "apiProvider": "firstParty"} if logged_in
                                 else {"tokenSource": "none", "apiProvider": "firstParty"}),
                     "pid": 0, "current_permission_mode": "default", "session_state": "idle",

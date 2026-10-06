@@ -1,0 +1,19 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "qwen3-8b-q4_k_m",
+      "object": "model",
+      "created": 1759650000,
+      "owned_by": "llamacpp",
+      "meta": {
+        "vocab_type": 2,
+        "n_vocab": 151936,
+        "n_ctx_train": 40960,
+        "n_embd": 4096,
+        "n_params": 8190735360,
+        "size": 5027783488
+      }
+    }
+  ]
+}
