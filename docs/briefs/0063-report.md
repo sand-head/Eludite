@@ -2,7 +2,8 @@
 
 Status: done on Linux, against the fake host (the shell) and the real `eludite-host` (its own tests, MSBuild in
 process). Windows and macOS: not built here; nothing added is platform-specific. CI: not run.
-Branch: `proposal/0005-resx-manager`, based on `main` at `be243ba`; not rebased.
+Branch: `proposal/0005-resx-manager`, with `main` at `07abfa8` (briefs 0057 to 0062) merged in; one conflict, the
+commands crate's docs, kept both sides.
 Date: 2026-10-06. Brief: [0063-resx-editor.md](0063-resx-editor.md); proposal
 [0005](../proposals/0005-resx-editor.md), accepted by the owner's direct request and built in the same change.
 
@@ -41,8 +42,10 @@ Date: 2026-10-06. Brief: [0063-resx-editor.md](0063-resx-editor.md); proposal
 
 ## 2. Commits
 
-One commit on `proposal/0005-resx-manager`, after the proposal's two: the whole of this brief, with the owner's go-ahead
-for the push (the work finished inside the weekday window CLAUDE.md keeps commits out of).
+On `proposal/0005-resx-manager`, after the proposal's two: one commit with the whole of this brief, pushed with the
+owner's go-ahead inside the weekday window CLAUDE.md keeps commits out of; then, after 5 pm, the merge of `main` and
+one commit with the clippy fix it needed and this report's update. The branch was merged rather than rebased so the
+pushed history stays as it was.
 
 ## 3. Decisions taken while building
 
@@ -162,7 +165,8 @@ break overflowed its row, so the grid shows line breaks as a return mark.
 ## 10. Verification
 
 - `cargo fmt --check` clean. `cargo clippy --workspace --all-targets -- -D warnings` clean (three findings in the
-  new code fixed: two type aliases, a derived `Default`).
+  new code fixed: two type aliases, a derived `Default`; after the merge, one more in a policy test, the
+  `AgentPolicy` built with `..Default::default()`).
 - `cargo test --workspace` did not fit this container's disk (the whole workspace's test binaries fill its
   allowance); the crates ran one by one: `eludite-resx`, `eludite-commands`, `eludite-protocol`, `eludite-lsp`
   (all features), `eludite-mcp`, `eludite-docking`, `eludite-ui`, `eludite-workspace` all green, and `eludite`'s
@@ -171,6 +175,9 @@ break overflowed its row, so the grid shows line breaks as a return mark.
   pre-existing forge and git budgets fail like the resx one (the resx editor alone: 4.5 to 5.3 ms p50, 8.4 to 39 ms
   p99 across rounds). The budgets are CI's on the reference machine (CLAUDE.md); the numbers above are this
   machine's.
+- After the merge of `main` at `07abfa8`: the same crates green; `eludite`'s 450 tests green but for the
+  pre-existing CodeLens and forge budget assertions (the resx budget passed on that run); the .NET build zero
+  warnings and the Resx tests 10 passed.
 - `dotnet build dotnet/Eludite.slnx` zero warnings; `dotnet test --filter "FullyQualifiedName~Resx"` 10 passed (the
   four other test projects report "zero tests ran" under the filter); the whole host test project 179 passed, 8
   skipped.

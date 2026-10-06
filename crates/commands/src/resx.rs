@@ -1146,15 +1146,19 @@ mod tests {
                 ..
             })
         ));
-        let mut allow = AgentPolicy::default();
-        allow.resx = Some(ResxPolicy {
-            remove: Some(ResxRemovePolicy::Allow),
-        });
+        let allow = AgentPolicy {
+            resx: Some(ResxPolicy {
+                remove: Some(ResxRemovePolicy::Allow),
+            }),
+            ..AgentPolicy::default()
+        };
         assert_eq!(hook(&input, &view(allow)), None);
-        let mut deny = AgentPolicy::default();
-        deny.resx = Some(ResxPolicy {
-            remove: Some(ResxRemovePolicy::Deny),
-        });
+        let deny = AgentPolicy {
+            resx: Some(ResxPolicy {
+                remove: Some(ResxRemovePolicy::Deny),
+            }),
+            ..AgentPolicy::default()
+        };
         assert!(matches!(
             hook(&input, &view(deny)),
             Some(Escalation::Refuse(_))
