@@ -1,6 +1,6 @@
 # Brief 0057: Visual Basic and F# as first-class .NET languages
 
-Status: in progress
+Status: done (2026-10-05, Linux; Windows and macOS by CI). Report: [0057-report.md](0057-report.md).
 Phase: 2 (PLAN.md section 10: "The other first-class families from section 7: F# and VB.NET"; section 7, the .NET row)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 6, 12), 4.1 (syntax highlighting from tree-sitter), 4.2 (the Workspace window), 4.3 ("F# via FsAutoComplete (MIT) and VB.NET via the same Roslyn server are Phase 2 work. Spike 2 must confirm which VB features the Roslyn language server exposes outside Visual Studio; gaps are filled in eludite-host"), 4.5, 4.6, 7 (the .NET row: `.fsproj` and `.vbproj`, Expecto and NUnit for F#), 9, 10 (Phase 2)
 Related ADRs: ADR-0002 (process topology: FsAutoComplete is a process the shell speaks LSP to, like rust-analyzer), ADR-0003 (protocols: LSP, no bespoke hooks), ADR-0005 (licensing: every new dependency MIT)
