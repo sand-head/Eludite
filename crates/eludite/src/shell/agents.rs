@@ -3171,7 +3171,22 @@ impl Shell {
                                 commands.len()
                             ));
                         }
-                        window.update(cx, |w, _| w.transcript.apply(&u))
+                        let prompting = window.update(cx, |w, _| {
+                            w.transcript.apply(&u);
+                            w.prompt.is_some()
+                        });
+                        // The gate's ask can reach the window before the agent's own announcement of the call
+                        // (they arrive on different threads): the prompt then shows the bare MCP name until the
+                        // announcement lands on the row, so rebuild it from the row.
+                        if prompting
+                            && matches!(
+                                u,
+                                eludite_acp::protocol::SessionUpdate::ToolCall(_)
+                                    | eludite_acp::protocol::SessionUpdate::ToolCallUpdate(_)
+                            )
+                        {
+                            self.after_permission_change(cx);
+                        }
                     }
                     SessionEvent::Permission { key, request } => {
                         self.agents.touch();

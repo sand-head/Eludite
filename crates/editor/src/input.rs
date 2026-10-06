@@ -1348,7 +1348,7 @@ mod tests {
         assert_eq!(text(&input, &mut cx), "one two");
         cx.simulate_keystrokes(&sec("secondary-y"));
         assert_eq!(text(&input, &mut cx), "");
-        cx.simulate_keystrokes("ctrl-shift-z");
+        cx.simulate_keystrokes(&sec("secondary-shift-z"));
         assert_eq!(text(&input, &mut cx), "one two");
         // Copy with no selection copies nothing.
         cx.write_to_clipboard(ClipboardItem::new_string("kept".into()));

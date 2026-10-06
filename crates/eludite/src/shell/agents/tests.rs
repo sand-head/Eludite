@@ -2950,10 +2950,18 @@ fn a_server_added_through_provider_set_runs_a_turn_with_eludites_tools(cx: &mut 
         .update(&mut w.vcx, |s, cx| s.agents_prompt("Fix the program", cx))
         .unwrap();
     let request = w.wait_for_prompt();
+    // The adapter titles a call with its tool's name and first argument; the gate's ask can show first, under the
+    // bare MCP name, until the adapter's announcement of the call reaches the row.
+    w.wait("the adapter's title on the prompt", |w| {
+        w.shell.read_with(&w.vcx, |s, cx| {
+            s.agents().window.read(cx).prompt.as_ref().is_some_and(|p| {
+                p.request == request && p.tool.starts_with("eludite-terminal-send")
+            })
+        })
+    });
     let prompt = w.shell.read_with(&w.vcx, |s, cx| {
         s.agents().window.read(cx).prompt.clone().unwrap()
     });
-    // The adapter titles a call with its tool's name and first argument.
     assert!(
         prompt.tool.starts_with("eludite-terminal-send"),
         "{}",
