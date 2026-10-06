@@ -1,28 +1,26 @@
-# Proposal 0005: ResX Manager and the `.resx` editor
+# Proposal 0005: The `.resx` editor
 
-Status: Proposed, 2026-10-05
+Status: Proposed, 2026-10-05; revised 2026-10-05 on the owner's direction: the grid is what a `.resx` file looks like when opened, there is no separate window
 Plan reference: PLAN.md sections 2 (principles 1 to 4, 6), 3 (D2, D4), 4.2, 4.11 ("`.resx` editor"), 5.1 to 5.4, 5.6, 8, 9, 10 (Phase 2: "resx editor"), 11
 Related: ADR-0002, ADR-0004, brief 0042 (`eludite-search`, the reference scan), brief 0048 and 0049 (the host's formatting-preserving project edit), brief 0040 (`eludite-git`, changes since HEAD), brief 0016 (the Agents window, translation by an agent)
 New paths: `crates/resx` (`eludite-resx`), `protocol/schemas/resx-*.json`, `protocol/schemas/host/resx-*.json`, `corpus/resx/`, `docs/agents/resx.md`
 
 ## 1. Goal
 
-Every ResX string resource in the workspace, in one grid: a row per key, a column per culture, edited in place, with
-the untranslated cells, the orphaned keys and the inconsistent translations visible at a glance. This is what the
-ResX Resource Manager extension (Tom Englert, MIT, a .NET Foundation project) gives Visual Studio users, and the
-person who asked for it works that way. PLAN.md 4.11 names a `.resx` editor for Phase 2 without detail; this
-proposal details both surfaces over one model:
-
-- **The ResX Manager window** (View > Other Windows > ResX Manager, the extension's own name since Visual Studio has
-  no equivalent): a tree of resource sets on the left (project, folder, base name), the grid on the right, and the
-  Translate view. Several sets can be selected and shown in one grid.
-- **The `.resx` editor** (Visual Studio's Managed Resources Editor, the tab titled by the file): double-click a
-  `.resx` in the Workspace window and get the same grid scoped to that file's set, with the Access Modifier list.
+Open a `.resx` file and see its whole resource set: a row per key, a column per culture, the neutral text beside
+every translation, edited in place, with the untranslated cells, the orphaned keys and the inconsistent
+translations visible at a glance. This is what the ResX Resource Manager extension (Tom Englert, MIT, a .NET
+Foundation project) gives Visual Studio users, and the person who asked for it works that way. Eludite makes it the
+editor itself, not a window beside the editor: double-click `Resources.resx`, or `Resources.de.resx`, in the
+Workspace window and the tab titled `Resources.resx` opens with the grid. Open With offers the text editor, as
+Visual Studio does for its Managed Resources Editor. PLAN.md 4.11 names a `.resx` editor for Phase 2 without detail;
+this proposal details it.
 
 Agents read and edit the same model through `eludite.resx.*`; a hosted agent is the first machine translator.
 
-A **resource set** is a neutral file `Name.resx` with its culture files `Name.<culture>.resx` beside it. A key's
-**cell** is its value and comment in one culture. A key is **invariant** when it is never to be translated.
+A **resource set** is a neutral file `Name.resx` with its culture files `Name.<culture>.resx` beside it. The editor
+opens one set per tab, whichever of its files was opened. A key's **cell** is its value and comment in one culture.
+A key is **invariant** when it is never to be translated.
 
 ## 2. The file model
 
@@ -80,7 +78,7 @@ A **resource set** is a neutral file `Name.resx` with its culture files `Name.<c
 
 ```
 eludite (shell, UI thread)                         eludite-host (brief 0012's host, out of process)
-  ResX Manager window, the .resx editor  ──────▶  eludite/resx/sets: the EmbeddedResource items per project,
+  the .resx editor (a document tab per set) ───▶  eludite/resx/sets: the EmbeddedResource items per project,
   eludite.resx.*                                   NeutralLanguage, root namespace, manifest names, Generator,
         │                                          CustomToolNamespace, LastGenOutput
         ▼                                         eludite/resx/designer: writes Name.Designer.cs
@@ -89,105 +87,126 @@ eludite (shell, UI thread)                         eludite-host (brief 0012's ho
    eludite-search, changes via eludite-git)
 ```
 
-- The shell parses, edits and validates: `.resx` is XML, and the model must work in a folder workspace with no host
-  (a Rust or web repository with `.resx` files is the same grid). Every file is read and parsed off the UI thread
-  and the grid renders the sets as they arrive; a 5,000-key set paints its first rows before the rest is parsed.
+- The shell parses, edits and validates: `.resx` is XML, and the editor must work in a folder workspace with no
+  host (a Rust or web repository with `.resx` files opens the same grid). The set's files are read and parsed off
+  the UI thread when the tab opens and the grid renders rows as they arrive; a 5,000-key set paints its first rows
+  before the rest is parsed.
 - The host answers what only the project system knows: which `.resx` files are resources of which project (an
   `EmbeddedResource` that is not under `bin/` or `obj/`), the neutral language, the designer's namespace and manifest
-  name, and it writes the designer file and the non-SDK project item. Without a host, sets are found by walking
-  the workspace for `*.resx` (through `ignore`, as search does), designers are left alone and the window says so.
-- Writes go through the workspace-edit applier (brief 0015): an open `.resx` document changes in its buffer, a
-  closed one is written atomically off-thread; the editor's dirty-file rules, the language servers' file
-  notifications and the undo stack are the same as any other edit. The grid marks dirty cells and Save (Ctrl+S)
-  writes every dirty file of the selection in one applier call; closing asks. An external change to a parsed file
-  reloads the set unless its grid is dirty, in which case the person is asked, as the editor does.
-- Nothing runs at startup. The first parse happens when the window opens, a `.resx` is opened, or an agent calls.
+  name, and it writes the designer file and the non-SDK project item. Without a host, the set is the neutral file
+  and the culture files found beside it, designers are left alone and the editor says so.
+- Writes go through the workspace-edit applier (brief 0015): a `.resx` open as text changes in its buffer, a closed
+  one is written atomically off-thread; the editor's dirty-file rules, the language servers' file notifications and
+  the undo stack are the same as any other edit. The grid marks dirty cells and Save (Ctrl+S) writes every dirty
+  file of the set in one applier call; closing asks, as a dirty text document does. An external change to one of
+  the set's files reloads the grid unless it is dirty, in which case the person is asked, as the text editor does.
+- Nothing runs at startup. The first parse happens when a `.resx` opens or an agent calls.
 
-## 4. The command surface
+## 4. The editor
+
+The tab is a document tab like the project property pages (brief 0049), titled by the neutral file's name, with
+the dirty mark, Ctrl+S and the close prompt a text document has. Its parts:
+
+- **The grid**, virtualized: the Key column, the Comment column, then one column per culture, the neutral culture
+  first; cells edit in place (F2, Enter, or typing), an edit in an empty culture cell creates the entry in that
+  culture's file on the fly; a missing cell is tinted, a warning cell carries a glyph with the rule in its tooltip,
+  a changed cell carries a mark, an invariant key is dimmed in the culture columns; the References column shows the
+  count once Find References has run. Ctrl+C and Ctrl+V move cells as TSV with Excel. Columns hides and shows
+  cultures and the Comment and References columns, remembered per workspace in brief 0021's state.
+- **The toolbar**: Add Key, Delete, Rename (F2 on the key), Add Language (a culture picker over the generated
+  table; creates `Name.<culture>.resx` and the non-SDK project item), Remove Language, the Missing, Warnings,
+  Unused, Changed and Invariant filters, the search box (300 ms debounce, over keys, values and comments), Find
+  References, Translate, Export, Import, Snapshot, Columns, and the Access Modifier list (Internal, Public, No code
+  generation) that Visual Studio's editor has, which edits the `Generator` metadata through the host and
+  regenerates or deletes the designer.
+- **Non-string entries** (icons, files, a WinForms form's designer state) are listed under a collapsed Other
+  Resources section with their type and file reference, read-only; a file with only such entries opens with that
+  section expanded and an empty strings grid.
+- **The Translate view** (the toolbar's Translate) replaces the grid in the tab while open: the missing cells by
+  target culture with the neutral text beside each and an edit box; "Ask the agent" sends the Agents window a prompt
+  holding the set, the cultures and the keys, and the hosted agent fills them with `set`, which land as pending
+  changes the person accepts in the grid. This is the first machine translation and costs no provider, key or
+  dependency; providers (DeepL, Azure Translator, Google Cloud Translation; keys through the credential store brief
+  0046 built) are a later brief and appear here as a list beside the agent.
+- **The Workspace window** keeps showing `Name.<culture>.resx` and `Name.Designer.cs` under `Name.resx`; opening
+  any of the culture files opens the set's tab and selects that culture's column. Open With > XML (Text) Editor
+  opens the file as text, and the two stay consistent through the applier.
+
+## 5. The command surface
 
 All ids are `eludite.resx.*`, schemas in `protocol/schemas/resx-<name>.{input,output}.json`, every command reachable
-from the window's toolbar, grid or context menu. A set is named by its neutral file's path; `cultures` default to
-all of the set's. Cell writes are class `edit_buffer`, like `eludite.project.set_property` and Replace in Files: an
-agent's change is a pending change until accepted, or applied at once under the policy's `edit_buffer: accept`.
+from the editor's toolbar, grid or context menu. A set is named by its neutral file's path (a culture file's path
+is accepted and resolved); `cultures` default to all of the set's. Cell writes are class `edit_buffer`, like
+`eludite.project.set_property` and Replace in Files: an agent's change is a pending change until accepted, or
+applied at once under the policy's `edit_buffer: accept`.
 
 | Command | Class | Does |
 |---|---|---|
-| `manage` | read | shows the ResX Manager window, selecting the given sets |
 | `sets` | read | the resource sets of the workspace or a project: path, project, base name, neutral language, cultures with their files, string count, missing and warning counts per culture, designer file and access modifier |
 | `entries` | read | a set's rows: key, invariant, per culture the value and comment, warnings, reference count when scanned, changed since `HEAD` or the snapshot; filters `query` (key, value or comment), `missing`, `warnings`, `unused`, `changed`, `cultures`, `invariant`; paged with `skip` and `take` (default 500) |
 | `set` | edit_buffer | writes cells `[{ set, key, culture, value?, comment?, invariant? }]`, creating the key's entry in a culture file on the fly; a missing culture file is an error unless `create_culture` is set |
-| `add` | edit_buffer | a new key with its neutral value and comment, in the given sets |
+| `add` | edit_buffer | a new key with its neutral value and comment |
 | `remove` | edit_buffer; `resx.remove` | removes keys from every culture file of the set |
 | `rename` | edit_buffer | renames a key in every culture file; the designer property follows; code is not touched, the answer carries the reference count so the caller renames uses with `eludite.editor.rename` on the designer property |
 | `cultures` | edit_buffer for `add`; `resx.remove` for `remove` | adds a culture file (and the non-SDK project item) or removes one, which deletes the file |
-| `validate` | read | runs the rules over the given sets and answers the warnings |
+| `validate` | read | runs the rules over the set and answers the warnings |
 | `references` | read | scans code for the keys' uses, streaming counts; cancelable; `wait_ms` waits for the scan |
 | `changes` | read | the cells that differ from `HEAD` or the snapshot |
 | `snapshot` | execute | writes `.eludite/resx/snapshot.json` for the workspace |
-| `export` | read | the selection or sets as TSV, CSV or (later) XLSX, to a path or the answer |
+| `export` | read | the selection or the set as TSV, CSV or (later) XLSX, to a path or the answer |
 | `import` | edit_buffer; `resx.import` | reads TSV, CSV or XLSX; `preview: true` answers the cells it would change without writing |
 | `access_modifier` | edit_buffer | `internal`, `public` or `none` for a set: the `Generator` metadata through the host, the designer regenerated or deleted |
 | `translate` (later brief) | dangerous | fills missing cells from a machine translation provider, the external network call the person chooses |
 
-The window's Translate view lists the missing cells of the selection by target culture with the neutral text beside
-each and an edit box; "Ask the agent" sends the Agents window a prompt holding the set, the cultures and the keys,
-and the hosted agent fills them with `set`, which land as pending changes the person accepts in the grid. This is the
-first machine translation and costs no provider, key or dependency; providers (DeepL, Azure Translator, Google Cloud
-Translation; keys through the credential store brief 0046 built) are a later brief.
+Opening the editor is `eludite.editor.open` on any file of the set, as for every document; there is no command of
+its own.
 
 **Policy.** `agents-policy.json` gains `resx`: `remove` (`prompt` default: keys and culture files are deleted;
 `allow`, `deny`), `import` (`prompt` default: bulk; `allow`, `deny`), `translate` (`prompt` default: external
 network; `deny`). Reads are always allowed. Every write is audited with the set, the keys and the cultures.
 
 **Settings** (`settings.json`, under Tools > Options > Text Editor > Resources): `resx.rules.*` (the four rules),
-`resx.sortOnSave`, `resx.referencePatterns`, `resx.showNonStringFiles` (off: a set with no string entry, such as a
-WinForms form's, is hidden from the tree), `resx.translationPrefix` (`#TODO_` as the extension's; prefixed to values
-a provider wrote, never to an agent's), `resx.columns` (which cultures the grid shows by default), and in the
-later brief `resx.translation.provider`.
+`resx.sortOnSave`, `resx.referencePatterns`, `resx.translationPrefix` (`#TODO_` as the extension's; prefixed to
+values a provider wrote, never to an agent's), `resx.openAsText` (off: a `.resx` opens in the grid; on: as text,
+with Open With offering the grid), and in the later brief `resx.translation.provider`.
 
-**Visual Studio surface.** Double-click or Enter on a `.resx` in the Workspace window opens the `.resx` editor;
-Open With offers the text editor. The Workspace window shows `Name.<culture>.resx` and `Name.Designer.cs` under
-`Name.resx`, as it does today. The window's toolbar: Add Key, Delete, Add Language, the Missing, Warnings, Unused,
-Changed and Invariant filters, the search box (300 ms debounce), Columns, Find References, Translate, Export,
-Import, Snapshot. F2 renames a key; Delete removes; Ctrl+C and Ctrl+V move cells as TSV; the Error List is not
-used (the rules are the window's, as the extension's are).
-
-## 5. Protocol artifacts
+## 6. Protocol artifacts
 
 `host/resx-sets.json` (`eludite/resx/sets`: `{ generation, projects? }` to `{ generation, sets: [{ neutral, project,
 baseName, neutralLanguage?, cultures: [{ name, path }], designer?, accessModifier?, manifestName?, namespace? }] }`),
 `host/resx-designer.json` (`eludite/resx/designer`: regenerate or delete), `host/resx-culture.json` (`eludite/resx/culture`:
 the project item for a new or removed culture file), `host-rpc.md`'s "Resources" section with the generation rule;
-`resx-manage`, `resx-sets`, `resx-entries`, `resx-set`, `resx-add`, `resx-remove`, `resx-rename`, `resx-cultures`,
-`resx-validate`, `resx-references`, `resx-changes`, `resx-snapshot`, `resx-export`, `resx-import`,
-`resx-access-modifier` (`.input.json` and `.output.json` each), `agents-policy.json` (`resx`), `settings.json`
-(`resx.*`), `view-show.input.json` (`resx_manager`), `workspace-tree.output.json` if a set's missing count becomes a
-glyph (section 9). The schemas land first and alone, as every brief here does.
+`resx-sets`, `resx-entries`, `resx-set`, `resx-add`, `resx-remove`, `resx-rename`, `resx-cultures`, `resx-validate`,
+`resx-references`, `resx-changes`, `resx-snapshot`, `resx-export`, `resx-import`, `resx-access-modifier`
+(`.input.json` and `.output.json` each), `agents-policy.json` (`resx`), `settings.json` (`resx.*`),
+`workspace-tree.output.json` if a set's missing count becomes a glyph (section 9). The schemas land first and alone,
+as every brief here does.
 
-## 6. Budgets
+## 7. Budgets
 
-- A workspace with 200 `.resx` files in 20 cultures (4,000 files, 100,000 cells) lists its sets within 300 ms of
-  the window opening and paints a selected 5,000-key set's first rows within 100 ms of the selection, the rest
-  streaming (parsing on the worker threads, the grid virtualized).
+- A 5,000-key set in 20 cultures (100,000 cells) paints its first rows within 100 ms of the tab opening, the rest
+  streaming (parsing on the worker threads, the grid virtualized); a workspace with 200 such sets answers `sets`
+  within 300 ms.
 - Keystroke to frame p99 under 8 ms while editing a cell of that grid (`assert_budget`), and while a reference scan
   streams counts into it (coalesced per frame).
 - A cell write round-trips (splice, applier, the grid's mark) within 50 ms for a 5,000-key file; Save of 20 dirty
   files within 500 ms plus the designer's regeneration on the host.
 - A reference scan over a 100,000-file repository streams and cancels at the next match, as Find in Files does.
-- Cold start unchanged: nothing parses before the window or a `.resx` opens. No new Rust dependency in the first two
-  briefs; the `.xlsx` crates and their SPDX ids come with their brief.
+- Cold start unchanged: nothing parses before a `.resx` opens. No new Rust dependency in the first two briefs; the
+  `.xlsx` crates and their SPDX ids come with their brief.
 
-## 7. Briefs
+## 8. Briefs
 
 - **R1, the model and the editor.** `crates/resx` (parse, splice, rules, cultures, the round trip on `corpus/resx/`),
-  the host's `eludite/resx/sets` and `eludite/resx/designer`, the `.resx` editor as a document tab, `sets`,
-  `entries`, `set`, `add`, `remove`, `rename`, `validate`, `access_modifier`, the policy and settings, `corpus/resx/`
-  (MIT: neutral and culture files with a BOM, CRLF, comments, a `ResXFileRef`, a WinForms form's file, a designer
-  file from each generator, a non-SDK project with the items), `docs/agents/resx.md`.
-- **R2, the window.** The ResX Manager window with its tree, the multi-set grid, the filters, Columns, Add
-  Language with the non-SDK project item (`eludite/resx/culture`), `cultures`, `references` on `eludite-search`,
-  `changes` and `snapshot` on `eludite-git`, TSV copy and paste, `export` and `import` for TSV and CSV, the Translate
-  view with "Ask the agent".
+  the host's `eludite/resx/sets` and `eludite/resx/designer`, the editor as the document a `.resx` opens as (the
+  grid, in-place editing, the filters, the search box, Columns, Add Key, Delete, Rename, the Access Modifier list,
+  Other Resources), `sets`, `entries`, `set`, `add`, `remove`, `rename`, `validate`, `access_modifier`, the policy
+  and settings, `corpus/resx/` (MIT: neutral and culture files with a BOM, CRLF, comments, a `ResXFileRef`, a
+  WinForms form's file, a designer file from each generator, a non-SDK project with the items),
+  `docs/agents/resx.md`.
+- **R2, languages, references and exchange.** Add Language and Remove Language with the non-SDK project item
+  (`eludite/resx/culture`), `cultures`, `references` on `eludite-search`, `changes` and `snapshot` on
+  `eludite-git`, TSV copy and paste, `export` and `import` for TSV and CSV, the Translate view with "Ask the agent".
 - **R3, Excel.** `.xlsx` export and import (`calamine`, `rust_xlsxwriter`, licenses in the PR).
 - **R4, machine translation.** The provider trait, DeepL, Azure Translator and Google Cloud Translation over `ureq`
   with keys in the credential store, `translate` under `resx.translate`, the prefix rule, the Translate view's
@@ -195,37 +214,41 @@ glyph (section 9). The schemas land first and alone, as every brief here does.
 
 Brief numbers are assigned on acceptance (0057 to 0062 are taken on open branches).
 
-## 8. Changes to PLAN.md on acceptance
+## 9. Changes to PLAN.md on acceptance
 
-Section 4.11: "`.resx` editor" becomes "`.resx` editor and the ResX Manager window: every set's cultures in one
-grid, missing, unused and inconsistent translations, references, changes, Excel exchange, translation by the hosted
-agent or a provider (proposal 0005)". Section 10, Phase 2: "resx editor" becomes "resx editor and ResX Manager
-(proposal 0005)". Section 12: `crates/resx/` under the Rust workspace. Section 14: a decision row, "ResX: the file
-model in the shell (`eludite-resx`, splices that keep every untouched byte), the project knowledge and the designer
-generation in the host; the ResX Manager window carries the extension's name since Visual Studio has none; its
-`{Invariant}` marker and reference patterns are kept for interchange (proposal 0005)". No ADR: nothing structural
-changes; the split follows ADR-0002 and ADR-0004.
+Section 4.11: "`.resx` editor" becomes "`.resx` editor: a file opens as its whole set, every culture a column,
+missing, unused and inconsistent translations, references, changes, Excel exchange, translation by the hosted agent
+or a provider (proposal 0005)". Section 10, Phase 2: "resx editor" becomes "resx editor (proposal 0005)". Section
+12: `crates/resx/` under the Rust workspace. Section 14: a decision row, "ResX: a `.resx` opens as its resource set
+in one grid, there is no separate manager window (owner's decision, 2026-10-05); the file model in the shell
+(`eludite-resx`, splices that keep every untouched byte), the project knowledge and the designer generation in the
+host; the extension's `{Invariant}` marker and reference patterns are kept for interchange (proposal 0005)". No
+ADR: nothing structural changes; the split follows ADR-0002 and ADR-0004.
 
-## 9. Later, named so they are not forgotten
+## 10. Later, named so they are not forgotten
 
 - Roslyn's exact references for C# and VB keys (find references on the designer property through the host), and
   `rename` renaming uses through it.
 - A missing-translation glyph on the set in the Workspace window and an Error List source, if the owner wants them.
+- Several sets in one grid (the extension's multi-select), should a workspace with many small sets need it; the
+  model and the commands already take a set each, so it is a tab, not a redesign.
 - Other resource formats behind the same grid: JSON resource files (`i18n/*.json`, `Microsoft.Extensions.Localization`
   JSON providers), XLIFF and Angular's `messages.xlf`; the model's `ResourceFormat` boundary is drawn in R1 so a
   second format is a file, not a redesign.
 - A spell checker over the grid, once the editor has one.
 - Pseudo-localization (`qps-ploc`) as a generated culture for testing layouts.
 
-## 10. Risks
+## 11. Risks
 
 - **Designer fidelity.** `ResXFileCodeGenerator`'s output has changed between Visual Studio versions (header text,
   the `GeneratedCodeAttribute` version); regenerating a file written by another version produces a diff once. The
   generator writes the current shape and the report lists the differences the corpus shows; the owner decides whether
   to keep an existing file's header.
-- **Culture files without a host** are found by walking, so a `.resx` under an excluded folder or a build output is
-  listed if `search.excludes` does not cover it; the defaults do.
-- **WinForms files** hold designer state the window must never touch; hiding them by default and never editing a
-  non-string entry is the protection, and the round trip test includes one.
+- **A culture file opened alone** still opens the whole set, which is the point, but a person who wanted the XML
+  reaches it through Open With or `resx.openAsText`; the report says whether that was the right default.
+- **Sets without a host** are found beside the neutral file, so a stray `Name.de.resx` under a build output is
+  listed only if it sits beside its neutral file; `search.excludes` governs the reference scan, not the set.
+- **WinForms files** hold designer state the editor must never touch; listing them read-only under Other Resources
+  and never editing a non-string entry is the protection, and the round trip test includes one.
 - **Agent translations** are only as good as the agent; they land as pending changes, never as applied edits, under
   the default policy, and the Changed filter shows what it wrote.
