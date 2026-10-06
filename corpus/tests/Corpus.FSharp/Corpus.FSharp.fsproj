@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- F# on NUnit on VSTest (brief 0057): a class library that vstest.console runs through NUnit3TestAdapter, exactly as
+       Corpus.NUnit does for C#. F# compiles the files it is told to, in order. FSharp.Core is referenced explicitly:
+       under central package management (Directory.Packages.props) the F# SDK turns its implicit reference off, and
+       without the package the assembly is not copied beside the test assembly, so NUnit finds no tests. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Corpus.FSharp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Tests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NUnit" />
+    <PackageReference Include="NUnit3TestAdapter" />
+  </ItemGroup>
+
+</Project>

@@ -8,15 +8,17 @@
 //!   read with `cargo metadata --format-version 1 --no-deps --offline` (no network). Each result replaces its loading
 //!   node when it arrives; a result for a folder that is no longer open is dropped.
 //! - **Language servers** start with their first document (`servers`), rooted at the Cargo workspace root.
-//! - `eludite.workspace.tree` lists the projects of every part: `csproj`, `cargo` (with targets and dependencies)
-//!   and `folder` for a folder with neither.
+//! - `eludite.workspace.tree` lists the projects of every part: `csproj`, `vbproj` or `fsproj` (the project file's
+//!   extension, brief 0057), `cargo` (with targets and dependencies) and `folder` for a folder with neither.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use eludite_commands::CommandError;
 use eludite_commands::workspace::{self, OpenFolderOutput, WorkspaceCloseOutput, WorkspaceOutput};
-use eludite_commands::workspace_tree::{WorkspaceProject, WorkspaceTarget, WorkspaceTreeOutput};
+use eludite_commands::workspace_tree::{
+    WorkspaceProject, WorkspaceTarget, WorkspaceTreeOutput, msbuild_kind,
+};
 use eludite_lsp::ServerRegistration;
 use eludite_lsp::host::{SolutionState, SolutionTree, TreeProjectKind};
 use eludite_workspace::cargo::{CargoWorkspace, metadata_command};
@@ -385,7 +387,8 @@ impl Shell {
                 out.projects.push(WorkspaceProject {
                     name: p.name.clone(),
                     path: p.path.clone(),
-                    kind: "csproj".into(),
+                    // The host lists `.csproj`, `.vbproj` and `.fsproj` projects only (brief 0057).
+                    kind: msbuild_kind(Path::new(&p.path)).unwrap_or("csproj").into(),
                     msbuild: Some(
                         match p.kind {
                             TreeProjectKind::Sdk => "sdk",
@@ -577,7 +580,7 @@ impl Shell {
         for p in out
             .projects
             .iter_mut()
-            .filter(|p| p.kind == "csproj" || p.kind == "cargo")
+            .filter(|p| p.is_msbuild() || p.kind == "cargo")
         {
             if startups.contains(&super::documents::normalize_path(Path::new(&p.path))) {
                 p.startup = Some(true);

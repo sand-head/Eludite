@@ -681,6 +681,8 @@ mod tests {
                 "editor.languages.rust.codeLens",
                 "editor.languages.typescript.codeLens",
                 "editor.languages.javascript.codeLens",
+                "editor.languages.vb.codeLens",
+                "editor.languages.fsharp.codeLens",
                 "test.runSettings",
                 "test.parallel",
                 "test.vstestConsolePath",
@@ -732,10 +734,19 @@ mod tests {
                 "editor.formatOnSave.json",
             ]
         );
-        // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise.
+        // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise. Brief 0057 adds
+        // Visual Basic and F#.
         assert_eq!(
             s.section("Text Editor > All Languages > CodeLens").count(),
-            7
+            9
+        );
+        assert_eq!(
+            s.get("editor.languages.fsharp.codeLens").unwrap().default,
+            json!("default")
+        );
+        assert_eq!(
+            s.get("editor.languages.vb.codeLens").unwrap().label,
+            "Visual Basic"
         );
         assert_eq!(s.get("editor.codeLens").unwrap().default, json!(true));
         let csharp = s.get("editor.languages.csharp.codeLens").unwrap();

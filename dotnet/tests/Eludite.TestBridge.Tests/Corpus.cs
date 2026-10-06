@@ -7,21 +7,34 @@ namespace Eludite.TestBridge.Tests;
 /// <summary>
 /// Brief 0035's test corpus (<c>corpus/tests</c>) copied to a temp folder and built there once per test process, with a
 /// generated <c>Corpus.Many</c> project (xunit.v3 on MTP, <see cref="ManyTests"/> facts) for the discovery budget. Shared
-/// by the bridge's and the host's tests (the host's project links this file).
+/// by the bridge's and the host's tests (the host's project links this file). Brief 0057 adds the Visual Basic
+/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) projects; <see cref="Project"/> knows each project's file extension.
 /// </summary>
 internal static class Corpus
 {
     /// <summary>How many facts <c>Corpus.Many</c> has.</summary>
     public const int ManyTests = 100;
 
-    public static readonly string[] Projects = ["Corpus.XunitV3", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.Many"];
+    /// <summary>The projects in the generated solution's order.</summary>
+    public static readonly string[] Projects = ["Corpus.XunitV3", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.VisualBasic", "Corpus.FSharp", "Corpus.Many"];
+
+    /// <summary>The project file's extension per project: C# unless named here.</summary>
+    private static readonly Dictionary<string, string> Extensions = new(StringComparer.Ordinal)
+    {
+        ["Corpus.VisualBasic"] = ".vbproj",
+        ["Corpus.FSharp"] = ".fsproj",
+    };
 
     private static readonly Lazy<Task<string>> Built = new(BuildAsync);
 
     /// <summary>The folder with the built corpus and its <c>Corpus.slnx</c>.</summary>
     public static Task<string> DirectoryAsync() => Built.Value;
 
-    public static string Project(string root, string name) => Path.Combine(root, name, name + ".csproj");
+    /// <summary>The project file (<c>.csproj</c>, <c>.vbproj</c> or <c>.fsproj</c>) of the named corpus project.</summary>
+    public static string Project(string root, string name) => Path.Combine(root, name, name + Extension(name));
+
+    /// <summary>The project file extension of the named corpus project, with its dot.</summary>
+    public static string Extension(string name) => Extensions.GetValueOrDefault(name, ".csproj");
 
     public static string Output(string root, string name, string tfm, string extension = ".dll") =>
         Path.Combine(root, name, "bin", "Debug", tfm, name + extension);
@@ -68,7 +81,7 @@ internal static class Corpus
         var slnx = new StringBuilder("<Solution>\n");
         foreach (var p in Projects)
         {
-            slnx.Append(CultureInfo.InvariantCulture, $"  <Project Path=\"{p}/{p}.csproj\" />\n");
+            slnx.Append(CultureInfo.InvariantCulture, $"  <Project Path=\"{p}/{p}{Extension(p)}\" />\n");
         }
 
         slnx.Append("</Solution>\n");

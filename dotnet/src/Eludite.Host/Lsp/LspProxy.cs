@@ -107,7 +107,7 @@ public sealed class LspProxy : IAsyncDisposable
 
     private static readonly JsonElement JsonNull = JsonDocument.Parse("null").RootElement.Clone();
 
-    private static readonly string[] SupportedExtensions = [".sln", ".slnx", ".csproj", ".vbproj"];
+    private static readonly string[] SupportedExtensions = [".sln", ".slnx", ".csproj", ".vbproj", ".fsproj"];
 
     private readonly ILanguageServerLauncher? _launcher;
     private readonly TextWriter _log;
@@ -233,7 +233,7 @@ public sealed class LspProxy : IAsyncDisposable
         var full = Path.GetFullPath(path);
         if (!SupportedExtensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
         {
-            throw HostErrors.BadParams($"{full}: expected a .sln, .slnx, .csproj or .vbproj file");
+            throw HostErrors.BadParams($"{full}: expected a .sln, .slnx, .csproj, .vbproj or .fsproj file");
         }
 
         if (!File.Exists(full))
@@ -647,7 +647,17 @@ public sealed class LspProxy : IAsyncDisposable
                 load.Session = session;
             }
 
-            if (Path.GetExtension(load.Path) is ".csproj" or ".vbproj")
+            var extension = Path.GetExtension(load.Path).ToLowerInvariant();
+            if (extension == ".fsproj")
+            {
+                // Brief 0057: Roslyn cannot load F#, so nothing is sent to it and the project counts as loaded at once; the
+                // tree, properties, configurations and tests read it through SolutionProjects.Read. (A solution holding
+                // F# projects goes to Roslyn whole; it skips them itself.)
+                await MarkLoadedWithoutLanguageServerAsync(load).ConfigureAwait(false);
+                return;
+            }
+
+            if (extension is ".csproj" or ".vbproj")
             {
                 // Roslyn extension: open individual projects when there is no solution file.
                 await session.Rpc.NotifyWithParameterObjectAsync("project/open", new { projects = new[] { new Uri(load.Path).AbsoluteUri } }).ConfigureAwait(false);
@@ -701,6 +711,26 @@ public sealed class LspProxy : IAsyncDisposable
         }
 
         await NotifyStatusAsync(load, SolutionStates.Failed, diagnostics: [new HostDiagnostic("error", code, message)]).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reports <c>loaded</c> for a load that hands the language server nothing (a lone <c>.fsproj</c>, brief 0057),
+    /// unless the generation has moved on.
+    /// </summary>
+    private async Task MarkLoadedWithoutLanguageServerAsync(SolutionLoad load)
+    {
+        lock (_lock)
+        {
+            if (!ReferenceEquals(_load, load) || load.Done)
+            {
+                return;
+            }
+
+            load.Done = true;
+        }
+
+        await _log.WriteLineAsync($"opened {load.Path} without the language server (solution generation {load.Generation}, {load.Elapsed.ElapsedMilliseconds} ms)").ConfigureAwait(false);
+        await NotifyStatusAsync(load, SolutionStates.Loaded).ConfigureAwait(false);
     }
 
     private Task NotifyStatusAsync(SolutionLoad load, string state, string? phase = null, IReadOnlyList<HostDiagnostic>? diagnostics = null)

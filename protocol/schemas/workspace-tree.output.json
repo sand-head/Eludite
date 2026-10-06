@@ -41,27 +41,29 @@
             "minLength": 1
           },
           "path": {
-            "description": "Absolute path of the project file (.csproj), the package's Cargo.toml, or the folder.",
+            "description": "Absolute path of the project file (.csproj, .vbproj or .fsproj), the package's Cargo.toml, or the folder.",
             "type": "string",
             "minLength": 1
           },
           "kind": {
-            "description": "csproj: an MSBuild project of the open solution. cargo: a member package of the Cargo workspace. folder: a folder with no build system Eludite knows.",
+            "description": "csproj: a C# MSBuild project of the open solution. vbproj: a Visual Basic MSBuild project of the open solution. fsproj: an F# MSBuild project of the open solution (brief 0057). The three are the project file's extension, lowercased; msbuild, target_frameworks, dependency_tree and startup apply to all three alike. cargo: a member package of the Cargo workspace. folder: a folder with no build system Eludite knows.",
             "enum": [
               "csproj",
+              "vbproj",
+              "fsproj",
               "cargo",
               "folder"
             ]
           },
           "msbuild": {
-            "description": "For kind csproj: `sdk` or `legacy` (non-SDK MSBuild).",
+            "description": "For the MSBuild kinds (csproj, vbproj, fsproj): `sdk` or `legacy` (non-SDK MSBuild).",
             "enum": [
               "sdk",
               "legacy"
             ]
           },
           "target_frameworks": {
-            "description": "For kind csproj: the target framework monikers.",
+            "description": "For the MSBuild kinds (csproj, vbproj, fsproj): the target framework monikers.",
             "type": "array",
             "items": {
               "type": "string"
@@ -115,7 +117,7 @@
             }
           },
           "files": {
-            "description": "Absolute paths of the project's files (at most 5000): a .csproj's compile and content items; a Cargo package's files under its folder; a folder's files. Build outputs (target/, bin/, obj/) and hidden folders are not listed.",
+            "description": "Absolute paths of the project's files (at most 5000): an MSBuild project's compile and content items; a Cargo package's files under its folder; a folder's files. Build outputs (target/, bin/, obj/) and hidden folders are not listed.",
             "type": "array",
             "maxItems": 5000,
             "items": {
@@ -131,7 +133,7 @@
             "type": "boolean"
           },
           "dependency_tree": {
-            "description": "For kind csproj: Visual Studio's Dependencies node (brief 0048), mirroring the host's solution tree: top-level packages with their resolved and requested versions, NuGet Audit's vulnerabilities and the packages they bring in; project references; shared frameworks. Read from disk; nothing contacts a source.",
+            "description": "For the MSBuild kinds (csproj, vbproj, fsproj): Visual Studio's Dependencies node (brief 0048), mirroring the host's solution tree: top-level packages with their resolved and requested versions, NuGet Audit's vulnerabilities and the packages they bring in; project references; shared frameworks. Read from disk; nothing contacts a source.",
             "type": "object",
             "required": [
               "restored",

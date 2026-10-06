@@ -4,9 +4,9 @@ namespace Eludite.TestBridge.Tests;
 
 /// <summary>
 /// Brief 0035: the runners against the corpus built in a temp folder: Microsoft.Testing.Platform's server mode
-/// (xunit.v3, MSTest; xunit.v3 for net472 under Mono when it is installed) and VSTest's translation layer (xunit 2,
-/// NUnit): discovery, runs with outcomes, messages, stack traces, output and durations, cancel mid-run, and the debug
-/// hand-offs (MTP's launch, VSTest's attach).
+/// (xunit.v3, MSTest; xunit.v3 for net472 under Mono when it is installed; MSTest in Visual Basic, brief 0057) and
+/// VSTest's translation layer (xunit 2, NUnit; NUnit in F#, brief 0057): discovery, runs with outcomes, messages, stack
+/// traces, output and durations, cancel mid-run, and the debug hand-offs (MTP's launch, VSTest's attach).
 /// </summary>
 public sealed class RunnerTests
 {
@@ -127,6 +127,55 @@ public sealed class RunnerTests
         Assert.Equal("Farewells come later", skipped.Message);
         Assert.Contains("Hello from xunit 2", ByMethod(discovery, run, "WritesOutput").Output, StringComparison.Ordinal);
         Assert.All(run.Final.Values, r => Assert.True(r.DurationMs >= 0));
+    }
+
+    [Fact]
+    public async Task Mtp_VisualBasicMSTest_DiscoversAndRuns()
+    {
+        // Brief 0057: a .vbproj on MSTest's runner behaves as the C# one does.
+        var container = await ContainerAsync("Corpus.VisualBasic", TestRunnerProtocol.MicrosoftTestingPlatform);
+        Assert.EndsWith(".vbproj", container.Project, StringComparison.Ordinal);
+        var (discovery, run) = await DiscoverAndRunAsync(container);
+
+        Assert.Equal(5, discovery.Found.Count);
+        Assert.Equal("Corpus.VisualBasic.ParserTests.ParsesNumbers", Assert.Single(discovery.Found, t => t.Item.Method == "ParsesNumbers").Item.FullyQualifiedName);
+        Assert.Equal(5, run.Final.Count);
+        Assert.Equal(TestOutcomes.Passed, ByMethod(discovery, run, "ParsesNumbers").Outcome);
+        Assert.Equal(TestOutcomes.Passed, ByMethod(discovery, run, "TrimsBeforeParsing").Outcome);
+        var failed = ByMethod(discovery, run, "ParsesNegatives");
+        Assert.Equal(TestOutcomes.Failed, failed.Outcome);
+        Assert.Contains("Negatives keep their sign", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("ParserTests.vb:line 18", failed.StackTrace, StringComparison.Ordinal);
+        var skipped = ByMethod(discovery, run, "ParsesHex");
+        Assert.Equal(TestOutcomes.Skipped, skipped.Outcome);
+        Assert.Equal("Hexadecimal comes later", skipped.Message);
+        var output = ByMethod(discovery, run, "WritesOutput").Output;
+        Assert.Contains("Hello from Visual Basic", output, StringComparison.Ordinal);
+        Assert.Contains("Console from Visual Basic", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task VsTest_FSharpNUnit_DiscoversAndRuns()
+    {
+        // Brief 0057: an .fsproj on NUnit through VSTest behaves as the C# one does.
+        var container = await ContainerAsync("Corpus.FSharp", TestRunnerProtocol.VsTest);
+        Assert.EndsWith(".fsproj", container.Project, StringComparison.Ordinal);
+        var (discovery, run) = await DiscoverAndRunAsync(container);
+
+        Assert.Equal(5, discovery.Found.Count);
+        Assert.Equal("Corpus.FSharp.QueueTests.Enqueues", Assert.Single(discovery.Found, t => t.Item.Method == "Enqueues").Item.FullyQualifiedName);
+        Assert.Equal(5, run.Final.Count);
+        Assert.Equal(TestOutcomes.Passed, ByMethod(discovery, run, "Enqueues").Outcome);
+        Assert.Equal(TestOutcomes.Passed, ByMethod(discovery, run, "KeepsOrder").Outcome);
+        var failed = ByMethod(discovery, run, "Dequeues");
+        Assert.Equal(TestOutcomes.Failed, failed.Outcome);
+        Assert.Contains("the queue is empty after its one item is taken", failed.Message, StringComparison.Ordinal);
+        Assert.Contains("Tests.fs:line 21", failed.StackTrace, StringComparison.Ordinal);
+        var skipped = ByMethod(discovery, run, "Peeks");
+        Assert.Equal(TestOutcomes.Skipped, skipped.Outcome);
+        Assert.Contains("Peeking is not decided yet", skipped.Message, StringComparison.Ordinal);
+        var output = ByMethod(discovery, run, "WritesOutput").Output;
+        Assert.Contains("Hello from F#", output, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -276,6 +325,15 @@ public sealed class RunnerTests
         Assert.False(x2.IsExe);
         Assert.Equal("Corpus.Xunit2", x2.AssemblyName);
         Assert.Equal(TestRunnerProtocol.VsTest, TestProjectInspector.Inspect(Corpus.Project(root, "Corpus.NUnit"))!.Protocol);
+        // Brief 0057: the inspector reads a .vbproj and an .fsproj as it reads a .csproj.
+        var vb = TestProjectInspector.Inspect(Corpus.Project(root, "Corpus.VisualBasic"))!;
+        Assert.Equal(TestRunnerProtocol.MicrosoftTestingPlatform, vb.Protocol);
+        Assert.True(vb.IsExe);
+        Assert.Equal("Corpus.VisualBasic", vb.AssemblyName);
+        var fs = TestProjectInspector.Inspect(Corpus.Project(root, "Corpus.FSharp"))!;
+        Assert.Equal(TestRunnerProtocol.VsTest, fs.Protocol);
+        Assert.False(fs.IsExe);
+        Assert.Equal("Corpus.FSharp", fs.AssemblyName);
         Assert.Null(TestProjectInspector.Inspect(Path.Combine(root, "missing.csproj")));
     }
 }
