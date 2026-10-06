@@ -38,9 +38,10 @@ and a browser engine of hundreds of megabytes inside the layout.
   facts.
 - Rolling tags (`unstable` moved to each build): loses history and breaks the cached `ETag`; the build id in the tag
   orders releases without dates.
-- Installers (`.deb`, `.rpm`, MSI, a signed `.dmg`) and their package managers: Phase 3 work (`tools/package/README.md`);
-  an installer owns its files and would replace this swap for its users, which the design allows (a read-only
-  install folder is reported, not fought).
+- Installers (`.deb`, `.rpm`, MSI, a signed `.dmg`) and their package managers: initially deferred as Phase 3 work.
+  The later Windows MSI requested by the owner (tools/package/windows.wxs) installs into Program Files without
+  `build.json`: Windows Installer owns those files, so MSI users upgrade through a newer MSI, never this swap.
+  Other system-wide installers still await Phase 3.
 - A separate updater program shipped in the layout: one more binary to build and sign per platform; a copy of the
   new `eludite` runs the swap and ships its fixes with the update.
 - Auto-update on by default, as VS Code does: contradicts "no network calls at startup" and the no-telemetry

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Keep this UpgradeCode stable: every CI build has a newer MSI ProductVersion. -->
+  <Package Name="Eludite" Manufacturer="Eludite" Version="$(var.MsiVersion)"
+           UpgradeCode="D1FB8EF5-2117-4A7F-AB6C-369D49C7047D" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer Eludite is already installed." />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Eludite" />
+    </StandardDirectory>
+    <!-- The executable owns the Start menu shortcut so uninstall and major upgrade remove it. -->
+    <Component Directory="INSTALLFOLDER" Guid="*">
+      <File Id="EluditeExe" Source="!(bindpath.Layout)\eludite.exe" KeyPath="yes">
+        <Shortcut Id="EluditeShortcut" Name="Eludite" Directory="ProgramMenuFolder"
+                  WorkingDirectory="INSTALLFOLDER" Advertise="yes" />
+      </File>
+    </Component>
+    <!-- An MSI owns its installed files. Do not include build.json: the archive self-updater
+         cannot safely swap files underneath Windows Installer's repair/uninstall database. -->
+    <Files Directory="INSTALLFOLDER" Include="!(bindpath.Layout)\**">
+      <Exclude Files="!(bindpath.Layout)\eludite.exe" />
+      <Exclude Files="!(bindpath.Layout)\build.json" />
+    </Files>
+  </Package>
+</Wix>

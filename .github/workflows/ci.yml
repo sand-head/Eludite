@@ -370,6 +370,37 @@ jobs:
           archive="$(tools/package/shell.sh --out "$out" $CHANNEL_ARGS)"
           ls -l "$archive"
 
+      - name: Build MSI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $layout = Get-ChildItem "$env:RUNNER_TEMP/package" -Directory -Filter 'eludite-*-windows-x86_64' | Select-Object -First 1
+          if (-not $layout) { throw 'No Windows package layout' }
+          tools/package/windows.ps1 -Layout $layout.FullName -Out "$env:RUNNER_TEMP/package" -BuildNumber ${{ github.run_number }}
+
+      - name: Smoke test MSI install and uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = (Get-ChildItem "$env:RUNNER_TEMP/package" -Filter '*.msi' | Select-Object -First 1).FullName
+          $log = Join-Path $env:RUNNER_TEMP 'eludite-install.log'
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn', '/norestart', '/l*v', "`"$log`"") -Wait -PassThru
+          if ($install.ExitCode -ne 0) { Get-Content $log -Tail 80; throw "MSI install failed: $($install.ExitCode)" }
+          try {
+            $folder = Join-Path $env:ProgramFiles 'Eludite'
+            foreach ($file in @('eludite.exe', 'eludite-host/eludite-host.dll', 'eludite-claude-acp.exe', 'LICENSE')) {
+              if (-not (Test-Path (Join-Path $folder $file))) { throw "MSI missing $file" }
+            }
+            if (Test-Path (Join-Path $folder 'build.json')) { throw 'MSI must not enable the archive self-updater' }
+            if (-not (Test-Path (Join-Path $env:ProgramData 'Microsoft/Windows/Start Menu/Programs/Eludite.lnk'))) {
+              throw 'MSI missing Start menu shortcut'
+            }
+          } finally {
+            $uninstall = Start-Process msiexec.exe -ArgumentList @('/x', "`"$msi`"", '/qn', '/norestart') -Wait -PassThru
+            if ($uninstall.ExitCode -ne 0) { throw "MSI uninstall failed: $($uninstall.ExitCode)" }
+          }
+          if (Test-Path (Join-Path $env:ProgramFiles 'Eludite/eludite.exe')) { throw 'Uninstall left the executable behind' }
+
       - name: Name the artifact
         id: name
         run: |
@@ -388,6 +419,7 @@ jobs:
           path: |
             ${{ runner.temp }}/package/eludite-*.tar.gz
             ${{ runner.temp }}/package/eludite-*.zip
+            ${{ runner.temp }}/package/eludite-*.msi
           if-no-files-found: error
           compression-level: 0
 
@@ -431,7 +463,7 @@ jobs:
           shopt -s nullglob
           set -- eludite-*.tar.gz eludite-*.zip
           [ $# -eq 3 ] || { echo "expected three archives, found: $*" >&2; exit 1; }
-          sha256sum "$@" > SHA256SUMS
+          sha256sum "$@" eludite-*.msi > SHA256SUMS
           cat SHA256SUMS
 
       - name: Publish
