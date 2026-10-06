@@ -1600,13 +1600,15 @@ mod tests {
             write(f);
         }
         // The opened spelling: `<tmp>/real/../real`, and a symlink where the platform has them.
-        let mut spellings = vec![tmp.path().join("real").join("..").join("real")];
+        let dotdot = tmp.path().join("real").join("..").join("real");
         #[cfg(unix)]
-        {
+        let spellings = {
             let alias = tmp.path().join("alias");
             std::os::unix::fs::symlink(&real, &alias).unwrap();
-            spellings.push(alias);
-        }
+            vec![dotdot, alias]
+        };
+        #[cfg(not(unix))]
+        let spellings = vec![dotdot];
         let project = |name: &str, dir: &str| TreeProject {
             name: name.into(),
             path: real
