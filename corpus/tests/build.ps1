@@ -1,5 +1,5 @@
 # Build brief 0035's Test Explorer corpus on Windows, in the Debug configuration the Test Explorer discovers: the six
-# .NET test projects (C#, and brief 0057's Visual Basic and F#) and the Cargo package's test executables
+# .NET test projects (C#, and brief 0063's Visual Basic and F#) and the Cargo package's test executables
 # (`cargo test --no-run`). Extra arguments go to every
 # `dotnet build`; `-NoCargo` leaves the Cargo package out (a .NET-only machine).
 #   corpus\tests\build.ps1 [-NoCargo] [dotnet build args...]

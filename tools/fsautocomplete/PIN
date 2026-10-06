@@ -1,4 +1,4 @@
-# FsAutoComplete pinned for Eludite (brief 0057). SPDX-License-Identifier of FsAutoComplete: MIT.
+# FsAutoComplete pinned for Eludite (brief 0063). SPDX-License-Identifier of FsAutoComplete: MIT.
 # The F# language server (https://github.com/ionide/FsAutoComplete), a .NET global tool: fetch.sh (fetch.ps1 on
 # Windows) installs this version with `dotnet tool install --tool-path` into ~/.cache/eludite/fsautocomplete/<version>/
 # (%USERPROFILE%\.cache\eludite\fsautocomplete\<version>\ on Windows) on the machine's .NET SDK, never vendored, never

@@ -51,7 +51,7 @@ pub struct ShellTarget {
 
 const SOLUTION_EXTENSIONS: [&str; 5] = ["sln", "slnx", "csproj", "vbproj", "fsproj"];
 
-/// Absolute path of an existing `.sln`, `.slnx`, `.csproj`, `.vbproj` or `.fsproj` (brief 0057).
+/// Absolute path of an existing `.sln`, `.slnx`, `.csproj`, `.vbproj` or `.fsproj` (brief 0063).
 pub fn solution_path(path: &str) -> Result<PathBuf, CommandError> {
     let p = std::path::absolute(Path::new(path))
         .map_err(|e| CommandError::InvalidInput(format!("{path}: {e}")))?;

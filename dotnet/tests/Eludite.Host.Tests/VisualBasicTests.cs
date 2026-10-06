@@ -7,7 +7,7 @@ using StreamJsonRpc;
 namespace Eludite.Host.Tests;
 
 /// <summary>
-/// Brief 0057's proving test for Visual Basic (PLAN.md section 4.3, Spike 2): the pinned Roslyn language server, built
+/// Brief 0063's proving test for Visual Basic (PLAN.md section 4.3, Spike 2): the pinned Roslyn language server, built
 /// by tools/roslyn-pin with vb.patch so its MEF composition holds the Visual Basic feature assemblies, through the real
 /// eludite-host process on <c>corpus/projects/VisualBasic</c>. The <c>.vbproj</c> is opened with
 /// <c>eludite/solution/open</c>, <c>Program.vb</c> with <c>textDocument/didOpen</c> and the language id <c>vb</c>, and

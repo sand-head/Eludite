@@ -1,6 +1,6 @@
-# Brief 0057: Visual Basic and F# as first-class .NET languages
+# Brief 0063: Visual Basic and F# as first-class .NET languages
 
-Status: done (2026-10-05, Linux; Windows and macOS by CI). Report: [0057-report.md](0057-report.md).
+Status: done (2026-10-05, Linux; Windows and macOS by CI). Report: [0063-report.md](0063-report.md).
 Phase: 2 (PLAN.md section 10: "The other first-class families from section 7: F# and VB.NET"; section 7, the .NET row)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 6, 12), 4.1 (syntax highlighting from tree-sitter), 4.2 (the Workspace window), 4.3 ("F# via FsAutoComplete (MIT) and VB.NET via the same Roslyn server are Phase 2 work. Spike 2 must confirm which VB features the Roslyn language server exposes outside Visual Studio; gaps are filled in eludite-host"), 4.5, 4.6, 7 (the .NET row: `.fsproj` and `.vbproj`, Expecto and NUnit for F#), 9, 10 (Phase 2)
 Related ADRs: ADR-0002 (process topology: FsAutoComplete is a process the shell speaks LSP to, like rust-analyzer), ADR-0003 (protocols: LSP, no bespoke hooks), ADR-0005 (licensing: every new dependency MIT)
@@ -35,7 +35,7 @@ A person opens a workspace holding Visual Basic or F# projects and gets what C# 
 - `tools/roslyn-pin/build.sh`, `tools/roslyn-pin/build.ps1`, `tools/roslyn-pin/vb.patch` (new): after the checkout, apply the patch adding `<ProjectReference Include="..\..\Features\VisualBasic\Portable\Microsoft.CodeAnalysis.VisualBasic.Features.vbproj" />` to `src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj` (idempotent: skipped when already applied), `tools/roslyn-pin/README.md` (new or extended: why, and what the server exposes for VB).
 - `dotnet/tests/Eludite.Host.Tests/VisualBasicTests.cs` (new; skips when the pinned server is not built): opens `corpus/projects/VisualBasic/VisualBasic.vbproj` through the host, opens its `.vb` with `languageId` `vb`, and asserts completion, hover and a diagnostic from Roslyn; `corpus/projects/VisualBasic/` (new, MIT), the row in `corpus/projects/README.md`.
 
-**Docs (owner: the integrator).** `CLAUDE.md` (the build paragraph's optional tools, the crate map rows for `crates/editor`, `crates/lsp`, `dotnet/`, `tools/`), `README.md` (status and the optional tools list), `docs/briefs/README.md` (the row), `docs/briefs/0057-report.md`, this file.
+**Docs (owner: the integrator).** `CLAUDE.md` (the build paragraph's optional tools, the crate map rows for `crates/editor`, `crates/lsp`, `dotnet/`, `tools/`), `README.md` (status and the optional tools list), `docs/briefs/README.md` (the row), `docs/briefs/0063-report.md`, this file.
 
 Nothing in `vendor/`, `docs/PLAN.md`, `corpus/dap/` or the generated `protocol/rust/src/cdp/`.
 

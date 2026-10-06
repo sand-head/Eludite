@@ -650,7 +650,7 @@ public sealed class LspProxy : IAsyncDisposable
             var extension = Path.GetExtension(load.Path).ToLowerInvariant();
             if (extension == ".fsproj")
             {
-                // Brief 0057: Roslyn cannot load F#, so nothing is sent to it and the project counts as loaded at once; the
+                // Brief 0063: Roslyn cannot load F#, so nothing is sent to it and the project counts as loaded at once; the
                 // tree, properties, configurations and tests read it through SolutionProjects.Read. (A solution holding
                 // F# projects goes to Roslyn whole; it skips them itself.)
                 await MarkLoadedWithoutLanguageServerAsync(load).ConfigureAwait(false);
@@ -714,7 +714,7 @@ public sealed class LspProxy : IAsyncDisposable
     }
 
     /// <summary>
-    /// Reports <c>loaded</c> for a load that hands the language server nothing (a lone <c>.fsproj</c>, brief 0057),
+    /// Reports <c>loaded</c> for a load that hands the language server nothing (a lone <c>.fsproj</c>, brief 0063),
     /// unless the generation has moved on.
     /// </summary>
     private async Task MarkLoadedWithoutLanguageServerAsync(SolutionLoad load)

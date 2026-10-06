@@ -53,7 +53,7 @@ use super::test_runs::{Phase, TestNode, TestRuns};
 use super::tests_window::glyph_of;
 
 /// Languages with an `editor.languages.<id>.codeLens` override (TSX and JSX files follow TypeScript and JavaScript;
-/// F# signature files and scripts follow F#, brief 0057).
+/// F# signature files and scripts follow F#, brief 0063).
 pub const LANGUAGES: [&str; 6] = ["csharp", "rust", "typescript", "javascript", "vb", "fsharp"];
 
 /// Resolves in flight per document at most; the rest wait their turn.

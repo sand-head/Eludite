@@ -12,7 +12,7 @@ tools/roslyn-pin/build.sh          # Linux and macOS
 pwsh tools/roslyn-pin/build.ps1    # Windows (long paths must be enabled)
 ```
 
-## vb.patch: Visual Basic in the server (brief 0057, PLAN.md section 4.3 Spike 2)
+## vb.patch: Visual Basic in the server (brief 0063, PLAN.md section 4.3 Spike 2)
 
 At the pinned commit the server's project,
 `src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj`, lists under
@@ -31,7 +31,7 @@ diagnostics, hover or completion.
 `vb.patch` adds one project reference next to the C# one:
 
 ```xml
-<!-- Eludite (brief 0057): Visual Basic in the MEF composition -->
+<!-- Eludite (brief 0063): Visual Basic in the MEF composition -->
 <ProjectReference Include="..\..\Features\VisualBasic\Portable\Microsoft.CodeAnalysis.VisualBasic.Features.vbproj" />
 ```
 

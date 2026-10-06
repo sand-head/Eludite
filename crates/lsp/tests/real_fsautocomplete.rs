@@ -1,4 +1,4 @@
-//! The generic client against the real FsAutoComplete (brief 0057), located through the built-in registration
+//! The generic client against the real FsAutoComplete (brief 0063), located through the built-in registration
 //! (beside the test binary, `ELUDITE_FSAUTOCOMPLETE`, the pinned cache of `tools/fsautocomplete/fetch.sh`,
 //! `~/.dotnet/tools`, then `PATH`) and spawned with the environment the registry adds (`DOTNET_ROOT` for a user-local
 //! SDK): a one-file F# project with a type error, restored with the `dotnet` on `PATH`, gets pushed diagnostics and

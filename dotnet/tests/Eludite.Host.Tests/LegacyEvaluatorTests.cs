@@ -279,7 +279,7 @@ public sealed class LegacyEvaluatorTests : IDisposable
         var sdk = Path.Combine(_dir.FullName, "Modern", "Modern.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(sdk)!);
         File.WriteAllText(sdk, "<Project Sdk=\"Microsoft.NET.Sdk\" />");
-        // Brief 0057: Visual Basic and F# projects are listed alike (a legacy WebForms site in VB among them).
+        // Brief 0063: Visual Basic and F# projects are listed alike (a legacy WebForms site in VB among them).
         var vb = Path.Combine(_dir.FullName, "Basic", "Basic.vbproj");
         Directory.CreateDirectory(Path.GetDirectoryName(vb)!);
         File.WriteAllText(vb, """<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003"><ItemGroup><Content Include="Default.aspx" /></ItemGroup></Project>""");

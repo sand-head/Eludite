@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install FsAutoComplete, the F# language server, at the version pinned in tools/fsautocomplete/PIN (brief 0057) as a
+# Install FsAutoComplete, the F# language server, at the version pinned in tools/fsautocomplete/PIN (brief 0063) as a
 # .NET tool into ~/.cache/eludite/fsautocomplete/<version>/ with `dotnet tool install --tool-path`, on the machine's
 # .NET SDK (nothing is bundled). FsAutoComplete is MIT. Prints the executable's path, which Eludite searches by itself
 # after the eludite folder and ELUDITE_FSAUTOCOMPLETE, and before ~/.dotnet/tools and PATH.

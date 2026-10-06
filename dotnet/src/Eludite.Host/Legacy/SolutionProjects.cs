@@ -5,7 +5,7 @@ namespace Eludite.Host.Legacy;
 
 /// <summary>
 /// Lists the MSBuild projects of a <c>.sln</c>, <c>.slnx</c> or a single project file: C# (<c>.csproj</c>), Visual Basic
-/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) alike (brief 0057). Every reader of the solution (the tree, the properties,
+/// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) alike (brief 0063). Every reader of the solution (the tree, the properties,
 /// the configurations, the tests, the build, NuGet and the legacy evaluator) sees the three through this class; MSBuild
 /// evaluation is language-neutral.
 /// </summary>

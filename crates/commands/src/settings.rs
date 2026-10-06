@@ -734,7 +734,7 @@ mod tests {
                 "editor.formatOnSave.json",
             ]
         );
-        // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise. Brief 0057 adds
+        // Brief 0052: CodeLens, with the text editor's pages; on unless the settings say otherwise. Brief 0063 adds
         // Visual Basic and F#.
         assert_eq!(
             s.section("Text Editor > All Languages > CodeLens").count(),

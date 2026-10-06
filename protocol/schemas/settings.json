@@ -300,7 +300,7 @@
       ]
     },
     "editor.languages.vb.codeLens": {
-      "description": "CodeLens in Visual Basic documents (brief 0057): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "description": "CodeLens in Visual Basic documents (brief 0063): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
       "enum": [
         "default",
         "on",
@@ -320,7 +320,7 @@
       ]
     },
     "editor.languages.fsharp.codeLens": {
-      "description": "CodeLens in F# documents (brief 0057; also .fsi, .fsx and .fsscript files): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
+      "description": "CodeLens in F# documents (brief 0063; also .fsi, .fsx and .fsscript files): `default` follows editor.codeLens, editor.codeLens.references and editor.codeLens.tests; `on` shows every indicator, `references` only the references indicators, `tests` only the test indicators, `off` none.",
       "enum": [
         "default",
         "on",

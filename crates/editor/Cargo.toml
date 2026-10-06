@@ -23,7 +23,7 @@ text.workspace = true
 tree-sitter = "0.27"
 tree-sitter-c-sharp = "0.23"
 tree-sitter-css = "0.25"
-# MIT, F# and its signature files (`LANGUAGE_FSHARP`, `LANGUAGE_SIGNATURE`); brief 0057.
+# MIT, F# and its signature files (`LANGUAGE_FSHARP`, `LANGUAGE_SIGNATURE`); brief 0063.
 tree-sitter-fsharp = "0.3"
 tree-sitter-html = "0.23"
 tree-sitter-javascript = "0.25"
@@ -32,7 +32,7 @@ tree-sitter-json = "0.24"
 tree-sitter-razor.workspace = true
 tree-sitter-rust = "0.24"
 tree-sitter-typescript = "0.23"
-# MIT, Visual Basic; ships no queries (crates/editor/queries/vb is Eludite's); brief 0057.
+# MIT, Visual Basic; ships no queries (crates/editor/queries/vb is Eludite's); brief 0063.
 tree-sitter-vb-dotnet = "0.1"
 
 [dev-dependencies]

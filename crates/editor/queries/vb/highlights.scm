@@ -1,4 +1,4 @@
-; Visual Basic highlight query for eludite-editor (brief 0057).
+; Visual Basic highlight query for eludite-editor (brief 0063).
 ;
 ; Written for this repository against tree-sitter-vb-dotnet 0.1.0 (MIT,
 ; Copyright (c) 2025 CodeAnt AI), which ships no queries. It follows the C#

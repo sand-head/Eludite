@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build brief 0035's Test Explorer corpus in place, in the Debug configuration the Test Explorer discovers: the six
 # .NET test projects (xunit.v3 for net10.0 and net472 on Microsoft.Testing.Platform, MSTest on Microsoft.Testing.Platform,
-# xunit 2 and NUnit on VSTest; brief 0057's Visual Basic on MSTest and F# on NUnit) and the Cargo package's test
+# xunit 2 and NUnit on VSTest; brief 0063's Visual Basic on MSTest and F# on NUnit) and the Cargo package's test
 # executables (`cargo test --no-run`). Needs the .NET SDK
 # pinned in global.json and the Rust toolchain; the net472 build takes the .NET Framework reference assemblies from
 # NuGet off Windows. `--no-cargo` leaves the Cargo package out (a .NET-only machine). Extra arguments go to every

@@ -1,7 +1,7 @@
 # corpus/tests: the Test Explorer corpus
 
 Small test projects for brief 0035's Test Explorer, one per protocol and framework, each with passing, failing, skipped
-and output-writing tests (MIT, this repository's; `LICENSE`); brief 0057 adds the same in Visual Basic (`.vbproj`) and
+and output-writing tests (MIT, this repository's; `LICENSE`); brief 0063 adds the same in Visual Basic (`.vbproj`) and
 F# (`.fsproj`), so the project list, the Workspace tree and the Test Explorer are proven on all three .NET languages. Build them in place with `build.sh` (or `build.ps1`);
 the bridge's and the host's tests copy them to a temp folder and build them there.
 

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Visual Basic on MSTest on Microsoft.Testing.Platform (brief 0057): MSTest's own runner makes the project an
+  <!-- Visual Basic on MSTest on Microsoft.Testing.Platform (brief 0063): MSTest's own runner makes the project an
        executable that speaks MTP's server mode, exactly as Corpus.MSTest does for C#. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

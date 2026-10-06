@@ -7,7 +7,7 @@ namespace Eludite.TestBridge.Tests;
 /// <summary>
 /// Brief 0035's test corpus (<c>corpus/tests</c>) copied to a temp folder and built there once per test process, with a
 /// generated <c>Corpus.Many</c> project (xunit.v3 on MTP, <see cref="ManyTests"/> facts) for the discovery budget. Shared
-/// by the bridge's and the host's tests (the host's project links this file). Brief 0057 adds the Visual Basic
+/// by the bridge's and the host's tests (the host's project links this file). Brief 0063 adds the Visual Basic
 /// (<c>.vbproj</c>) and F# (<c>.fsproj</c>) projects; <see cref="Project"/> knows each project's file extension.
 /// </summary>
 internal static class Corpus

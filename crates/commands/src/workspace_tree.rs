@@ -1,6 +1,6 @@
 //! `eludite.workspace.tree` (brief 0019): the open workspace's projects whatever their build system, as the
 //! Workspace window shows them: .NET projects (`csproj`, `vbproj` or `fsproj`, the project file's extension; brief
-//! 0057), Cargo packages with their targets (`cargo`) and plain folders (`folder`). Read from a caller-supplied source, like `eludite.solution.tree`, so it runs on whichever
+//! 0063), Cargo packages with their targets (`cargo`) and plain folders (`folder`). Read from a caller-supplied source, like `eludite.solution.tree`, so it runs on whichever
 //! thread invokes it.
 
 use std::path::Path;
@@ -19,7 +19,7 @@ const OUTPUT: &str = include_str!("../../../protocol/schemas/workspace-tree.outp
 /// Files a project lists at most.
 pub const MAX_FILES: usize = 5000;
 
-/// The `kind`s that are MSBuild projects of the open solution (brief 0057): `csproj`, `vbproj` and `fsproj`, the
+/// The `kind`s that are MSBuild projects of the open solution (brief 0063): `csproj`, `vbproj` and `fsproj`, the
 /// project file's extension lowercased. The Workspace window, the startup project list and the NuGet node treat them
 /// alike.
 pub const MSBUILD_KINDS: [&str; 3] = ["csproj", "vbproj", "fsproj"];
@@ -270,7 +270,7 @@ mod tests {
         .unwrap();
         let all = r.invoke(WORKSPACE_TREE, json!({})).unwrap();
         assert_eq!(all["projects"].as_array().unwrap().len(), 4);
-        // Brief 0057: the MSBuild kinds follow the project file's extension, lowercased.
+        // Brief 0063: the MSBuild kinds follow the project file's extension, lowercased.
         let kinds: Vec<&str> = all["projects"]
             .as_array()
             .unwrap()

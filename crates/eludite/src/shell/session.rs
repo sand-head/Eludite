@@ -169,7 +169,7 @@ pub struct GenericLaunch {
     /// variable is set (the variable wins, as documented).
     pub configured: Option<PathBuf>,
     /// The registration's cache folder, when it exists: the web servers' (`tools/web-servers/fetch.sh`, brief 0050)
-    /// for an npm package, the pinned one of a .NET tool (`tools/fsautocomplete/fetch.sh`, brief 0057).
+    /// for an npm package, the pinned one of a .NET tool (`tools/fsautocomplete/fetch.sh`, brief 0063).
     pub cache: Option<PathBuf>,
     /// The setting `languageServers.nodePath` (the shared Node.js search otherwise).
     pub node: Option<PathBuf>,
@@ -1414,7 +1414,7 @@ fn start_generic(
                     command = command.arg(a);
                 }
             }
-            // A .NET tool's `DOTNET_ROOT` (brief 0057); nothing for any other server.
+            // A .NET tool's `DOTNET_ROOT` (brief 0063); nothing for any other server.
             for (k, v) in &envs {
                 command = command.env(k, v);
             }
@@ -1543,7 +1543,7 @@ impl Pump {
                     )
                 }
                 // A notification the client does not know (FsAutoComplete's `fsharp/notifyWorkspace`,
-                // `fsharp/documentAnalyzed`, ...; brief 0057): logged to the trace, ignored.
+                // `fsharp/documentAnalyzed`, ...; brief 0063): logged to the trace, ignored.
                 Event::Notification(n) if generic => {
                     documents_trace(&format!("ignored notification {}", n.method));
                     continue;

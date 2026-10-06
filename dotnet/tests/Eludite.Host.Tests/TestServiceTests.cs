@@ -34,7 +34,7 @@ public sealed class TestServiceTests
         var discover = await host.CallAsync("eludite/test/discover", new { });
         var containers = discover.GetProperty("containers").EnumerateArray().ToList();
         var names = containers.Select(c => c.GetProperty("name").GetString()).ToList();
-        // Brief 0057: the Visual Basic (.vbproj, MSTest on MTP) and F# (.fsproj, NUnit on VSTest) projects are containers like the C# ones.
+        // Brief 0063: the Visual Basic (.vbproj, MSTest on MTP) and F# (.fsproj, NUnit on VSTest) projects are containers like the C# ones.
         Assert.Equal(["Corpus.XunitV3 (net10.0)", "Corpus.XunitV3 (net472)", "Corpus.Xunit2", "Corpus.MSTest", "Corpus.NUnit", "Corpus.VisualBasic", "Corpus.FSharp", "Corpus.Many"], names);
         Assert.Equal(["mtp", "mtp", "vstest", "mtp", "vstest", "mtp", "vstest", "mtp"], containers.Select(c => c.GetProperty("protocol").GetString()));
         Assert.EndsWith("Corpus.VisualBasic.vbproj", containers[5].GetProperty("project").GetString(), StringComparison.Ordinal);

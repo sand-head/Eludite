@@ -11,7 +11,7 @@
 //! comments, so only the id differs), Razor (brief 0056: `.razor` and
 //! `.cshtml`, from the in-repo `tree-sitter-razor`; its C# by the C# query,
 //! its markup by its own, `<script>` and `<style>` as JavaScript and CSS),
-//! and the other .NET languages (brief 0057): Visual Basic (`.vb`, from
+//! and the other .NET languages (brief 0063): Visual Basic (`.vb`, from
 //! `tree-sitter-vb-dotnet` with a query written here, since the grammar
 //! ships none) and F# (`.fs`, `.fsx`, `.fsscript`, from `tree-sitter-fsharp`
 //! with its query adapted to the editor's capture names) with its signature
@@ -208,7 +208,7 @@ pub const JSONC: LanguageConfig = LanguageConfig {
 /// Visual Basic: `tree-sitter-vb-dotnet` with Eludite's highlight query (the
 /// grammar ships none). The grammar's keywords are hidden tokens, so only the
 /// modifiers (`Public`, `Shared`, ...) can be highlighted as keywords; see the
-/// query's header and `docs/briefs/0057-report.md` for what it does not parse.
+/// query's header and `docs/briefs/0063-report.md` for what it does not parse.
 pub const VISUAL_BASIC: LanguageConfig = LanguageConfig {
     id: "vb",
     name: "Visual Basic",

@@ -7090,7 +7090,7 @@ impl Shell {
             .as_ref()
             .map(|s| file_name(&s.project))
             .map(|n| {
-                // Any MSBuild project kind (brief 0057).
+                // Any MSBuild project kind (brief 0063).
                 let n = n.as_str();
                 [".csproj", ".vbproj", ".fsproj"]
                     .iter()

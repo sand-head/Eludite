@@ -595,7 +595,7 @@ public sealed class LspProxyTests : IAsyncDisposable
     [Fact]
     public async Task FsprojOpen_IsLoadedWithoutHandingItToRoslyn()
     {
-        // Brief 0057: Roslyn cannot load F#. A lone .fsproj is accepted, nothing is sent upstream for it, and the
+        // Brief 0063: Roslyn cannot load F#. A lone .fsproj is accepted, nothing is sent upstream for it, and the
         // status reaches loaded with the project counted; the server keeps running for the documents the shell opens.
         await InitializeAsync();
         var fsproj = Path.Combine(_dir.FullName, "Functional", "Functional.fsproj");

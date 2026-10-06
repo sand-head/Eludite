@@ -9,7 +9,7 @@
 //!   node when it arrives; a result for a folder that is no longer open is dropped.
 //! - **Language servers** start with their first document (`servers`), rooted at the Cargo workspace root.
 //! - `eludite.workspace.tree` lists the projects of every part: `csproj`, `vbproj` or `fsproj` (the project file's
-//!   extension, brief 0057), `cargo` (with targets and dependencies) and `folder` for a folder with neither.
+//!   extension, brief 0063), `cargo` (with targets and dependencies) and `folder` for a folder with neither.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -387,7 +387,7 @@ impl Shell {
                 out.projects.push(WorkspaceProject {
                     name: p.name.clone(),
                     path: p.path.clone(),
-                    // The host lists `.csproj`, `.vbproj` and `.fsproj` projects only (brief 0057).
+                    // The host lists `.csproj`, `.vbproj` and `.fsproj` projects only (brief 0063).
                     kind: msbuild_kind(Path::new(&p.path)).unwrap_or("csproj").into(),
                     msbuild: Some(
                         match p.kind {

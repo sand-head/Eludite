@@ -14,7 +14,7 @@
 //! out to them ([`ServerSession::fan_out`]). Each server's diagnostics are kept apart and shown together; the
 //! document's generation is the sum of its servers', so a restart of any of them drops what was computed before.
 //! A server that is not found says `not found (run <its fetch script>)` in its slot (`tools/web-servers/fetch.sh`,
-//! `tools/fsautocomplete/fetch.sh` for the F# server, a .NET tool found through its pinned cache, brief 0057); one
+//! `tools/fsautocomplete/fetch.sh` for the F# server, a .NET tool found through its pinned cache, brief 0063); one
 //! that runs on a located module says which (`TypeScript: ready (TypeScript 5.9.3, project)`).
 
 use std::collections::{BTreeMap, HashMap};
@@ -321,7 +321,7 @@ impl Shell {
             .command
             .as_ref()
             .and_then(|c| c.dotnet_tool.clone());
-        // The registration's cache: the web servers' for an npm package, the pinned folder of a .NET tool (brief 0057).
+        // The registration's cache: the web servers' for an npm package, the pinned folder of a .NET tool (brief 0063).
         let cache = if npm {
             self.launches.cache()
         } else if let Some(tool) = &dotnet_tool {

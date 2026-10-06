@@ -1,4 +1,4 @@
-//! Brief 0057: Visual Basic and F# highlighting on the fixtures under
+//! Brief 0063: Visual Basic and F# highlighting on the fixtures under
 //! `corpus/languages/`, the language table's ids for their suffixes, and the
 //! parse of every fixture (clean, or with the known error count for a construct
 //! the grammar does not support, so a grammar bump that changes it is noticed).
@@ -80,7 +80,7 @@ fn visual_basic_kinds_in_a_program() {
     assert_eq!(kind_at(&u, "System.IO"), Some(Namespace));
     assert_eq!(kind_at(&u, "Eludite.Corpus\n"), Some(Namespace));
     // Keywords: the modifiers are the only keyword nodes the grammar exposes
-    // (brief 0057 report: `Module`, `End Module`, `Sub`, `If`, `Dim`, ... are
+    // (brief 0063 report: `Module`, `End Module`, `Sub`, `If`, `Dim`, ... are
     // hidden tokens, so they stay in the default color).
     assert_eq!(kind_at(&u, "Public Module"), Some(Keyword));
     assert_eq!(kind_at(&u, "Private Const"), Some(Keyword));
@@ -413,7 +413,7 @@ fn errors(node: tree_sitter::Node, text: &str, out: &mut Vec<std::string::String
 /// 0.1.0, tree-sitter-fsharp 0.3.12). Every other fixture parses clean. A
 /// grammar bump that changes a count fails this test so the fixture and
 /// `corpus/languages/README.md` are revisited. The gaps are listed in
-/// `docs/briefs/0057-report.md`.
+/// `docs/briefs/0063-report.md`.
 const KNOWN_ERROR_COUNTS: &[(&str, usize)] = &[
     ("vb/AddHandler.vb", 5),
     ("vb/ArrayDeclarations.vb", 3),
@@ -525,10 +525,10 @@ fn long_sample(relative: &str, header_lines: usize, lines: usize) -> std::string
     out
 }
 
-/// Brief 0057's budget: a 2,000-line VB file and a 2,000-line F# file each
+/// Brief 0063's budget: a 2,000-line VB file and a 2,000-line F# file each
 /// parse in under 10 ms in release. Measured on request (`--release
 /// --ignored`), printed, and held to a loose ceiling so a pathological grammar
-/// is caught; the measured values are in `docs/briefs/0057-report.md`.
+/// is caught; the measured values are in `docs/briefs/0063-report.md`.
 #[test]
 #[ignore = "a timing measurement: run with --release --ignored --nocapture"]
 fn a_2000_line_file_parses_within_the_budget() {

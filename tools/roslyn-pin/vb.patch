@@ -1,4 +1,4 @@
-# Eludite (brief 0057): add the Visual Basic feature assemblies to the pinned Roslyn language server.
+# Eludite (brief 0063): add the Visual Basic feature assemblies to the pinned Roslyn language server.
 # Applied by tools/roslyn-pin/build.sh and build.ps1 after the checkout of COMMIT; see tools/roslyn-pin/README.md.
 diff --git a/src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj b/src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj
 --- a/src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.CodeAnalysis.LanguageServer.csproj
@@ -7,7 +7,7 @@ diff --git a/src/LanguageServer/Microsoft.CodeAnalysis.LanguageServer/Microsoft.
  
      <!-- Dlls we don't directly reference but need to include to build the MEF composition -->
      <ProjectReference Include="..\..\Features\CSharp\Portable\Microsoft.CodeAnalysis.CSharp.Features.csproj" />
-+    <!-- Eludite (brief 0057): Visual Basic in the MEF composition -->
++    <!-- Eludite (brief 0063): Visual Basic in the MEF composition -->
 +    <ProjectReference Include="..\..\Features\VisualBasic\Portable\Microsoft.CodeAnalysis.VisualBasic.Features.vbproj" />
  
      <!-- Not directly referenced but needed for Razor source generators -->

@@ -1,4 +1,4 @@
-; F# highlight query for eludite-editor (brief 0057).
+; F# highlight query for eludite-editor (brief 0063).
 ;
 ; Adapted from queries/highlights.scm in tree-sitter-fsharp 0.3.12 (MIT,
 ; Copyright (c) 2023 Nikolaj Sidorenco). Changes: capture names mapped to the

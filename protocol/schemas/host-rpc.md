@@ -162,7 +162,7 @@ as `exit` without `shutdown`.
    Windows, else the .NET SDK's MSBuild in-process): designer partials, path-case fixups, COM references removed off
    Windows. Preparation problems are diagnostics, not failures.
 5. Opens the solution in the language server (Roslyn's `solution/open`, or `project/open` for a `.csproj` or
-   `.vbproj`). An `.fsproj` opened directly is not handed to Roslyn, which cannot load F# (brief 0057); a solution
+   `.vbproj`). An `.fsproj` opened directly is not handed to Roslyn, which cannot load F# (brief 0063); a solution
    holding F# projects is handed to Roslyn whole, and Roslyn skips them itself.
 6. Sends `eludite/solution/status` `loaded` when Roslyn reports `workspace/projectInitializationComplete`, with
    counts, the MSBuild used and the corrections applied; or `failed` with a diagnostic. For a lone `.fsproj`, `loaded`

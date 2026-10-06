@@ -1,4 +1,4 @@
-; F# signature file (`.fsi`) highlight query for eludite-editor (brief 0057).
+; F# signature file (`.fsi`) highlight query for eludite-editor (brief 0063).
 ;
 ; Adapted from fsharp_signature/queries/highlights.scm in tree-sitter-fsharp
 ; 0.3.12 (MIT, Copyright (c) 2023 Nikolaj Sidorenco), restricted to the nodes

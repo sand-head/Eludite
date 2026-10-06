@@ -10,7 +10,7 @@
 //! substitutions in the options ([`substitute`]), settings pushed with `workspace/didChangeConfiguration`, and the
 //! formatters Format Document runs ([`FormatterSpec`], [`ServerRegistry::pick_formatter`]).
 //!
-//! Brief 0057 adds the .NET languages: `*.vb` goes to the host as the `roslyn` registration's second glob with the
+//! Brief 0063 adds the .NET languages: `*.vb` goes to the host as the `roslyn` registration's second glob with the
 //! `languageId` `vb`, and FsAutoComplete (`fsautocomplete`, the F# server) is a `process` server that is a .NET
 //! global tool ([`CommandSpec::dotnet_tool`]): found beside `eludite`, at its override variable, in the pinned cache
 //! `tools/fsautocomplete/fetch.sh` installs (`~/.cache/eludite/<tool>/<pin>/`, [`ServerRegistry::dotnet_tool_cache`]),
@@ -70,7 +70,7 @@ pub struct CommandSpec {
     /// the web servers' cache, then `PATH`; a script is run by Node.js.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub npm_package: Option<String>,
-    /// The .NET global tool that provides it (`fsautocomplete`, brief 0057): searched beside `eludite`, then the
+    /// The .NET global tool that provides it (`fsautocomplete`, brief 0063): searched beside `eludite`, then the
     /// override variable, then the pinned cache (`~/.cache/eludite/<tool>/<pin>/`, [`ServerRegistry::dotnet_tools`]),
     /// then the .NET global tools folder (`~/.dotnet/tools`), then `PATH`; spawned with `DOTNET_ROOT` when needed
     /// ([`dotnet_tool_envs`]).
@@ -186,7 +186,7 @@ pub struct WorkerSpec {
     pub resolve_config: Option<String>,
 }
 
-/// A .NET global tool a server is (brief 0057), by tool name under [`ServerRegistry::dotnet_tools`]: its pinned
+/// A .NET global tool a server is (brief 0063), by tool name under [`ServerRegistry::dotnet_tools`]: its pinned
 /// version, installed by its fetch script into `~/.cache/eludite/<tool>/<pin>/`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -223,7 +223,7 @@ pub struct Located {
     pub source: String,
     /// The Node.js that runs [`Located::path`], for a script.
     pub node: Option<PathBuf>,
-    /// Environment variables the process needs (brief 0057): `DOTNET_ROOT` for a .NET tool when the variable is
+    /// Environment variables the process needs (brief 0063): `DOTNET_ROOT` for a .NET tool when the variable is
     /// unset ([`dotnet_tool_envs`]); empty otherwise.
     pub envs: Vec<(String, String)>,
 }
@@ -484,7 +484,7 @@ fn locate_command(
     places: Option<NpmPlaces>,
 ) -> Result<Located, String> {
     let exe = format!("{}{}", cmd.executable, std::env::consts::EXE_SUFFIX);
-    // A .NET tool runs with `DOTNET_ROOT` when the variable is unset (brief 0057); anything else with nothing added.
+    // A .NET tool runs with `DOTNET_ROOT` when the variable is unset (brief 0063); anything else with nothing added.
     let envs = if cmd.dotnet_tool.is_some() {
         dotnet_tool_envs(env.var, env.path_var.as_ref())
     } else {
@@ -638,7 +638,7 @@ fn dotnet_global_tools(
     Some(base.join(".dotnet").join("tools"))
 }
 
-/// The environment a .NET global tool's apphost needs (brief 0057): nothing when `DOTNET_ROOT` is set, else
+/// The environment a .NET global tool's apphost needs (brief 0063): nothing when `DOTNET_ROOT` is set, else
 /// `DOTNET_ROOT` as the folder of the `dotnet` executable on `PATH` with symlinks resolved (the SDK root, which holds
 /// `shared/`). The apphost refuses to start when `dotnet` is neither at the default location nor registered nor named
 /// by the variable, as with a user-local SDK (`~/.dotnet`). Nothing when `dotnet` is not on `PATH` either.
@@ -734,7 +734,7 @@ pub struct ServerRegistry {
     /// The web servers' cache (`tools/web-servers/fetch.sh`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_servers: Option<CacheSpec>,
-    /// The .NET global tools servers are (brief 0057), by tool name (`fsautocomplete`): the pin of
+    /// The .NET global tools servers are (brief 0063), by tool name (`fsautocomplete`): the pin of
     /// `tools/<tool>/PIN` and the fetch script.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dotnet_tools: BTreeMap<String, ToolSpec>,
@@ -1585,7 +1585,7 @@ mod tests {
         assert_eq!(ServerRegistry::builtin().web_servers.unwrap().pin, pinned);
     }
 
-    /// Brief 0057: `.vb` is the host's (Roslyn), as `vb`; the F# files are FsAutoComplete's, as `fsharp`, a .NET tool
+    /// Brief 0063: `.vb` is the host's (Roslyn), as `vb`; the F# files are FsAutoComplete's, as `fsharp`, a .NET tool
     /// with its variable and its workspace options.
     #[test]
     fn vb_goes_to_the_host_and_fsharp_to_fsautocomplete() {
@@ -1637,7 +1637,7 @@ mod tests {
         assert!(r.for_path(Path::new("/f/Lib.fsproj")).is_none());
     }
 
-    /// Brief 0057: a root marker with a `*` matches the folder's file names (`*.fsproj`), the nearest folder wins, and
+    /// Brief 0063: a root marker with a `*` matches the folder's file names (`*.fsproj`), the nearest folder wins, and
     /// a marker without one is still a file name (`Cargo.toml`: a folder named so does not count).
     #[test]
     fn glob_root_markers_find_the_folder_holding_a_project_file() {
@@ -1669,7 +1669,7 @@ mod tests {
         assert_eq!(ra.find_root(&types.join("Shapes.fs")), None);
     }
 
-    /// Brief 0057: a .NET tool is found beside eludite, then at its variable, then in the pinned cache, then in the
+    /// Brief 0063: a .NET tool is found beside eludite, then at its variable, then in the pinned cache, then in the
     /// .NET global tools folder (under `DOTNET_CLI_HOME` when set), then on PATH; every candidate is probed with the
     /// tool's environment; nothing anywhere names the places.
     #[test]
@@ -1797,7 +1797,7 @@ mod tests {
         assert!(probed.borrow().iter().all(|(_, envs)| envs.is_empty()));
     }
 
-    /// Brief 0057: with `dotnet` on PATH and `DOTNET_ROOT` unset, a .NET tool is probed and located with `DOTNET_ROOT`
+    /// Brief 0063: with `dotnet` on PATH and `DOTNET_ROOT` unset, a .NET tool is probed and located with `DOTNET_ROOT`
     /// set to the resolved `dotnet`'s folder (symlinks followed); set already, nothing is added; a server that is not
     /// a .NET tool never gets it.
     #[test]
@@ -1868,7 +1868,7 @@ mod tests {
         assert!(probed.borrow().last().unwrap().1.is_empty());
     }
 
-    /// Brief 0057: `tools/fsautocomplete/PIN`'s version is the pin servers.json searches under `~/.cache/eludite/`, the
+    /// Brief 0063: `tools/fsautocomplete/PIN`'s version is the pin servers.json searches under `~/.cache/eludite/`, the
     /// fetch script is the one the messages name, and the cache folder is found by that pin.
     #[test]
     fn the_fsautocomplete_pin_matches_servers_json() {

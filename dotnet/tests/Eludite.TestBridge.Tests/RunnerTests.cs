@@ -4,8 +4,8 @@ namespace Eludite.TestBridge.Tests;
 
 /// <summary>
 /// Brief 0035: the runners against the corpus built in a temp folder: Microsoft.Testing.Platform's server mode
-/// (xunit.v3, MSTest; xunit.v3 for net472 under Mono when it is installed; MSTest in Visual Basic, brief 0057) and
-/// VSTest's translation layer (xunit 2, NUnit; NUnit in F#, brief 0057): discovery, runs with outcomes, messages, stack
+/// (xunit.v3, MSTest; xunit.v3 for net472 under Mono when it is installed; MSTest in Visual Basic, brief 0063) and
+/// VSTest's translation layer (xunit 2, NUnit; NUnit in F#, brief 0063): discovery, runs with outcomes, messages, stack
 /// traces, output and durations, cancel mid-run, and the debug hand-offs (MTP's launch, VSTest's attach).
 /// </summary>
 public sealed class RunnerTests
@@ -132,7 +132,7 @@ public sealed class RunnerTests
     [Fact]
     public async Task Mtp_VisualBasicMSTest_DiscoversAndRuns()
     {
-        // Brief 0057: a .vbproj on MSTest's runner behaves as the C# one does.
+        // Brief 0063: a .vbproj on MSTest's runner behaves as the C# one does.
         var container = await ContainerAsync("Corpus.VisualBasic", TestRunnerProtocol.MicrosoftTestingPlatform);
         Assert.EndsWith(".vbproj", container.Project, StringComparison.Ordinal);
         var (discovery, run) = await DiscoverAndRunAsync(container);
@@ -157,7 +157,7 @@ public sealed class RunnerTests
     [Fact]
     public async Task VsTest_FSharpNUnit_DiscoversAndRuns()
     {
-        // Brief 0057: an .fsproj on NUnit through VSTest behaves as the C# one does.
+        // Brief 0063: an .fsproj on NUnit through VSTest behaves as the C# one does.
         var container = await ContainerAsync("Corpus.FSharp", TestRunnerProtocol.VsTest);
         Assert.EndsWith(".fsproj", container.Project, StringComparison.Ordinal);
         var (discovery, run) = await DiscoverAndRunAsync(container);
@@ -325,7 +325,7 @@ public sealed class RunnerTests
         Assert.False(x2.IsExe);
         Assert.Equal("Corpus.Xunit2", x2.AssemblyName);
         Assert.Equal(TestRunnerProtocol.VsTest, TestProjectInspector.Inspect(Corpus.Project(root, "Corpus.NUnit"))!.Protocol);
-        // Brief 0057: the inspector reads a .vbproj and an .fsproj as it reads a .csproj.
+        // Brief 0063: the inspector reads a .vbproj and an .fsproj as it reads a .csproj.
         var vb = TestProjectInspector.Inspect(Corpus.Project(root, "Corpus.VisualBasic"))!;
         Assert.Equal(TestRunnerProtocol.MicrosoftTestingPlatform, vb.Protocol);
         Assert.True(vb.IsExe);

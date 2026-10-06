@@ -1,7 +1,7 @@
 <Project>
   <!-- The test frameworks of the corpus (brief 0035), one per protocol and framework: xunit.v3 and MSTest on
        Microsoft.Testing.Platform, xunit 2 and NUnit on VSTest. All MIT, except NUnit and NUnit3TestAdapter (MIT too).
-       FSharp.Core (MIT; brief 0057): the F# SDK's implicit reference takes its version from here under central package
+       FSharp.Core (MIT; brief 0063): the F# SDK's implicit reference takes its version from here under central package
        management, and without one the assembly is never copied beside Corpus.FSharp.dll, so no test loads. The version
        is the one the pinned SDK (global.json) ships in FSharp/library-packs. -->
   <PropertyGroup>

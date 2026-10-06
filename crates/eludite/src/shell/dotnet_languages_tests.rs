@@ -1,4 +1,4 @@
-//! Headless GPUI tests of brief 0057, Visual Basic and F# through the shared language-server paths, against the
+//! Headless GPUI tests of brief 0063, Visual Basic and F# through the shared language-server paths, against the
 //! in-process fake `eludite-host` and `eludite-lsp`'s scripted `FakeServer` standing in for FsAutoComplete, through
 //! the real `servers.json` registrations: a `.vb` document is the host's (Roslyn), opened with `languageId` `vb`,
 //! with its diagnostics as squiggles and no generic server started; a `.fs` under a folder with an `.fsproj` starts

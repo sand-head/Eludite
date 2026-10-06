@@ -12,7 +12,7 @@
 //!   (`servers.json`): beside `eludite`, the `ELUDITE_<SERVER>` variable, then `PATH` and the rustup component
 //!   (rust-analyzer); the project's `node_modules`, the variable, the web servers' cache and `PATH` (the npm servers,
 //!   brief 0050); beside `eludite`, the variable, the pinned cache, `~/.dotnet/tools` and `PATH` for a .NET tool,
-//!   spawned with `DOTNET_ROOT` when it needs it (FsAutoComplete, brief 0057). `*.vb` goes to the host as `vb`.
+//!   spawned with `DOTNET_ROOT` when it needs it (FsAutoComplete, brief 0063). `*.vb` goes to the host as `vb`.
 //!
 //! The shared core owns, for both:
 //!
