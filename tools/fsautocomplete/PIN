@@ -1,0 +1,8 @@
+# FsAutoComplete pinned for Eludite (brief 0057). SPDX-License-Identifier of FsAutoComplete: MIT.
+# The F# language server (https://github.com/ionide/FsAutoComplete), a .NET global tool: fetch.sh (fetch.ps1 on
+# Windows) installs this version with `dotnet tool install --tool-path` into ~/.cache/eludite/fsautocomplete/<version>/
+# (%USERPROFILE%\.cache\eludite\fsautocomplete\<version>\ on Windows) on the machine's .NET SDK, never vendored, never
+# fetched at startup. Eludite finds it, in order: beside the eludite executable, at ELUDITE_FSAUTOCOMPLETE, in that
+# cache folder, in the .NET global tools folder (~/.dotnet/tools), then on PATH (crates/lsp/src/servers.json's
+# `dotnetTools` carries the same version; crates/lsp's tests check they agree).
+version 0.84.0

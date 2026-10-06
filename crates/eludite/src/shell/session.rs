@@ -168,13 +168,15 @@ pub struct GenericLaunch {
     /// The executable the settings name (brief 0020), tried before discovery unless the registration's override
     /// variable is set (the variable wins, as documented).
     pub configured: Option<PathBuf>,
-    /// The web servers' cache (`tools/web-servers/fetch.sh`), when it exists (brief 0050).
+    /// The registration's cache folder, when it exists: the web servers' (`tools/web-servers/fetch.sh`, brief 0050)
+    /// for an npm package, the pinned one of a .NET tool (`tools/fsautocomplete/fetch.sh`, brief 0057).
     pub cache: Option<PathBuf>,
     /// The setting `languageServers.nodePath` (the shared Node.js search otherwise).
     pub node: Option<PathBuf>,
     /// The paths the settings name for the registration's modules (`languageServers.typescriptPath`), by module.
     pub modules: std::collections::BTreeMap<String, PathBuf>,
-    /// The command that installs the server when it is not found (`tools/web-servers/fetch.sh`).
+    /// The command that installs the server when it is not found (`tools/web-servers/fetch.sh`,
+    /// `tools/fsautocomplete/fetch.sh`), when the registration has one.
     pub fetch: Option<String>,
 }
 
@@ -1345,7 +1347,7 @@ fn start_generic(
                 )?;
                 Ok(node)
             };
-            let (path, version, source, node) =
+            let (path, version, source, node, envs) =
                 match launch.configured.as_deref().filter(|_| !overridden) {
                     Some(p) => {
                         let version = configured_version(p).ok_or_else(|| {
@@ -1355,26 +1357,32 @@ fn start_generic(
                             p.display()
                         )
                     })?;
-                        (p.to_path_buf(), version, "settings".to_owned(), None)
+                        (
+                            p.to_path_buf(),
+                            version,
+                            "settings".to_owned(),
+                            None,
+                            Vec::new(),
+                        )
                     }
                     None => {
                         let located = reg
                             .locate(Some(&launch.root), launch.cache.as_deref(), &node)
-                            .map_err(|e| {
-                                let npm = reg
-                                    .command
-                                    .as_ref()
-                                    .is_some_and(|c| c.npm_package.is_some());
-                                match (&launch.fetch, npm) {
-                                    // The Output window gets why; the status bar the remedy.
-                                    (Some(fetch), true) => {
-                                        log(format!("{}: {e}", reg.name));
-                                        format!("{NOT_FOUND} (run {fetch})")
-                                    }
-                                    _ => e,
+                            .map_err(|e| match &launch.fetch {
+                                // The Output window gets why; the status bar the remedy.
+                                Some(fetch) => {
+                                    log(format!("{}: {e}", reg.name));
+                                    format!("{NOT_FOUND} (run {fetch})")
                                 }
+                                None => e,
                             })?;
-                        (located.path, located.version, located.source, located.node)
+                        (
+                            located.path,
+                            located.version,
+                            located.source,
+                            located.node,
+                            located.envs,
+                        )
                     }
                 };
             documents_trace(&format!(
@@ -1385,12 +1393,15 @@ fn start_generic(
                 path.display()
             ));
             log(format!(
-                "{} {version} from {source} ({}){}",
+                "{} {version} from {source} ({}){}{}",
                 reg.name,
                 path.display(),
                 node.as_deref()
                     .map(|n| format!(" on Node.js {}", n.display()))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                envs.iter()
+                    .map(|(k, v)| format!(" with {k}={v}"))
+                    .collect::<String>()
             ));
             let mut command = match &node {
                 Some(node) => ServerCommand::new(node.as_os_str()).arg(path.as_os_str()),
@@ -1402,6 +1413,10 @@ fn start_generic(
                 for a in &spec.args {
                     command = command.arg(a);
                 }
+            }
+            // A .NET tool's `DOTNET_ROOT` (brief 0057); nothing for any other server.
+            for (k, v) in &envs {
+                command = command.env(k, v);
             }
             ServerClient::start(command, setup, RestartPolicy::default())
         }
@@ -1526,6 +1541,12 @@ impl Pump {
                             .unwrap_or_default()
                             .to_owned(),
                     )
+                }
+                // A notification the client does not know (FsAutoComplete's `fsharp/notifyWorkspace`,
+                // `fsharp/documentAnalyzed`, ...; brief 0057): logged to the trace, ignored.
+                Event::Notification(n) if generic => {
+                    documents_trace(&format!("ignored notification {}", n.method));
+                    continue;
                 }
                 Event::Host(HostEvent::Exited { .. }) | Event::Notification(_) => continue,
                 Event::Progress(p) => SessionEvent::Progress(p),

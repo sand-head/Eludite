@@ -5,9 +5,14 @@
 //! - **`eludite-host`** ([`HostClient`]): the `eludite/*` vocabulary plus forwarded LSP 3.17, with the solution
 //!   generation (`eluditeGeneration`) on forwarded requests, solution and build notifications.
 //! - **Generic language servers** ([`ServerClient`], brief 0019): plain LSP 3.17 to a server the shell launches
-//!   directly (rust-analyzer), with the `initialize` handshake, work-done progress and `experimental/serverStatus`
-//!   as events, and `workspace/configuration` answered from the server's registration. Which server handles which
-//!   files, and how it is found and started, is data: [`registry`] (`servers.json`).
+//!   directly (rust-analyzer, the web servers, FsAutoComplete for F#), with the `initialize` handshake, work-done
+//!   progress and `experimental/serverStatus` as events, notifications the client does not know passed up as
+//!   [`Event::Notification`] (the shell ignores them), and `workspace/configuration` answered from the server's
+//!   registration. Which server handles which files, and how it is found and started, is data: [`registry`]
+//!   (`servers.json`): beside `eludite`, the `ELUDITE_<SERVER>` variable, then `PATH` and the rustup component
+//!   (rust-analyzer); the project's `node_modules`, the variable, the web servers' cache and `PATH` (the npm servers,
+//!   brief 0050); beside `eludite`, the variable, the pinned cache, `~/.dotnet/tools` and `PATH` for a .NET tool,
+//!   spawned with `DOTNET_ROOT` when it needs it (FsAutoComplete, brief 0057). `*.vb` goes to the host as `vb`.
 //!
 //! The shared core owns, for both:
 //!

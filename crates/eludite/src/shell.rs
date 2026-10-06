@@ -34,6 +34,8 @@ mod codelens_tests;
 pub mod configuration_manager;
 pub mod debug;
 pub mod documents;
+#[cfg(test)]
+mod dotnet_languages_tests;
 pub mod error_list;
 pub mod explorer;
 pub mod folder;
