@@ -92,6 +92,12 @@ Full non-incremental parse, release build of a standalone probe on the same tree
 
 All three parse with no error node. The F# number is a property of the grammar (a 56 MB generated parser); the editor's keystroke path re-parses incrementally, which the brief's budget does not measure, so the product impact is the first paint of a large F# file. Roslyn, Visual Basic through the host: see the summary (diagnostics 2.3 s from open on a cold server, hover 163 ms, completion 669 ms, definition 36 ms, rename 723 ms). The Roslyn server build: 217 s, 137 MB output.
 
+## Query compilation moved off the startup path
+
+CI on the merge with `main` failed the shell's debugger replay budget (2 s) on all three platforms. The cause was this brief: `LanguageRegistry::with_builtins` compiled every highlight query when the shell was built, and compiling the F# query against its 56 MB grammar takes about 300 ms (debug and release alike; C# 65 ms, Razor 90 ms, all thirteen languages 650 ms). Every shell construction, the shell's own start included, paid it on the UI thread.
+
+The registry now loads each grammar and checks its ABI only (13 ms for all thirteen); each language's queries compile on first use (`Language::compile`, or the first highlight step on the syntax thread) behind a `OnceLock`, and the shell starts `LanguageRegistry::warm_in_background` on its own thread so the first highlight finds them ready. A query that does not compile leaves its language without highlights instead of panicking the shell; `every_builtin_query_compiles` keeps that a test failure. With it, a debugger replay test takes 0.35 s instead of about 2 s, and the shell crate's suite runs in 63 s instead of 148 s here.
+
 ## Checks run here
 
 - `cargo fmt --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`: clean.

@@ -18,7 +18,7 @@
 //! files (`.fsi`, the same crate's signature grammar and a reduced query).
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use tree_sitter::{Query, QueryProperty};
 
@@ -276,11 +276,22 @@ pub(crate) struct Injections {
     pub(crate) languages: Vec<Option<Arc<Language>>>,
 }
 
-/// A registered language with its compiled query. Shared between the UI
-/// thread and highlight workers.
+/// A registered language. Shared between the UI thread and highlight workers.
+///
+/// The grammar is loaded and its ABI checked when the language is registered
+/// (microseconds). The highlight and injection queries compile on first use
+/// ([`Language::compile`], or the first highlight step on the syntax thread),
+/// because `Query::new` costs tens to hundreds of milliseconds against a large
+/// grammar (about 65 ms for C#, 90 ms for Razor, 300 ms for F#, brief 0063's
+/// measurement), and the shell builds the registry on its startup path.
 pub struct Language {
     config: LanguageConfig,
     grammar: tree_sitter::Language,
+    compiled: OnceLock<Result<Compiled, LanguageError>>,
+}
+
+/// What compiling a language's queries produces.
+struct Compiled {
     query: Query,
     /// Highlight kind for each capture index of `query`.
     capture_kinds: Vec<Option<HighlightKind>>,
@@ -319,7 +330,11 @@ impl std::fmt::Display for LanguageError {
 impl std::error::Error for LanguageError {}
 
 impl Language {
-    /// Compile a registration. Fails if the query does not match the grammar.
+    /// Register a language: load its grammar and check the ABI. Fails only
+    /// for an incompatible grammar; the queries compile on first use (or
+    /// [`Language::compile`]), and a query that does not match the grammar
+    /// leaves the language without highlights ([`Language::compile`] reports
+    /// the error; the crate's tests compile every built-in query).
     pub fn new(config: LanguageConfig) -> Result<Self, LanguageError> {
         super::alloc::install();
         let grammar = (config.grammar)();
@@ -327,7 +342,35 @@ impl Language {
         tree_sitter::Parser::new()
             .set_language(&grammar)
             .map_err(LanguageError::Grammar)?;
-        let query = Query::new(&grammar, config.highlights_query).map_err(LanguageError::Query)?;
+        Ok(Self {
+            config,
+            grammar,
+            compiled: OnceLock::new(),
+        })
+    }
+
+    /// Compile the highlight and injection queries now, if they are not yet,
+    /// and report a query that does not match the grammar. Idempotent; safe
+    /// from any thread (a second caller waits for the first).
+    pub fn compile(&self) -> Result<(), &LanguageError> {
+        self.compiled().as_ref().map(|_| ())
+    }
+
+    /// Whether the queries have been compiled (or failed to).
+    pub fn is_compiled(&self) -> bool {
+        self.compiled.get().is_some()
+    }
+
+    fn compiled(&self) -> &Result<Compiled, LanguageError> {
+        self.compiled
+            .get_or_init(|| Self::compile_queries(&self.config, &self.grammar))
+    }
+
+    fn compile_queries(
+        config: &LanguageConfig,
+        grammar: &tree_sitter::Language,
+    ) -> Result<Compiled, LanguageError> {
+        let query = Query::new(grammar, config.highlights_query).map_err(LanguageError::Query)?;
         let capture_kinds = query
             .capture_names()
             .iter()
@@ -336,11 +379,9 @@ impl Language {
         let injections = if config.injections_query.is_empty() {
             None
         } else {
-            Some(Self::build_injections(&config, &grammar)?)
+            Some(Self::build_injections(config, grammar)?)
         };
-        Ok(Self {
-            config,
-            grammar,
+        Ok(Compiled {
             query,
             capture_kinds,
             injections,
@@ -407,16 +448,24 @@ impl Language {
         &self.grammar
     }
 
-    pub(crate) fn query(&self) -> &Query {
-        &self.query
+    /// The highlight query, compiled on first call; `None` when it does not
+    /// compile against the grammar.
+    pub(crate) fn query(&self) -> Option<&Query> {
+        self.compiled().as_ref().ok().map(|c| &c.query)
     }
 
     pub(crate) fn injections(&self) -> Option<&Injections> {
-        self.injections.as_ref()
+        self.compiled()
+            .as_ref()
+            .ok()
+            .and_then(|c| c.injections.as_ref())
     }
 
     pub(crate) fn capture_kind(&self, capture_index: u32) -> Option<HighlightKind> {
-        self.capture_kinds
+        self.compiled()
+            .as_ref()
+            .ok()?
+            .capture_kinds
             .get(capture_index as usize)
             .copied()
             .flatten()
@@ -435,8 +484,10 @@ impl LanguageRegistry {
         Self::default()
     }
 
-    /// The [`BUILTINS`]. Every query is compiled here; a failure is a bug in
-    /// the shipped query and panics, which the crate's tests catch.
+    /// The [`BUILTINS`], with their grammars loaded and nothing compiled yet
+    /// (the queries compile on first use, or [`LanguageRegistry::warm_in_background`]);
+    /// an incompatible grammar is a bug in the build and panics. The crate's
+    /// tests compile every built-in query.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         for &config in BUILTINS {
@@ -448,7 +499,8 @@ impl LanguageRegistry {
     }
 
     /// Add a language. A later registration with the same id replaces the
-    /// earlier one.
+    /// earlier one. Fails for an incompatible grammar; the queries compile on
+    /// first use ([`Language::compile`] checks them now).
     pub fn register(&mut self, config: LanguageConfig) -> Result<Arc<Language>, LanguageError> {
         let language = Arc::new(Language::new(config)?);
         self.languages.retain(|l| l.id() != config.id);
@@ -487,5 +539,77 @@ impl LanguageRegistry {
 
     pub fn languages(&self) -> impl Iterator<Item = &Arc<Language>> {
         self.languages.iter()
+    }
+
+    /// Compile every registered language's queries on a thread of its own,
+    /// so the first highlight of each language finds them ready while the
+    /// caller (the shell at startup) goes on at once. Query compilation is
+    /// small allocations, not a parse tree, so it needs no place on the
+    /// syntax thread; a language used before the warm-up reaches it compiles
+    /// on whichever thread asks first, and the other waits.
+    pub fn warm_in_background(&self) -> std::thread::JoinHandle<()> {
+        let languages: Vec<Arc<Language>> = self.languages.clone();
+        std::thread::Builder::new()
+            .name("eludite-syntax-warm".into())
+            .spawn(move || {
+                for language in &languages {
+                    let _ = language.compile();
+                }
+            })
+            .expect("spawn the syntax warm-up thread")
+    }
+}
+
+#[cfg(test)]
+mod lazy_tests {
+    use super::*;
+
+    #[test]
+    fn the_registry_compiles_no_query_until_a_language_is_used() {
+        let started = std::time::Instant::now();
+        let registry = LanguageRegistry::with_builtins();
+        let building = started.elapsed();
+        assert!(registry.languages().all(|l| !l.is_compiled()));
+        let csharp = registry.by_id("csharp").unwrap();
+        csharp.compile().unwrap();
+        assert!(csharp.is_compiled());
+        assert!(registry.by_id("fsharp").unwrap().query().is_some());
+        eprintln!("timing: with_builtins without compiling queries {building:?}");
+    }
+
+    #[test]
+    fn every_builtin_query_compiles() {
+        let registry = LanguageRegistry::with_builtins();
+        for language in registry.languages() {
+            language
+                .compile()
+                .unwrap_or_else(|e| panic!("built-in language {}: {e}", language.id()));
+        }
+    }
+
+    #[test]
+    fn the_warm_up_compiles_everything_off_the_caller() {
+        let registry = LanguageRegistry::with_builtins();
+        registry.warm_in_background().join().unwrap();
+        assert!(registry.languages().all(|l| l.is_compiled()));
+    }
+
+    #[test]
+    fn a_query_that_does_not_match_leaves_the_language_without_highlights() {
+        let broken = LanguageConfig {
+            id: "broken",
+            name: "Broken",
+            path_suffixes: &["broken"],
+            file_names: &[],
+            grammar: || tree_sitter_json::LANGUAGE.into(),
+            highlights_query: "(no_such_node) @keyword",
+            injections_query: "",
+            injected: &[],
+            emmet: None,
+        };
+        let language = Language::new(broken).expect("the grammar is fine");
+        assert!(matches!(language.compile(), Err(LanguageError::Query(_))));
+        assert!(language.query().is_none());
+        assert_eq!(language.capture_kind(0), None);
     }
 }

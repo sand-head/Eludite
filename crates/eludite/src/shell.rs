@@ -1075,7 +1075,14 @@ impl Shell {
             chrome_override: None,
             session,
             published,
-            languages: Arc::new(LanguageRegistry::with_builtins()),
+            languages: {
+                let languages = LanguageRegistry::with_builtins();
+                // The queries compile off the UI thread (brief 0063); the tests compile what they use.
+                if !cfg!(test) {
+                    languages.warm_in_background();
+                }
+                Arc::new(languages)
+            },
             documents: HashMap::new(),
             views,
             loading: HashMap::new(),
