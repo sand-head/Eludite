@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-sessions.output.json",
+  "title": "eludite.agents.sessions output",
+  "description": "The Agents window's sessions, newest first (by `last_activity`), and the one the window shows.",
+  "type": "object",
+  "required": [
+    "current",
+    "sessions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "current": {
+      "description": "The id of the session the window shows; null when it shows none (as at startup).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "sessions": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "agent",
+          "title",
+          "started",
+          "last_activity",
+          "live",
+          "running",
+          "waiting"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Eludite's own id for the session (a UUID v4), for eludite.agents.switch's `session`.",
+            "type": "string"
+          },
+          "agent": {
+            "description": "The name of the agent that owns it, as the registry names it.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The first prompt's first 60 characters on one line; `New session` until a prompt is sent.",
+            "type": "string"
+          },
+          "started": {
+            "description": "When the session was started (RFC 3339, UTC).",
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_activity": {
+            "description": "When the session last changed: a prompt, a turn's end, a permission answered (RFC 3339, UTC).",
+            "type": "string",
+            "format": "date-time"
+          },
+          "model": {
+            "description": "The model's name as the model picker last showed it, when the agent offers one.",
+            "type": "string"
+          },
+          "live": {
+            "description": "The agent process runs.",
+            "type": "boolean"
+          },
+          "running": {
+            "description": "A turn is in progress.",
+            "type": "boolean"
+          },
+          "waiting": {
+            "description": "A permission request of the session waits for an answer (answered after switching to it).",
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

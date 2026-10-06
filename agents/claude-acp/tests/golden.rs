@@ -3,10 +3,16 @@
 //! message, and each turn's end. Regenerate deliberately with
 //! `UPDATE_GOLDEN=1 cargo test --test golden` after re-recording, and review
 //! the diff.
+//!
+//! Brief 0057: `claude`'s reply to `initialize` maps to the
+//! `available_commands_update` the adapter sends after `session/new`, for the
+//! recordings that kept its commands (`claude-2.1.289-commands.jsonl`; the
+//! 2.1.287 recordings were redacted to an empty list and map to nothing here).
 
 use std::path::PathBuf;
 
-use eludite_claude_acp::translate::{Translator, TurnEnd};
+use eludite_claude_acp::process::InitializeReply;
+use eludite_claude_acp::translate::{Translator, TurnEnd, available_commands_update};
 use serde_json::{Value, json};
 
 const CWD: &str = "/work";
@@ -39,6 +45,12 @@ fn mapped(name: &str) -> Vec<Value> {
             Some("in") if m["request"]["subtype"] == "interrupt" => {
                 cancelled = true;
                 out.push(json!({"cancel": true}));
+            }
+            Some("out") if m["type"] == "control_response" => {
+                let reply = InitializeReply::parse(&m["response"]["response"]);
+                if !reply.commands.is_empty() {
+                    out.push(json!({"from": "initialize", "update": available_commands_update(&reply.commands)}));
+                }
             }
             Some("out") => {
                 let end = tr.on_message(&m, cancelled, &mut updates);
@@ -149,4 +161,58 @@ fn logged_out_session_maps_exactly() {
     );
     let got = mapped("claude-2.1.287-logged-out.jsonl");
     assert_eq!(got.last().unwrap()["turn_end"], "auth_required");
+}
+
+#[test]
+fn recorded_commands_map_exactly() {
+    // Brief 0057: `claude` 2.1.289's built-in commands, as the adapter lists them after `session/new`.
+    check(
+        "claude-2.1.289-commands.jsonl",
+        "claude-2.1.289-commands.acp.jsonl",
+    );
+    let got = mapped("claude-2.1.289-commands.jsonl");
+    assert_eq!(got.len(), 1, "one list, from the initialize reply");
+    assert_eq!(got[0]["from"], "initialize");
+    let update = &got[0]["update"];
+    assert_eq!(update["sessionUpdate"], "available_commands_update");
+    let commands = update["availableCommands"].as_array().unwrap();
+    let names: Vec<&str> = commands
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    for want in ["model", "effort", "compact", "clear", "context"] {
+        assert!(names.contains(&want), "{want} in {names:?}");
+    }
+    assert!(!names.iter().any(|n| n.starts_with("__")), "{names:?}");
+    let by_name = |n: &str| commands.iter().find(|c| c["name"] == n).unwrap();
+    assert_eq!(
+        by_name("compact")["input"],
+        json!({"hint": "<optional custom summarization instructions>"})
+    );
+    assert_eq!(
+        by_name("compact")["description"],
+        "Free up context by summarizing the conversation so far"
+    );
+    // No argument hint: no input. Aliases are not sent (ACP has no field).
+    assert!(by_name("context").get("input").is_none());
+    assert!(commands.iter().all(|c| c.get("aliases").is_none()));
+}
+
+#[test]
+fn commands_drop_internal_names_nameless_entries_and_empty_hints() {
+    let update = available_commands_update(&[
+        json!({"name": "compact", "description": "Summarize", "argumentHint": "<instructions>", "builtin": true}),
+        json!({"name": "context", "description": "Usage", "argumentHint": "  ", "aliases": ["ctx"]}),
+        json!({"name": "__remote-workflow", "description": "internal", "argumentHint": ""}),
+        json!({"description": "no name"}),
+        json!({"name": "init"}),
+    ]);
+    assert_eq!(
+        serde_json::to_value(update).unwrap(),
+        json!({"sessionUpdate": "available_commands_update", "availableCommands": [
+            {"name": "compact", "description": "Summarize", "input": {"hint": "<instructions>"}},
+            {"name": "context", "description": "Usage"},
+            {"name": "init", "description": ""}
+        ]})
+    );
 }

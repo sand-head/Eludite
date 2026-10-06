@@ -93,9 +93,17 @@
 //! lines of the visible range); a click or Ctrl+K, Ctrl+Q emits [`EditorEvent::CodeLensActivated`]. Overlays drawn
 //! beside the text place themselves with [`EditorView::row_top`].
 //!
+//! # Text input (brief 0057)
+//!
+//! [`TextInput`] is a text box over the same [`Editor`] (a prompt, a search box): its own element with no gutter,
+//! highlighting or popups, text that wraps at the box's width with the caret, clicks and Up and Down mapped through
+//! the wrapped rows, `min_rows` to `max_rows` tall then scrolling, selection, the clipboard, undo, IME composition, and
+//! [`TextInputEvent`]s for Enter, Escape, edits, and Up and Down past the first and last rows. Its keys are bound by
+//! [`key_bindings`] in the context [`INPUT_KEY_CONTEXT`].
+//!
 //! # Known gaps
 //!
-//! No IME composition (composed text is inserted as typed), no soft wrap,
+//! In the editor view: no IME composition (composed text is inserted as typed), no soft wrap,
 //! folding, minimap or sticky scroll, no right-to-left text, grapheme
 //! clusters are not respected by cursor movement (characters are), very long
 //! lines are shaped whole, find is ASCII case-insensitive only, and files
@@ -106,6 +114,7 @@ mod codelens;
 mod debugging;
 pub mod display;
 mod editor;
+mod input;
 pub mod intellisense;
 mod popups;
 pub mod syntax;
@@ -116,6 +125,7 @@ pub use debugging::{BreakpointGlyph, ExecutionKind};
 pub use display::{RowHit, VerticalLayout};
 pub use editor::{ClickKind, Editor, FindQuery, Selection, SelectionRange};
 pub use eludite_ui::CompletionKind;
+pub use input::{INPUT_KEY_CONTEXT, InputLayout, TextInput, TextInputEvent};
 pub use intellisense::{
     AcceptedCompletion, CodeLens, CodeLensSnapshot, CompletionEdit, CompletionItem,
     CompletionRequest, CompletionSnapshot, CompletionSource, CompletionTrigger, EditorEvent,
@@ -126,6 +136,16 @@ pub use view::{
     COMPLETION_CONTEXT, COMPLETION_SELECTED_CONTEXT, Decoration, DecorationStyle, EditorStyle,
     EditorView, KEY_CONTEXT, LightbulbKind, SIGNATURES_CONTEXT, default_font_family, key_bindings,
 };
+/// The text input's actions (context [`INPUT_KEY_CONTEXT`]).
+pub mod input_actions {
+    pub use crate::input::{
+        Backspace, Copy, Cut, Delete, DeleteWordLeft, DeleteWordRight, Escape, MoveDown, MoveEnd,
+        MoveHome, MoveLeft, MoveRight, MoveToEnd, MoveToStart, MoveUp, MoveWordLeft, MoveWordRight,
+        Newline, Paste, Redo, SelectAll, SelectDown, SelectEnd, SelectHome, SelectLeft,
+        SelectRight, SelectToEnd, SelectToStart, SelectUp, SelectWordLeft, SelectWordRight, Submit,
+        Tab, Undo,
+    };
+}
 /// Editor actions, for binding keys and dispatching from commands.
 pub mod actions {
     pub use crate::view::{

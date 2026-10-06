@@ -1,0 +1,5 @@
+# Pinned to the toolchain Zed's GPUI builds with at the rev we depend on.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy", "rust-src"]

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-switch.input.json",
+  "title": "eludite.agents.switch input",
+  "description": "Show another session in the Agents window, as a click on a row of its history list does. A live session shows at once and keeps running. A stored one shows its transcript from Eludite's record; when the agent that owns it is in the registry and advertises ACP `loadSession`, the agent is started and `session/load` resumes it (the state is `ready` after the load, and the next prompt continues the conversation); otherwise the transcript says the agent cannot resume it and the prompt box is disabled (eludite.agents.start with `restart: true` then begins a new session with the same agent). Answers the state (agents-state.output.json).",
+  "type": "object",
+  "required": [
+    "session"
+  ],
+  "properties": {
+    "session": {
+      "description": "A session's `id` from eludite.agents.sessions.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

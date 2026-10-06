@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-sessions.input.json",
+  "title": "eludite.agents.sessions input",
+  "description": "List the Agents window's sessions, as its history list (the clock button in the header) shows them: the live ones (the agent process runs) and the ones stored in the person's per-workspace state (`<workspace state dir>/agents/sessions/`, the 100 most recent), newest first.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

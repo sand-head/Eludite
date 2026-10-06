@@ -693,6 +693,8 @@ mod tests {
                 "git.gpgSign",
                 "agents.default",
                 "agents.claudeCodeAdapterPath",
+                "agents.model",
+                "agents.effort",
                 "agents.custom",
                 "browser.engine",
                 "browser.enginePath",

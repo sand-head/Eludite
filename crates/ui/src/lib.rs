@@ -11,7 +11,10 @@
 //! - [`elements`]: small stateless elements (tab strips, panels, buttons, text and check boxes, the selector bar).
 //! - [`startup`]: the Startup Projects dialog (Project > Set Startup Projects..., brief 0028).
 //! - [`tree`]: tree rows for Workspace and other tree views (indent,
-//!   disclosure triangle, label), drawn by the caller's list.
+//!   disclosure triangle, glyph or icon, label with search matches), drawn by the caller's list.
+//! - [`icons`]: Eludite's own SVG icon set (brief 0062): [`Icon`], the [`icons::Assets`] asset source the shell
+//!   registers, and [`icon()`], a 16 by 16 icon tinted with the theme's icon tokens; the module docs hold the rules
+//!   for drawing one and what each icon means.
 //! - [`popup`]: IntelliSense popups: completion rows with Visual Studio's kind
 //!   icons ([`CompletionKind`]) and the tooltip frame.
 //! - [`markdown`]: Markdown (CommonMark and GitHub tables, by `pulldown-cmark`) as blocks, plain text and elements,
@@ -24,8 +27,11 @@
 //!   and toolbar buttons that can be disabled (brief 0035).
 //! - [`title_bar`]: the main window's title bar Eludite draws (ADR-0010): the menu bar, the title, the caption
 //!   buttons, and the window's frame on Linux with client-side decorations.
-//! - [`transcript`]: the Agents window's transcript rows: prompts, agent Markdown blocks, thinking, tool call cards
-//!   with their status, plans and notices.
+//! - [`transcript`]: the Agents window's transcript widgets: prompts with their time, agent Markdown blocks, thinking
+//!   (`Thinking…`, `Thought for 4 s`), tool call cards (one line with the kind's glyph, the adapter's title, the
+//!   status badge with its spinner, the arguments and result folded under it), plans with their progress, notices,
+//!   the usage strip ([`transcript::UsageStrip`]: the context bar, `61k of 1M · $0.95`) and a running turn's status
+//!   line (brief 0059).
 //!
 //! Written fresh against the Visual Studio model; Zed's `ui` and `theme` crates
 //! are deliberately not used so Eludite cannot look like Zed by construction.
@@ -33,6 +39,7 @@
 pub mod dialog;
 pub mod diff;
 pub mod elements;
+pub mod icons;
 pub mod keymap;
 pub mod markdown;
 pub mod menu;
@@ -51,6 +58,7 @@ pub use elements::{
     BoundsMap, bounds_canvas, check_box, highlighted_code, icon_button, selector_bar,
     selector_option, tab, text_box, toggle_button,
 };
+pub use icons::{Icon, icon};
 pub use keymap::{
     EDITOR_COMMAND_KEYS, KeyBindingSpec, RunCommand, SHELL_CONTEXT, bind_keymap, shortcut_for,
     vs_keymap,
@@ -64,5 +72,5 @@ pub use status::{SlotAlign, StatusBar, slot_selector, slots, status_toggle};
 pub use test_explorer::{TestGlyph, test_row, toolbar_button};
 pub use theme::{Theme, Typography};
 pub use title_bar::TitleBar;
-pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge};
+pub use tree::{TREE_ROW_HEIGHT, TreeRowStyle, tree_row, tree_row_with_badge, tree_row_with_icon};
 pub use vertical_text::{VerticalLabel, vertical_label};
