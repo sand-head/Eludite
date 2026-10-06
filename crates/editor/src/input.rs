@@ -1306,36 +1306,53 @@ mod tests {
         assert!(input.read_with(&cx, |i, _| i.is_empty()));
     }
 
+    /// Keystrokes with `secondary-` spelled as the platform's modifier (`cmd` on macOS, `ctrl` elsewhere), as the
+    /// bindings of [`bindings`] resolve it.
+    fn sec(keys: &str) -> String {
+        let m = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
+        keys.split(' ')
+            .map(|k| match k.strip_prefix("secondary-") {
+                Some(rest) => format!("{m}-{rest}"),
+                None => k.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     #[gpui::test]
     fn clipboard_undo_redo_and_select_all(cx: &mut TestAppContext) {
         let (input, _, mut cx) = open(cx, 600., true);
         type_text(&mut cx, "one two");
-        cx.simulate_keystrokes("ctrl-a");
+        cx.simulate_keystrokes(&sec("secondary-a"));
         assert_eq!(input.read_with(&cx, |i, _| i.selected_text()), "one two");
-        cx.simulate_keystrokes("ctrl-c");
+        cx.simulate_keystrokes(&sec("secondary-c"));
         assert_eq!(
             cx.read_from_clipboard().and_then(|c| c.text()).as_deref(),
             Some("one two")
         );
         // Cut: the clipboard holds it and the box is empty; paste twice.
-        cx.simulate_keystrokes("ctrl-x");
+        cx.simulate_keystrokes(&sec("secondary-x"));
         assert_eq!(text(&input, &mut cx), "");
-        cx.simulate_keystrokes("ctrl-v ctrl-v");
+        cx.simulate_keystrokes(&sec("secondary-v secondary-v"));
         assert_eq!(text(&input, &mut cx), "one twoone two");
         // Undo the pastes one by one, then the cut; redo them.
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes(&sec("secondary-z"));
         assert_eq!(text(&input, &mut cx), "one two");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes(&sec("secondary-z"));
         assert_eq!(text(&input, &mut cx), "");
-        cx.simulate_keystrokes("ctrl-z");
+        cx.simulate_keystrokes(&sec("secondary-z"));
         assert_eq!(text(&input, &mut cx), "one two");
-        cx.simulate_keystrokes("ctrl-y");
+        cx.simulate_keystrokes(&sec("secondary-y"));
         assert_eq!(text(&input, &mut cx), "");
         cx.simulate_keystrokes("ctrl-shift-z");
         assert_eq!(text(&input, &mut cx), "one two");
         // Copy with no selection copies nothing.
         cx.write_to_clipboard(ClipboardItem::new_string("kept".into()));
-        cx.simulate_keystrokes("end ctrl-c");
+        cx.simulate_keystrokes(&sec("end secondary-c"));
         assert_eq!(
             cx.read_from_clipboard().and_then(|c| c.text()).as_deref(),
             Some("kept")
@@ -1368,7 +1385,7 @@ mod tests {
         type_text(&mut cx, "x");
         cx.simulate_keystrokes("shift-enter");
         cx.write_to_clipboard(ClipboardItem::new_string("1\n2".into()));
-        cx.simulate_keystrokes("ctrl-v");
+        cx.simulate_keystrokes(&sec("secondary-v"));
         assert_eq!(text(&single, &mut cx), "x1 2");
         assert_eq!(geometry(&single, &mut cx).1, LH);
         assert!(!events.borrow().contains(&TextInputEvent::Submit));

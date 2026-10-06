@@ -23,6 +23,13 @@ use super::scenario;
 use super::window::StateKind;
 use super::{AgentsSetup, Shell};
 
+/// The text box's secondary modifier as test keystrokes spell it: `cmd` on macOS, `ctrl` elsewhere (brief 0057).
+const SECONDARY: &str = if cfg!(target_os = "macos") {
+    "cmd"
+} else {
+    "ctrl"
+};
+
 /// The registry the tests offer, by name: each runs the fake agent with a scenario, then its own arguments (after
 /// the common ones, so they win).
 const AGENTS: [(&str, &str); 8] = [
@@ -1782,8 +1789,9 @@ fn the_prompt_box_edits_at_the_caret_and_recalls_prompts(cx: &mut TestAppContext
     assert_eq!(w.prompt_box(), ("draft".into(), 4));
     // Only whitespace: nothing is sent.
     w.click(super::window::PROMPT_BOX);
-    w.vcx
-        .simulate_keystrokes("ctrl-a backspace space shift-enter space enter");
+    w.vcx.simulate_keystrokes(&format!(
+        "{SECONDARY}-a backspace space shift-enter space enter"
+    ));
     w.vcx.run_until_parked();
     assert_eq!(w.user_rows().len(), 2);
     let history = w.shell.read_with(&w.vcx, |s, cx| {
@@ -1874,7 +1882,8 @@ fn the_slash_menu_offers_the_agents_commands(cx: &mut TestAppContext) {
     w.vcx.run_until_parked();
     assert_eq!(w.prompt_box(), ("/model ".into(), 7));
     assert_eq!(w.user_rows().len(), 1);
-    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.vcx
+        .simulate_keystrokes(&format!("{SECONDARY}-a backspace"));
     w.type_keys("/model");
     w.vcx.simulate_keystrokes("enter");
     w.vcx.run_until_parked();
@@ -1886,7 +1895,8 @@ fn the_slash_menu_offers_the_agents_commands(cx: &mut TestAppContext) {
     w.click(&super::window::slash_item("model"));
     assert_eq!(w.prompt_box(), ("/model ".into(), 7));
     // Backspace past the `/` closes the menu.
-    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.vcx
+        .simulate_keystrokes(&format!("{SECONDARY}-a backspace"));
     w.type_keys("/");
     assert!(w.slash_menu().is_some());
     w.vcx.simulate_keystrokes("backspace");
@@ -1899,7 +1909,8 @@ fn the_slash_menu_offers_the_agents_commands(cx: &mut TestAppContext) {
     // An agent with no commands: `/` is plain text, and the state lists none.
     w.start_agent("Fake editor");
     w.click(super::window::PROMPT_BOX);
-    w.vcx.simulate_keystrokes("ctrl-a backspace");
+    w.vcx
+        .simulate_keystrokes(&format!("{SECONDARY}-a backspace"));
     w.type_keys("/co");
     assert_eq!(w.slash_menu(), None);
     assert!(w.vcx.debug_bounds(super::window::SLASH_MENU).is_none());
