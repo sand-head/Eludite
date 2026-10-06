@@ -741,9 +741,12 @@ fn file_open_workspace_menu_uses_the_folder_prompt(cx: &mut TestAppContext) {
     let root = w.path("App.slnx").parent().unwrap().to_owned();
     w.vcx
         .simulate_path_prompt_response(move |_| Some(vec![root]));
-    w.wait("the tree", |w| {
-        w.shell
-            .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_some())
+    w.wait("the folder command and its tree", |w| {
+        w.audit()
+            .iter()
+            .any(|c| c == workspace::WORKSPACE_OPEN_FOLDER)
+            && w.shell
+                .read_with(&w.vcx, |s, cx| s.explorer().read(cx).model().is_some())
     });
     assert_eq!(
         w.audit()
