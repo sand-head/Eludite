@@ -1,6 +1,6 @@
 # Proposal 0005: The `.resx` editor
 
-Status: Proposed, 2026-10-05; revised 2026-10-05 on the owner's direction: the grid is what a `.resx` file looks like when opened, there is no separate window
+Status: Accepted by the owner's direct request, 2026-10-06 (revised 2026-10-05 on the owner's direction: the grid is what a `.resx` file looks like when opened, there is no separate window; R1 built in the same change as brief 0063, which applies the PLAN.md edits of section 9)
 Plan reference: PLAN.md sections 2 (principles 1 to 4, 6), 3 (D2, D4), 4.2, 4.11 ("`.resx` editor"), 5.1 to 5.4, 5.6, 8, 9, 10 (Phase 2: "resx editor"), 11
 Related: ADR-0002, ADR-0004, brief 0042 (`eludite-search`, the reference scan), brief 0048 and 0049 (the host's formatting-preserving project edit), brief 0040 (`eludite-git`, changes since HEAD), brief 0016 (the Agents window, translation by an agent)
 New paths: `crates/resx` (`eludite-resx`), `protocol/schemas/resx-*.json`, `protocol/schemas/host/resx-*.json`, `corpus/resx/`, `docs/agents/resx.md`
@@ -137,8 +137,8 @@ the dirty mark, Ctrl+S and the close prompt a text document has. Its parts:
 All ids are `eludite.resx.*`, schemas in `protocol/schemas/resx-<name>.{input,output}.json`, every command reachable
 from the editor's toolbar, grid or context menu. A set is named by its neutral file's path (a culture file's path
 is accepted and resolved); `cultures` default to all of the set's. Cell writes are class `edit_buffer`, like
-`eludite.project.set_property` and Replace in Files: an agent's change is a pending change until accepted, or
-applied at once under the policy's `edit_buffer: accept`.
+`eludite.solution.select_configuration` and Replace in Files: an agent's change is a pending change until accepted,
+or applied at once under the policy's `edit_buffer: accept`.
 
 | Command | Class | Does |
 |---|---|---|
@@ -158,8 +158,8 @@ applied at once under the policy's `edit_buffer: accept`.
 | `access_modifier` | edit_buffer | `internal`, `public` or `none` for a set: the `Generator` metadata through the host, the designer regenerated or deleted |
 | `translate` (later brief) | dangerous | fills missing cells from a machine translation provider, the external network call the person chooses |
 
-Opening the editor is `eludite.editor.open` on any file of the set, as for every document; there is no command of
-its own.
+Opening the editor is `eludite.file.open` on any file of the set, as for every document (`editor: text` asks for
+the text editor); there is no command of its own.
 
 **Policy.** `agents-policy.json` gains `resx`: `remove` (`prompt` default: keys and culture files are deleted;
 `allow`, `deny`), `import` (`prompt` default: bulk; `allow`, `deny`), `translate` (`prompt` default: external

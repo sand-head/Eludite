@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-validate.input.json",
+  "title": "eludite.resx.validate input",
+  "description": "Run the consistency rules over a resource set (proposal 0005 section 2; the settings `resx.rules.*` switch each off): the warnings the editor shows on cells and under its Warnings filter. Read: nothing is written.",
+  "type": "object",
+  "required": [
+    "set"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "cultures": {
+      "description": "Only these cultures. Default: every culture file of the set (the neutral file has no warnings of its own).",
+      "type": "array",
+      "items": {
+        "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+        "type": "string"
+      }
+    }
+  }
+}

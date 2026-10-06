@@ -1862,6 +1862,7 @@ dependencies = [
  "eludite-lsp",
  "eludite-mcp",
  "eludite-protocol",
+ "eludite-resx",
  "eludite-search",
  "eludite-terminal",
  "eludite-ui",
@@ -2062,6 +2063,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "eludite-resx"
+version = "0.1.0"
+dependencies = [
+ "ignore",
+ "roxmltree 0.20.0",
+ "tempfile",
 ]
 
 [[package]]

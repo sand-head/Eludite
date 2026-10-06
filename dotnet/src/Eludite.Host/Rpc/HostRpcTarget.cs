@@ -5,6 +5,7 @@ using Eludite.Host.Build;
 using Eludite.Host.Lsp;
 using Eludite.Host.NuGet;
 using Eludite.Host.Projects;
+using Eludite.Host.Resources;
 using Eludite.Host.Sdk;
 using Eludite.Host.Testing;
 using StreamJsonRpc;
@@ -32,7 +33,9 @@ public sealed class HostRpcTarget
     /// <param name="nuget">Runs <c>eludite/nuget/*</c>; when null, one on NuGet's own configuration.</param>
     /// <param name="properties">Answers <c>eludite/project/*</c> and the solution configurations (brief 0049); when null, one on the
     /// in-process MSBuild that reloads the solution through <paramref name="languageServer"/> after a write.</param>
-    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null)
+    /// <param name="resx">Answers <c>eludite/resx/*</c> (proposal 0005); when null, one on the in-process MSBuild that reloads the
+    /// solution through <paramref name="languageServer"/> after a project write.</param>
+    public HostRpcTarget(ISdkDiscoverer sdkDiscoverer, TextWriter log, TimeProvider? timeProvider = null, LspProxy? languageServer = null, SolutionTreeProvider? tree = null, BuildService? build = null, TestService? tests = null, NuGetService? nuget = null, ProjectPropertiesService? properties = null, ResxService? resx = null)
     {
         _sdkDiscoverer = sdkDiscoverer;
         _log = log;
@@ -43,7 +46,11 @@ public sealed class HostRpcTarget
         Tests = tests ?? new TestService(LanguageServer.CurrentSolution, log);
         Properties = properties ?? new ProjectPropertiesService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
         NuGet = nuget ?? new NuGetService(LanguageServer.CurrentSolution, LanguageServer.AdvanceGeneration, log);
+        Resx = resx ?? new ResxService(LanguageServer.CurrentSolution, () => LanguageServer.Generation, LanguageServer.OpenSolution, log);
     }
+
+    /// <summary>The <c>eludite/resx/*</c> service (proposal 0005).</summary>
+    public ResxService Resx { get; }
 
     /// <summary>The <c>eludite/nuget/*</c> service (brief 0048).</summary>
     public NuGetService NuGet { get; }
@@ -301,6 +308,20 @@ public sealed class HostRpcTarget
     {
         RequireInitialized();
         return Properties.SetConfigurationAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/resx/sets", UseSingleObjectParameterDeserialization = true)]
+    public Task<ResxSetsResult> ResxSetsAsync(ResxSetsParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Resx.SetsAsync(parameters, cancellationToken);
+    }
+
+    [JsonRpcMethod("eludite/resx/designer", UseSingleObjectParameterDeserialization = true)]
+    public Task<ResxDesignerResult> ResxDesignerAsync(ResxDesignerParams? parameters, CancellationToken cancellationToken)
+    {
+        RequireInitialized();
+        return Resx.DesignerAsync(parameters, cancellationToken);
     }
 
     [JsonRpcMethod("eludite/host/shutdown")]

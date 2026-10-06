@@ -97,6 +97,9 @@ pub fn context_command(item: &str, path: &Path) -> Option<(&'static str, Value)>
     })
 }
 
+/// A .resx file's Open With > XML (Text) Editor (proposal 0005): (selector suffix, label).
+pub const RESX_OPEN_TEXT_ITEM: (&str, &str) = ("resx-open-text", "Open With XML (Text) Editor");
+
 /// The NuGet items of the context menus (brief 0048): (selector suffix, label).
 pub const NUGET_PROJECT_ITEM: (&str, &str) = ("nuget", "Manage NuGet Packages...");
 pub const NUGET_SOLUTION_ITEM: (&str, &str) =
@@ -327,6 +330,9 @@ impl SolutionExplorer {
                 .path
                 .as_deref()
                 .is_some_and(|p| self.git_relative(p).is_some());
+        // Proposal 0005: a .resx file has Open With > XML (Text) Editor.
+        let resx_file =
+            row.kind.opens_file() && row.path.as_deref().is_some_and(super::resx::is_resx);
         // Brief 0048: the solution, the Packages node and a top-level package have NuGet items.
         let nuget = matches!(
             row.kind,
@@ -339,8 +345,8 @@ impl SolutionExplorer {
                     ..
                 }
         );
-        self.menu =
-            ((project || git_file || nuget) && row.path.is_some()).then_some((ix, event.position));
+        self.menu = ((project || git_file || nuget || resx_file) && row.path.is_some())
+            .then_some((ix, event.position));
         cx.notify();
     }
 
@@ -358,6 +364,17 @@ impl SolutionExplorer {
         };
         if let Some((command, args)) = nuget_command(item, &row) {
             window.dispatch_action(Box::new(RunCommand::new(command, args)), cx);
+            cx.notify();
+            return;
+        }
+        if item == RESX_OPEN_TEXT_ITEM.0 {
+            window.dispatch_action(
+                Box::new(RunCommand::new(
+                    workspace::FILE_OPEN,
+                    json!({ "path": path.to_string_lossy(), "editor": "text" }),
+                )),
+                cx,
+            );
             cx.notify();
             return;
         }
@@ -385,9 +402,18 @@ impl SolutionExplorer {
         let entries: Vec<(&'static str, &'static str)> = if let Some(e) = nuget_entries {
             e
         } else if row.kind.opens_file() {
-            WORKSPACE_GIT_ITEMS
-                .iter()
-                .map(|(i, l, _)| (*i, *l))
+            let resx = row.path.as_deref().is_some_and(super::resx::is_resx);
+            let git = row
+                .path
+                .as_deref()
+                .is_some_and(|p| self.git_relative(p).is_some());
+            resx.then_some(RESX_OPEN_TEXT_ITEM)
+                .into_iter()
+                .chain(
+                    git.then(|| WORKSPACE_GIT_ITEMS.iter().map(|(i, l, _)| (*i, *l)))
+                        .into_iter()
+                        .flatten(),
+                )
                 .collect()
         } else {
             let mut items = CONTEXT_ITEMS.to_vec();

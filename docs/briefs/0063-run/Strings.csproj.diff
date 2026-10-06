@@ -1,0 +1,11 @@
+--- original/Strings/Strings.csproj	2026-10-06 14:37:04.760193241 +0000
++++ resx/Strings/Strings.csproj	2026-10-06 14:37:58.185789683 +0000
+@@ -18,7 +18,7 @@
+ 
+   <ItemGroup>
+     <EmbeddedResource Update="Properties\Resources.resx">
+-      <Generator>ResXFileCodeGenerator</Generator>
++      <Generator>PublicResXFileCodeGenerator</Generator>
+       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+     </EmbeddedResource>
+   </ItemGroup>

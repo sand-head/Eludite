@@ -1,0 +1,11 @@
+--- original/Strings/Properties/Resources.resx	2026-10-06 14:37:04.760073563 +0000
++++ resx/Strings/Properties/Resources.resx	2026-10-06 14:37:46.625789948 +0000
+@@ -147,4 +147,7 @@
+   <data name="class" xml:space="preserve">
+     <value>Keyword</value>
+   </data>
++  <data name="Welcome" xml:space="preserve">
++    <value></value>
++  </data>
+ </root>
+\ No newline at end of file

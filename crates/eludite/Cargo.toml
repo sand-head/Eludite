@@ -32,6 +32,7 @@ eludite-editor.workspace = true
 # libgit2 for the Git Changes and Git Repository windows and eludite.git.* (brief 0040).
 eludite-git.workspace = true
 eludite-search.workspace = true
+eludite-resx.workspace = true
 eludite-forge.workspace = true
 eludite-terminal.workspace = true
 # The self-updater: release channels on GitHub, the staged download, the swap on restart (brief 0055).

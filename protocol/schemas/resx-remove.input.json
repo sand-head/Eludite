@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-remove.input.json",
+  "title": "eludite.resx.remove input",
+  "description": "Remove keys from a resource set, as the editor's Delete does (proposal 0005): each key's entry is removed from the neutral file and from every culture file that has one. Class edit_buffer, under the policy's `resx.remove` (`prompt` by default for agents, since the entries and their translations are gone). The designer file is regenerated.",
+  "x-eludite-escalates": "Dangerous for an agent when the solution's policy sets `resx.remove` to `prompt` (the default), refused when `deny`; `allow` leaves it at class edit_buffer.",
+  "type": "object",
+  "required": [
+    "set",
+    "keys"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "keys": {
+      "description": "The keys.",
+      "type": "array",
+      "items": {
+        "description": "A key.",
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "maxItems": 10000
+    }
+  }
+}

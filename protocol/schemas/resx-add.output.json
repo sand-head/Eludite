@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-add.output.json",
+  "title": "eludite.resx.add output",
+  "description": "What the add did.",
+  "type": "object",
+  "required": [
+    "set",
+    "key",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "description": "The key.",
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "added",
+        "exists",
+        "pending",
+        "error"
+      ],
+      "description": "added, exists (the key is already in the neutral file: nothing written), pending (an agent's change awaiting review), error."
+    },
+    "line": {
+      "description": "The new entry's 1-based line.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "message": {
+      "description": "With `error`: why.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
