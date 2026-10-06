@@ -8,9 +8,14 @@
 //! highlighted as JavaScript and CSS), CSS (also SCSS and Less, which its
 //! grammar parses in their common subset), JSON and JSON with comments
 //! (`.jsonc`, `tsconfig.json`, `jsconfig.json`; the JSON grammar accepts
-//! comments, so only the id differs), and Razor (brief 0056: `.razor` and
+//! comments, so only the id differs), Razor (brief 0056: `.razor` and
 //! `.cshtml`, from the in-repo `tree-sitter-razor`; its C# by the C# query,
-//! its markup by its own, `<script>` and `<style>` as JavaScript and CSS).
+//! its markup by its own, `<script>` and `<style>` as JavaScript and CSS),
+//! and the other .NET languages (brief 0057): Visual Basic (`.vb`, from
+//! `tree-sitter-vb-dotnet` with a query written here, since the grammar
+//! ships none) and F# (`.fs`, `.fsx`, `.fsscript`, from `tree-sitter-fsharp`
+//! with its query adapted to the editor's capture names) with its signature
+//! files (`.fsi`, the same crate's signature grammar and a reduced query).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -200,9 +205,66 @@ pub const JSONC: LanguageConfig = LanguageConfig {
     emmet: None,
 };
 
+/// Visual Basic: `tree-sitter-vb-dotnet` with Eludite's highlight query (the
+/// grammar ships none). The grammar's keywords are hidden tokens, so only the
+/// modifiers (`Public`, `Shared`, ...) can be highlighted as keywords; see the
+/// query's header and `docs/briefs/0057-report.md` for what it does not parse.
+pub const VISUAL_BASIC: LanguageConfig = LanguageConfig {
+    id: "vb",
+    name: "Visual Basic",
+    path_suffixes: &["vb"],
+    file_names: &[],
+    grammar: || tree_sitter_vb_dotnet::LANGUAGE.into(),
+    highlights_query: include_str!("../../queries/vb/highlights.scm"),
+    injections_query: "",
+    injected: &[],
+    emmet: None,
+};
+
+/// F#: `tree-sitter-fsharp`'s main grammar with its highlight query adapted to
+/// the editor's capture names and precedence rule.
+pub const FSHARP: LanguageConfig = LanguageConfig {
+    id: "fsharp",
+    name: "F#",
+    path_suffixes: &["fs", "fsx", "fsscript"],
+    file_names: &[],
+    grammar: || tree_sitter_fsharp::LANGUAGE_FSHARP.into(),
+    highlights_query: include_str!("../../queries/fsharp/highlights.scm"),
+    injections_query: "",
+    injected: &[],
+    emmet: None,
+};
+
+/// F# signature files (`.fsi`): the same crate's signature grammar, which has
+/// no expression layer, so the main query does not compile against it and a
+/// reduced one is used.
+pub const FSHARP_SIGNATURE: LanguageConfig = LanguageConfig {
+    id: "fsharp-signature",
+    name: "F# signature",
+    path_suffixes: &["fsi"],
+    file_names: &[],
+    grammar: || tree_sitter_fsharp::LANGUAGE_SIGNATURE.into(),
+    highlights_query: include_str!("../../queries/fsharp/signature-highlights.scm"),
+    injections_query: "",
+    injected: &[],
+    emmet: None,
+};
+
 /// Every built-in language, in registration order.
 pub const BUILTINS: &[LanguageConfig] = &[
-    CSHARP, RUST, TYPESCRIPT, TSX, JAVASCRIPT, HTML, RAZOR, CSS, JSON, JSONC,
+    CSHARP,
+    RUST,
+    TYPESCRIPT,
+    TSX,
+    JAVASCRIPT,
+    HTML,
+    RAZOR,
+    CSS,
+    JSON,
+    JSONC,
+    VISUAL_BASIC,
+    FSHARP,
+    FSHARP_SIGNATURE,
 ];
 
 /// A language injected into another one's text, and where.
