@@ -12,6 +12,8 @@
 //! | `debugger.allowAgentsByDefault` | whether each new debugging session lets agents drive it (brief 0027) |
 //! | `languageServers.rustAnalyzerPath` | the next rust-analyzer started |
 //! | `agents.default`, `agents.claudeCodeAdapterPath`, `agents.custom` | the Agents window's registry, searched again |
+//! | `agents.json`'s `providers` (brief 0060; not a settings key) | the registry's OpenAI-compatible servers, searched again when `eludite.agents.provider_set` or `provider_remove` changes them (also when `agents.custom` is set); their keys are in the credential store under `provider:<name>`, read with each search; listed on Tools > Options > Agents with Edit and Remove |
+//! | `agents.model`, `agents.effort` | the next agent session's `session/new` (`_meta.claudeCode.options`), read when it starts; written by the Agents window's model and effort pickers (brief 0058) |
 //! | `keyboard.preset` | the key bindings (Visual Studio's is the only preset) |
 //! | `browser.chromePath`, `browser.headless`, `browser.viewport` | the browser's next launch (`browser`, brief 0023) |
 //! | `browser.enginePath`, `browser.allowNoSandbox` | the embedded engine's search and whether its next launch may drop the sandbox (brief 0039); the opt-in is read from the person's state for the workspace only, and the Web Browser window and the Output window warn while the workspace's file carries it (brief 0047) |
@@ -356,6 +358,9 @@ impl Shell {
                         cx,
                     )
                 });
+                // Brief 0060: the OpenAI-compatible servers on the Agents page.
+                let servers = self.providers_options_page(window, cx);
+                d.update(cx, |d, cx| d.append_to_page("Agents", servers, cx));
                 self.options = Some(d.clone());
                 d
             }
@@ -383,6 +388,7 @@ impl Shell {
     }
 
     pub(super) fn close_options(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.agents.providers_page = None;
         if self.options.take().is_some() {
             self.focus.focus(window, cx);
             cx.notify();

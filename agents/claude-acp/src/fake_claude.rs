@@ -10,7 +10,13 @@
 //! to a `can_use_tool` request the same `request_id` and the same `behavior`.
 //! A mismatch is logged and the fake exits with status 3, unless
 //! `FAKE_CLAUDE_LENIENT=1`. `{{SESSION_ID}}` and `{{CWD}}` are replaced by the
-//! `--session-id` argument and the working directory.
+//! `--session-id` (or `--resume`) argument and the working directory.
+//!
+//! Brief 0061: a fixture of several `claude` processes has a
+//! `{"dir": "start", "m": {"flag", "label"}}` record before each one's; the
+//! fake replays the first for `--session-id` and, for `--resume`, the one
+//! labelled `$FAKE_CLAUDE_RESUME` (default `resume`; the recording's refusal is
+//! `refused`). `{"dir": "err", "m": {"line"}}` records are written to stderr.
 //!
 //! Environment:
 //! - `FAKE_CLAUDE_FIXTURE`: the fixture (required unless the scenario is `stream`);
@@ -34,6 +40,8 @@ pub const LOG_ENV: &str = "FAKE_CLAUDE_LOG";
 pub const VERSION_ENV: &str = "FAKE_CLAUDE_VERSION";
 pub const LENIENT_ENV: &str = "FAKE_CLAUDE_LENIENT";
 pub const SCENARIO_ENV: &str = "FAKE_CLAUDE_SCENARIO";
+/// Which recorded process answers a `--resume` (brief 0061): its start record's label.
+pub const RESUME_ENV: &str = "FAKE_CLAUDE_RESUME";
 
 struct Log(Option<std::fs::File>);
 
@@ -93,7 +101,10 @@ pub fn main(args: Vec<String>) -> i32 {
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let sid = arg_after(&args, "--session-id").unwrap_or_default();
+    let resume = arg_after(&args, "--resume");
+    let sid = arg_after(&args, "--session-id")
+        .or_else(|| resume.clone())
+        .unwrap_or_default();
     let mcp = arg_after(&args, "--mcp-config")
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str::<Value>(&s).ok());
@@ -118,7 +129,20 @@ pub fn main(args: Vec<String>) -> i32 {
         stream(&mut input, &mut out, &mut log, &sid)
     } else {
         match std::env::var_os(FIXTURE_ENV) {
-            Some(path) => replay(Path::new(&path), &mut input, &mut out, &mut log, &sid, &cwd),
+            Some(path) => {
+                let segment = resume
+                    .is_some()
+                    .then(|| std::env::var(RESUME_ENV).unwrap_or_else(|_| "resume".into()));
+                replay(
+                    Path::new(&path),
+                    segment.as_deref(),
+                    &mut input,
+                    &mut out,
+                    &mut log,
+                    &sid,
+                    &cwd,
+                )
+            }
             None => {
                 eprintln!("eludite-fake-claude: set {FIXTURE_ENV}");
                 Ok(2)
@@ -151,8 +175,33 @@ fn read_json(input: &mut impl BufRead, log: &mut Log) -> io::Result<Option<Value
     }
 }
 
+/// The records of one recorded process: the first for a new session (`resume` `None`), else the one whose start
+/// record has label `resume`; a fixture with no start records is one process.
+fn segment(records: Vec<Value>, resume: Option<&str>) -> Vec<Value> {
+    let mut segments: Vec<(Option<String>, Vec<Value>)> = vec![(None, Vec::new())];
+    for r in records {
+        if r["dir"] == "start" {
+            let label = r["m"]["label"].as_str().map(str::to_owned);
+            segments.push((label, Vec::new()));
+        } else if let Some(last) = segments.last_mut() {
+            last.1.push(r);
+        }
+    }
+    let mut segments = segments
+        .into_iter()
+        .filter(|(label, recs)| label.is_some() || !recs.is_empty());
+    match resume {
+        None => segments.next().map(|s| s.1).unwrap_or_default(),
+        Some(want) => segments
+            .find(|(label, _)| label.as_deref() == Some(want))
+            .map(|s| s.1)
+            .unwrap_or_default(),
+    }
+}
+
 fn replay(
     fixture: &Path,
+    resume: Option<&str>,
     input: &mut impl BufRead,
     out: &mut impl Write,
     log: &mut Log,
@@ -170,6 +219,7 @@ fn replay(
         .map(serde_json::from_str)
         .collect::<Result<_, _>>()
         .map_err(io::Error::other)?;
+    let records = segment(records, resume);
     let mut sent = vec![false; records.len()];
     let reply_id = |m: &Value| {
         (m["type"] == "control_response")
@@ -217,10 +267,18 @@ fn replay(
                 }
             }
             Some("exit") => exit_code = rec["code"].as_i64().unwrap_or(0) as i32,
+            Some("err") => {
+                let line = substitute(&rec["m"]["line"], sid, cwd);
+                eprintln!("{}", line.as_str().unwrap_or_default());
+            }
             _ => {}
         }
     }
-    // Like the real CLI, stay until stdin closes.
+    // A recorded failure (a refused `--resume`) exits at once, as the real CLI did; otherwise, like the real CLI,
+    // stay until stdin closes.
+    if exit_code != 0 {
+        return Ok(exit_code);
+    }
     while read_json(input, log)?.is_some() {}
     Ok(exit_code)
 }

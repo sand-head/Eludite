@@ -3,14 +3,40 @@
 # real eludite-host, Roslyn and the native Claude Code adapter (agents/claude-acp, release build):
 #   1. An error is put into HostRpcTarget.cs (`timestamp` misspelled in Ping), which the run opens.
 #   2. X11 backend on the nested Xwayland, real XTest input (tools/agents.py): Ctrl+\, Ctrl+C shows the Agents window;
+#      brief 0057 first, with no prompt sent: a prompt that wraps to three rows with the caret clicked into its second
+#      row (agents-prompt-editor.png), then Start and the slash menu on `/mo` with the adapter's commands
+#      (agents-slash-menu.png); brief 0058, still before any prompt: the model picker under the prompt box open with
+#      the adapter's model list (agents-model-picker.png), then Opus picked (no model call), so the next turn's usage
+#      line (transcript.json) names the picked model; then
 #      the prompt "List the current errors and fix the first one"; Claude calls diagnostics-list and proposes an edit
 #      held as a pending change (agents-pending-diff.png); Accept; the error clears (agents-error-cleared.png); then a
-#      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png), Deny
-#      (agents-permission-denied.png). Two real prompts.
+#      prompt that makes Claude run a shell command: the permission prompt (agents-permission-prompt.png); brief
+#      0059, still mid-turn: an earlier tool card expanded, the status line and the usage strip
+#      (agents-polish-running.png); Deny (agents-permission-denied.png). Three real prompts.
+#   2b. Brief 0059, a second run with --theme light (SKIP_POLISH=1 skips it): one prompt that makes Claude run `ls`
+#      (allowed), then after the turn a tool card expanded and the strip with the turn's usage
+#      (agents-polish-light.png). One real prompt. POLISH_THEMES="light blue" takes one shot per theme
+#      (agents-polish-<theme>.png).
+#   2c. Brief 0060 (SKIP_OPENAI=1 skips it): a fresh config directory, ELUDITE_OPENAI_ACP set to agents/openai-acp's
+#      release build; the agent picker's "Add server…" opens the dialog on the llama.cpp preset
+#      (agents-openai-add-server.png); the base URL becomes a loopback fake OpenAI-compatible server the driver starts
+#      (or LLAMA_URL, the owner's llama-server); Test shows the model count (agents-openai-test.png); Save, Start, a
+#      prompt whose answer calls eludite-diagnostics-list; mid-answer agents-openai-turn.png (with LLAMA_URL:
+#      linux-agents-openai-llama.png), after the turn agents-openai-done.png. No key, so no credential store is needed.
+#   2d. Brief 0061 (SKIP_HISTORY=1 skips it): a fresh config directory whose agents.json names three fake agents
+#      (eludite-fake-acp-agent, release build: "Fake quick", "Fake asker", "Fake streamer", tools/agents.py's
+#      HISTORY_AGENTS); three sessions picked from the agent picker: one that finished its turn, one waiting at its
+#      shell command's permission prompt, one streaming and shown; the clock in the header opens the history list
+#      (linux-agents-history.png). No real prompt. Alone on an Xvfb display: HISTORY_ONLY=1 with DISPLAY set runs only
+#      this step, without KWin, and SHOT_X11=1 shoots with ImageMagick.
 #   3. Wayland backend, RUNS runs each: --bench-agent-ready 5 (the real adapter, no prompt), --bench-agent-stream (the
-#      fake agent at 200 chunks/s), --bench-diff 20                                   -> OUT_DIR/agents-bench.jsonl
+#      fake agent at 200 chunks/s), --bench-agent-prompt (2,000 keystrokes into the prompt box, then the stream with
+#      500 characters in it; brief 0057), --bench-diff 20                             -> OUT_DIR/agents-bench.jsonl
 #   The 1-minute load average before each step goes to OUT_DIR/loadavg.txt.
-# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_BENCH=1 skips 3; DRY=1 with
+# Usage: tools/agents-linux.sh OUT_DIR    (RUNS=3; SKIP_DRIVE=1 skips 2, SKIP_POLISH=1 skips 2b, SKIP_OPENAI=1 skips 2c,
+#        SKIP_HISTORY=1 skips 2d, HISTORY_ONLY=1 runs only 2d on the current X display,
+#        SKIP_BENCH=1 skips 3;
+#        DRY=1 with
 #        ELUDITE_CLAUDE_ACP pointing at a scripted agent checks the driving without a real prompt)
 # The run needs dotnet/ clean in git and restores it with `git checkout -- dotnet/` at the end.
 set -euo pipefail
@@ -25,6 +51,7 @@ target_dir=${CARGO_TARGET_DIR:-$repo/target}
 bin=${ELUDITE_BIN:-$target_dir/release/eludite}
 fake=$target_dir/release/eludite-fake-acp-agent
 adapter=${ELUDITE_CLAUDE_ACP:-$repo/agents/claude-acp/target/release/eludite-claude-acp}
+openai=${ELUDITE_OPENAI_ACP:-$repo/agents/openai-acp/target/release/eludite-openai-acp}
 sln=$repo/dotnet/Eludite.slnx
 file=$repo/dotnet/src/Eludite.Host/Rpc/HostRpcTarget.cs
 host=${ELUDITE_HOST:-$repo/dotnet/src/Eludite.Host/bin/Debug/net10.0/eludite-host}
@@ -32,6 +59,39 @@ runs=${RUNS:-3}
 title="Eludite - Eludite"
 shell_prompt=${SHELL_PROMPT:-"Run the shell command touch eludite-denied.txt in the solution folder"}
 q() { printf %q "$1"; }
+# Brief 0061: the history run, on whatever X display is set (the nested Xwayland, or an Xvfb display).
+history="$out/history.sh"
+cat >"$history" <<HISTORY
+#!/usr/bin/env bash
+rm -rf $(q "$out/config-history"); mkdir -p $(q "$out/config-history")
+python3 - $(q "$out/config-history/agents.json") $(q "$fake") <<'PY'
+import json, sys
+# tools/agents.py's HISTORY_AGENTS.
+HISTORY_AGENTS = [
+    ("Fake quick", ["--scenario", "stream", "--chunks", "40", "--rate", "200"]),
+    ("Fake asker", ["--scenario", "diagnostics-then-shell"]),
+    ("Fake streamer", ["--scenario", "stream", "--chunks", "20000", "--rate", "20"]),
+]
+json.dump({"agents": [{"name": n, "command": sys.argv[2], "args": a} for n, a in HISTORY_AGENTS]},
+          open(sys.argv[1], "w"), indent=2)
+PY
+ELUDITE_CONFIG_DIR=$(q "$out/config-history") ELUDITE_TRACE_LSP=1 env -u WAYLAND_DISPLAY $(q "$bin") \
+  --reset-layout --no-persist --solution $(q "$sln") --bounds-out $(q "$out")/bounds-history.json \
+  >$(q "$out")/history.out 2>$(q "$out")/history.err &
+pid=\$!
+SHOT_WAYLAND_DISPLAY=\${SHOT_WAYLAND_DISPLAY:-\${WAYLAND_DISPLAY:-}} env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") \
+  --history --title $(q "$title") --log $(q "$out")/history.err --bounds $(q "$out")/bounds-history.json \
+  --shots $(q "$out") --shot-name linux-agents-history >$(q "$out")/history.json 2>$(q "$out")/history-driver.err || true
+sleep 1
+kill \$pid; wait \$pid
+cp -r $(q "$out/config-history")/workspaces $(q "$out")/history-sessions 2>/dev/null || true
+HISTORY
+chmod +x "$history"
+if [[ -n "${HISTORY_ONLY:-}" ]]; then
+  "$history"
+  ls "$out"
+  exit 0
+fi
 inner="$out/inner.sh"
 cat >"$inner" <<INNER
 #!/usr/bin/env bash
@@ -49,12 +109,49 @@ if [[ -z "${SKIP_DRIVE:-}" ]]; then
   pid=\$!
   SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --title $(q "$title") \\
     --log $(q "$out")/drive.err --bounds $(q "$out")/bounds.json --shots $(q "$out") --file $(q "$file") \\
-    --shell-prompt $(q "$shell_prompt") \${DRY:+--dry} >$(q "$out")/drive.json 2>$(q "$out")/driver.err || true
+    --shell-prompt $(q "$shell_prompt") --transcript $(q "$out")/transcript.json \${DRY:+--dry} \
+    >$(q "$out")/drive.json 2>$(q "$out")/driver.err || true
   sleep 1
   kill \$pid; wait \$pid
   git -C $(q "$repo") diff -- dotnet/ >$(q "$out")/dotnet-after.diff
   ls -la $(q "$repo")/dotnet/eludite-denied.txt >$(q "$out")/denied-file.txt 2>&1 || true
   restore
+fi
+if [[ -z "${SKIP_POLISH:-}" ]]; then
+  for theme in ${POLISH_THEMES:-light}; do
+    load "polish-\$theme"
+    env -u WAYLAND_DISPLAY $(q "$bin") --reset-layout --no-persist --theme "\$theme" --solution $(q "$sln") \\
+      --agent "Claude Code" --bounds-out $(q "$out")/bounds-\$theme.json \\
+      --transcript-out $(q "$out")/transcript-\$theme.json >$(q "$out")/polish-\$theme.out \\
+      2>$(q "$out")/polish-\$theme.err &
+    pid=\$!
+    SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --polish-light \\
+      --title $(q "$title") --log $(q "$out")/polish-\$theme.err --bounds $(q "$out")/bounds-\$theme.json \\
+      --shots $(q "$out") --polish-name "agents-polish-\$theme" \\
+      >$(q "$out")/polish-\$theme.json 2>$(q "$out")/polish-driver-\$theme.err || true
+    sleep 1
+    kill \$pid; wait \$pid
+  done
+  restore
+fi
+if [[ -z "${SKIP_OPENAI:-}" ]]; then
+  load openai
+  rm -rf $(q "$out/config-openai"); mkdir -p $(q "$out/config-openai")
+  ELUDITE_CONFIG_DIR=$(q "$out/config-openai") ELUDITE_OPENAI_ACP=$(q "$openai") env -u WAYLAND_DISPLAY $(q "$bin") \
+    --reset-layout --no-persist --solution $(q "$sln") --bounds-out $(q "$out")/bounds-openai.json \
+    --transcript-out $(q "$out")/transcript-openai.json >$(q "$out")/openai.out 2>$(q "$out")/openai.err &
+  pid=\$!
+  SHOT_WAYLAND_DISPLAY=\$wl env -u WAYLAND_DISPLAY python3 $(q "$here/agents.py") --openai --title $(q "$title") \
+    --log $(q "$out")/openai.err --bounds $(q "$out")/bounds-openai.json --shots $(q "$out") \
+    ${LLAMA_URL:+--openai-url $(q "${LLAMA_URL:-}") --shot-name linux-agents-openai-llama} \
+    >$(q "$out")/openai.json 2>$(q "$out")/openai-driver.err || true
+  sleep 1
+  kill \$pid; wait \$pid
+  cp $(q "$out/config-openai")/agents.json $(q "$out")/agents-openai.json 2>/dev/null || true
+fi
+if [[ -z "${SKIP_HISTORY:-}" ]]; then
+  load history
+  $(q "$out/history.sh")
 fi
 if [[ -z "${SKIP_BENCH:-}" ]]; then
   for run in \$(seq 1 $runs); do
@@ -64,6 +161,9 @@ if [[ -z "${SKIP_BENCH:-}" ]]; then
     load "stream-\$run"
     $(q "$bin") --reset-layout --no-persist --bench-agent-stream $(q "$fake") \\
       >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/stream-\$run.err
+    load "prompt-\$run"
+    $(q "$bin") --reset-layout --no-persist --bench-agent-prompt $(q "$fake") \\
+      >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/prompt-\$run.err
     load "diff-\$run"
     $(q "$bin") --reset-layout --no-persist --bench-diff 20 \\
       >>$(q "$out/agents-bench.jsonl") 2>$(q "$out")/diff-\$run.err

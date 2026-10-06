@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/agents-start.input.json",
   "title": "eludite.agents.start input",
-  "description": "Start an ACP agent in the Agents window (View > Agents): spawn it, run ACP initialize and session/new with Eludite's MCP server, and report its state. With no `agent`, the window's selected agent (by default the first of the registry: the native Claude Code adapter when found, then the npx adapter, then the agents configured in settings). Starting an agent that is already running does nothing unless `restart` is true.",
+  "description": "Start an ACP agent in the Agents window (View > Agents): spawn it, run ACP initialize and session/new with Eludite's MCP server, and report its state. It acts on the session the window shows (or `session`): with no session shown it starts a new one; restarting a live session keeps its transcript and record and starts a new ACP session in it; a stored session whose agent cannot resume it is replaced by a new session with the same agent. With no `agent`, the session's agent, else the window's selected agent (by default the first of the registry: the native Claude Code adapter when found, then the npx adapter, then the agents configured in settings); naming another agent than the session's stops that session and starts a new one with the named agent. Starting an agent that is already running does nothing unless `restart` is true.",
   "type": "object",
   "properties": {
     "agent": {
@@ -11,8 +11,13 @@
       "minLength": 1
     },
     "restart": {
-      "description": "Stop the running session (if any) and start a new one.",
+      "description": "Stop the running agent of the session (if any) and start it again.",
       "type": "boolean"
+    },
+    "session": {
+      "description": "Act on this session (an `id` from eludite.agents.sessions) instead of the one the window shows; it becomes the one shown.",
+      "type": "string",
+      "minLength": 1
     }
   },
   "additionalProperties": false

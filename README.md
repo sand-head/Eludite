@@ -6,6 +6,8 @@ It is .NET-first, not .NET-only. The first-class workloads are .NET in all its l
 
 The shell is written in Rust on GPUI and draws its own UI. Roslyn, MSBuild, debuggers, test runners, the browser engine and agents each run in their own process, so a hung analyzer cannot freeze the editor. Every user-visible action is a command on one bus with a JSON schema; the menus call it, and so do agents over MCP. The shell speaks open protocols (LSP, DAP, the testing platform protocols, ACP, MCP) rather than a plugin API of its own.
 
+Agents run in the Agents window over ACP and reach the IDE through its MCP endpoint, with the same commands, permission classes and pending-change review as the person: Claude Code through `eludite-claude-acp` (no Node), any ACP agent added to `agents.json`, and any server that speaks the OpenAI Chat Completions API (a llama.cpp `llama-server` on your own machine, Ollama, vLLM, LM Studio, OpenRouter, OpenAI and others) through `eludite-openai-acp`, whose only tools are the IDE's ([agents/openai-acp/](agents/openai-acp/README.md), brief 0060, in progress). Those servers are listed in `agents.json`'s `providers`; their keys stay in the system's credential store.
+
 Eludite was called Niello until 2026-10-02.
 
 ![An agent stopped in the debugger, explaining a null path in the Agents window beside Locals and the Call Stack](docs/screenshots/agent-debugging.png)

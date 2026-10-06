@@ -95,7 +95,9 @@ pub fn run(args: Args, t_main: Instant) {
         .and_then(Theme::by_name)
         .unwrap_or_default();
 
-    gpui_platform::application().run(move |cx: &mut App| {
+    // Eludite's own icons (brief 0062), served to `svg()` and `img()` from the binary.
+    let application = gpui_platform::application().with_assets(eludite_ui::icons::Assets);
+    application.run(move |cx: &mut App| {
         let t_join = Instant::now();
         let Loaded {
             layout,
@@ -139,6 +141,8 @@ pub fn run(args: Args, t_main: Instant) {
             }]);
         }
         let session = services.session.clone();
+        // The Workspace window's search box for agents and Ctrl+; (brief 0062).
+        let workspace_search = crate::shell::explorer::register_search(&commands);
         let commands = Arc::new(commands);
         let persistence = store.map(|s| Persistence {
             path: s.path_for(args.solution.as_deref()),
@@ -151,6 +155,7 @@ pub fn run(args: Args, t_main: Instant) {
         // After the shell's keymap: the keys a focused terminal takes from it (brief 0041).
         crate::shell::terminal::bind_keys(cx);
         crate::shell::search::bind_keys(cx);
+        crate::shell::explorer::bind_keys(cx);
         let title = match &args.solution {
             Some(s) => format!(
                 "{} - Eludite",
@@ -200,6 +205,8 @@ pub fn run(args: Args, t_main: Instant) {
                     shell.set_title(title, window);
                     shell
                 });
+                let explorer = shell.read(cx).explorer().clone();
+                explorer.update(cx, |e, cx| e.link_search(workspace_search, window, cx));
                 shell.focus_handle(cx).focus(window, cx);
                 shell
             })

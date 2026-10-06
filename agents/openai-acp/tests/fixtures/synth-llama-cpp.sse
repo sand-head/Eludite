@@ -1,0 +1,14 @@
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"role":"assistant","content":null}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"reasoning_content":"The person wants "}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"reasoning_content":"the notes file; "}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"reasoning_content":"I will read it."}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":null,"index":0,"delta":{"tool_calls":[{"index":0,"id":"sYnTh3t1c","type":"function","function":{"name":"eludite-file-read","arguments":"{\"path\":\"notes.txt\"}"}}]}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk"}
+
+data: {"choices":[{"finish_reason":"tool_calls","index":0,"delta":{}}],"created":1759650000,"id":"chatcmpl-synth","model":"qwen3-8b-q4_k_m","object":"chat.completion.chunk","usage":{"completion_tokens":41,"prompt_tokens":2533,"total_tokens":2574},"timings":{"prompt_n":2533,"prompt_ms":812.4,"predicted_n":41,"predicted_ms":655.1}}
+
+data: [DONE]
+

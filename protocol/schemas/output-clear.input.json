@@ -14,7 +14,8 @@
         "debug",
         "browser",
         "package_manager",
-        "updates"
+        "updates",
+        "agents"
       ]
     }
   },

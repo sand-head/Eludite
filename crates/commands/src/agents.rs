@@ -1,10 +1,21 @@
 //! The Agents window's commands (brief 0016): `eludite.agents.start`, `prompt`, `cancel`, `permission` (answer a
-//! pending request) and `review` (accept or reject a pending change). The window's buttons, the prompt box and its
-//! keys run them, and they are agent-visible too, so an outer agent could drive an inner one.
+//! pending request) and `review` (accept or reject a pending change); brief 0058 adds `configure` (the session's mode
+//! or a config option such as the model or the effort, as the pickers under the prompt box set them). The window's
+//! buttons, the prompt box, its keys and the pickers run them, and they are agent-visible too, so an outer agent could
+//! drive an inner one.
+//!
+//! Brief 0061 adds the sessions: `eludite.agents.sessions` (the history list), `switch` (show another session, a
+//! stored one resumed through ACP `session/load` when its agent can) and `new_session` (a new session made current,
+//! the previous one kept running); `start` gains `session`, and the state output names the session it describes.
 //!
 //! The schemas are the files in `protocol/schemas/` (checked in first, CLAUDE.md invariant 4). This module parses
 //! input into a typed [`AgentsRequest`] and serializes the typed [`AgentsOutput`]; the shell implements
 //! [`AgentsTarget`].
+//!
+//! Brief 0060 adds the OpenAI-compatible servers' commands, [`PROVIDER_COMMANDS`]: `eludite.agents.provider_set`
+//! (`dangerous`: it stores a credential; its `apiKey` is `<redacted>` in the audit and in `Debug`),
+//! `provider_remove` and `provider_models` (`execute`: a network call). They parse into a [`ProviderRequest`]
+//! answered by a [`ProviderTarget`] and are registered by [`register_providers`], apart from [`register`].
 
 use std::sync::Arc;
 
@@ -18,10 +29,38 @@ pub const PROMPT: &str = "eludite.agents.prompt";
 pub const CANCEL: &str = "eludite.agents.cancel";
 pub const PERMISSION: &str = "eludite.agents.permission";
 pub const REVIEW: &str = "eludite.agents.review";
+pub const CONFIGURE: &str = "eludite.agents.configure";
+pub const SESSIONS: &str = "eludite.agents.sessions";
+pub const SWITCH: &str = "eludite.agents.switch";
+pub const NEW_SESSION: &str = "eludite.agents.new_session";
 
-pub const ALL: [&str; 5] = [START, PROMPT, CANCEL, PERMISSION, REVIEW];
+pub const ALL: [&str; 9] = [
+    START,
+    PROMPT,
+    CANCEL,
+    PERMISSION,
+    REVIEW,
+    CONFIGURE,
+    SESSIONS,
+    SWITCH,
+    NEW_SESSION,
+];
+
+/// `eludite.agents.configure`'s `option` for the session mode (any other value names a config option).
+pub const MODE_OPTION: &str = "mode";
+
+pub const PROVIDER_SET: &str = "eludite.agents.provider_set";
+pub const PROVIDER_REMOVE: &str = "eludite.agents.provider_remove";
+pub const PROVIDER_MODELS: &str = "eludite.agents.provider_models";
+
+/// The OpenAI-compatible servers' commands (brief 0060), registered by [`register_providers`].
+pub const PROVIDER_COMMANDS: [&str; 3] = [PROVIDER_SET, PROVIDER_REMOVE, PROVIDER_MODELS];
+
+/// What the audit and logs show in place of a key.
+pub const REDACTED: &str = "<redacted>";
 
 const STATE_OUTPUT: &str = include_str!("../../../protocol/schemas/agents-state.output.json");
+const PROVIDER_OUTPUT: &str = include_str!("../../../protocol/schemas/agents-provider.output.json");
 
 /// (title, input schema, output schema, permission)
 fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionClass) {
@@ -59,6 +98,53 @@ fn schemas(id: &str) -> (&'static str, &'static str, &'static str, PermissionCla
             include_str!("../../../protocol/schemas/agents-review.output.json"),
             Dangerous,
         ),
+        // An agent changing another agent's model or mode is something to prompt about (brief 0058).
+        CONFIGURE => (
+            "Agents: Configure Session",
+            include_str!("../../../protocol/schemas/agents-configure.input.json"),
+            STATE_OUTPUT,
+            Execute,
+        ),
+        // Brief 0061: the history list reads; switching may start the agent that owns a stored session, and a new
+        // session starts one.
+        SESSIONS => (
+            "Agents: List Sessions",
+            include_str!("../../../protocol/schemas/agents-sessions.input.json"),
+            include_str!("../../../protocol/schemas/agents-sessions.output.json"),
+            Read,
+        ),
+        SWITCH => (
+            "Agents: Switch Session",
+            include_str!("../../../protocol/schemas/agents-switch.input.json"),
+            STATE_OUTPUT,
+            Execute,
+        ),
+        NEW_SESSION => (
+            "Agents: New Session",
+            include_str!("../../../protocol/schemas/agents-new-session.input.json"),
+            STATE_OUTPUT,
+            Execute,
+        ),
+        // It stores a credential.
+        PROVIDER_SET => (
+            "Agents: Add or Change Server",
+            include_str!("../../../protocol/schemas/agents-provider-set.input.json"),
+            PROVIDER_OUTPUT,
+            Dangerous,
+        ),
+        PROVIDER_REMOVE => (
+            "Agents: Remove Server",
+            include_str!("../../../protocol/schemas/agents-provider-remove.input.json"),
+            PROVIDER_OUTPUT,
+            Execute,
+        ),
+        // It makes a network call.
+        PROVIDER_MODELS => (
+            "Agents: List Server Models",
+            include_str!("../../../protocol/schemas/agents-provider-models.input.json"),
+            include_str!("../../../protocol/schemas/agents-provider-models.output.json"),
+            Execute,
+        ),
         other => unreachable!("not an agents command: {other}"),
     }
 }
@@ -86,6 +172,8 @@ pub enum AgentsRequest {
     Start {
         agent: Option<String>,
         restart: bool,
+        /// Act on this session instead of the current one (brief 0061).
+        session: Option<String>,
     },
     Prompt {
         text: String,
@@ -100,6 +188,21 @@ pub enum AgentsRequest {
         target: ReviewTarget,
         accept: bool,
     },
+    /// The session's mode ([`MODE_OPTION`]) or a config option, set to `value`.
+    Configure {
+        option: String,
+        value: String,
+    },
+    /// List the sessions (brief 0061).
+    Sessions,
+    /// Show session `session`, resuming a stored one when its agent can.
+    Switch {
+        session: String,
+    },
+    /// A new session with `agent` (else the selected one), made current.
+    NewSession {
+        agent: Option<String>,
+    },
 }
 
 impl AgentsRequest {
@@ -110,6 +213,10 @@ impl AgentsRequest {
             AgentsRequest::Cancel => CANCEL,
             AgentsRequest::Permission { .. } => PERMISSION,
             AgentsRequest::Review { .. } => REVIEW,
+            AgentsRequest::Configure { .. } => CONFIGURE,
+            AgentsRequest::Sessions => SESSIONS,
+            AgentsRequest::Switch { .. } => SWITCH,
+            AgentsRequest::NewSession { .. } => NEW_SESSION,
         }
     }
 }
@@ -130,15 +237,18 @@ pub struct LoginRow {
 pub struct AgentRow {
     pub name: String,
     pub command: String,
-    /// `native`, `npx` or `settings`.
+    /// `native`, `npx`, `provider` or `settings`.
     pub source: String,
 }
 
-/// `agents-state.output.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `agents-state.output.json`. Not `Eq`: the usage's cost is an `f64` (brief 0059).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentsStateOutput {
     pub agent: String,
+    /// The session the window shows (brief 0061); absent when it shows none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionOutput>,
     /// `stopped`, `starting`, `ready`, `needs_login`, `running` or `error`.
     pub state: String,
     pub generation: u64,
@@ -157,6 +267,129 @@ pub struct AgentsStateOutput {
     pub agents: Vec<AgentRow>,
     pub pending_permissions: u64,
     pub pending_changes: u64,
+    /// The agent's slash commands (its latest ACP `available_commands_update`; brief 0057).
+    #[serde(default)]
+    pub commands: Vec<CommandRow>,
+    /// The session's mode and the modes offered (brief 0058); absent when the agent offers none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ModeOutput>,
+    /// The session's select config options (brief 0058); absent when the agent offers none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<OptionRow>,
+    /// The session's context and cost as the usage strip shows them (brief 0059): the agent's last `usage_update`;
+    /// absent before the first one, cleared by a restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UsageOutput>,
+}
+
+/// `agents-state.output.json`'s `session` (brief 0061). The times are RFC 3339 in UTC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionOutput {
+    pub id: String,
+    pub title: String,
+    pub started: String,
+    pub last_activity: String,
+    pub live: bool,
+}
+
+/// One row of `agents-sessions.output.json` (brief 0061).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionRow {
+    pub id: String,
+    pub agent: String,
+    pub title: String,
+    pub started: String,
+    pub last_activity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub live: bool,
+    pub running: bool,
+    pub waiting: bool,
+}
+
+/// `agents-sessions.output.json`: newest first.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionsOutput {
+    pub current: Option<String>,
+    pub sessions: Vec<SessionRow>,
+}
+
+/// `agents-state.output.json`'s `usage` (brief 0059).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsageOutput {
+    /// Tokens in context.
+    pub used: u64,
+    /// The context window; 0 when the agent does not know it.
+    pub size: u64,
+    /// The session's cost so far, the agent's running total.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<CostOutput>,
+}
+
+/// An amount of money in `currency` (ISO 4217).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CostOutput {
+    pub amount: f64,
+    pub currency: String,
+}
+
+/// `agents-state.output.json`'s `mode`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeOutput {
+    pub current: String,
+    pub available: Vec<ModeRow>,
+}
+
+/// One mode of [`ModeOutput::available`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One config option of `agents-state.output.json`'s `options`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OptionRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    pub current: String,
+    pub choices: Vec<ChoiceRow>,
+}
+
+/// One value of [`OptionRow::choices`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ChoiceRow {
+    pub value: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// One slash command of `agents-state.output.json`'s `commands`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandRow {
+    /// Without the leading `/`.
+    pub name: String,
+    pub description: String,
+    /// What the command takes after its name (ACP's `input.hint`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// `agents-permission.output.json`.
@@ -198,11 +431,15 @@ pub struct ReviewOutput {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One per command, serialized at once: the state's size (it grew the mode and the options in brief 0058) costs
+/// nothing worth a box.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AgentsOutput {
     State(AgentsStateOutput),
     Permission(PermissionOutput),
     Review(ReviewOutput),
+    Sessions(SessionsOutput),
 }
 
 impl AgentsOutput {
@@ -211,6 +448,7 @@ impl AgentsOutput {
             AgentsOutput::State(o) => serde_json::to_value(o),
             AgentsOutput::Permission(o) => serde_json::to_value(o),
             AgentsOutput::Review(o) => serde_json::to_value(o),
+            AgentsOutput::Sessions(o) => serde_json::to_value(o),
         }
         .expect("agents outputs serialize")
     }
@@ -227,6 +465,19 @@ struct StartIn {
     agent: Option<String>,
     #[serde(default)]
     restart: bool,
+    session: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SwitchIn {
+    session: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct NewSessionIn {
+    agent: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -244,6 +495,13 @@ struct Empty {}
 struct PermissionIn {
     request: Option<u64>,
     decision: PermissionDecision,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigureIn {
+    option: String,
+    value: String,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -283,10 +541,38 @@ pub fn parse(id: &str, value: Value) -> Result<AgentsRequest, CommandError> {
                     "`agent` must not be empty".into(),
                 ));
             }
+            if i.session.as_deref() == Some("") {
+                return Err(CommandError::InvalidInput(
+                    "`session` must not be empty".into(),
+                ));
+            }
             AgentsRequest::Start {
                 agent: i.agent,
                 restart: i.restart,
+                session: i.session,
             }
+        }
+        SESSIONS => {
+            let _: Empty = input(value)?;
+            AgentsRequest::Sessions
+        }
+        SWITCH => {
+            let i: SwitchIn = required(value)?;
+            if i.session.is_empty() {
+                return Err(CommandError::InvalidInput(
+                    "`session` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::Switch { session: i.session }
+        }
+        NEW_SESSION => {
+            let i: NewSessionIn = input(value)?;
+            if i.agent.as_deref() == Some("") {
+                return Err(CommandError::InvalidInput(
+                    "`agent` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::NewSession { agent: i.agent }
         }
         PROMPT => {
             let i: PromptIn = required(value)?;
@@ -331,15 +617,326 @@ pub fn parse(id: &str, value: Value) -> Result<AgentsRequest, CommandError> {
                 accept: i.decision == ReviewDecision::Accept,
             }
         }
+        CONFIGURE => {
+            let i: ConfigureIn = required(value)?;
+            if i.option.is_empty() || i.value.is_empty() {
+                return Err(CommandError::InvalidInput(
+                    "`option` and `value` must not be empty".into(),
+                ));
+            }
+            AgentsRequest::Configure {
+                option: i.option,
+                value: i.value,
+            }
+        }
         other => return Err(CommandError::UnknownCommand(other.to_owned())),
     })
+}
+
+/// A key that never prints: `Debug` shows [`REDACTED`].
+#[derive(Clone, PartialEq, Eq)]
+pub struct ApiKey(String);
+
+impl ApiKey {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self(key.into())
+    }
+
+    /// The key itself, for the credential store and the agent's environment only.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for ApiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(REDACTED)
+    }
+}
+
+/// What `provider_set` does with the stored key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyChange {
+    /// `apiKey` absent: keep the stored key.
+    Keep,
+    /// `apiKey: ""`: delete it.
+    Delete,
+    /// Store this key.
+    Set(ApiKey),
+}
+
+/// One model of a provider's catalog or listing (`{id, name?, contextWindow?}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderModel {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+}
+
+/// `provider_set`'s input, validated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderSet {
+    pub name: String,
+    pub base_url: String,
+    pub api_key: KeyChange,
+    pub default_model: Option<String>,
+    pub headers: std::collections::BTreeMap<String, String>,
+    pub models: Vec<ProviderModel>,
+    /// `core` or `all`.
+    pub tools: Option<String>,
+    /// `allowFileStore`: the person agreed to the 0600 file when the credential store is unavailable (brief 0046).
+    pub allow_file_store: bool,
+}
+
+/// A parsed, validated provider command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderRequest {
+    Set(ProviderSet),
+    Remove {
+        name: String,
+    },
+    /// List models: a saved server by `name`, or `base_url` (and `api_key`) for one being added.
+    Models {
+        name: Option<String>,
+        base_url: Option<String>,
+        api_key: Option<ApiKey>,
+    },
+}
+
+/// A saved server in `agents-provider.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderRow {
+    pub name: String,
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<String>,
+    pub has_key: bool,
+}
+
+/// `agents-provider.output.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderOutput {
+    pub name: String,
+    /// `saved` or `removed`.
+    pub action: String,
+    pub has_key: bool,
+    pub providers: Vec<ProviderRow>,
+}
+
+/// `agents-provider-models.output.json`, also what `eludite-openai-acp models` prints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderModelsOutput {
+    pub models: Vec<ProviderModel>,
+    /// `server`, `catalog` or `none`.
+    pub listing: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderCommandOutput {
+    Provider(ProviderOutput),
+    Models(ProviderModelsOutput),
+}
+
+impl ProviderCommandOutput {
+    pub fn to_json(&self) -> Value {
+        match self {
+            ProviderCommandOutput::Provider(o) => serde_json::to_value(o),
+            ProviderCommandOutput::Models(o) => serde_json::to_value(o),
+        }
+        .expect("provider outputs serialize")
+    }
+}
+
+/// Whatever keeps the servers (the shell: `agents.json` and the credential store). Called on the invoking thread;
+/// `provider_models` makes a network call, so the shell runs it off the UI thread.
+pub trait ProviderTarget: Send + Sync {
+    fn apply(&self, request: ProviderRequest) -> Result<ProviderCommandOutput, CommandError>;
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProviderSetIn {
+    name: String,
+    base_url: String,
+    api_key: Option<String>,
+    default_model: Option<String>,
+    #[serde(default)]
+    headers: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    models: Vec<ProviderModel>,
+    tools: Option<String>,
+    #[serde(default)]
+    allow_file_store: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProviderRemoveIn {
+    name: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProviderModelsIn {
+    name: Option<String>,
+    base_url: Option<String>,
+    api_key: Option<String>,
+}
+
+fn provider_name(name: &str) -> Result<(), CommandError> {
+    if name.trim().is_empty() || name.chars().count() > 100 || name.chars().any(char::is_control) {
+        return Err(CommandError::InvalidInput(
+            "`name` is 1 to 100 characters with no control characters".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn base_url(url: &str) -> Result<(), CommandError> {
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"));
+    match rest {
+        Some(host)
+            if !host.is_empty() && !host.starts_with('/') && !url.contains(char::is_whitespace) =>
+        {
+            Ok(())
+        }
+        _ => Err(CommandError::InvalidInput(
+            "`baseUrl` is an http:// or https:// url such as http://localhost:8080/v1".into(),
+        )),
+    }
+}
+
+/// Parse and validate the input of provider command `id` (one of [`PROVIDER_COMMANDS`]).
+pub fn parse_provider(id: &str, value: Value) -> Result<ProviderRequest, CommandError> {
+    Ok(match id {
+        PROVIDER_SET => {
+            let i: ProviderSetIn = required(value)?;
+            provider_name(&i.name)?;
+            base_url(&i.base_url)?;
+            if i.headers.len() > 20 {
+                return Err(CommandError::InvalidInput("at most 20 `headers`".into()));
+            }
+            for k in i.headers.keys() {
+                if k.is_empty()
+                    || !k
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || "-_".contains(c))
+                {
+                    return Err(CommandError::InvalidInput(format!(
+                        "{k:?} is not a header name"
+                    )));
+                }
+                if k.eq_ignore_ascii_case("authorization") {
+                    return Err(CommandError::InvalidInput(
+                        "the key goes in `apiKey`, never in `headers`".into(),
+                    ));
+                }
+            }
+            if i.models.iter().any(|m| m.id.trim().is_empty()) {
+                return Err(CommandError::InvalidInput(
+                    "a model's `id` must not be empty".into(),
+                ));
+            }
+            if let Some(t) = &i.tools
+                && t != "core"
+                && t != "all"
+            {
+                return Err(CommandError::InvalidInput(
+                    "`tools` is `core` or `all`".into(),
+                ));
+            }
+            if i.default_model.as_deref() == Some("") {
+                return Err(CommandError::InvalidInput(
+                    "`defaultModel` must not be empty".into(),
+                ));
+            }
+            ProviderRequest::Set(ProviderSet {
+                name: i.name,
+                base_url: i.base_url,
+                api_key: match i.api_key {
+                    None => KeyChange::Keep,
+                    Some(k) if k.is_empty() => KeyChange::Delete,
+                    Some(k) => KeyChange::Set(ApiKey(k)),
+                },
+                default_model: i.default_model,
+                headers: i.headers,
+                models: i.models,
+                tools: i.tools,
+                allow_file_store: i.allow_file_store,
+            })
+        }
+        PROVIDER_REMOVE => {
+            let i: ProviderRemoveIn = required(value)?;
+            provider_name(&i.name)?;
+            ProviderRequest::Remove { name: i.name }
+        }
+        PROVIDER_MODELS => {
+            let i: ProviderModelsIn = input(value)?;
+            if i.name.is_none() && i.base_url.is_none() {
+                return Err(CommandError::InvalidInput(
+                    "give `name` or `baseUrl`".into(),
+                ));
+            }
+            if let Some(n) = &i.name {
+                provider_name(n)?;
+            }
+            if let Some(u) = &i.base_url {
+                base_url(u)?;
+            }
+            ProviderRequest::Models {
+                name: i.name,
+                base_url: i.base_url,
+                api_key: i.api_key.filter(|k| !k.is_empty()).map(ApiKey),
+            }
+        }
+        other => return Err(CommandError::UnknownCommand(other.to_owned())),
+    })
+}
+
+/// What the audit keeps of a provider command's arguments: `apiKey` as [`REDACTED`].
+pub fn redact_provider_arguments(input: &Value) -> Value {
+    let mut v = input.clone();
+    if let Some(o) = v.as_object_mut()
+        && o.contains_key("apiKey")
+    {
+        o.insert("apiKey".into(), Value::String(REDACTED.into()));
+    }
+    v
+}
+
+/// Register the provider commands, applying them to `target`, with the key redacted from the audit.
+pub fn register_providers(registry: &CommandRegistry, target: Arc<dyn ProviderTarget>) {
+    for id in PROVIDER_COMMANDS {
+        let target = target.clone();
+        registry.replace_with_redaction(
+            spec(id),
+            None,
+            Arc::new(redact_provider_arguments),
+            move |input| {
+                let request = parse_provider(id, input)?;
+                target.apply(request).map(|out| out.to_json())
+            },
+        );
+    }
 }
 
 fn parse_schema(text: &str) -> Value {
     serde_json::from_str(text).expect("protocol schemas are valid JSON")
 }
 
-/// The public description of agents command `id` (one of [`ALL`]). All are agent-visible: an outer agent could drive
+/// The public description of agents command `id` (one of [`ALL`] or [`PROVIDER_COMMANDS`]). All are agent-visible: an outer agent could drive
 /// an inner one (brief 0016), always through the same permission classes.
 pub fn spec(id: &str) -> CommandSpec {
     let (title, input, output, permission) = schemas(id);
@@ -375,14 +972,16 @@ mod tests {
             parse(START, json!({})).unwrap(),
             AgentsRequest::Start {
                 agent: None,
-                restart: false
+                restart: false,
+                session: None,
             }
         );
         assert_eq!(
             parse(START, json!({"agent": "Claude Code", "restart": true})).unwrap(),
             AgentsRequest::Start {
                 agent: Some("Claude Code".into()),
-                restart: true
+                restart: true,
+                session: None,
             }
         );
         assert!(parse(START, json!({"agent": ""})).is_err());
@@ -425,6 +1024,22 @@ mod tests {
             .is_err()
         );
         assert!(parse(REVIEW, json!({"decision": "accept"})).is_err());
+        assert_eq!(
+            parse(CONFIGURE, json!({"option": "model", "value": "opus"})).unwrap(),
+            AgentsRequest::Configure {
+                option: "model".into(),
+                value: "opus".into()
+            }
+        );
+        assert!(parse(CONFIGURE, json!({"option": "mode"})).is_err());
+        assert!(parse(CONFIGURE, json!({"option": "", "value": "plan"})).is_err());
+        assert!(
+            parse(
+                CONFIGURE,
+                json!({"option": "mode", "value": "plan", "x": 1})
+            )
+            .is_err()
+        );
 
         for id in ALL {
             let s = spec(id);
@@ -434,9 +1049,17 @@ mod tests {
         }
         assert_eq!(spec(PERMISSION).permission, PermissionClass::Dangerous);
         assert_eq!(spec(CANCEL).permission, PermissionClass::Read);
+        assert_eq!(spec(CONFIGURE).permission, PermissionClass::Execute);
         // Outputs serialize to their schemas' required members.
         let state = AgentsOutput::State(AgentsStateOutput {
             agent: "A".into(),
+            session: Some(SessionOutput {
+                id: "5f0c6d4e-8a1b-4c2d-9e3f-0a1b2c3d4e5f".into(),
+                title: "Fix the failing test".into(),
+                started: "2026-10-05T21:02:03.004Z".into(),
+                last_activity: "2026-10-05T21:04:00.000Z".into(),
+                live: true,
+            }),
             state: "ready".into(),
             generation: 1,
             session_id: None,
@@ -452,6 +1075,53 @@ mod tests {
             }],
             pending_permissions: 0,
             pending_changes: 0,
+            commands: vec![
+                CommandRow {
+                    name: "compact".into(),
+                    description: "Summarize the conversation".into(),
+                    hint: Some("<instructions>".into()),
+                },
+                CommandRow {
+                    name: "context".into(),
+                    description: "Show context usage".into(),
+                    hint: None,
+                },
+            ],
+            mode: Some(ModeOutput {
+                current: "default".into(),
+                available: vec![
+                    ModeRow {
+                        id: "default".into(),
+                        name: "Manual".into(),
+                        description: Some("Prompts as the policy says".into()),
+                    },
+                    ModeRow {
+                        id: "plan".into(),
+                        name: "Plan".into(),
+                        description: None,
+                    },
+                ],
+            }),
+            options: vec![OptionRow {
+                id: "model".into(),
+                name: "Model".into(),
+                description: None,
+                category: Some("model".into()),
+                current: "default".into(),
+                choices: vec![ChoiceRow {
+                    value: "default".into(),
+                    name: "Default".into(),
+                    description: Some("The recommended model".into()),
+                }],
+            }],
+            usage: Some(UsageOutput {
+                used: 61_204,
+                size: 1_000_000,
+                cost: Some(CostOutput {
+                    amount: 0.9512,
+                    currency: "USD".into(),
+                }),
+            }),
         })
         .to_json();
         let schema: Value = serde_json::from_str(STATE_OUTPUT).unwrap();
@@ -461,5 +1131,386 @@ mod tests {
         for k in state.as_object().unwrap().keys() {
             assert!(schema["properties"].get(k).is_some(), "{k}");
         }
+        // The usage (brief 0059): the schema's members, the cost an object.
+        assert_eq!(
+            state["usage"],
+            json!({"used": 61_204, "size": 1_000_000, "cost": {"amount": 0.9512, "currency": "USD"}})
+        );
+        let usage = &schema["properties"]["usage"];
+        for k in state["usage"].as_object().unwrap().keys() {
+            assert!(usage["properties"].get(k).is_some(), "{k}");
+        }
+        for k in state["usage"]["cost"].as_object().unwrap().keys() {
+            assert!(
+                usage["properties"]["cost"]["properties"].get(k).is_some(),
+                "{k}"
+            );
+        }
+        // The slash commands (brief 0057): each row's members are the schema's, the hint only when there is one.
+        let row = &schema["properties"]["commands"]["items"];
+        assert_eq!(
+            state["commands"],
+            json!([
+                {"name": "compact", "description": "Summarize the conversation", "hint": "<instructions>"},
+                {"name": "context", "description": "Show context usage"}
+            ])
+        );
+        for c in state["commands"].as_array().unwrap() {
+            for k in c.as_object().unwrap().keys() {
+                assert!(row["properties"].get(k).is_some(), "{k}");
+            }
+        }
+        // The mode and the options (brief 0058): each member is the schema's, the optional ones only when set.
+        let mode = &schema["properties"]["mode"];
+        assert_eq!(
+            state["mode"],
+            json!({"current": "default", "available": [
+                {"id": "default", "name": "Manual", "description": "Prompts as the policy says"},
+                {"id": "plan", "name": "Plan"}
+            ]})
+        );
+        for k in state["mode"]["available"][0].as_object().unwrap().keys() {
+            assert!(
+                mode["properties"]["available"]["items"]["properties"]
+                    .get(k)
+                    .is_some(),
+                "{k}"
+            );
+        }
+        let option = &schema["properties"]["options"]["items"];
+        assert_eq!(
+            state["options"],
+            json!([{"id": "model", "name": "Model", "category": "model", "current": "default",
+                "choices": [{"value": "default", "name": "Default", "description": "The recommended model"}]}])
+        );
+        for k in state["options"][0].as_object().unwrap().keys() {
+            assert!(option["properties"].get(k).is_some(), "{k}");
+        }
+        for r in option["required"].as_array().unwrap() {
+            assert!(
+                state["options"][0].get(r.as_str().unwrap()).is_some(),
+                "{r}"
+            );
+        }
+    }
+    /// Brief 0061: `sessions`, `switch` and `new_session` parse, validate and follow their schemas; `start` takes
+    /// `session`; the state's `session` and the sessions output serialize to the schemas' members.
+    #[test]
+    fn the_session_commands_parse_validate_and_follow_their_schemas() {
+        assert_eq!(parse(SESSIONS, json!({})).unwrap(), AgentsRequest::Sessions);
+        assert_eq!(
+            parse(SESSIONS, Value::Null).unwrap(),
+            AgentsRequest::Sessions
+        );
+        assert!(parse(SESSIONS, json!({"all": true})).is_err());
+        assert_eq!(
+            parse(SWITCH, json!({"session": "abc"})).unwrap(),
+            AgentsRequest::Switch {
+                session: "abc".into()
+            }
+        );
+        assert!(parse(SWITCH, json!({})).is_err());
+        assert!(parse(SWITCH, json!({"session": ""})).is_err());
+        assert!(parse(SWITCH, json!({"session": "a", "x": 1})).is_err());
+        assert_eq!(
+            parse(NEW_SESSION, json!({})).unwrap(),
+            AgentsRequest::NewSession { agent: None }
+        );
+        assert_eq!(
+            parse(NEW_SESSION, json!({"agent": "Claude Code"})).unwrap(),
+            AgentsRequest::NewSession {
+                agent: Some("Claude Code".into())
+            }
+        );
+        assert!(parse(NEW_SESSION, json!({"agent": ""})).is_err());
+        assert_eq!(
+            parse(START, json!({"session": "abc", "restart": true})).unwrap(),
+            AgentsRequest::Start {
+                agent: None,
+                restart: true,
+                session: Some("abc".into()),
+            }
+        );
+        assert!(parse(START, json!({"session": ""})).is_err());
+        for (id, permission) in [
+            (SESSIONS, PermissionClass::Read),
+            (SWITCH, PermissionClass::Execute),
+            (NEW_SESSION, PermissionClass::Execute),
+        ] {
+            assert!(ALL.contains(&id));
+            let s = spec(id);
+            assert!(s.agent_visible);
+            assert_eq!(s.permission, permission);
+            assert_eq!(s.input_schema["title"], format!("{id} input"));
+            assert_eq!(s.input_schema["type"], "object");
+            assert_eq!(s.input_schema["additionalProperties"], false);
+        }
+        assert_eq!(spec(SWITCH).input_schema["required"], json!(["session"]));
+        assert!(spec(START).input_schema["properties"]["session"].is_object());
+        assert_eq!(spec(SWITCH).output_schema, spec(START).output_schema);
+        assert_eq!(spec(NEW_SESSION).output_schema, spec(START).output_schema);
+        // The sessions output: every member the schema's, the model only when known, `current` null when none.
+        let out = AgentsOutput::Sessions(SessionsOutput {
+            current: Some("s1".into()),
+            sessions: vec![
+                SessionRow {
+                    id: "s1".into(),
+                    agent: "Claude Code".into(),
+                    title: "Fix the failing test".into(),
+                    started: "2026-10-05T21:02:03.004Z".into(),
+                    last_activity: "2026-10-05T21:04:00.000Z".into(),
+                    model: Some("Sonnet 5.5".into()),
+                    live: true,
+                    running: true,
+                    waiting: false,
+                },
+                SessionRow {
+                    id: "s0".into(),
+                    agent: "Claude Code".into(),
+                    title: "New session".into(),
+                    started: "2026-10-04T08:00:00.000Z".into(),
+                    last_activity: "2026-10-04T08:00:00.000Z".into(),
+                    model: None,
+                    live: false,
+                    running: false,
+                    waiting: false,
+                },
+            ],
+        })
+        .to_json();
+        let schema = spec(SESSIONS).output_schema;
+        conforms(&schema, &out);
+        let row = &schema["properties"]["sessions"]["items"];
+        for r in out["sessions"].as_array().unwrap() {
+            conforms(row, r);
+        }
+        assert!(out["sessions"][1].get("model").is_none());
+        let none = AgentsOutput::Sessions(SessionsOutput {
+            current: None,
+            sessions: Vec::new(),
+        })
+        .to_json();
+        assert_eq!(none, json!({"current": null, "sessions": []}));
+        conforms(&schema, &none);
+        // The state's session.
+        let state = AgentsOutput::State(AgentsStateOutput {
+            agent: "A".into(),
+            session: Some(SessionOutput {
+                id: "s1".into(),
+                title: "New session".into(),
+                started: "2026-10-05T21:02:03.004Z".into(),
+                last_activity: "2026-10-05T21:02:03.004Z".into(),
+                live: false,
+            }),
+            state: "stopped".into(),
+            generation: 0,
+            session_id: None,
+            agent_info: None,
+            protocol_version: None,
+            message: None,
+            login: Vec::new(),
+            last_stop_reason: None,
+            agents: Vec::new(),
+            pending_permissions: 0,
+            pending_changes: 0,
+            commands: Vec::new(),
+            mode: None,
+            options: Vec::new(),
+            usage: None,
+        })
+        .to_json();
+        let schema = spec(START).output_schema;
+        conforms(&schema, &state);
+        conforms(&schema["properties"]["session"], &state["session"]);
+    }
+
+    struct Servers(std::sync::Mutex<Vec<ProviderRequest>>);
+
+    impl ProviderTarget for Servers {
+        fn apply(&self, request: ProviderRequest) -> Result<ProviderCommandOutput, CommandError> {
+            self.0.lock().unwrap().push(request.clone());
+            Ok(match request {
+                ProviderRequest::Models { .. } => {
+                    ProviderCommandOutput::Models(ProviderModelsOutput {
+                        models: vec![ProviderModel {
+                            id: "qwen3".into(),
+                            name: None,
+                            context_window: Some(40_960),
+                        }],
+                        listing: "server".into(),
+                        message: None,
+                    })
+                }
+                ProviderRequest::Set(s) => ProviderCommandOutput::Provider(ProviderOutput {
+                    name: s.name.clone(),
+                    action: "saved".into(),
+                    has_key: matches!(s.api_key, KeyChange::Set(_)),
+                    providers: vec![ProviderRow {
+                        name: s.name,
+                        base_url: s.base_url,
+                        default_model: s.default_model,
+                        tools: s.tools,
+                        has_key: true,
+                    }],
+                }),
+                ProviderRequest::Remove { name } => {
+                    ProviderCommandOutput::Provider(ProviderOutput {
+                        name,
+                        action: "removed".into(),
+                        has_key: false,
+                        providers: Vec::new(),
+                    })
+                }
+            })
+        }
+    }
+
+    fn conforms(schema: &Value, value: &Value) {
+        for r in schema["required"].as_array().unwrap() {
+            assert!(value.get(r.as_str().unwrap()).is_some(), "{r}");
+        }
+        for k in value.as_object().unwrap().keys() {
+            assert!(schema["properties"].get(k).is_some(), "{k}");
+        }
+    }
+
+    #[test]
+    fn provider_commands_parse_validate_and_follow_the_schemas() {
+        let set = parse_provider(
+            PROVIDER_SET,
+            json!({"name": "llama", "baseUrl": "http://localhost:8080/v1", "apiKey": "sk-1",
+                "headers": {"X-Title": "Eludite"}, "models": [{"id": "m", "contextWindow": 16384}], "tools": "all"}),
+        )
+        .unwrap();
+        let ProviderRequest::Set(s) = &set else {
+            panic!()
+        };
+        assert_eq!(s.api_key, KeyChange::Set(ApiKey::new("sk-1")));
+        assert_eq!(s.models[0].context_window, Some(16_384));
+        assert!(
+            !format!("{set:?}").contains("sk-1"),
+            "Debug never shows the key"
+        );
+        let keep = |v: Value| match parse_provider(PROVIDER_SET, v).unwrap() {
+            ProviderRequest::Set(s) => s.api_key,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            keep(json!({"name": "a", "baseUrl": "https://api.openai.com/v1"})),
+            KeyChange::Keep
+        );
+        assert_eq!(
+            keep(json!({"name": "a", "baseUrl": "https://api.openai.com/v1", "apiKey": ""})),
+            KeyChange::Delete
+        );
+        // The consent to the 0600 file (brief 0046's rule) is only ever given explicitly.
+        let consent = |v: Value| match parse_provider(PROVIDER_SET, v).unwrap() {
+            ProviderRequest::Set(s) => s.allow_file_store,
+            _ => unreachable!(),
+        };
+        assert!(!consent(
+            json!({"name": "a", "baseUrl": "http://h/v1", "apiKey": "k"})
+        ));
+        assert!(consent(
+            json!({"name": "a", "baseUrl": "http://h/v1", "apiKey": "k", "allowFileStore": true})
+        ));
+        for bad in [
+            json!({"name": "", "baseUrl": "http://h/v1"}),
+            json!({"name": "a", "baseUrl": "ftp://h/v1"}),
+            json!({"name": "a", "baseUrl": "http://"}),
+            json!({"name": "a", "baseUrl": "http://h/v1", "headers": {"Authorization": "Bearer x"}}),
+            json!({"name": "a", "baseUrl": "http://h/v1", "tools": "some"}),
+            json!({"name": "a", "baseUrl": "http://h/v1", "models": [{"id": ""}]}),
+            json!({"name": "a", "baseUrl": "http://h/v1", "extra": 1}),
+        ] {
+            assert!(parse_provider(PROVIDER_SET, bad.clone()).is_err(), "{bad}");
+        }
+        assert_eq!(
+            parse_provider(PROVIDER_REMOVE, json!({"name": "llama"})).unwrap(),
+            ProviderRequest::Remove {
+                name: "llama".into()
+            }
+        );
+        assert!(parse_provider(PROVIDER_MODELS, json!({})).is_err());
+        assert!(parse_provider(PROVIDER_MODELS, Value::Null).is_err());
+        assert_eq!(
+            parse_provider(
+                PROVIDER_MODELS,
+                json!({"baseUrl": "http://localhost:11434/v1", "apiKey": ""})
+            )
+            .unwrap(),
+            ProviderRequest::Models {
+                name: None,
+                base_url: Some("http://localhost:11434/v1".into()),
+                api_key: None
+            }
+        );
+        assert_eq!(spec(PROVIDER_SET).permission, PermissionClass::Dangerous);
+        assert_eq!(spec(PROVIDER_REMOVE).permission, PermissionClass::Execute);
+        assert_eq!(spec(PROVIDER_MODELS).permission, PermissionClass::Execute);
+        for id in PROVIDER_COMMANDS {
+            let s = spec(id);
+            assert!(s.agent_visible);
+            assert_eq!(s.input_schema["title"], format!("{id} input"));
+            assert_eq!(s.input_schema["additionalProperties"], false);
+        }
+        assert!(
+            spec(PROVIDER_SET).output_schema["title"]
+                .as_str()
+                .unwrap()
+                .contains("provider_set")
+        );
+        assert!(
+            parse(PROVIDER_SET, json!({})).is_err(),
+            "not an AgentsRequest"
+        );
+    }
+
+    #[test]
+    fn provider_commands_answer_their_schemas_and_never_audit_the_key() {
+        use crate::{Caller, with_caller};
+        let reg = CommandRegistry::new();
+        let target = Arc::new(Servers(std::sync::Mutex::default()));
+        register_providers(&reg, target.clone());
+        let agent = Caller::Agent {
+            agent: "test".into(),
+            call: 1,
+            tool_call: None,
+        };
+        let out = with_caller(agent.clone(), || {
+            reg.invoke(
+                PROVIDER_SET,
+                json!({"name": "or", "baseUrl": "https://openrouter.ai/api/v1", "apiKey": "sk-or-secret"}),
+            )
+        })
+        .unwrap();
+        conforms(&spec(PROVIDER_SET).output_schema, &out);
+        assert_eq!(out["action"], "saved");
+        let models = with_caller(agent.clone(), || {
+            reg.invoke(
+                PROVIDER_MODELS,
+                json!({"baseUrl": "http://localhost:8080/v1", "apiKey": "sk-or-secret"}),
+            )
+        })
+        .unwrap();
+        conforms(&spec(PROVIDER_MODELS).output_schema, &models);
+        assert_eq!(
+            models["models"][0],
+            json!({"id": "qwen3", "contextWindow": 40960})
+        );
+        let removed =
+            with_caller(agent, || reg.invoke(PROVIDER_REMOVE, json!({"name": "or"}))).unwrap();
+        conforms(&spec(PROVIDER_REMOVE).output_schema, &removed);
+        // The handler got the key; the audit never did.
+        assert!(
+            matches!(&target.0.lock().unwrap()[0], ProviderRequest::Set(s) if s.api_key == KeyChange::Set(ApiKey::new("sk-or-secret")))
+        );
+        let audit = serde_json::to_string(&reg.audit_log().entries()).unwrap();
+        assert!(!audit.contains("sk-or-secret"), "{audit}");
+        assert!(audit.contains(REDACTED), "{audit}");
+        assert_eq!(
+            redact_provider_arguments(&json!({"name": "x"})),
+            json!({"name": "x"})
+        );
     }
 }

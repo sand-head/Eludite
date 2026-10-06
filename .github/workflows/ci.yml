@@ -43,7 +43,12 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install
 
+      # agents/openai-acp is its own cargo workspace: the shell's provider tests (brief 0060) launch its binaries.
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            agents/openai-acp
 
       # Brief 0056, ADR-0012: grammars/razor's build.rs generates its parser from src/grammar.json (about 15 s) and
       # keeps the output in Eludite's cache folder under a key of its inputs; cache that so a cargo cache miss does
@@ -119,6 +124,11 @@ jobs:
 
       - name: Build
         run: cargo build --workspace ${{ env.CEF_FEATURES }}
+
+      # The shell's provider tests build agents/openai-acp with cargo if its binaries are missing; built here, that
+      # is a no-op inside `cargo test` instead of a compile that starves the timed tests running beside it.
+      - name: Build agents/openai-acp
+        run: cargo build --bins --manifest-path agents/openai-acp/Cargo.toml
 
       # The engine loads libcef.so beside itself ($ORIGIN): the `cef-dll-sys` build script copies CEF's runtime files
       # into target/debug when it runs, but a restored cargo cache keeps that script's output and not those files, so
