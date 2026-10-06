@@ -89,6 +89,7 @@ pub mod update;
 mod update_tests;
 #[cfg(test)]
 mod web_tests;
+pub mod welcome;
 pub mod workspace_edit;
 #[cfg(test)]
 mod workspace_edit_tests;
@@ -399,6 +400,8 @@ pub struct Shell {
     /// The window's title, which the title bar shows when Eludite draws it (ADR-0010).
     title: SharedString,
     title_bar: TitleBar,
+    /// Eludite's mark at the title bar's left: it spins while building or while a debuggee runs.
+    mark: eludite_ui::Crystal,
     /// Tests draw a platform's chrome on the test window, which reports server-side decorations.
     #[cfg(test)]
     pub(crate) chrome_override: Option<title_bar::Chrome>,
@@ -596,8 +599,12 @@ fn document_body(
     forge_documents: forge::Documents,
     forge_margins: forge::Margins,
     properties_documents: project_properties::Documents,
+    welcome: Entity<welcome::WelcomePage>,
 ) -> impl Fn(&DocumentTab, &Theme) -> AnyElement {
     move |tab, theme| {
+        if tab.id == WELCOME {
+            return welcome.clone().into_any_element();
+        }
         if let Some(view) = properties_documents.borrow().get(&tab.id) {
             return view.clone().into_any_element();
         }
@@ -632,11 +639,7 @@ fn document_body(
         if let Some(review) = reviews.borrow().get(&tab.id) {
             return review.clone().into_any_element();
         }
-        let text = if tab.id == WELCOME {
-            "Open a workspace with File > Open > Workspace... (Ctrl+Shift+Alt+O), or a .NET solution file with Ctrl+Shift+O."
-        } else {
-            "Loading\u{2026}"
-        };
+        let text = "Loading\u{2026}";
         div()
             .flex()
             .flex_col()
@@ -658,6 +661,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // Eludite's own type before the first frame; app.rs registered it already unless a test builds the shell.
+        if let Err(e) = eludite_ui::fonts::register(cx) {
+            eprintln!("eludite: the embedded fonts did not load: {e}");
+        }
         let registry = commands.clone();
         // The Build menu's start items are disabled while a build runs, Cancel only then (brief 0017).
         let building = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -760,6 +767,7 @@ impl Shell {
             launched: launched.clone(),
             ..Default::default()
         }));
+        let welcome = cx.new(|_| welcome::WelcomePage::new(theme));
         let dock = cx.new(|cx| {
             DockHost::new(
                 controller.clone(),
@@ -788,6 +796,7 @@ impl Shell {
                     forge.documents.clone(),
                     forge.margins.clone(),
                     properties.documents.clone(),
+                    welcome.clone(),
                 )),
                 persistence,
                 cx,
@@ -1069,6 +1078,7 @@ impl Shell {
             on_first_render: None,
             title: "Eludite".into(),
             title_bar: TitleBar::new(),
+            mark: eludite_ui::Crystal::new(gpui::px(10.)),
             #[cfg(test)]
             chrome_override: None,
             session,
@@ -2219,17 +2229,36 @@ impl Render for Shell {
         }
         let t = self.theme;
         let chrome = self.chrome(window);
-        // The solution configuration and platform dropdowns sit at the right of the menu bar's row, so the docking
-        // area keeps its height. Where Eludite draws the title bar, that row is the title bar (ADR-0010).
+        // The mark spins while a build runs or a debuggee runs, and settles on its pose when that ends.
+        let busy = self
+            .builds
+            .building
+            .load(std::sync::atomic::Ordering::SeqCst)
+            || self.debug.busy();
+        let mark = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(gpui::px(6.))
+            .child(self.mark.render(busy, window))
+            .child(
+                div()
+                    .text_size(gpui::px(13.))
+                    .font_weight(gpui::FontWeight::BOLD)
+                    .text_color(t.menu_text)
+                    .child("Eludite"),
+            )
+            .into_any_element();
+        // Where Eludite draws the title bar, the menu bar is in it (ADR-0010); the toolbar row is under it.
         let top = if chrome.custom {
             self.title_bar
                 .render(
                     chrome,
                     &t,
                     title_bar::TitleBarContent {
+                        mark,
                         title: self.title.clone(),
                         menu: self.menu.clone().into_any_element(),
-                        tools: self.build_toolbar(cx).into_any_element(),
                     },
                     window,
                     // Eludite's own Close button (Linux) does what the platform's does: quit (app.rs).
@@ -2241,9 +2270,10 @@ impl Render for Shell {
                 .flex()
                 .flex_row()
                 .flex_none()
+                .items_center()
                 .bg(t.menu_background)
+                .child(div().flex_none().px_2().child(mark))
                 .child(div().flex_1().min_w_0().child(self.menu.clone()))
-                .child(self.build_toolbar(cx))
                 .into_any_element()
         };
         let shell = div()
@@ -2256,7 +2286,9 @@ impl Render for Shell {
             .size_full()
             .bg(t.chrome)
             .text_color(t.text)
+            .font_family(t.typography.ui_font)
             .child(top)
+            .child(self.build_toolbar(cx))
             .child(self.dock.clone())
             .child(self.status.render_with(&t, self.debug_status_controls(cx)))
             .children(self.navigation.picker.clone())

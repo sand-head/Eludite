@@ -140,6 +140,7 @@ pub fn kind_icon(kind: CompletionKind) -> Div {
 /// The frame of every IntelliSense popup.
 pub fn popup_panel(theme: &Theme) -> Div {
     div()
+        .rounded(px(6.))
         .bg(theme.popup_background)
         .border_1()
         .border_color(theme.popup_border)

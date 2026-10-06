@@ -123,7 +123,7 @@ fn setup(cx: &mut TestAppContext, script: impl FnOnce(&FakeServer)) -> Rs {
                 Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,

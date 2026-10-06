@@ -192,7 +192,7 @@ pub(super) fn setup_services(
                 Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,
@@ -779,7 +779,7 @@ fn missing_host_is_reported_not_fatal(cx: &mut TestAppContext) {
                 Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,
@@ -952,4 +952,80 @@ fn the_title_bar_holds_the_menu_the_title_and_the_caption_buttons(cx: &mut TestA
     set_chrome(&mut w, chrome(Platform::Mac, Decorations::Server, false));
     assert!(w.bounds("menu-File").left() - w.bounds("title-bar").left() >= MAC_BUTTONS_INSET);
     assert!(w.vcx.debug_bounds("caption-close").is_none());
+}
+
+/// The mark sits at the title bar's left, before the menu bar; the toolbar is its own row under the title bar, with the
+/// configuration lists and Start in one control; the Welcome page shows the wordmark; the mark spins while a build runs
+/// and eases to a stop when it ends.
+#[gpui::test]
+fn the_mark_leads_the_title_bar_and_the_toolbar_is_its_own_row(cx: &mut TestAppContext) {
+    use super::build::CONFIGURATION_BUTTON;
+    use super::toolbar::{BUILD_BUTTON, START_BUTTON, STEP_OVER_BUTTON, TOOLBAR_HEIGHT};
+    use eludite_ui::title_bar::{Platform, chrome};
+    use gpui::{Decorations, Tiling};
+
+    let mut w = setup(cx);
+    assert!(w.vcx.debug_bounds("welcome-wordmark").is_some());
+    w.shell.update(&mut w.vcx, |s, cx| {
+        s.chrome_override = Some(chrome(
+            Platform::Linux,
+            Decorations::Client {
+                tiling: Tiling::default(),
+            },
+            false,
+        ));
+        cx.notify();
+    });
+    w.vcx.run_until_parked();
+    let (bar, mark, menu) = (
+        w.bounds("title-bar"),
+        w.bounds("title-bar-mark"),
+        w.bounds("menu-File"),
+    );
+    assert!(bar.contains(&mark.center()));
+    assert!(
+        mark.right() <= menu.left(),
+        "the mark comes before the menu bar"
+    );
+    let toolbar = w.bounds("build-toolbar");
+    assert_eq!(toolbar.size.height, TOOLBAR_HEIGHT);
+    assert!(
+        toolbar.top() >= bar.bottom(),
+        "the toolbar is under the title bar"
+    );
+    for sel in [
+        CONFIGURATION_BUTTON,
+        START_BUTTON,
+        STEP_OVER_BUTTON,
+        BUILD_BUTTON,
+    ] {
+        assert!(
+            toolbar.contains(&w.bounds(sel).center()),
+            "{sel} in the toolbar"
+        );
+    }
+    assert!(
+        w.bounds(START_BUTTON).left() >= w.bounds(CONFIGURATION_BUTTON).right(),
+        "Start ends the configuration control"
+    );
+
+    // At rest; spinning while a build runs; easing out (still moving, no longer spinning) once it ends.
+    let motion = |w: &mut Ws| w.shell.read_with(&w.vcx, |s, _| s.mark.motion());
+    assert!(!motion(&mut w).moving());
+    let set_building = |w: &mut Ws, on: bool| {
+        w.shell.update(&mut w.vcx, |s, cx| {
+            s.builds
+                .building
+                .store(on, std::sync::atomic::Ordering::SeqCst);
+            cx.notify();
+        });
+        w.vcx.run_until_parked();
+        // Reading bounds draws a frame, which advances the mark.
+        let _ = w.bounds("title-bar-mark");
+    };
+    set_building(&mut w, true);
+    assert!(motion(&mut w).spinning());
+    set_building(&mut w, false);
+    let m = motion(&mut w);
+    assert!(m.moving() && !m.spinning());
 }

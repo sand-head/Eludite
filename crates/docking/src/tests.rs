@@ -72,7 +72,7 @@ fn open(cx: &mut TestAppContext, layout: DockLayout, persistence: Option<Persist
                 DockHost::new(
                     controller.clone(),
                     commands.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     Rc::new(body),
                     Rc::new(|d, _| div().child(d.title.clone()).into_any_element()),
                     persistence,
@@ -331,7 +331,7 @@ fn side_strip_tabs_draw_titles_rotated_clockwise(cx: &mut TestAppContext) {
             "{sel} is a vertical tab: {b:?}"
         );
     }
-    let small = Theme::vs_dark().typography.small;
+    let small = Theme::dark().typography.small;
     let built = h.vcx.update(|window, cx| {
         let font = window.text_style().font();
         let cache = cx.global::<RotatedLabelCache>();

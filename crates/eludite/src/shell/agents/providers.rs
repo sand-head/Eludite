@@ -457,13 +457,7 @@ fn single_line(
     cx.new(|cx| {
         let mut input = TextInput::new(false, cx);
         input.set_placeholder(placeholder, cx);
-        input.set_style(
-            EditorStyle {
-                theme,
-                ..EditorStyle::default()
-            },
-            cx,
-        );
+        input.set_style(EditorStyle::for_theme(&theme), cx);
         input
     })
 }

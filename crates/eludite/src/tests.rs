@@ -40,7 +40,7 @@ fn open(cx: &mut TestAppContext) -> Harness {
                 Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,

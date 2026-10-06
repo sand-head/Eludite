@@ -1198,6 +1198,14 @@ pub struct Debugger {
 }
 
 impl Debugger {
+    /// The active session builds, launches or runs its debuggee (not in break mode): the title bar's mark spins.
+    pub fn busy(&self) -> bool {
+        matches!(
+            self.model.mode,
+            Mode::Building | Mode::Launching | Mode::Running
+        )
+    }
+
     pub fn new<T>(
         setup: DebugSetup,
         theme: eludite_ui::Theme,

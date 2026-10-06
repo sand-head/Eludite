@@ -597,10 +597,7 @@ mod tests {
             assert_eq!(AwaitingReview.color(&t), t.warning);
         }
         // The red and the blue are lighter on the dark panel than on the light ones.
-        assert_ne!(
-            Failed.color(&Theme::vs_dark()),
-            Failed.color(&Theme::vs_light())
-        );
+        assert_ne!(Failed.color(&Theme::dark()), Failed.color(&Theme::light()));
     }
 
     #[test]
@@ -633,7 +630,7 @@ mod tests {
 
     #[test]
     fn the_strip_says_the_context_and_the_cost_and_warns_from_80_percent() {
-        let t = Theme::vs_dark();
+        let t = Theme::dark();
         let strip = |used, size, cost: Option<(f64, &str)>| UsageStrip {
             used,
             size,
