@@ -92,6 +92,13 @@ impl Pw {
             w.shell
                 .read_with(&w.vcx, |s, _| s.properties.configurations.is_some())
         });
+        // Start and the profile list join the right-aligned toolbar when the launch profiles land, moving every
+        // button left of them: a click aimed before that lands on whatever moved into its place.
+        let project = self.project.clone();
+        self.w.wait("the toolbar's launch profiles", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.properties.launch.contains_key(&project))
+        });
         self.settled_generation();
     }
 
