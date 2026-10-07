@@ -43,6 +43,9 @@ pub struct TabStyle {
     /// Visual Studio's preview tab: italic, at the right end.
     pub preview: bool,
     pub pinned: bool,
+    /// A document tab: when active it takes the theme's `tab_active` fill with the `highlight` marker along its top.
+    /// An active tool window tab takes `tool_tab_active` with the `tool_tab_marker` rule along its bottom.
+    pub document: bool,
 }
 
 /// A document or tool window tab. The caller adds the id and handlers.
@@ -62,8 +65,17 @@ pub fn tab(theme: &Theme, title: impl Into<SharedString>, style: TabStyle) -> Di
         .text_size(theme.typography.ui)
         .child(label);
     let el = if style.preview { el.italic() } else { el };
-    if style.active {
-        el.bg(theme.accent).text_color(theme.text_on_accent)
+    if style.active && style.document {
+        el.bg(theme.tab_active)
+            .text_color(theme.tab_active_text)
+            .border_t_2()
+            .border_color(theme.highlight)
+    } else if style.active {
+        el.bg(theme.tool_tab_active)
+            .text_color(theme.tool_tab_active_text)
+            .font_weight(FontWeight::SEMIBOLD)
+            .border_b_2()
+            .border_color(theme.tool_tab_marker)
     } else {
         el.text_color(theme.chrome_text)
             .hover(|s| s.bg(theme.menu_hover))
@@ -235,6 +247,7 @@ pub fn text_box(
         .px_1()
         .overflow_hidden()
         .whitespace_nowrap()
+        .rounded(px(4.))
         .bg(theme.background)
         .border_1()
         .border_color(if focused { theme.accent } else { theme.border })

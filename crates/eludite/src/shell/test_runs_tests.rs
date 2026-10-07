@@ -1069,7 +1069,7 @@ fn setup_real_host(cx: &mut TestAppContext, settings: Value) -> Option<Ws> {
                 super::Shell::new(
                     commands.clone(),
                     controller.clone(),
-                    Theme::vs_dark(),
+                    Theme::dark(),
                     None,
                     services.take().unwrap(),
                     window,

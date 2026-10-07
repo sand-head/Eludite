@@ -195,37 +195,38 @@ pub struct EditorStyle {
     pub find_match: Rgba,
 }
 
-impl Default for EditorStyle {
-    fn default() -> Self {
-        let theme = eludite_ui::Theme::vs_dark();
+impl EditorStyle {
+    /// The editor drawn in `theme`: its background, caret, selection, line numbers and current line, with Visual
+    /// Studio Dark's syntax colors on a dark theme and Visual Studio Light's on a light one.
+    pub fn for_theme(theme: &eludite_ui::Theme) -> Self {
         Self {
             font_family: default_font_family(),
             font_size: theme.typography.body,
             line_height: px(19.),
-            syntax: SyntaxTheme::vs_dark(&theme),
-            theme,
-            line_number: rgb(0x2B91AF),
-            line_number_active: rgb(0xC6C6C6),
-            selection: rgb(0x264F78),
-            caret: rgb(0xDCDCDC),
-            current_line_border: rgb(0x464646),
-            find_match: rgb(0x623315),
+            syntax: SyntaxTheme::for_theme(theme),
+            theme: *theme,
+            line_number: theme.editor_line_number,
+            line_number_active: theme.editor_line_number_active,
+            selection: theme.editor_selection,
+            caret: theme.editor_caret,
+            current_line_border: theme.editor_current_line,
+            find_match: theme.editor_find_match,
         }
     }
 }
 
-/// `ELUDITE_EDITOR_FONT` if set, else the platform's usual monospace font.
+impl Default for EditorStyle {
+    fn default() -> Self {
+        Self::for_theme(&eludite_ui::Theme::default())
+    }
+}
+
+/// `ELUDITE_EDITOR_FONT` if set, else JetBrains Mono, which Eludite embeds ([`eludite_ui::fonts`]).
 pub fn default_font_family() -> SharedString {
     if let Ok(f) = std::env::var("ELUDITE_EDITOR_FONT") {
         return f.into();
     }
-    if cfg!(target_os = "windows") {
-        "Cascadia Mono".into()
-    } else if cfg!(target_os = "macos") {
-        "Menlo".into()
-    } else {
-        "Noto Sans Mono".into()
-    }
+    eludite_ui::fonts::MONO_FONT.into()
 }
 
 /// A styled range drawn on top of the text, for LSP results and other

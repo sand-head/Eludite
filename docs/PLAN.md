@@ -100,7 +100,7 @@ Transport is JSON-RPC over stdio for control, with a pipe or shared-memory side 
 - **`protocol/` (schemas, generated bindings) and `extension-sdk/`: MIT.** Anyone writing an ACP agent, an MCP client, an alternative language host or a WASM extension against Eludite must be able to do so under any license. This mirrors how Zed keeps its extension API Apache while the editor is GPL.
 - **AGPL is not needed now.** It only matters for a network service (a future extension registry or collaboration server). Decide when such a service exists.
 - Contributor terms: Developer Certificate of Origin, no CLA. Agents' output is contributed under the same terms by the human who directs them.
-- Trademark: "Eludite" and the logo are held separately from the code so forks can exist without confusion.
+- Trademark: "Eludite" and the logo (the crystal cube with an amber core, `tools/package/icons/eludite.svg`) are held separately from the code so forks can exist without confusion.
 
 ### D6. Extensibility
 
@@ -165,7 +165,7 @@ Git via libgit2 in the shell: status, staged/unstaged, hunks, blame, log graph, 
 - Structured `system.serviceModel` editor with validation.
 
 ### 4.11 Other VS windows and features in scope
-Find in Files at ripgrep speed plus Roslyn structural search, Replace with preview, Bookmarks, Task List, Error List filters, Properties window on a generic property grid, `.resx` editor, `.settings` editor, T4 via `dotnet-t4`, EditorConfig editor, VS-format snippets, keymap editor with VS, Rider and VS Code presets, VS Dark/Light/Blue themes as defaults, integrated terminal, Server Explorer-lite (ADO.NET connections, browse, query) in Phase 4+, dotnet-counters and dotnet-trace as a basic profiler.
+Find in Files at ripgrep speed plus Roslyn structural search, Replace with preview, Bookmarks, Task List, Error List filters, Properties window on a generic property grid, `.resx` editor, `.settings` editor, T4 via `dotnet-t4`, EditorConfig editor, VS-format snippets, keymap editor with VS, Rider and VS Code presets, Eludite Dark and Light and a Classic (VS Blue) theme as defaults, integrated terminal, Server Explorer-lite (ADO.NET connections, browse, query) in Phase 4+, dotnet-counters and dotnet-trace as a basic profiler.
 
 ### 4.12 Settings and state
 Layered settings (user, workspace, solution), live-reloaded, with a GUI organized like VS Options. Layouts persist per solution. Settings sync via the user's own git repo; no accounts.
@@ -249,9 +249,9 @@ Eludite should be recognizable to a VS user in the first five seconds and never 
 
 - **Chrome.** Menu bar (File, Edit, View, Git, Build, Debug, Test, Tools, Help; decision 14), optional toolbars, a VS-style status bar with build/debug state, line/column, encoding, line endings, branch, and host memory.
 - **Docking.** Tool windows dock, tab, float, auto-hide and pin, with VS's docking guides on drag. Document tabs with pinned tabs and a preview tab. Layouts per solution and named layouts (Design, Debug). This alone makes the product look nothing like Zed, which has fixed docks.
-- **Default layout.** Workspace (the Solution Explorer role; see the divergence below) right, Properties below it, Error List and Output bottom, Toolbox collapsed left.
+- **Default layout.** Workspace (the Solution Explorer role; see the divergence below) right, Error List and Output bottom. Properties and Toolbox start closed (View opens them) until they have content: Properties joins the default below the Workspace window when the property grid lands, Toolbox when there is a designer to drag from (owner's decision, 2026-10-06).
 - **Keymap.** VS on Windows and Linux; VS for Mac mapping on macOS with Rider as an option. F5, F9, F10, F11, Ctrl+T, Ctrl+Q, Ctrl+Shift+B, Ctrl+K Ctrl+D and the rest.
-- **Themes and type.** Our own VS Dark, Light and Blue defaults with VS's token colors, our own UI font stack and iconography. No Zed themes or icons are vendored.
+- **Themes and type.** Our own defaults: Eludite Dark (the default) and Light, taken from the mark (green-tinted neutrals, teal for focus, selection and the status bar, amber for the active-tab marker), and Classic, after Visual Studio's Blue; VS's token colors in the editor, our own UI font stack and iconography. No Zed themes or icons are vendored.
 - **Theme system.** User-installable themes are a planned feature, not just built-in defaults: a documented theme format covering UI chrome and editor token colors, loadable from a file or an extension, with VS and VS Code theme import as a stretch goal. The format is ours; it is not required to be Zed's, though Zed's `theme` crate may be vendored as plumbing if the audit finds it worth it (D1). Lands with the extension system in Phase 2.
 - **Dialogs.** New Project backed by `dotnet new` templates, Add Reference, Project Properties, Options, Exception Settings, Attach to Process; same organization as VS.
 - **Deliberate divergences.** Solution and project are .NET terms and appear only for .NET artifacts; the directory-level context is a workspace in every menu, message and setting (decision 12). The Solution Explorer window is called Workspace, because the same window will show Cargo workspaces, npm workspaces and plain folders, not only .NET solutions (owner's decision, 2026-10-02); its id is `workspace`, its contents and VS semantics are unchanged, and Ctrl+Alt+L still opens it. No modal dialogs during load, no blocking design-time builds, no "busy" banner; a command palette on Ctrl+Shift+P alongside Ctrl+Q; multibuffers for search results and references; inline agent prompts; a project graph view.

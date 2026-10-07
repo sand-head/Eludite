@@ -12,7 +12,7 @@
 #   cef/                       CEF's runtime files: libcef.so, chrome-sandbox, the paks, locales/, icudtl.dat,
 #                              v8_context_snapshot.bin, SwiftShader, CEF's LICENSE.txt and Chromium's CREDITS.html
 #   eludite.desktop, icons/    the freedesktop launcher and icons (hicolor theme layout)
-#   README, LICENSE, THIRD-PARTY-CRATES.txt
+#   README, LICENSE, THIRD-PARTY-CRATES.txt, licenses/fonts/ (the embedded fonts' OFL texts)
 #
 # CEF comes from tools/cef/fetch.sh, which downloads nothing when its cache holds the pinned version. --no-build
 # packages what target/<profile>/ already holds. --profile debug packages a development build (the smoke test in
@@ -110,6 +110,9 @@ install -m 644 "$here/icons/eludite-48.png" "$dest/icons/hicolor/48x48/apps/elud
 install -m 644 "$here/icons/eludite-256.png" "$dest/icons/hicolor/256x256/apps/eludite.png"
 install -m 644 "$here/eludite.desktop" "$dest/eludite.desktop"
 install -m 644 "$repo/LICENSE" "$dest/LICENSE"
+# The embedded fonts' licenses (Instrument Sans and JetBrains Mono, SIL Open Font License 1.1; crates/ui/fonts/).
+mkdir -p "$dest/licenses/fonts"
+install -m 644 "$repo/crates/ui/fonts/InstrumentSans-OFL.txt" "$repo/crates/ui/fonts/JetBrainsMono-OFL.txt" "$dest/licenses/fonts/"
 sed -e "s/@VERSION@/$version/g" -e "s/@ARCH@/$arch/g" "$here/README.in" >"$dest/README"
 chmod 644 "$dest/README"
 if [ -n "$channel" ]; then

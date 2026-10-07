@@ -806,7 +806,7 @@ struct SixtyRows {
 
 impl Render for SixtyRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let t = Theme::vs_dark();
+        let t = Theme::dark();
         div().flex().flex_col().children((0..60).map(|i| {
             let style = TreeRowStyle {
                 depth: 2,

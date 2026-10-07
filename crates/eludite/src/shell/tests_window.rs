@@ -766,7 +766,7 @@ mod tests {
 
     #[gpui::test]
     fn the_tree_groups_filters_and_details(cx: &mut gpui::TestAppContext) {
-        let w = cx.new(|cx| TestExplorer::new(Theme::vs_dark(), cx));
+        let w = cx.new(|cx| TestExplorer::new(Theme::dark(), cx));
         w.update(cx, |w, cx| w.set_data(data(), cx));
         let labels = |w: &TestExplorer| {
             w.rows()
