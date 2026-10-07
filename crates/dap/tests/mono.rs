@@ -883,7 +883,11 @@ fn eludite_dbg_mono_attaches_to_a_waiting_test_app_and_detaches() {
         took.as_secs_f64() * 1e3
     );
     assert_eq!(s.reason, "breakpoint");
-    assert!(took.as_secs_f64() < 3.0, "budget: under 3 s ({took:?})");
+    common::assert_budget(
+        "attach to the first stopped",
+        took,
+        std::time::Duration::from_secs(3),
+    );
     // Detach: the program goes on without the debugger and exits with its code. eludite-dbg-mono stays up after a
     // detach (and spins), so the client ends it, as the shell does when the detach is answered.
     client

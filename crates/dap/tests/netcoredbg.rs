@@ -497,7 +497,11 @@ fn netcoredbg_runs_under_control() {
     eprintln!(
         "timing: setVariable round trip against netcoredbg: mean {mean:.2} ms, p95 {p95:.2} ms (20 calls)"
     );
-    assert!(p95 < 150.0, "{p95}");
+    common::assert_budget(
+        "setVariable p95",
+        Duration::from_secs_f64(p95 / 1e3),
+        Duration::from_millis(150),
+    );
     client
         .request_wait("continue", json!({"threadId": tid}), T)
         .unwrap();

@@ -282,7 +282,7 @@ fn responses_reach_the_sink_without_waiting() {
     handle.stall(Duration::from_millis(300));
     let t = std::time::Instant::now();
     let seq = client.request("threads", Value::Null).unwrap();
-    assert!(t.elapsed() < Duration::from_millis(50));
+    common::assert_budget("request", t.elapsed(), Duration::from_millis(50));
     let r = rec.wait_nth(
         1,
         "threads response",

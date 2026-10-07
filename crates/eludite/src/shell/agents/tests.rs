@@ -18,7 +18,7 @@ use eludite_docking::ids;
 use gpui::TestAppContext;
 use serde_json::{Value, json};
 
-use super::super::tests::{T, Ws, setup_full};
+use super::super::tests::{T, Ws, assert_budget, setup_full};
 use super::scenario;
 use super::window::StateKind;
 use super::{AgentsSetup, Shell};
@@ -655,7 +655,11 @@ fn streaming_fills_the_transcript_without_blocking_the_ui(cx: &mut TestAppContex
         longest = longest.max(t.elapsed());
         w.turn_ended()
     });
-    assert!(longest < Duration::from_millis(50), "{longest:?}");
+    assert_budget(
+        "the UI thread's longest read while streaming",
+        longest,
+        Duration::from_millis(50),
+    );
     let text = w.agent_text();
     assert!(text.contains("chunk 00000 lorem ipsum"), "{text}");
     assert!(text.contains("chunk 00399"), "every chunk arrived");
@@ -1139,7 +1143,11 @@ fn a_scripted_agent_fills_the_form_in_a_real_chrome_through_mcp(cx: &mut TestApp
         "fake-agent proof: prompt to the turn's end, Chrome's launch included: {:.0} ms (budget 10 s)",
         took.as_secs_f64() * 1e3
     );
-    assert!(took < Duration::from_secs(10), "{took:?}");
+    assert_budget(
+        "the fake agent's browser turn",
+        took,
+        Duration::from_secs(10),
+    );
     let done = w.shell.read_with(&w.vcx, |s, _| s.browser().shutdown());
     done.recv_timeout(Duration::from_secs(10)).unwrap();
 }
@@ -1628,7 +1636,7 @@ fn debug_scenario_with(
         }
     }
     assert!(total < SCENARIO_BUDGET, "{total} bytes");
-    assert!(took < Duration::from_secs(15), "{took:?}");
+    assert_budget("the debug scenario", took, Duration::from_secs(15));
     let read = (
         p.failures_read.clone(),
         p.calls

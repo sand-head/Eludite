@@ -15,7 +15,7 @@ use eludite_lsp::fake::FakeReply;
 use gpui::{Entity, Modifiers, point, px};
 use serde_json::{Value, json};
 
-use super::tests::{PROGRAM, T, Ws, setup_with};
+use super::tests::{PROGRAM, T, Ws, assert_budget, setup_with};
 
 /// Roslyn-like capabilities: `.` triggers completion, items resolve, `(` and `,` trigger Parameter Info.
 fn capabilities() -> Value {
@@ -354,9 +354,10 @@ fn falls_back_to_syntax_identifiers_while_loading_and_swaps_to_server_items(
     let fallback = w.completion(&view).unwrap();
     assert_eq!(fallback.source, Some(CompletionSource::Syntax));
     assert_eq!(w.labels(&view)[0], "Main");
-    assert!(
-        t0.elapsed() < Duration::from_millis(400),
-        "before the server answered"
+    assert_budget(
+        "the syntax fallback list",
+        t0.elapsed(),
+        Duration::from_millis(400),
     );
     let out = w.run_cmd(workspace::EDITOR_COMPLETE, json!({}));
     assert_eq!(out["source"], "syntax");

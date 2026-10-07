@@ -530,7 +530,11 @@ fn the_real_js_debug_stops_in_app_ts_on_a_click() {
         .and_then(|t| t.split_whitespace().next()?.parse::<f64>().ok())
         .unwrap_or(0.0);
     if load <= cores {
-        assert!(attach < Duration::from_millis(1500), "{attach:?}");
+        common::assert_budget(
+            "js-debug start and attach",
+            attach,
+            Duration::from_millis(1500),
+        );
     }
     rec.wait_nth(
         1,

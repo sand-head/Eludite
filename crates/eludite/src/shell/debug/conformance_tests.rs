@@ -40,7 +40,7 @@ use eludite_dap::replay::{self, ReplayHandle, ReplayOptions};
 use gpui::TestAppContext;
 use serde_json::{Value, json};
 
-use super::super::tests::{Ws, setup_debug};
+use super::super::tests::{Ws, assert_budget, setup_debug};
 use super::native::NativeSetup;
 use super::state::Mode;
 use super::{DebugSetup, JsSetup};
@@ -2233,9 +2233,10 @@ fn conformance(cx: &mut TestAppContext, adapter: Adapter, scenario: &str) {
     )
     .unwrap();
     compare_golden(&golden, &replayed).unwrap_or_else(|e| panic!("{adapter:?} {scenario}: {e}"));
-    assert!(
-        took < Duration::from_secs(2),
-        "{adapter:?} {scenario}: the replay took {took:?} (budget 2 s)"
+    assert_budget(
+        &format!("{adapter:?} {scenario}: the replay"),
+        took,
+        Duration::from_secs(2),
     );
 }
 

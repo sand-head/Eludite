@@ -901,7 +901,11 @@ fn recorded_options_follow_mode_model_and_effort_changes() {
         let started = std::time::Instant::now();
         let answer = set_option(id, value).unwrap();
         let took = started.elapsed();
-        assert!(took < Duration::from_secs(2), "{id}: {took:?}");
+        assert_budget(
+            &format!("set_config_option {id}"),
+            took,
+            Duration::from_secs(2),
+        );
         assert_eq!(
             config_option(&answer["configOptions"], id)["currentValue"],
             value
@@ -1268,4 +1272,21 @@ fn recorded_resume_loads_the_session_and_replays_its_file() {
     );
     refused.client.shutdown();
     let _ = std::fs::remove_dir_all(&config);
+}
+
+/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
+/// VMs, not a reference machine, so the number is printed instead.
+fn assert_budget(what: &str, measured: Duration, limit: Duration) {
+    if std::env::var_os("CI").is_some() {
+        eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        );
+    } else {
+        assert!(
+            measured < limit,
+            "{what}: {measured:?} is not under {limit:?}"
+        );
+    }
 }

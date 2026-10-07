@@ -22,7 +22,7 @@ use eludite_commands::workspace;
 use serde_json::{Value, json};
 
 use super::agents::window::Decision;
-use super::tests::{Ws, setup, setup_full};
+use super::tests::{Ws, assert_budget, setup, setup_full};
 
 /// What the fake engines of one test saw.
 #[derive(Default)]
@@ -215,7 +215,11 @@ fn browser_commands_are_registered_agent_visible_with_their_schemas(cx: &mut gpu
     let _bus = super::browser::register(&fresh);
     let took = t.elapsed();
     eprintln!("registering the browser commands at startup: {took:?}");
-    assert!(took < Duration::from_millis(50), "{took:?}");
+    assert_budget(
+        "registering the browser commands",
+        took,
+        Duration::from_millis(50),
+    );
     // A cold start does nothing for the browser: no worker, no engine, nothing launched.
     assert!(!w.shell.read_with(&w.vcx, |s, _| s.browser().started()));
     assert!(seen.threads.lock().unwrap().is_empty());
@@ -233,7 +237,11 @@ fn tabs_runs_on_the_browser_worker_and_never_delays_a_frame(cx: &mut gpui::TestA
         .unwrap_err()
         .to_string();
     assert!(err.contains("UI thread"), "{err}");
-    assert!(t.elapsed() < Duration::from_millis(50));
+    assert_budget(
+        "the UI thread's refusal",
+        t.elapsed(),
+        Duration::from_millis(50),
+    );
     assert!(seen.threads.lock().unwrap().is_empty());
 
     // An agent's call (another thread) waits on the worker while the UI keeps drawing.
@@ -262,9 +270,10 @@ fn tabs_runs_on_the_browser_worker_and_never_delays_a_frame(cx: &mut gpui::TestA
     assert_eq!(out["running"], false);
     assert_eq!(out["engine"]["name"], "fake-chrome");
     assert!(frames > 5, "frames went on during the call ({frames})");
-    assert!(
-        worst < Duration::from_millis(100),
-        "a frame waited {worst:?} on the browser"
+    assert_budget(
+        "a frame during the browser call",
+        worst,
+        Duration::from_millis(100),
     );
     let threads = seen.threads.lock().unwrap().clone();
     assert!(

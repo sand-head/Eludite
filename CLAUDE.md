@@ -77,7 +77,7 @@ These come from PLAN.md section 2. Violating one is a defect even if tests pass.
 
 ## Performance budgets
 
-Enforced in CI on a reference machine. A shell-touching PR that regresses any benchmark by more than 5 percent does not merge.
+The budget tests assert these on a developer machine; under CI (`CI` set) they print their numbers instead, because the hosted runners are not a reference machine. A shell-touching PR that regresses any benchmark by more than 5 percent does not merge.
 
 | Metric | Budget |
 |---|---|

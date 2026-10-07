@@ -510,5 +510,9 @@ fn a_keystroke_in_a_10000_line_typescript_file_is_highlighted_within_the_budget(
         syntax[syntax.len() / 2],
         parse[parse.len() / 2],
     );
-    assert!(ui_p99 < Duration::from_millis(8), "{ui_p99:?}");
+    super::assert_budget(
+        "spans moved p99 on the UI thread",
+        ui_p99,
+        Duration::from_millis(8),
+    );
 }

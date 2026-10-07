@@ -21,7 +21,7 @@ use super::configuration_manager as cm;
 use super::explorer::row_selector;
 use super::project_properties::pages::{self, PropertyPages};
 use super::project_properties::tab_id;
-use super::tests::{Ws, setup, setup_debug};
+use super::tests::{Ws, assert_budget, setup, setup_debug};
 use super::toolbar::{FRAMEWORK_BUTTON, PROFILE_BUTTON};
 
 struct Pw {
@@ -244,7 +244,11 @@ fn pages_open_from_workspace_show_sources_save_through_the_host_and_ask_on_close
             .read_with(&p.w.vcx, |s, _| s.properties_timings().clone());
     let open_ms = (timings.shown.unwrap() - timings.opened.unwrap()).as_secs_f64() * 1e3;
     eprintln!("timing: property pages open to values shown {open_ms:.1} ms (fake host)");
-    assert!(open_ms < 150.0, "{open_ms} ms");
+    assert_budget(
+        "property pages open to values shown",
+        Duration::from_secs_f64(open_ms / 1e3),
+        Duration::from_millis(150),
+    );
 
     // Values with their sources.
     assert_eq!(p.shown("OutputType"), "Exe");

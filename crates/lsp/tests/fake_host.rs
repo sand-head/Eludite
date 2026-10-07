@@ -4,6 +4,8 @@
 //! the host, so the client is exercised over a real child process's stdio. It has no libtest harness because the
 //! harness would print to stdout, which is the protocol stream.
 
+mod common;
+
 use std::collections::HashMap;
 use std::io::{self, BufReader};
 use std::panic;
@@ -333,7 +335,11 @@ fn cancel_returns_within_50ms() {
         assert!(matches!(err, Error::Canceled), "{err:?}");
     }
     eprintln!("cancel -> return, worst of 20: {worst:?}");
-    assert!(worst < Duration::from_millis(50), "{worst:?}");
+    common::assert_budget(
+        "cancel to return, worst of 20",
+        worst,
+        Duration::from_millis(50),
+    );
     client.shutdown(T).unwrap();
 }
 

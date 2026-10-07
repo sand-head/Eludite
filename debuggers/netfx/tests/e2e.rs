@@ -500,10 +500,10 @@ mod windows_only {
             m.first_counter,
             m.second_counter
         );
-        assert!(
-            m.attach_to_initialized < Duration::from_secs(2),
-            "attach to initialized took {:?}",
-            m.attach_to_initialized
+        assert_budget(
+            "attach to initialized",
+            m.attach_to_initialized,
+            Duration::from_secs(2),
         );
         assert_eq!(hits.len(), 2, "two breakpoint hits logged: {lines:?}");
         for h in end_to_end {
@@ -542,5 +542,23 @@ mod windows_only {
         };
         let _ = std::io::stderr().flush();
         full_run(&format!("{ip}:0"), Some(&ip));
+    }
+}
+
+/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
+/// VMs, not a reference machine, so the number is printed instead.
+#[cfg(windows)]
+fn assert_budget(what: &str, measured: Duration, limit: Duration) {
+    if std::env::var_os("CI").is_some() {
+        eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        );
+    } else {
+        assert!(
+            measured < limit,
+            "{what}: {measured:?} is not under {limit:?}"
+        );
     }
 }

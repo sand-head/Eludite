@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use eludite_commands::settings::{GET, SET};
 use serde_json::{Value, json};
 
-use super::tests::{USER_SETTINGS, Ws, setup, setup_full};
+use super::tests::{USER_SETTINGS, Ws, assert_budget, setup, setup_full};
 
 impl Ws {
     fn write_settings(&self, rel: &str, value: Value) -> Instant {
@@ -93,7 +93,11 @@ fn settings_load_merge_and_reload_live(cx: &mut gpui::TestAppContext) {
         took[took.len() / 2].as_secs_f64() * 1e3,
         took[took.len() - 1].as_secs_f64() * 1e3
     );
-    assert!(took.iter().all(|t| *t < Duration::from_secs(1)), "{took:?}");
+    assert_budget(
+        "the slowest settings reload",
+        took[took.len() - 1],
+        Duration::from_secs(1),
+    );
     let applied = w.shell.read_with(&w.vcx, |s, _| s.settings_timings().len());
     assert!(applied >= 10);
 

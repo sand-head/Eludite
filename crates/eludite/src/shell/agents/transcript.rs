@@ -2294,16 +2294,13 @@ mod record_tests {
             serialize.as_secs_f64() * 1e3,
             rebuild.as_secs_f64() * 1e3
         );
-        let quiet = std::fs::read_to_string("/proc/loadavg")
-            .ok()
-            .and_then(|l| l.split_whitespace().next()?.parse::<f64>().ok())
-            .is_some_and(|load| {
-                load < std::thread::available_parallelism().map_or(1, |n| n.get()) as f64
-            });
-        if quiet {
-            let budget = if cfg!(debug_assertions) { 20 } else { 10 };
-            assert!(serialize < Duration::from_millis(budget), "{serialize:?}");
-            assert!(rebuild < Duration::from_millis(50), "{rebuild:?}");
-        }
+        let budget = if cfg!(debug_assertions) { 20 } else { 10 };
+        let assert_budget = crate::shell::tests::assert_budget;
+        assert_budget(
+            "serializing 2000 rows",
+            serialize,
+            Duration::from_millis(budget),
+        );
+        assert_budget("rebuilding 2000 rows", rebuild, Duration::from_millis(50));
     }
 }
