@@ -2,8 +2,8 @@
 //! lists them, `resources/read` serves one by its uri, and `resources/templates/list` is empty. The texts are compiled
 //! in from `docs/agents/`, so a guide always matches the commands of the build that serves it.
 //!
-//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040), [`TERMINAL`] (brief 0041), [`FORGE`] (brief 0046)
-//! and [`NUGET`] (brief 0048).
+//! The guides: [`DEBUGGING`] (brief 0027), [`GIT`] (brief 0040), [`TERMINAL`] (brief 0041), [`FORGE`] (brief 0046),
+//! [`NUGET`] (brief 0048) and [`RESX`] (proposal 0005).
 //!
 //! Besides the guides, [`GIT_STATUS_URI`] (brief 0040) is live: the repository's status as `eludite.git.status`
 //! answers it, read through the command bus as the agent on each `resources/read`, and listed while that command is
@@ -82,8 +82,20 @@ pub const NUGET: Guide = Guide {
     text: include_str!("../../../docs/agents/nuget.md"),
 };
 
+/// How an agent reads and writes `.resx` resource sets and what needs permission (`docs/agents/resx.md`,
+/// proposal 0005).
+pub const RESX: Guide = Guide {
+    uri: "eludite://guides/resx",
+    name: "resx",
+    title: "Resources in Eludite: a guide for agents",
+    description: "Read before using eludite.resx.*: list the sets, read a set's rows with the missing cells and the \
+                  rule warnings, write cells, add, rename and remove keys, translate without breaking placeholders, \
+                  and what the resx policy (resx.remove) asks about.",
+    text: include_str!("../../../docs/agents/resx.md"),
+};
+
 /// Every guide, in the order `resources/list` gives them.
-pub const GUIDES: [Guide; 5] = [DEBUGGING, GIT, TERMINAL, FORGE, NUGET];
+pub const GUIDES: [Guide; 6] = [DEBUGGING, GIT, TERMINAL, FORGE, NUGET, RESX];
 
 /// The MIME type of every guide.
 pub const MIME: &str = "text/markdown";

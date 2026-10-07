@@ -15,6 +15,7 @@ members = [
     "crates/git",
     "crates/terminal",
     "crates/search",
+    "crates/resx",
     "crates/forge",
     "crates/update",
     "crates/extensions",
@@ -52,6 +53,7 @@ eludite-lsp = { path = "crates/lsp" }
 eludite-mcp = { path = "crates/mcp" }
 eludite-protocol = { path = "protocol/rust" }
 eludite-search = { path = "crates/search" }
+eludite-resx = { path = "crates/resx" }
 eludite-forge = { path = "crates/forge" }
 eludite-update = { path = "crates/update" }
 eludite-terminal = { path = "crates/terminal" }

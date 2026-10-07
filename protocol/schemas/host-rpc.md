@@ -119,6 +119,8 @@ Error `data` shapes: [`host/errors.json`](host/errors.json).
 | `eludite/project/setProperty` | request | [project-set-property.json](host/project-set-property.json) | `{ project, generation, edits: [{ name, value, configuration?, platform?, framework?, allConfigurations?, override? }] }` | `{ generation, project, written, results: [{ name, status, condition?, line?, inheritedFrom?, removedConditions? }] }` |
 | `eludite/project/launchProfiles` | request | [launch-profiles.json](host/launch-profiles.json) | `{ project }` | `{ generation, project, file, exists, profiles: [{ name, commandName, environmentVariables, ... }] }` |
 | `eludite/project/setLaunchProfile` | request | [launch-profile-set.json](host/launch-profile-set.json) | `{ project, generation, action, profile, newName?, values? }` | as `eludite/project/launchProfiles` |
+| `eludite/resx/sets` | request | [resx-sets.json](host/resx-sets.json) | `{ generation, projects? }` | `{ generation, sets: [{ project, projectName, kind, path, baseName, neutralLanguage?, rootNamespace, cultures: [{ name, path, item }], generator?, customToolNamespace?, lastGenOutput?, designer?, accessModifier, manifestName, namespace }], skipped?: [{ project, reason }] }` |
+| `eludite/resx/designer` | request | [resx-designer.json](host/resx-designer.json) | `{ generation, path, action, modifier? }` | `{ generation, path, designer?, status, modifier, projectWritten?, className?, namespace? }` |
 | `eludite/solution/configurations` | request | [solution-configurations.json](host/solution-configurations.json) | none | `{ generation, path, format, configurations, platforms, active, projects: [{ name, path, configurations, platforms, mappings }] }` |
 | `eludite/solution/setConfiguration` | request | [solution-set-configuration.json](host/solution-set-configuration.json) | `{ generation, select?, mappings? }` | `{ generation, path, written, active }` |
 
@@ -519,6 +521,43 @@ edits them itself.
   solution configuration to itself and `Any CPU`, and builds); a project file opened alone maps to itself. The active
   selection (`select`) is the host's default for `eludite/project/properties`; the shell keeps it per solution.
   `mappings` rewrites only the lines (`.sln`) or the project's rule elements (`.slnx`) it changes.
+
+#### Resources (proposal 0005)
+
+The `.resx` editor (PLAN.md 4.11) parses and edits the files in the shell (`eludite-resx`); the host answers what only
+the project system knows and writes the designer code file. The shell never edits a project file or a designer file
+itself.
+
+- **The sets.** `eludite/resx/sets` lists, per project of the generation (or the `projects` given, by absolute
+  path), every `EmbeddedResource` item whose path ends in `.resx` and is not under the project's `bin/` or `obj/`,
+  grouped as neutral files with the culture files beside them: `Name.<suffix>.resx` is a culture file when
+  `CultureInfo.GetCultureInfo(suffix, predefinedOnly: true)` accepts the suffix, so `Default.aspx.resx` is a neutral
+  file. A culture file whose neutral file no project lists still names its set. Each set carries the project's
+  `NeutralLanguage` and `RootNamespace` (`AssemblyName` when absent), the item's `Generator`, `CustomToolNamespace`
+  and `LastGenOutput`, the designer file (`LastGenOutput` beside the file, else `<baseName>.Designer.cs` or `.vb`
+  when it exists), the access modifier (`internal` for `ResXFileCodeGenerator`, `public` for
+  `PublicResXFileCodeGenerator`, else the existing designer's class modifier, else `none`), the manifest resource
+  name the build gives the file (`LogicalName` or `ManifestResourceName` metadata, else
+  `<RootNamespace>.<folders>.<baseName>` as `CreateCSharpManifestResourceName` computes it for a `.resx` with no
+  dependent source) and the designer's namespace (`CustomToolNamespace`, else `<RootNamespace>.<folders>`). Nothing
+  inside the `.resx` files is parsed. A project that fails to evaluate is in `skipped` with the reason.
+- **The designer.** `eludite/resx/designer` with `generate` reads the neutral file from disk (the shell saved it)
+  and writes the designer in the shape `ResXFileCodeGenerator` and `PublicResXFileCodeGenerator` write (the header,
+  the namespace, the class with `ResourceManager` and `Culture`, one property per entry sorted by key ignoring
+  case, the summary `Looks up a localized string similar to <value>.` with the value cut at 512 characters and
+  escaped as `SecurityElement.Escape` does, non-string entries typed by their `type` or the `ResXFileRef`'s type,
+  a key that is not an identifier made one as `StronglyTypedResourceBuilder.VerifyResourceName` does, `$` and `>>`
+  entries skipped), CRLF, without a byte order mark; nothing is written when the bytes would not change
+  (`unchanged`); `none` when no project lists the file or the modifier is `none` and no designer exists.
+  `setModifier` edits the item's `Generator` and `LastGenOutput` metadata (and the designer's `Compile` item) with
+  the construction model, preserving formatting, an SDK project's globbed item getting an `Update` element, then
+  generates or, for `none`, removes the metadata and deletes the designer; the solution reloads and the result
+  carries the new generation with `projectWritten`. `delete` deletes the designer file and keeps the metadata.
+- **Generation and cancellation.** Both carry `generation` (stale is -32801) and run under the request's token
+  (-32800). `eludite/resx/sets` is a read; `eludite/resx/designer` with `setModifier` is serialized with the other
+  project writes.
+- **Errors:** -32002 before `eludite/host/initialize`; -32602 when no solution is open, `path` is not absolute or
+  not a `.resx`, or `modifier` is missing for `setModifier`.
 
 ### Forwarded LSP methods, typed
 

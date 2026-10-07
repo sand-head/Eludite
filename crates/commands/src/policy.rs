@@ -38,6 +38,11 @@
 //!   [`NuGetPolicy::decide_for`]: `prompt` (the default for both) makes a call dangerous (Always Allow writes a tool
 //!   rule), `allow` (`change` only) leaves it at class execute, `deny` refuses it for an agent with the policy named;
 //!   tool rules are checked first. Reads (search, installed, updates, the sources list) are always allowed.
+//! - **`resx`** (proposal 0005): `remove` (an agent removing keys from every culture file of a resource set, and
+//!   later removing a culture file), applied by the resx commands' escalation hooks through
+//!   [`ResxPolicy::decide_for`]: `prompt` (the default) makes the call dangerous (Always Allow writes a tool rule),
+//!   `allow` leaves it at class edit_buffer (held for review as every edit), `deny` refuses it for an agent with the
+//!   policy named; tool rules are checked first. Reads, cell writes, added and renamed keys follow the classes alone.
 //! - **Escalated calls** ([`crate::CallClass`]): a call whose class a hook raised is decided by [`AgentPolicy::decide_call`],
 //!   where allow rules apply only when the hook says so ([`AlwaysAllow::Rule`]), and Always Allow remembers what the
 //!   hook names ([`AgentPolicy::remember`]): a rule, an origin, or nothing.
@@ -1062,6 +1067,11 @@ impl PolicyView {
         self.policy().nuget.clone().unwrap_or_default()
     }
 
+    /// The `resx` object (its defaults when absent).
+    pub fn resx(&self) -> ResxPolicy {
+        self.policy().resx.clone().unwrap_or_default()
+    }
+
     /// Whether "Allow for this session" granted `key` to the running agent session.
     pub fn session_granted(&self, key: &str) -> bool {
         self.get().session_grants.iter().any(|g| g == key)
@@ -1148,6 +1158,72 @@ pub fn shell_command(input: &Value) -> Option<&str> {
     input.get("command").and_then(Value::as_str)
 }
 
+/// `resx.remove`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResxRemovePolicy {
+    #[default]
+    Prompt,
+    Allow,
+    Deny,
+}
+
+/// `agents-policy.json`'s `resx` object (proposal 0005).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResxPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove: Option<ResxRemovePolicy>,
+}
+
+/// What a resx command's call does, for the `resx` policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ResxCall {
+    /// Remove keys, or a culture file.
+    pub remove: bool,
+}
+
+impl ResxPolicy {
+    /// What the policy makes of `call`: a refusal (`deny`), a raise to dangerous (`prompt`), or `None` (the command's
+    /// class).
+    pub fn decide(&self, call: ResxCall) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        if !call.remove {
+            return None;
+        }
+        match self.remove.unwrap_or_default() {
+            ResxRemovePolicy::Deny => Some(Escalation::Refuse(
+                "the solution's policy sets resx.remove to deny".into(),
+            )),
+            ResxRemovePolicy::Prompt => Some(Escalation::raise(
+                PermissionClass::Dangerous,
+                "the solution's policy asks before an agent removes resources (resx.remove: prompt)",
+            )),
+            ResxRemovePolicy::Allow => None,
+        }
+    }
+
+    /// [`ResxPolicy::decide`] for a call of `tool` with `input` under `rules`: a matching tool rule turns a policy
+    /// refusal into a raise to dangerous that the rule decides.
+    pub fn decide_for(
+        &self,
+        call: ResxCall,
+        rules: &[PolicyRule],
+        tool: &str,
+        input: &Value,
+    ) -> Option<crate::Escalation> {
+        use crate::Escalation;
+        let e = self.decide(call)?;
+        if !rules.iter().any(|r| r.matches(tool, input)) {
+            return Some(e);
+        }
+        Some(match e {
+            Escalation::Refuse(why) => Escalation::raise(PermissionClass::Dangerous, why),
+            raise => raise,
+        })
+    }
+}
+
 /// `agents-policy.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1173,6 +1249,8 @@ pub struct AgentPolicy {
     pub forge: Option<ForgePolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nuget: Option<NuGetPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resx: Option<ResxPolicy>,
 }
 
 impl Default for AgentPolicy {
@@ -1189,6 +1267,7 @@ impl Default for AgentPolicy {
             terminal: None,
             forge: None,
             nuget: None,
+            resx: None,
         }
     }
 }
@@ -1650,6 +1729,53 @@ mod tests {
         ));
         std::fs::write(&path, r#"{"version": 1, "git": {"push": "allow"}}"#).unwrap();
         assert!(AgentPolicy::load(&path).is_err(), "push has no allow");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_resx_object_loads_and_follows_its_schema() {
+        let dir = std::env::temp_dir().join(format!("eludite-policy-resx-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = AgentPolicy::path_for(&dir);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"version": 1, "resx": {"remove": "allow"}}"#).unwrap();
+        let p = AgentPolicy::load(&path).unwrap();
+        let resx = p.resx.clone().unwrap();
+        assert_eq!(resx.remove, Some(ResxRemovePolicy::Allow));
+        p.save(&path).unwrap();
+        assert_eq!(AgentPolicy::load(&path).unwrap(), p);
+        let schema: Value = serde_json::from_str(SCHEMA).unwrap();
+        let props = &schema["properties"]["resx"]["properties"];
+        for (k, v) in serde_json::to_value(&resx).unwrap().as_object().unwrap() {
+            assert!(props[k]["enum"].as_array().unwrap().contains(v), "{k}");
+        }
+        let remove = ResxCall { remove: true };
+        let d = ResxPolicy::default();
+        assert!(matches!(
+            d.decide(remove),
+            Some(crate::Escalation::Raise {
+                class: PermissionClass::Dangerous,
+                ..
+            })
+        ));
+        assert_eq!(d.decide(ResxCall::default()), None);
+        assert_eq!(resx.decide(remove), None);
+        let deny = ResxPolicy {
+            remove: Some(ResxRemovePolicy::Deny),
+        };
+        assert!(matches!(
+            deny.decide(remove),
+            Some(crate::Escalation::Refuse(_))
+        ));
+        let rule = PolicyRule {
+            tool: "eludite-resx-remove".into(),
+            command_prefix: None,
+            decision: RuleDecision::Allow,
+        };
+        assert!(matches!(
+            deny.decide_for(remove, &[rule], "eludite-resx-remove", &json!({})),
+            Some(crate::Escalation::Raise { .. })
+        ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

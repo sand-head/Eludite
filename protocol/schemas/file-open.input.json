@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/sand-head/Eludite/protocol/schemas/file-open.input.json",
   "title": "eludite.file.open input",
-  "description": "Open a file in an editor tab, or activate its tab if it is open (double-click in Workspace, a click on an Error List row). Optionally move the caret to a 1-based line and column and scroll it into view.",
+  "description": "Open a file in an editor tab, or activate its tab if it is open (double-click in Workspace, a click on an Error List row). Optionally move the caret to a 1-based line and column and scroll it into view. A `.resx` file opens as its resource set's grid (the .resx editor, proposal 0005) unless `editor` is `text` or the setting `resx.openAsText` is on; the tab is then `resx:<neutral file>`.",
   "type": "object",
   "required": [
     "path"
@@ -22,6 +22,13 @@
       "description": "1-based column (characters) to put the caret on; 1 when omitted.",
       "type": "integer",
       "minimum": 1
+    },
+    "editor": {
+      "description": "`default`: the editor the file's kind has (the .resx editor for a `.resx`); `text`: the text editor (Open With > XML (Text) Editor in the Workspace window).",
+      "enum": [
+        "default",
+        "text"
+      ]
     }
   },
   "additionalProperties": false

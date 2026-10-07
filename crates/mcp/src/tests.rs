@@ -951,12 +951,13 @@ fn the_debugging_guide_is_a_resource() {
     let resources = list["resources"].as_array().unwrap();
     assert_eq!(
         resources.len(),
-        5,
-        "the debugging, git, terminal, forge and nuget guides (no git status without its command)"
+        6,
+        "the debugging, git, terminal, forge, nuget and resx guides (no git status without its command)"
     );
     assert_eq!(resources[2]["uri"], "eludite://guides/terminal");
     assert_eq!(resources[3]["uri"], "eludite://guides/forge");
     assert_eq!(resources[4]["uri"], "eludite://guides/nuget");
+    assert_eq!(resources[5]["uri"], "eludite://guides/resx");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1110,9 +1111,9 @@ fn the_git_status_is_a_live_resource_read_as_the_agent() {
     );
     let list = result(call(&s, "resources/list", json!({})));
     let resources = list["resources"].as_array().unwrap();
-    assert_eq!(resources.len(), 6);
-    assert_eq!(resources[5]["uri"], crate::resources::GIT_STATUS_URI);
-    assert_eq!(resources[5]["mimeType"], "application/json");
+    assert_eq!(resources.len(), 7);
+    assert_eq!(resources[6]["uri"], crate::resources::GIT_STATUS_URI);
+    assert_eq!(resources[6]["mimeType"], "application/json");
     for r in resources {
         let errors = validate(&schema, r);
         assert!(errors.is_empty(), "{errors:?}");
@@ -1731,4 +1732,170 @@ fn the_project_property_tools_are_listed_with_their_classes_and_answer() {
         refused.get("error").is_some() || refused["result"]["isError"] == true,
         "{refused}"
     );
+}
+
+/// Proposal 0005: the resx commands are tools with their classes (reads `read`, writes `edit_buffer`), a read
+/// answers what its output schema says, `remove` reaches the gate as dangerous under the default policy, and the
+/// guide names only real commands.
+#[test]
+fn the_resx_tools_and_guide() {
+    use eludite_commands::resx::{
+        self, AccessModifier, CultureSummary, RemoveOutput, RemoveStatus, RemovedKey, ResxCommands,
+        ResxOutput, ResxRequest, SetSource, SetSummary, SetsOutput,
+    };
+    struct FakeResx;
+    impl ResxCommands for FakeResx {
+        fn apply(
+            &self,
+            request: ResxRequest,
+        ) -> Result<ResxOutput, eludite_commands::CommandError> {
+            match request {
+                ResxRequest::Sets { .. } => Ok(ResxOutput::Sets(SetsOutput {
+                    sets: vec![SetSummary {
+                        neutral: "/w/App/Properties/Resources.resx".into(),
+                        base_name: "Resources".into(),
+                        folder: "App/Properties".into(),
+                        project: Some("App".into()),
+                        neutral_language: None,
+                        cultures: vec![CultureSummary {
+                            name: String::new(),
+                            path: "/w/App/Properties/Resources.resx".into(),
+                            strings: 2,
+                            missing: 0,
+                            warnings: 0,
+                        }],
+                        strings: 2,
+                        non_strings: 0,
+                        missing: 0,
+                        warnings: 0,
+                        designer: None,
+                        access_modifier: Some(AccessModifier::None),
+                        source: SetSource::Folder,
+                    }],
+                    generation: None,
+                })),
+                ResxRequest::Remove { set, keys } => Ok(ResxOutput::Remove(RemoveOutput {
+                    set,
+                    removed: keys
+                        .into_iter()
+                        .map(|key| RemovedKey { key, files: 1 })
+                        .collect(),
+                    missing: vec![],
+                    status: RemoveStatus::Removed,
+                    message: None,
+                })),
+                other => Err(eludite_commands::CommandError::Failed(format!("{other:?}"))),
+            }
+        }
+    }
+    let r = Arc::new(CommandRegistry::new());
+    resx::register(&r, Arc::new(FakeResx));
+    let seen: Arc<Mutex<Vec<(String, PermissionClass)>>> = Arc::default();
+    let seen2 = seen.clone();
+    let s = McpServer::new(r.clone())
+        .with_agent("Fake")
+        .with_permission_gate(Arc::new(move |spec, _, ctx| {
+            seen2
+                .lock()
+                .unwrap()
+                .push((spec.id.to_string(), ctx.class.class));
+            GateDecision::Allow
+        }));
+    let tools = result(call(&s, "tools/list", json!({})))["tools"]
+        .as_array()
+        .unwrap()
+        .clone();
+    let permission = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name}"))["_meta"]["eludite/permission"]
+            .clone()
+    };
+    for id in resx::ALL {
+        assert!(
+            tools.iter().any(|t| t["name"] == id.replace('.', "-")),
+            "{id}"
+        );
+    }
+    for read in ["sets", "entries", "validate"] {
+        assert_eq!(permission(&format!("eludite-resx-{read}")), "read");
+    }
+    for edit in ["set", "add", "remove", "rename", "access_modifier"] {
+        assert_eq!(permission(&format!("eludite-resx-{edit}")), "edit_buffer");
+    }
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-resx-sets", "arguments": {}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let answer = &out["structuredContent"];
+    assert_eq!(answer["sets"][0]["base_name"], "Resources");
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/resx-sets.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, answer);
+    assert!(errors.is_empty(), "{errors:?}");
+    let out = result(call(
+        &s,
+        "tools/call",
+        json!({"name": "eludite-resx-remove", "arguments": {"set": "/w/App/Properties/Resources.resx", "keys": ["Old"]}}),
+    ));
+    assert_eq!(out["isError"], false);
+    let schema: Value = serde_json::from_str(include_str!(
+        "../../../protocol/schemas/resx-remove.output.json"
+    ))
+    .unwrap();
+    let errors = validate(&schema, &out["structuredContent"]);
+    assert!(errors.is_empty(), "{errors:?}");
+    // Listing never reaches the gate; the removal does, as dangerous (resx.remove: prompt).
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [("eludite.resx.remove".to_owned(), PermissionClass::Dangerous)]
+    );
+    let last = r.audit_log().entries().pop().unwrap();
+    assert_eq!(last.command, "eludite.resx.remove");
+    assert!(last.caller.is_agent());
+    assert_eq!(last.arguments.unwrap()["keys"][0], "Old");
+
+    let text = crate::resources::RESX.text;
+    let words = text.split_whitespace().count();
+    assert!(words < 500, "{words} words");
+    let mut named = 0;
+    for (i, _) in text.match_indices("eludite.resx.") {
+        let rest = &text[i..];
+        let end = rest
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+            .unwrap_or(rest.len());
+        let id = rest[..end].trim_end_matches('.');
+        if id == "eludite.resx" {
+            continue;
+        }
+        assert!(
+            resx::ALL.contains(&id),
+            "the guide names `{id}`, which is not a command"
+        );
+        named += 1;
+    }
+    assert!(named >= 8, "{named}");
+    assert!(text.contains("resx.remove") && text.contains("{Invariant}"));
+    let init = result(call(
+        &s,
+        "initialize",
+        json!({"protocolVersion": "2025-06-18"}),
+    ));
+    assert!(
+        init["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("eludite://guides/resx")
+    );
+    let read = result(call(
+        &s,
+        "resources/read",
+        json!({"uri": "eludite://guides/resx"}),
+    ));
+    assert_eq!(read["contents"][0]["text"].as_str().unwrap(), text);
 }

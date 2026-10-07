@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-entries.output.json",
+  "title": "eludite.resx.entries output",
+  "description": "The set's rows.",
+  "$defs": {
+    "warning": {
+      "description": "A rule violation on one cell. Nothing is refused: the cell carries the warning and the Warnings filter lists it.",
+      "type": "object",
+      "required": [
+        "key",
+        "culture",
+        "rule",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "The key.",
+          "type": "string",
+          "minLength": 1
+        },
+        "culture": {
+          "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+          "type": "string"
+        },
+        "rule": {
+          "enum": [
+            "placeholders",
+            "punctuation",
+            "whitespace",
+            "untranslated"
+          ],
+          "description": "The rule (proposal 0005 section 2, the settings `resx.rules.*`): `placeholders` (the translation's format placeholders `{0}`, `{name}`, `%s` differ from the neutral value's), `punctuation` (the leading or trailing punctuation differs), `whitespace` (the leading or trailing white space differs), `untranslated` (the translation equals the neutral value)."
+        },
+        "message": {
+          "description": "The rule's message, as the cell's tooltip shows it.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "type": "object",
+  "required": [
+    "set",
+    "cultures",
+    "total",
+    "skip",
+    "entries"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "neutral_language": {
+      "description": "The project's `NeutralLanguage`, when known.",
+      "type": "string",
+      "minLength": 1
+    },
+    "cultures": {
+      "description": "The cultures answered, the neutral file first.",
+      "type": "array",
+      "items": {
+        "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+        "type": "string"
+      }
+    },
+    "total": {
+      "description": "Entries matching the filters, before paging.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "skip": {
+      "description": "The entries skipped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "entries": {
+      "description": "The page, in file order of the neutral file (a key only a culture file has comes after, by key).",
+      "type": "array",
+      "items": {
+        "description": "A key with its cells.",
+        "type": "object",
+        "required": [
+          "key",
+          "invariant",
+          "cells"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "The key (the `data` element's `name`).",
+            "type": "string",
+            "minLength": 1
+          },
+          "invariant": {
+            "description": "The key is marked invariant (`{Invariant}` in the neutral comment): never translated, excluded from the missing counts.",
+            "type": "boolean"
+          },
+          "cells": {
+            "description": "One cell per requested culture, the neutral file first (its `culture` is the empty string).",
+            "type": "array",
+            "items": {
+              "description": "One culture's value and comment for a key.",
+              "type": "object",
+              "required": [
+                "culture",
+                "missing",
+                "warnings"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "culture": {
+                  "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "The value; absent when the culture file has no entry for the key (a missing cell).",
+                  "type": "string"
+                },
+                "comment": {
+                  "description": "The comment; absent when the entry has none. The neutral entry's comment carries `{Invariant}` for an invariant key.",
+                  "type": "string"
+                },
+                "missing": {
+                  "description": "True when the culture file has no entry for this key.",
+                  "type": "boolean"
+                },
+                "warnings": {
+                  "description": "The rule warnings on this cell.",
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/warning"
+                  }
+                },
+                "line": {
+                  "description": "The entry's 1-based line in its file, for Open With > XML (Text) Editor.",
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "references": {
+            "description": "Uses of the key in code, once eludite.resx.references has scanned (a later brief); absent before.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "description": "A cell of the key differs from `HEAD` or the snapshot (eludite.resx.changes, a later brief); absent before.",
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

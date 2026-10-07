@@ -1,15 +1,15 @@
 namespace Eludite.Host.Tests;
 
 /// <summary>
-/// Brief 0049's corpus (<c>corpus/projects</c>), copied to a temporary folder per test so edits never touch the
-/// repository.
+/// Brief 0049's corpus (<c>corpus/projects</c>), or another corpus folder with a README (<c>corpus/resx</c>, proposal
+/// 0005), copied to a temporary folder per test so edits never touch the repository.
 /// </summary>
 internal sealed class ProjectCorpus : IDisposable
 {
-    public ProjectCorpus()
+    public ProjectCorpus(string folder = "projects")
     {
-        Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "eludite-projects-" + Guid.NewGuid().ToString("N")[..8]);
-        Copy(Source(), Root);
+        Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"eludite-{folder}-" + Guid.NewGuid().ToString("N")[..8]);
+        Copy(Source(folder), Root);
     }
 
     public string Root { get; }
@@ -22,19 +22,19 @@ internal sealed class ProjectCorpus : IDisposable
 
     public void Dispose() => TestDirectory.Delete(Root);
 
-    /// <summary>The repository's <c>corpus/projects</c>, found above the test assembly.</summary>
-    public static string Source()
+    /// <summary>The repository's <c>corpus/&lt;folder&gt;</c>, found above the test assembly.</summary>
+    public static string Source(string folder = "projects")
     {
         for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
         {
-            var candidate = System.IO.Path.Combine(dir.FullName, "corpus", "projects");
+            var candidate = System.IO.Path.Combine(dir.FullName, "corpus", folder);
             if (File.Exists(System.IO.Path.Combine(candidate, "README.md")))
             {
                 return candidate;
             }
         }
 
-        throw new InvalidOperationException("corpus/projects not found above " + AppContext.BaseDirectory);
+        throw new InvalidOperationException($"corpus/{folder} not found above " + AppContext.BaseDirectory);
     }
 
     private static void Copy(string from, string to)

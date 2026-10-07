@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-add.input.json",
+  "title": "eludite.resx.add input",
+  "description": "Add a key to a resource set, as the editor's Add Key does (proposal 0005): the entry goes to the end of the neutral file in Visual Studio's shape; the culture files are not touched (their cells show missing). Class edit_buffer, as eludite.resx.set.",
+  "type": "object",
+  "required": [
+    "set",
+    "key",
+    "value"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "description": "The new key: a name Visual Studio accepts (letters, digits, `_`, `.`, `-`; not already in the set).",
+      "type": "string",
+      "minLength": 1
+    },
+    "value": {
+      "description": "The neutral value.",
+      "type": "string"
+    },
+    "comment": {
+      "description": "The comment.",
+      "type": "string"
+    },
+    "invariant": {
+      "description": "Mark the key invariant. Default: false.",
+      "type": "boolean"
+    }
+  }
+}

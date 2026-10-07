@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/host/resx-sets.json",
+  "title": "eludite/resx/sets",
+  "description": "List the `.resx` resource files of the solution's projects (proposal 0005; host-rpc.md, \"Resources\"): every `EmbeddedResource` item whose path ends in `.resx` and is not under the project's `bin/` or `obj/`, grouped as neutral files with the culture files beside them (a suffix is a culture when `CultureInfo.GetCultureInfo` accepts it), with the properties and metadata the editor and the designer generator need. Read from the evaluated projects of the generation; nothing is parsed inside the `.resx` files. A project that fails to evaluate is skipped and reported in `skipped`.",
+  "x-eludite-method": "eludite/resx/sets",
+  "x-eludite-kind": "request",
+  "x-eludite-direction": "shellToHost",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The solution generation.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "projects": {
+          "description": "Only these projects (absolute project file paths). Default: all.",
+          "type": "array",
+          "items": {
+            "description": "A project.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "generation",
+        "sets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "description": "The generation answered.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "sets": {
+          "description": "The sets, by project then path.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/set"
+          }
+        },
+        "skipped": {
+          "description": "Projects that could not be evaluated, with why.",
+          "type": "array",
+          "items": {
+            "description": "A skipped project.",
+            "type": "object",
+            "required": [
+              "project",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "project": {
+                "description": "The project file.",
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "description": "Why.",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "set": {
+      "description": "A neutral `.resx` the project lists, with the metadata the editor and the designer generator need.",
+      "type": "object",
+      "required": [
+        "project",
+        "projectName",
+        "kind",
+        "path",
+        "baseName",
+        "rootNamespace",
+        "cultures",
+        "accessModifier",
+        "manifestName",
+        "namespace"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": {
+          "description": "The project file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "projectName": {
+          "description": "The project's name as the Workspace window shows it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "sdk",
+            "legacy"
+          ],
+          "description": "SDK-style or legacy (non-SDK) project."
+        },
+        "path": {
+          "description": "The neutral `.resx` file (absolute).",
+          "type": "string",
+          "minLength": 1
+        },
+        "baseName": {
+          "description": "The file name without `.resx`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "neutralLanguage": {
+          "description": "The project's `NeutralLanguage` property, when set.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rootNamespace": {
+          "description": "The project's `RootNamespace` (or its `AssemblyName` when absent).",
+          "type": "string",
+          "minLength": 1
+        },
+        "cultures": {
+          "description": "The culture files beside it that the project lists (SDK projects list them through the default glob), with each one's culture name.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/culture"
+          }
+        },
+        "generator": {
+          "description": "The item's `Generator` metadata (`ResXFileCodeGenerator`, `PublicResXFileCodeGenerator`), when set.",
+          "type": "string",
+          "minLength": 1
+        },
+        "customToolNamespace": {
+          "description": "The item's `CustomToolNamespace` metadata, when set.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lastGenOutput": {
+          "description": "The item's `LastGenOutput` metadata, when set.",
+          "type": "string",
+          "minLength": 1
+        },
+        "designer": {
+          "description": "The designer file: `LastGenOutput` beside the file, else `<baseName>.Designer.cs` (or `.vb` for a VB project) when it exists.",
+          "type": "string",
+          "minLength": 1
+        },
+        "accessModifier": {
+          "enum": [
+            "internal",
+            "public",
+            "none"
+          ],
+          "description": "From `generator`, else from the existing designer file's class modifier, else `none`."
+        },
+        "manifestName": {
+          "description": "The manifest resource name the build gives the neutral file (`<RootNamespace>.<Folder>.<baseName>`, or the item's `LogicalName` or `ManifestResourceName` metadata), the designer's `ResourceManager` base name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "namespace": {
+          "description": "The namespace the designer class goes in: `customToolNamespace`, else the root namespace plus the folder as MSBuild's `ResXFileCodeGenerator` computes it.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "culture": {
+      "description": "A culture file.",
+      "type": "object",
+      "required": [
+        "name",
+        "path",
+        "item"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "The culture name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "description": "The file.",
+          "type": "string",
+          "minLength": 1
+        },
+        "item": {
+          "description": "The project has an item for it (always for SDK projects' globbed files).",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-access-modifier.input.json",
+  "title": "eludite.resx.access_modifier input",
+  "description": "Set a resource set's Access Modifier, the list at the top of the `.resx` editor as in Visual Studio's (proposal 0005): `internal` or `public` sets the neutral file's `Generator` item metadata (`ResXFileCodeGenerator`, `PublicResXFileCodeGenerator`) through the host and regenerates `Name.Designer.cs` (or `.vb`); `none` removes the metadata and deletes the designer file. Needs a host and a project that lists the file. Class edit_buffer.",
+  "type": "object",
+  "required": [
+    "set",
+    "modifier"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "modifier": {
+      "enum": [
+        "internal",
+        "public",
+        "none"
+      ],
+      "description": "The Access Modifier of the generated designer class: `internal` (ResXFileCodeGenerator), `public` (PublicResXFileCodeGenerator) or `none` (no code generation, no designer file)."
+    }
+  }
+}

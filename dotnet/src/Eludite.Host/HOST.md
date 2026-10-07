@@ -183,6 +183,26 @@ carries). Nothing in it runs before a call: no source is contacted at startup.
 - `NuGetService`: the six methods, the generation rule (a change advances it through `LspProxy.AdvanceGeneration`),
   cancellation, and `eludite/nuget/update` notifications in `seq` order per operation. NuGet's logger writes to stderr.
 
+## Resources (proposal 0005)
+
+`Resources/` is the host side of the `.resx` editor: `eludite/resx/sets` and `eludite/resx/designer` (host-rpc.md,
+"Resources"). The shell parses and edits the `.resx` files; the host answers what only the project system knows and
+writes the designer code file. Nothing runs before a call.
+
+- `ResxProjectEvaluator`: a project's `EmbeddedResource` items ending in `.resx` (not under `bin/` or `obj/`) with
+  their `Generator`, `CustomToolNamespace`, `LastGenOutput`, `LogicalName` and `ManifestResourceName` metadata,
+  `RootNamespace` and `NeutralLanguage`, from one in-process MSBuild evaluation per project and generation (a
+  multi-targeted project's first inner evaluation); and the formatting-preserving edit of the item's `Generator` and
+  `LastGenOutput` and the designer's `Compile` item (an `Update` item in an SDK project, `Include` in a legacy one).
+- `ResxService`: the sets (neutral files with the culture files beside them, a suffix being a culture when
+  `CultureInfo.GetCultureInfo(suffix, predefinedOnly: true)` accepts it), the manifest name and the designer namespace
+  from the root namespace and the folder, the access modifier from the generator or the existing designer's class
+  line, the per-generation cache and the generation rule (-32801), and the designer actions serialized with one
+  semaphore; `setModifier` reloads the solution after a project write.
+- `DesignerGenerator`: the designer text `ResXFileCodeGenerator` and `PublicResXFileCodeGenerator` write (CRLF, no byte
+  order mark, members sorted by key ignoring case, `VerifyResourceName`'s identifier rule, the summary cut at 512
+  characters and escaped as `SecurityElement.Escape` does); `corpus/resx`'s designer files are the expected bytes.
+
 ## Planned (not yet added)
 
 - **MSBuild evaluation for SDK-style projects** through `Microsoft.Build.Locator` (PLAN.md D4).
