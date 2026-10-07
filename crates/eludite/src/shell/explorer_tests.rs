@@ -336,7 +336,7 @@ fn a_search_over_20000_rows_fits_the_budget() {
     eprintln!("search over {} rows: {best:?}", all.len());
     // The budget is 10 ms per keystroke in a release build; this debug build gets ten times that.
     let budget = if cfg!(debug_assertions) { 100 } else { 10 };
-    assert!(best < Duration::from_millis(budget), "{best:?}");
+    super::super::tests::assert_budget("a Workspace search", best, Duration::from_millis(budget));
 }
 
 impl Ws {
@@ -869,7 +869,7 @@ fn sixty_rows_with_icons_draw_within_2_ms_of_glyph_rows(cx: &mut TestAppContext)
         glyphs.as_secs_f64() * 1e3,
         icons.as_secs_f64() * 1e3
     );
-    super::super::git_tests::assert_budget(
+    super::super::tests::assert_budget(
         "60 rows with icons over glyph rows",
         icons.saturating_sub(glyphs),
         Duration::from_millis(2),

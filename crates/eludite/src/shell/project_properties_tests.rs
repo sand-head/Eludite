@@ -21,7 +21,7 @@ use super::configuration_manager as cm;
 use super::explorer::row_selector;
 use super::project_properties::pages::{self, PropertyPages};
 use super::project_properties::tab_id;
-use super::tests::{Ws, setup, setup_debug};
+use super::tests::{Ws, assert_budget, setup, setup_debug};
 use super::toolbar::{FRAMEWORK_BUTTON, PROFILE_BUTTON};
 
 struct Pw {
@@ -91,6 +91,13 @@ impl Pw {
         self.w.wait("the solution configurations", |w| {
             w.shell
                 .read_with(&w.vcx, |s, _| s.properties.configurations.is_some())
+        });
+        // Start and the profile list join the right-aligned toolbar when the launch profiles land, moving every
+        // button left of them: a click aimed before that lands on whatever moved into its place.
+        let project = self.project.clone();
+        self.w.wait("the toolbar's launch profiles", |w| {
+            w.shell
+                .read_with(&w.vcx, |s, _| s.properties.launch.contains_key(&project))
         });
         self.settled_generation();
     }
@@ -244,7 +251,11 @@ fn pages_open_from_workspace_show_sources_save_through_the_host_and_ask_on_close
             .read_with(&p.w.vcx, |s, _| s.properties_timings().clone());
     let open_ms = (timings.shown.unwrap() - timings.opened.unwrap()).as_secs_f64() * 1e3;
     eprintln!("timing: property pages open to values shown {open_ms:.1} ms (fake host)");
-    assert!(open_ms < 150.0, "{open_ms} ms");
+    assert_budget(
+        "property pages open to values shown",
+        Duration::from_secs_f64(open_ms / 1e3),
+        Duration::from_millis(150),
+    );
 
     // Values with their sources.
     assert_eq!(p.shown("OutputType"), "Exe");
@@ -441,10 +452,18 @@ fn the_debug_page_edits_a_profile_and_the_debug_toolbars_choice_is_what_f5_uses(
     )
     .unwrap();
     let project = p.project.clone();
-    p.w.wait("the launch profiles", |w| {
+    p.w.wait("the Debug page and launch profiles", |w| {
         w.shell.read_with(&w.vcx, |s, cx| {
-            s.property_pages(&project)
-                .is_some_and(|v| v.read(cx).launch.is_some())
+            s.property_pages(&project).is_some_and(|v| {
+                let v = v.read(cx);
+                v.page == "debug"
+                    && v.launch.as_ref().is_some_and(|l| !l.profiles.is_empty())
+                    && v.result.as_ref().is_some_and(|r| {
+                        r.pages
+                            .iter()
+                            .any(|p| p.id == "debug" && p.state == "launchProfiles")
+                    })
+            })
         })
     });
     // The Debug page edits the selected profile at once (eludite.project.set_launch_profile).

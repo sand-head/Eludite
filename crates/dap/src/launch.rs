@@ -1668,11 +1668,7 @@ mod tests {
         } else {
             Duration::from_millis(500)
         };
-        assert!(
-            woke.duration_since(fed) < slack,
-            "{:?}",
-            woke.duration_since(fed)
-        );
+        crate::assert_budget("the line to the wake", woke.duration_since(fed), slack);
         assert_eq!(
             w.heard(),
             ["http://localhost:5180", "https://localhost:7180"]

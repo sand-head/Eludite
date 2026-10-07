@@ -408,7 +408,7 @@ fn stop_during_a_slow_search_cancels_and_the_window_says_so(cx: &mut TestAppCont
         "timing: Stop to the search's end {:.1} ms (20 ms per file, 4 threads)",
         took.as_secs_f64() * 1e3
     );
-    super::git_tests::assert_budget("Stop to the search's end", took, Duration::from_millis(50));
+    super::tests::assert_budget("Stop to the search's end", took, Duration::from_millis(50));
     assert!(s.service().running_in(1).is_none());
 }
 
@@ -960,7 +960,7 @@ fn ten_thousand_matches_draw_in_a_frame(cx: &mut TestAppContext) {
         frames[frames.len() / 2].as_secs_f64() * 1e3,
         p99.as_secs_f64() * 1e3
     );
-    super::git_tests::assert_budget("the 10,000-match frame p99", p99, Duration::from_millis(8));
+    super::tests::assert_budget("the 10,000-match frame p99", p99, Duration::from_millis(8));
 }
 
 #[gpui::test]

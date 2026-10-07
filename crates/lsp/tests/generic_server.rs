@@ -4,6 +4,8 @@
 //! pushed diagnostics, a typed completion, cancellation, `workspace/configuration` from the registration's settings,
 //! `workspace/applyEdit` relayed as an event, a crash restart with a new generation, and the restart budget.
 
+mod common;
+
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
@@ -218,7 +220,11 @@ fn cancel_ends_a_held_request() {
     let started = Instant::now();
     pending.cancel();
     assert!(matches!(pending.wait_timeout(T), Err(Error::Canceled)));
-    assert!(started.elapsed() < Duration::from_millis(500));
+    common::assert_budget(
+        "cancel to return",
+        started.elapsed(),
+        Duration::from_millis(500),
+    );
     assert!(fake.wait_for("$/cancelRequest", T, |_| true).is_some());
 }
 

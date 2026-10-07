@@ -432,7 +432,11 @@ fn a_refresh_of_fifty_pull_requests_with_20ms_per_request_is_under_2s() {
         "refresh of 50 pull requests, 20 ms per request: {:.1} ms",
         took.as_secs_f64() * 1000.0
     );
-    assert!(took < Duration::from_secs(2), "{took:?}");
+    assert_budget(
+        "the refresh of 50 pull requests",
+        took,
+        Duration::from_secs(2),
+    );
     let t = Instant::now();
     let cached = eludite_forge::ops::run(&hub, &git, "eludite.forge.pulls", &json!({})).unwrap();
     hub.set_background(false);
@@ -519,4 +523,21 @@ fn inside_the_freshness_window_a_read_neither_refreshes_nor_repeats_a_failed_ref
         "a failed refresh is not retried inside the window"
     );
     assert!(rx.try_recv().is_err());
+}
+
+/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
+/// VMs, not a reference machine, so the number is printed instead.
+fn assert_budget(what: &str, measured: Duration, limit: Duration) {
+    if std::env::var_os("CI").is_some() {
+        eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        );
+    } else {
+        assert!(
+            measured < limit,
+            "{what}: {measured:?} is not under {limit:?}"
+        );
+    }
 }

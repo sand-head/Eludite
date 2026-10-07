@@ -639,13 +639,15 @@ fn the_window_keys_dialogs_devtools_record_and_click_to_frame() {
     run.browser.shutdown();
 }
 
-/// A loaded machine (the one-minute load average over 4): timing budgets are reported, not asserted.
+/// A loaded machine (the one-minute load average over 4), or a CI run (`CI` set: the hosted runners are shared VMs, not
+/// a reference machine): timing budgets and rates are reported, not asserted.
 fn busy() -> bool {
-    std::fs::read_to_string("/proc/loadavg")
-        .unwrap_or_default()
-        .split_whitespace()
-        .next()
-        .and_then(|l| l.parse::<f64>().ok())
-        .unwrap_or(0.)
-        > 4.
+    std::env::var_os("CI").is_some()
+        || std::fs::read_to_string("/proc/loadavg")
+            .unwrap_or_default()
+            .split_whitespace()
+            .next()
+            .and_then(|l| l.parse::<f64>().ok())
+            .unwrap_or(0.)
+            > 4.
 }

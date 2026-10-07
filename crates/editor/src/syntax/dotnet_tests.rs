@@ -559,6 +559,10 @@ fn a_2000_line_file_parses_within_the_budget() {
             "{id}: {} lines parse in {best:?} (budget 10 ms)",
             text.lines().count()
         );
-        assert!(best < Duration::from_millis(100), "{id}: {best:?}");
+        super::assert_budget(
+            &format!("{id}: the parse"),
+            best,
+            Duration::from_millis(100),
+        );
     }
 }

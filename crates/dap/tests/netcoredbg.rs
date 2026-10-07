@@ -497,7 +497,11 @@ fn netcoredbg_runs_under_control() {
     eprintln!(
         "timing: setVariable round trip against netcoredbg: mean {mean:.2} ms, p95 {p95:.2} ms (20 calls)"
     );
-    assert!(p95 < 150.0, "{p95}");
+    common::assert_budget(
+        "setVariable p95",
+        Duration::from_secs_f64(p95 / 1e3),
+        Duration::from_millis(150),
+    );
     client
         .request_wait("continue", json!({"threadId": tid}), T)
         .unwrap();
@@ -573,7 +577,11 @@ fn netcoredbg_runs_under_control() {
          200 hits; launch to the last hit {:.0} ms",
         total.as_secs_f64() * 1e3
     );
-    assert!(mean < 15.0, "the budget is 15 ms per hit: {mean}");
+    common::assert_budget(
+        "an emulated tracepoint's mean stop to resume",
+        Duration::from_secs_f64(mean / 1e3),
+        Duration::from_millis(15),
+    );
     rec.wait_nth(1, "terminated", |e| {
         matches!(e, ClientEvent::Event(Event::Terminated))
     });

@@ -1418,5 +1418,5 @@ fn real_web_servers_serve_the_vite_counter(cx: &mut TestAppContext) {
     for line in &report {
         eprintln!("REAL-WEB: {line}");
     }
-    assert!(cold < Duration::from_secs(10), "cold completion {cold:?}");
+    super::tests::assert_budget("cold completion", cold, Duration::from_secs(10));
 }

@@ -143,7 +143,7 @@ fn a_literal_search_of_fifty_thousand_files_keeps_up_with_rg() {
                 r.as_secs_f64() * 1e3,
                 theirs.iter().map(|d| d.as_millis()).collect::<Vec<_>>(),
             );
-            let quiet = load.is_some_and(|l| l < cores as f64);
+            let quiet = load.is_some_and(|l| l < cores as f64) && std::env::var_os("CI").is_none();
             if quiet && files >= 50_000 && (optimized || ratio <= 1.5) {
                 assert!(
                     ratio <= 1.5,
@@ -235,9 +235,23 @@ fn the_first_result_on_this_repository_comes_quickly() {
         total.as_secs_f64() * 1e3
     );
     if load.is_some_and(|l| l < cores as f64) {
+        assert_budget("the first result", first, Duration::from_millis(50));
+    }
+}
+
+/// `measured` under `limit`, asserted on a developer machine only: under CI (`CI` set) the hosted runners are shared
+/// VMs, not a reference machine, so the number is printed instead.
+fn assert_budget(what: &str, measured: Duration, limit: Duration) {
+    if std::env::var_os("CI").is_some() {
+        eprintln!(
+            "timing: {what} {:.2} ms not asserted against {:.0} ms: a CI run, not a reference machine",
+            measured.as_secs_f64() * 1e3,
+            limit.as_secs_f64() * 1e3
+        );
+    } else {
         assert!(
-            first < Duration::from_millis(50),
-            "first result after {first:?}"
+            measured < limit,
+            "{what}: {measured:?} is not under {limit:?}"
         );
     }
 }

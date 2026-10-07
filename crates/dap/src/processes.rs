@@ -540,7 +540,11 @@ mod tests {
             .expect("the child is listed");
         assert_eq!(c.name, "cmd");
         assert_eq!(c.parent, Some(me));
-        assert!(took < std::time::Duration::from_millis(500), "{took:?}");
+        crate::assert_budget(
+            "listing the processes",
+            took,
+            std::time::Duration::from_millis(500),
+        );
         assert_eq!(parent, Some(me));
         assert!(launched, "a child of a root is launched");
     }

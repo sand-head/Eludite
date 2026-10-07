@@ -263,7 +263,7 @@ fn lenses_appear_above_members_and_the_references_popup_lists_and_navigates(
         created.as_secs_f64() * 1e3,
         filled.as_secs_f64() * 1e3
     );
-    super::git_tests::assert_budget("the References popup", opened, Duration::from_millis(50));
+    super::tests::assert_budget("the References popup", opened, Duration::from_millis(50));
     // Down selects the next reference, Enter navigates there (the history remembers where the caret was).
     assert_eq!(
         popup.read_with(&w.vcx, |p, _| p.selected_reference()),
@@ -901,14 +901,14 @@ fn typing_stays_under_the_keystroke_budget_with_200_lens_rows_on_screen(cx: &mut
         ms(without[without.len() / 2]),
         ms(p99(&without)),
     );
-    super::git_tests::assert_budget(
+    super::tests::assert_budget(
         "the keystroke frame with 200 lens rows",
         p99(&window),
         Duration::from_millis(8),
     );
     // On the tall screen the 200 lens rows cost no more than the 400 text lines under them do, line for line.
     let lines = without[without.len() / 2];
-    super::git_tests::assert_budget(
+    super::tests::assert_budget(
         "the lens rows' share of a frame with all 200 on screen",
         tall[tall.len() / 2].saturating_sub(lines),
         (lines * 3 / 4).max(Duration::from_millis(3)),

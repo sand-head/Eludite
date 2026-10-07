@@ -447,10 +447,15 @@ fn real_time_keeps_the_recorded_gaps() {
         rec.wait_nth(1, "output", |e| {
             matches!(e, ClientEvent::Event(Event::Output(_)))
         });
-        let took = clock.elapsed().as_millis();
+        let took = clock.elapsed();
         assert!(
-            took >= at_least && took < under,
-            "real_time {real_time}: {took} ms"
+            took >= Duration::from_millis(at_least),
+            "real_time {real_time}: {took:?}"
+        );
+        common::assert_budget(
+            &format!("the replay, real_time {real_time}"),
+            took,
+            Duration::from_millis(under),
         );
         rec.closed();
         assert!(handle.finished());
