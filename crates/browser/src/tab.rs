@@ -298,11 +298,17 @@ impl TabState {
                 }
             }
             "Page.javascriptDialogOpening" => {
+                let kind = p["type"].as_str().unwrap_or("alert").to_owned();
+                // Chrome sends `defaultPrompt: ""` for every kind; only a prompt has default text (as the embedded
+                // engine's own `tab/dialog` says it, whichever of the two reports the dialog first).
+                let default_text = (kind == "prompt")
+                    .then(|| p["defaultPrompt"].as_str().map(str::to_owned))
+                    .flatten();
                 self.dialog = Some(crate::engine::PendingDialog {
                     id: 0,
-                    kind: p["type"].as_str().unwrap_or("alert").to_owned(),
+                    kind,
                     message: p["message"].as_str().unwrap_or_default().to_owned(),
-                    default_text: p["defaultPrompt"].as_str().map(str::to_owned),
+                    default_text,
                 });
             }
             "Page.javascriptDialogClosed" => self.dialog = None,
@@ -712,6 +718,22 @@ mod tests {
             t.refs.resolve("e3", t.page_generation),
             Err(RefError::Stale { issued: 2, .. })
         ));
+    }
+
+    #[test]
+    fn only_a_prompt_has_default_text() {
+        let mut t = TabState::new("t1");
+        t.apply(&ev(
+            "Page.javascriptDialogOpening",
+            json!({"type": "confirm", "message": "Delete it?", "defaultPrompt": ""}),
+        ));
+        let d = t.dialog.clone().unwrap();
+        assert_eq!((d.kind.as_str(), d.default_text), ("confirm", None));
+        t.apply(&ev(
+            "Page.javascriptDialogOpening",
+            json!({"type": "prompt", "message": "Name?", "defaultPrompt": ""}),
+        ));
+        assert_eq!(t.dialog.clone().unwrap().default_text.as_deref(), Some(""));
     }
 
     #[test]
