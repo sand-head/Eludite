@@ -57,7 +57,7 @@ public sealed class NuGetServiceTests
             await host.CallAsync("eludite/nuget/search", new { generation = host.Generation, query = "Logging" });
             cold.Stop();
             TestContext.Current.SendDiagnosticMessage($"search on the local feed: cold {cold.ElapsedMilliseconds} ms, cached {watch.ElapsedMilliseconds} ms");
-            Assert.True(cold.ElapsedMilliseconds < 200 * Slack(), $"a local search took {cold.ElapsedMilliseconds} ms");
+            Budget.Assert("a local search", cold.Elapsed, TimeSpan.FromMilliseconds(200 * Slack()));
         }
         finally
         {
@@ -140,7 +140,7 @@ public sealed class NuGetServiceTests
             Assert.Contains(output, l => l.StartsWith("Installing NuGet package Eludite.Corpus.Logging 1.0.0 in Shared", StringComparison.Ordinal));
             Assert.Contains(output, l => l.StartsWith("Successfully installed 'Eludite.Corpus.Logging 1.0.0' to Shared", StringComparison.Ordinal));
             Assert.Equal("========== Finished ==========", output[^1]);
-            Assert.True(watch.ElapsedMilliseconds < 5000 * Slack(), $"install plus restore took {watch.ElapsedMilliseconds} ms");
+            Budget.Assert("install plus restore", watch.Elapsed, TimeSpan.FromMilliseconds(5000 * Slack()));
 
             // The old generation is stale now.
             var (code, _) = await TestRpc.ErrorOfAsync(() => host.CallAsync("eludite/nuget/installed", new { generation }));

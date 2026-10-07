@@ -32,8 +32,12 @@ order); the commit goes in `build.json`.
   (`Cargo.toml`), `<os>` one of `linux`, `windows`, `macos`, and `<arch>` from `uname -m` (`x86_64`, `aarch64`;
   macOS says `arm64`, which the updater takes as `aarch64`). The archive holds one top-level folder,
   `eludite-<version>-<os>-<arch>/`, with the layout `tools/package/README.md` describes.
-- `SHA256SUMS`: `sha256sum`'s format, one line per archive, `<64 hex digits>  <archive name>`. The updater refuses
-  an archive whose digest is not listed or does not match, and deletes it.
+- An unsigned Windows MSI, `eludite-<version>-windows-x86_64.msi`, built from the Windows zip's layout. It installs
+  into Program Files with a Start menu shortcut and requires admin approval. It does not include `build.json`, so
+  MSI installs upgrade by installing a newer MSI rather than using the archive self-updater. The MSI ProductVersion
+  uses the CI run number as its third field (`0.1.<run number>`); `tools/package/README.md` has details.
+- `SHA256SUMS`: `sha256sum`'s format, one line per archive **and the MSI**, `<64 hex digits>  <file name>`. The
+  updater refuses an archive whose digest is not listed or does not match, and deletes it.
 - Inside each archive's folder, **`build.json`** (`crates/update/src/build.rs`, `Build`):
 
 ```json
@@ -83,8 +87,9 @@ off.
   release agree even when the run crosses midnight.
 - `package` (after `rust` and `dotnet` are green on every platform) passes `--channel unstable --build <id>` to
   `linux.sh` and `shell.sh`, which write `build.json` into the layout through `build-json.sh`. A pull request's
-  archives get no `build.json`: they are development builds to the updater.
-- `release` downloads the three archives, writes `SHA256SUMS` over them with `sha256sum`, creates the pre-release
+  archives get no `build.json`: they are development builds to the updater. On Windows it also builds and smoke-tests
+  an MSI from that layout, excluding `build.json` for both pull requests and releases.
+- `release` downloads the three archives and the MSI, writes `SHA256SUMS` over all four with `sha256sum`, creates the pre-release
   `unstable-<id>` at the built commit with `gh release create`, and deletes `unstable-*` releases beyond the newest
   30 (the page the updater reads) with their tags.
 

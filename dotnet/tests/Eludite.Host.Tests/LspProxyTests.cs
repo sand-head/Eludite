@@ -417,7 +417,7 @@ public sealed class LspProxyTests : IAsyncDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => call);
         sw.Stop();
 
-        Assert.True(sw.ElapsedMilliseconds < 50, $"cancellation took {sw.ElapsedMilliseconds} ms");
+        Budget.Assert("cancellation", sw.Elapsed, TimeSpan.FromMilliseconds(50));
         await _fake.CompletionCanceled.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
     }
 

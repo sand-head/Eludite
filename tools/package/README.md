@@ -2,8 +2,8 @@
 
 Brief 0039 (proposal 0002, brief E, the Linux half). A built Eludite runs its embedded browser engine from a
 predictable layout, with no developer environment variables: `eludite-chromium` and CEF's runtime files beside the
-`eludite` executable. Installers and signing are Phase 3 (PLAN.md section 13); this folder lays the files out and
-makes an archive. Self-update from the archives CI publishes is brief 0055: `RELEASE.md` is the contract, and
+`eludite` executable. Signing and other platform installers remain Phase 3 (PLAN.md section 13); this folder lays
+out the files, makes archives and also builds an unsigned Windows MSI from the Windows layout. Self-update from the archives CI publishes is brief 0055: `RELEASE.md` is the contract, and
 `--channel` and `--build` on the scripts below write the `build.json` it needs (`build-json.sh`).
 
 ## Linux: `linux.sh`
@@ -74,6 +74,29 @@ CEF, `about:blank`) with no `CEF_PATH`, `ELUDITE_CEF`, `ELUDITE_CHROMIUM`, `LD_L
 `eludite-<version>-linux-<arch>`; Windows and macOS upload `shell.sh`'s archives (below). The job runs after the `rust`
 and `dotnet` jobs and only when every one of them is green, so no archive comes out of a red run.
 
+## Windows installer: `windows.ps1`
+
+On Windows, first run `tools/package/shell.sh` in Git Bash to make the Windows layout and zip, then in PowerShell:
+
+```powershell
+pwsh tools/package/windows.ps1 -Layout target/package/eludite-0.1.0-windows-x86_64 -BuildNumber 1
+```
+
+Requires the .NET SDK and an internet connection on the packaging machine to install the pinned WiX 5.0.2 build
+tool (MS-RL) into `target/package/.wix-tool`; it does not ship WiX. The output is
+`target/package/eludite-0.1.0-windows-x86_64.msi`. CI builds it from the same layout as the zip, checks silent
+install/uninstall and publishes it next to the archives on each green main build. Download the MSI from the latest
+`unstable-*` GitHub release and double-click it, or use `msiexec /i eludite-0.1.0-windows-x86_64.msi`.
+
+The MSI installs machine-wide to `Program Files\Eludite`, adds a Start menu shortcut and appears in Installed Apps.
+**It requires administrator approval** (a managed laptop may block installation); use the Windows zip instead if
+installation is restricted. Install a newer MSI to upgrade; uninstall from Installed Apps. MSI builds deliberately
+omit `build.json`: the in-app archive updater must not change files owned by Windows Installer. CI maps its increasing
+run number into the MSI product version (`0.1.<run number>` while Cargo's version is 0.1.x); this supports 65,535
+CI runs for this major/minor version. The MSI is currently **unsigned**, so Windows SmartScreen or your employer's
+policy may warn or block it. The embedded browser engine is still Linux-only; .NET 10 and any external development
+tools must be installed separately as for the zip. Do not unzip an archive over an MSI install.
+
 ## The companions: `companions.sh`
 
 The shell looks beside its own executable for the programs it runs (`crates/eludite/src/shell/session.rs`,
@@ -111,7 +134,7 @@ the missing engine; the macOS archive is a plain executable, not the `Eludite.ap
 them uses the portal's sandbox: a topic of its own), `.deb` and `.rpm` (installers are Phase 3; an installer would own
 the helper's root ownership, which a tarball cannot carry).
 
-## Windows (to write: `windows.ps1`; not run here)
+## Windows embedded browser engine (not yet built)
 
 There is no Windows machine in this environment, and `eludite-chromium` builds only as the stub off Linux (brief
 0031): the frame ring's Windows transport (named file mappings) and the engine's Windows main are still to write. What
@@ -126,7 +149,7 @@ the Windows half of brief E needs, for the owner's machine (also in `docs/briefs
 - **The layout:** `eludite.exe`, `eludite-chromium.exe` (the bootstrap) and `eludite_chromium.dll`, and `cef\` with
   `libcef.dll`, `chrome_elf.dll`, `d3dcompiler_47.dll`, `libEGL.dll`, `libGLESv2.dll`, `vk_swiftshader.dll`,
   `vk_swiftshader_icd.json`, `vulkan-1.dll`, `icudtl.dat`, `v8_context_snapshot.bin`, the paks and `locales\`, CEF's
-  `LICENSE.txt` and `CREDITS.html`; a zip (an installer is Phase 3). Check whether the bootstrap finds `libcef.dll` in
+  `LICENSE.txt` and `CREDITS.html`; a zip and the MSI above once this layout is built. Check whether the bootstrap finds `libcef.dll` in
   `cef\` or needs it beside itself (the DLL search order); if beside, the layout flattens.
 - **Discovery** is the same code (`EngineSearch` and `CefSearch` look for `eludite-chromium.exe` and `libcef.dll`).
 - `tools/cef/fetch.ps1` fetches the Windows minimal distribution (173 MB) already.
