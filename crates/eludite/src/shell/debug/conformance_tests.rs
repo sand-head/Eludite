@@ -2025,7 +2025,8 @@ fn replay_scenario(
         );
     }
     let mut scrubber = Scrubber::new(&run.roots);
-    scrubber.add_pid(run.pid);
+    // The attached process is this test's own (or the recording's app): scrubbed in text whatever its id.
+    scrubber.add_own_pid(run.pid);
     for (placeholder, text) in &run.tokens {
         scrubber.add_token(placeholder, text);
     }
@@ -2115,7 +2116,7 @@ fn record_scenario(
     let scrubber = handle.scrubber();
     let mut scrubber_with_roots = scrubber.clone();
     if !scrubber_with_roots.pids().contains(&run.pid) && run.pid != REPLAY_PID {
-        scrubber_with_roots.add_pid(run.pid);
+        scrubber_with_roots.add_own_pid(run.pid);
     }
     let golden: Vec<Value> = snapshots
         .into_iter()

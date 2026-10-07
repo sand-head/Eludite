@@ -208,6 +208,8 @@ struct Root {
 pub struct Scrubber {
     roots: Vec<Root>,
     pids: Vec<i64>,
+    /// Process ids replaced in text whatever their size ([`Scrubber::add_own_pid`]).
+    own_pids: Vec<i64>,
     /// (placeholder, text): the run's own values (brief 0038).
     tokens: Vec<(String, String)>,
 }
@@ -255,6 +257,15 @@ impl Scrubber {
     pub fn add_pid(&mut self, pid: i64) {
         if pid > 0 && !self.pids.contains(&pid) {
             self.pids.push(pid);
+        }
+    }
+
+    /// Also replace process id `pid`, in text too even below [`MIN_TEXT_PID`]: a process the caller knows the run
+    /// names (a replay attaches to the test process itself, which a Windows runner can number 828).
+    pub fn add_own_pid(&mut self, pid: i64) {
+        self.add_pid(pid);
+        if pid > 0 && !self.own_pids.contains(&pid) {
+            self.own_pids.push(pid);
         }
     }
 
@@ -322,7 +333,7 @@ impl Scrubber {
             }
         }
         for pid in &self.pids {
-            if *pid >= MIN_TEXT_PID
+            if (*pid >= MIN_TEXT_PID || self.own_pids.contains(pid))
                 && let Some(t) = replace_word(&out, &pid.to_string(), "${PID}")
             {
                 out = t;
@@ -1221,6 +1232,24 @@ pub fn request_counts(r: &Recording) -> BTreeMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_small_pid_is_scrubbed_in_text_only_when_it_is_the_runs_own() {
+        let text = json!({"output": "Attaching to process 828…", "line": "line 828"});
+        let mut s = Scrubber::default();
+        s.add_pid(828);
+        let mut v = text.clone();
+        s.scrub(&mut v);
+        assert_eq!(
+            v, text,
+            "an id under 1000 is too likely to be some other number"
+        );
+        s.add_own_pid(828);
+        let mut v = text.clone();
+        s.scrub(&mut v);
+        assert_eq!(v["output"], "Attaching to process ${PID}…");
+        assert_eq!(v["line"], "line ${PID}");
+    }
 
     #[test]
     fn paths_pids_and_times_are_scrubbed_and_substituted_back() {
