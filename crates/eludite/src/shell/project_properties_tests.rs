@@ -452,10 +452,18 @@ fn the_debug_page_edits_a_profile_and_the_debug_toolbars_choice_is_what_f5_uses(
     )
     .unwrap();
     let project = p.project.clone();
-    p.w.wait("the launch profiles", |w| {
+    p.w.wait("the Debug page and launch profiles", |w| {
         w.shell.read_with(&w.vcx, |s, cx| {
-            s.property_pages(&project)
-                .is_some_and(|v| v.read(cx).launch.is_some())
+            s.property_pages(&project).is_some_and(|v| {
+                let v = v.read(cx);
+                v.page == "debug"
+                    && v.launch.as_ref().is_some_and(|l| !l.profiles.is_empty())
+                    && v.result.as_ref().is_some_and(|r| {
+                        r.pages
+                            .iter()
+                            .any(|p| p.id == "debug" && p.state == "launchProfiles")
+                    })
+            })
         })
     });
     // The Debug page edits the selected profile at once (eludite.project.set_launch_profile).
