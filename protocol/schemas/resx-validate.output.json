@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-validate.output.json",
+  "title": "eludite.resx.validate output",
+  "description": "The warnings.",
+  "type": "object",
+  "required": [
+    "set",
+    "warnings",
+    "rules"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The neutral file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "warnings": {
+      "description": "The warnings, by key then culture.",
+      "type": "array",
+      "items": {
+        "description": "A rule violation on one cell. Nothing is refused: the cell carries the warning and the Warnings filter lists it.",
+        "type": "object",
+        "required": [
+          "key",
+          "culture",
+          "rule",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "The key.",
+            "type": "string",
+            "minLength": 1
+          },
+          "culture": {
+            "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+            "type": "string"
+          },
+          "rule": {
+            "enum": [
+              "placeholders",
+              "punctuation",
+              "whitespace",
+              "untranslated"
+            ],
+            "description": "The rule (proposal 0005 section 2, the settings `resx.rules.*`): `placeholders` (the translation's format placeholders `{0}`, `{name}`, `%s` differ from the neutral value's), `punctuation` (the leading or trailing punctuation differs), `whitespace` (the leading or trailing white space differs), `untranslated` (the translation equals the neutral value)."
+          },
+          "message": {
+            "description": "The rule's message, as the cell's tooltip shows it.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "rules": {
+      "description": "The rules that ran (those switched on in the settings).",
+      "type": "array",
+      "items": {
+        "enum": [
+          "placeholders",
+          "punctuation",
+          "whitespace",
+          "untranslated"
+        ],
+        "description": "The rule (proposal 0005 section 2, the settings `resx.rules.*`): `placeholders` (the translation's format placeholders `{0}`, `{name}`, `%s` differ from the neutral value's), `punctuation` (the leading or trailing punctuation differs), `whitespace` (the leading or trailing white space differs), `untranslated` (the translation equals the neutral value)."
+      }
+    }
+  }
+}

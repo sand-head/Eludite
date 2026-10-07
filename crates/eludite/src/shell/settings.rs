@@ -225,6 +225,7 @@ impl Shell {
             }
         };
         self.nuget_apply_settings();
+        self.resx_apply_settings(cx);
         let b = &mut self.builds;
         b.build_on_save = applied.build_on_save;
         b.build_before_run = applied.build_before_run;

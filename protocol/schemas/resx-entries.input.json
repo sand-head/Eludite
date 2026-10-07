@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-entries.input.json",
+  "title": "eludite.resx.entries input",
+  "description": "Read a resource set's rows as the `.resx` editor's grid shows them (proposal 0005): one entry per key of the neutral file (and keys only a culture file has, flagged missing in the neutral column), with the value and comment in each culture, the rule warnings and the invariant mark. The filters are the editor's toolbar filters; `query` is its search box. Paged.",
+  "type": "object",
+  "required": [
+    "set"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "query": {
+      "description": "Only keys whose key, a value or a comment contains this text (case-insensitive).",
+      "type": "string"
+    },
+    "missing": {
+      "description": "Only keys missing a value in at least one of the requested cultures (invariant keys excluded).",
+      "type": "boolean"
+    },
+    "warnings": {
+      "description": "Only keys with a rule warning in a requested culture.",
+      "type": "boolean"
+    },
+    "invariant": {
+      "description": "Only invariant keys (true) or only translatable keys (false).",
+      "type": "boolean"
+    },
+    "cultures": {
+      "description": "The cultures to include, the empty string for the neutral file. Default: every culture of the set.",
+      "type": "array",
+      "items": {
+        "description": "A culture name (`de`, `de-DE`, `sr-Latn-RS`), or the empty string for the neutral file.",
+        "type": "string"
+      }
+    },
+    "skip": {
+      "description": "Entries to skip. Default 0.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "take": {
+      "description": "Entries to answer. Default 500, at most 5000.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5000
+    }
+  }
+}

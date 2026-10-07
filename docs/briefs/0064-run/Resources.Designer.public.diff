@@ -1,0 +1,120 @@
+--- original/Strings/Properties/Resources.Designer.cs	2026-10-06 14:37:04.760155084 +0000
++++ resx/Strings/Properties/Resources.Designer.cs	2026-10-06 14:37:58.190295731 +0000
+@@ -22,7 +22,7 @@
+     [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "17.0.0.0")]
+     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
+     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
+-    internal class Resources {
++    public class Resources {
+         
+         private static global::System.Resources.ResourceManager resourceMan;
+         
+@@ -36,7 +36,7 @@
+         ///   Returns the cached ResourceManager instance used by this class.
+         /// </summary>
+         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
+-        internal static global::System.Resources.ResourceManager ResourceManager {
++        public static global::System.Resources.ResourceManager ResourceManager {
+             get {
+                 if (object.ReferenceEquals(resourceMan, null)) {
+                     global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Corpus.Strings.Properties.Resources", typeof(Resources).Assembly);
+@@ -51,7 +51,7 @@
+         ///   resource lookups using this strongly typed resource class.
+         /// </summary>
+         [global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
+-        internal static global::System.Globalization.CultureInfo Culture {
++        public static global::System.Globalization.CultureInfo Culture {
+             get {
+                 return resourceCulture;
+             }
+@@ -63,7 +63,7 @@
+         /// <summary>
+         ///   Looks up a localized string similar to One.
+         /// </summary>
+-        internal static string _1Number {
++        public static string _1Number {
+             get {
+                 return ResourceManager.GetString("1Number", resourceCulture);
+             }
+@@ -72,7 +72,7 @@
+         /// <summary>
+         ///   Looks up a localized string similar to Fish &amp; Chips &lt;b&gt;.
+         /// </summary>
+-        internal static string Ampersand {
++        public static string Ampersand {
+             get {
+                 return ResourceManager.GetString("Ampersand", resourceCulture);
+             }
+@@ -81,7 +81,7 @@
+         /// <summary>
+         ///   Looks up a localized string similar to Eludite.
+         /// </summary>
+-        internal static string Brand {
++        public static string Brand {
+             get {
+                 return ResourceManager.GetString("Brand", resourceCulture);
+             }
+@@ -90,7 +90,7 @@
+         /// <summary>
+         ///   Looks up a localized string similar to Keyword.
+         /// </summary>
+-        internal static string _class {
++        public static string _class {
+             get {
+                 return ResourceManager.GetString("class", resourceCulture);
+             }
+@@ -99,7 +99,7 @@
+         /// <summary>
+         ///   Looks up a localized string similar to Hello, {0}!.
+         /// </summary>
+-        internal static string Hello {
++        public static string Hello {
+             get {
+                 return ResourceManager.GetString("Hello", resourceCulture);
+             }
+@@ -108,7 +108,7 @@
+         /// <summary>
+         ///   Looks up a localized resource of type System.Drawing.Icon.
+         /// </summary>
+-        internal static System.Drawing.Icon Icon {
++        public static System.Drawing.Icon Icon {
+             get {
+                 object obj = ResourceManager.GetObject("Icon", resourceCulture);
+                 return ((System.Drawing.Icon)(obj));
+@@ -119,7 +119,7 @@
+         ///   Looks up a localized string similar to Line one
+         ///Line two.
+         /// </summary>
+-        internal static string Multi {
++        public static string Multi {
+             get {
+                 return ResourceManager.GetString("Multi", resourceCulture);
+             }
+@@ -128,16 +128,25 @@
+         /// <summary>
+         ///   Looks up a localized string similar to Save?.
+         /// </summary>
+-        internal static string Save {
++        public static string Save {
+             get {
+                 return ResourceManager.GetString("Save", resourceCulture);
+             }
+         }
+         
+         /// <summary>
++        ///   Looks up a localized string similar to .
++        /// </summary>
++        public static string Welcome {
++            get {
++                return ResourceManager.GetString("Welcome", resourceCulture);
++            }
++        }
++        
++        /// <summary>
+         ///   Looks up a localized string similar to Spaced.
+         /// </summary>
+-        internal static string with_space {
++        public static string with_space {
+             get {
+                 return ResourceManager.GetString("with space", resourceCulture);
+             }

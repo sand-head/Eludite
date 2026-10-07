@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Strings/Strings.csproj" />
+  <Project Path="Public/Public.csproj" />
+</Solution>

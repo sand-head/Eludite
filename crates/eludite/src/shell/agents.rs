@@ -2710,6 +2710,15 @@ impl Shell {
                 == eludite_commands::policy::EditPolicy::Review
     }
 
+    /// Whether an agent's edits are held for review (`edit_buffer: review`, the default).
+    pub(super) fn agent_edits_reviewed(&self) -> bool {
+        current_policy(&self.agents.policy)
+            .get()
+            .edit_buffer
+            .unwrap_or_default()
+            == eludite_commands::policy::EditPolicy::Review
+    }
+
     /// Window events: the user's actions.
     pub(super) fn on_agents_window_event(
         &mut self,

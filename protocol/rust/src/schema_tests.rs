@@ -574,6 +574,8 @@ fn typed_marker_methods_match_the_method_lists() {
         req::<host::ProjectSetLaunchProfile>(),
         req::<host::SolutionConfigurations>(),
         req::<host::SolutionSetConfiguration>(),
+        req::<host::ResxSets>(),
+        req::<host::ResxDesigner>(),
     ];
     assert!(
         eludite
@@ -2100,5 +2102,97 @@ fn project_property_messages_conform_to_their_schemas() {
             written: true,
             active: configurations.active,
         },
+    );
+}
+
+#[test]
+fn resx_messages_conform_to_their_schemas() {
+    use host::*;
+    conforms(
+        "resx-sets.json",
+        "params",
+        &ResxSetsParams {
+            generation: 3,
+            projects: Some(vec!["/s/App/App.csproj".into()]),
+        },
+    );
+    rejects("resx-sets.json", "params", json!({}));
+    let set = ResxSet {
+        project: "/s/App/App.csproj".into(),
+        project_name: "App".into(),
+        kind: TreeProjectKind::Sdk,
+        path: "/s/App/Properties/Resources.resx".into(),
+        base_name: "Resources".into(),
+        neutral_language: Some("en-US".into()),
+        root_namespace: "App".into(),
+        cultures: vec![ResxCultureFile {
+            name: "de".into(),
+            path: "/s/App/Properties/Resources.de.resx".into(),
+            item: true,
+        }],
+        generator: Some("ResXFileCodeGenerator".into()),
+        custom_tool_namespace: None,
+        last_gen_output: Some("Resources.Designer.cs".into()),
+        designer: Some("/s/App/Properties/Resources.Designer.cs".into()),
+        access_modifier: AccessModifier::Internal,
+        manifest_name: "App.Properties.Resources".into(),
+        namespace: "App.Properties".into(),
+    };
+    conforms("resx-sets.json", "set", &set);
+    conforms(
+        "resx-sets.json",
+        "result",
+        &ResxSetsResult {
+            generation: 3,
+            sets: vec![set],
+            skipped: Some(vec![ResxSkipped {
+                project: "/s/Broken/Broken.csproj".into(),
+                reason: "invalid project file".into(),
+            }]),
+        },
+    );
+    conforms(
+        "resx-designer.json",
+        "params",
+        &ResxDesignerParams {
+            generation: 3,
+            path: "/s/App/Properties/Resources.resx".into(),
+            action: ResxDesignerAction::SetModifier,
+            modifier: Some(AccessModifier::Public),
+        },
+    );
+    rejects(
+        "resx-designer.json",
+        "params",
+        json!({"generation": 3, "path": "/s/App/Properties/Resources.resx", "action": "regenerate"}),
+    );
+    conforms(
+        "resx-designer.json",
+        "result",
+        &ResxDesignerResult {
+            generation: 4,
+            path: "/s/App/Properties/Resources.resx".into(),
+            designer: Some("/s/App/Properties/Resources.Designer.cs".into()),
+            status: ResxDesignerStatus::Written,
+            modifier: AccessModifier::Public,
+            project_written: true,
+            class_name: Some("Resources".into()),
+            namespace: Some("App.Properties".into()),
+        },
+    );
+    let v = serde_json::to_value(ResxDesignerResult {
+        generation: 4,
+        path: "x".into(),
+        designer: None,
+        status: ResxDesignerStatus::None,
+        modifier: AccessModifier::None,
+        project_written: false,
+        class_name: None,
+        namespace: None,
+    })
+    .unwrap();
+    assert_eq!(
+        v,
+        json!({"generation": 4, "path": "x", "status": "none", "modifier": "none"})
     );
 }

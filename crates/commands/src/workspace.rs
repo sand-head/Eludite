@@ -261,6 +261,8 @@ pub enum WorkspaceRequest {
         line: Option<u32>,
         /// 1-based.
         column: Option<u32>,
+        /// `text`: the text editor even for a file that has an editor of its own (a `.resx`, proposal 0005).
+        editor: Option<String>,
     },
     FileClose {
         path: String,
@@ -1077,6 +1079,7 @@ struct FileOpenIn {
     path: String,
     line: Option<u32>,
     column: Option<u32>,
+    editor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1258,10 +1261,19 @@ pub fn parse(id: &str, value: Value) -> Result<WorkspaceRequest, CommandError> {
                     "`line` and `column` are 1-based".into(),
                 ));
             }
+            if i.editor
+                .as_deref()
+                .is_some_and(|e| e != "default" && e != "text")
+            {
+                return Err(CommandError::InvalidInput(
+                    "`editor` is `default` or `text`".into(),
+                ));
+            }
             WorkspaceRequest::FileOpen {
                 path: i.path,
                 line: i.line,
                 column: i.column,
+                editor: i.editor,
             }
         }
         FILE_CLOSE => {
@@ -1680,7 +1692,8 @@ mod tests {
             WorkspaceRequest::FileOpen {
                 path: "/a.cs".into(),
                 line: Some(3),
-                column: Some(7)
+                column: Some(7),
+                editor: None
             }
         );
         assert_eq!(

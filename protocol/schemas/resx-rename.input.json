@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sand-head/Eludite/protocol/schemas/resx-rename.input.json",
+  "title": "eludite.resx.rename input",
+  "description": "Rename a key in a resource set, as F2 in the editor's Key column does (proposal 0005): the `name` attribute changes in the neutral file and in every culture file that has the key; nothing else in the files moves. Code that uses the key is not touched: the answer carries the reference count once a scan has run, and eludite.editor.rename on the designer property renames the uses. Class edit_buffer. The designer file is regenerated.",
+  "type": "object",
+  "required": [
+    "set",
+    "key",
+    "new_key"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "set": {
+      "description": "The resource set: the path of its neutral `.resx` file (absolute, or relative to the workspace folder), or of any of its culture files, which names the same set.",
+      "type": "string",
+      "minLength": 1
+    },
+    "key": {
+      "description": "The key.",
+      "type": "string",
+      "minLength": 1
+    },
+    "new_key": {
+      "description": "The new name: a name Visual Studio accepts, not already in the set.",
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
