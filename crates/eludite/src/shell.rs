@@ -34,6 +34,8 @@ mod codelens_tests;
 pub mod configuration_manager;
 pub mod debug;
 pub mod documents;
+#[cfg(test)]
+mod dotnet_languages_tests;
 pub mod error_list;
 pub mod explorer;
 pub mod folder;
@@ -1089,7 +1091,14 @@ impl Shell {
             chrome_override: None,
             session,
             published,
-            languages: Arc::new(LanguageRegistry::with_builtins()),
+            languages: {
+                let languages = LanguageRegistry::with_builtins();
+                // The queries compile off the UI thread (brief 0063); the tests compile what they use.
+                if !cfg!(test) {
+                    languages.warm_in_background();
+                }
+                Arc::new(languages)
+            },
             documents: HashMap::new(),
             views,
             loading: HashMap::new(),

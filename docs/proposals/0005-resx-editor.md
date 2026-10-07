@@ -1,6 +1,6 @@
 # Proposal 0005: The `.resx` editor
 
-Status: Accepted by the owner's direct request, 2026-10-06 (revised 2026-10-05 on the owner's direction: the grid is what a `.resx` file looks like when opened, there is no separate window; R1 built in the same change as brief 0063, which applies the PLAN.md edits of section 9)
+Status: Accepted by the owner's direct request, 2026-10-06 (revised 2026-10-05 on the owner's direction: the grid is what a `.resx` file looks like when opened, there is no separate window; R1 built in the same change as brief 0064, which applies the PLAN.md edits of section 9)
 Plan reference: PLAN.md sections 2 (principles 1 to 4, 6), 3 (D2, D4), 4.2, 4.11 ("`.resx` editor"), 5.1 to 5.4, 5.6, 8, 9, 10 (Phase 2: "resx editor"), 11
 Related: ADR-0002, ADR-0004, brief 0042 (`eludite-search`, the reference scan), brief 0048 and 0049 (the host's formatting-preserving project edit), brief 0040 (`eludite-git`, changes since HEAD), brief 0016 (the Agents window, translation by an agent)
 New paths: `crates/resx` (`eludite-resx`), `protocol/schemas/resx-*.json`, `protocol/schemas/host/resx-*.json`, `corpus/resx/`, `docs/agents/resx.md`

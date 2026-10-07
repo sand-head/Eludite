@@ -13,8 +13,9 @@
 //! with a configuration, `languageServers.eslint`) serves it, in `servers.json`'s order; the document's session fans
 //! out to them ([`ServerSession::fan_out`]). Each server's diagnostics are kept apart and shown together; the
 //! document's generation is the sum of its servers', so a restart of any of them drops what was computed before.
-//! A server that is not found says `not found (run tools/web-servers/fetch.sh)` in its slot; one that runs on a
-//! located module says which (`TypeScript: ready (TypeScript 5.9.3, project)`).
+//! A server that is not found says `not found (run <its fetch script>)` in its slot (`tools/web-servers/fetch.sh`,
+//! `tools/fsautocomplete/fetch.sh` for the F# server, a .NET tool found through its pinned cache, brief 0063); one
+//! that runs on a located module says which (`TypeScript: ready (TypeScript 5.9.3, project)`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -316,7 +317,20 @@ impl Shell {
             .command
             .as_ref()
             .is_some_and(|c| c.npm_package.is_some());
-        let cache = if npm { self.launches.cache() } else { None };
+        let dotnet_tool = registration
+            .command
+            .as_ref()
+            .and_then(|c| c.dotnet_tool.clone());
+        // The registration's cache: the web servers' for an npm package, the pinned folder of a .NET tool (brief 0063).
+        let cache = if npm {
+            self.launches.cache()
+        } else if let Some(tool) = &dotnet_tool {
+            self.launches
+                .registry
+                .dotnet_tool_cache(tool, eludite_lsp::node::home_dir().as_deref())
+        } else {
+            None
+        };
         let modules = registration
             .modules
             .iter()
@@ -336,8 +350,7 @@ impl Shell {
             fetch: self
                 .launches
                 .registry
-                .fetch_command()
-                .filter(|_| npm)
+                .fetch_command_for(&registration)
                 .map(str::to_owned),
         });
         let slot_id = slot(&key);

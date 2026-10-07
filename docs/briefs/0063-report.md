@@ -1,183 +1,116 @@
-# Brief 0063 report: the `.resx` editor
+# Brief 0063 report: Visual Basic and F# as first-class .NET languages
 
-Status: done on Linux, against the fake host (the shell) and the real `eludite-host` (its own tests, MSBuild in
-process). Windows and macOS: not built here; nothing added is platform-specific. CI: not run.
-Branch: `proposal/0005-resx-manager`, with `main` at `07abfa8` (briefs 0057 to 0062) merged in; one conflict, the
-commands crate's docs, kept both sides.
-Date: 2026-10-06. Brief: [0063-resx-editor.md](0063-resx-editor.md); proposal
-[0005](../proposals/0005-resx-editor.md), accepted by the owner's direct request and built in the same change.
+Status: done on Linux (2026-10-05; Windows and macOS by CI). Four agents in one tree on disjoint files (the grammars, the servers, the projects and the Roslyn halves), one integrator.
 
-## 1. Summary
+## Summary
 
-- **Schemas first**: eight command schemas `protocol/schemas/resx-*.{input,output}.json`, the host's
-  `host/resx-sets.json` and `host/resx-designer.json` with the "Resources" section and the two methods table rows of
-  `host-rpc.md`, the policy's `resx.remove`, the settings `resx.*` (the Options page "Text Editor > Resources"),
-  and `editor` on `file-open.input.json` (`text` asks for the text editor).
-- **`eludite-resx`** (`crates/resx`): a file parsed on `roxmltree` into entries with their byte ranges (string
-  entries editable, the others listed), edits as splices (`set_value`, `set_comment`, `add` in Visual Studio's shape,
-  `remove` with its line, `rename`, `header_only` for a new culture file, `sorted_text` for `resx.sortOnSave`), the
-  byte order mark and the line endings kept, UTF-16 refused with a message; the four rules; the `{Invariant}` marker;
-  the culture rule on the generated table (`tools/resx-cultures/generate.sh`, 851 names from the SDK's ICU list, so
-  `Default.aspx.resx` is neutral); sets from any of their files (`set_files`) or a folder walk on `ignore`
-  (`discover`); rows with cells and warnings. The corpus `corpus/resx/` round-trips byte for byte.
-- **The editor** (`crates/eludite/src/shell/resx/`): a `.resx` opens as its set, one tab `resx:<neutral file>`
-  titled by the neutral file, the files parsed off the UI thread; the grid (Key, Comment, one column per culture,
-  the neutral labeled by the project's neutral language), in-place editing on double-click, Enter and F2, Add Key,
-  Delete, Rename, Invariant, the Missing, Warnings and Invariant filters, the search box, the Access Modifier list,
-  Save, the status line with the counts and the selected cell's warning, Other Resources collapsed; dirty until
-  Save, which writes every dirty file as a whole-file edit through the workspace-edit applier and has the host
-  regenerate the designer when keys changed; closing asks; Open With > XML (Text) Editor in the Workspace window and
-  `resx.openAsText`.
-- **The commands** (`crates/commands/src/resx.rs`, `eludite.resx.*`): `sets`, `entries`, `validate` (read), `set`,
-  `add`, `rename`, `access_modifier` (edit_buffer), `remove` (edit_buffer under `resx.remove`, `prompt` by default
-  for agents); the shell's bus (`ResxBus`) runs them on the UI thread; an agent's write is held as pending changes
-  under `edit_buffer: review` (`pending` in the answer, nothing written until accepted); the MCP guide
-  `eludite://guides/resx` (`docs/agents/resx.md`).
-- **The host** (`dotnet/src/Eludite.Host/Resources/`): `eludite/resx/sets` from the evaluated projects
-  (`EmbeddedResource` items not under `bin/` or `obj/`, the culture rule on `CultureInfo.GetCultureInfo(suffix,
-  predefinedOnly: true)`, the neutral language, the designer, the access modifier, the manifest name and the
-  namespace) and `eludite/resx/designer` (`generate`, `setModifier`, `delete`): the designer in
-  `ResXFileCodeGenerator`'s shape, the `Generator` and `LastGenOutput` metadata and the designer's `Compile` item
-  edited with the construction model preserving formatting, the solution reloaded after a project write.
+- **Spike 2 (PLAN.md section 4.3) is answered.** The pinned Roslyn language server knows Visual Basic by name only. Its project composes `Microsoft.CodeAnalysis.CSharp.Features` as the one language in the MEF composition, the composition is built from every `Microsoft.CodeAnalysis*.dll` in the server's folder, and `HostWorkspace/LanguageServerProjectLoader.cs` (line 291 at the pin) returns `null` for a loaded project whose language has no `ICommandLineParserService`. A `.vbproj` is therefore evaluated by the MSBuild build host and then silently dropped, and its `.vb` documents get nothing. Measured through the host against a copy of the server folder with the three Visual Basic DLLs removed (what the unpatched pin produces): `Completed (re)load of 1 project(s)` is logged, `Successfully completed load of ...VisualBasic.vbproj` never is, and `textDocument/diagnostic` stays empty for three minutes. Nothing is logged about the dropped project.
+- **The fix is one project reference**, `tools/roslyn-pin/vb.patch`: `Microsoft.CodeAnalysis.VisualBasic.Features.vbproj` next to the C# one, which brings `Microsoft.CodeAnalysis.VisualBasic.dll` (5.8 MB), `Microsoft.CodeAnalysis.VisualBasic.Workspaces.dll` (0.9 MB) and `Microsoft.CodeAnalysis.VisualBasic.Features.dll` (1.3 MB) into the output. `build.sh` and `build.ps1` apply it after the checkout (`git apply --check`, skipped when the reverse check says it is already there, a loud failure otherwise); `COMMIT` is unchanged. With it, and with `eludite-host` unchanged, Roslyn loads the `.vbproj` and serves diagnostics (BC30512 after one pull, 2.3 s from open), hover in Visual Basic syntax (163 ms), completion (49 items after `Console.`, 669 ms), go to definition (36 ms, to `Sub New`) and rename (4 edits, 723 ms). No host-side gap-filling was needed for these five features. The patched server built here in 217 s (about 4 minutes wall from a blob-less clone, including Roslyn's SDK download); the output folder is 137 MB.
+- **`.vb` goes to Roslyn through the host** as the `roslyn` registration's second glob with `languageId` `vb` (the registration is now named `C# and Visual Basic`). **`.fs`, `.fsi`, `.fsx` and `.fsscript` go to FsAutoComplete** (MIT, 0.84.0 pinned) through the generic server path like rust-analyzer: a `process` registration with `AutomaticWorkspaceInit`, root markers by glob (`*.fsproj`, `*.sln`, `*.slnx`), and a new discovery source, the .NET global tool (beside `eludite`, `ELUDITE_FSAUTOCOMPLETE`, the pinned cache `~/.cache/eludite/fsautocomplete/<pin>/` that `tools/fsautocomplete/fetch.sh` fills with `dotnet tool install --tool-path`, `~/.dotnet/tools`, `PATH`). A located .NET tool is probed and spawned with `DOTNET_ROOT` set to the SDK root of the `dotnet` on `PATH` when the variable is unset, because the tool's apphost refuses to start otherwise on a user-local SDK (this container reproduced exactly that); every other server gets nothing added. The status bar's remedy for a missing server names the registration's own fetch script (`not found (run tools/fsautocomplete/fetch.sh)`), not the npm one.
+- **`.vbproj` and `.fsproj` are MSBuild projects like `.csproj`** everywhere the host lists a solution's projects (`SolutionProjects.Read`: the tree, properties, configurations, tests, build, NuGet, the legacy evaluator), as the open target (shell and host), and in `eludite.workspace.tree`, whose `kind` is now `csproj`, `vbproj` or `fsproj` from the project file's extension (schema first). A lone `.fsproj` opens and reaches `loaded` without anything being handed to Roslyn, which cannot load F#; a solution holding F# projects goes to Roslyn whole, which skips them itself. CodeLens settings exist for `vb` and `fsharp`.
+- **The Test Explorer corpus gained `Corpus.VisualBasic`** (MSTest on Microsoft.Testing.Platform) **and `Corpus.FSharp`** (NUnit on VSTest), five tests each with the usual one failure, one skip and one output writer; the bridge and the host discover and run them with the expected outcomes, on CI's Linux and Windows .NET jobs too.
+- **The editor highlights Visual Basic and F#** from crates.io grammars (`tree-sitter-vb-dotnet` 0.1.0, `tree-sitter-fsharp` 0.3.12 with its signature grammar for `.fsi`), with Eludite's queries (the VB grammar ships none). The VB grammar is the weak piece: real Visual Basic has constructs it does not parse (the list below, 25 of 27 fixtures carry one each), and its keywords are hidden tokens, so only modifiers can be painted as keywords. The F# grammar parses every fixture cleanly except member signatures in `.fsi` files, but a first full parse of a 2,000-line file takes about 29 ms against the brief's 10 ms (incremental re-parses after an edit are the editor's normal path). Both are grammar properties; an in-repo grammar in the style of `grammars/razor` is the follow-up (see "Not done").
 
-## 2. Commits
+## Versions and licenses
 
-On `proposal/0005-resx-manager`, after the proposal's two: one commit with the whole of this brief, pushed with the
-owner's go-ahead inside the weekday window CLAUDE.md keeps commits out of; then, after 5 pm, the merge of `main` and
-one commit with the clippy fix it needed and this report's update. The branch was merged rather than rebased so the
-pushed history stays as it was.
+| Piece | Version | License | Where |
+|---|---|---|---|
+| `tree-sitter-vb-dotnet` | 0.1.0 | MIT | crates.io; `crates/editor/Cargo.toml` |
+| `tree-sitter-fsharp` | 0.3.12 | MIT | crates.io; `crates/editor/Cargo.toml` (exports `LANGUAGE_FSHARP` and `LANGUAGE_SIGNATURE`) |
+| FsAutoComplete | 0.84.0 | MIT | external, located, never bundled; `tools/fsautocomplete/PIN` and the `dotnetTools` entry of `servers.json` agree (tested) |
+| FSharp.Core | 10.1.302 | MIT | `corpus/tests/Directory.Packages.props`: an explicit reference is needed because central package management sets `DisableImplicitFSharpCoreReference`, and without it the test assembly has no `FSharp.Core.dll` beside it and NUnit finds zero tests |
+| Roslyn | unchanged pin `7c238e7c` | MIT | `tools/roslyn-pin/vb.patch` adds one `ProjectReference` |
 
-## 3. Decisions taken while building
+No other new dependency.
 
-- **Where the editor opens.** `Shell::apply`'s `eludite.file.open` arm routes a `.resx` to the grid; the direct
-  callers of `open_file` (Find Results, the Error List, navigation) keep the text editor, since they name a line.
-- **The person's edits are view state until Save**, as the property pages' are; the toolbar's Add Key, Delete,
-  Rename and Invariant change the model and mark the tab dirty. The Access Modifier runs `eludite.resx.access_modifier`
-  at once, as the Debug page's profile edits run their command, because it needs the host.
-- **A write from another caller** (an agent, or a person's outer call) loads the set afresh and writes through the
-  applier; with the set open and clean the grid reloads afterwards; with the set open and dirty, an agent's write is
-  refused ("save or discard first") and a person's outer call lands in the open grid and is saved from there
-  (`pending` while the save runs).
-- **Agents' review hold.** The write commands are class edit_buffer but not in `REVIEWED_COMMANDS`, so an agent's
-  call is gated like Replace in Files (the Agents window asks under `edit_buffer: review`), then the applier holds
-  the edit as pending changes and the answer says `pending` with the change ids; the grid does not reflect a held
-  change until it is accepted and the set reloads.
-- **F2 in the grid** is the Rename of the editor; outside a cell the keymap's F2 (Rename symbol) wins, so the toolbar's
-  Rename is the reliable way and the test uses it.
-- **The grid's cells are plain elements with a mouse-down listener**, not stateful ones, and draw without text
-  ellipsis: with some two hundred cells a frame, per-element state and a second shaping of every text cost the frame
-  budget (section 6).
-- **Line numbers and entry lookups** in `eludite-resx` are indexed (a newline table and a name index): the first
-  version counted newlines per entry and scanned entries by name, which took 20 s to parse a 5,000-entry file in a
-  debug build.
+## What was built
 
-## 4. The designer generator and the corpus
+**Editor (`crates/editor`).** `VISUAL_BASIC` (id `vb`, `.vb`), `FSHARP` (id `fsharp`, `.fs`, `.fsx`, `.fsscript`) and `FSHARP_SIGNATURE` (id `fsharp-signature`, `.fsi`) in the builtin table; `queries/vb/highlights.scm` written from the grammar's node types; `queries/fsharp/highlights.scm` adapted from tree-sitter-fsharp's to the editor's capture names and precedence rule, with `(access_modifier) @keyword` ahead of the declaration rules so `let private f x` keeps `private` as a keyword and highlights `f`; `queries/fsharp/signature-highlights.scm`, a reduced query, because the signature grammar has no expression layer and the main query does not compile against it. Fixtures in `corpus/languages/` (27 VB files, 6 F# files) shaped like real code; `corpus/languages/README.md` lists what each exercises.
 
-The host reproduces the three corpus designer files byte for byte. The corpus files were written by hand from what
-Visual Studio's generator is known to write (the header, `GeneratedCodeAttribute(..., "17.0.0.0")`, members sorted
-with `InvariantCultureIgnoreCase`, the `internal` constructor, `SecurityElement.Escape` in the summaries, the
-512-character cut, `System.Drawing.Icon` from a `ResXFileRef`, the identifiers `_1Number`, `with_space` and
-`_class`). One expectation is a guess: the summary of a value with a line break (`Multi`) in
-`Strings/Properties/Resources.Designer.cs` has `Line one` CR CR LF `        ///Line two.`; the host matches it by
-reading the `.resx` without newline normalization, as CodeDom keeps the value's CR LF and the tool's own newline
-pass adds a CR. Whether real Visual Studio writes CR CR LF or CR LF there has not been checked against a machine
-with Visual Studio; the owner may regenerate a designer in Visual Studio and compare. Everything else in the three
-files is what the generator writes as far as the authors know. Visual Basic designers are listed (`.Designer.vb`)
-but not generated (the host answers -32602).
+**Servers (`crates/lsp`, the shell's `servers`).** `CommandSpec::dotnet_tool`; `ServerRegistry::dotnet_tools` (the pin and fetch script per tool, from `servers.json`), `dotnet_tool_cache`, `fetch_command_for`; `Located::envs` and `dotnet_tool_envs` (the `DOTNET_ROOT` rule, symlinks resolved, Windows' verbatim prefix stripped); `Environment::home` for the global tools folder (`DOTNET_CLI_HOME` first); `has_marker` matching a `*` marker against the folder's file names. The shell's `GenericLaunch` takes its cache folder and fetch script from the registration, and the spawn applies the located environment. `tools/fsautocomplete/{PIN,fetch.sh,fetch.ps1}`.
 
-## 5. Proving tests
+**Host and projects (`dotnet/`, `protocol/`, `crates/commands`, the shell).** `SolutionProjects.ProjectExtensions`, `IsProjectFile`, `Read` over the three kinds (the `.sln` regex and the `.slnx` filter); `LspProxy` accepts `.fsproj` and reports `loaded` for it through `MarkLoadedWithoutLanguageServerAsync` (after the Roslyn session exists, so restarts, replays and the missing-server failure keep their semantics); `workspace-tree.output.json`'s `kind` enum and the `editor.languages.vb.codeLens` and `editor.languages.fsharp.codeLens` settings; `workspace_tree::MSBUILD_KINDS`, `msbuild_kind`, `WorkspaceProject::is_msbuild`; the shell's `publish_workspace_tree` derives the kind from the extension and the startup filter covers every MSBuild kind; `target::solution_path` accepts `.fsproj`; the Debug slot strips any of the three extensions from the project name; `codelens::LANGUAGES` gains `vb` and `fsharp`.
 
-- `cargo test -p eludite-resx`: 17 unit tests (parsing, every splice, the template, LF and tab files, the rules,
-  the culture rule, the invariant marker, sets and rows, a missing neutral file) and 5 corpus tests (9 files
-  round-trip, the Strings set's rows and warnings, 5 sets found with the `aspx` rule, every splice keeps every other
-  byte, a new culture file takes the neutral header).
-- `cargo test -p eludite-commands` (125, with the resx module's parse, schema, policy and audit tests),
-  `-p eludite-protocol` (the typed messages conform to the schemas), `-p eludite-lsp --features fake`,
-  `-p eludite-mcp` (the tools, their classes, the gate for `remove`, the guide).
-- `cargo test -p eludite resx_tests`: six headless tests, all green: the open from the Workspace window with the
-  timing, the cells, an edit saved byte for byte with the designer call, the close prompt; the filters, the search
-  box, Rename, Delete, the comment and the invariant mark saved to every file; agents' `sets`, `entries`,
-  `validate`, `set` (created on the fly, `create_culture`), the review hold, `rename` and `remove` with the
-  designer calls and the audit, the open-and-clean reload and the open-and-dirty refusal; the Access Modifier through
-  the host; `editor: text`, Open With and `resx.openAsText`; the 5,000-key set's open and frame budget.
-- `dotnet test dotnet/Eludite.slnx --filter "FullyQualifiedName~Resx"`: 10 tests (the sets of both solutions, the
-  three designers byte for byte and `unchanged`, `New Key` to `New_Key` in sorted position, `setModifier` public,
-  none and on a legacy project, the stale generation, the wire); the whole host test project: 179 passed, 8 skipped.
+**Roslyn (`tools/roslyn-pin`).** `vb.patch`, the patch step in both scripts, `README.md` with the Spike 2 write-up; `corpus/projects/VisualBasic/` (a `net10.0` console project with `Option Strict On` and one deliberate BC30512) and `dotnet/tests/Eludite.Host.Tests/VisualBasicTests.cs`.
 
-## 6. Budget numbers
+## Tests (what each proves)
 
-Debug build, this container (4 cores, shared; the figures are not the reference machine's):
+- `crates/editor/src/syntax/dotnet_tests.rs` (8 tests, 1 ignored timing test): the three ids resolve from their suffixes; VB and F# fixtures highlight the expected kinds at known positions (modifiers as keywords in VB; `let rec`, `private`, types, functions, strings, numbers, `///` comments, `true` in F#); every fixture parses with no error node except the ones listed below, each asserted at its exact count so a grammar bump that fixes or worsens one is noticed; the ignored `a_2000_line_file_parses_within_the_budget` enforces a 100 ms ceiling on a release build.
+- `crates/lsp/src/registry.rs`: `.vb` resolves to `roslyn` with `vb`; `.fs`, `.fsi`, `.fsx` and `.fsscript` to `fsautocomplete` with `fsharp`; a glob root marker finds the folder holding an `.fsproj`; the .NET tool discovery order (beside, the variable, the pinned cache, the global tools folder, `PATH`); `DOTNET_ROOT` added for a .NET tool and not for anything else; the pin in `PIN` matches `servers.json`.
+- `crates/lsp/tests/real_fsautocomplete.rs` (skips unless `ELUDITE_FSAUTOCOMPLETE` names a server and `dotnet` is on `PATH`): a temp `net10.0` F# project restored with `dotnet`, the real server started through the registration, a type error diagnosed and hover text on a function. Passed here against FsAutoComplete 0.84.0 installed by `tools/fsautocomplete/fetch.sh`.
+- `crates/eludite/src/shell/dotnet_languages_tests.rs` (headless GPUI, the fake host and a `FakeServer`): a `.vb` document is the host's, opened with `languageId` `vb`, with its diagnostics as squiggles and no generic server started; a `.fs` under a folder with an `.fsproj` starts the `fsautocomplete` registration rooted at that folder with `AutomaticWorkspaceInit` and gets completion and a diagnostic through the shared paths; an `.fsx` outside any project is rooted at the solution's folder; a missing server says `not found (run tools/fsautocomplete/fetch.sh)` while highlighting stays.
+- `crates/commands/src/workspace_tree.rs`: the kinds from the extension, every MSBuild kind in the schema's enum, startup on a `.vbproj`; `settings.rs`: the two CodeLens keys.
+- `dotnet/tests/Eludite.Host.Tests/LegacyEvaluatorTests.cs`: `.sln` and `.slnx` with a legacy `.vbproj` (WebForms markup), an SDK `.fsproj` and a `.vdproj` (ignored), in order; single-file reads; `IsLegacy` and `MentionsMarkup` on the new kinds. `LspProxyTests.cs`: a lone `.fsproj` reaches `loaded` with one project and nothing sent upstream, a `.vbproj` is handed to Roslyn with `project/open`, a solution with an `.fsproj` goes whole with the right count.
+- `dotnet/tests/Eludite.TestBridge.Tests/RunnerTests.cs`: `Corpus.VisualBasic` over MTP and `Corpus.FSharp` over VSTest discover 5 tests each with the expected outcomes, messages, line numbers, skip reasons and output; `TestServiceTests.cs`: eight containers through the host with the new totals.
+- `dotnet/tests/Eludite.Host.Tests/VisualBasicTests.cs` (skips with `CodeLensTests`' message when the server is not built): the five Roslyn features above on `corpus/projects/VisualBasic` through the host.
 
-| Measure | Result |
-|---|---|
-| Open to rows shown, 3 files, 3 keys | 10 to 12 ms |
-| Open to rows shown, 5,000 keys in 3 cultures (the files parsed off the UI thread) | 87 to 106 ms (budget 100 ms) |
-| Frame p50 / p99 per round, the editor alone, the selection moving one row per frame | 4.9 to 6.4 ms p50; 6.9 to 13 ms p99 across runs (the best round's p99 is asserted under 8 ms: it passed on one run here, 6.9 ms, and missed on others, 8.4 to 8.8 ms) |
-| The same, the whole shell | 4.7 to 6.3 ms p50; 7.2 to 24 ms p99 |
-| The NuGet window's 500 results on the same machine, for scale | 2.5 / 6.8 ms best round |
+## Grammar gaps (the fixtures assert these counts)
 
-The grid's median frame is above the NuGet window's: five texts per row against two or three. On this shared
-container the p99 moves from run to run (the pre-existing forge and git budget tests miss here too, section 10);
-the assertion is CI's call on the reference machine. What would bring it down: one text run per
-row (the cells laid out from measured column widths) and a `uniform_list` that reuses the unchanged rows' elements.
+**Visual Basic** (`tree-sitter-vb-dotnet` 0.1.0; `Program.vb` and `Shapes.vb` are clean). One construct per file, with the `ERROR` plus `MISSING` node count today:
 
-## 7. The Xvfb run
+| Construct | File | Count |
+|---|---|---|
+| A comment before `Option`, a blank line between `Option` and `Imports` | `Header.vb` | 2 |
+| Generic types and declarations (`Dictionary(Of String, T)`, `Class R(Of T As {...})`, `Function F(Of T)(...)`) | `Generics.vb` | 9 |
+| `As New T(...)` in a field, a `Dim` and a `Using` | `AsNew.vb` | 5 |
+| `Inherits` and `Implements` on their own lines | `InheritsLine.vb` | 2 |
+| `Event` declarations with `RaiseEvent` | `RaiseEvent.vb` | 2 |
+| `AddHandler` and `RemoveHandler` statements | `AddHandler.vb` | 5 |
+| `WithEvents` and `Handles` | `Handles.vb` | 2 |
+| `Custom Event` | `CustomEvent.vb` | 12 |
+| `Await` in `Async` methods | `AsyncAwait.vb` | 3 |
+| `Yield` in an `Iterator Function` | `Iterator.vb` | 2 |
+| A LINQ query | `Linq.vb` | 4 |
+| An XML literal | `XmlLiteral.vb` | 9 |
+| `#Const`, `#Region`, `#If` between declarations | `Regions.vb` | 8 |
+| `Operator +`, `Widening Operator CType` | `Operators.vb` | 9 |
+| `Implements I.Member` on members | `ImplementsMember.vb` | 2 |
+| `Enum E As Byte` | `EnumBase.vb` | 1 |
+| `Dim a() As Integer = {...}`, `Dim a(2) As String` | `ArrayDeclarations.vb` | 3 |
+| `For Each x As T In xs` | `ForEachTyped.vb` | 1 |
+| `With` block statements starting with `.Member` | `WithBlock.vb` | 3 |
+| `TypeOf x Is T` | `TypeOfIs.vb` | 1 |
+| Two-argument `If(a, b)` | `IfCoalesce.vb` | 1 |
+| `x?.Member` | `NullConditional.vb` | 2 |
+| `New T From {...}` | `CollectionInitializer.vb` | 1 |
+| An attribute on the declaration's line | `AttributeInline.vb` | 2 |
+| Identifiers starting with a keyword (`Document`, `Format`, `Subtotal`) | `KeywordPrefixes.vb` | 5 |
 
-`crates/eludite/tools/resx-linux.sh docs/briefs/0063-run` (the real binary, the real host, a copy of `corpus/resx`,
-real X input from xdotool against `--bounds-out`): [screenshots](0063-run/screenshots/) `grid.png` (the set opened
-from its German file: the three cultures, the missing French Save tinted, the warning glyph on the French Hello and
-the German Speichern, the invariant Brand dimmed, the line break of Multi shown as a mark), `edited.png` (the French
-Save selected and typed over), `saved.png` (one element changed: [`Resources.fr-FR.resx.diff`](0063-run/Resources.fr-FR.resx.diff)),
-`added.png` (Add Key "Welcome" saved: [`Resources.resx.diff`](0063-run/Resources.resx.diff) and the designer the
-host regenerated, [`Resources.Designer.cs.diff`](0063-run/Resources.Designer.cs.diff)), `missing.png` (the Missing
-filter), `public.png` (Access Modifier Public: [`Strings.csproj.diff`](0063-run/Strings.csproj.diff) changes the one
-`Generator` element, [`Resources.Designer.public.diff`](0063-run/Resources.Designer.public.diff) the designer). The
-run found two things the headless tests had not: the host's set list was asked for while the solution was still
-loading (a stale generation), so the list is asked again after a moment, up to five times; and a value with a line
-break overflowed its row, so the grid shows line breaks as a return mark.
+Also: the grammar's keywords (`Sub`, `End Sub`, `If`, `Dim`, ...) are hidden tokens that a query cannot capture, so only the modifiers (`Public`, `Shared`, `Overrides`, ...) are painted as keywords; types, members, strings, numbers, comments, attributes and literals are.
 
-## 8. Not done, and why
+**F#** (`tree-sitter-fsharp` 0.3.12; `Domain.fs`, `Library.fs`, `Program.fs`, `Script.fsx` and `Domain.fsi` are clean): member signatures in a signature file (`new:`, `member`, `static member`, `override`, `with get, set`, `interface` in a type, type extensions), `Members.fsi`, 3; the signature grammar has only `abstract` members and `val`.
 
-- **Watching the files** while a set is open: an external change (another editor, git) is not noticed until the
-  set reloads after one of the editor's own writes. The proposal names the editor's reload-unless-dirty rule; it
-  needs the file watcher the editor's documents use, a later brief.
-- **A held agent write in the grid**: the pending change is not shown in the grid (the applier's review surface
-  shows it); after acceptance the grid reloads only on its next write. Adding the write commands to
-  `REVIEWED_COMMANDS` with an `amend_output` would let the agent's call wait for the decision; not done to keep the
-  review module untouched.
-- **R2 and later**: Add Language and Remove Language with the project item (`eludite/resx/culture`), `references`,
-  `changes` and `snapshot`, copy and paste, export and import, the Translate view, Excel, machine translation.
-- **UTF-16 files** open as text with the parse error in the status line.
-- **A created culture file through `set` with `create_culture`** is written by the applier's `Create` then the
-  whole-file edit: it has no byte order mark, while Visual Studio's would.
+## Budget numbers
 
-## 9. Files outside the listed scope
+Full non-incremental parse, release build of a standalone probe on the same tree-sitter 0.27 and grammar crates, best of 10, three runs, this 4-core VM at load 1.6 to 2.9, on the samples the ignored test builds (header once, body repeated):
 
-- `crates/eludite/src/shell/agents.rs`: `agent_edits_reviewed` (one accessor over the existing policy store).
-- `crates/eludite/src/shell/explorer.rs`: the Open With item for `.resx` rows and the context menu's condition.
-- `crates/commands/src/workspace.rs`, `protocol/schemas/file-open.input.json`: `editor`.
-- `crates/commands/src/settings.rs`: the pinned key list and section positions.
-- `crates/lsp/src/fake/projects.rs`: `reload` made `pub(super)` for the fake's resx module.
-- `crates/mcp/src/tests.rs`: the resource count (the guide added), `crates/mcp/src/server.rs`: the instructions.
-- `Cargo.toml`, `Cargo.lock`: the member and the dependency.
-- `dotnet/tests/Eludite.Host.Tests/ProjectCorpus.cs`: a folder parameter (the old use unchanged).
+| Sample | Lines | Size | Parse |
+|---|---|---|---|
+| Visual Basic (`Program.vb` repeated) | 2,092 | 70 KB | 9.6 ms (budget 10 ms) |
+| F# (`Library.fs` repeated) | 2,099 | 57 KB | 29.0 to 30.7 ms (over the 10 ms budget; the test's ceiling is 100 ms) |
+| F# signature (`Domain.fsi` repeated) | 2,019 | 50 KB | 11.5 to 12.3 ms (slightly over) |
 
-## 10. Verification
+All three parse with no error node. The F# number is a property of the grammar (a 56 MB generated parser); the editor's keystroke path re-parses incrementally, which the brief's budget does not measure, so the product impact is the first paint of a large F# file. Roslyn, Visual Basic through the host: see the summary (diagnostics 2.3 s from open on a cold server, hover 163 ms, completion 669 ms, definition 36 ms, rename 723 ms). The Roslyn server build: 217 s, 137 MB output.
 
-- `cargo fmt --check` clean. `cargo clippy --workspace --all-targets -- -D warnings` clean (three findings in the
-  new code fixed: two type aliases, a derived `Default`; after the merge, one more in a policy test, the
-  `AgentPolicy` built with `..Default::default()`).
-- `cargo test --workspace` did not fit this container's disk (the whole workspace's test binaries fill its
-  allowance); the crates ran one by one: `eludite-resx`, `eludite-commands`, `eludite-protocol`, `eludite-lsp`
-  (all features), `eludite-mcp`, `eludite-docking`, `eludite-ui`, `eludite-workspace` all green, and `eludite`'s
-  407 tests green but for five frame-budget assertions (`assert_budget`) when the suite runs with four threads on
-  this shared 4-core container; alone and one at a time, the CodeLens and search budgets pass here while the
-  pre-existing forge and git budgets fail like the resx one (the resx editor alone: 4.5 to 5.3 ms p50, 8.4 to 39 ms
-  p99 across rounds). The budgets are CI's on the reference machine (CLAUDE.md); the numbers above are this
-  machine's.
-- After the merge of `main` at `07abfa8`: the same crates green; `eludite`'s 450 tests green but for the
-  pre-existing CodeLens and forge budget assertions (the resx budget passed on that run); the .NET build zero
-  warnings and the Resx tests 10 passed.
-- `dotnet build dotnet/Eludite.slnx` zero warnings; `dotnet test --filter "FullyQualifiedName~Resx"` 10 passed (the
-  four other test projects report "zero tests ran" under the filter); the whole host test project 179 passed, 8
-  skipped.
+## Query compilation moved off the startup path
+
+CI on the merge with `main` failed the shell's debugger replay budget (2 s) on all three platforms. The cause was this brief: `LanguageRegistry::with_builtins` compiled every highlight query when the shell was built, and compiling the F# query against its 56 MB grammar takes about 300 ms (debug and release alike; C# 65 ms, Razor 90 ms, all thirteen languages 650 ms). Every shell construction, the shell's own start included, paid it on the UI thread.
+
+The registry now loads each grammar and checks its ABI only (13 ms for all thirteen); each language's queries compile on first use (`Language::compile`, or the first highlight step on the syntax thread) behind a `OnceLock`, and the shell starts `LanguageRegistry::warm_in_background` on its own thread so the first highlight finds them ready. A query that does not compile leaves its language without highlights instead of panicking the shell; `every_builtin_query_compiles` keeps that a test failure. With it, a debugger replay test takes 0.35 s instead of about 2 s, and the shell crate's suite runs in 63 s instead of 148 s here.
+
+## Checks run here
+
+- `cargo fmt --check`: clean. `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+- `cargo test -p eludite-editor`: 83 passed, 1 ignored; `cargo test -p eludite-lsp` (with the real FsAutoComplete test): passed; `cargo test -p eludite-commands`: 121 passed.
+- `cargo test -p eludite` (403 tests, `CARGO_INCREMENTAL=0` to fit the disk): 401 passed, 2 failed in the full parallel run on this loaded 4-core VM, both timing-sensitive and untouched by this brief: `git_tests::a_thousand_changed_files_draw_in_a_frame` (the slowest frame 8.83 ms against 8 ms) and `debug::tests::the_end_of_session_summary_lists_what_failed_in_the_session` (a debuggee driven with `wait_ms` deadlines); both pass when run alone (1.2 s). The new `dotnet_languages_tests` passed in the full run.
+- `corpus/tests/build.sh --no-cargo`: both new projects build, 0 warnings. `dotnet build dotnet/Eludite.slnx`: 0 warnings, 0 errors.
+- `dotnet test` prints "Zero tests ran" in this container (the SDK here picks Microsoft.Testing.Platform's runner for the xunit.v3 projects while they are built for the in-process one; CI's SDK does not), so the test assemblies were run directly: `Eludite.TestBridge.Tests` 27 passed, 1 skipped (Mono); `Eludite.Host.Tests` 181 passed, 7 skipped (Mono, the legacy corpus, the benchmark solution), including `TestServiceTests` (8 containers) and `VisualBasicTests` against the patched server (16 s); `Eludite.Web.Tests` 22 and `Eludite.Wcf.Tests` 8 passed.
+
+## Not done, and why
+
+- **A Visual Basic grammar worth the name.** `tree-sitter-vb-dotnet` 0.1.0 is the only VB.NET grammar on crates.io and it misses generics, events, `Await`, LINQ, XML literals, operators, directives between declarations and more (the table above), with keywords uncapturable. The brief put grammar fixes out of scope. The right follow-up is a brief like 0056: fork it into `grammars/vb` under ADR-0012 (generate from the checked-in grammar JSON at build time), make the keywords visible nodes, add the missing constructs with corpus cases, and measure on real projects. Until then VB highlighting is partial on real code; the semantic features all come from Roslyn and are complete.
+- **F# first-parse time** (29 ms on 2,000 lines) is over the brief's 10 ms. It would take grammar work upstream (ionide/tree-sitter-fsharp) or a trimmed in-repo fork; not attempted.
+- **A headless shell test that opens a `.vbproj` or `.fsproj` as the workspace and reads `eludite.workspace.tree`'s kinds**: the kind derivation is unit-tested in `crates/commands`; the shell's `tests.rs` was not in the projects agent's files.
+- **Windows and macOS**: `build.ps1` and `fetch.ps1` are written in their siblings' style and untested here (no PowerShell); CI runs the Rust tests on all three and the .NET tests on Linux and Windows.
+- **Formatting F# (Fantomas), F# Interactive, FsAutoComplete's own `fsharp/*` requests, Expecto's adapter, VB WebForms code-behind through the legacy designer**: out of scope by the brief.
+- `SolutionConfigurationFile.cs` keeps its own three-extension checks rather than `SolutionProjects.IsProjectFile`; both agree.

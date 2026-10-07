@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Brief 0063 manual run on an Xvfb screen (see xvfb-linux.sh): the .resx editor in the real eludite binary against
+# Brief 0064 manual run on an Xvfb screen (see xvfb-linux.sh): the .resx editor in the real eludite binary against
 # the real eludite-host, on a copy of corpus/resx (OUT_DIR/resx), driven with real X input from xdotool against the
 # element bounds `--bounds-out` reports, with screenshots.
 #   1. Corpus.slnx open, Resources.de.resx opened: the set's grid (neutral, de, fr-FR), the

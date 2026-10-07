@@ -14,7 +14,7 @@
       ],
       "properties": {
         "path": {
-          "description": "Path to a .sln, .slnx or project file (.csproj, .vbproj).",
+          "description": "Path to a .sln, .slnx or project file (.csproj, .vbproj, .fsproj). An .fsproj is not handed to Roslyn, which cannot load F#; it still loads for the tree, properties, configurations and tests (brief 0063).",
           "type": "string",
           "minLength": 1
         }

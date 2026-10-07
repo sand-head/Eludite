@@ -152,7 +152,7 @@ as `exit` without `shutdown`.
 
 #### `eludite/solution/open`
 
-`path` is an absolute or host-relative path to a `.sln`, `.slnx` or project file (`.csproj`, `.vbproj`). The host:
+`path` is an absolute or host-relative path to a `.sln`, `.slnx` or project file (`.csproj`, `.vbproj`, `.fsproj`). The host:
 
 1. Increments the generation and replies `{ generation }` at once. Requests in flight under the old generation
    fail with -32801.
@@ -163,9 +163,12 @@ as `exit` without `shutdown`.
 4. Prepares legacy projects with the brief 0003 evaluator (Mono's MSBuild when located, Build Tools' MSBuild on
    Windows, else the .NET SDK's MSBuild in-process): designer partials, path-case fixups, COM references removed off
    Windows. Preparation problems are diagnostics, not failures.
-5. Opens the solution in the language server (Roslyn's `solution/open`, or `project/open` for a project file).
+5. Opens the solution in the language server (Roslyn's `solution/open`, or `project/open` for a `.csproj` or
+   `.vbproj`). An `.fsproj` opened directly is not handed to Roslyn, which cannot load F# (brief 0063); a solution
+   holding F# projects is handed to Roslyn whole, and Roslyn skips them itself.
 6. Sends `eludite/solution/status` `loaded` when Roslyn reports `workspace/projectInitializationComplete`, with
-   counts, the MSBuild used and the corrections applied; or `failed` with a diagnostic.
+   counts, the MSBuild used and the corrections applied; or `failed` with a diagnostic. For a lone `.fsproj`, `loaded`
+   follows as soon as the language server is running, since nothing is loaded into it.
 
 Errors: -32602 when `path` is missing, does not exist or has another extension; -32002 before
 `eludite/host/initialize`. A missing language server is not an error response: the reply carries the generation and a
@@ -184,7 +187,7 @@ from its own MSBuild evaluation, in the background and once per generation, so t
 after `eludite/solution/open` and get the answer when the evaluation finishes. It does not wait for the language
 server's load.
 
-- Projects are the `.csproj` files the solution lists, in solution order (a project file opened directly is a
+- Projects are the `.csproj`, `.vbproj` and `.fsproj` files the solution lists, in solution order (a project file opened directly is a
   one-project tree). Each has `name` (the file name without extension), `path`, `kind` (`sdk` or `legacy`), `web`,
   `targetFrameworks` (short monikers: `net10.0`; `net48` for a legacy `TargetFrameworkVersion` of `v4.8`) and `files`.
 - `files` are the `Compile` items, plus the `Content` items of web projects (`Microsoft.NET.Sdk.Web`, a WebForms or
@@ -740,7 +743,7 @@ version. The pinned Roslyn's C# server does not send this request (its code acti
 
 States:
 - `loading`: `phase` is `legacyEvaluation` or `projectLoad`.
-- `loaded`: `counts` (`projects`: C# projects (`.csproj`) listed by the solution file; `legacyProjects`: non-SDK
+- `loaded`: `counts` (`projects`: MSBuild projects (`.csproj`, `.vbproj`, `.fsproj`) listed by the solution file; `legacyProjects`: non-SDK
   projects among them; `legacyEvaluationFailures`), `msbuild` (the MSBuild used for legacy projects:
   `mono`, `buildTools` or `sdk`, with its path; `null` when the solution has no legacy projects, because Roslyn's
   build host then uses the .NET SDK's MSBuild), `corrections` (designer partials generated, Compile-item case fixups,

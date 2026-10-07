@@ -1,6 +1,6 @@
-# Brief 0063: The `.resx` editor: a file opens as its resource set
+# Brief 0064: The `.resx` editor: a file opens as its resource set
 
-Status: done (see [0063-report.md](0063-report.md)); proposal 0005's R1, the first brief of the proposal, written on its acceptance
+Status: done (see [0064-report.md](0064-report.md)); proposal 0005's R1, the first brief of the proposal, written on its acceptance
 Phase: 2 (PLAN.md section 10: "resx editor"; section 4.11)
 Plan reference: PLAN.md sections 2 (principles 1, 2, 3, 4, 5, 6, 12), 3 (D2, D4), 4.2, 4.11, 5.1, 5.3, 5.4, 5.6, 8, 9, 10 (Phase 2), 11; [proposal 0005](../proposals/0005-resx-editor.md) sections 1 to 8
 Related ADRs: ADR-0002, ADR-0004
@@ -50,7 +50,7 @@ writes the designer in `ResXFileCodeGenerator`'s shape (`eludite/resx/designer`)
   routing needs it (it does not: `apply` routes `eludite.file.open`), `settings.rs` (`resx_apply_settings`),
   `agents.rs` (`agent_edits_reviewed`), `explorer.rs` (Open With > XML (Text) Editor), `crates/eludite/Cargo.toml`.
 - `docs/proposals/0005-resx-editor.md` (accepted), `docs/proposals/README.md`, `docs/PLAN.md` (the edits the
-  proposal's section 9 lists; this brief says so), `docs/briefs/README.md`, `docs/briefs/0063-report.md` (new),
+  proposal's section 9 lists; this brief says so), `docs/briefs/README.md`, `docs/briefs/0064-report.md` (new),
   `CLAUDE.md` (the crate map rows), `Cargo.toml` (the member and the workspace dependency).
 
 ## Contract

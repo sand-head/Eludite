@@ -22,6 +22,8 @@
 //! captures paint over the outer language's.
 
 pub mod alloc;
+#[cfg(test)]
+mod dotnet_tests;
 mod highlighter;
 mod highlights;
 pub mod language;
