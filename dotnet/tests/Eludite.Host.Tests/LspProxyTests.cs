@@ -612,7 +612,8 @@ public sealed class LspProxyTests : IAsyncDisposable
         Assert.Equal(1, loaded.GetProperty("counts").GetProperty("projects").GetInt32());
         Assert.Equal(0, loaded.GetProperty("counts").GetProperty("legacyProjects").GetInt32());
         Assert.False(loaded.TryGetProperty("msbuild", out _));
-        Assert.Contains("initialized", _fake.Snapshot());
+        // `initialized` is a notification: the fake can record it after the status says loaded.
+        await _fake.WaitForAsync("initialized");
         Assert.Equal(0, _fake.Count("project/open"));
         Assert.Equal(0, _fake.Count("solution/open"));
         Assert.Equal(0, _preparer.Calls);
